@@ -137,7 +137,7 @@ jobs:
         run: .Build/bin/phpunit -c Tests/Build/phpunit.xml --testsuite Unit --coverage-clover=coverage.xml
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         if: success()
         with:
           files: coverage.xml
