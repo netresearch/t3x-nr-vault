@@ -2,41 +2,19 @@ name: Security
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+  schedule:
+    - cron: '0 7 * * 1'
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
-  # Note: CodeQL does not support PHP. Using PHPStan for static analysis in tests workflow.
-  # OpenSSF Scorecard is handled by the dedicated scorecard.yml workflow.
-  # Dependency review handled by dependency-review.yml (centralized workflow).
-
-  security-audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@a90bcbc6539c36a85cdfeb73f7e2f433735f215b # v2.15.0
-        with:
-          egress-policy: audit
-
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@44454db4f0199b8b9685a5d763dc37cbf79108e1 # 2.36.0
-        with:
-          php-version: '8.2'
-          extensions: sodium, json
-          tools: composer:v2
-
-      - name: Install dependencies
-        run: composer install --no-progress --prefer-dist
-
-      - name: Check for vulnerable dependencies
-        run: composer audit --format=plain
+  security:
+    uses: netresearch/typo3-ci-workflows/.github/workflows/security.yml@main
+    permissions:
+      contents: read
+      security-events: write
+    secrets:
+      GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

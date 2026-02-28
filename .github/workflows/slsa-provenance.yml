@@ -7,89 +7,18 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g., v0.3.1)'
+        description: 'Release version tag (e.g. v4.0.0)'
         required: true
         type: string
 
-# Restrict default permissions - jobs declare what they need
 permissions: {}
 
 jobs:
   provenance:
-    name: Generate SLSA Provenance
-    runs-on: ubuntu-latest
-    if: (github.event_name == 'workflow_dispatch') || (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v'))
+    uses: netresearch/typo3-ci-workflows/.github/workflows/slsa-provenance.yml@main
     permissions:
       actions: read
-      id-token: write
       contents: write
-    outputs:
-      subjects: ${{ steps.subjects.outputs.subjects }}
-      has_subjects: ${{ steps.subjects.outputs.has_subjects }}
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@a90bcbc6539c36a85cdfeb73f7e2f433735f215b # v2.15.0
-        with:
-          egress-policy: audit
-
-      - name: Get version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
-          else
-            VERSION="${{ github.event.workflow_run.head_branch }}"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Processing release: $VERSION"
-
-      - name: Download release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p release-assets
-          # Wait a moment for release to be fully available
-          sleep 5
-          gh release download "${{ steps.version.outputs.version }}" \
-            --repo "${{ github.repository }}" \
-            -D release-assets \
-            --pattern "*.tar.gz" \
-            --pattern "*.zip" || echo "Some assets may not be available"
-          ls -la release-assets/
-
-      - name: Generate provenance subjects
-        id: subjects
-        run: |
-          cd release-assets
-          if ls *.tar.gz *.zip 1> /dev/null 2>&1; then
-            # sha256sum output format: HASH  FILENAME (two spaces)
-            sha256sum *.tar.gz *.zip > ../provenance-subjects.txt
-            cat ../provenance-subjects.txt
-            # base64-subjects expects sha256sum format, not JSON
-            SUBJECTS_BASE64=$(cat ../provenance-subjects.txt | base64 -w0)
-            echo "subjects=$SUBJECTS_BASE64" >> "$GITHUB_OUTPUT"
-            echo "has_subjects=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No release archives found"
-            echo "has_subjects=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  slsa-provenance:
-    name: SLSA Level 3 Provenance
-    needs: provenance
-    if: needs.provenance.outputs.has_subjects == 'true'
-    permissions:
-      actions: read
       id-token: write
-      contents: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
     with:
-      base64-subjects: ${{ needs.provenance.outputs.subjects }}
-      upload-assets: true
-      upload-tag-name: ${{ needs.provenance.outputs.version }}
-      # Compile from source to avoid binary fetch issues
-      compile-generator: true
-      # Workaround: generator incorrectly detects public repo as private
-      # Safe for public repos - just allows posting to Rekor transparency log
-      private-repository: true
+      version: ${{ inputs.version }}
