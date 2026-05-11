@@ -4,20 +4,22 @@
 # git-worktree + captainhook/hook-installer, see
 # netresearch/typo3-ci-workflows README), phpstan/extension-installer
 # does NOT auto-register its extensions. This config manually includes
-# every extension the meta-package pulls at its v1.2.0 release so that
-# local PHPStan runs match CI behaviour exactly.
+# every extension the meta-package pulls so that local PHPStan runs
+# match CI behaviour exactly.
 #
 # Usage:
 #   .Build/bin/phpstan analyse --configuration=Build/phpstan.no-plugins.neon
 #
 # Do NOT use this config on CI — extension-installer runs there and
 # double-includes would trigger a warning that fails the run.
+#
+# IMPORTANT: the ergebnis/phpstan-rules package ships rules.neon with
+# `ergebnis.allRules: true`. The shared typo3-ci-workflows curated config
+# (loaded via ../phpstan.neon) sets `ergebnis.allRules: false`. To make
+# the curated value win, the curated include MUST come AFTER the explicit
+# rules.neon includes — hence the order below: explicit-includes first,
+# then project phpstan.neon (which transitively loads the curated config).
 
 includes:
+    - ../.Build/vendor/netresearch/typo3-ci-workflows/config/phpstan/includes-no-extension-installer.neon
     - ../phpstan.neon
-    - ../.Build/vendor/phpstan/phpstan-phpunit/extension.neon
-    - ../.Build/vendor/phpstan/phpstan-phpunit/rules.neon
-    - ../.Build/vendor/phpstan/phpstan-strict-rules/rules.neon
-    - ../.Build/vendor/phpstan/phpstan-deprecation-rules/rules.neon
-    - ../.Build/vendor/saschaegerer/phpstan-typo3/extension.neon
-    - ../.Build/vendor/phpat/phpat/extension.neon
