@@ -138,6 +138,105 @@ final class VaultServiceTest extends TestCase
     }
 
     #[Test]
+    public function storeDeniesCreationWhenCanCreateReturnsFalse(): void
+    {
+        $denyingAccessControl = $this->createMock(AccessControlServiceInterface::class);
+        $denyingAccessControl->method('getCurrentActorUid')->willReturn(1);
+        $denyingAccessControl->method('getCurrentActorType')->willReturn('backend');
+        $denyingAccessControl->method('canCreate')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $denyingAccessControl,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn(null);
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('newSecret', 'access_denied', false, 'Create access denied');
+
+        $this->adapter->expects(self::never())->method('store');
+        $this->encryptionService->expects(self::never())->method('encrypt');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->store('newSecret', 'plaintext');
+    }
+
+    #[Test]
+    public function storeDeniesUpdateWhenCanWriteReturnsFalse(): void
+    {
+        $existing = $this->createSecretEntity('existing');
+
+        $denyingAccessControl = $this->createMock(AccessControlServiceInterface::class);
+        $denyingAccessControl->method('getCurrentActorUid')->willReturn(1);
+        $denyingAccessControl->method('getCurrentActorType')->willReturn('backend');
+        $denyingAccessControl->method('canWrite')->with($existing)->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $denyingAccessControl,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('existing', 'access_denied', false, 'Update access denied');
+
+        $this->adapter->expects(self::never())->method('store');
+        $this->encryptionService->expects(self::never())->method('encrypt');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->store('existing', 'new-value');
+    }
+
+    #[Test]
+    public function storeCoercesOwnerUidForNonAdminBackendActor(): void
+    {
+        $beActorAccess = $this->createMock(AccessControlServiceInterface::class);
+        $beActorAccess->method('getCurrentActorUid')->willReturn(7);
+        $beActorAccess->method('getCurrentActorType')->willReturn('backend');
+        $beActorAccess->method('canCreate')->willReturn(true);
+        $beActorAccess->method('isCurrentActorAdmin')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $beActorAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+
+        $this->adapter->method('retrieve')->willReturn(null);
+
+        // Non-admin BE actor passing owner=99 must be coerced to current actor UID (7).
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::callback(static fn (Secret $s): bool => $s->getOwnerUid() === 7));
+
+        $subject->store('coerce', 'plaintext', ['owner' => 99]);
+    }
+
+    #[Test]
     public function retrieveDecryptsAndReturnsSecret(): void
     {
         $identifier = 'myApiKey';
