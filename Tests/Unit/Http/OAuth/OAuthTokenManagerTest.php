@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Http\OAuth;
 
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Exception\OAuthException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
@@ -808,6 +809,174 @@ final class OAuthTokenManagerTest extends TestCase
         $token = $this->subject->getAccessToken($config);
 
         self::assertSame('new-access-token', $token);
+    }
+
+    #[Test]
+    public function getAccessTokenReturnsAccessTokenEvenWhenRefreshTokenStorageFails(): void
+    {
+        // If the OAuth response includes a new refresh_token but `vaultService
+        // ->store()` throws (DB down, audit lock failed, etc.), the manager
+        // must NOT propagate. The OAuth server has already issued the new
+        // tokens and (per RFC 6749 §6) typically invalidated the old refresh
+        // token — propagating the throw would also lose the access_token we
+        // just obtained. The caller's current request succeeds; the next
+        // refresh attempt will fall back to client_credentials.
+        $config = OAuthConfig::refreshToken(
+            tokenEndpoint: 'https://auth.example.com/token',
+            clientIdSecret: 'oauth/client-id',
+            clientSecretSecret: 'oauth/client-secret',
+            refreshTokenSecret: 'oauth/refresh-token',
+        );
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(fn (string $id): ?string => match ($id) {
+                'oauth/client-id' => 'my-client-id',
+                'oauth/client-secret' => 'my-client-secret',
+                'oauth/refresh-token' => 'old-refresh-token',
+                default => null,
+            });
+
+        $this->vaultService
+            ->expects(self::once())
+            ->method('store')
+            ->willThrowException(new RuntimeException('vault write failed mid-OAuth-refresh'));
+
+        $response = $this->createSuccessfulTokenResponse([
+            'access_token' => 'new-access-token',
+            'token_type' => 'Bearer',
+            'expires_in' => 3600,
+            'refresh_token' => 'new-refresh-token',
+        ]);
+
+        $this->httpClient
+            ->expects(self::once())
+            ->method('sendRequest')
+            ->willReturn($response);
+
+        // The logger must report the storage failure at error level so ops
+        // can notice and remediate.
+        $this->logger
+            ->expects(self::atLeastOnce())
+            ->method('error')
+            ->with(self::stringContains('vault store failed'));
+
+        $token = $this->subject->getAccessToken($config);
+
+        self::assertSame('new-access-token', $token, 'Access token must reach the caller even when vault store fails');
+    }
+
+    #[Test]
+    public function getAccessTokenSurvivesAuditLogFailureDuringStorageFailure(): void
+    {
+        // Both `vaultService->store()` AND `auditLogService->log()` throw —
+        // mimicking a full DB outage. The caller must still receive the
+        // just-obtained access_token; neither secondary failure may
+        // propagate.
+        $auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        $auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->willThrowException(new RuntimeException('audit log also down'));
+
+        $subject = new OAuthTokenManager(
+            $this->vaultService,
+            $this->logger,
+            $this->httpClient,
+            $this->requestFactory,
+            $this->streamFactory,
+            $auditLogService,
+        );
+
+        $config = OAuthConfig::refreshToken(
+            tokenEndpoint: 'https://auth.example.com/token',
+            clientIdSecret: 'oauth/client-id',
+            clientSecretSecret: 'oauth/client-secret',
+            refreshTokenSecret: 'oauth/refresh-token',
+        );
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(fn (string $id): ?string => match ($id) {
+                'oauth/client-id' => 'my-client-id',
+                'oauth/client-secret' => 'my-client-secret',
+                'oauth/refresh-token' => 'old-refresh-token',
+                default => null,
+            });
+        $this->vaultService
+            ->expects(self::once())
+            ->method('store')
+            ->willThrowException(new RuntimeException('vault write failed'));
+
+        $this->httpClient
+            ->expects(self::once())
+            ->method('sendRequest')
+            ->willReturn($this->createSuccessfulTokenResponse([
+                'access_token' => 'new-access-token',
+                'token_type' => 'Bearer',
+                'expires_in' => 3600,
+                'refresh_token' => 'new-refresh-token',
+            ]));
+
+        // No exception should reach the test — caller must get access_token.
+        $token = $subject->getAccessToken($config);
+
+        self::assertSame('new-access-token', $token);
+    }
+
+    #[Test]
+    public function getAccessTokenHashesVaultIdentifierInLogContext(): void
+    {
+        // The refresh-token secret PATH (vault identifier) is semi-sensitive —
+        // it reveals which secrets the system uses. Log it as a short hash, not
+        // the raw path.
+        $config = OAuthConfig::refreshToken(
+            tokenEndpoint: 'https://auth.example.com/token',
+            clientIdSecret: 'oauth/client-id',
+            clientSecretSecret: 'oauth/client-secret',
+            refreshTokenSecret: 'oauth/refresh-token-sensitive-path',
+        );
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(fn (string $id): ?string => match ($id) {
+                'oauth/client-id' => 'my-client-id',
+                'oauth/client-secret' => 'my-client-secret',
+                'oauth/refresh-token-sensitive-path' => 'old-refresh-token',
+                default => null,
+            });
+        $this->vaultService
+            ->expects(self::once())
+            ->method('store')
+            ->willThrowException(new RuntimeException('vault write failed'));
+
+        $this->httpClient
+            ->method('sendRequest')
+            ->willReturn($this->createSuccessfulTokenResponse([
+                'access_token' => 'new-access-token',
+                'token_type' => 'Bearer',
+                'expires_in' => 3600,
+                'refresh_token' => 'new-refresh-token',
+            ]));
+
+        $loggedContext = null;
+        $this->logger
+            ->expects(self::atLeastOnce())
+            ->method('error')
+            ->willReturnCallback(function (string $message, array $context = []) use (&$loggedContext): void {
+                $loggedContext = $context;
+            });
+
+        $this->subject->getAccessToken($config);
+
+        self::assertIsArray($loggedContext);
+        self::assertArrayHasKey('refresh_token_secret_hash', $loggedContext);
+        self::assertArrayNotHasKey('refresh_token_secret', $loggedContext);
+        // The hash must be 16 hex chars (16-char prefix of sha256).
+        self::assertMatchesRegularExpression('/^[0-9a-f]{16}$/', (string) $loggedContext['refresh_token_secret_hash']);
+        // The full path must NOT appear anywhere in the context.
+        $contextString = var_export($loggedContext, true);
+        self::assertStringNotContainsString('sensitive-path', $contextString);
     }
 
     #[Test]
