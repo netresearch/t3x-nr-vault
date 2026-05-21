@@ -57,56 +57,19 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         $this->acquireAuditLock($connection, $isSQLite);
 
         try {
-            // Get previous hash – the advisory lock (or EXCLUSIVE transaction) ensures no
-            // concurrent writer can insert between this SELECT and our INSERT below.
-            $queryBuilder = $connection->createQueryBuilder();
-            $result = $queryBuilder
-                ->select('entry_hash')
-                ->from(self::TABLE_NAME)
-                ->orderBy('uid', 'DESC')
-                ->setMaxResults(1)
-                ->executeQuery()
-                ->fetchOne();
-            $previousHash = \is_string($result) ? $result : '';
-
-            // Build entry data
-            $currentEpoch = $this->getCurrentEpoch();
-            $data = [
-                'pid' => 0,
-                'secret_identifier' => $secretIdentifier,
-                'action' => $action,
-                'success' => $success ? 1 : 0,
-                'error_message' => $errorMessage ?? '',
-                'reason' => $reason ?? '',
-                'actor_uid' => $this->accessControlService->getCurrentActorUid(),
-                'actor_type' => $this->accessControlService->getCurrentActorType(),
-                'actor_username' => $this->accessControlService->getCurrentActorUsername(),
-                'actor_role' => $this->getCurrentUserRole(),
-                'ip_address' => $this->getClientIp(),
-                'user_agent' => $this->getUserAgent(),
-                'request_id' => $this->getRequestId(),
-                'previous_hash' => $previousHash,
-                'hash_before' => $hashBefore ?? '',
-                'hash_after' => $hashAfter ?? '',
-                'crdate' => time(),
-                'hmac_key_epoch' => $currentEpoch,
-                'context' => $context instanceof AuditContextInterface ? json_encode($context->toArray()) : '{}',
-            ];
-
-            // Reserve UID first via INSERT, then calculate hash and UPDATE
-            $connection->insert(self::TABLE_NAME, $data);
-            $uid = (int) $connection->lastInsertId();
-
-            // Calculate entry hash with the known UID
-            $entryHash = $this->calculateEntryHash($uid, $secretIdentifier, $action, $data['actor_uid'], $data['crdate'], $previousHash, $currentEpoch);
-
-            // Set the hash
-            $connection->update(
-                self::TABLE_NAME,
-                ['entry_hash' => $entryHash],
-                ['uid' => $uid],
+            $previousHash = $this->fetchPreviousHash($connection);
+            $data = $this->buildEntryData(
+                $secretIdentifier,
+                $action,
+                $success,
+                $errorMessage,
+                $reason,
+                $hashBefore,
+                $hashAfter,
+                $context,
+                $previousHash,
             );
-
+            $this->insertAndUpdateHash($connection, $data, $secretIdentifier, $action, $previousHash);
             $this->commitAuditLock($connection, $isSQLite);
         } catch (Throwable $e) {
             $this->rollbackAuditLock($connection, $isSQLite);
@@ -378,6 +341,104 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         } finally {
             sodium_memzero($masterKey);
         }
+    }
+
+    /**
+     * Read the entry_hash of the most recently inserted row.
+     *
+     * The advisory lock (acquired by `acquireAuditLock`) ensures no concurrent
+     * writer can insert between this SELECT and the caller's INSERT.
+     */
+    private function fetchPreviousHash(Connection $connection): string
+    {
+        $result = $connection->createQueryBuilder()
+            ->select('entry_hash')
+            ->from(self::TABLE_NAME)
+            ->orderBy('uid', 'DESC')
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchOne();
+
+        return \is_string($result) ? $result : '';
+    }
+
+    /**
+     * Assemble the audit-row data array. Side-effect-free; pure shape mapping.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildEntryData(
+        string $secretIdentifier,
+        string $action,
+        bool $success,
+        ?string $errorMessage,
+        ?string $reason,
+        #[SensitiveParameter]
+        ?string $hashBefore,
+        #[SensitiveParameter]
+        ?string $hashAfter,
+        ?AuditContextInterface $context,
+        string $previousHash,
+    ): array {
+        return [
+            'pid' => 0,
+            'secret_identifier' => $secretIdentifier,
+            'action' => $action,
+            'success' => $success ? 1 : 0,
+            'error_message' => $errorMessage ?? '',
+            'reason' => $reason ?? '',
+            'actor_uid' => $this->accessControlService->getCurrentActorUid(),
+            'actor_type' => $this->accessControlService->getCurrentActorType(),
+            'actor_username' => $this->accessControlService->getCurrentActorUsername(),
+            'actor_role' => $this->getCurrentUserRole(),
+            'ip_address' => $this->getClientIp(),
+            'user_agent' => $this->getUserAgent(),
+            'request_id' => $this->getRequestId(),
+            'previous_hash' => $previousHash,
+            'hash_before' => $hashBefore ?? '',
+            'hash_after' => $hashAfter ?? '',
+            'crdate' => time(),
+            'hmac_key_epoch' => $this->getCurrentEpoch(),
+            'context' => $context instanceof AuditContextInterface ? json_encode($context->toArray()) : '{}',
+        ];
+    }
+
+    /**
+     * Two-step write: INSERT reserves a UID, then UPDATE writes the entry hash
+     * derived from that UID. The reserve-then-hash pattern lets the hash bind
+     * its own row (otherwise the hash would need a placeholder UID).
+     *
+     * @param array<string, mixed> $data
+     */
+    private function insertAndUpdateHash(
+        Connection $connection,
+        array $data,
+        string $secretIdentifier,
+        string $action,
+        string $previousHash,
+    ): void {
+        $connection->insert(self::TABLE_NAME, $data);
+        $uid = (int) $connection->lastInsertId();
+
+        $actorUid = \is_int($data['actor_uid'] ?? null) ? $data['actor_uid'] : 0;
+        $crdate = \is_int($data['crdate'] ?? null) ? $data['crdate'] : 0;
+        $epoch = \is_int($data['hmac_key_epoch'] ?? null) ? $data['hmac_key_epoch'] : 0;
+
+        $entryHash = $this->calculateEntryHash(
+            $uid,
+            $secretIdentifier,
+            $action,
+            $actorUid,
+            $crdate,
+            $previousHash,
+            $epoch,
+        );
+
+        $connection->update(
+            self::TABLE_NAME,
+            ['entry_hash' => $entryHash],
+            ['uid' => $uid],
+        );
     }
 
     /**

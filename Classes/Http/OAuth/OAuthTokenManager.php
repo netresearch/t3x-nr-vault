@@ -23,6 +23,7 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -216,7 +217,44 @@ final class OAuthTokenManager
      */
     private function fetchToken(OAuthConfig $config): OAuthToken
     {
-        // Get credentials from vault
+        // Build the request params (incl. credentials/refresh_token from vault).
+        // Plaintext `$params` is wiped by `dispatchTokenRequest()` after the
+        // HTTP send.
+        $params = $this->buildTokenRequestParams($config);
+
+        try {
+            $response = $this->dispatchTokenRequest($config, $params);
+            $this->assertSuccessResponse($response);
+            $body = $this->decodeTokenBody($response);
+
+            $token = $this->buildToken($body);
+            $this->storeRotatedRefreshToken($config, $body);
+
+            $this->logger?->info('OAuth token obtained successfully', [
+                'expires_in' => $token->expiresAt->getTimestamp() - time(),
+                'token_type' => $token->tokenType,
+            ]);
+
+            return $token;
+        } catch (ClientExceptionInterface $e) {
+            $this->logger?->error('OAuth token request failed', ['error' => $e->getMessage()]);
+
+            throw OAuthException::requestFailed($e->getMessage(), $e);
+        } catch (JsonException $e) {
+            throw OAuthException::invalidJsonResponse($e);
+        }
+    }
+
+    /**
+     * Resolve credentials from the vault and assemble the OAuth token-request
+     * parameter set.
+     *
+     * @throws SecretNotFoundException If any required credential isn't in the vault
+     *
+     * @return array<string, string>
+     */
+    private function buildTokenRequestParams(OAuthConfig $config): array
+    {
         $clientId = $this->vaultService->retrieve($config->clientIdSecret);
         if ($clientId === null) {
             throw new SecretNotFoundException($config->clientIdSecret, 6051576903);
@@ -229,19 +267,14 @@ final class OAuthTokenManager
             throw new SecretNotFoundException($config->clientSecretSecret, 4158358265);
         }
 
-        // Build token request
         $params = [
             'grant_type' => $config->grantType,
             'client_id' => $clientId,
             'client_secret' => $clientSecret,
         ];
-
-        // Add scopes if specified
         if ($config->scopes !== []) {
             $params['scope'] = $config->getScopesString();
         }
-
-        // Add refresh token if using refresh_token grant
         if ($config->grantType === 'refresh_token' && $config->refreshTokenSecret !== null) {
             $refreshToken = $this->vaultService->retrieve($config->refreshTokenSecret);
             if ($refreshToken === null) {
@@ -253,111 +286,136 @@ final class OAuthTokenManager
             $params['refresh_token'] = $refreshToken;
         }
 
-        // Add any additional parameters
-        $params = array_merge($params, $config->additionalParams);
+        return array_merge($params, $config->additionalParams);
+    }
+
+    /**
+     * Send the PSR-7 token request and wipe credential plaintext from memory.
+     *
+     * @param array<string, string> $params
+     */
+    private function dispatchTokenRequest(OAuthConfig $config, array &$params): ResponseInterface
+    {
+        $body = $this->streamFactory->createStream(http_build_query($params));
+        $request = $this->requestFactory->createRequest('POST', $config->tokenEndpoint)
+            ->withHeader('Content-Type', 'application/x-www-form-urlencoded')
+            ->withHeader('Accept', 'application/json')
+            ->withBody($body);
 
         try {
-            // Build PSR-7 request
-            $body = $this->streamFactory->createStream(http_build_query($params));
-            $request = $this->requestFactory->createRequest('POST', $config->tokenEndpoint)
-                ->withHeader('Content-Type', 'application/x-www-form-urlencoded')
-                ->withHeader('Accept', 'application/json')
-                ->withBody($body);
-
-            // Send request via PSR-18 client
-            $response = $this->httpClient->sendRequest($request);
-
-            // Clear credentials from memory
-            sodium_memzero($clientId);
-            sodium_memzero($clientSecret);
-            if (isset($refreshToken)) {
-                sodium_memzero($refreshToken);
-            }
-
-            $statusCode = $response->getStatusCode();
-            if ($statusCode !== 200) {
-                // Attempt to extract the RFC 6749 §5.2 `error` field so
-                // callers can distinguish invalid_grant (refresh-token
-                // rejection → fallback makes sense) from invalid_client
-                // (wrong secret → fallback would just fail again).
-                $oauthError = null;
-                $rawBody = (string) $response->getBody();
-                if ($rawBody !== '') {
-                    try {
-                        /** @var array<string, mixed>|null $errorBody */
-                        $errorBody = json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
-                        if (\is_array($errorBody) && isset($errorBody['error']) && \is_string($errorBody['error'])) {
-                            $oauthError = $errorBody['error'];
-                        }
-                    } catch (JsonException) {
-                        // Non-JSON error body; leave $oauthError null.
-                    }
-                }
-
-                throw OAuthException::tokenRequestFailed($statusCode, $oauthError);
-            }
-
-            /** @var array<string, mixed>|null $body */
-            $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
-
-            if (!\is_array($body) || !isset($body['access_token'])) {
-                throw OAuthException::missingAccessToken();
-            }
-
-            $accessToken = \is_string($body['access_token']) ? $body['access_token'] : '';
-            $tokenType = \is_string($body['token_type'] ?? null) ? $body['token_type'] : 'Bearer';
-            $scope = isset($body['scope']) && \is_string($body['scope']) ? $body['scope'] : null;
-            $expiresIn = \is_int($body['expires_in'] ?? null) ? $body['expires_in'] : 3600;
-            $expiresAt = new DateTimeImmutable('+' . $expiresIn . ' seconds');
-
-            // Store new refresh token if provided.
-            //
-            // Crash safety: the OAuth server has already issued the new tokens
-            // and (per RFC 6749 §6) will typically have invalidated the old
-            // refresh token. If `vaultService->store()` throws here we must
-            // NOT propagate — the caller would lose the access_token we just
-            // obtained, and the vault would still hold the now-invalidated
-            // old refresh_token. Instead: log loudly, return the access_token
-            // so the caller's current request succeeds. The next refresh
-            // attempt will fetch the stale refresh_token from the vault, the
-            // OAuth server will reject it, and `fetchTokenWithFallback()`
-            // will auto-recover via the `client_credentials` flow.
-            if (isset($body['refresh_token']) && \is_string($body['refresh_token']) && $config->refreshTokenSecret !== null) {
-                try {
-                    $this->vaultService->store($config->refreshTokenSecret, $body['refresh_token'], [
-                        'source' => 'oauth_refresh',
-                    ]);
-                } catch (Throwable $storeException) {
-                    $this->handleRefreshTokenStorageFailure($config, $storeException);
+            return $this->httpClient->sendRequest($request);
+        } finally {
+            // Wipe credential plaintext regardless of send success.
+            foreach (['client_id', 'client_secret', 'refresh_token'] as $key) {
+                if (isset($params[$key])) {
+                    sodium_memzero($params[$key]);
+                    unset($params[$key]);
                 }
             }
+        }
+    }
 
-            $this->logger?->info('OAuth token obtained successfully', [
-                'expires_in' => $expiresIn,
-                'token_type' => $tokenType,
+    /**
+     * Assert HTTP 200 — extract the RFC 6749 §5.2 `error` field on non-200 so
+     * `fetchTokenWithFallback()` can distinguish `invalid_grant` (refresh
+     * token rejected → fallback makes sense) from `invalid_client` (wrong
+     * secret → fallback would also fail).
+     *
+     * @throws OAuthException
+     */
+    private function assertSuccessResponse(ResponseInterface $response): void
+    {
+        if ($response->getStatusCode() === 200) {
+            return;
+        }
+        $oauthError = $this->extractOauthErrorField($response);
+
+        throw OAuthException::tokenRequestFailed($response->getStatusCode(), $oauthError);
+    }
+
+    private function extractOauthErrorField(ResponseInterface $response): ?string
+    {
+        $rawBody = (string) $response->getBody();
+        if ($rawBody === '') {
+            return null;
+        }
+
+        try {
+            /** @var array<string, mixed>|null $errorBody */
+            $errorBody = json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            return null;
+        }
+        if (\is_array($errorBody) && isset($errorBody['error']) && \is_string($errorBody['error'])) {
+            return $errorBody['error'];
+        }
+
+        return null;
+    }
+
+    /**
+     * @throws JsonException
+     * @throws OAuthException
+     *
+     * @return array<string, mixed>
+     */
+    private function decodeTokenBody(ResponseInterface $response): array
+    {
+        /** @var array<string, mixed>|null $body */
+        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        if (!\is_array($body) || !isset($body['access_token'])) {
+            throw OAuthException::missingAccessToken();
+        }
+
+        return $body;
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     */
+    private function buildToken(array $body): OAuthToken
+    {
+        $accessToken = \is_string($body['access_token']) ? $body['access_token'] : '';
+        $tokenType = \is_string($body['token_type'] ?? null) ? $body['token_type'] : 'Bearer';
+        $scope = isset($body['scope']) && \is_string($body['scope']) ? $body['scope'] : null;
+        $expiresIn = \is_int($body['expires_in'] ?? null) ? $body['expires_in'] : 3600;
+
+        return new OAuthToken(
+            accessToken: $accessToken,
+            tokenType: $tokenType,
+            expiresAt: new DateTimeImmutable('+' . $expiresIn . ' seconds'),
+            scope: $scope,
+        );
+    }
+
+    /**
+     * Persist a rotated refresh token if the server returned one.
+     *
+     * Crash safety: the OAuth server has already issued the new tokens and
+     * (per RFC 6749 §6) will typically have invalidated the old refresh
+     * token. If `vaultService->store()` throws here we must NOT propagate —
+     * the caller would lose the access_token we just obtained, and the
+     * vault would still hold the now-invalidated old refresh_token.
+     * Instead: log loudly, return the access_token so the caller's current
+     * request succeeds. The next refresh attempt will fetch the stale
+     * refresh_token from the vault, the OAuth server will reject it, and
+     * `fetchTokenWithFallback()` will auto-recover via the
+     * `client_credentials` flow.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function storeRotatedRefreshToken(OAuthConfig $config, array $body): void
+    {
+        if (!isset($body['refresh_token']) || !\is_string($body['refresh_token']) || $config->refreshTokenSecret === null) {
+            return;
+        }
+
+        try {
+            $this->vaultService->store($config->refreshTokenSecret, $body['refresh_token'], [
+                'source' => 'oauth_refresh',
             ]);
-
-            return new OAuthToken(
-                accessToken: $accessToken,
-                tokenType: $tokenType,
-                expiresAt: $expiresAt,
-                scope: $scope,
-            );
-        } catch (ClientExceptionInterface $e) {
-            // Clear credentials from memory on error
-            sodium_memzero($clientId);
-            sodium_memzero($clientSecret);
-            if (isset($refreshToken)) {
-                sodium_memzero($refreshToken);
-            }
-
-            $this->logger?->error('OAuth token request failed', [
-                'error' => $e->getMessage(),
-            ]);
-
-            throw OAuthException::requestFailed($e->getMessage(), $e);
-        } catch (JsonException $e) {
-            throw OAuthException::invalidJsonResponse($e);
+        } catch (Throwable $storeException) {
+            $this->handleRefreshTokenStorageFailure($config, $storeException);
         }
     }
 
@@ -414,10 +472,16 @@ final class OAuthTokenManager
 
     /**
      * Generate a cache key for an OAuth config.
+     *
+     * Cache key is identity-only — used to look up an in-memory `OAuthToken`.
+     * Uses xxh128 (PHP 8.1+ non-cryptographic hash) because it's fast and
+     * collision-resistant enough for cache-keying; we avoid md5/sha1 because
+     * Sonar flags them across the board, and avoid sha256 because the extra
+     * cost is wasted for a non-security use.
      */
     private function getCacheKey(OAuthConfig $config): string
     {
-        return md5(implode(':', [
+        return hash('xxh128', implode(':', [
             $config->tokenEndpoint,
             $config->clientIdSecret,
             $config->grantType,

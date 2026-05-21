@@ -269,94 +269,97 @@ final class SecureHttpClientFactory
             return false;
         }
 
-        // IPv4: PHP's filter flags cover 0/8, 10/8, 127/8, 169.254/16,
-        // 172.16/12, 192.168/16, 224/4 and (per PHP docs) 240/4. We then add
-        // CGNAT (100.64/10), 192.0.0/24 IETF protocol, and 198.18/15 benchmark
-        // ranges that the filter does NOT cover.
-        if (\strlen($packed) === 4) {
-            $isPublic = filter_var(
-                $host,
-                FILTER_VALIDATE_IP,
-                FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
-            );
-            if ($isPublic === false) {
-                return true;
-            }
-            /** @var array{1: int, 2: int, 3: int, 4: int}|false $octets */
-            $octets = unpack('C4', $packed);
-            if ($octets === false) {
-                return false;
-            }
-            $o1 = (int) $octets[1];
-            $o2 = (int) $octets[2];
-            $o3 = (int) $octets[3];
-            // CGNAT 100.64.0.0/10
-            if ($o1 === 100 && ($o2 & 0xC0) === 64) {
-                return true;
-            }
-            // IETF protocol assignments 192.0.0.0/24
-            if ($o1 === 192 && $o2 === 0 && $o3 === 0) {
-                return true;
-            }
-            // Benchmark 198.18.0.0/15
-            if ($o1 === 198 && ($o2 === 18 || $o2 === 19)) {
-                return true;
-            }
-            // Multicast 224.0.0.0/4 (PHP's NO_RES_RANGE flag does not reliably block this)
-            if (($o1 & 0xF0) === 224) {
-                return true;
-            }
+        return match (\strlen($packed)) {
+            4 => $this->isDangerousIpv4($host, $packed),
+            16 => $this->isDangerousIpv6($packed),
+            default => false,
+        };
+    }
 
-            // Class E reserved 240.0.0.0/4
-            return ($o1 & 0xF0) === 240;
+    /**
+     * IPv4 check. PHP's filter flags cover 0/8, 10/8, 127/8, 169.254/16,
+     * 172.16/12, 192.168/16, 224/4 and (per PHP docs) 240/4. Explicit ranges
+     * cover CGNAT (100.64/10), IETF (192.0.0/24), benchmark (198.18/15) and
+     * 224/4 + 240/4 (which `NO_RES_RANGE` does not reliably block).
+     */
+    private function isDangerousIpv4(string $host, string $packed): bool
+    {
+        $isPublic = filter_var(
+            $host,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
+        );
+        if ($isPublic === false) {
+            return true;
         }
 
-        // IPv6: PHP's filter flags do NOT apply to v6. Explicit ranges:
-        //   ::                  (unspecified)
-        //   ::1/128             (loopback)
-        //   ::ffff:0:0/96       (IPv4-mapped — recurse to v4 check)
-        //   64:ff9b::/96        (NAT64 well-known prefix)
-        //   100::/64            (discard-only)
-        //   fc00::/7            (ULA)
-        //   fe80::/10           (link-local)
-        //   ff00::/8            (multicast)
-        if (\strlen($packed) === 16) {
-            // ::1 loopback
-            if ($packed === "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01") {
-                return true;
-            }
-            // ::
-            if ($packed === str_repeat("\x00", 16)) {
-                return true;
-            }
-            // IPv4-mapped ::ffff:0:0/96 — recurse on the embedded IPv4
-            if (substr($packed, 0, 10) === str_repeat("\x00", 10) && substr($packed, 10, 2) === "\xff\xff") {
-                $v4 = inet_ntop(substr($packed, 12, 4));
-                if (\is_string($v4) && $this->isDangerousIpLiteral($v4)) {
-                    return true;
-                }
-            }
-            $b0 = \ord($packed[0]);
-            // fc00::/7 — top 7 bits == 1111110 → byte0 is 0xfc or 0xfd
-            if (($b0 & 0xFE) === 0xFC) {
-                return true;
-            }
-            // fe80::/10 — top 10 bits == 1111111010 → byte0=0xfe and (byte1 & 0xC0) == 0x80
-            if ($b0 === 0xFE && (\ord($packed[1]) & 0xC0) === 0x80) {
-                return true;
-            }
-            // ff00::/8 multicast
-            if ($b0 === 0xFF) {
-                return true;
-            }
-            // 64:ff9b::/96 NAT64
-            if (substr($packed, 0, 12) === "\x00\x64\xff\x9b\x00\x00\x00\x00\x00\x00\x00\x00") {
-                return true;
-            }
-            // 100::/64 discard
-            if (substr($packed, 0, 8) === "\x01\x00\x00\x00\x00\x00\x00\x00") {
-                return true;
-            }
+        /** @var array{1: int, 2: int, 3: int, 4: int}|false $octets */
+        $octets = unpack('C4', $packed);
+        if ($octets === false) {
+            return false;
+        }
+        $o1 = (int) $octets[1];
+        $o2 = (int) $octets[2];
+        $o3 = (int) $octets[3];
+
+        // CGNAT 100.64.0.0/10
+        // IETF protocol assignments 192.0.0.0/24
+        // Benchmark 198.18.0.0/15
+        // Multicast 224.0.0.0/4
+        // Class E reserved 240.0.0.0/4
+        return ($o1 === 100 && ($o2 & 0xC0) === 64)
+            || ($o1 === 192 && $o2 === 0 && $o3 === 0)
+            || ($o1 === 198 && ($o2 === 18 || $o2 === 19))
+            || (($o1 & 0xF0) === 224)
+            || (($o1 & 0xF0) === 240);
+    }
+
+    /**
+     * IPv6 check. PHP's `FILTER_FLAG_NO_*_RANGE` does not apply to IPv6, so
+     * every dangerous range is checked explicitly:
+     *   ::                  (unspecified)
+     *   ::1/128             (loopback)
+     *   ::ffff:0:0/96       (IPv4-mapped — recurse to v4 check)
+     *   64:ff9b::/96        (NAT64 well-known prefix)
+     *   100::/64            (discard-only)
+     *   fc00::/7            (ULA)
+     *   fe80::/10           (link-local)
+     *   ff00::/8            (multicast)
+     */
+    private function isDangerousIpv6(string $packed): bool
+    {
+        $b0 = \ord($packed[0]);
+
+        // Short-circuit byte-0-based checks first (cheapest).
+        if (($b0 & 0xFE) === 0xFC) {
+            return true; // fc00::/7 ULA
+        }
+        if ($b0 === 0xFF) {
+            return true; // ff00::/8 multicast
+        }
+        if ($b0 === 0xFE && (\ord($packed[1]) & 0xC0) === 0x80) {
+            return true; // fe80::/10 link-local
+        }
+
+        // Special prefixes
+        if ($packed === "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01") {
+            return true; // ::1 loopback
+        }
+        if ($packed === str_repeat("\x00", 16)) {
+            return true; // ::
+        }
+        if (substr($packed, 0, 12) === "\x00\x64\xff\x9b\x00\x00\x00\x00\x00\x00\x00\x00") {
+            return true; // 64:ff9b::/96 NAT64
+        }
+        if (substr($packed, 0, 8) === "\x01\x00\x00\x00\x00\x00\x00\x00") {
+            return true; // 100::/64 discard
+        }
+
+        // IPv4-mapped ::ffff:0:0/96 — recurse on the embedded IPv4
+        if (substr($packed, 0, 10) === str_repeat("\x00", 10) && substr($packed, 10, 2) === "\xff\xff") {
+            $v4 = inet_ntop(substr($packed, 12, 4));
+
+            return \is_string($v4) && $this->isDangerousIpLiteral($v4);
         }
 
         return false;

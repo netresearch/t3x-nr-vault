@@ -16,6 +16,7 @@ use DateTimeInterface;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Crypto\EncryptedData;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Domain\Dto\SecretDetails;
 use Netresearch\NrVault\Domain\Dto\SecretFilters;
@@ -68,117 +69,21 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
     public function store(string $identifier, #[SensitiveParameter] string $secret, array $options = []): void
     {
         try {
-            // Validate identifier
             IdentifierValidator::validate($identifier);
-
             if ($secret === '') {
                 throw ValidationException::emptySecret();
             }
 
-            // Determine new vs. update before access-control checks so we use the right gate
             $existing = $this->adapter->retrieve($identifier);
             $isNew = !$existing instanceof Secret;
 
-            // Access control: create vs. write are distinct permissions.
-            if ($isNew) {
-                if (!$this->accessControlService->canCreate()) {
-                    $this->auditLogService->log($identifier, 'access_denied', false, 'Create access denied');
+            $this->assertWritePermission($identifier, $isNew, $existing);
 
-                    throw AccessDeniedException::forIdentifier($identifier, 'create permission denied');
-                }
-            } elseif (!$this->accessControlService->canWrite($existing)) {
-                $this->auditLogService->log($identifier, 'access_denied', false, 'Update access denied');
-
-                throw AccessDeniedException::forIdentifier($identifier, 'update permission denied');
-            }
-
-            // Encrypt the secret
             $encrypted = $this->encryptionService->encrypt($secret, $identifier);
+            $secretEntity = $this->buildSecretEntity($identifier, $encrypted, $options, $isNew, $existing);
 
-            // Build secret entity
-            $secretEntity = new Secret();
-            $secretEntity->setIdentifier($identifier);
-            $secretEntity->setEncryptedValue($encrypted->encryptedValue);
-            $secretEntity->setEncryptedDek($encrypted->encryptedDek);
-            $secretEntity->setDekNonce($encrypted->dekNonce);
-            $secretEntity->setValueNonce($encrypted->valueNonce);
-            $secretEntity->setValueChecksum($encrypted->valueChecksum);
-            $secretEntity->setAdapter('local');
-
-            // Apply options. owner_uid is privileged: only admins may change it; otherwise
-            // we fall back to the existing owner (update) or the current actor (create).
-            $defaultOwner = $isNew ? $this->accessControlService->getCurrentActorUid() : $existing->getOwnerUid();
-            $requestedOwner = $defaultOwner;
-            if (isset($options['owner'])) {
-                $ownerRaw = $options['owner'];
-                $requestedOwner = is_numeric($ownerRaw) ? (int) $ownerRaw : 0;
-            }
-            if ($requestedOwner !== $defaultOwner
-                && $this->accessControlService->getCurrentActorType() === 'backend'
-                && !$this->accessControlService->isCurrentActorAdmin()
-            ) {
-                // Non-admin BE user tried to set/change owner_uid → silently coerce to default.
-                $requestedOwner = $defaultOwner;
-            }
-            $secretEntity->setOwnerUid($requestedOwner);
-
-            if (isset($options['groups'])) {
-                /** @var list<int> $groups */
-                $groups = [];
-                if (\is_array($options['groups'])) {
-                    foreach ($options['groups'] as $groupId) {
-                        $groups[] = \is_int($groupId) ? $groupId : (is_numeric($groupId) ? (int) $groupId : 0);
-                    }
-                }
-                $secretEntity->setAllowedGroups($groups);
-            }
-
-            if (isset($options['context'])) {
-                $contextRaw = $options['context'];
-                $secretEntity->setContext(\is_string($contextRaw) || is_numeric($contextRaw) ? (string) $contextRaw : '');
-            }
-
-            if (isset($options['description'])) {
-                $descRaw = $options['description'];
-                $secretEntity->setDescription(\is_string($descRaw) || is_numeric($descRaw) ? (string) $descRaw : '');
-            }
-
-            if (isset($options['metadata'])) {
-                /** @var array<string, mixed> $metadata */
-                $metadata = (array) $options['metadata'];
-                $secretEntity->setMetadata($metadata);
-            }
-
-            if (isset($options['scopePid'])) {
-                $scopePidRaw = $options['scopePid'];
-                $secretEntity->setScopePid(is_numeric($scopePidRaw) ? (int) $scopePidRaw : 0);
-            }
-
-            if (isset($options['expiresAt'])) {
-                $expiresAt = $options['expiresAt'];
-                if ($expiresAt instanceof DateTimeInterface) {
-                    $expiresAt = $expiresAt->getTimestamp();
-                }
-                $secretEntity->setExpiresAt(is_numeric($expiresAt) ? (int) $expiresAt : 0);
-            }
-
-            if (isset($options['frontendAccessible'])) {
-                $secretEntity->setFrontendAccessible((bool) $options['frontendAccessible']);
-            }
-
-            if (!$isNew) {
-                $secretEntity->setUid($existing->getUid());
-                $secretEntity->setCrdate($existing->getCrdate());
-                $secretEntity->setVersion($existing->getVersion());
-            } else {
-                $secretEntity->setCrdate(time());
-                $secretEntity->setCruserId($this->accessControlService->getCurrentActorUid());
-            }
-
-            // Store the secret
             $this->adapter->store($secretEntity);
 
-            // Log the action
             $this->auditLogService->log(
                 $identifier,
                 $isNew ? 'create' : 'update',
@@ -189,22 +94,8 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
                 $encrypted->valueChecksum,
             );
 
-            // Dispatch PSR-14 event
-            if ($isNew) {
-                $this->eventDispatcher?->dispatch(new SecretCreatedEvent(
-                    $identifier,
-                    $secretEntity,
-                    $this->accessControlService->getCurrentActorUid(),
-                ));
-            } else {
-                $this->eventDispatcher?->dispatch(new SecretUpdatedEvent(
-                    $identifier,
-                    $secretEntity->getVersion(),
-                    $this->accessControlService->getCurrentActorUid(),
-                ));
-            }
+            $this->dispatchStoreEvent($identifier, $secretEntity, $isNew);
 
-            // Clear cache
             unset($this->cache[$identifier]);
         } finally {
             // Securely wipe the plaintext even if an exception occurred
@@ -450,5 +341,180 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         }
         unset($value);
         $this->cache = [];
+    }
+
+    /**
+     * Verify the current actor can create-or-update this secret. Logs the
+     * denial and throws `AccessDeniedException` on rejection.
+     */
+    private function assertWritePermission(string $identifier, bool $isNew, ?Secret $existing): void
+    {
+        if ($isNew) {
+            if (!$this->accessControlService->canCreate()) {
+                $this->auditLogService->log($identifier, 'access_denied', false, 'Create access denied');
+
+                throw AccessDeniedException::forIdentifier($identifier, 'create permission denied');
+            }
+
+            return;
+        }
+        if (!$this->accessControlService->canWrite($existing)) {
+            $this->auditLogService->log($identifier, 'access_denied', false, 'Update access denied');
+
+            throw AccessDeniedException::forIdentifier($identifier, 'update permission denied');
+        }
+    }
+
+    /**
+     * Assemble the `Secret` aggregate from the encryption output + options.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function buildSecretEntity(
+        string $identifier,
+        EncryptedData $encrypted,
+        array $options,
+        bool $isNew,
+        ?Secret $existing,
+    ): Secret {
+        $secretEntity = new Secret();
+        $secretEntity->setIdentifier($identifier);
+        $secretEntity->setEncryptedValue($encrypted->encryptedValue);
+        $secretEntity->setEncryptedDek($encrypted->encryptedDek);
+        $secretEntity->setDekNonce($encrypted->dekNonce);
+        $secretEntity->setValueNonce($encrypted->valueNonce);
+        $secretEntity->setValueChecksum($encrypted->valueChecksum);
+        $secretEntity->setAdapter('local');
+
+        $secretEntity->setOwnerUid($this->resolveOwnerUid($options, $isNew, $existing));
+        $this->applyOptionalFields($secretEntity, $options);
+
+        if ($isNew) {
+            $secretEntity->setCrdate(time());
+            $secretEntity->setCruserId($this->accessControlService->getCurrentActorUid());
+        } else {
+            $secretEntity->setUid($existing->getUid());
+            $secretEntity->setCrdate($existing->getCrdate());
+            $secretEntity->setVersion($existing->getVersion());
+        }
+
+        return $secretEntity;
+    }
+
+    /**
+     * Owner-UID is privileged: a non-admin BE user that tries to set or
+     * change `owner` is silently coerced back to the default (existing
+     * owner on update, current actor on create).
+     *
+     * @param array<string, mixed> $options
+     */
+    private function resolveOwnerUid(array $options, bool $isNew, ?Secret $existing): int
+    {
+        $defaultOwner = $isNew ? $this->accessControlService->getCurrentActorUid() : $existing->getOwnerUid();
+        $requestedOwner = $defaultOwner;
+        if (isset($options['owner'])) {
+            $ownerRaw = $options['owner'];
+            $requestedOwner = is_numeric($ownerRaw) ? (int) $ownerRaw : 0;
+        }
+        if ($requestedOwner !== $defaultOwner
+            && $this->accessControlService->getCurrentActorType() === 'backend'
+            && !$this->accessControlService->isCurrentActorAdmin()
+        ) {
+            return $defaultOwner;
+        }
+
+        return $requestedOwner;
+    }
+
+    /**
+     * Apply the value-type-flexible options from the `store($options)` array
+     * to the Secret entity. Each option is defensively coerced to the
+     * column's expected type.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function applyOptionalFields(Secret $secretEntity, array $options): void
+    {
+        if (isset($options['groups'])) {
+            $secretEntity->setAllowedGroups($this->coerceGroupList($options['groups']));
+        }
+        if (isset($options['context'])) {
+            $secretEntity->setContext($this->coerceToString($options['context']));
+        }
+        if (isset($options['description'])) {
+            $secretEntity->setDescription($this->coerceToString($options['description']));
+        }
+        if (isset($options['metadata'])) {
+            /** @var array<string, mixed> $metadata */
+            $metadata = (array) $options['metadata'];
+            $secretEntity->setMetadata($metadata);
+        }
+        if (isset($options['scopePid'])) {
+            $secretEntity->setScopePid(is_numeric($options['scopePid']) ? (int) $options['scopePid'] : 0);
+        }
+        if (isset($options['expiresAt'])) {
+            $secretEntity->setExpiresAt($this->coerceTimestamp($options['expiresAt']));
+        }
+        if (isset($options['frontendAccessible'])) {
+            $secretEntity->setFrontendAccessible((bool) $options['frontendAccessible']);
+        }
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function coerceGroupList(mixed $raw): array
+    {
+        if (!\is_array($raw)) {
+            return [];
+        }
+        /** @var list<int> $groups */
+        $groups = [];
+        foreach ($raw as $groupId) {
+            if (\is_int($groupId)) {
+                $groups[] = $groupId;
+            } elseif (is_numeric($groupId)) {
+                $groups[] = (int) $groupId;
+            } else {
+                $groups[] = 0;
+            }
+        }
+
+        return $groups;
+    }
+
+    private function coerceToString(mixed $raw): string
+    {
+        return \is_string($raw) || is_numeric($raw) ? (string) $raw : '';
+    }
+
+    private function coerceTimestamp(mixed $raw): int
+    {
+        if ($raw instanceof DateTimeInterface) {
+            return $raw->getTimestamp();
+        }
+
+        return is_numeric($raw) ? (int) $raw : 0;
+    }
+
+    private function dispatchStoreEvent(string $identifier, Secret $secretEntity, bool $isNew): void
+    {
+        if ($this->eventDispatcher === null) {
+            return;
+        }
+        if ($isNew) {
+            $this->eventDispatcher->dispatch(new SecretCreatedEvent(
+                $identifier,
+                $secretEntity,
+                $this->accessControlService->getCurrentActorUid(),
+            ));
+
+            return;
+        }
+        $this->eventDispatcher->dispatch(new SecretUpdatedEvent(
+            $identifier,
+            $secretEntity->getVersion(),
+            $this->accessControlService->getCurrentActorUid(),
+        ));
     }
 }
