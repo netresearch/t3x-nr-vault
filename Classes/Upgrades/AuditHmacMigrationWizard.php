@@ -10,10 +10,10 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Upgrades;
 
 use Doctrine\DBAL\Platforms\SQLitePlatform;
+use Netresearch\NrVault\Audit\AuditChainLockTrait;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
-use Netresearch\NrVault\Exception\AuditMigrationException;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
 use Psr\Log\NullLogger;
@@ -44,6 +44,7 @@ use TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface;
  */
 final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAwareInterface
 {
+    use AuditChainLockTrait;
     use LoggerAwareTrait;
 
     private const TABLE_NAME = 'tx_nrvault_audit_log';
@@ -116,12 +117,11 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
     {
         $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
         $this->acquireAuditLock($connection, $isSQLite);
-        $lockAcquired = true;
         $committed = false;
 
         try {
             $migratedCount = $this->rehashAllRows($connection, $hmacKey, $targetEpoch);
-            $this->commit($connection, $isSQLite);
+            $this->commitAuditLock($connection, $isSQLite);
             $committed = true;
 
             $this->logger->info(
@@ -131,7 +131,31 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
 
             return true;
         } finally {
-            $this->releaseAuditLock($connection, $isSQLite, $committed, $lockAcquired);
+            $this->cleanupAuditLock($connection, $isSQLite, $committed);
+        }
+    }
+
+    /**
+     * Best-effort rollback + release. Acquire failures throw before the try
+     * block so we only get here when the lock WAS acquired. Secondary errors
+     * during rollback / release are swallowed so they don't mask the root
+     * cause already logged by `executeUpdate()`.
+     */
+    private function cleanupAuditLock(Connection $connection, bool $isSQLite, bool $committed): void
+    {
+        if (!$committed) {
+            try {
+                $this->rollbackAuditLock($connection, $isSQLite);
+            } catch (Throwable) {
+                // Rollback errors during cleanup are non-actionable; the outer
+                // catch in executeUpdate() has already logged the root cause.
+            }
+        }
+
+        try {
+            $this->releaseAuditLock($connection, $isSQLite);
+        } catch (Throwable) {
+            // Lock release best-effort: connection close also releases.
         }
     }
 
@@ -195,76 +219,6 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
             'crdate' => is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : 0,
             'epoch' => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
         ];
-    }
-
-    /**
-     * Acquire an advisory lock to block concurrent AuditLogService::log() writes.
-     * SQLite: BEGIN EXCLUSIVE serialises all writers.
-     * MySQL/MariaDB: named GET_LOCK + transaction.
-     *
-     * `GET_LOCK` returns 1 on success, 0 on timeout (5 s), and NULL on error
-     * (replication conflict, killed thread, etc.). The previous version
-     * ignored the return value, so a contended or errored lock would silently
-     * fall through and run the migration unprotected. We now abort the
-     * migration when the lock isn't acquired and let the caller retry.
-     *
-     * @throws AuditMigrationException If the lock cannot be acquired
-     */
-    private function acquireAuditLock(Connection $connection, bool $isSQLite): void
-    {
-        if ($isSQLite) {
-            $connection->executeStatement('BEGIN EXCLUSIVE');
-
-            return;
-        }
-        $lockResult = $connection->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')->fetchOne();
-        if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
-            throw AuditMigrationException::lockAcquisitionFailed($lockResult);
-        }
-        $connection->beginTransaction();
-    }
-
-    private function commit(Connection $connection, bool $isSQLite): void
-    {
-        if ($isSQLite) {
-            $connection->executeStatement('COMMIT');
-
-            return;
-        }
-        $connection->commit();
-    }
-
-    /**
-     * Release the advisory lock acquired by {@see acquireAuditLock()}.
-     *
-     * Rollback fires when `$committed` is false. Lock release is best-effort —
-     * the connection close also releases — so we swallow secondary errors.
-     * Skip rollback / release if the lock was never acquired (lockAcquired=false).
-     */
-    private function releaseAuditLock(Connection $connection, bool $isSQLite, bool $committed, bool $lockAcquired): void
-    {
-        if (!$lockAcquired) {
-            return;
-        }
-        if (!$committed) {
-            try {
-                if ($isSQLite) {
-                    $connection->executeStatement('ROLLBACK');
-                } else {
-                    $connection->rollBack();
-                }
-            } catch (Throwable) {
-                // Rollback errors during cleanup are non-actionable; the outer
-                // catch in executeUpdate() has already logged the root cause.
-            }
-        }
-        if (!$isSQLite) {
-            try {
-                $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
-            } catch (Throwable) {
-                // Lock release best-effort: connection close also releases.
-            }
-        }
     }
 
     private function countLegacyEntries(): int

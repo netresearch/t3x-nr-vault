@@ -12,14 +12,13 @@ namespace Netresearch\NrVault\Exception;
 /**
  * Thrown when an audit-log write cannot proceed safely.
  *
- * Currently raised by {@see \Netresearch\NrVault\Audit\AuditLogService::log()}
- * when the advisory lock that serialises hash-chain writers cannot be
- * acquired — `GET_LOCK` returned 0 (timeout) or NULL (database error).
- *
- * Distinct from {@see AuditMigrationException} because the runtime audit-log
- * write path needs to surface a different concern than a one-shot install-tool
- * migration: callers of `AuditLogService::log()` may want to retry, while a
- * migration failure typically aborts the wizard.
+ * Raised by {@see \Netresearch\NrVault\Audit\AuditChainLockTrait} via every
+ * audit-chain writer — `AuditLogService::log()` (runtime) and the migration
+ * sites (`AuditHmacMigrationWizard`, `VaultAuditMigrateCommand`) — when the
+ * advisory lock that serialises hash-chain writers cannot be acquired
+ * (`GET_LOCK` returned 0 = timeout, or NULL = database error). Migration
+ * callers may catch this and translate to a context-specific exception if
+ * they need a distinct type.
  */
 final class AuditWriteException extends VaultException
 {

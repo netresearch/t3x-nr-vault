@@ -18,18 +18,22 @@ use TYPO3\CMS\Core\Database\Connection;
 /**
  * Shared advisory-lock primitives for the audit chain.
  *
- * SQLite: BEGIN EXCLUSIVE — serialises all writers for the transaction.
- * MySQL/MariaDB: named `GET_LOCK("nr_vault_audit", 5)` + transaction.
- * `GET_LOCK` returns 1 on success, 0 on timeout (5 s), NULL on error — we
- * abort on anything other than 1 so we never silently write unprotected
- * audit entries.
+ * Used by:
+ *  - {@see AuditLogService} — runtime audit-log writes.
+ *  - {@see \Netresearch\NrVault\Command\VaultAuditMigrateCommand} —
+ *    one-shot CLI re-hash from SHA-256 to HMAC.
+ *  - {@see \Netresearch\NrVault\Upgrades\AuditHmacMigrationWizard} —
+ *    install-tool counterpart of the above.
  *
- * Used by {@see AuditLogService} (runtime writes). Migration paths
- * (wizard / migrate command) inline the same pattern but throw
- * {@see \Netresearch\NrVault\Exception\AuditMigrationException} instead of
- * `AuditWriteException`; sharing the trait between contexts would force a
- * common exception type and lose the runtime-vs-migration distinction
- * surfaced in PR #133 review.
+ * Lock behaviour:
+ *  - SQLite: `BEGIN EXCLUSIVE` — serialises all writers for the transaction.
+ *  - MySQL/MariaDB: named `GET_LOCK("nr_vault_audit", 5)` + transaction.
+ *    `GET_LOCK` returns 1 on success, 0 on timeout, NULL on error — we
+ *    abort on anything other than 1 so we never silently write unprotected
+ *    audit entries.
+ *
+ * Lock failures surface as {@see AuditWriteException}. Callers that want a
+ * context-specific exception type can catch and re-throw.
  */
 trait AuditChainLockTrait
 {

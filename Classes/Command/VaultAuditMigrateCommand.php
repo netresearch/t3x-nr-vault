@@ -10,10 +10,10 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Command;
 
 use Doctrine\DBAL\Platforms\SQLitePlatform;
+use Netresearch\NrVault\Audit\AuditChainLockTrait;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
-use Netresearch\NrVault\Exception\AuditMigrationException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\ProgressBar;
@@ -34,6 +34,8 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 )]
 final class VaultAuditMigrateCommand extends Command
 {
+    use AuditChainLockTrait;
+
     private const TABLE_NAME = 'tx_nrvault_audit_log';
 
     public function __construct(
@@ -131,20 +133,8 @@ final class VaultAuditMigrateCommand extends Command
         int $totalEntries,
         bool $dryRun,
     ): int {
-        // Acquire an advisory lock to prevent concurrent writes during migration.
-        // GET_LOCK returns 1 on success, 0 on timeout, NULL on error — check the
-        // return so a contended lock aborts rather than silently running unprotected.
         $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
-
-        if ($isSQLite) {
-            $connection->executeStatement('BEGIN EXCLUSIVE');
-        } else {
-            $lockResult = $connection->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')->fetchOne();
-            if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
-                throw AuditMigrationException::lockAcquisitionFailed($lockResult);
-            }
-            $connection->beginTransaction();
-        }
+        $this->acquireAuditLock($connection, $isSQLite);
 
         try {
             // Stream ALL entries in UID order using fetchAssociative() to avoid loading entire table
@@ -208,23 +198,13 @@ final class VaultAuditMigrateCommand extends Command
                 $progressBar->advance();
             }
 
-            if ($isSQLite) {
-                $connection->executeStatement('COMMIT');
-            } else {
-                $connection->commit();
-            }
+            $this->commitAuditLock($connection, $isSQLite);
         } catch (Throwable $e) {
-            if ($isSQLite) {
-                $connection->executeStatement('ROLLBACK');
-            } else {
-                $connection->rollBack();
-            }
+            $this->rollbackAuditLock($connection, $isSQLite);
 
             throw $e;
         } finally {
-            if (!$isSQLite) {
-                $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
-            }
+            $this->releaseAuditLock($connection, $isSQLite);
         }
 
         $progressBar->finish();
