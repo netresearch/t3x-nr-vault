@@ -16,7 +16,6 @@ use DateTimeInterface;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
-use Netresearch\NrVault\Exception\AuditWriteException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use SensitiveParameter;
@@ -30,6 +29,8 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
  */
 final readonly class AuditLogService implements AuditLogServiceInterface
 {
+    use AuditChainLockTrait;
+
     private const TABLE_NAME = 'tx_nrvault_audit_log';
 
     public function __construct(
@@ -360,57 +361,6 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             return hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
         } finally {
             sodium_memzero($masterKey);
-        }
-    }
-
-    /**
-     * Acquire the named advisory lock that serialises audit-log writes.
-     *
-     * SQLite: BEGIN EXCLUSIVE — serialises all writers for the transaction.
-     * MySQL/MariaDB: named GET_LOCK + transaction. `GET_LOCK` returns 1 on
-     * success, 0 on timeout (5 s), NULL on error — anything other than 1
-     * aborts so we never silently write unprotected entries.
-     *
-     * @throws AuditWriteException If the lock cannot be acquired
-     */
-    private function acquireAuditLock(Connection $connection, bool $isSQLite): void
-    {
-        if ($isSQLite) {
-            $connection->executeStatement('BEGIN EXCLUSIVE');
-
-            return;
-        }
-        $lockResult = $connection->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')->fetchOne();
-        if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
-            throw AuditWriteException::lockAcquisitionFailed($lockResult);
-        }
-        $connection->beginTransaction();
-    }
-
-    private function commitAuditLock(Connection $connection, bool $isSQLite): void
-    {
-        if ($isSQLite) {
-            $connection->executeStatement('COMMIT');
-
-            return;
-        }
-        $connection->commit();
-    }
-
-    private function rollbackAuditLock(Connection $connection, bool $isSQLite): void
-    {
-        if ($isSQLite) {
-            $connection->executeStatement('ROLLBACK');
-
-            return;
-        }
-        $connection->rollBack();
-    }
-
-    private function releaseAuditLock(Connection $connection, bool $isSQLite): void
-    {
-        if (!$isSQLite) {
-            $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
         }
     }
 
