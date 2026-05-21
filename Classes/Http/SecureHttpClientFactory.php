@@ -108,18 +108,38 @@ final class SecureHttpClientFactory
     /**
      * Check if a host is allowed per TYPO3's allowed_hosts configuration.
      *
-     * Note: This is a helper for VaultHttpClient to check before sending requests.
-     * TYPO3's GuzzleClientFactory doesn't enforce this automatically.
+     * Defence-in-depth: regardless of the allowlist, IP literals and resolved
+     * hostnames that point into private/link-local/loopback/multicast/metadata
+     * ranges are always rejected. This blocks SSRF into AWS/GCP/Azure metadata
+     * services (169.254.169.254) and internal RFC1918 networks even on
+     * installations that left `allowed_hosts` unconfigured.
      */
     public function isHostAllowed(string $host): bool
     {
+        // Always reject host:port forms with control chars / empty / IPv6 brackets handling
+        $host = trim($host, " \t\n\r\0\x0B[]");
+        if ($host === '') {
+            return false;
+        }
+
+        // Hard block: IP literals in dangerous ranges
+        if ($this->isDangerousIpLiteral($host)) {
+            return false;
+        }
+
+        // Hard block: hostname that resolves into dangerous ranges (DNS rebind defence)
+        if ($this->resolvesToDangerousIp($host)) {
+            return false;
+        }
+
         /** @var array<string, array<string, mixed>> $confVars */
         $confVars = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
         /** @var array<string, mixed> $httpConfig */
         $httpConfig = $confVars['HTTP'] ?? [];
         $allowedHosts = $httpConfig['allowed_hosts'] ?? null;
 
-        // No restriction configured
+        // No allowlist configured → fall through to default-allow,
+        // but only after the IP/DNS checks above have passed.
         if (!\is_array($allowedHosts) || $allowedHosts === []) {
             return true;
         }
@@ -140,6 +160,71 @@ final class SecureHttpClientFactory
                 if (str_ends_with($host, $suffix)) {
                     return true;
                 }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Reject IP literals in private/link-local/loopback/multicast/metadata ranges.
+     *
+     * Filters covered:
+     *  - 0.0.0.0/8        — "this network"
+     *  - 10.0.0.0/8       — RFC1918
+     *  - 100.64.0.0/10    — RFC6598 CGNAT
+     *  - 127.0.0.0/8      — loopback
+     *  - 169.254.0.0/16   — link-local + cloud metadata
+     *  - 172.16.0.0/12    — RFC1918
+     *  - 192.0.0.0/24     — IETF
+     *  - 192.168.0.0/16   — RFC1918
+     *  - 198.18.0.0/15    — benchmark
+     *  - 224.0.0.0/4      — multicast
+     *  - 240.0.0.0/4      — reserved
+     *  - ::1/128          — IPv6 loopback
+     *  - fc00::/7         — IPv6 unique-local
+     *  - fe80::/10        — IPv6 link-local
+     */
+    private function isDangerousIpLiteral(string $host): bool
+    {
+        if (filter_var($host, FILTER_VALIDATE_IP) === false) {
+            return false;
+        }
+
+        // PHP's FILTER_FLAG_NO_PRIV_RANGE / NO_RES_RANGE block most private ranges.
+        // The combined "public IP" filter rejects what we want to deny.
+        $isPublic = filter_var(
+            $host,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
+        );
+
+        return $isPublic === false;
+    }
+
+    /**
+     * Resolve a hostname and reject if any A/AAAA record points into a dangerous range.
+     *
+     * Returns false if resolution fails (caller will then pass the host through;
+     * upstream HTTP client will produce a connection error rather than a security
+     * bypass).
+     */
+    private function resolvesToDangerousIp(string $host): bool
+    {
+        // Already an IP literal — handled by isDangerousIpLiteral
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return false;
+        }
+
+        $records = @dns_get_record($host, DNS_A | DNS_AAAA);
+        if (!\is_array($records) || $records === []) {
+            return false;
+        }
+
+        foreach ($records as $record) {
+            $ip = $record['ip'] ?? $record['ipv6'] ?? null;
+            if (\is_string($ip) && $this->isDangerousIpLiteral($ip)) {
+                return true;
             }
         }
 
