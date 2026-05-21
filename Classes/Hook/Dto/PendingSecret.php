@@ -20,7 +20,8 @@ use SensitiveParameter;
 readonly class PendingSecret
 {
     public function __construct(
-        #[SensitiveParameter] public string $value,
+        #[SensitiveParameter]
+        public string $value,
         public string $identifier,
         public string $originalChecksum,
         public bool $isNew,

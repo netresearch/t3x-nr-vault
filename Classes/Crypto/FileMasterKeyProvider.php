@@ -137,6 +137,7 @@ final class FileMasterKeyProvider implements MasterKeyProviderInterface
         // freshly created file was world-readable on hosts with permissive
         // umasks.
         $previousUmask = umask(0o077);
+
         try {
             $result = file_put_contents($path, base64_encode($key));
         } finally {

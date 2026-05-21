@@ -67,8 +67,10 @@ final readonly class EncryptionService implements EncryptionServiceInterface
     }
 
     public function decrypt(
-        #[SensitiveParameter] string $encryptedValue,
-        #[SensitiveParameter] string $encryptedDek,
+        #[SensitiveParameter]
+        string $encryptedValue,
+        #[SensitiveParameter]
+        string $encryptedDek,
         string $dekNonce,
         string $valueNonce,
         string $identifier,
@@ -118,11 +120,14 @@ final readonly class EncryptionService implements EncryptionServiceInterface
     }
 
     public function reEncryptDek(
-        #[SensitiveParameter] string $encryptedDek,
+        #[SensitiveParameter]
+        string $encryptedDek,
         string $dekNonce,
         string $identifier,
-        #[SensitiveParameter] string $oldMasterKey,
-        #[SensitiveParameter] string $newMasterKey,
+        #[SensitiveParameter]
+        string $oldMasterKey,
+        #[SensitiveParameter]
+        string $newMasterKey,
     ): ReEncryptedDek {
         try {
             // Decode

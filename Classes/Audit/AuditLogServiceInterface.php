@@ -23,7 +23,7 @@ interface AuditLogServiceInterface
      * Log a vault operation.
      *
      * @param string $secretIdentifier The secret that was accessed (or pseudo-identifier
-     *                                  such as `__master_key__` for master-key rotation)
+     *                                 such as `__master_key__` for master-key rotation)
      * @param string $action One of: create, read, update, delete, rotate, access_denied,
      *                       http_call, master_key_rotate_start, master_key_rotate_end
      * @param bool $success Whether operation succeeded
@@ -39,8 +39,10 @@ interface AuditLogServiceInterface
         bool $success,
         ?string $errorMessage = null,
         ?string $reason = null,
-        #[SensitiveParameter] ?string $hashBefore = null,
-        #[SensitiveParameter] ?string $hashAfter = null,
+        #[SensitiveParameter]
+        ?string $hashBefore = null,
+        #[SensitiveParameter]
+        ?string $hashAfter = null,
         ?AuditContextInterface $context = null,
     ): void;
 

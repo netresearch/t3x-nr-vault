@@ -36,16 +36,24 @@ final class Typo3MasterKeyProvider implements MasterKeyProviderInterface
      */
     private const MIN_SOURCE_KEY_LENGTH = 32;
 
-    /** @var string|null Request-lifetime cached master key (ADR-020) */
+    /**
+     * Request-lifetime cached master key (ADR-020).
+     *
+     * Static so it survives DI scope churn within a request. Cleared explicitly
+     * via {@see clearCachedKey()} — NOT in `__destruct`, because the same
+     * static is shared by every instance and the first instance to be
+     * garbage-collected would otherwise wipe the cache for the rest of the
+     * request. PHP zeroes the static at script shutdown anyway; long-running
+     * processes (scheduler tasks, daemons) should call `clearCachedKey()`
+     * explicitly when they need to observe a rotated TYPO3 `encryptionKey`.
+     */
     private static ?string $cachedKey = null;
-
-    public function __destruct()
-    {
-        self::clearCachedKey();
-    }
 
     /**
      * Clear the cached master key from memory.
+     *
+     * Call from long-running processes that need to observe TYPO3
+     * `encryptionKey` rotation, and from test fixtures for isolation.
      */
     public static function clearCachedKey(): void
     {

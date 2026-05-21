@@ -23,7 +23,8 @@ readonly class VaultServerConfig
         public string $address = '',
         public string $path = '',
         public string $authMethod = '',
-        #[SensitiveParameter] public string $token = '',
+        #[SensitiveParameter]
+        public string $token = '',
     ) {}
 
     /**

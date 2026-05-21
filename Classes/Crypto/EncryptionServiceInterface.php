@@ -41,8 +41,10 @@ interface EncryptionServiceInterface
      * @return string The decrypted plaintext
      */
     public function decrypt(
-        #[SensitiveParameter] string $encryptedValue,
-        #[SensitiveParameter] string $encryptedDek,
+        #[SensitiveParameter]
+        string $encryptedValue,
+        #[SensitiveParameter]
+        string $encryptedDek,
         string $dekNonce,
         string $valueNonce,
         string $identifier,
@@ -74,10 +76,13 @@ interface EncryptionServiceInterface
      * @param string $newMasterKey New master key
      */
     public function reEncryptDek(
-        #[SensitiveParameter] string $encryptedDek,
+        #[SensitiveParameter]
+        string $encryptedDek,
         string $dekNonce,
         string $identifier,
-        #[SensitiveParameter] string $oldMasterKey,
-        #[SensitiveParameter] string $newMasterKey,
+        #[SensitiveParameter]
+        string $oldMasterKey,
+        #[SensitiveParameter]
+        string $newMasterKey,
     ): ReEncryptedDek;
 }

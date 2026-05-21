@@ -23,7 +23,8 @@ readonly class FlexFormPendingSecret
         public string $flexField,
         public string $sheet,
         public string $fieldPath,
-        #[SensitiveParameter] public string $value,
+        #[SensitiveParameter]
+        public string $value,
         public string $identifier,
         public string $originalChecksum,
         public bool $isNew,
@@ -36,7 +37,8 @@ readonly class FlexFormPendingSecret
         string $flexField,
         string $sheet,
         string $fieldPath,
-        #[SensitiveParameter] string $value,
+        #[SensitiveParameter]
+        string $value,
         string $identifier,
     ): self {
         return new self(
@@ -57,7 +59,8 @@ readonly class FlexFormPendingSecret
         string $flexField,
         string $sheet,
         string $fieldPath,
-        #[SensitiveParameter] string $value,
+        #[SensitiveParameter]
+        string $value,
         string $identifier,
         string $originalChecksum,
     ): self {
