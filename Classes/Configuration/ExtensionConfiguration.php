@@ -136,9 +136,24 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
 
     /**
      * Check if read operations should be written to the audit log.
+     *
+     * Resolution order:
+     *  1. `$TYPO3_CONF_VARS[SYS][nrVault][auditReads]` (filesystem-only override
+     *     — can only be set in LocalConfiguration / additional.php; not editable
+     *     from the BE Settings module).
+     *  2. The standard `auditReads` extension configuration (default 1).
+     *
+     * Use the filesystem override on production: the BE Settings module is
+     * reachable by any admin, and a compromised admin could otherwise silence
+     * read logging without leaving an audit trail.
      */
     public function isAuditReadsEnabled(): bool
     {
+        $override = $GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['auditReads'] ?? null;
+        if ($override !== null) {
+            return (bool) $override;
+        }
+
         return (bool) ($this->configuration['auditReads'] ?? self::DEFAULT_AUDIT_READS);
     }
 
