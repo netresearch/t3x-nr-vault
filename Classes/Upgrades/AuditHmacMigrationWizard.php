@@ -171,7 +171,7 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
         $migratedCount = 0;
 
         while (($row = $result->fetchAssociative()) !== false) {
-            $entry = $this->extractRow($row);
+            $entry = AuditLogService::extractHashRow($row);
 
             $newHash = AuditLogService::calculateHash(
                 $entry['uid'],
@@ -200,25 +200,6 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
         }
 
         return $migratedCount;
-    }
-
-    /**
-     * Type-safe extraction of the audit row fields used by the hash calculation.
-     *
-     * @param array<string, mixed> $row
-     *
-     * @return array{uid: int, secretId: string, action: string, actorUid: int, crdate: int, epoch: int}
-     */
-    private function extractRow(array $row): array
-    {
-        return [
-            'uid' => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
-            'secretId' => \is_string($row['secret_identifier'] ?? null) ? $row['secret_identifier'] : '',
-            'action' => \is_string($row['action'] ?? null) ? $row['action'] : '',
-            'actorUid' => is_numeric($row['actor_uid'] ?? null) ? (int) $row['actor_uid'] : 0,
-            'crdate' => is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : 0,
-            'epoch' => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
-        ];
     }
 
     private function countLegacyEntries(): int

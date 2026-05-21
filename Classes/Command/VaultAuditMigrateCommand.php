@@ -152,18 +152,13 @@ final class VaultAuditMigrateCommand extends Command
             $migratedCount = 0;
 
             while (($row = $result->fetchAssociative()) !== false) {
-                $rowUid = $row['uid'] ?? 0;
-                $uid = is_numeric($rowUid) ? (int) $rowUid : 0;
-                $rowSecretId = $row['secret_identifier'] ?? '';
-                $secretId = \is_string($rowSecretId) ? $rowSecretId : '';
-                $rowAction = $row['action'] ?? '';
-                $actionStr = \is_string($rowAction) ? $rowAction : '';
-                $rowActorUid = $row['actor_uid'] ?? 0;
-                $actorUid = is_numeric($rowActorUid) ? (int) $rowActorUid : 0;
-                $rowCrdate = $row['crdate'] ?? 0;
-                $crdate = is_numeric($rowCrdate) ? (int) $rowCrdate : 0;
-                $rowEpoch = $row['hmac_key_epoch'] ?? 0;
-                $epoch = is_numeric($rowEpoch) ? (int) $rowEpoch : 0;
+                $entry = AuditLogService::extractHashRow($row);
+                $uid = $entry['uid'];
+                $secretId = $entry['secretId'];
+                $actionStr = $entry['action'];
+                $actorUid = $entry['actorUid'];
+                $crdate = $entry['crdate'];
+                $epoch = $entry['epoch'];
 
                 // Re-hash ALL entries (including already-epoch-1 entries) to maintain chain integrity.
                 // After re-hashing, all entries use HMAC with the current master key.
