@@ -839,7 +839,7 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->expects(self::once())
             ->method('store')
-            ->willThrowException(new \RuntimeException('vault write failed mid-OAuth-refresh'));
+            ->willThrowException(new RuntimeException('vault write failed mid-OAuth-refresh'));
 
         $response = $this->createSuccessfulTokenResponse([
             'access_token' => 'new-access-token',
