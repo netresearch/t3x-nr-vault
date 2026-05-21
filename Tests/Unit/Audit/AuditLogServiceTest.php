@@ -17,6 +17,7 @@ use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
+use Netresearch\NrVault\Exception\AuditWriteException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -207,43 +208,9 @@ final class AuditLogServiceTest extends TestCase
     #[Test]
     public function hashChainLinksToLastEntry(): void
     {
-        $expressionBuilder = $this->createMock(ExpressionBuilder::class);
-        $result = $this->createMock(Result::class);
-        // getLatestHash() uses fetchOne() which returns the value directly
-        $result->method('fetchOne')->willReturn('previous_hash_abc123');
-
-        $this->connectionPool
-            ->method('getConnectionForTable')
-            ->willReturn($this->connection);
-
-        // The implementation uses $connection->createQueryBuilder()
-        $this->connection
-            ->method('createQueryBuilder')
-            ->willReturn($this->queryBuilder);
-
-        $this->queryBuilder
-            ->method('expr')
-            ->willReturn($expressionBuilder);
-
-        $this->queryBuilder
-            ->method('select')
-            ->willReturnSelf();
-
-        $this->queryBuilder
-            ->method('from')
-            ->willReturnSelf();
-
-        $this->queryBuilder
-            ->method('orderBy')
-            ->willReturnSelf();
-
-        $this->queryBuilder
-            ->method('setMaxResults')
-            ->willReturnSelf();
-
-        $this->queryBuilder
-            ->method('executeQuery')
-            ->willReturn($result);
+        // Override the default getLatestHash() return so this test exercises
+        // the "chain continues from previous_hash_abc123" path.
+        $this->setupDatabaseMocks('previous_hash_abc123');
 
         $this->connection
             ->expects(self::once())
@@ -1665,6 +1632,91 @@ final class AuditLogServiceTest extends TestCase
     }
 
     /**
+     * If GET_LOCK returns 0 (timeout) or NULL (DB error), `log()` must throw
+     * AuditWriteException and NOT insert anything. The previous implementation
+     * silently fell through and wrote the audit row unprotected.
+     */
+    #[Test]
+    public function logThrowsWhenLockAcquisitionFails(): void
+    {
+        $lockResult = $this->createMock(Result::class);
+        $lockResult->method('fetchOne')->willReturn(0); // 0 = timeout
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($this->connection);
+
+        $this->connection
+            ->method('executeQuery')
+            ->willReturn($lockResult);
+        $this->connection
+            ->expects(self::never())
+            ->method('insert');
+        $this->connection
+            ->expects(self::never())
+            ->method('beginTransaction');
+
+        $this->expectException(AuditWriteException::class);
+        $this->expectExceptionMessageMatches('/GET_LOCK returned 0/');
+
+        $this->getSubject()->log('s', 'read', true);
+    }
+
+    /**
+     * If `beginTransaction()` throws AFTER `GET_LOCK` returned 1, the named
+     * lock must be released before the exception propagates — otherwise the
+     * lock remains held for the connection's lifetime and blocks every
+     * subsequent audit-log writer (caught by gemini-code-assist and
+     * copilot-pull-request-reviewer on PR #134).
+     */
+    #[Test]
+    public function logReleasesLockWhenBeginTransactionFails(): void
+    {
+        $lockResult = $this->createMock(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1); // 1 = acquired
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($this->connection);
+
+        // GET_LOCK and the subsequent RELEASE_LOCK both go through executeQuery
+        // / executeStatement; track RELEASE_LOCK was called by recording all
+        // executeStatement invocations.
+        $executeStatementCalls = [];
+        $this->connection
+            ->method('executeStatement')
+            ->willReturnCallback(function (string $sql) use (&$executeStatementCalls): int {
+                $executeStatementCalls[] = $sql;
+
+                return 0;
+            });
+        $this->connection
+            ->method('executeQuery')
+            ->willReturn($lockResult);
+        $this->connection
+            ->method('beginTransaction')
+            ->willThrowException(new RuntimeException('simulated DB failure mid-transaction-start'));
+        $this->connection
+            ->expects(self::never())
+            ->method('insert');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('simulated DB failure');
+
+        try {
+            $this->getSubject()->log('s', 'read', true);
+        } finally {
+            // RELEASE_LOCK must have been called even though the exception
+            // propagates out of log().
+            self::assertContains(
+                'SELECT RELEASE_LOCK("nr_vault_audit")',
+                $executeStatementCalls,
+                'Named lock must be released when beginTransaction() throws',
+            );
+        }
+    }
+
+    /**
      * Kills Increment/Decrement on `setMaxResults(1)` in getPreviousHash (log flow).
      */
     #[Test]
@@ -1673,6 +1725,10 @@ final class AuditLogServiceTest extends TestCase
         $result = $this->createMock(Result::class);
         $result->method('fetchOne')->willReturn(false);
 
+        // GET_LOCK lock-acquisition stub
+        $lockResult = $this->createMock(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
         $this->connectionPool
             ->method('getConnectionForTable')
             ->willReturn($this->connection);
@@ -1680,6 +1736,10 @@ final class AuditLogServiceTest extends TestCase
         $this->connection
             ->method('createQueryBuilder')
             ->willReturn($this->queryBuilder);
+
+        $this->connection
+            ->method('executeQuery')
+            ->willReturn($lockResult);
 
         $this->queryBuilder->method('select')->willReturnSelf();
         $this->queryBuilder->method('from')->willReturnSelf();
@@ -1896,12 +1956,19 @@ final class AuditLogServiceTest extends TestCase
         return $this->subject;
     }
 
-    private function setupDatabaseMocks(): void
+    private function setupDatabaseMocks(mixed $previousHashFetchOne = false): void
     {
         $expressionBuilder = $this->createMock(ExpressionBuilder::class);
         $result = $this->createMock(Result::class);
-        // getLatestHash() uses fetchOne() which returns false when no rows exist
-        $result->method('fetchOne')->willReturn(false);
+        // getLatestHash() uses fetchOne(); default `false` means "no prior entry".
+        // Tests that exercise chaining override this to return the previous_hash value.
+        $result->method('fetchOne')->willReturn($previousHashFetchOne);
+
+        // GET_LOCK on MySQL/MariaDB returns 1 on success. Mock the runtime lock
+        // acquisition path so tests that don't explicitly stub it don't fail
+        // with AuditWriteException::lockAcquisitionFailed().
+        $lockResult = $this->createMock(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
 
         $this->connectionPool
             ->method('getConnectionForTable')
@@ -1911,6 +1978,12 @@ final class AuditLogServiceTest extends TestCase
         $this->connection
             ->method('createQueryBuilder')
             ->willReturn($this->queryBuilder);
+
+        // $connection->executeQuery('SELECT GET_LOCK(...)') is called directly
+        // (not via QueryBuilder) for the audit advisory lock.
+        $this->connection
+            ->method('executeQuery')
+            ->willReturn($lockResult);
 
         $this->queryBuilder
             ->method('expr')

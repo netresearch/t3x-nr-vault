@@ -244,6 +244,12 @@ final class VaultAuditMigrateCommandTest extends TestCase
         $connection->method('createQueryBuilder')->willReturn($this->queryBuilder);
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
+        // GET_LOCK acquisition: command calls $connection->executeQuery() directly
+        // (not via QueryBuilder). Return 1 = lock acquired.
+        $lockResult = $this->createMock(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+        $connection->method('executeQuery')->willReturn($lockResult);
+
         return $connection;
     }
 }

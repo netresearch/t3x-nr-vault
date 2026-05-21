@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Command;
 
 use Doctrine\DBAL\Platforms\SQLitePlatform;
+use Netresearch\NrVault\Audit\AuditChainLockTrait;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
@@ -33,6 +34,8 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 )]
 final class VaultAuditMigrateCommand extends Command
 {
+    use AuditChainLockTrait;
+
     private const TABLE_NAME = 'tx_nrvault_audit_log';
 
     public function __construct(
@@ -130,15 +133,8 @@ final class VaultAuditMigrateCommand extends Command
         int $totalEntries,
         bool $dryRun,
     ): int {
-        // Acquire an advisory lock to prevent concurrent writes during migration.
         $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
-
-        if ($isSQLite) {
-            $connection->executeStatement('BEGIN EXCLUSIVE');
-        } else {
-            $connection->executeStatement('SELECT GET_LOCK("nr_vault_audit", 5)');
-            $connection->beginTransaction();
-        }
+        $this->acquireAuditLock($connection, $isSQLite);
 
         try {
             // Stream ALL entries in UID order using fetchAssociative() to avoid loading entire table
@@ -156,18 +152,13 @@ final class VaultAuditMigrateCommand extends Command
             $migratedCount = 0;
 
             while (($row = $result->fetchAssociative()) !== false) {
-                $rowUid = $row['uid'] ?? 0;
-                $uid = is_numeric($rowUid) ? (int) $rowUid : 0;
-                $rowSecretId = $row['secret_identifier'] ?? '';
-                $secretId = \is_string($rowSecretId) ? $rowSecretId : '';
-                $rowAction = $row['action'] ?? '';
-                $actionStr = \is_string($rowAction) ? $rowAction : '';
-                $rowActorUid = $row['actor_uid'] ?? 0;
-                $actorUid = is_numeric($rowActorUid) ? (int) $rowActorUid : 0;
-                $rowCrdate = $row['crdate'] ?? 0;
-                $crdate = is_numeric($rowCrdate) ? (int) $rowCrdate : 0;
-                $rowEpoch = $row['hmac_key_epoch'] ?? 0;
-                $epoch = is_numeric($rowEpoch) ? (int) $rowEpoch : 0;
+                $entry = AuditLogService::extractHashRow($row);
+                $uid = $entry['uid'];
+                $secretId = $entry['secretId'];
+                $actionStr = $entry['action'];
+                $actorUid = $entry['actorUid'];
+                $crdate = $entry['crdate'];
+                $epoch = $entry['epoch'];
 
                 // Re-hash ALL entries (including already-epoch-1 entries) to maintain chain integrity.
                 // After re-hashing, all entries use HMAC with the current master key.
@@ -202,23 +193,13 @@ final class VaultAuditMigrateCommand extends Command
                 $progressBar->advance();
             }
 
-            if ($isSQLite) {
-                $connection->executeStatement('COMMIT');
-            } else {
-                $connection->commit();
-            }
+            $this->commitAuditLock($connection, $isSQLite);
         } catch (Throwable $e) {
-            if ($isSQLite) {
-                $connection->executeStatement('ROLLBACK');
-            } else {
-                $connection->rollBack();
-            }
+            $this->rollbackAuditLock($connection, $isSQLite);
 
             throw $e;
         } finally {
-            if (!$isSQLite) {
-                $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
-            }
+            $this->releaseAuditLock($connection, $isSQLite);
         }
 
         $progressBar->finish();
