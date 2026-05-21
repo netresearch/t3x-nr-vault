@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Crypto;
 use Netresearch\NrVault\Configuration\ExtensionConfiguration;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\MasterKeyException;
+use SensitiveParameter;
 
 /**
  * File-based master key provider.
@@ -114,7 +115,7 @@ final class FileMasterKeyProvider implements MasterKeyProviderInterface
         throw MasterKeyException::invalidLength(self::KEY_LENGTH, \strlen($trimmed));
     }
 
-    public function storeMasterKey(string $key): void
+    public function storeMasterKey(#[SensitiveParameter] string $key): void
     {
         if (\strlen($key) !== self::KEY_LENGTH) {
             throw MasterKeyException::invalidLength(self::KEY_LENGTH, \strlen($key));
@@ -130,8 +131,17 @@ final class FileMasterKeyProvider implements MasterKeyProviderInterface
             throw MasterKeyException::cannotStore("Cannot create directory: {$dir}");
         }
 
-        // Store as base64 for easier handling
-        $result = file_put_contents($path, base64_encode($key));
+        // Eliminate the umask race: tighten umask before write so the file is
+        // created 0600, then chmod to the final 0400. The previous order
+        // (file_put_contents → chmod 0400) left a brief window where the
+        // freshly created file was world-readable on hosts with permissive
+        // umasks.
+        $previousUmask = umask(0o077);
+        try {
+            $result = file_put_contents($path, base64_encode($key));
+        } finally {
+            umask($previousUmask);
+        }
         if ($result === false) {
             throw MasterKeyException::cannotStore("Cannot write to: {$path}");
         }

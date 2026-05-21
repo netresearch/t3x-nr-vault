@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Hook\Dto;
 
+use SensitiveParameter;
+
 /**
  * Data Transfer Object for pending secret storage in DataHandler hooks.
  *
@@ -18,7 +20,7 @@ namespace Netresearch\NrVault\Hook\Dto;
 readonly class PendingSecret
 {
     public function __construct(
-        public string $value,
+        #[SensitiveParameter] public string $value,
         public string $identifier,
         public string $originalChecksum,
         public bool $isNew,
@@ -27,7 +29,7 @@ readonly class PendingSecret
     /**
      * Create a new pending secret (not yet stored).
      */
-    public static function createNew(string $value, string $identifier): self
+    public static function createNew(#[SensitiveParameter] string $value, string $identifier): self
     {
         return new self(
             value: $value,
@@ -40,7 +42,7 @@ readonly class PendingSecret
     /**
      * Create an updated pending secret (already exists).
      */
-    public static function createUpdate(string $value, string $identifier, string $originalChecksum): self
+    public static function createUpdate(#[SensitiveParameter] string $value, string $identifier, string $originalChecksum): self
     {
         return new self(
             value: $value,

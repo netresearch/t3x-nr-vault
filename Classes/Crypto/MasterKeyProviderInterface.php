@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Crypto;
 
 use Netresearch\NrVault\Exception\MasterKeyException;
+use SensitiveParameter;
 
 /**
  * Interface for master key providers.
@@ -44,7 +45,7 @@ interface MasterKeyProviderInterface
      *
      * @throws MasterKeyException If key cannot be stored
      */
-    public function storeMasterKey(string $key): void;
+    public function storeMasterKey(#[SensitiveParameter] string $key): void;
 
     /**
      * Generate a new random master key.

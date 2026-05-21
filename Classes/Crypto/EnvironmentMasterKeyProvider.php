@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Crypto;
 use Netresearch\NrVault\Configuration\ExtensionConfiguration;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\MasterKeyException;
+use SensitiveParameter;
 
 /**
  * Environment variable-based master key provider.
@@ -93,7 +94,7 @@ final class EnvironmentMasterKeyProvider implements MasterKeyProviderInterface
         throw MasterKeyException::invalidLength(self::KEY_LENGTH, $length);
     }
 
-    public function storeMasterKey(string $key): void
+    public function storeMasterKey(#[SensitiveParameter] string $key): void
     {
         // Cannot store to environment variable at runtime
         throw MasterKeyException::cannotStore(

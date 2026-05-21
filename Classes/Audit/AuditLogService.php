@@ -43,8 +43,8 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         bool $success,
         ?string $errorMessage = null,
         ?string $reason = null,
-        ?string $hashBefore = null,
-        ?string $hashAfter = null,
+        #[\SensitiveParameter] ?string $hashBefore = null,
+        #[\SensitiveParameter] ?string $hashAfter = null,
         ?AuditContextInterface $context = null,
     ): void {
         $connection = $this->getConnection();

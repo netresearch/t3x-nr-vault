@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Configuration\Dto;
 
+use SensitiveParameter;
+
 /**
  * Data Transfer Object for HashiCorp Vault server configuration.
  *
@@ -21,7 +23,7 @@ readonly class VaultServerConfig
         public string $address = '',
         public string $path = '',
         public string $authMethod = '',
-        public string $token = '',
+        #[SensitiveParameter] public string $token = '',
     ) {}
 
     /**

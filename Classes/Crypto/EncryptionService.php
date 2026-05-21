@@ -14,6 +14,7 @@ namespace Netresearch\NrVault\Crypto;
 
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\EncryptionException;
+use SensitiveParameter;
 use SodiumException;
 
 /**
@@ -26,7 +27,7 @@ final readonly class EncryptionService implements EncryptionServiceInterface
         private ExtensionConfigurationInterface $configuration,
     ) {}
 
-    public function encrypt(string $plaintext, string $identifier): EncryptedData
+    public function encrypt(#[SensitiveParameter] string $plaintext, string $identifier): EncryptedData
     {
         $masterKey = $this->masterKeyProvider->getMasterKey();
 
@@ -66,8 +67,8 @@ final readonly class EncryptionService implements EncryptionServiceInterface
     }
 
     public function decrypt(
-        string $encryptedValue,
-        string $encryptedDek,
+        #[SensitiveParameter] string $encryptedValue,
+        #[SensitiveParameter] string $encryptedDek,
         string $dekNonce,
         string $valueNonce,
         string $identifier,
@@ -111,17 +112,17 @@ final readonly class EncryptionService implements EncryptionServiceInterface
         return random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES);
     }
 
-    public function calculateChecksum(string $plaintext): string
+    public function calculateChecksum(#[SensitiveParameter] string $plaintext): string
     {
         return hash('sha256', $plaintext);
     }
 
     public function reEncryptDek(
-        string $encryptedDek,
+        #[SensitiveParameter] string $encryptedDek,
         string $dekNonce,
         string $identifier,
-        string $oldMasterKey,
-        string $newMasterKey,
+        #[SensitiveParameter] string $oldMasterKey,
+        #[SensitiveParameter] string $newMasterKey,
     ): ReEncryptedDek {
         try {
             // Decode
@@ -160,7 +161,7 @@ final readonly class EncryptionService implements EncryptionServiceInterface
     /**
      * Encrypt data with a key using the configured algorithm.
      */
-    private function encryptWithKey(string $plaintext, string $key, string $nonce, string $aad): string
+    private function encryptWithKey(#[SensitiveParameter] string $plaintext, #[SensitiveParameter] string $key, string $nonce, string $aad): string
     {
         if ($this->useAes256Gcm()) {
             return sodium_crypto_aead_aes256gcm_encrypt($plaintext, $aad, $nonce, $key);
@@ -172,7 +173,7 @@ final readonly class EncryptionService implements EncryptionServiceInterface
     /**
      * Decrypt data with a key using the configured algorithm.
      */
-    private function decryptWithKey(string $ciphertext, string $key, string $nonce, string $aad): string
+    private function decryptWithKey(#[SensitiveParameter] string $ciphertext, #[SensitiveParameter] string $key, string $nonce, string $aad): string
     {
         if ($this->useAes256Gcm()) {
             $result = sodium_crypto_aead_aes256gcm_decrypt($ciphertext, $aad, $nonce, $key);
