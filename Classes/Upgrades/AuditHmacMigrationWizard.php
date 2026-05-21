@@ -218,10 +218,8 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
             return;
         }
         $lockResult = $connection->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')->fetchOne();
-        if ((int) $lockResult !== 1) {
-            throw AuditMigrationException::lockAcquisitionFailed(
-                $lockResult === null ? 'NULL (DB error)' : (string) $lockResult,
-            );
+        if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
+            throw AuditMigrationException::lockAcquisitionFailed($lockResult);
         }
         $connection->beginTransaction();
     }

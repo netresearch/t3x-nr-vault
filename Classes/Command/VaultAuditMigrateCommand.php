@@ -141,9 +141,7 @@ final class VaultAuditMigrateCommand extends Command
         } else {
             $lockResult = $connection->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')->fetchOne();
             if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
-                throw AuditMigrationException::lockAcquisitionFailed(
-                    $lockResult === null ? 'NULL (DB error)' : (\is_scalar($lockResult) ? (string) $lockResult : 'non-scalar'),
-                );
+                throw AuditMigrationException::lockAcquisitionFailed($lockResult);
             }
             $connection->beginTransaction();
         }

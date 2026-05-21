@@ -23,8 +23,18 @@ namespace Netresearch\NrVault\Exception;
  */
 final class AuditWriteException extends VaultException
 {
-    public static function lockAcquisitionFailed(string $detail): self
+    /**
+     * @param mixed $rawResult The value returned by `SELECT GET_LOCK(...)` —
+     *                         normally 1/0/NULL but driver-dependent
+     */
+    public static function lockAcquisitionFailed(mixed $rawResult): self
     {
+        $detail = match (true) {
+            $rawResult === null => 'NULL (DB error)',
+            \is_scalar($rawResult) => (string) $rawResult,
+            default => 'non-scalar',
+        };
+
         return new self(
             \sprintf(
                 'Audit-log advisory lock could not be acquired (GET_LOCK returned %s). '
