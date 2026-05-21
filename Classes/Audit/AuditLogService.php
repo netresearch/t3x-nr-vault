@@ -358,7 +358,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             'hash_before' => (string) $row['hash_before'],
             'hash_after' => (string) $row['hash_after'],
             'context' => (string) $row['context'],
-        ], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
+        ], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
         return hash_hmac('sha256', $payload, $hmacKey);
     }
