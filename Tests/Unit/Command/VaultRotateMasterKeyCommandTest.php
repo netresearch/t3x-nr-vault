@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface;
@@ -41,6 +42,8 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
     private ConnectionPool&MockObject $connectionPool;
 
+    private AuditLogServiceInterface&MockObject $auditLogService;
+
     private CommandTester $commandTester;
 
     protected function setUp(): void
@@ -51,12 +54,14 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $this->encryptionService = $this->createMock(EncryptionServiceInterface::class);
         $this->masterKeyProviderFactory = $this->createMock(MasterKeyProviderFactoryInterface::class);
         $this->connectionPool = $this->createMock(ConnectionPool::class);
+        $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
 
         $command = new VaultRotateMasterKeyCommand(
             $this->secretRepository,
             $this->encryptionService,
             $this->masterKeyProviderFactory,
             $this->connectionPool,
+            $this->auditLogService,
         );
 
         $application = new Application();
@@ -73,6 +78,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             $this->encryptionService,
             $this->masterKeyProviderFactory,
             $this->connectionPool,
+            $this->auditLogService,
         );
 
         self::assertSame('vault:rotate-master-key', $command->getName());

@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
@@ -38,11 +39,19 @@ final class VaultRotateMasterKeyCommand extends Command
 {
     private const KEY_LENGTH = 32;
 
+    /**
+     * Pseudo-identifier used for master-key lifecycle audit entries.
+     * Not a real secret identifier; the audit query layer filters on the
+     * `master_key_rotate_*` actions, not on this string.
+     */
+    private const AUDIT_PSEUDO_IDENTIFIER = '__master_key__';
+
     public function __construct(
         private readonly SecretRepositoryInterface $secretRepository,
         private readonly EncryptionServiceInterface $encryptionService,
         private readonly MasterKeyProviderFactoryInterface $masterKeyProviderFactory,
         private readonly ConnectionPool $connectionPool,
+        private readonly AuditLogServiceInterface $auditLogService,
     ) {
         parent::__construct();
     }
@@ -185,6 +194,16 @@ final class VaultRotateMasterKeyCommand extends Command
         $successCount = 0;
         $failedSecrets = [];
 
+        // Audit the start of the rotation lifecycle. We log BEFORE any state
+        // change so that even a catastrophic crash mid-loop leaves a trail.
+        $this->auditLogService->log(
+            self::AUDIT_PSEUDO_IDENTIFIER,
+            'master_key_rotate_start',
+            true,
+            null,
+            \sprintf('Rotating master key for %d secret(s)', $totalSecrets),
+        );
+
         $io->progressStart($totalSecrets);
 
         try {
@@ -234,6 +253,12 @@ final class VaultRotateMasterKeyCommand extends Command
                         $failedSecrets,
                     ),
                 );
+                $this->auditLogService->log(
+                    self::AUDIT_PSEUDO_IDENTIFIER,
+                    'master_key_rotate_end',
+                    false,
+                    \sprintf('Rotation failed for %d secret(s); transaction rolled back', \count($failedSecrets)),
+                );
                 sodium_memzero($oldKey);
                 sodium_memzero($newKey);
 
@@ -244,11 +269,27 @@ final class VaultRotateMasterKeyCommand extends Command
         } catch (Throwable $e) {
             $connection->rollBack();
             $io->error('Unexpected error during rotation: ' . $e->getMessage());
+            // Do not propagate $e->getMessage() into the audit log to avoid
+            // leaking libsodium/internal detail (CLAUDE.md security rule 1).
+            $this->auditLogService->log(
+                self::AUDIT_PSEUDO_IDENTIFIER,
+                'master_key_rotate_end',
+                false,
+                'Unexpected error during rotation; transaction rolled back',
+            );
             sodium_memzero($oldKey);
             sodium_memzero($newKey);
 
             return Command::FAILURE;
         }
+
+        $this->auditLogService->log(
+            self::AUDIT_PSEUDO_IDENTIFIER,
+            'master_key_rotate_end',
+            true,
+            null,
+            \sprintf('Successfully rotated master key for %d secret(s)', $successCount),
+        );
 
         $io->success(\sprintf(
             'Successfully rotated master key for %d secret(s).',
