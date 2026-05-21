@@ -37,7 +37,21 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
 
     public const DEFAULT_PREFER_XCHACHA20 = false;
 
-    public const DEFAULT_AUDIT_HMAC_EPOCH = 1;
+    /**
+     * Audit-chain hash epoch.
+     *  - 0: legacy SHA-256 over identity fields only (no HMAC key).
+     *  - 1: HMAC-SHA256 over identity fields only.
+     *  - 2: HMAC-SHA256 over identity + forensic fields (success,
+     *       error_message, reason, ip_address, user_agent, hash_before,
+     *       hash_after, context).
+     *
+     * Default 2 binds the forensic surface into the chain — an attacker
+     * with DB-write privileges can no longer flip `success: false → true`
+     * or rewrite `error_message`/`reason`/etc. without breaking the chain.
+     * Existing epoch-0/epoch-1 entries continue to verify under their
+     * stored epoch until `AuditHmacMigrationWizard` rehashes them.
+     */
+    public const DEFAULT_AUDIT_HMAC_EPOCH = 2;
 
     private const EXTENSION_KEY = 'nr_vault';
 

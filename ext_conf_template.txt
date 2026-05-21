@@ -39,8 +39,8 @@ auditLogRetention = 365
 # cat=Security; type=boolean; label=Audit Read Operations: Log every secret read to the audit log. Disable for high-throughput scenarios where read logging is not required.
 auditReads = 1
 
-# cat=Security; type=int+; label=Audit HMAC Epoch: Hash algorithm version marker for the audit log hash chain (0 = legacy SHA-256 without HMAC, 1+ = HMAC-SHA256 with key derived from master key). This is a version/algorithm marker, not a key diversifier — the HMAC key is always derived the same way from the current master key. Increment after master key rotation so the verifier knows which key was used.
-auditHmacEpoch = 1
+# cat=Security; type=int+; label=Audit HMAC Epoch: Hash algorithm version marker for the audit log hash chain (0 = legacy SHA-256 without HMAC, 1 = HMAC-SHA256 over identity fields only, 2 = HMAC-SHA256 over identity + forensic fields including success/error_message/reason/ip_address/user_agent/context). Default 2 binds the forensic surface into the chain so a DB-write attacker cannot flip success or rewrite error_message without breaking the chain. Run the install-tool "Migrate audit hash chain" wizard after bumping.
+auditHmacEpoch = 2
 
 ##################
 ### PERFORMANCE ###

@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Functional\Upgrades;
 
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Configuration\ExtensionConfiguration;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\FileMasterKeyProvider;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
@@ -19,6 +20,7 @@ use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use Netresearch\NrVault\Upgrades\AuditHmacMigrationWizard;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Configuration\ExtensionConfiguration as Typo3ExtensionConfiguration;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface;
 
@@ -114,6 +116,38 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
         self::assertTrue(
             $wizard->updateNecessary(),
             'updateNecessary must return true when epoch=0 entries exist and target epoch>0',
+        );
+    }
+
+    #[Test]
+    public function updateNecessaryReturnsTrueForEpoch1RowsWhenTargetIsEpoch2(): void
+    {
+        // First: write entries at epoch=1 via VaultService.
+        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 1;
+        FileMasterKeyProvider::clearCachedKey();
+
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $identifier = $this->generateUuidV7();
+        $vaultService->store($identifier, 'epoch1-value');
+        $vaultService->delete($identifier, 'cleanup');
+
+        // Now bump the configured epoch to 2 — the existing epoch-1 rows
+        // are "outdated" because v1 hashes don't bind forensic fields.
+        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 2;
+        FileMasterKeyProvider::clearCachedKey();
+
+        // Build the wizard with a fresh ExtensionConfiguration so it picks
+        // up the new epoch from $GLOBALS — the DI-resolved instance is a
+        // singleton that cached the previous value at construction.
+        $wizard = new AuditHmacMigrationWizard(
+            $this->get(ConnectionPool::class),
+            $this->get(MasterKeyProviderInterface::class),
+            new ExtensionConfiguration(new Typo3ExtensionConfiguration()),
+        );
+
+        self::assertTrue(
+            $wizard->updateNecessary(),
+            'updateNecessary must return true when epoch-1 rows exist and target is epoch 2',
         );
     }
 
