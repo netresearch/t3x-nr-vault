@@ -1160,7 +1160,7 @@ final class AuditLogServiceTest extends TestCase
         $invalidUtf8 = "valid prefix \xC3\x28 broken sequence";
 
         $hash = AuditLogService::calculateHashV2(
-            $this->makeV2Row(userAgent: $invalidUtf8, errorMessage: $invalidUtf8),
+            $this->makeV2Row(errorMessage: $invalidUtf8, userAgent: $invalidUtf8),
             '',
             $hmacKey,
         );

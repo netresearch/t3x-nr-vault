@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Functional\Upgrades;
 
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Configuration\ExtensionConfiguration;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\FileMasterKeyProvider;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
@@ -19,6 +20,7 @@ use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use Netresearch\NrVault\Upgrades\AuditHmacMigrationWizard;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Configuration\ExtensionConfiguration as Typo3ExtensionConfiguration;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface;
 
@@ -134,7 +136,14 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 2;
         FileMasterKeyProvider::clearCachedKey();
 
-        $wizard = $this->buildWizard();
+        // Build the wizard with a fresh ExtensionConfiguration so it picks
+        // up the new epoch from $GLOBALS — the DI-resolved instance is a
+        // singleton that cached the previous value at construction.
+        $wizard = new AuditHmacMigrationWizard(
+            $this->get(ConnectionPool::class),
+            $this->get(MasterKeyProviderInterface::class),
+            new ExtensionConfiguration(new Typo3ExtensionConfiguration()),
+        );
 
         self::assertTrue(
             $wizard->updateNecessary(),
