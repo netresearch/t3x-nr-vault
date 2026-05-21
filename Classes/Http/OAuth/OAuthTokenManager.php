@@ -328,24 +328,7 @@ final class OAuthTokenManager
                         'source' => 'oauth_refresh',
                     ]);
                 } catch (Throwable $storeException) {
-                    $this->logger?->error(
-                        'OAuth refresh_token rotation: vault store failed — returning access_token but '
-                        . 'subsequent refresh will fail until vault is writeable (auto-recovers via '
-                        . 'fetchTokenWithFallback()).',
-                        [
-                            'token_endpoint' => $config->tokenEndpoint,
-                            'refresh_token_secret' => $config->refreshTokenSecret,
-                            'error' => $storeException->getMessage(),
-                        ],
-                    );
-
-                    $this->auditLogService?->log(
-                        $config->refreshTokenSecret,
-                        'oauth_refresh_store_failed',
-                        false,
-                        'vault store of new refresh_token failed; access_token returned to caller, '
-                        . 'next refresh will fall back to client_credentials',
-                    );
+                    $this->handleRefreshTokenStorageFailure($config, $storeException);
                 }
             }
 
@@ -375,6 +358,57 @@ final class OAuthTokenManager
             throw OAuthException::requestFailed($e->getMessage(), $e);
         } catch (JsonException $e) {
             throw OAuthException::invalidJsonResponse($e);
+        }
+    }
+
+    /**
+     * Best-effort reporting of a refresh-token storage failure.
+     *
+     * Crash-safe by design: both the PSR-3 logger and the audit-log writer
+     * are wrapped in their own `try/catch` because they likely share the
+     * same DB as the failing vault — propagating either would still cost
+     * the caller the access_token they just obtained. Final fallback is
+     * `error_log()`, which writes via PHP's own error handler and does
+     * not depend on the DB.
+     *
+     * The vault identifier (`refreshTokenSecret`) is hashed before
+     * logging — the path itself reveals which secrets exist in the vault
+     * and is useful enough to attackers that we treat it as semi-secret.
+     */
+    private function handleRefreshTokenStorageFailure(OAuthConfig $config, Throwable $storeException): void
+    {
+        $secretIdHash = $config->refreshTokenSecret !== null
+            ? substr(hash('sha256', $config->refreshTokenSecret), 0, 16)
+            : null;
+
+        $message = 'OAuth refresh_token rotation: vault store failed — returning access_token but '
+            . 'subsequent refresh will fail until vault is writeable (auto-recovers via '
+            . 'fetchTokenWithFallback()).';
+        $context = [
+            'token_endpoint' => $config->tokenEndpoint,
+            'refresh_token_secret_hash' => $secretIdHash,
+            'error' => $storeException->getMessage(),
+        ];
+
+        try {
+            $this->logger?->error($message, $context);
+        } catch (Throwable) {
+            // Last-resort: PHP's own error log is independent of DB / logger backend.
+            error_log('nr-vault: ' . $message . ' [' . $storeException->getMessage() . ']');
+        }
+
+        try {
+            $this->auditLogService?->log(
+                $config->refreshTokenSecret ?? '',
+                'oauth_refresh_store_failed',
+                false,
+                'vault store of new refresh_token failed; access_token returned to caller, '
+                . 'next refresh will fall back to client_credentials',
+            );
+        } catch (Throwable) {
+            // Audit log likely uses the same DB as the vault — propagating
+            // here would still cost the caller the access_token. The
+            // logger->error above already captured the failure.
         }
     }
 
