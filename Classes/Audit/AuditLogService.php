@@ -69,7 +69,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 $context,
                 $previousHash,
             );
-            $this->insertAndUpdateHash($connection, $data, $secretIdentifier, $action, $previousHash);
+            $this->insertAndUpdateHash($connection, $data, $previousHash);
             $this->commitAuditLock($connection, $isSQLite);
         } catch (Throwable $e) {
             $this->rollbackAuditLock($connection, $isSQLite);
@@ -220,15 +220,15 @@ final readonly class AuditLogService implements AuditLogServiceInterface
 
                 $previousEpoch = $epoch;
 
-                $expectedHash = self::calculateHash(
-                    $uid,
-                    $secretId,
-                    $actionStr,
-                    $actorUid,
-                    $crdate,
-                    $previousHash,
-                    $epoch === 0 ? null : $hmacKey,
-                );
+                // Epoch-aware hash dispatch:
+                //   0 → legacy SHA-256 (identity fields only)
+                //   1 → HMAC-SHA256 (identity fields only)
+                //   2+ → HMAC-SHA256 (extended forensic payload)
+                $expectedHash = match (true) {
+                    $epoch === 0 => self::calculateHash($uid, $secretId, $actionStr, $actorUid, $crdate, $previousHash),
+                    $epoch === 1 => self::calculateHash($uid, $secretId, $actionStr, $actorUid, $crdate, $previousHash, $hmacKey),
+                    default => self::calculateHashV2(self::extractV2HashRow($row), $previousHash, $hmacKey),
+                };
 
                 // Verify previous_hash matches
                 $rowPrevHash = $row['previous_hash'] ?? '';
@@ -268,10 +268,17 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
-     * Calculate an audit log entry hash.
+     * Calculate an audit log entry hash (legacy / v1 payload).
+     *
+     * Covers identity-bearing fields only: uid, secret_identifier, action,
+     * actor_uid, crdate, previous_hash.
      *
      * When $hmacKey is null, produces a legacy SHA-256 hash (epoch 0).
-     * When $hmacKey is provided, produces an HMAC-SHA256 hash (epoch 1+).
+     * When $hmacKey is provided, produces an HMAC-SHA256 hash (epoch 1).
+     *
+     * Epoch 2+ entries use `calculateHashV2()` which adds forensic fields
+     * (success, error_message, reason, ip_address, user_agent, hash_before,
+     * hash_after, context) to the HMAC payload.
      *
      * This method is public so it can be reused by the migration command
      * without duplicating the HKDF derivation logic.
@@ -302,9 +309,64 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
-     * Type-safe extraction of the audit-row fields that feed into the hash
-     * calculation. Defends against `mixed` shapes returned by Doctrine
-     * `fetchAssociative()` on different drivers.
+     * Calculate an audit log entry hash with the extended (v2) payload.
+     *
+     * Includes all forensic fields the verifier cares about: an attacker
+     * with database-write privileges can no longer flip `success: false →
+     * true` or rewrite `error_message`/`reason`/`ip_address`/`user_agent`
+     * without breaking the chain.
+     *
+     * Payload keys (ordered for deterministic JSON):
+     *   uid, secret_identifier, action, success, actor_uid, crdate,
+     *   previous_hash, error_message, reason, ip_address, user_agent,
+     *   hash_before, hash_after, context
+     *
+     * @param array{
+     *     uid: int,
+     *     secret_identifier: string,
+     *     action: string,
+     *     success: bool|int,
+     *     actor_uid: int,
+     *     crdate: int,
+     *     error_message: string,
+     *     reason: string,
+     *     ip_address: string,
+     *     user_agent: string,
+     *     hash_before: string,
+     *     hash_after: string,
+     *     context: string,
+     * } $row
+     */
+    public static function calculateHashV2(
+        array $row,
+        string $previousHash,
+        #[SensitiveParameter]
+        string $hmacKey,
+    ): string {
+        $payload = json_encode([
+            'uid' => (int) $row['uid'],
+            'secret_identifier' => (string) $row['secret_identifier'],
+            'action' => (string) $row['action'],
+            'success' => (int) (bool) $row['success'],
+            'actor_uid' => (int) $row['actor_uid'],
+            'crdate' => (int) $row['crdate'],
+            'previous_hash' => $previousHash,
+            'error_message' => (string) $row['error_message'],
+            'reason' => (string) $row['reason'],
+            'ip_address' => (string) $row['ip_address'],
+            'user_agent' => (string) $row['user_agent'],
+            'hash_before' => (string) $row['hash_before'],
+            'hash_after' => (string) $row['hash_after'],
+            'context' => (string) $row['context'],
+        ], JSON_THROW_ON_ERROR);
+
+        return hash_hmac('sha256', $payload, $hmacKey);
+    }
+
+    /**
+     * Type-safe extraction of the audit-row fields that feed into the v1
+     * hash calculation (`calculateHash()`). Defends against `mixed` shapes
+     * returned by Doctrine `fetchAssociative()` on different drivers.
      *
      * @param array<string, mixed> $row
      *
@@ -319,6 +381,49 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             'actorUid' => is_numeric($row['actor_uid'] ?? null) ? (int) $row['actor_uid'] : 0,
             'crdate' => is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : 0,
             'epoch' => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
+        ];
+    }
+
+    /**
+     * Type-safe extraction of the audit-row fields for the v2 hash payload
+     * (`calculateHashV2()`). Adds the forensic fields that v1 does not bind
+     * into the chain: success, error_message, reason, ip_address, user_agent,
+     * hash_before, hash_after, context.
+     *
+     * @param array<string, mixed> $row
+     *
+     * @return array{
+     *     uid: int,
+     *     secret_identifier: string,
+     *     action: string,
+     *     success: int,
+     *     actor_uid: int,
+     *     crdate: int,
+     *     error_message: string,
+     *     reason: string,
+     *     ip_address: string,
+     *     user_agent: string,
+     *     hash_before: string,
+     *     hash_after: string,
+     *     context: string,
+     * }
+     */
+    public static function extractV2HashRow(array $row): array
+    {
+        return [
+            'uid' => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
+            'secret_identifier' => \is_string($row['secret_identifier'] ?? null) ? $row['secret_identifier'] : '',
+            'action' => \is_string($row['action'] ?? null) ? $row['action'] : '',
+            'success' => is_numeric($row['success'] ?? null) ? (int) (bool) $row['success'] : 0,
+            'actor_uid' => is_numeric($row['actor_uid'] ?? null) ? (int) $row['actor_uid'] : 0,
+            'crdate' => is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : 0,
+            'error_message' => \is_string($row['error_message'] ?? null) ? $row['error_message'] : '',
+            'reason' => \is_string($row['reason'] ?? null) ? $row['reason'] : '',
+            'ip_address' => \is_string($row['ip_address'] ?? null) ? $row['ip_address'] : '',
+            'user_agent' => \is_string($row['user_agent'] ?? null) ? $row['user_agent'] : '',
+            'hash_before' => \is_string($row['hash_before'] ?? null) ? $row['hash_before'] : '',
+            'hash_after' => \is_string($row['hash_after'] ?? null) ? $row['hash_after'] : '',
+            'context' => \is_string($row['context'] ?? null) ? $row['context'] : '',
         ];
     }
 
@@ -418,26 +523,13 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     private function insertAndUpdateHash(
         Connection $connection,
         array $data,
-        string $secretIdentifier,
-        string $action,
         string $previousHash,
     ): void {
         $connection->insert(self::TABLE_NAME, $data);
         $uid = (int) $connection->lastInsertId();
+        $data['uid'] = $uid;
 
-        $actorUid = \is_int($data['actor_uid'] ?? null) ? $data['actor_uid'] : 0;
-        $crdate = \is_int($data['crdate'] ?? null) ? $data['crdate'] : 0;
-        $epoch = \is_int($data['hmac_key_epoch'] ?? null) ? $data['hmac_key_epoch'] : 0;
-
-        $entryHash = $this->calculateEntryHash(
-            $uid,
-            $secretIdentifier,
-            $action,
-            $actorUid,
-            $crdate,
-            $previousHash,
-            $epoch,
-        );
+        $entryHash = $this->calculateEntryHashFromRow($data, $previousHash);
 
         $connection->update(
             self::TABLE_NAME,
@@ -447,28 +539,52 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
-     * Calculate hash for an audit log entry.
+     * Calculate the entry hash for a freshly-inserted (or to-be-rehashed)
+     * row, dispatching by `hmac_key_epoch`:
      *
-     * Epoch 0 uses legacy SHA-256 (no HMAC key) for backward compatibility.
-     * Epoch 1+ uses HMAC-SHA256 with a key derived from the master key.
+     *   - epoch 0 → legacy SHA-256 over identity fields only (no HMAC key)
+     *   - epoch 1 → HMAC-SHA256 over identity fields
+     *   - epoch 2 → HMAC-SHA256 over identity + forensic fields (success,
+     *               error_message, reason, ip_address, user_agent,
+     *               hash_before, hash_after, context)
+     *
+     * @param array<string, mixed> $row Must contain `hmac_key_epoch`; epoch
+     *                                  2 also requires the forensic fields
+     *                                  (see `extractV2HashRow()`).
      */
-    private function calculateEntryHash(
-        int $uid,
-        string $secretIdentifier,
-        string $action,
-        int $actorUid,
-        int $crdate,
-        string $previousHash,
-        int $epoch = 0,
-    ): string {
+    private function calculateEntryHashFromRow(array $row, string $previousHash): string
+    {
+        $epoch = \is_int($row['hmac_key_epoch'] ?? null) ? $row['hmac_key_epoch'] : 0;
+        $v1 = self::extractHashRow($row);
+
         if ($epoch === 0) {
-            return self::calculateHash($uid, $secretIdentifier, $action, $actorUid, $crdate, $previousHash);
+            return self::calculateHash(
+                $v1['uid'],
+                $v1['secretId'],
+                $v1['action'],
+                $v1['actorUid'],
+                $v1['crdate'],
+                $previousHash,
+            );
         }
 
         $hmacKey = $this->getHmacKey();
 
         try {
-            return self::calculateHash($uid, $secretIdentifier, $action, $actorUid, $crdate, $previousHash, $hmacKey);
+            if ($epoch === 1) {
+                return self::calculateHash(
+                    $v1['uid'],
+                    $v1['secretId'],
+                    $v1['action'],
+                    $v1['actorUid'],
+                    $v1['crdate'],
+                    $previousHash,
+                    $hmacKey,
+                );
+            }
+
+            // Epoch 2+: extended payload that covers forensic fields too.
+            return self::calculateHashV2(self::extractV2HashRow($row), $previousHash, $hmacKey);
         } finally {
             sodium_memzero($hmacKey);
         }

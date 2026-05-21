@@ -154,23 +154,26 @@ final class VaultAuditMigrateCommand extends Command
             while (($row = $result->fetchAssociative()) !== false) {
                 $entry = AuditLogService::extractHashRow($row);
                 $uid = $entry['uid'];
-                $secretId = $entry['secretId'];
-                $actionStr = $entry['action'];
-                $actorUid = $entry['actorUid'];
-                $crdate = $entry['crdate'];
                 $epoch = $entry['epoch'];
 
-                // Re-hash ALL entries (including already-epoch-1 entries) to maintain chain integrity.
-                // After re-hashing, all entries use HMAC with the current master key.
-                $newHash = AuditLogService::calculateHash(
-                    $uid,
-                    $secretId,
-                    $actionStr,
-                    $actorUid,
-                    $crdate,
-                    $previousHash,
-                    $hmacKey,
-                );
+                // Re-hash ALL entries to maintain chain integrity. Dispatch by
+                // target epoch: v1 covers identity fields only, v2 adds the
+                // forensic fields (success/error_message/reason/ip/UA/context).
+                $newHash = $targetEpoch >= 2
+                    ? AuditLogService::calculateHashV2(
+                        AuditLogService::extractV2HashRow($row),
+                        $previousHash,
+                        $hmacKey,
+                    )
+                    : AuditLogService::calculateHash(
+                        $uid,
+                        $entry['secretId'],
+                        $entry['action'],
+                        $entry['actorUid'],
+                        $entry['crdate'],
+                        $previousHash,
+                        $hmacKey,
+                    );
 
                 if (!$dryRun) {
                     $connection->update(
@@ -186,7 +189,7 @@ final class VaultAuditMigrateCommand extends Command
 
                 $previousHash = $newHash;
 
-                if ($epoch === 0) {
+                if ($epoch !== $targetEpoch) {
                     ++$migratedCount;
                 }
 

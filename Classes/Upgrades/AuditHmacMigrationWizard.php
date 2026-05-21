@@ -173,15 +173,24 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
         while (($row = $result->fetchAssociative()) !== false) {
             $entry = AuditLogService::extractHashRow($row);
 
-            $newHash = AuditLogService::calculateHash(
-                $entry['uid'],
-                $entry['secretId'],
-                $entry['action'],
-                $entry['actorUid'],
-                $entry['crdate'],
-                $previousHash,
-                $hmacKey,
-            );
+            // Dispatch by target epoch: v1 covers identity fields only, v2
+            // adds the forensic fields (success / error_message / reason /
+            // ip_address / user_agent / hash_before / hash_after / context).
+            $newHash = $targetEpoch >= 2
+                ? AuditLogService::calculateHashV2(
+                    AuditLogService::extractV2HashRow($row),
+                    $previousHash,
+                    $hmacKey,
+                )
+                : AuditLogService::calculateHash(
+                    $entry['uid'],
+                    $entry['secretId'],
+                    $entry['action'],
+                    $entry['actorUid'],
+                    $entry['crdate'],
+                    $previousHash,
+                    $hmacKey,
+                );
 
             $connection->update(
                 self::TABLE_NAME,
@@ -194,7 +203,7 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
             );
 
             $previousHash = $newHash;
-            if ($entry['epoch'] === 0) {
+            if ($entry['epoch'] !== $targetEpoch) {
                 ++$migratedCount;
             }
         }

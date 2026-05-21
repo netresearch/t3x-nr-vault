@@ -1020,6 +1020,110 @@ final class AuditLogServiceTest extends TestCase
     }
 
     // =========================================================================
+    // Epoch 2 — extended hash payload covering forensic fields.
+    //
+    // The v1 hash binds only identity fields (uid / secret_identifier /
+    // action / actor_uid / crdate / previous_hash). An attacker with
+    // DB-write privileges could flip `success: false → true` or rewrite
+    // `error_message` / `reason` / `ip_address` / `user_agent` without
+    // breaking the chain. Epoch 2 extends the HMAC payload to cover those
+    // fields too.
+    // =========================================================================
+
+    #[Test]
+    public function calculateHashV2DiffersForDifferentSuccess(): void
+    {
+        $hmacKey = str_repeat("\xAA", 32);
+        $base = $this->makeV2Row(success: 1);
+        $tampered = $this->makeV2Row(success: 0);
+
+        $h1 = AuditLogService::calculateHashV2($base, '', $hmacKey);
+        $h2 = AuditLogService::calculateHashV2($tampered, '', $hmacKey);
+
+        self::assertNotSame($h1, $h2, 'Flipping `success` must change the chain hash');
+    }
+
+    #[Test]
+    public function calculateHashV2DiffersForDifferentErrorMessage(): void
+    {
+        $hmacKey = str_repeat("\xAA", 32);
+        $base = $this->makeV2Row(errorMessage: 'access denied');
+        $tampered = $this->makeV2Row(errorMessage: '');
+
+        $h1 = AuditLogService::calculateHashV2($base, '', $hmacKey);
+        $h2 = AuditLogService::calculateHashV2($tampered, '', $hmacKey);
+
+        self::assertNotSame($h1, $h2, 'Rewriting `error_message` must change the chain hash');
+    }
+
+    #[Test]
+    public function calculateHashV2DiffersForDifferentIpAddress(): void
+    {
+        $hmacKey = str_repeat("\xAA", 32);
+        $base = $this->makeV2Row(ipAddress: '10.0.0.5');
+        $tampered = $this->makeV2Row(ipAddress: '192.168.1.1');
+
+        $h1 = AuditLogService::calculateHashV2($base, '', $hmacKey);
+        $h2 = AuditLogService::calculateHashV2($tampered, '', $hmacKey);
+
+        self::assertNotSame($h1, $h2, 'Rewriting `ip_address` must change the chain hash');
+    }
+
+    #[Test]
+    public function verifyHashChainEpoch2DetectsForensicTampering(): void
+    {
+        $masterKey = str_repeat("\x01", 32);
+        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+
+        $row = [
+            'uid' => 1,
+            'secret_identifier' => 'sek',
+            'action' => 'access_denied',
+            'success' => 0,
+            'actor_uid' => 1,
+            'crdate' => 1704067200,
+            'error_message' => 'access denied',
+            'reason' => 'group not in allowlist',
+            'ip_address' => '10.0.0.5',
+            'user_agent' => 'curl/8',
+            'hash_before' => '',
+            'hash_after' => '',
+            'context' => '{}',
+        ];
+        $validHash = AuditLogService::calculateHashV2($row, '', $hmacKey);
+
+        // Attacker flips `success` from 0 to 1 in storage, but the stored
+        // entry_hash still binds the original `success: 0` payload.
+        $tamperedRow = array_merge($row, [
+            'success' => 1,
+            'previous_hash' => '',
+            'entry_hash' => $validHash,
+            'hmac_key_epoch' => 2,
+        ]);
+
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAllAssociative')->willReturn([$tamperedRow]);
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($this->connection);
+        $this->connection
+            ->method('createQueryBuilder')
+            ->willReturn($this->queryBuilder);
+        $this->queryBuilder->method('select')->willReturnSelf();
+        $this->queryBuilder->method('from')->willReturnSelf();
+        $this->queryBuilder->method('orderBy')->willReturnSelf();
+        $this->queryBuilder->method('executeQuery')->willReturn($result);
+
+        $verification = $this->getSubject()->verifyHashChain();
+
+        self::assertFalse(
+            $verification->isValid(),
+            'verifyHashChain MUST detect tampering of forensic fields when epoch=2',
+        );
+    }
+
+    // =========================================================================
     // Strict-assertion tests — kill IncrementInteger/DecrementInteger/CastInt/
     // Coalesce/MethodCallRemoval/ConcatOperandRemoval mutators on AuditLogService.
     // =========================================================================
@@ -1947,6 +2051,49 @@ final class AuditLogServiceTest extends TestCase
 
         // Kills increments / decrements on gapStart and gapEnd computations.
         self::assertSame([2, 3, 4], $verification->missingUids);
+    }
+
+    /**
+     * Build a v2 hash row with sensible defaults; override individual fields
+     * via named parameters.
+     *
+     * @return array{
+     *     uid: int, secret_identifier: string, action: string, success: int,
+     *     actor_uid: int, crdate: int, error_message: string, reason: string,
+     *     ip_address: string, user_agent: string, hash_before: string,
+     *     hash_after: string, context: string,
+     * }
+     */
+    private function makeV2Row(
+        int $uid = 1,
+        string $secretIdentifier = 'sek',
+        string $action = 'read',
+        int $success = 1,
+        int $actorUid = 1,
+        int $crdate = 1704067200,
+        string $errorMessage = '',
+        string $reason = '',
+        string $ipAddress = '10.0.0.5',
+        string $userAgent = 'curl/8',
+        string $hashBefore = '',
+        string $hashAfter = '',
+        string $context = '{}',
+    ): array {
+        return [
+            'uid' => $uid,
+            'secret_identifier' => $secretIdentifier,
+            'action' => $action,
+            'success' => $success,
+            'actor_uid' => $actorUid,
+            'crdate' => $crdate,
+            'error_message' => $errorMessage,
+            'reason' => $reason,
+            'ip_address' => $ipAddress,
+            'user_agent' => $userAgent,
+            'hash_before' => $hashBefore,
+            'hash_after' => $hashAfter,
+            'context' => $context,
+        ];
     }
 
     private function getSubject(): AuditLogService
