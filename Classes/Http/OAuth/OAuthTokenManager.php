@@ -25,6 +25,7 @@ use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Log\LoggerInterface;
+use Throwable;
 
 /**
  * Manages OAuth 2.0 token acquisition and refresh.
@@ -309,11 +310,43 @@ final class OAuthTokenManager
             $expiresIn = \is_int($body['expires_in'] ?? null) ? $body['expires_in'] : 3600;
             $expiresAt = new DateTimeImmutable('+' . $expiresIn . ' seconds');
 
-            // Store new refresh token if provided
+            // Store new refresh token if provided.
+            //
+            // Crash safety: the OAuth server has already issued the new tokens
+            // and (per RFC 6749 §6) will typically have invalidated the old
+            // refresh token. If `vaultService->store()` throws here we must
+            // NOT propagate — the caller would lose the access_token we just
+            // obtained, and the vault would still hold the now-invalidated
+            // old refresh_token. Instead: log loudly, return the access_token
+            // so the caller's current request succeeds. The next refresh
+            // attempt will fetch the stale refresh_token from the vault, the
+            // OAuth server will reject it, and `fetchTokenWithFallback()`
+            // will auto-recover via the `client_credentials` flow.
             if (isset($body['refresh_token']) && \is_string($body['refresh_token']) && $config->refreshTokenSecret !== null) {
-                $this->vaultService->store($config->refreshTokenSecret, $body['refresh_token'], [
-                    'source' => 'oauth_refresh',
-                ]);
+                try {
+                    $this->vaultService->store($config->refreshTokenSecret, $body['refresh_token'], [
+                        'source' => 'oauth_refresh',
+                    ]);
+                } catch (Throwable $storeException) {
+                    $this->logger?->error(
+                        'OAuth refresh_token rotation: vault store failed — returning access_token but '
+                        . 'subsequent refresh will fail until vault is writeable (auto-recovers via '
+                        . 'fetchTokenWithFallback()).',
+                        [
+                            'token_endpoint' => $config->tokenEndpoint,
+                            'refresh_token_secret' => $config->refreshTokenSecret,
+                            'error' => $storeException->getMessage(),
+                        ],
+                    );
+
+                    $this->auditLogService?->log(
+                        $config->refreshTokenSecret,
+                        'oauth_refresh_store_failed',
+                        false,
+                        'vault store of new refresh_token failed; access_token returned to caller, '
+                        . 'next refresh will fall back to client_credentials',
+                    );
+                }
             }
 
             $this->logger?->info('OAuth token obtained successfully', [

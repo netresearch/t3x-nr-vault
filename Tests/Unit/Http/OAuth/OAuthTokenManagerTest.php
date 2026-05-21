@@ -811,6 +811,61 @@ final class OAuthTokenManagerTest extends TestCase
     }
 
     #[Test]
+    public function getAccessTokenReturnsAccessTokenEvenWhenRefreshTokenStorageFails(): void
+    {
+        // If the OAuth response includes a new refresh_token but `vaultService
+        // ->store()` throws (DB down, audit lock failed, etc.), the manager
+        // must NOT propagate. The OAuth server has already issued the new
+        // tokens and (per RFC 6749 §6) typically invalidated the old refresh
+        // token — propagating the throw would also lose the access_token we
+        // just obtained. The caller's current request succeeds; the next
+        // refresh attempt will fall back to client_credentials.
+        $config = OAuthConfig::refreshToken(
+            tokenEndpoint: 'https://auth.example.com/token',
+            clientIdSecret: 'oauth/client-id',
+            clientSecretSecret: 'oauth/client-secret',
+            refreshTokenSecret: 'oauth/refresh-token',
+        );
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(fn (string $id): ?string => match ($id) {
+                'oauth/client-id' => 'my-client-id',
+                'oauth/client-secret' => 'my-client-secret',
+                'oauth/refresh-token' => 'old-refresh-token',
+                default => null,
+            });
+
+        $this->vaultService
+            ->expects(self::once())
+            ->method('store')
+            ->willThrowException(new \RuntimeException('vault write failed mid-OAuth-refresh'));
+
+        $response = $this->createSuccessfulTokenResponse([
+            'access_token' => 'new-access-token',
+            'token_type' => 'Bearer',
+            'expires_in' => 3600,
+            'refresh_token' => 'new-refresh-token',
+        ]);
+
+        $this->httpClient
+            ->expects(self::once())
+            ->method('sendRequest')
+            ->willReturn($response);
+
+        // The logger must report the storage failure at error level so ops
+        // can notice and remediate.
+        $this->logger
+            ->expects(self::atLeastOnce())
+            ->method('error')
+            ->with(self::stringContains('vault store failed'));
+
+        $token = $this->subject->getAccessToken($config);
+
+        self::assertSame('new-access-token', $token, 'Access token must reach the caller even when vault store fails');
+    }
+
+    #[Test]
     public function getAccessTokenWithNoRefreshTokenSecretConfigDoesNotStoreRefreshToken(): void
     {
         // refreshTokenSecret = null → even if response contains refresh_token, do not store
