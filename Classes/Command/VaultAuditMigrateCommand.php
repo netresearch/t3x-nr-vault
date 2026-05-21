@@ -13,6 +13,7 @@ use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
+use Netresearch\NrVault\Exception\AuditMigrationException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\ProgressBar;
@@ -131,12 +132,22 @@ final class VaultAuditMigrateCommand extends Command
         bool $dryRun,
     ): int {
         // Acquire an advisory lock to prevent concurrent writes during migration.
+        // GET_LOCK returns 1 on success, 0 on timeout, NULL on error — check the
+        // return so a contended lock aborts rather than silently running unprotected.
         $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
+        $lockAcquired = false;
 
         if ($isSQLite) {
             $connection->executeStatement('BEGIN EXCLUSIVE');
+            $lockAcquired = true;
         } else {
-            $connection->executeStatement('SELECT GET_LOCK("nr_vault_audit", 5)');
+            $lockResult = $connection->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')->fetchOne();
+            if ((int) $lockResult !== 1) {
+                throw AuditMigrationException::lockAcquisitionFailed(
+                    $lockResult === null ? 'NULL (DB error)' : (string) $lockResult,
+                );
+            }
+            $lockAcquired = true;
             $connection->beginTransaction();
         }
 

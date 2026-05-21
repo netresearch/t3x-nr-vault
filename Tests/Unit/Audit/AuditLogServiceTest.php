@@ -17,6 +17,7 @@ use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
+use Netresearch\NrVault\Exception\AuditWriteException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -212,6 +213,10 @@ final class AuditLogServiceTest extends TestCase
         // getLatestHash() uses fetchOne() which returns the value directly
         $result->method('fetchOne')->willReturn('previous_hash_abc123');
 
+        // GET_LOCK lock-acquisition stub
+        $lockResult = $this->createMock(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
         $this->connectionPool
             ->method('getConnectionForTable')
             ->willReturn($this->connection);
@@ -220,6 +225,10 @@ final class AuditLogServiceTest extends TestCase
         $this->connection
             ->method('createQueryBuilder')
             ->willReturn($this->queryBuilder);
+
+        $this->connection
+            ->method('executeQuery')
+            ->willReturn($lockResult);
 
         $this->queryBuilder
             ->method('expr')
@@ -1665,6 +1674,37 @@ final class AuditLogServiceTest extends TestCase
     }
 
     /**
+     * If GET_LOCK returns 0 (timeout) or NULL (DB error), `log()` must throw
+     * AuditWriteException and NOT insert anything. The previous implementation
+     * silently fell through and wrote the audit row unprotected.
+     */
+    #[Test]
+    public function logThrowsWhenLockAcquisitionFails(): void
+    {
+        $lockResult = $this->createMock(Result::class);
+        $lockResult->method('fetchOne')->willReturn(0); // 0 = timeout
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($this->connection);
+
+        $this->connection
+            ->method('executeQuery')
+            ->willReturn($lockResult);
+        $this->connection
+            ->expects(self::never())
+            ->method('insert');
+        $this->connection
+            ->expects(self::never())
+            ->method('beginTransaction');
+
+        $this->expectException(AuditWriteException::class);
+        $this->expectExceptionMessageMatches('/GET_LOCK returned 0/');
+
+        $this->getSubject()->log('s', 'read', true);
+    }
+
+    /**
      * Kills Increment/Decrement on `setMaxResults(1)` in getPreviousHash (log flow).
      */
     #[Test]
@@ -1673,6 +1713,10 @@ final class AuditLogServiceTest extends TestCase
         $result = $this->createMock(Result::class);
         $result->method('fetchOne')->willReturn(false);
 
+        // GET_LOCK lock-acquisition stub
+        $lockResult = $this->createMock(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
         $this->connectionPool
             ->method('getConnectionForTable')
             ->willReturn($this->connection);
@@ -1680,6 +1724,10 @@ final class AuditLogServiceTest extends TestCase
         $this->connection
             ->method('createQueryBuilder')
             ->willReturn($this->queryBuilder);
+
+        $this->connection
+            ->method('executeQuery')
+            ->willReturn($lockResult);
 
         $this->queryBuilder->method('select')->willReturnSelf();
         $this->queryBuilder->method('from')->willReturnSelf();
@@ -1903,6 +1951,12 @@ final class AuditLogServiceTest extends TestCase
         // getLatestHash() uses fetchOne() which returns false when no rows exist
         $result->method('fetchOne')->willReturn(false);
 
+        // GET_LOCK on MySQL/MariaDB returns 1 on success. Mock the runtime lock
+        // acquisition path so tests that don't explicitly stub it don't fail
+        // with AuditWriteException::lockAcquisitionFailed().
+        $lockResult = $this->createMock(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
         $this->connectionPool
             ->method('getConnectionForTable')
             ->willReturn($this->connection);
@@ -1911,6 +1965,12 @@ final class AuditLogServiceTest extends TestCase
         $this->connection
             ->method('createQueryBuilder')
             ->willReturn($this->queryBuilder);
+
+        // $connection->executeQuery('SELECT GET_LOCK(...)') is called directly
+        // (not via QueryBuilder) for the audit advisory lock.
+        $this->connection
+            ->method('executeQuery')
+            ->willReturn($lockResult);
 
         $this->queryBuilder
             ->method('expr')
