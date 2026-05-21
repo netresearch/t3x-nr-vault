@@ -292,10 +292,17 @@ final class OAuthTokenManager
     /**
      * Send the PSR-7 token request. Caller owns the `$params` VO and is
      * responsible for calling `$params->wipeCredentials()` after this
-     * returns (whether by exception or normal return).
+     * returns. The caller's `finally` in `fetchToken()` covers the case
+     * where this method throws (Stream/Request factory or HTTP client) —
+     * exception propagates up and the outer finally wipes credentials
+     * regardless.
      */
     private function dispatchTokenRequest(OAuthConfig $config, OAuthTokenRequestParams $params): ResponseInterface
     {
+        // `toHttpQuery()` builds a one-shot encoded body. Any throw from
+        // the stream/request factories (or sendRequest) bubbles to the
+        // outer `finally` in `fetchToken()` which calls
+        // `$params->wipeCredentials()` — no `try/finally` needed here.
         $body = $this->streamFactory->createStream($params->toHttpQuery());
         $request = $this->requestFactory->createRequest('POST', $config->tokenEndpoint)
             ->withHeader('Content-Type', 'application/x-www-form-urlencoded')

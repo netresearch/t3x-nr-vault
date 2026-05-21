@@ -363,7 +363,12 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
-     * Assemble the audit-row data array. Side-effect-free; pure shape mapping.
+     * Assemble the audit-row data array.
+     *
+     * Reads from the environment (`time()`, `$_SERVER`, `getCurrentEpoch()`,
+     * `getClientIp()`, `getUserAgent()`, `getRequestId()`) but does not
+     * mutate any state — does not write the DB, does not touch the audit
+     * chain, does not allocate locks. Safe to call ahead of `insertAndUpdateHash`.
      *
      * @return array<string, mixed>
      */
