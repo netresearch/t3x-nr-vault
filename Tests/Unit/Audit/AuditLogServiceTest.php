@@ -1663,6 +1663,60 @@ final class AuditLogServiceTest extends TestCase
     }
 
     /**
+     * If `beginTransaction()` throws AFTER `GET_LOCK` returned 1, the named
+     * lock must be released before the exception propagates — otherwise the
+     * lock remains held for the connection's lifetime and blocks every
+     * subsequent audit-log writer (caught by gemini-code-assist and
+     * copilot-pull-request-reviewer on PR #134).
+     */
+    #[Test]
+    public function logReleasesLockWhenBeginTransactionFails(): void
+    {
+        $lockResult = $this->createMock(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1); // 1 = acquired
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($this->connection);
+
+        // GET_LOCK and the subsequent RELEASE_LOCK both go through executeQuery
+        // / executeStatement; track RELEASE_LOCK was called by recording all
+        // executeStatement invocations.
+        $executeStatementCalls = [];
+        $this->connection
+            ->method('executeStatement')
+            ->willReturnCallback(function (string $sql) use (&$executeStatementCalls): int {
+                $executeStatementCalls[] = $sql;
+
+                return 0;
+            });
+        $this->connection
+            ->method('executeQuery')
+            ->willReturn($lockResult);
+        $this->connection
+            ->method('beginTransaction')
+            ->willThrowException(new \RuntimeException('simulated DB failure mid-transaction-start'));
+        $this->connection
+            ->expects(self::never())
+            ->method('insert');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('simulated DB failure');
+
+        try {
+            $this->getSubject()->log('s', 'read', true);
+        } finally {
+            // RELEASE_LOCK must have been called even though the exception
+            // propagates out of log().
+            self::assertContains(
+                'SELECT RELEASE_LOCK("nr_vault_audit")',
+                $executeStatementCalls,
+                'Named lock must be released when beginTransaction() throws',
+            );
+        }
+    }
+
+    /**
      * Kills Increment/Decrement on `setMaxResults(1)` in getPreviousHash (log flow).
      */
     #[Test]

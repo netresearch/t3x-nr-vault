@@ -13,6 +13,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Audit;
 
 use Netresearch\NrVault\Exception\AuditWriteException;
+use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
 
 /**
@@ -51,7 +52,22 @@ trait AuditChainLockTrait
         if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
             throw AuditWriteException::lockAcquisitionFailed($lockResult);
         }
-        $connection->beginTransaction();
+
+        // The lock is now held. If `beginTransaction()` throws, the caller's
+        // try/finally has not started yet — so we must release the lock
+        // ourselves before re-throwing, or it leaks for the duration of the
+        // connection's lifetime.
+        try {
+            $connection->beginTransaction();
+        } catch (Throwable $e) {
+            try {
+                $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
+            } catch (Throwable) {
+                // Best-effort: connection close will release.
+            }
+
+            throw $e;
+        }
     }
 
     private function commitAuditLock(Connection $connection, bool $isSQLite): void
