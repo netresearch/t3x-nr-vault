@@ -48,11 +48,18 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 #[Group('oauth')]
 final class OAuthIntegrationTest extends FunctionalTestCase
 {
-    /** Mock OAuth server URL (internal ddev network). */
-    private const MOCK_OAUTH_INTERNAL_URL = 'http://mock-oauth:8080';
+    /**
+     * Mock OAuth server URL (internal ddev network).
+     * Plain `http://` is intentional: the mock OAuth sidecar (see
+     * `.ddev/docker-compose.mock-oauth.yaml`) only listens on plain
+     * HTTP because it runs inside the trusted ddev bridge network.
+     * NOSONAR — production OAuth integrations MUST use HTTPS via
+     * `OAuthConfig::tokenEndpoint`; this constant is test-only.
+     */
+    private const MOCK_OAUTH_INTERNAL_URL = 'http://mock-oauth:8080'; // NOSONAR
 
-    /** Mock OAuth server URL (external access). */
-    private const MOCK_OAUTH_EXTERNAL_URL = 'http://localhost:8080';
+    /** Mock OAuth server URL (external access). NOSONAR — test-only, see above. */
+    private const MOCK_OAUTH_EXTERNAL_URL = 'http://localhost:8080'; // NOSONAR
 
     protected array $testExtensionsToLoad = [
         'netresearch/nr-vault',
