@@ -75,26 +75,25 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             }
 
             $existing = $this->adapter->retrieve($identifier);
-            $isNew = !$existing instanceof Secret;
 
-            $this->assertWritePermission($identifier, $isNew, $existing);
+            $this->assertWritePermission($identifier, $existing);
 
             $encrypted = $this->encryptionService->encrypt($secret, $identifier);
-            $secretEntity = $this->buildSecretEntity($identifier, $encrypted, $options, $isNew, $existing);
+            $secretEntity = $this->buildSecretEntity($identifier, $encrypted, $options, $existing);
 
             $this->adapter->store($secretEntity);
 
             $this->auditLogService->log(
                 $identifier,
-                $isNew ? 'create' : 'update',
+                $existing instanceof Secret ? 'update' : 'create',
                 true,
                 null,
                 null,
-                $isNew ? null : $existing->getValueChecksum(),
+                $existing?->getValueChecksum(),
                 $encrypted->valueChecksum,
             );
 
-            $this->dispatchStoreEvent($identifier, $secretEntity, $isNew);
+            $this->dispatchStoreEvent($identifier, $secretEntity, !$existing instanceof Secret);
 
             unset($this->cache[$identifier]);
         } finally {
@@ -346,10 +345,13 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
     /**
      * Verify the current actor can create-or-update this secret. Logs the
      * denial and throws `AccessDeniedException` on rejection.
+     *
+     * `$existing === null` is treated as a create attempt; a non-null
+     * `$existing` is treated as an update attempt.
      */
-    private function assertWritePermission(string $identifier, bool $isNew, ?Secret $existing): void
+    private function assertWritePermission(string $identifier, ?Secret $existing): void
     {
-        if ($isNew) {
+        if (!$existing instanceof Secret) {
             if (!$this->accessControlService->canCreate()) {
                 $this->auditLogService->log($identifier, 'access_denied', false, 'Create access denied');
 
@@ -368,13 +370,15 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
     /**
      * Assemble the `Secret` aggregate from the encryption output + options.
      *
+     * `$existing === null` → create path (new entity, new crdate/cruserId).
+     * `$existing !== null` → update path (preserve uid/crdate/version).
+     *
      * @param array<string, mixed> $options
      */
     private function buildSecretEntity(
         string $identifier,
         EncryptedData $encrypted,
         array $options,
-        bool $isNew,
         ?Secret $existing,
     ): Secret {
         $secretEntity = new Secret();
@@ -386,10 +390,10 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         $secretEntity->setValueChecksum($encrypted->valueChecksum);
         $secretEntity->setAdapter('local');
 
-        $secretEntity->setOwnerUid($this->resolveOwnerUid($options, $isNew, $existing));
+        $secretEntity->setOwnerUid($this->resolveOwnerUid($options, $existing));
         $this->applyOptionalFields($secretEntity, $options);
 
-        if ($isNew) {
+        if (!$existing instanceof Secret) {
             $secretEntity->setCrdate(time());
             $secretEntity->setCruserId($this->accessControlService->getCurrentActorUid());
         } else {
@@ -408,9 +412,11 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
      *
      * @param array<string, mixed> $options
      */
-    private function resolveOwnerUid(array $options, bool $isNew, ?Secret $existing): int
+    private function resolveOwnerUid(array $options, ?Secret $existing): int
     {
-        $defaultOwner = $isNew ? $this->accessControlService->getCurrentActorUid() : $existing->getOwnerUid();
+        $defaultOwner = $existing instanceof Secret
+            ? $existing->getOwnerUid()
+            : $this->accessControlService->getCurrentActorUid();
         $requestedOwner = $defaultOwner;
         if (isset($options['owner'])) {
             $ownerRaw = $options['owner'];
@@ -499,7 +505,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
     private function dispatchStoreEvent(string $identifier, Secret $secretEntity, bool $isNew): void
     {
-        if ($this->eventDispatcher === null) {
+        if (!$this->eventDispatcher instanceof EventDispatcherInterface) {
             return;
         }
         if ($isNew) {

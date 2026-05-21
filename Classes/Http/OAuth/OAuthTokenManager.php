@@ -217,9 +217,9 @@ final class OAuthTokenManager
      */
     private function fetchToken(OAuthConfig $config): OAuthToken
     {
-        // Build the request params (incl. credentials/refresh_token from vault).
-        // Plaintext `$params` is wiped by `dispatchTokenRequest()` after the
-        // HTTP send.
+        // Build the request params VO (holds credentials/refresh_token from
+        // vault). Plaintext is wiped via `wipeCredentials()` in the
+        // `finally` block regardless of send success.
         $params = $this->buildTokenRequestParams($config);
 
         try {
@@ -242,18 +242,19 @@ final class OAuthTokenManager
             throw OAuthException::requestFailed($e->getMessage(), $e);
         } catch (JsonException $e) {
             throw OAuthException::invalidJsonResponse($e);
+        } finally {
+            $params->wipeCredentials();
         }
     }
 
     /**
      * Resolve credentials from the vault and assemble the OAuth token-request
-     * parameter set.
+     * parameter VO. The returned object holds credential plaintext until
+     * `wipeCredentials()` is called — the caller is responsible for that.
      *
      * @throws SecretNotFoundException If any required credential isn't in the vault
-     *
-     * @return array<string, string>
      */
-    private function buildTokenRequestParams(OAuthConfig $config): array
+    private function buildTokenRequestParams(OAuthConfig $config): OAuthTokenRequestParams
     {
         $clientId = $this->vaultService->retrieve($config->clientIdSecret);
         if ($clientId === null) {
@@ -267,14 +268,7 @@ final class OAuthTokenManager
             throw new SecretNotFoundException($config->clientSecretSecret, 4158358265);
         }
 
-        $params = [
-            'grant_type' => $config->grantType,
-            'client_id' => $clientId,
-            'client_secret' => $clientSecret,
-        ];
-        if ($config->scopes !== []) {
-            $params['scope'] = $config->getScopesString();
-        }
+        $refreshToken = null;
         if ($config->grantType === 'refresh_token' && $config->refreshTokenSecret !== null) {
             $refreshToken = $this->vaultService->retrieve($config->refreshTokenSecret);
             if ($refreshToken === null) {
@@ -283,36 +277,32 @@ final class OAuthTokenManager
 
                 throw new SecretNotFoundException($config->refreshTokenSecret, 6618787426);
             }
-            $params['refresh_token'] = $refreshToken;
         }
 
-        return array_merge($params, $config->additionalParams);
+        return new OAuthTokenRequestParams(
+            grantType: $config->grantType,
+            clientId: $clientId,
+            clientSecret: $clientSecret,
+            scope: $config->scopes !== [] ? $config->getScopesString() : null,
+            refreshToken: $refreshToken,
+            additionalParams: $config->additionalParams,
+        );
     }
 
     /**
-     * Send the PSR-7 token request and wipe credential plaintext from memory.
-     *
-     * @param array<string, string> $params
+     * Send the PSR-7 token request. Caller owns the `$params` VO and is
+     * responsible for calling `$params->wipeCredentials()` after this
+     * returns (whether by exception or normal return).
      */
-    private function dispatchTokenRequest(OAuthConfig $config, array &$params): ResponseInterface
+    private function dispatchTokenRequest(OAuthConfig $config, OAuthTokenRequestParams $params): ResponseInterface
     {
-        $body = $this->streamFactory->createStream(http_build_query($params));
+        $body = $this->streamFactory->createStream($params->toHttpQuery());
         $request = $this->requestFactory->createRequest('POST', $config->tokenEndpoint)
             ->withHeader('Content-Type', 'application/x-www-form-urlencoded')
             ->withHeader('Accept', 'application/json')
             ->withBody($body);
 
-        try {
-            return $this->httpClient->sendRequest($request);
-        } finally {
-            // Wipe credential plaintext regardless of send success.
-            foreach (['client_id', 'client_secret', 'refresh_token'] as $key) {
-                if (isset($params[$key])) {
-                    sodium_memzero($params[$key]);
-                    unset($params[$key]);
-                }
-            }
-        }
+        return $this->httpClient->sendRequest($request);
     }
 
     /**
