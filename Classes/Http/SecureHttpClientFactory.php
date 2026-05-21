@@ -126,6 +126,21 @@ final class SecureHttpClientFactory
             return false;
         }
 
+        /** @var array<string, array<string, mixed>> $confVars */
+        $confVars = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
+        /** @var array<string, mixed> $httpConfig */
+        $httpConfig = $confVars['HTTP'] ?? [];
+        $allowedHosts = $httpConfig['allowed_hosts'] ?? null;
+        $allowedHostsList = \is_array($allowedHosts) ? $allowedHosts : [];
+
+        // EXPLICIT allowlist match overrides the private-IP defence so on-prem
+        // deployments where the Vault server lives on RFC1918 can still reach
+        // it via a documented filesystem-only override. Wildcard patterns
+        // (`*.example.com`) do NOT bypass the IP guard — only literal matches.
+        if ($this->isExplicitlyAllowlisted($host, $allowedHostsList)) {
+            return true;
+        }
+
         // Hard block: IP literals in dangerous ranges
         if ($this->isDangerousIpLiteral($host)) {
             return false;
@@ -136,34 +151,43 @@ final class SecureHttpClientFactory
             return false;
         }
 
-        /** @var array<string, array<string, mixed>> $confVars */
-        $confVars = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
-        /** @var array<string, mixed> $httpConfig */
-        $httpConfig = $confVars['HTTP'] ?? [];
-        $allowedHosts = $httpConfig['allowed_hosts'] ?? null;
-
         // No allowlist configured → fall through to default-allow,
         // but only after the IP/DNS checks above have passed.
-        if (!\is_array($allowedHosts) || $allowedHosts === []) {
+        if ($allowedHostsList === []) {
             return true;
         }
 
-        foreach ($allowedHosts as $pattern) {
+        foreach ($allowedHostsList as $pattern) {
             if (!\is_string($pattern)) {
                 continue;
             }
 
-            // Exact match
-            if ($pattern === $host) {
-                return true;
-            }
-
-            // Wildcard match (e.g., *.example.com)
+            // Wildcard match (e.g., *.example.com) — literals already handled above.
             if (str_starts_with($pattern, '*.')) {
                 $suffix = substr($pattern, 1); // .example.com
                 if (str_ends_with($host, $suffix)) {
                     return true;
                 }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Literal allowlist match — exact, case-insensitive, no wildcards.
+     *
+     * Only literal entries can override the private-IP block; wildcards
+     * (`*.example.com`) cannot, because a wildcard owner could otherwise
+     * register an internal DNS record under their zone and pivot.
+     *
+     * @param list<mixed>|array<int|string, mixed> $allowedHostsList
+     */
+    private function isExplicitlyAllowlisted(string $host, array $allowedHostsList): bool
+    {
+        foreach ($allowedHostsList as $pattern) {
+            if (\is_string($pattern) && strtolower($pattern) === $host) {
+                return true;
             }
         }
 

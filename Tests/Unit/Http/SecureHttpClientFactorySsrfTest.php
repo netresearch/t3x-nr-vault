@@ -111,4 +111,39 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
         // the method must return true (default-allow gated by IP/DNS checks).
         self::assertTrue($this->subject->isHostAllowed('8.8.8.8'));
     }
+
+    #[Test]
+    public function explicitAllowlistEntryOverridesPrivateIpBlock(): void
+    {
+        // On-prem use case: vault server on RFC1918 must be reachable via
+        // an explicit filesystem-only allowlist entry.
+        $GLOBALS['TYPO3_CONF_VARS'] = [
+            'HTTP' => ['allowed_hosts' => ['10.0.0.42']],
+        ];
+
+        self::assertTrue($this->subject->isHostAllowed('10.0.0.42'));
+    }
+
+    #[Test]
+    public function wildcardAllowlistDoesNotOverridePrivateIpBlock(): void
+    {
+        // Wildcards cannot bypass the private-IP defence: an external wildcard
+        // owner could otherwise pivot via internal DNS records under their zone.
+        $GLOBALS['TYPO3_CONF_VARS'] = [
+            'HTTP' => ['allowed_hosts' => ['*.internal']],
+        ];
+
+        self::assertFalse($this->subject->isHostAllowed('10.0.0.42'));
+    }
+
+    #[Test]
+    public function explicitAllowlistEntryStillBlocksNonListedPrivateIp(): void
+    {
+        // Listing 10.0.0.42 must NOT implicitly allow 10.0.0.43.
+        $GLOBALS['TYPO3_CONF_VARS'] = [
+            'HTTP' => ['allowed_hosts' => ['10.0.0.42']],
+        ];
+
+        self::assertFalse($this->subject->isHostAllowed('10.0.0.43'));
+    }
 }
