@@ -220,9 +220,10 @@ final class SecureHttpClientFactory
         }
 
         // For bracketed-IPv6 (with or without port) and host:port forms, parse_url
-        // handles both consistently. Use a stub scheme so the input is treated
-        // as authority.
-        $parsed = parse_url('http://' . $host);
+        // handles both consistently. Use a protocol-relative `//` prefix so the
+        // input is treated as authority (no scheme literal — the host is parsed,
+        // never fetched, so there is no http/https insecurity).
+        $parsed = parse_url('//' . $host);
         if (!\is_array($parsed) || !isset($parsed['host']) || !\is_string($parsed['host'])) {
             return '';
         }
