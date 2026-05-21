@@ -358,7 +358,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             'hash_before' => (string) $row['hash_before'],
             'hash_after' => (string) $row['hash_after'],
             'context' => (string) $row['context'],
-        ], JSON_THROW_ON_ERROR);
+        ], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
 
         return hash_hmac('sha256', $payload, $hmacKey);
     }
@@ -410,11 +410,17 @@ final readonly class AuditLogService implements AuditLogServiceInterface
      */
     public static function extractV2HashRow(array $row): array
     {
+        $rawSuccess = $row['success'] ?? null;
+
         return [
             'uid' => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
             'secret_identifier' => \is_string($row['secret_identifier'] ?? null) ? $row['secret_identifier'] : '',
             'action' => \is_string($row['action'] ?? null) ? $row['action'] : '',
-            'success' => is_numeric($row['success'] ?? null) ? (int) (bool) $row['success'] : 0,
+            // Doctrine returns `success` as int on MySQL/SQLite, bool on
+            // PostgreSQL, and string on some drivers with emulated prepares.
+            // `is_numeric()` rejects native booleans — keep them in the chain
+            // by accepting bool|int|numeric-string and coercing through bool.
+            'success' => (\is_bool($rawSuccess) || is_numeric($rawSuccess)) ? (int) (bool) $rawSuccess : 0,
             'actor_uid' => is_numeric($row['actor_uid'] ?? null) ? (int) $row['actor_uid'] : 0,
             'crdate' => is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : 0,
             'error_message' => \is_string($row['error_message'] ?? null) ? $row['error_message'] : '',

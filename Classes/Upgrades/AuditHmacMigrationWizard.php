@@ -64,9 +64,12 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
 
     public function getDescription(): string
     {
-        return 'Migrates existing audit log entries from plain SHA-256 hashing to '
-            . 'HMAC-SHA256 keyed with a master-key-derived key. This provides '
-            . 'tamper resistance against database-privileged attackers. '
+        return 'Migrates existing audit log entries to the configured HMAC '
+            . 'epoch. Epoch 1 upgrades plain SHA-256 to HMAC-SHA256 (tamper '
+            . 'resistance against DB-privileged attackers). Epoch 2 extends '
+            . 'the HMAC payload to cover forensic fields (success, '
+            . 'error_message, reason, ip_address, user_agent, context) so '
+            . 'they too become tamper-evident. '
             . 'The migration re-hashes all entries while maintaining chain integrity. '
             . 'Runs under an advisory lock and a single transaction — concurrent '
             . 'audit writes are serialised and partial failure rolls back.';
@@ -74,11 +77,12 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
 
     public function updateNecessary(): bool
     {
-        if ($this->extensionConfiguration->getAuditHmacEpoch() === 0) {
+        $targetEpoch = $this->extensionConfiguration->getAuditHmacEpoch();
+        if ($targetEpoch === 0) {
             return false;
         }
 
-        return $this->countLegacyEntries() > 0;
+        return $this->countOutdatedEntries($targetEpoch) > 0;
     }
 
     public function executeUpdate(): bool
@@ -211,7 +215,12 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
         return $migratedCount;
     }
 
-    private function countLegacyEntries(): int
+    /**
+     * Count rows whose stored epoch is below the configured target. Covers
+     * 0 → 1, 0 → 2, AND 1 → 2 migrations, so the wizard surfaces in the
+     * Install Tool whenever any row would benefit from a re-hash.
+     */
+    private function countOutdatedEntries(int $targetEpoch): int
     {
         $connection = $this->connectionPool->getConnectionForTable(self::TABLE_NAME);
         $queryBuilder = $connection->createQueryBuilder();
@@ -219,9 +228,9 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
             ->count('uid')
             ->from(self::TABLE_NAME)
             ->where(
-                $queryBuilder->expr()->eq(
+                $queryBuilder->expr()->lt(
                     'hmac_key_epoch',
-                    $queryBuilder->createNamedParameter(0, Connection::PARAM_INT),
+                    $queryBuilder->createNamedParameter($targetEpoch, Connection::PARAM_INT),
                 ),
             )
             ->executeQuery()

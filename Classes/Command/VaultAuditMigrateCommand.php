@@ -76,24 +76,30 @@ final class VaultAuditMigrateCommand extends Command
 
         $connection = $this->connectionPool->getConnectionForTable(self::TABLE_NAME);
 
-        // Count epoch-0 entries (for progress reporting)
+        // Count outdated entries — anything below the target epoch. Covers
+        // 0 → 1, 0 → 2, and 1 → 2 migrations (the v1 hash payload omits
+        // forensic fields, so a 1 → 2 rehash is required for tamper
+        // detection of success/error_message/reason/ip/UA/context).
         $queryBuilder = $connection->createQueryBuilder();
         $countResult = $queryBuilder
             ->count('uid')
             ->from(self::TABLE_NAME)
             ->where(
-                $queryBuilder->expr()->eq(
+                $queryBuilder->expr()->lt(
                     'hmac_key_epoch',
-                    $queryBuilder->createNamedParameter(0, Connection::PARAM_INT),
+                    $queryBuilder->createNamedParameter($targetEpoch, Connection::PARAM_INT),
                 ),
             )
             ->executeQuery()
             ->fetchOne();
 
-        $epoch0Count = is_numeric($countResult) ? (int) $countResult : 0;
+        $outdatedCount = is_numeric($countResult) ? (int) $countResult : 0;
 
-        if ($epoch0Count === 0) {
-            $io->success('No entries with epoch 0 found. Nothing to migrate.');
+        if ($outdatedCount === 0) {
+            $io->success(\sprintf(
+                'All entries already at epoch %d or higher. Nothing to migrate.',
+                $targetEpoch,
+            ));
 
             return Command::SUCCESS;
         }
@@ -109,8 +115,9 @@ final class VaultAuditMigrateCommand extends Command
         $totalEntries = is_numeric($totalResult) ? (int) $totalResult : 0;
 
         $io->writeln(\sprintf(
-            'Found %d entries with epoch 0 (re-hashing all %d entries to maintain chain integrity)',
-            $epoch0Count,
+            'Found %d entries below epoch %d (re-hashing all %d entries to maintain chain integrity)',
+            $outdatedCount,
+            $targetEpoch,
             $totalEntries,
         ));
 
@@ -209,9 +216,9 @@ final class VaultAuditMigrateCommand extends Command
         $io->newLine(2);
 
         if ($dryRun) {
-            $io->success(\sprintf('DRY RUN: Would migrate %d entries from epoch 0 to epoch %d', $migratedCount, $targetEpoch));
+            $io->success(\sprintf('DRY RUN: Would migrate %d entries to epoch %d', $migratedCount, $targetEpoch));
         } else {
-            $io->success(\sprintf('Migrated %d entries from epoch 0 to epoch %d', $migratedCount, $targetEpoch));
+            $io->success(\sprintf('Migrated %d entries to epoch %d', $migratedCount, $targetEpoch));
         }
 
         return Command::SUCCESS;

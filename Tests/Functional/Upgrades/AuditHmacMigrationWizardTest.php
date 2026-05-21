@@ -118,6 +118,31 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
     }
 
     #[Test]
+    public function updateNecessaryReturnsTrueForEpoch1RowsWhenTargetIsEpoch2(): void
+    {
+        // First: write entries at epoch=1 via VaultService.
+        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 1;
+        FileMasterKeyProvider::clearCachedKey();
+
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $identifier = $this->generateUuidV7();
+        $vaultService->store($identifier, 'epoch1-value');
+        $vaultService->delete($identifier, 'cleanup');
+
+        // Now bump the configured epoch to 2 — the existing epoch-1 rows
+        // are "outdated" because v1 hashes don't bind forensic fields.
+        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 2;
+        FileMasterKeyProvider::clearCachedKey();
+
+        $wizard = $this->buildWizard();
+
+        self::assertTrue(
+            $wizard->updateNecessary(),
+            'updateNecessary must return true when epoch-1 rows exist and target is epoch 2',
+        );
+    }
+
+    #[Test]
     public function executeUpdateMigratesLegacyEntriesToHmac(): void
     {
         // Seed legacy entries at epoch=0

@@ -1123,6 +1123,52 @@ final class AuditLogServiceTest extends TestCase
         );
     }
 
+    #[Test]
+    public function extractV2HashRowAcceptsBooleanSuccess(): void
+    {
+        // PostgreSQL via Doctrine returns smallint columns as PHP bool.
+        // Regression: is_numeric(true) is false, so a naive extractor would
+        // coerce a valid `true` to 0 and break verification.
+        $rowTrue = ['success' => true] + $this->makeRawRow();
+        $rowFalse = ['success' => false] + $this->makeRawRow();
+
+        $extractedTrue = AuditLogService::extractV2HashRow($rowTrue);
+        $extractedFalse = AuditLogService::extractV2HashRow($rowFalse);
+
+        self::assertSame(1, $extractedTrue['success'], 'bool(true) must extract to int(1)');
+        self::assertSame(0, $extractedFalse['success'], 'bool(false) must extract to int(0)');
+    }
+
+    #[Test]
+    public function extractV2HashRowAcceptsNumericStringSuccess(): void
+    {
+        // Doctrine with PDO::ATTR_EMULATE_PREPARES=true returns ints as strings.
+        $row = ['success' => '1'] + $this->makeRawRow();
+
+        $extracted = AuditLogService::extractV2HashRow($row);
+
+        self::assertSame(1, $extracted['success'], 'numeric-string success must extract to int(1)');
+    }
+
+    #[Test]
+    public function calculateHashV2SurvivesInvalidUtf8InFreeFormFields(): void
+    {
+        // A malicious or buggy client may submit a User-Agent / error_message
+        // containing invalid UTF-8 (e.g. a lone continuation byte). Hashing
+        // must NOT throw — that would crash audit logging and break the chain.
+        $hmacKey = str_repeat("\xAA", 32);
+        $invalidUtf8 = "valid prefix \xC3\x28 broken sequence";
+
+        $hash = AuditLogService::calculateHashV2(
+            $this->makeV2Row(userAgent: $invalidUtf8, errorMessage: $invalidUtf8),
+            '',
+            $hmacKey,
+        );
+
+        self::assertSame(64, \strlen($hash), 'hash_hmac sha256 hex output is 64 chars');
+        self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $hash);
+    }
+
     // =========================================================================
     // Strict-assertion tests — kill IncrementInteger/DecrementInteger/CastInt/
     // Coalesce/MethodCallRemoval/ConcatOperandRemoval mutators on AuditLogService.
@@ -2051,6 +2097,31 @@ final class AuditLogServiceTest extends TestCase
 
         // Kills increments / decrements on gapStart and gapEnd computations.
         self::assertSame([2, 3, 4], $verification->missingUids);
+    }
+
+    /**
+     * Build a raw DB row (snake_case keys, mixed types) suitable for
+     * extractV2HashRow() input. Used by tests that exercise the extractor
+     * directly without going through the V2 fixture.
+     *
+     * @return array<string, mixed>
+     */
+    private function makeRawRow(): array
+    {
+        return [
+            'uid' => 1,
+            'secret_identifier' => 'sek',
+            'action' => 'read',
+            'actor_uid' => 1,
+            'crdate' => 1704067200,
+            'error_message' => '',
+            'reason' => '',
+            'ip_address' => '10.0.0.5',
+            'user_agent' => 'curl/8',
+            'hash_before' => '',
+            'hash_after' => '',
+            'context' => '{}',
+        ];
     }
 
     /**
