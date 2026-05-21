@@ -11,82 +11,57 @@ services:
       - '../Classes/Exception/*'
       - '../Classes/Http/OAuth/OAuthConfig.php'
 
-  # Configuration
-  Netresearch\NrVault\Configuration\ExtensionConfiguration:
-    public: true
+  # ----- Interface aliases -------------------------------------------------
+  # autowire matches by class only; these aliases let constructors typehint
+  # the interfaces. `public: true` is only set where the runtime explicitly
+  # calls `GeneralUtility::makeInstance(<Interface>::class)` — verified:
+  #   - VaultServiceInterface: 3 sites (Form/Element/Task)
+  # Every other alias resolves via constructor DI only and can stay private.
 
   Netresearch\NrVault\Configuration\ExtensionConfigurationInterface:
     alias: Netresearch\NrVault\Configuration\ExtensionConfiguration
-    public: true
 
-  # Crypto services
   Netresearch\NrVault\Crypto\EncryptionServiceInterface:
     alias: Netresearch\NrVault\Crypto\EncryptionService
-    public: true
-
-  Netresearch\NrVault\Crypto\MasterKeyProviderInterface:
-    factory: ['@Netresearch\NrVault\Crypto\MasterKeyProviderFactory', 'create']
-    public: true
-
-  # HTTP Client Factory
-  Netresearch\NrVault\Http\VaultHttpClientFactory:
-    public: true
 
   Netresearch\NrVault\Http\VaultHttpClientFactoryInterface:
     alias: Netresearch\NrVault\Http\VaultHttpClientFactory
-    public: true
-
-  # Vault service
-  Netresearch\NrVault\Service\VaultService:
-    arguments:
-      $eventDispatcher: '@Psr\EventDispatcher\EventDispatcherInterface'
 
   Netresearch\NrVault\Service\VaultServiceInterface:
     alias: Netresearch\NrVault\Service\VaultService
+    # public: makeInstance call sites in FormEngine (VaultSecretElement,
+    # VaultSecretInputElement) and OrphanCleanupTask (scheduler context
+    # where DI isn't available).
     public: true
 
-  # Access control
   Netresearch\NrVault\Security\AccessControlServiceInterface:
     alias: Netresearch\NrVault\Security\AccessControlService
-    public: true
 
-  # Audit logging
   Netresearch\NrVault\Audit\AuditLogServiceInterface:
     alias: Netresearch\NrVault\Audit\AuditLogService
-    public: true
 
-  # Adapters
   Netresearch\NrVault\Adapter\VaultAdapterInterface:
     alias: Netresearch\NrVault\Adapter\LocalEncryptionAdapter
-    public: true
 
-  # Controllers
-  Netresearch\NrVault\Controller\OverviewController:
-    public: true
-    tags:
-      - name: backend.controller
+  Netresearch\NrVault\Service\SecretDetectionServiceInterface:
+    alias: Netresearch\NrVault\Service\SecretDetectionService
 
-  Netresearch\NrVault\Controller\SecretsController:
-    public: true
-    tags:
-      - name: backend.controller
+  Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessorInterface:
+    alias: Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessor
 
-  Netresearch\NrVault\Controller\AuditController:
-    public: true
-    tags:
-      - name: backend.controller
+  Netresearch\NrVault\Http\VaultHttpClientInterface:
+    alias: Netresearch\NrVault\Http\VaultHttpClient
 
-  Netresearch\NrVault\Controller\MigrationController:
-    public: true
-    tags:
-      - name: backend.controller
+  # ----- Factory-resolved services ----------------------------------------
+  # Factories cannot be discovered by autowire and must be declared explicitly.
 
-  Netresearch\NrVault\Controller\AjaxController:
-    public: true
-    tags:
-      - name: backend.controller
+  Netresearch\NrVault\Crypto\MasterKeyProviderInterface:
+    factory: ['@Netresearch\NrVault\Crypto\MasterKeyProviderFactory', 'create']
 
-  # DataHandler hooks (must be public for GeneralUtility::makeInstance DI resolution)
+  # ----- Classes that need public visibility ------------------------------
+  # TYPO3 DataHandler resolves $TYPO3_CONF_VARS hook references via
+  # GeneralUtility::makeInstance, which needs the service to be public.
+
   Netresearch\NrVault\Hook\DataHandlerHook:
     public: true
 
@@ -96,89 +71,29 @@ services:
   Netresearch\NrVault\Hook\SecretTcaHook:
     public: true
 
-  # CLI Commands
-  Netresearch\NrVault\Command\VaultInitCommand:
-    tags:
-      - name: console.command
+  # FormEngine instantiates form-element nodes via NodeFactory which uses
+  # makeInstance; the resolved service must be public.
+  Netresearch\NrVault\Service\VaultFieldPermissionService:
+    public: true
 
-  Netresearch\NrVault\Command\VaultStoreCommand:
-    tags:
-      - name: console.command
+  # ----- Tagged services that need explicit registration ------------------
+  # The `upgrade.wizard` tag has no #[Attribute] form yet (unlike
+  # #[AsCommand] / #[AsController] / #[AsEventListener]) so it must be
+  # tagged explicitly with the wizard identifier.
 
-  Netresearch\NrVault\Command\VaultRetrieveCommand:
-    tags:
-      - name: console.command
-
-  Netresearch\NrVault\Command\VaultRotateCommand:
-    tags:
-      - name: console.command
-
-  Netresearch\NrVault\Command\VaultDeleteCommand:
-    tags:
-      - name: console.command
-
-  Netresearch\NrVault\Command\VaultListCommand:
-    tags:
-      - name: console.command
-
-  Netresearch\NrVault\Command\VaultAuditCommand:
-    tags:
-      - name: console.command
-
-  Netresearch\NrVault\Command\VaultRotateMasterKeyCommand:
-    tags:
-      - name: console.command
-
-  Netresearch\NrVault\Command\VaultMigrateFieldCommand:
-    tags:
-      - name: console.command
-
-  Netresearch\NrVault\Command\VaultCleanupOrphansCommand:
-    tags:
-      - name: console.command
-
-  Netresearch\NrVault\Command\VaultScanCommand:
-    tags:
-      - name: console.command
-
-  Netresearch\NrVault\Command\VaultAuditMigrateCommand:
-    tags:
-      - name: console.command
-
-  # Upgrade wizards
   Netresearch\NrVault\Upgrades\AuditHmacMigrationWizard:
     tags:
       - name: upgrade.wizard
         identifier: nrVaultAuditHmacMigration
 
-  # Secret detection service
-  Netresearch\NrVault\Service\SecretDetectionService:
-    public: true
-
-  Netresearch\NrVault\Service\SecretDetectionServiceInterface:
-    alias: Netresearch\NrVault\Service\SecretDetectionService
-    public: true
-
-  # Site configuration vault processor
-  Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessor:
-    public: true
-
-  Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessorInterface:
-    alias: Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessor
-    public: true
-
-  # Vault field permission service
-  Netresearch\NrVault\Service\VaultFieldPermissionService:
-    public: true
-
-  # HTTP Client
-  Netresearch\NrVault\Http\VaultHttpClientInterface:
-    alias: Netresearch\NrVault\Http\VaultHttpClient
-    public: true
-
-  # Utility classes (public for makeInstance access)
-  Netresearch\NrVault\Utility\VaultFieldResolver:
-    public: true
-
-  Netresearch\NrVault\Utility\FlexFormVaultResolver:
-    public: true
+  # ----- Notes on removed entries -----------------------------------------
+  # - 5 controller entries — covered by #[AsController] + autoconfigure.
+  # - 12 command entries — covered by #[AsCommand] + autoconfigure.
+  # - 11 redundant `public: true` flags on interface aliases — interfaces
+  #   resolve via constructor DI, no $container->get() / makeInstance use.
+  # - Manual `$eventDispatcher` arg on VaultService — autowire handles it.
+  # - Several concrete-class `public: true` entries (ExtensionConfiguration,
+  #   VaultHttpClientFactory, SecretDetectionService,
+  #   SiteConfigurationVaultProcessor, VaultHttpClient, utility resolvers)
+  #   — none are fetched outside the DI graph; constructor injection is
+  #   enough.
