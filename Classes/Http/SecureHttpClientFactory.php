@@ -281,29 +281,33 @@ final class SecureHttpClientFactory
             if ($isPublic === false) {
                 return true;
             }
+            /** @var array{1: int, 2: int, 3: int, 4: int}|false $octets */
             $octets = unpack('C4', $packed);
             if ($octets === false) {
                 return false;
             }
+            $o1 = (int) $octets[1];
+            $o2 = (int) $octets[2];
+            $o3 = (int) $octets[3];
             // CGNAT 100.64.0.0/10
-            if ($octets[1] === 100 && ($octets[2] & 0xC0) === 64) {
+            if ($o1 === 100 && ($o2 & 0xC0) === 64) {
                 return true;
             }
             // IETF protocol assignments 192.0.0.0/24
-            if ($octets[1] === 192 && $octets[2] === 0 && $octets[3] === 0) {
+            if ($o1 === 192 && $o2 === 0 && $o3 === 0) {
                 return true;
             }
             // Benchmark 198.18.0.0/15
-            if (($octets[1] === 198) && ($octets[2] === 18 || $octets[2] === 19)) {
+            if ($o1 === 198 && ($o2 === 18 || $o2 === 19)) {
                 return true;
             }
             // Multicast 224.0.0.0/4 (PHP's NO_RES_RANGE flag does not reliably block this)
-            if (($octets[1] & 0xF0) === 224) {
+            if (($o1 & 0xF0) === 224) {
                 return true;
             }
 
             // Class E reserved 240.0.0.0/4
-            return ($octets[1] & 0xF0) === 240;
+            return ($o1 & 0xF0) === 240;
         }
 
         // IPv6: PHP's filter flags do NOT apply to v6. Explicit ranges:
