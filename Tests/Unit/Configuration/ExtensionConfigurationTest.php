@@ -212,6 +212,52 @@ final class ExtensionConfigurationTest extends TestCase
     }
 
     #[Test]
+    public function isAuditReadsEnabledRespectsFilesystemOverrideTrue(): void
+    {
+        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['auditReads' => true]]];
+
+        // BE-config says "disabled" but filesystem override forces enabled.
+        $this->typo3Config->method('get')
+            ->with('nr_vault')
+            ->willReturn(['auditReads' => false]);
+
+        try {
+            $config = new ExtensionConfiguration($this->typo3Config);
+            self::assertTrue($config->isAuditReadsEnabled());
+        } finally {
+            if ($original !== null) {
+                $GLOBALS['TYPO3_CONF_VARS'] = $original;
+            } else {
+                unset($GLOBALS['TYPO3_CONF_VARS']);
+            }
+        }
+    }
+
+    #[Test]
+    public function isAuditReadsEnabledRespectsFilesystemOverrideFalse(): void
+    {
+        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['auditReads' => false]]];
+
+        // BE-config says "enabled" but filesystem override silences reads.
+        $this->typo3Config->method('get')
+            ->with('nr_vault')
+            ->willReturn(['auditReads' => true]);
+
+        try {
+            $config = new ExtensionConfiguration($this->typo3Config);
+            self::assertFalse($config->isAuditReadsEnabled());
+        } finally {
+            if ($original !== null) {
+                $GLOBALS['TYPO3_CONF_VARS'] = $original;
+            } else {
+                unset($GLOBALS['TYPO3_CONF_VARS']);
+            }
+        }
+    }
+
+    #[Test]
     public function preferXChaCha20ReturnsFalseByDefault(): void
     {
         $this->typo3Config->method('get')

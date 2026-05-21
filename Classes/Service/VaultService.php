@@ -36,6 +36,7 @@ use Netresearch\NrVault\Http\VaultHttpClientInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use SensitiveParameter;
 use TYPO3\CMS\Core\SingletonInterface;
 
 /**
@@ -64,16 +65,33 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
     /**
      * @param array<string, mixed> $options
      */
-    public function store(string $identifier, string $secret, array $options = []): void
+    public function store(string $identifier, #[SensitiveParameter] string $secret, array $options = []): void
     {
-        // Validate identifier
-        IdentifierValidator::validate($identifier);
-
-        if ($secret === '') {
-            throw ValidationException::emptySecret();
-        }
-
         try {
+            // Validate identifier
+            IdentifierValidator::validate($identifier);
+
+            if ($secret === '') {
+                throw ValidationException::emptySecret();
+            }
+
+            // Determine new vs. update before access-control checks so we use the right gate
+            $existing = $this->adapter->retrieve($identifier);
+            $isNew = !$existing instanceof Secret;
+
+            // Access control: create vs. write are distinct permissions.
+            if ($isNew) {
+                if (!$this->accessControlService->canCreate()) {
+                    $this->auditLogService->log($identifier, 'access_denied', false, 'Create access denied');
+
+                    throw AccessDeniedException::forIdentifier($identifier, 'create permission denied');
+                }
+            } elseif (!$this->accessControlService->canWrite($existing)) {
+                $this->auditLogService->log($identifier, 'access_denied', false, 'Update access denied');
+
+                throw AccessDeniedException::forIdentifier($identifier, 'update permission denied');
+            }
+
             // Encrypt the secret
             $encrypted = $this->encryptionService->encrypt($secret, $identifier);
 
@@ -87,13 +105,22 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             $secretEntity->setValueChecksum($encrypted->valueChecksum);
             $secretEntity->setAdapter('local');
 
-            // Apply options
+            // Apply options. owner_uid is privileged: only admins may change it; otherwise
+            // we fall back to the existing owner (update) or the current actor (create).
+            $defaultOwner = $isNew ? $this->accessControlService->getCurrentActorUid() : $existing->getOwnerUid();
+            $requestedOwner = $defaultOwner;
             if (isset($options['owner'])) {
                 $ownerRaw = $options['owner'];
-                $secretEntity->setOwnerUid(is_numeric($ownerRaw) ? (int) $ownerRaw : 0);
-            } else {
-                $secretEntity->setOwnerUid($this->accessControlService->getCurrentActorUid());
+                $requestedOwner = is_numeric($ownerRaw) ? (int) $ownerRaw : 0;
             }
+            if ($requestedOwner !== $defaultOwner
+                && $this->accessControlService->getCurrentActorType() === 'backend'
+                && !$this->accessControlService->isCurrentActorAdmin()
+            ) {
+                // Non-admin BE user tried to set/change owner_uid → silently coerce to default.
+                $requestedOwner = $defaultOwner;
+            }
+            $secretEntity->setOwnerUid($requestedOwner);
 
             if (isset($options['groups'])) {
                 /** @var list<int> $groups */
@@ -138,10 +165,6 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             if (isset($options['frontendAccessible'])) {
                 $secretEntity->setFrontendAccessible((bool) $options['frontendAccessible']);
             }
-
-            // Check if updating existing
-            $existing = $this->adapter->retrieve($identifier);
-            $isNew = !$existing instanceof Secret;
 
             if (!$isNew) {
                 $secretEntity->setUid($existing->getUid());
@@ -301,7 +324,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         unset($this->cache[$identifier]);
     }
 
-    public function rotate(string $identifier, string $newSecret, string $reason = ''): void
+    public function rotate(string $identifier, #[SensitiveParameter] string $newSecret, string $reason = ''): void
     {
         $secret = $this->adapter->retrieve($identifier);
         if (!$secret instanceof Secret) {

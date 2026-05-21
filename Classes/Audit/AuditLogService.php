@@ -18,6 +18,7 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use SensitiveParameter;
 use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -43,7 +44,9 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         bool $success,
         ?string $errorMessage = null,
         ?string $reason = null,
+        #[SensitiveParameter]
         ?string $hashBefore = null,
+        #[SensitiveParameter]
         ?string $hashAfter = null,
         ?AuditContextInterface $context = null,
     ): void {

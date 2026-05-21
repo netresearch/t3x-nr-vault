@@ -12,6 +12,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Audit;
 
+use SensitiveParameter;
+
 /**
  * Interface for audit logging operations.
  */
@@ -20,8 +22,10 @@ interface AuditLogServiceInterface
     /**
      * Log a vault operation.
      *
-     * @param string $secretIdentifier The secret that was accessed
-     * @param string $action One of: create, read, update, delete, rotate, access_denied, http_call
+     * @param string $secretIdentifier The secret that was accessed (or pseudo-identifier
+     *                                 such as `__master_key__` for master-key rotation)
+     * @param string $action One of: create, read, update, delete, rotate, access_denied,
+     *                       http_call, master_key_rotate_start, master_key_rotate_end
      * @param bool $success Whether operation succeeded
      * @param string|null $errorMessage If failed, the error message
      * @param string|null $reason Reason for operation (required for rotate/delete)
@@ -35,7 +39,9 @@ interface AuditLogServiceInterface
         bool $success,
         ?string $errorMessage = null,
         ?string $reason = null,
+        #[SensitiveParameter]
         ?string $hashBefore = null,
+        #[SensitiveParameter]
         ?string $hashAfter = null,
         ?AuditContextInterface $context = null,
     ): void;

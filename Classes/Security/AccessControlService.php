@@ -73,6 +73,19 @@ final class AccessControlService implements AccessControlServiceInterface
         return false;
     }
 
+    public function isCurrentActorAdmin(): bool
+    {
+        $backendUser = $this->getBackendUser();
+        if (!$backendUser instanceof BackendUserAuthentication) {
+            return false;
+        }
+        if ($this->isBackendUserDisabled($backendUser)) {
+            return false;
+        }
+
+        return $backendUser->isAdmin();
+    }
+
     public function getCurrentActorUid(): int
     {
         $backendUser = $this->getBackendUser();

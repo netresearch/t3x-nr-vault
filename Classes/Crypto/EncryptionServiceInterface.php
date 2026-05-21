@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Crypto;
 
 use Netresearch\NrVault\Exception\EncryptionException;
+use SensitiveParameter;
 
 /**
  * Interface for encryption operations.
@@ -24,7 +25,7 @@ interface EncryptionServiceInterface
      *
      * @throws EncryptionException If encryption fails
      */
-    public function encrypt(string $plaintext, string $identifier): EncryptedData;
+    public function encrypt(#[SensitiveParameter] string $plaintext, string $identifier): EncryptedData;
 
     /**
      * Decrypt a secret value.
@@ -40,7 +41,9 @@ interface EncryptionServiceInterface
      * @return string The decrypted plaintext
      */
     public function decrypt(
+        #[SensitiveParameter]
         string $encryptedValue,
+        #[SensitiveParameter]
         string $encryptedDek,
         string $dekNonce,
         string $valueNonce,
@@ -61,7 +64,7 @@ interface EncryptionServiceInterface
      *
      * @return string SHA-256 hash (64 hex characters)
      */
-    public function calculateChecksum(string $plaintext): string;
+    public function calculateChecksum(#[SensitiveParameter] string $plaintext): string;
 
     /**
      * Re-encrypt a DEK with a new master key.
@@ -73,10 +76,13 @@ interface EncryptionServiceInterface
      * @param string $newMasterKey New master key
      */
     public function reEncryptDek(
+        #[SensitiveParameter]
         string $encryptedDek,
         string $dekNonce,
         string $identifier,
+        #[SensitiveParameter]
         string $oldMasterKey,
+        #[SensitiveParameter]
         string $newMasterKey,
     ): ReEncryptedDek;
 }

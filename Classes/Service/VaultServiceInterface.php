@@ -17,6 +17,7 @@ use Netresearch\NrVault\Exception\SecretExpiredException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Http\VaultHttpClientInterface;
+use SensitiveParameter;
 
 /**
  * Primary interface for interacting with the vault.
@@ -40,7 +41,7 @@ interface VaultServiceInterface
      * @throws ValidationException If identifier is invalid
      * @throws EncryptionException If encryption fails
      */
-    public function store(string $identifier, string $secret, array $options = []): void;
+    public function store(string $identifier, #[SensitiveParameter] string $secret, array $options = []): void;
 
     /**
      * Retrieve a secret value.
@@ -73,7 +74,7 @@ interface VaultServiceInterface
      * @throws AccessDeniedException If current user lacks permission
      * @throws EncryptionException If encryption fails
      */
-    public function rotate(string $identifier, string $newSecret, string $reason = ''): void;
+    public function rotate(string $identifier, #[SensitiveParameter] string $newSecret, string $reason = ''): void;
 
     /**
      * List all accessible secrets with metadata.

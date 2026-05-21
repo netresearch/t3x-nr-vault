@@ -37,6 +37,16 @@ interface AccessControlServiceInterface
     public function canCreate(): bool;
 
     /**
+     * Is the current actor a TYPO3 backend admin?
+     *
+     * Returns `true` for BE users where `BackendUserAuthentication::isAdmin()`
+     * is true. Non-BE actor types (CLI / scheduler / API) MUST return `false`
+     * — callers that legitimately need to bypass admin gates should handle
+     * actor type explicitly, not rely on this method.
+     */
+    public function isCurrentActorAdmin(): bool;
+
+    /**
      * Get the current actor UID.
      *
      * @return int Backend user UID (0 for CLI/system)

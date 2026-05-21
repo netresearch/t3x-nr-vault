@@ -108,38 +108,291 @@ final class SecureHttpClientFactory
     /**
      * Check if a host is allowed per TYPO3's allowed_hosts configuration.
      *
-     * Note: This is a helper for VaultHttpClient to check before sending requests.
-     * TYPO3's GuzzleClientFactory doesn't enforce this automatically.
+     * Defence-in-depth: regardless of the allowlist, IP literals and resolved
+     * hostnames that point into private/link-local/loopback/multicast/metadata
+     * ranges are always rejected. This blocks SSRF into AWS/GCP/Azure metadata
+     * services (169.254.169.254) and internal RFC1918 networks even on
+     * installations that left `allowed_hosts` unconfigured.
+     *
+     * Accepts either a bare hostname/IP or a `host:port` / `[ipv6]:port` /
+     * `[ipv6]` form — port and IPv6 brackets are normalised away before
+     * filtering. Callers passing PSR-7 `UriInterface::getHost()` get the
+     * already-normalised form for free.
      */
     public function isHostAllowed(string $host): bool
     {
+        $host = $this->normaliseHost($host);
+        if ($host === '') {
+            return false;
+        }
+
         /** @var array<string, array<string, mixed>> $confVars */
-        $confVars = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
+        $confVars = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
         /** @var array<string, mixed> $httpConfig */
         $httpConfig = $confVars['HTTP'] ?? [];
         $allowedHosts = $httpConfig['allowed_hosts'] ?? null;
+        $allowedHostsList = \is_array($allowedHosts) ? $allowedHosts : [];
 
-        // No restriction configured
-        if (!\is_array($allowedHosts) || $allowedHosts === []) {
+        // EXPLICIT allowlist match overrides the private-IP defence so on-prem
+        // deployments where the Vault server lives on RFC1918 can still reach
+        // it via a documented filesystem-only override. Wildcard patterns
+        // (`*.example.com`) do NOT bypass the IP guard — only literal matches.
+        if ($this->isExplicitlyAllowlisted($host, $allowedHostsList)) {
             return true;
         }
 
-        foreach ($allowedHosts as $pattern) {
+        // Hard block: IP literals in dangerous ranges
+        if ($this->isDangerousIpLiteral($host)) {
+            return false;
+        }
+
+        // Hard block: hostname that resolves into dangerous ranges (DNS rebind defence)
+        if ($this->resolvesToDangerousIp($host)) {
+            return false;
+        }
+
+        // No allowlist configured → fall through to default-allow,
+        // but only after the IP/DNS checks above have passed.
+        if ($allowedHostsList === []) {
+            return true;
+        }
+
+        foreach ($allowedHostsList as $pattern) {
             if (!\is_string($pattern)) {
                 continue;
             }
 
-            // Exact match
-            if ($pattern === $host) {
-                return true;
-            }
-
-            // Wildcard match (e.g., *.example.com)
+            // Wildcard match (e.g., *.example.com) — literals already handled above.
             if (str_starts_with($pattern, '*.')) {
                 $suffix = substr($pattern, 1); // .example.com
                 if (str_ends_with($host, $suffix)) {
                     return true;
                 }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Literal allowlist match — exact, case-insensitive, no wildcards.
+     *
+     * Only literal entries can override the private-IP block; wildcards
+     * (`*.example.com`) cannot, because a wildcard owner could otherwise
+     * register an internal DNS record under their zone and pivot.
+     *
+     * @param list<mixed>|array<int|string, mixed> $allowedHostsList
+     */
+    private function isExplicitlyAllowlisted(string $host, array $allowedHostsList): bool
+    {
+        foreach ($allowedHostsList as $pattern) {
+            if (\is_string($pattern) && strtolower($pattern) === $host) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Normalise the various shapes a host string can arrive in to a bare host:
+     *  - `127.0.0.1:8080`        → `127.0.0.1`
+     *  - `[::1]:8080`            → `::1`
+     *  - `[2001:db8::1]`         → `2001:db8::1`
+     *  - `::1`                   → `::1`           (bare IPv6 — auto-bracketed)
+     *  - `example.com.`          → `example.com`   (trailing dot)
+     *  - `EXAMPLE.com`           → `example.com`
+     *  - `  127.0.0.1\t`         → `127.0.0.1`
+     *
+     * Anything that doesn't parse cleanly returns '' so the caller fails closed.
+     */
+    private function normaliseHost(string $host): string
+    {
+        $host = trim($host, " \t\n\r\0\x0B");
+        if ($host === '') {
+            return '';
+        }
+
+        // If the input already validates as a bare IPv6 literal, return it
+        // lowercased — parse_url would otherwise misread `::1` as host=':' port=1.
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+            return strtolower($host);
+        }
+
+        // For bracketed-IPv6 (with or without port) and host:port forms, parse_url
+        // handles both consistently. Use a protocol-relative `//` prefix so the
+        // input is treated as authority (no scheme literal — the host is parsed,
+        // never fetched, so there is no http/https insecurity).
+        $parsed = parse_url('//' . $host);
+        if (!\is_array($parsed) || !isset($parsed['host']) || !\is_string($parsed['host'])) {
+            return '';
+        }
+
+        $bare = strtolower($parsed['host']);
+
+        // parse_url's IPv6 host comes back BRACKETED ('[::1]'); strip them.
+        if (str_starts_with($bare, '[') && str_ends_with($bare, ']')) {
+            $bare = substr($bare, 1, -1);
+        }
+
+        // strip any trailing dot from a FQDN
+        return rtrim($bare, '.');
+    }
+
+    /**
+     * Reject IP literals in private/link-local/loopback/multicast/metadata ranges.
+     *
+     * The check combines:
+     *  - `FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE` (covers RFC1918
+     *    private space, loopback, link-local, and PHP's idea of "reserved");
+     *  - explicit deny ranges that PHP's filter does NOT cover:
+     *    - 100.64.0.0/10  — RFC6598 CGNAT
+     *    - 224.0.0.0/4    — multicast
+     *    - 240.0.0.0/4    — class E / reserved
+     *
+     * Final deny list, in CIDR form:
+     *  - 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8,
+     *    169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.168.0.0/16,
+     *    198.18.0.0/15, 224.0.0.0/4, 240.0.0.0/4
+     *  - ::1/128, fc00::/7, fe80::/10, ff00::/8 (multicast),
+     *    ::ffff:0:0/96 (IPv4-mapped IPv6 — checked via mapping)
+     *
+     * Caveat: this defence is bypassable by DNS rebinding when the upstream
+     * HTTP client (Guzzle/curl) re-resolves at connect-time. For full
+     * protection, callers must pin to the resolved IP via curl
+     * `CURLOPT_RESOLVE`; that is a follow-up.
+     */
+    private function isDangerousIpLiteral(string $host): bool
+    {
+        $packed = inet_pton($host);
+        if ($packed === false) {
+            return false;
+        }
+
+        // IPv4: PHP's filter flags cover 0/8, 10/8, 127/8, 169.254/16,
+        // 172.16/12, 192.168/16, 224/4 and (per PHP docs) 240/4. We then add
+        // CGNAT (100.64/10), 192.0.0/24 IETF protocol, and 198.18/15 benchmark
+        // ranges that the filter does NOT cover.
+        if (\strlen($packed) === 4) {
+            $isPublic = filter_var(
+                $host,
+                FILTER_VALIDATE_IP,
+                FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
+            );
+            if ($isPublic === false) {
+                return true;
+            }
+            /** @var array{1: int, 2: int, 3: int, 4: int}|false $octets */
+            $octets = unpack('C4', $packed);
+            if ($octets === false) {
+                return false;
+            }
+            $o1 = (int) $octets[1];
+            $o2 = (int) $octets[2];
+            $o3 = (int) $octets[3];
+            // CGNAT 100.64.0.0/10
+            if ($o1 === 100 && ($o2 & 0xC0) === 64) {
+                return true;
+            }
+            // IETF protocol assignments 192.0.0.0/24
+            if ($o1 === 192 && $o2 === 0 && $o3 === 0) {
+                return true;
+            }
+            // Benchmark 198.18.0.0/15
+            if ($o1 === 198 && ($o2 === 18 || $o2 === 19)) {
+                return true;
+            }
+            // Multicast 224.0.0.0/4 (PHP's NO_RES_RANGE flag does not reliably block this)
+            if (($o1 & 0xF0) === 224) {
+                return true;
+            }
+
+            // Class E reserved 240.0.0.0/4
+            return ($o1 & 0xF0) === 240;
+        }
+
+        // IPv6: PHP's filter flags do NOT apply to v6. Explicit ranges:
+        //   ::                  (unspecified)
+        //   ::1/128             (loopback)
+        //   ::ffff:0:0/96       (IPv4-mapped — recurse to v4 check)
+        //   64:ff9b::/96        (NAT64 well-known prefix)
+        //   100::/64            (discard-only)
+        //   fc00::/7            (ULA)
+        //   fe80::/10           (link-local)
+        //   ff00::/8            (multicast)
+        if (\strlen($packed) === 16) {
+            // ::1 loopback
+            if ($packed === "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01") {
+                return true;
+            }
+            // ::
+            if ($packed === str_repeat("\x00", 16)) {
+                return true;
+            }
+            // IPv4-mapped ::ffff:0:0/96 — recurse on the embedded IPv4
+            if (substr($packed, 0, 10) === str_repeat("\x00", 10) && substr($packed, 10, 2) === "\xff\xff") {
+                $v4 = inet_ntop(substr($packed, 12, 4));
+                if (\is_string($v4) && $this->isDangerousIpLiteral($v4)) {
+                    return true;
+                }
+            }
+            $b0 = \ord($packed[0]);
+            // fc00::/7 — top 7 bits == 1111110 → byte0 is 0xfc or 0xfd
+            if (($b0 & 0xFE) === 0xFC) {
+                return true;
+            }
+            // fe80::/10 — top 10 bits == 1111111010 → byte0=0xfe and (byte1 & 0xC0) == 0x80
+            if ($b0 === 0xFE && (\ord($packed[1]) & 0xC0) === 0x80) {
+                return true;
+            }
+            // ff00::/8 multicast
+            if ($b0 === 0xFF) {
+                return true;
+            }
+            // 64:ff9b::/96 NAT64
+            if (substr($packed, 0, 12) === "\x00\x64\xff\x9b\x00\x00\x00\x00\x00\x00\x00\x00") {
+                return true;
+            }
+            // 100::/64 discard
+            if (substr($packed, 0, 8) === "\x01\x00\x00\x00\x00\x00\x00\x00") {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolve a hostname and reject if any A/AAAA record points into a dangerous range.
+     *
+     * Returns false if resolution fails (caller will then pass the host through;
+     * upstream HTTP client will produce a connection error rather than a security
+     * bypass).
+     */
+    private function resolvesToDangerousIp(string $host): bool
+    {
+        // Already an IP literal — handled by isDangerousIpLiteral
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return false;
+        }
+
+        // Suppress DNS lookup warnings without using `@` (banned by phpstan-strict-rules).
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $records = dns_get_record($host, DNS_A | DNS_AAAA);
+        } finally {
+            restore_error_handler();
+        }
+
+        if (!\is_array($records) || $records === []) {
+            return false;
+        }
+
+        foreach ($records as $record) {
+            $ip = $record['ip'] ?? $record['ipv6'] ?? null;
+            if (\is_string($ip) && $this->isDangerousIpLiteral($ip)) {
+                return true;
             }
         }
 

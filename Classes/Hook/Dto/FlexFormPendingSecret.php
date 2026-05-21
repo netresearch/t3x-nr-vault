@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Hook\Dto;
 
+use SensitiveParameter;
+
 /**
  * Data Transfer Object for pending FlexForm secret storage.
  *
@@ -21,6 +23,7 @@ readonly class FlexFormPendingSecret
         public string $flexField,
         public string $sheet,
         public string $fieldPath,
+        #[SensitiveParameter]
         public string $value,
         public string $identifier,
         public string $originalChecksum,
@@ -34,6 +37,7 @@ readonly class FlexFormPendingSecret
         string $flexField,
         string $sheet,
         string $fieldPath,
+        #[SensitiveParameter]
         string $value,
         string $identifier,
     ): self {
@@ -55,6 +59,7 @@ readonly class FlexFormPendingSecret
         string $flexField,
         string $sheet,
         string $fieldPath,
+        #[SensitiveParameter]
         string $value,
         string $identifier,
         string $originalChecksum,

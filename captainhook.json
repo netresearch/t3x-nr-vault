@@ -45,23 +45,23 @@
                         ]
                     }
                 ]
+            },
+            {
+                "action": "composer ci:test:php:phpstan",
+                "conditions": [
+                    {
+                        "exec": "\\CaptainHook\\App\\Hook\\Condition\\FileStaged\\OfType",
+                        "args": [
+                            "php"
+                        ]
+                    }
+                ]
             }
         ]
     },
     "pre-push": {
         "enabled": true,
         "actions": [
-            {
-                "action": "composer ci:test:php:phpstan",
-                "conditions": [
-                    {
-                        "exec": "\\CaptainHook\\App\\Hook\\Condition\\FileChanged\\OfType",
-                        "args": [
-                            "php"
-                        ]
-                    }
-                ]
-            },
             {
                 "action": "composer ci:test:php:unit",
                 "conditions": [

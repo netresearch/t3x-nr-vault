@@ -25,6 +25,8 @@ final class Typo3MasterKeyProviderTest extends TestCase
         parent::setUp();
 
         $this->originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        // Reset request-lifetime cache between tests
+        Typo3MasterKeyProvider::clearCachedKey();
     }
 
     protected function tearDown(): void
@@ -36,6 +38,7 @@ final class Typo3MasterKeyProviderTest extends TestCase
         } else {
             unset($GLOBALS['TYPO3_CONF_VARS']);
         }
+        Typo3MasterKeyProvider::clearCachedKey();
     }
 
     #[Test]
@@ -128,7 +131,7 @@ final class Typo3MasterKeyProviderTest extends TestCase
     {
         $GLOBALS['TYPO3_CONF_VARS'] = [
             'SYS' => [
-                'encryptionKey' => 'consistent-encryption-key-value',
+                'encryptionKey' => 'consistent-encryption-key-value-at-least-32-chars',
             ],
         ];
 
@@ -146,19 +149,38 @@ final class Typo3MasterKeyProviderTest extends TestCase
 
         $GLOBALS['TYPO3_CONF_VARS'] = [
             'SYS' => [
-                'encryptionKey' => 'encryption-key-one',
+                'encryptionKey' => 'encryption-key-one-at-least-32-chars-long-aaaa',
             ],
         ];
         $key1 = $provider->getMasterKey();
 
+        // Clear request-lifetime cache so the second derivation reads the new globals
+        Typo3MasterKeyProvider::clearCachedKey();
+
         $GLOBALS['TYPO3_CONF_VARS'] = [
             'SYS' => [
-                'encryptionKey' => 'encryption-key-two',
+                'encryptionKey' => 'encryption-key-two-at-least-32-chars-long-bbbb',
             ],
         ];
         $key2 = $provider->getMasterKey();
 
         self::assertNotEquals($key1, $key2);
+    }
+
+    #[Test]
+    public function getMasterKeyThrowsOnShortEncryptionKey(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS'] = [
+            'SYS' => [
+                'encryptionKey' => 'too-short',
+            ],
+        ];
+
+        $provider = new Typo3MasterKeyProvider();
+
+        $this->expectException(MasterKeyException::class);
+
+        $provider->getMasterKey();
     }
 
     #[Test]

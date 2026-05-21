@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **VaultService::store() now requires authorization.** Previously any
+  backend user with write rights on a host table carrying a vault field
+  could create or overwrite arbitrary vault identifiers, bypassing the
+  per-secret ACL. `store()` now distinguishes new vs. update and calls
+  `canCreate()` / `canWrite($existing)`; denied paths emit an
+  `access_denied` audit entry and throw `AccessDeniedException`. Non-admin
+  backend actors that attempt to set or change `owner_uid` are silently
+  coerced to the default (existing owner on update, current actor on
+  create). CLI / scheduler / API actors retain full control.
+- **`#[SensitiveParameter]` rolled out across the crypto / DTO / audit
+  boundaries** (0 → 35 occurrences). Plaintext secrets, master keys,
+  DEKs, OAuth tokens, refresh tokens and vault tokens no longer surface
+  in stack traces, error handlers, monolog payloads, or `var_dump()`.
+  Applied to `EncryptionService(Interface)`, `MasterKeyProviderInterface`
+  and all three providers, `VaultService(Interface)::store/rotate`,
+  `AuditLogServiceInterface::log` `$hashBefore`/`$hashAfter`,
+  `PendingSecret::$value`, `FlexFormPendingSecret::$value`,
+  `VaultServerConfig::$token`, and the private `encryptWithKey` /
+  `decryptWithKey` locals.
+- **SSRF defence-in-depth in `SecureHttpClientFactory::isHostAllowed()`.**
+  Regardless of `allowed_hosts` configuration, IP literals and
+  DNS-resolved hostnames pointing into private / RFC1918 / RFC6598 CGNAT
+  / loopback / link-local / cloud-metadata (169.254.169.254) /
+  multicast / class-E / IPv6 ULA / IPv6 link-local / IPv6 multicast /
+  NAT64 / discard ranges are rejected. The check normalises
+  `host:port`, `[ipv6]:port`, bare `::1` (which `parse_url` misparses),
+  bracketed `[2001:db8::1]`, trailing dots, mixed case, and whitespace.
+  LITERAL allowlist entries can opt back in for on-prem deployments
+  (e.g. `'10.0.0.42'`); wildcards (`*.example.com`) cannot — a wildcard
+  owner could otherwise pivot via DNS rebinding. The check resolves
+  hostnames at filter time; full DNS-rebind protection via
+  `CURLOPT_RESOLVE` pinning is a follow-up.
+- **Master-key rotation is now audit-logged.**
+  `VaultRotateMasterKeyCommand` emits `master_key_rotate_start` before
+  the re-encryption loop and `master_key_rotate_end` (success or
+  failure) afterwards, both with a sanitised reason — error messages
+  are scrubbed of libsodium internals before persistence.
+- **`auditReads` filesystem-only override.**
+  `$TYPO3_CONF_VARS[SYS][nrVault][auditReads]`, if set, takes
+  precedence over the BE-toggleable extension configuration. Pin the
+  value in `LocalConfiguration.php` / `additional.php` on production so
+  a compromised admin cannot silence read logging via the BE Settings
+  module.
+- **`Typo3MasterKeyProvider` entropy gate.** The default master-key
+  provider now rejects TYPO3 `encryptionKey` values shorter than 32
+  characters (would otherwise produce a weak HKDF output). Add a
+  request-lifetime static cache (ADR-020) so HKDF runs once per
+  request instead of on every crypto operation.
+- **`FileMasterKeyProvider` chmod race closed.** `storeMasterKey()`
+  wraps the `file_put_contents()` call in `umask(0o077)` so the file
+  is created `0600`, then `chmod 0400` tightens further — no more
+  world-readable window under permissive umasks.
+
+### Changed
+- **`MasterKeyProviderInterface::storeMasterKey()`,
+  `EncryptionServiceInterface::encrypt/decrypt/reEncryptDek/
+  calculateChecksum()`, `VaultServiceInterface::store/rotate()`, and
+  `AuditLogServiceInterface::log()` now annotate sensitive parameters
+  with `#[SensitiveParameter]`.** This is a signature change visible to
+  downstream implementers: PHP does not enforce the attribute on
+  implementations, but implementers should mirror it on their overrides
+  to keep the protection.
+- **`AccessControlServiceInterface` gains
+  `isCurrentActorAdmin(): bool`.** New method delegating BE-admin check
+  to the service instead of `$GLOBALS['BE_USER']` lookup. Returns
+  `false` for CLI / scheduler / API actor types — callers that need
+  to bypass admin gates must handle actor type explicitly.
+- **Pre-commit hook moves PHPStan from pre-push to pre-commit.** Type
+  errors are now caught at commit time on top of the existing
+  `php-cs-fixer` + lint actions. Pre-push retains unit-test execution.
+  Note: captainhook's installer does not currently support worktree
+  gitdirs (`git clone --bare` + `worktree add`); operators in worktrees
+  need to run `vendor/bin/captainhook install -g <gitdir>` manually.
+
 ## [0.5.0] - 2026-04-22
 
 ### Added
