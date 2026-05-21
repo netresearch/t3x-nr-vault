@@ -12,9 +12,14 @@ services:
       - '../Classes/Http/OAuth/OAuthConfig.php'
 
   # ----- Interface aliases -------------------------------------------------
-  # autowire matches by class only; these aliases let constructors typehint
-  # the interfaces. `public: true` is only set where the runtime explicitly
-  # calls `GeneralUtility::makeInstance(<Interface>::class)` — verified:
+  # Symfony's `autoconfigure` auto-aliases an interface to its single
+  # implementation when the resource glob discovers both; these explicit
+  # aliases make the intent reviewable and stay correct even if a second
+  # implementation is added later.
+  #
+  # `public: true` is only set where the runtime explicitly calls
+  # `GeneralUtility::makeInstance(<Interface>::class)` — verified by
+  # grepping `Classes/` + `Tests/Functional/` + `Tests/Fuzz/`:
   #   - VaultServiceInterface: 3 sites (Form/Element/Task)
   # Every other alias resolves via constructor DI only and can stay private.
 
