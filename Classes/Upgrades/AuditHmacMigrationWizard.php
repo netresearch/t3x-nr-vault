@@ -114,74 +114,12 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
     private function rehashChain(Connection $connection, string $hmacKey, int $targetEpoch): bool
     {
         $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
-
-        // Acquire an advisory lock to block concurrent AuditLogService::log()
-        // writes for the duration of the migration. SQLite: BEGIN EXCLUSIVE
-        // serialises all writers. MySQL/MariaDB: named GET_LOCK + transaction.
-        if ($isSQLite) {
-            $connection->executeStatement('BEGIN EXCLUSIVE');
-        } else {
-            $connection->executeStatement('SELECT GET_LOCK("nr_vault_audit", 5)');
-            $connection->beginTransaction();
-        }
-
+        $this->acquireAuditLock($connection, $isSQLite);
         $committed = false;
 
         try {
-            $result = $connection->createQueryBuilder()
-                ->select('*')
-                ->from(self::TABLE_NAME)
-                ->orderBy('uid', 'ASC')
-                ->executeQuery();
-
-            $previousHash = '';
-            $migratedCount = 0;
-
-            while (($row = $result->fetchAssociative()) !== false) {
-                $rowUid = $row['uid'] ?? 0;
-                $uid = is_numeric($rowUid) ? (int) $rowUid : 0;
-                $rowSecretId = $row['secret_identifier'] ?? '';
-                $secretId = \is_string($rowSecretId) ? $rowSecretId : '';
-                $rowAction = $row['action'] ?? '';
-                $actionStr = \is_string($rowAction) ? $rowAction : '';
-                $rowActorUid = $row['actor_uid'] ?? 0;
-                $actorUid = is_numeric($rowActorUid) ? (int) $rowActorUid : 0;
-                $rowCrdate = $row['crdate'] ?? 0;
-                $crdate = is_numeric($rowCrdate) ? (int) $rowCrdate : 0;
-                $rowEpoch = $row['hmac_key_epoch'] ?? 0;
-                $epoch = is_numeric($rowEpoch) ? (int) $rowEpoch : 0;
-
-                $newHash = AuditLogService::calculateHash(
-                    $uid,
-                    $secretId,
-                    $actionStr,
-                    $actorUid,
-                    $crdate,
-                    $previousHash,
-                    $hmacKey,
-                );
-
-                $connection->update(
-                    self::TABLE_NAME,
-                    [
-                        'entry_hash' => $newHash,
-                        'previous_hash' => $previousHash,
-                        'hmac_key_epoch' => $targetEpoch,
-                    ],
-                    ['uid' => $uid],
-                );
-
-                $previousHash = $newHash;
-                if ($epoch === 0) {
-                    ++$migratedCount;
-                }
-            }
-
-            if ($isSQLite) {
-                $connection->executeStatement('COMMIT');
-            } else {
-                $connection->commit();
-            }
+            $migratedCount = $this->rehashAllRows($connection, $hmacKey, $targetEpoch);
+            $this->commit($connection, $isSQLite);
             $committed = true;
 
             $this->logger->info(
@@ -191,24 +129,123 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
 
             return true;
         } finally {
-            if (!$committed) {
-                try {
-                    if ($isSQLite) {
-                        $connection->executeStatement('ROLLBACK');
-                    } else {
-                        $connection->rollBack();
-                    }
-                } catch (Throwable) {
-                    // Rollback errors during cleanup are non-actionable; the outer
-                    // catch in executeUpdate() has already logged the root cause.
-                }
+            $this->releaseAuditLock($connection, $isSQLite, $committed);
+        }
+    }
+
+    private function rehashAllRows(Connection $connection, string $hmacKey, int $targetEpoch): int
+    {
+        $result = $connection->createQueryBuilder()
+            ->select('*')
+            ->from(self::TABLE_NAME)
+            ->orderBy('uid', 'ASC')
+            ->executeQuery();
+
+        $previousHash = '';
+        $migratedCount = 0;
+
+        while (($row = $result->fetchAssociative()) !== false) {
+            $entry = $this->extractRow($row);
+
+            $newHash = AuditLogService::calculateHash(
+                $entry['uid'],
+                $entry['secretId'],
+                $entry['action'],
+                $entry['actorUid'],
+                $entry['crdate'],
+                $previousHash,
+                $hmacKey,
+            );
+
+            $connection->update(
+                self::TABLE_NAME,
+                [
+                    'entry_hash' => $newHash,
+                    'previous_hash' => $previousHash,
+                    'hmac_key_epoch' => $targetEpoch,
+                ],
+                ['uid' => $entry['uid']],
+            );
+
+            $previousHash = $newHash;
+            if ($entry['epoch'] === 0) {
+                ++$migratedCount;
             }
-            if (!$isSQLite) {
-                try {
-                    $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
-                } catch (Throwable) {
-                    // Lock release best-effort: connection close also releases.
+        }
+
+        return $migratedCount;
+    }
+
+    /**
+     * Type-safe extraction of the audit row fields used by the hash calculation.
+     *
+     * @param array<string, mixed> $row
+     *
+     * @return array{uid: int, secretId: string, action: string, actorUid: int, crdate: int, epoch: int}
+     */
+    private function extractRow(array $row): array
+    {
+        return [
+            'uid' => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
+            'secretId' => \is_string($row['secret_identifier'] ?? null) ? $row['secret_identifier'] : '',
+            'action' => \is_string($row['action'] ?? null) ? $row['action'] : '',
+            'actorUid' => is_numeric($row['actor_uid'] ?? null) ? (int) $row['actor_uid'] : 0,
+            'crdate' => is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : 0,
+            'epoch' => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
+        ];
+    }
+
+    /**
+     * Acquire an advisory lock to block concurrent AuditLogService::log() writes.
+     * SQLite: BEGIN EXCLUSIVE serialises all writers.
+     * MySQL/MariaDB: named GET_LOCK + transaction.
+     */
+    private function acquireAuditLock(Connection $connection, bool $isSQLite): void
+    {
+        if ($isSQLite) {
+            $connection->executeStatement('BEGIN EXCLUSIVE');
+
+            return;
+        }
+        $connection->executeStatement('SELECT GET_LOCK("nr_vault_audit", 5)');
+        $connection->beginTransaction();
+    }
+
+    private function commit(Connection $connection, bool $isSQLite): void
+    {
+        if ($isSQLite) {
+            $connection->executeStatement('COMMIT');
+
+            return;
+        }
+        $connection->commit();
+    }
+
+    /**
+     * Release the advisory lock acquired by {@see acquireAuditLock()}.
+     *
+     * Rollback fires when `$committed` is false. Lock release is best-effort —
+     * the connection close also releases — so we swallow secondary errors.
+     */
+    private function releaseAuditLock(Connection $connection, bool $isSQLite, bool $committed): void
+    {
+        if (!$committed) {
+            try {
+                if ($isSQLite) {
+                    $connection->executeStatement('ROLLBACK');
+                } else {
+                    $connection->rollBack();
                 }
+            } catch (Throwable) {
+                // Rollback errors during cleanup are non-actionable; the outer
+                // catch in executeUpdate() has already logged the root cause.
+            }
+        }
+        if (!$isSQLite) {
+            try {
+                $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
+            } catch (Throwable) {
+                // Lock release best-effort: connection close also releases.
             }
         }
     }
