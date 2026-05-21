@@ -76,6 +76,25 @@ services:
   Netresearch\NrVault\Service\VaultFieldPermissionService:
     public: true
 
+  # SiteConfigurationVaultProcessor is invoked via
+  # `GeneralUtility::makeInstance(SiteConfigurationVaultProcessor::class)`
+  # from third-party code that hooks into the site-configuration event
+  # (documented in the class docblock as the public API entry point).
+  # Required ctor args (VaultServiceInterface) → must be public.
+  Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessor:
+    public: true
+
+  # VaultFieldResolver / FlexFormVaultResolver are documented public API
+  # for callers that need to translate a TCA vault-field reference to its
+  # secret identifier. Functional tests + downstream extension code use
+  # `GeneralUtility::makeInstance(...)` to construct them; both have
+  # required ctor args so they must be public for DI resolution.
+  Netresearch\NrVault\Utility\VaultFieldResolver:
+    public: true
+
+  Netresearch\NrVault\Utility\FlexFormVaultResolver:
+    public: true
+
   # ----- Tagged services that need explicit registration ------------------
   # The `upgrade.wizard` tag has no #[Attribute] form yet (unlike
   # #[AsCommand] / #[AsController] / #[AsEventListener]) so it must be
@@ -91,9 +110,9 @@ services:
   # - 12 command entries — covered by #[AsCommand] + autoconfigure.
   # - 11 redundant `public: true` flags on interface aliases — interfaces
   #   resolve via constructor DI, no $container->get() / makeInstance use.
+  #   (VaultServiceInterface kept public — 3 makeInstance call sites.)
   # - Manual `$eventDispatcher` arg on VaultService — autowire handles it.
-  # - Several concrete-class `public: true` entries (ExtensionConfiguration,
-  #   VaultHttpClientFactory, SecretDetectionService,
-  #   SiteConfigurationVaultProcessor, VaultHttpClient, utility resolvers)
-  #   — none are fetched outside the DI graph; constructor injection is
+  # - Concrete-class `public: true` entries that aren't fetched outside the
+  #   DI graph (ExtensionConfiguration, VaultHttpClientFactory,
+  #   SecretDetectionService, VaultHttpClient) — constructor injection is
   #   enough.
