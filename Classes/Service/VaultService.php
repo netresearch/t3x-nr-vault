@@ -107,18 +107,15 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
             // Apply options. owner_uid is privileged: only admins may change it; otherwise
             // we fall back to the existing owner (update) or the current actor (create).
-            if ($isNew) {
-                $defaultOwner = $this->accessControlService->getCurrentActorUid();
-            } else {
-                $defaultOwner = $existing->getOwnerUid();
-            }
+            $defaultOwner = $isNew ? $this->accessControlService->getCurrentActorUid() : $existing->getOwnerUid();
             $requestedOwner = $defaultOwner;
             if (isset($options['owner'])) {
                 $ownerRaw = $options['owner'];
                 $requestedOwner = is_numeric($ownerRaw) ? (int) $ownerRaw : 0;
             }
-            if ($requestedOwner !== $defaultOwner && $this->accessControlService->getCurrentActorType() === 'backend'
-                && !$this->isCurrentActorAdmin()
+            if ($requestedOwner !== $defaultOwner
+                && $this->accessControlService->getCurrentActorType() === 'backend'
+                && !$this->accessControlService->isCurrentActorAdmin()
             ) {
                 // Non-admin BE user tried to set/change owner_uid → silently coerce to default.
                 $requestedOwner = $defaultOwner;
@@ -440,23 +437,6 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
     public function http(): VaultHttpClientInterface
     {
         return $this->httpClientFactory->create($this);
-    }
-
-    /**
-     * Is the current request driven by an admin BE user?
-     *
-     * Non-BE actors (CLI / scheduler / API) bypass the BE-user admin check and
-     * are treated as admin equivalents — callers must already be context-bound
-     * by separate authentication.
-     */
-    private function isCurrentActorAdmin(): bool
-    {
-        if ($this->accessControlService->getCurrentActorType() !== 'backend') {
-            return true;
-        }
-        $beUser = $GLOBALS['BE_USER'] ?? null;
-
-        return \is_object($beUser) && method_exists($beUser, 'isAdmin') && $beUser->isAdmin() === true;
     }
 
     /**
