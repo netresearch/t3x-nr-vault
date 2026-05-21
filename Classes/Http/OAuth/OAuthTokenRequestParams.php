@@ -70,10 +70,17 @@ final class OAuthTokenRequestParams
     /**
      * Zeroize every credential field. Idempotent and safe to call multiple
      * times — subsequent calls on already-empty strings are no-ops.
+     *
+     * `sodium_memzero()` overwrites the string buffer in place with NUL
+     * bytes; the property remains a (now-empty) string. PHPStan's stub
+     * marks the by-ref param as nullable so we ignore the spurious
+     * "does not accept null" diagnostics on the three lines below.
      */
     public function wipeCredentials(): void
     {
+        /** @phpstan-ignore assign.propertyType */
         sodium_memzero($this->clientId);
+        /** @phpstan-ignore assign.propertyType */
         sodium_memzero($this->clientSecret);
         if ($this->refreshToken !== null) {
             sodium_memzero($this->refreshToken);
