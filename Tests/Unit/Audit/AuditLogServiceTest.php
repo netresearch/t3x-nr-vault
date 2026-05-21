@@ -208,51 +208,9 @@ final class AuditLogServiceTest extends TestCase
     #[Test]
     public function hashChainLinksToLastEntry(): void
     {
-        $expressionBuilder = $this->createMock(ExpressionBuilder::class);
-        $result = $this->createMock(Result::class);
-        // getLatestHash() uses fetchOne() which returns the value directly
-        $result->method('fetchOne')->willReturn('previous_hash_abc123');
-
-        // GET_LOCK lock-acquisition stub
-        $lockResult = $this->createMock(Result::class);
-        $lockResult->method('fetchOne')->willReturn(1);
-
-        $this->connectionPool
-            ->method('getConnectionForTable')
-            ->willReturn($this->connection);
-
-        // The implementation uses $connection->createQueryBuilder()
-        $this->connection
-            ->method('createQueryBuilder')
-            ->willReturn($this->queryBuilder);
-
-        $this->connection
-            ->method('executeQuery')
-            ->willReturn($lockResult);
-
-        $this->queryBuilder
-            ->method('expr')
-            ->willReturn($expressionBuilder);
-
-        $this->queryBuilder
-            ->method('select')
-            ->willReturnSelf();
-
-        $this->queryBuilder
-            ->method('from')
-            ->willReturnSelf();
-
-        $this->queryBuilder
-            ->method('orderBy')
-            ->willReturnSelf();
-
-        $this->queryBuilder
-            ->method('setMaxResults')
-            ->willReturnSelf();
-
-        $this->queryBuilder
-            ->method('executeQuery')
-            ->willReturn($result);
+        // Override the default getLatestHash() return so this test exercises
+        // the "chain continues from previous_hash_abc123" path.
+        $this->setupDatabaseMocks('previous_hash_abc123');
 
         $this->connection
             ->expects(self::once())
@@ -1944,12 +1902,13 @@ final class AuditLogServiceTest extends TestCase
         return $this->subject;
     }
 
-    private function setupDatabaseMocks(): void
+    private function setupDatabaseMocks(mixed $previousHashFetchOne = false): void
     {
         $expressionBuilder = $this->createMock(ExpressionBuilder::class);
         $result = $this->createMock(Result::class);
-        // getLatestHash() uses fetchOne() which returns false when no rows exist
-        $result->method('fetchOne')->willReturn(false);
+        // getLatestHash() uses fetchOne(); default `false` means "no prior entry".
+        // Tests that exercise chaining override this to return the previous_hash value.
+        $result->method('fetchOne')->willReturn($previousHashFetchOne);
 
         // GET_LOCK on MySQL/MariaDB returns 1 on success. Mock the runtime lock
         // acquisition path so tests that don't explicitly stub it don't fail
