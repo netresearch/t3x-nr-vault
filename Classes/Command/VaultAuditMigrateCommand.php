@@ -135,19 +135,16 @@ final class VaultAuditMigrateCommand extends Command
         // GET_LOCK returns 1 on success, 0 on timeout, NULL on error — check the
         // return so a contended lock aborts rather than silently running unprotected.
         $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
-        $lockAcquired = false;
 
         if ($isSQLite) {
             $connection->executeStatement('BEGIN EXCLUSIVE');
-            $lockAcquired = true;
         } else {
             $lockResult = $connection->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')->fetchOne();
-            if ((int) $lockResult !== 1) {
+            if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
                 throw AuditMigrationException::lockAcquisitionFailed(
-                    $lockResult === null ? 'NULL (DB error)' : (string) $lockResult,
+                    $lockResult === null ? 'NULL (DB error)' : (\is_scalar($lockResult) ? (string) $lockResult : 'non-scalar'),
                 );
             }
-            $lockAcquired = true;
             $connection->beginTransaction();
         }
 

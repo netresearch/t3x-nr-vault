@@ -59,21 +59,18 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // value so a contended or errored lock aborts rather than silently writing
         // unprotected entries (breaking the very serialisation property the lock provides).
         $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
-        $lockAcquired = false;
 
         if ($isSQLite) {
             // SQLite BEGIN EXCLUSIVE acquires a write lock immediately, serializing all writers
             $connection->executeStatement('BEGIN EXCLUSIVE');
-            $lockAcquired = true;
         } else {
             // MySQL/MariaDB: acquire a named advisory lock (5 second timeout)
             $lockResult = $connection->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')->fetchOne();
-            if ((int) $lockResult !== 1) {
+            if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
                 throw AuditWriteException::lockAcquisitionFailed(
-                    $lockResult === null ? 'NULL (DB error)' : (string) $lockResult,
+                    $lockResult === null ? 'NULL (DB error)' : (\is_scalar($lockResult) ? (string) $lockResult : 'non-scalar'),
                 );
             }
-            $lockAcquired = true;
             $connection->beginTransaction();
         }
 
@@ -134,17 +131,17 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 $connection->commit();
             }
         } catch (Throwable $e) {
-            if ($lockAcquired) {
-                if ($isSQLite) {
-                    $connection->executeStatement('ROLLBACK');
-                } else {
-                    $connection->rollBack();
-                }
+            // We only reach here if the lock was acquired (failure throws above
+            // and never enters the try). Unconditional rollback is safe.
+            if ($isSQLite) {
+                $connection->executeStatement('ROLLBACK');
+            } else {
+                $connection->rollBack();
             }
 
             throw $e;
         } finally {
-            if ($lockAcquired && !$isSQLite) {
+            if (!$isSQLite) {
                 $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
             }
         }
