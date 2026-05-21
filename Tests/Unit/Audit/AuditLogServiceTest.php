@@ -1695,12 +1695,12 @@ final class AuditLogServiceTest extends TestCase
             ->willReturn($lockResult);
         $this->connection
             ->method('beginTransaction')
-            ->willThrowException(new \RuntimeException('simulated DB failure mid-transaction-start'));
+            ->willThrowException(new RuntimeException('simulated DB failure mid-transaction-start'));
         $this->connection
             ->expects(self::never())
             ->method('insert');
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('simulated DB failure');
 
         try {
