@@ -65,6 +65,16 @@ final class VaultServiceTest extends TestCase
             ->method('getCurrentActorUid')
             ->willReturn(1);
 
+        $this->accessControlService
+            ->method('getCurrentActorType')
+            ->willReturn('cli');
+
+        // Default canCreate to true so the happy-path store tests do not need
+        // to stub it; tests that exercise the denial branch override locally.
+        $this->accessControlService
+            ->method('canCreate')
+            ->willReturn(true);
+
         $this->configuration
             ->method('isCacheEnabled')
             ->willReturn(false);
@@ -531,6 +541,11 @@ final class VaultServiceTest extends TestCase
             ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
 
         $this->adapter->method('retrieve')->willReturn($existing);
+
+        // Updates use canWrite, not canCreate.
+        $this->accessControlService
+            ->method('canWrite')
+            ->willReturn(true);
 
         $this->adapter
             ->expects(self::once())
