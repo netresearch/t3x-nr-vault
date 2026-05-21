@@ -134,6 +134,7 @@ final class AuditHmacMigrationWizardTest extends TestCase
         $connection = $this->createMock(Connection::class);
         $connection->method('createQueryBuilder')->willReturn($queryBuilder);
         $connection->expects(self::exactly(2))->method('update');
+        $this->stubLockAcquisition($connection);
 
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
@@ -166,6 +167,7 @@ final class AuditHmacMigrationWizardTest extends TestCase
         $connection = $this->createMock(Connection::class);
         $connection->method('createQueryBuilder')->willReturn($queryBuilder);
         $connection->expects(self::once())->method('update');
+        $this->stubLockAcquisition($connection);
 
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
@@ -193,12 +195,51 @@ final class AuditHmacMigrationWizardTest extends TestCase
         $connection = $this->createMock(Connection::class);
         $connection->method('createQueryBuilder')->willReturn($queryBuilder);
         $connection->expects(self::never())->method('update');
+        $this->stubLockAcquisition($connection);
 
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
         $result = $this->subject->executeUpdate();
 
         self::assertTrue($result);
+    }
+
+    #[Test]
+    public function executeUpdateReturnsFalseWhenLockCannotBeAcquired(): void
+    {
+        // GET_LOCK returning 0 = timeout, NULL = error; both must abort the migration
+        // rather than silently proceed without the lock.
+        $this->configuration->method('getAuditHmacEpoch')->willReturn(1);
+        $this->masterKeyProvider->method('getMasterKey')->willReturn(str_repeat("\x42", 32));
+
+        $lockResult = $this->createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(0); // timeout
+
+        $connection = $this->createMock(Connection::class);
+        $platform = $this->createStub(\Doctrine\DBAL\Platforms\MySQLPlatform::class);
+        $connection->method('getDatabasePlatform')->willReturn($platform);
+        $connection->method('executeQuery')->willReturn($lockResult);
+        $connection->expects(self::never())->method('beginTransaction');
+        $connection->expects(self::never())->method('update');
+
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+
+        $result = $this->subject->executeUpdate();
+
+        self::assertFalse($result, 'Wizard must abort when GET_LOCK returns 0 (timeout)');
+    }
+
+    /**
+     * Stub the GET_LOCK acquisition path so existing tests reach the re-hash loop.
+     * Tests that explicitly cover lock failure should NOT use this helper.
+     */
+    private function stubLockAcquisition(Connection&\PHPUnit\Framework\MockObject\MockObject $connection): void
+    {
+        $lockResult = $this->createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+        $platform = $this->createStub(\Doctrine\DBAL\Platforms\MySQLPlatform::class);
+        $connection->method('getDatabasePlatform')->willReturn($platform);
+        $connection->method('executeQuery')->willReturn($lockResult);
     }
 
     private function mockCountQuery(int $count): void
