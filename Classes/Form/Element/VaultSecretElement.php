@@ -29,7 +29,11 @@ final class VaultSecretElement extends AbstractFormElement
 {
     private const LINE_FEED = "\n";
 
-    public function __construct(private readonly IconFactory $iconFactory) {}
+    public function __construct(
+        private readonly IconFactory $iconFactory,
+        private readonly VaultFieldPermissionService $permissionService,
+        private readonly VaultServiceInterface $vaultService,
+    ) {}
 
     /**
      * @return array<string, mixed>
@@ -118,8 +122,6 @@ final class VaultSecretElement extends AbstractFormElement
         $fieldValue = $data['fieldName'] ?? '';
         $field = \is_string($fieldValue) ? $fieldValue : '';
 
-        $permissionService = GeneralUtility::makeInstance(VaultFieldPermissionService::class);
-
         $itemFormElValue = $parameterArray['itemFormElValue'] ?? '';
         $vaultIdentifier = \is_string($itemFormElValue) ? $itemFormElValue : '';
 
@@ -130,13 +132,13 @@ final class VaultSecretElement extends AbstractFormElement
             'vaultIdentifier' => $vaultIdentifier,
             'config' => $config,
             'fieldConf' => $fieldConf,
-            'permissions' => $permissionService->getPermissions($table, $field),
+            'permissions' => $this->permissionService->getPermissions($table, $field),
         ];
     }
 
     /**
      * Decide whether the vault has a value the user is allowed to see.
-     * \getMetadata() throws SecretNotFoundException when the identifier
+     * getMetadata() throws SecretNotFoundException when the identifier
      * doesn't exist and AccessDeniedException when it exists but the
      * current user lacks read permission — both render as "no value".
      */
@@ -147,8 +149,7 @@ final class VaultSecretElement extends AbstractFormElement
         }
 
         try {
-            $vaultService = GeneralUtility::makeInstance(VaultServiceInterface::class);
-            $vaultService->getMetadata($vaultIdentifier);
+            $this->vaultService->getMetadata($vaultIdentifier);
 
             return true;
         } catch (Throwable) {

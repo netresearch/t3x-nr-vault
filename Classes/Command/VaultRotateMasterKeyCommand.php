@@ -242,7 +242,7 @@ final class VaultRotateMasterKeyCommand extends Command
         string $newKey,
         int $totalSecrets,
     ): int {
-        $connection = $this->connectionPool->getConnectionForTable('tx_nrvault_secrets');
+        $connection = $this->connectionPool->getConnectionForTable('tx_nrvault_secret');
         $connection->beginTransaction();
 
         // Audit the start of the rotation lifecycle. We log BEFORE any state
