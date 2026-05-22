@@ -67,8 +67,6 @@ final class VaultSecretElementTest extends TestCase
         // VaultFieldPermissionService is final, so we use a real instance
         // (admin user gives: reveal=true, copy=true, edit=true, readOnly=false)
         $permissionService = new VaultFieldPermissionService();
-        GeneralUtility::setSingletonInstance(VaultFieldPermissionService::class, $permissionService);
-        GeneralUtility::addInstance(VaultServiceInterface::class, $this->vaultService);
 
         // Build a real IconFactory with mocked dependencies
         $icon = $this->createMock(Icon::class);
@@ -84,7 +82,7 @@ final class VaultSecretElementTest extends TestCase
             $runtimeCache,
         );
 
-        $this->subject = new VaultSecretElement($iconFactory);
+        $this->subject = new VaultSecretElement($iconFactory, $permissionService, $this->vaultService);
 
         // Set up NodeFactory mock for renderFieldInformation/renderFieldWizard
         $nodeFactory = $this->createMock(NodeFactory::class);

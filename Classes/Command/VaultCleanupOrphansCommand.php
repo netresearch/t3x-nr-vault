@@ -79,81 +79,25 @@ final class VaultCleanupOrphansCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-        $dryRun = $input->getOption('dry-run');
-        $retentionDaysOption = $input->getOption('retention-days');
-        $retentionDays = is_numeric($retentionDaysOption) ? (int) $retentionDaysOption : 0;
-        $tableFilterOption = $input->getOption('table');
-        $tableFilter = \is_string($tableFilterOption) ? $tableFilterOption : null;
-        $batchSizeOption = $input->getOption('batch-size');
-        $batchSize = is_numeric($batchSizeOption) ? (int) $batchSizeOption : 100;
+        $options = $this->parseOptions($input);
 
         $io->title('Vault Orphan Cleanup');
         $io->text([
-            \sprintf('Mode: <info>%s</info>', $dryRun !== false ? 'Dry Run' : 'Live'),
-            \sprintf('Retention: <info>%d days</info>', $retentionDays),
-            $tableFilter !== null ? \sprintf('Table filter: <info>%s</info>', $tableFilter) : '',
+            \sprintf('Mode: <info>%s</info>', $options['dryRun'] ? 'Dry Run' : 'Live'),
+            \sprintf('Retention: <info>%d days</info>', $options['retentionDays']),
+            $options['tableFilter'] !== null ? \sprintf('Table filter: <info>%s</info>', $options['tableFilter']) : '',
         ]);
 
-        // Get all TCA-sourced secrets
-        $secrets = $this->getTcaSecrets($tableFilter);
-        $totalSecrets = \count($secrets);
-
-        if ($totalSecrets === 0) {
+        $secrets = $this->getTcaSecrets($options['tableFilter']);
+        if ($secrets === []) {
             $io->success('No TCA-sourced secrets found');
 
             return Command::SUCCESS;
         }
 
-        $io->text(\sprintf('Found <info>%d</info> TCA-sourced secrets to check', $totalSecrets));
+        $io->text(\sprintf('Found <info>%d</info> TCA-sourced secrets to check', \count($secrets)));
 
-        // Find orphans
-        $io->section('Checking for orphaned secrets...');
-        $progressBar = $io->createProgressBar($totalSecrets);
-        $progressBar->start();
-
-        $orphans = [];
-        $retentionCutoff = $retentionDays > 0 ? time() - ($retentionDays * 86400) : PHP_INT_MAX;
-
-        $effectiveBatchSize = $batchSize > 0 ? $batchSize : 100;
-        foreach (array_chunk($secrets, $effectiveBatchSize) as $batch) {
-            foreach ($batch as $secret) {
-                $identifier = $secret['identifier'];
-                $metadata = $secret['metadata'];
-                $createdAt = $secret['created_at'] ?? 0;
-
-                // Get table/field/uid from metadata (UUIDs don't encode this)
-                $tableValue = $metadata['table'] ?? '';
-                $table = \is_string($tableValue) ? $tableValue : '';
-                $fieldValue = $metadata['field'] ?? $metadata['flexField'] ?? '';
-                $field = \is_string($fieldValue) ? $fieldValue : '';
-                $uidValue = $metadata['uid'] ?? 0;
-                $uid = is_numeric($uidValue) ? (int) $uidValue : 0;
-
-                if ($table === '' || $uid === 0) {
-                    $progressBar->advance();
-                    continue;
-                }
-
-                // Check if record still exists
-                // Only include if older than retention period
-                if (!$this->recordExists($table, $uid) && $createdAt < $retentionCutoff) {
-                    $orphans[] = [
-                        'identifier' => $identifier,
-                        'table' => $table,
-                        'field' => $field,
-                        'uid' => $uid,
-                        'created_at' => $createdAt,
-                    ];
-                }
-
-                $progressBar->advance();
-            }
-        }
-
-        $progressBar->finish();
-        $io->newLine(2);
-
-        // Show results
+        $orphans = $this->findOrphans($io, $secrets, $options['retentionDays'], $options['batchSize']);
         $orphanCount = \count($orphans);
         if ($orphanCount === 0) {
             $io->success('No orphaned secrets found');
@@ -163,21 +107,124 @@ final class VaultCleanupOrphansCommand extends Command
 
         $io->text(\sprintf('Found <comment>%d</comment> orphaned secrets', $orphanCount));
 
-        if ($dryRun) {
+        if ($options['dryRun']) {
             $io->section('Orphaned secrets that would be deleted:');
             $this->showOrphanTable($io, $orphans);
 
             return Command::SUCCESS;
         }
 
-        // Confirm deletion
         if (!$io->confirm(\sprintf('Delete %d orphaned secrets?', $orphanCount), false)) {
             $io->warning('Cleanup cancelled');
 
             return Command::SUCCESS;
         }
 
-        // Delete orphans
+        return $this->deleteOrphans($io, $orphans);
+    }
+
+    /**
+     * Parse CLI options into a typed shape so the main flow stays readable.
+     *
+     * @return array{dryRun: bool, retentionDays: int, tableFilter: ?string, batchSize: int}
+     */
+    private function parseOptions(InputInterface $input): array
+    {
+        $retentionDaysOption = $input->getOption('retention-days');
+        $tableFilterOption = $input->getOption('table');
+        $batchSizeOption = $input->getOption('batch-size');
+
+        return [
+            'dryRun' => (bool) $input->getOption('dry-run'),
+            'retentionDays' => is_numeric($retentionDaysOption) ? (int) $retentionDaysOption : 0,
+            'tableFilter' => \is_string($tableFilterOption) ? $tableFilterOption : null,
+            'batchSize' => is_numeric($batchSizeOption) && (int) $batchSizeOption > 0 ? (int) $batchSizeOption : 100,
+        ];
+    }
+
+    /**
+     * Iterate TCA-sourced secrets and classify each as orphaned when the
+     * backing record no longer exists AND the secret is older than the
+     * configured retention cutoff.
+     *
+     * @param array<int, array{identifier: string, metadata: array<string, mixed>, created_at: int}> $secrets
+     *
+     * @return list<array{identifier: string, table: string, field: string, uid: int, created_at: int}>
+     */
+    private function findOrphans(SymfonyStyle $io, array $secrets, int $retentionDays, int $batchSize): array
+    {
+        $io->section('Checking for orphaned secrets...');
+        $progressBar = $io->createProgressBar(\count($secrets));
+        $progressBar->start();
+
+        $orphans = [];
+        $retentionCutoff = $retentionDays > 0 ? time() - ($retentionDays * 86400) : PHP_INT_MAX;
+        $effectiveBatchSize = max(1, $batchSize);
+
+        foreach (array_chunk($secrets, $effectiveBatchSize) as $batch) {
+            foreach ($batch as $secret) {
+                $orphan = $this->classifyOrphan($secret, $retentionCutoff);
+                if ($orphan !== null) {
+                    $orphans[] = $orphan;
+                }
+                $progressBar->advance();
+            }
+        }
+
+        $progressBar->finish();
+        $io->newLine(2);
+
+        return $orphans;
+    }
+
+    /**
+     * Classify a single secret. Returns the orphan payload if the backing
+     * record is gone and retention has elapsed, otherwise null.
+     *
+     * @param array{identifier: string, metadata: array<string, mixed>, created_at: int} $secret
+     *
+     * @return array{identifier: string, table: string, field: string, uid: int, created_at: int}|null
+     */
+    private function classifyOrphan(array $secret, int $retentionCutoff): ?array
+    {
+        $identifier = $secret['identifier'];
+        $metadata = $secret['metadata'];
+        $createdAtRaw = $secret['created_at'] ?? 0;
+        $createdAt = is_numeric($createdAtRaw) ? (int) $createdAtRaw : 0;
+
+        $tableValue = $metadata['table'] ?? '';
+        $table = \is_string($tableValue) ? $tableValue : '';
+        $fieldValue = $metadata['field'] ?? $metadata['flexField'] ?? '';
+        $field = \is_string($fieldValue) ? $fieldValue : '';
+        $uidValue = $metadata['uid'] ?? 0;
+        $uid = is_numeric($uidValue) ? (int) $uidValue : 0;
+
+        if ($table === '' || $uid === 0) {
+            return null;
+        }
+
+        if ($this->recordExists($table, $uid) || $createdAt >= $retentionCutoff) {
+            return null;
+        }
+
+        return [
+            'identifier' => $identifier,
+            'table' => $table,
+            'field' => $field,
+            'uid' => $uid,
+            'created_at' => $createdAt,
+        ];
+    }
+
+    /**
+     * Delete the confirmed orphan list, printing a summary table. Returns
+     * FAILURE if any deletion threw; the rest still proceed (best-effort
+     * cleanup — vault state is consistent either way).
+     *
+     * @param list<array{identifier: string, table: string, field: string, uid: int, created_at: int}> $orphans
+     */
+    private function deleteOrphans(SymfonyStyle $io, array $orphans): int
+    {
         $io->section('Deleting orphaned secrets...');
         $deleted = 0;
         $failed = 0;
@@ -186,17 +233,16 @@ final class VaultCleanupOrphansCommand extends Command
         foreach ($orphans as $orphan) {
             try {
                 $this->vaultService->delete($orphan['identifier'], 'Orphan cleanup');
-                $deleted++;
+                ++$deleted;
             } catch (VaultException $e) {
-                $failed++;
+                ++$failed;
                 $errors[] = \sprintf('%s: %s', $orphan['identifier'], $e->getMessage());
             }
         }
 
-        // Summary
         $io->section('Cleanup Summary');
         $io->definitionList(
-            ['Orphans found' => $orphanCount],
+            ['Orphans found' => \count($orphans)],
             ['Successfully deleted' => $deleted],
             ['Failed' => $failed],
         );

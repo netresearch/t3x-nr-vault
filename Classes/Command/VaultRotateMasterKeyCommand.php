@@ -89,10 +89,6 @@ final class VaultRotateMasterKeyCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
 
-        $dryRun = (bool) $input->getOption('dry-run');
-        $confirmed = (bool) $input->getOption('confirm');
-
-        // Get keys
         try {
             $oldKeyPath = $input->getOption('old-key');
             $newKeyPath = $input->getOption('new-key');
@@ -104,23 +100,42 @@ final class VaultRotateMasterKeyCommand extends Command
             return Command::FAILURE;
         }
 
-        // Validate we have different keys
-        if (hash_equals($oldKey, $newKey)) {
-            $io->error('Old and new master keys are identical. Nothing to rotate.');
+        try {
+            return $this->runRotation(
+                $io,
+                $oldKey,
+                $newKey,
+                (bool) $input->getOption('dry-run'),
+                (bool) $input->getOption('confirm'),
+            );
+        } finally {
             sodium_memzero($oldKey);
             sodium_memzero($newKey);
+        }
+    }
+
+    /**
+     * Orchestrates the rotation pipeline. Pre-flight checks → confirmation →
+     * key verification → dry-run short-circuit → transactional re-encryption.
+     */
+    private function runRotation(
+        SymfonyStyle $io,
+        string $oldKey,
+        string $newKey,
+        bool $dryRun,
+        bool $confirmed,
+    ): int {
+        if (hash_equals($oldKey, $newKey)) {
+            $io->error('Old and new master keys are identical. Nothing to rotate.');
 
             return Command::FAILURE;
         }
 
-        // Get all secret identifiers
         $identifiers = $this->secretRepository->findIdentifiers();
         $totalSecrets = \count($identifiers);
 
         if ($totalSecrets === 0) {
             $io->warning('No secrets found in the vault.');
-            sodium_memzero($oldKey);
-            sodium_memzero($newKey);
 
             return Command::SUCCESS;
         }
@@ -128,31 +143,68 @@ final class VaultRotateMasterKeyCommand extends Command
         $io->title('Master Key Rotation');
         $io->text(\sprintf('Found %d secret(s) to re-encrypt.', $totalSecrets));
 
+        if (!$this->confirmExecution($io, $dryRun, $confirmed)) {
+            return Command::FAILURE;
+        }
+
+        if (!$this->verifyOldKey($io, $identifiers[0], $oldKey, $newKey)) {
+            return Command::FAILURE;
+        }
+
+        if ($dryRun) {
+            $io->success(\sprintf(
+                '[DRY RUN] Would re-encrypt %d secret(s). No changes made.',
+                $totalSecrets,
+            ));
+
+            return Command::SUCCESS;
+        }
+
+        return $this->rotateAllSecrets($io, $identifiers, $oldKey, $newKey, $totalSecrets);
+    }
+
+    /**
+     * Show the dry-run notice or require explicit --confirm for irreversible
+     * runs. Returns false to abort with FAILURE if the user must opt in first.
+     */
+    private function confirmExecution(SymfonyStyle $io, bool $dryRun, bool $confirmed): bool
+    {
         if ($dryRun) {
             $io->note('DRY RUN MODE - No changes will be made.');
-        } elseif (!$confirmed) {
+
+            return true;
+        }
+
+        if (!$confirmed) {
             $io->warning([
                 'This operation will re-encrypt all DEKs with the new master key.',
                 'This is irreversible. Ensure you have backed up the old key.',
                 'Use --confirm to proceed or --dry-run to simulate.',
             ]);
-            sodium_memzero($oldKey);
-            sodium_memzero($newKey);
 
-            return Command::FAILURE;
+            return false;
         }
 
-        // Verify old key works by attempting to decrypt first secret
+        return true;
+    }
+
+    /**
+     * Smoke-test the old master key by attempting a single re-encryption.
+     * Catches a wrong-key scenario before touching the rest of the vault.
+     */
+    private function verifyOldKey(
+        SymfonyStyle $io,
+        string $firstIdentifier,
+        string $oldKey,
+        string $newKey,
+    ): bool {
         $io->text('Verifying old master key...');
-        $firstIdentifier = $identifiers[0];
         $firstSecret = $this->secretRepository->findByIdentifier($firstIdentifier);
 
         if (!$firstSecret instanceof Secret) {
             $io->error('Failed to load first secret for verification.');
-            sodium_memzero($oldKey);
-            sodium_memzero($newKey);
 
-            return Command::FAILURE;
+            return false;
         }
 
         try {
@@ -164,35 +216,34 @@ final class VaultRotateMasterKeyCommand extends Command
                 $newKey,
             );
             $io->text('<info>Old master key verified successfully.</info>');
+
+            return true;
         } catch (EncryptionException $e) {
             $io->error([
                 'Failed to decrypt with old master key.',
                 'Error: ' . $e->getMessage(),
                 'Ensure you provided the correct old key.',
             ]);
-            sodium_memzero($oldKey);
-            sodium_memzero($newKey);
 
-            return Command::FAILURE;
+            return false;
         }
+    }
 
-        if ($dryRun) {
-            $io->success(\sprintf(
-                '[DRY RUN] Would re-encrypt %d secret(s). No changes made.',
-                $totalSecrets,
-            ));
-            sodium_memzero($oldKey);
-            sodium_memzero($newKey);
-
-            return Command::SUCCESS;
-        }
-
-        // Begin transaction
-        $connection = $this->connectionPool->getConnectionForTable('tx_nrvault_secrets');
+    /**
+     * Main rotation loop wrapped in a transaction. Per-secret failures are
+     * collected; ANY failure rolls back the whole batch (atomic rotation).
+     *
+     * @param list<string> $identifiers
+     */
+    private function rotateAllSecrets(
+        SymfonyStyle $io,
+        array $identifiers,
+        string $oldKey,
+        string $newKey,
+        int $totalSecrets,
+    ): int {
+        $connection = $this->connectionPool->getConnectionForTable('tx_nrvault_secret');
         $connection->beginTransaction();
-
-        $successCount = 0;
-        $failedSecrets = [];
 
         // Audit the start of the rotation lifecycle. We log BEFORE any state
         // change so that even a catastrophic crash mid-loop leaves a trail.
@@ -205,62 +256,27 @@ final class VaultRotateMasterKeyCommand extends Command
         );
 
         $io->progressStart($totalSecrets);
+        $failedSecrets = [];
+        $successCount = 0;
 
         try {
             foreach ($identifiers as $identifier) {
-                $secret = $this->secretRepository->findByIdentifier($identifier);
-                if (!$secret instanceof Secret) {
-                    $failedSecrets[] = ['identifier' => $identifier, 'error' => 'Not found'];
-                    $io->progressAdvance();
-
-                    continue;
-                }
-
-                try {
-                    $reEncrypted = $this->encryptionService->reEncryptDek(
-                        $secret->getEncryptedDek(),
-                        $secret->getDekNonce(),
-                        $secret->getIdentifier(),
-                        $oldKey,
-                        $newKey,
-                    );
-
-                    // Update the secret
-                    $secret->setEncryptedDek($reEncrypted->encryptedDek);
-                    $secret->setDekNonce($reEncrypted->nonce);
-                    $this->secretRepository->save($secret);
-
+                if ($this->rotateOne($identifier, $oldKey, $newKey, $failedSecrets)) {
                     ++$successCount;
-                } catch (EncryptionException $e) {
-                    $failedSecrets[] = ['identifier' => $identifier, 'error' => $e->getMessage()];
                 }
-
                 $io->progressAdvance();
             }
-
             $io->progressFinish();
 
             if ($failedSecrets !== []) {
                 $connection->rollBack();
-                $io->error(\sprintf(
-                    'Rotation failed for %d secret(s). Transaction rolled back.',
-                    \count($failedSecrets),
-                ));
-                $io->table(
-                    ['Identifier', 'Error'],
-                    array_map(
-                        static fn (array $f): array => [$f['identifier'], $f['error']],
-                        $failedSecrets,
-                    ),
-                );
+                $this->reportFailures($io, $failedSecrets);
                 $this->auditLogService->log(
                     self::AUDIT_PSEUDO_IDENTIFIER,
                     'master_key_rotate_end',
                     false,
                     \sprintf('Rotation failed for %d secret(s); transaction rolled back', \count($failedSecrets)),
                 );
-                sodium_memzero($oldKey);
-                sodium_memzero($newKey);
 
                 return Command::FAILURE;
             }
@@ -277,8 +293,6 @@ final class VaultRotateMasterKeyCommand extends Command
                 false,
                 'Unexpected error during rotation; transaction rolled back',
             );
-            sodium_memzero($oldKey);
-            sodium_memzero($newKey);
 
             return Command::FAILURE;
         }
@@ -303,10 +317,68 @@ final class VaultRotateMasterKeyCommand extends Command
             '3. Test secret retrieval to verify the rotation',
         ]);
 
-        sodium_memzero($oldKey);
-        sodium_memzero($newKey);
-
         return Command::SUCCESS;
+    }
+
+    /**
+     * Re-encrypt a single secret's DEK and persist. Returns false (with the
+     * failure recorded by reference) on missing-secret or EncryptionException;
+     * the caller advances the progress bar and decides whether to roll back.
+     *
+     * @param list<array{identifier: string, error: string}> $failedSecrets
+     */
+    private function rotateOne(
+        string $identifier,
+        string $oldKey,
+        string $newKey,
+        array &$failedSecrets,
+    ): bool {
+        $secret = $this->secretRepository->findByIdentifier($identifier);
+        if (!$secret instanceof Secret) {
+            $failedSecrets[] = ['identifier' => $identifier, 'error' => 'Not found'];
+
+            return false;
+        }
+
+        try {
+            $reEncrypted = $this->encryptionService->reEncryptDek(
+                $secret->getEncryptedDek(),
+                $secret->getDekNonce(),
+                $secret->getIdentifier(),
+                $oldKey,
+                $newKey,
+            );
+
+            $secret->setEncryptedDek($reEncrypted->encryptedDek);
+            $secret->setDekNonce($reEncrypted->nonce);
+            $this->secretRepository->save($secret);
+
+            return true;
+        } catch (EncryptionException $e) {
+            $failedSecrets[] = ['identifier' => $identifier, 'error' => $e->getMessage()];
+
+            return false;
+        }
+    }
+
+    /**
+     * Render the failure table after a rolled-back rotation.
+     *
+     * @param list<array{identifier: string, error: string}> $failedSecrets
+     */
+    private function reportFailures(SymfonyStyle $io, array $failedSecrets): void
+    {
+        $io->error(\sprintf(
+            'Rotation failed for %d secret(s). Transaction rolled back.',
+            \count($failedSecrets),
+        ));
+        $io->table(
+            ['Identifier', 'Error'],
+            array_map(
+                static fn (array $f): array => [$f['identifier'], $f['error']],
+                $failedSecrets,
+            ),
+        );
     }
 
     /**
