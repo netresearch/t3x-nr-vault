@@ -277,27 +277,26 @@ final class SecretFixtureBuilder
      */
     public function buildSecret(): Secret
     {
-        $secret = new Secret();
-        $secret->setUid($this->uid);
-        $secret->setIdentifier($this->identifier);
-        $secret->setDescription($this->description);
-        $secret->setOwnerUid($this->ownerUid);
-        $secret->setAllowedGroups($this->groups);
-        $secret->setContext($this->context);
-        $secret->setFrontendAccessible($this->frontendAccessible);
-        $secret->setVersion($this->version);
-        $secret->setCrdate($this->createdAt);
-        $secret->setTstamp($this->updatedAt);
-        $secret->setExpiresAt($this->expiresAt ?? 0);
-        $secret->setLastRotatedAt($this->lastRotatedAt ?? 0);
-        $secret->setReadCount($this->readCount);
-        $secret->setLastReadAt($this->lastReadAt ?? 0);
-        $secret->setMetadata($this->metadata);
-        $secret->setScopePid($this->scopePid);
-        $secret->setHidden($this->disabled);
-        $secret->setEncryptedValue('test-ciphertext');
-        $secret->setValueChecksum('test-checksum');
-
-        return $secret;
+        return new Secret(
+            identifier: $this->identifier,
+            uid: $this->uid,
+            scopePid: $this->scopePid,
+            description: $this->description,
+            encryptedValue: 'test-ciphertext',
+            valueChecksum: 'test-checksum',
+            ownerUid: $this->ownerUid,
+            allowedGroups: $this->groups,
+            context: $this->context,
+            frontendAccessible: $this->frontendAccessible,
+            version: $this->version,
+            expiresAt: $this->expiresAt ?? 0,
+            lastRotatedAt: $this->lastRotatedAt ?? 0,
+            metadata: $this->metadata,
+            tstamp: $this->updatedAt,
+            crdate: $this->createdAt,
+            hidden: $this->disabled,
+            readCount: $this->readCount,
+            lastReadAt: $this->lastReadAt ?? 0,
+        );
     }
 }

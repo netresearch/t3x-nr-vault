@@ -53,13 +53,13 @@ final class LocalEncryptionAdapterTest extends TestCase
     #[Test]
     public function storeDelegatesToRepository(): void
     {
-        $secret = new Secret();
-        $secret->setIdentifier('test');
+        $secret = new Secret(identifier: 'test');
 
         $repository = $this->createMock(SecretRepositoryInterface::class);
         $repository->expects(self::once())
             ->method('save')
-            ->with($secret);
+            ->with($secret)
+            ->willReturn($secret);
 
         $adapter = new LocalEncryptionAdapter($repository);
         $adapter->store($secret);
@@ -68,8 +68,7 @@ final class LocalEncryptionAdapterTest extends TestCase
     #[Test]
     public function retrieveDelegatesToRepository(): void
     {
-        $secret = new Secret();
-        $secret->setIdentifier('test');
+        $secret = new Secret(identifier: 'test');
 
         $repository = $this->createMock(SecretRepositoryInterface::class);
         $repository->expects(self::once())
@@ -97,8 +96,7 @@ final class LocalEncryptionAdapterTest extends TestCase
     #[Test]
     public function deleteRemovesExistingSecret(): void
     {
-        $secret = new Secret();
-        $secret->setIdentifier('test');
+        $secret = new Secret(identifier: 'test');
 
         $repository = $this->createMock(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')
@@ -168,16 +166,17 @@ final class LocalEncryptionAdapterTest extends TestCase
     #[Test]
     public function getMetadataReturnsSecretMetadata(): void
     {
-        $secret = new Secret();
-        $secret->setIdentifier('api-key');
-        $secret->setDescription('Payment API key');
-        $secret->setOwnerUid(5);
-        $secret->setAllowedGroups([1, 2]);
-        $secret->setContext('payment');
-        $secret->setVersion(3);
-        $secret->setExpiresAt(1735689600);
-        $secret->setMetadata(['service' => 'stripe']);
-        $secret->setAdapter('local');
+        $secret = new Secret(
+            identifier: 'api-key',
+            description: 'Payment API key',
+            ownerUid: 5,
+            allowedGroups: [1, 2],
+            context: 'payment',
+            version: 3,
+            expiresAt: 1735689600,
+            metadata: ['service' => 'stripe'],
+            adapter: 'local',
+        );
 
         $repository = $this->createStub(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')->willReturn($secret);
@@ -200,9 +199,7 @@ final class LocalEncryptionAdapterTest extends TestCase
     #[Test]
     public function getMetadataReturnsNullExpiresAtWhenZero(): void
     {
-        $secret = new Secret();
-        $secret->setIdentifier('test');
-        $secret->setExpiresAt(0);
+        $secret = new Secret(identifier: 'test', expiresAt: 0);
 
         $repository = $this->createStub(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')->willReturn($secret);
@@ -227,18 +224,25 @@ final class LocalEncryptionAdapterTest extends TestCase
     #[Test]
     public function updateMetadataMergesAndSaves(): void
     {
-        $secret = new Secret();
-        $secret->setIdentifier('test');
-        $secret->setMetadata(['existing' => 'value']);
+        $secret = new Secret(identifier: 'test', metadata: ['existing' => 'value']);
 
         $repository = $this->createMock(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')->willReturn($secret);
-        $repository->expects(self::once())->method('save')->with($secret);
+
+        // The adapter calls `withMetadata($merged)` (returning a NEW Secret)
+        // and persists that — so we assert on the saved-instance metadata,
+        // not on `$secret` (which is now immutable and unchanged).
+        $repository->expects(self::once())
+            ->method('save')
+            ->with(self::callback(static fn (Secret $s): bool => $s->getMetadata() === ['existing' => 'value', 'new' => 'data']
+                && $s->getIdentifier() === 'test'))
+            ->willReturnArgument(0);
 
         $adapter = new LocalEncryptionAdapter($repository);
         $adapter->updateMetadata('test', ['new' => 'data']);
 
-        self::assertEquals(['existing' => 'value', 'new' => 'data'], $secret->getMetadata());
+        // Original entity is immutable — its metadata must not change.
+        self::assertSame(['existing' => 'value'], $secret->getMetadata());
     }
 
     #[Test]
@@ -256,10 +260,8 @@ final class LocalEncryptionAdapterTest extends TestCase
     #[Test]
     public function listSecretsDelegatesToRepository(): void
     {
-        $secret1 = new Secret();
-        $secret1->setIdentifier('secret-1');
-        $secret2 = new Secret();
-        $secret2->setIdentifier('secret-2');
+        $secret1 = new Secret(identifier: 'secret-1');
+        $secret2 = new Secret(identifier: 'secret-2');
 
         $filters = new SecretFilters(prefix: 'test');
 

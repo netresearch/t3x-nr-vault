@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Domain\Model;
 
 use InvalidArgumentException;
+use Netresearch\NrVault\Crypto\EncryptedData;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Tests\Unit\TestCase;
@@ -17,104 +18,357 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+/**
+ * Unit tests for the immutable Secret entity.
+ *
+ * The entity uses readonly constructor promotion, so plain
+ * "set X, get X" tests are tautological and have been dropped — the
+ * constructor / from-row hydration tests below subsume them. What's
+ * exercised here is real behaviour:
+ *
+ *   - default values applied by the ctor (and `fromDatabaseRow`),
+ *   - integer / boolean / string casting in `fromDatabaseRow`,
+ *   - serialisation round-trip via `toDatabaseRow`,
+ *   - the crypto-field tri-state invariant (all set or all empty),
+ *   - the four `with*()` lifecycle transitions,
+ *   - `isExpired()` boundary conditions.
+ *
+ * The `incrementVersion` / `incrementReadCount` behaviours moved off
+ * the entity (`SecretRepository::incrementReadCount`, value rotation
+ * folds version++ into `withValueRotation`); their tests live there now.
+ */
 #[CoversClass(Secret::class)]
 final class SecretTest extends TestCase
 {
+    // ---------------------------------------------------------------
+    // Constructor defaults.
+    // ---------------------------------------------------------------
+
     #[Test]
-    public function newSecretHasDefaultValues(): void
+    public function constructorAppliesDocumentedDefaults(): void
     {
-        $secret = new Secret();
+        $secret = new Secret(identifier: 't');
 
         self::assertNull($secret->getUid());
-        self::assertEquals(0, $secret->getScopePid());
-        self::assertEquals('', $secret->getIdentifier());
-        self::assertEquals('', $secret->getDescription());
+        self::assertSame(0, $secret->getScopePid());
+        self::assertSame('t', $secret->getIdentifier());
+        self::assertSame('', $secret->getDescription());
         self::assertNull($secret->getEncryptedValue());
-        self::assertEquals('', $secret->getContext());
-        self::assertEquals(1, $secret->getVersion());
-        self::assertEquals(0, $secret->getExpiresAt());
-        self::assertEquals([], $secret->getAllowedGroups());
-        self::assertEquals([], $secret->getMetadata());
-        self::assertEquals('local', $secret->getAdapter());
+        self::assertSame('', $secret->getEncryptedDek());
+        self::assertSame('', $secret->getDekNonce());
+        self::assertSame('', $secret->getValueNonce());
+        self::assertSame(1, $secret->getEncryptionVersion());
+        self::assertSame('', $secret->getValueChecksum());
+        self::assertSame(0, $secret->getOwnerUid());
+        self::assertSame([], $secret->getAllowedGroups());
+        self::assertSame('', $secret->getContext());
+        self::assertFalse($secret->isFrontendAccessible());
+        self::assertSame(1, $secret->getVersion());
+        self::assertSame(0, $secret->getExpiresAt());
+        self::assertSame(0, $secret->getLastRotatedAt());
+        self::assertSame([], $secret->getMetadata());
+        self::assertSame('local', $secret->getAdapter());
+        self::assertSame('', $secret->getExternalReference());
+        self::assertSame(0, $secret->getTstamp());
+        self::assertSame(0, $secret->getCrdate());
+        self::assertSame(0, $secret->getCruserId());
         self::assertFalse($secret->isDeleted());
         self::assertFalse($secret->isHidden());
+        self::assertSame(0, $secret->getReadCount());
+        self::assertSame(0, $secret->getLastReadAt());
     }
 
     #[Test]
-    public function settersReturnSelfForFluentInterface(): void
+    public function constructorAcceptsAllArguments(): void
     {
-        $secret = new Secret();
+        $secret = new Secret(
+            identifier: 'my-api-key',
+            uid: 99,
+            scopePid: 10,
+            description: 'Stripe key',
+            encryptedValue: 'enc_value',
+            encryptedDek: 'enc_dek',
+            dekNonce: 'dek_nonce',
+            valueNonce: 'value_nonce',
+            encryptionVersion: 2,
+            valueChecksum: 'checksum123',
+            ownerUid: 5,
+            allowedGroups: [1, 2, 3],
+            context: 'payment',
+            frontendAccessible: true,
+            version: 7,
+            expiresAt: 1735689600,
+            lastRotatedAt: 1704067200,
+            metadata: ['service' => 'stripe'],
+            adapter: 'local',
+            externalReference: 'vault:foo',
+            tstamp: 1704067210,
+            crdate: 1704067200,
+            cruserId: 11,
+            deleted: false,
+            hidden: true,
+            readCount: 50,
+            lastReadAt: 1704153600,
+        );
 
-        $result = $secret
-            ->setIdentifier('test')
-            ->setDescription('Test description')
-            ->setContext('payment')
-            ->setOwnerUid(1);
-
-        self::assertSame($secret, $result);
+        self::assertSame('my-api-key', $secret->getIdentifier());
+        self::assertSame(99, $secret->getUid());
+        self::assertSame(10, $secret->getScopePid());
+        self::assertSame('Stripe key', $secret->getDescription());
+        self::assertSame('enc_value', $secret->getEncryptedValue());
+        self::assertSame('enc_dek', $secret->getEncryptedDek());
+        self::assertSame('dek_nonce', $secret->getDekNonce());
+        self::assertSame('value_nonce', $secret->getValueNonce());
+        self::assertSame(2, $secret->getEncryptionVersion());
+        self::assertSame('checksum123', $secret->getValueChecksum());
+        self::assertSame(5, $secret->getOwnerUid());
+        self::assertSame([1, 2, 3], $secret->getAllowedGroups());
+        self::assertSame('payment', $secret->getContext());
+        self::assertTrue($secret->isFrontendAccessible());
+        self::assertSame(7, $secret->getVersion());
+        self::assertSame(1735689600, $secret->getExpiresAt());
+        self::assertSame(1704067200, $secret->getLastRotatedAt());
+        self::assertSame(['service' => 'stripe'], $secret->getMetadata());
+        self::assertSame('local', $secret->getAdapter());
+        self::assertSame('vault:foo', $secret->getExternalReference());
+        self::assertSame(1704067210, $secret->getTstamp());
+        self::assertSame(1704067200, $secret->getCrdate());
+        self::assertSame(11, $secret->getCruserId());
+        self::assertFalse($secret->isDeleted());
+        self::assertTrue($secret->isHidden());
+        self::assertSame(50, $secret->getReadCount());
+        self::assertSame(1704153600, $secret->getLastReadAt());
     }
 
     #[Test]
-    public function isExpiredReturnsFalseWhenNoExpiration(): void
+    public function constructorAllowsAllCryptoFieldsEmpty(): void
     {
-        $secret = new Secret();
-        $secret->setExpiresAt(0);
+        $secret = new Secret(
+            identifier: 'external-ref',
+            encryptedValue: 'enc_value',
+            valueChecksum: 'checksum',
+        );
+
+        self::assertSame('', $secret->getEncryptedDek());
+        self::assertSame('', $secret->getDekNonce());
+        self::assertSame('', $secret->getValueNonce());
+    }
+
+    // ---------------------------------------------------------------
+    // Crypto-field tri-state invariant: encryptedDek/dekNonce/valueNonce
+    // must all be set or all be empty.
+    // ---------------------------------------------------------------
+
+    /**
+     * @return iterable<string, array{string, string, string}>
+     */
+    public static function partialCryptoFieldsProvider(): iterable
+    {
+        yield 'only encryptedDek set' => ['has_dek', '', ''];
+        yield 'only dekNonce set' => ['', 'has_nonce', ''];
+        yield 'only valueNonce set' => ['', '', 'has_vn'];
+        yield 'encryptedDek + dekNonce, no valueNonce' => ['dek', 'dn', ''];
+        yield 'encryptedDek + valueNonce, no dekNonce' => ['dek', '', 'vn'];
+        yield 'dekNonce + valueNonce, no encryptedDek' => ['', 'dn', 'vn'];
+    }
+
+    #[Test]
+    #[DataProvider('partialCryptoFieldsProvider')]
+    public function constructorThrowsOnPartialCryptoFields(
+        string $encryptedDek,
+        string $dekNonce,
+        string $valueNonce,
+    ): void {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('encryptedDek, dekNonce, and valueNonce must all be set or all be empty');
+
+        // The constructor MUST throw before returning; assertInstanceOf
+        // is unreachable but uses the constructed value so Sonar's S1848
+        // ("useless object instantiation") doesn't fire on the throw test.
+        self::assertInstanceOf(Secret::class, new Secret(
+            identifier: 'broken',
+            encryptedValue: 'enc_value',
+            encryptedDek: $encryptedDek,
+            dekNonce: $dekNonce,
+            valueNonce: $valueNonce,
+            valueChecksum: 'checksum',
+        ));
+    }
+
+    #[Test]
+    public function constructorAcceptsAllThreeCryptoFieldsSet(): void
+    {
+        // No exception expected.
+        $secret = new Secret(
+            identifier: 'id',
+            encryptedValue: 'v',
+            encryptedDek: 'dek',
+            dekNonce: 'dn',
+            valueNonce: 'vn',
+            valueChecksum: 'cs',
+        );
+
+        self::assertSame('dek', $secret->getEncryptedDek());
+        self::assertSame('dn', $secret->getDekNonce());
+        self::assertSame('vn', $secret->getValueNonce());
+    }
+
+    // ---------------------------------------------------------------
+    // Lifecycle transitions — each returns a NEW instance.
+    // ---------------------------------------------------------------
+
+    #[Test]
+    public function withUidReturnsNewInstanceWithAssignedUid(): void
+    {
+        $secret = new Secret(identifier: 't');
+
+        $result = $secret->withUid(42);
+
+        self::assertNotSame($secret, $result);
+        self::assertNull($secret->getUid());
+        self::assertSame(42, $result->getUid());
+        // Other fields propagated.
+        self::assertSame('t', $result->getIdentifier());
+    }
+
+    #[Test]
+    public function withUidAcceptsNullToClearUid(): void
+    {
+        $secret = new Secret(identifier: 't', uid: 5);
+
+        $result = $secret->withUid(null);
+
+        self::assertSame(5, $secret->getUid());
+        self::assertNull($result->getUid());
+    }
+
+    #[Test]
+    public function withValueRotationBumpsVersionAndUpdatesAllRotationFields(): void
+    {
+        $secret = new Secret(
+            identifier: 't',
+            uid: 1,
+            version: 3,
+            lastRotatedAt: 1000,
+            readCount: 9,
+        );
+        $encrypted = new EncryptedData(
+            encryptedValue: 'new_value',
+            encryptedDek: 'new_dek',
+            dekNonce: 'new_dn',
+            valueNonce: 'new_vn',
+            valueChecksum: 'new_cs',
+        );
+
+        $rotated = $secret->withValueRotation($encrypted, rotatedAt: 2000);
+
+        self::assertNotSame($secret, $rotated);
+        // Original untouched.
+        self::assertSame(3, $secret->getVersion());
+        self::assertSame(1000, $secret->getLastRotatedAt());
+        // New instance has rotated state.
+        self::assertSame(4, $rotated->getVersion());
+        self::assertSame(2000, $rotated->getLastRotatedAt());
+        self::assertSame('new_value', $rotated->getEncryptedValue());
+        self::assertSame('new_dek', $rotated->getEncryptedDek());
+        self::assertSame('new_dn', $rotated->getDekNonce());
+        self::assertSame('new_vn', $rotated->getValueNonce());
+        self::assertSame('new_cs', $rotated->getValueChecksum());
+        // Untouched fields propagate.
+        self::assertSame(1, $rotated->getUid());
+        self::assertSame(9, $rotated->getReadCount());
+    }
+
+    #[Test]
+    public function withReEncryptedDekReplacesOnlyDekEnvelope(): void
+    {
+        $secret = new Secret(
+            identifier: 't',
+            uid: 1,
+            encryptedValue: 'val',
+            encryptedDek: 'old_dek',
+            dekNonce: 'old_dn',
+            valueNonce: 'vn',
+            valueChecksum: 'cs',
+            version: 5,
+        );
+
+        $rotated = $secret->withReEncryptedDek('new_dek', 'new_dn');
+
+        self::assertNotSame($secret, $rotated);
+        // Value envelope untouched.
+        self::assertSame('val', $rotated->getEncryptedValue());
+        self::assertSame('vn', $rotated->getValueNonce());
+        self::assertSame('cs', $rotated->getValueChecksum());
+        // Version NOT bumped (master-key rotation doesn't bump it).
+        self::assertSame(5, $rotated->getVersion());
+        // DEK envelope replaced.
+        self::assertSame('new_dek', $rotated->getEncryptedDek());
+        self::assertSame('new_dn', $rotated->getDekNonce());
+    }
+
+    #[Test]
+    public function withMetadataReplacesMetadataArray(): void
+    {
+        $secret = new Secret(identifier: 't', metadata: ['a' => 1]);
+
+        $merged = $secret->withMetadata(['b' => 2, 'c' => 3]);
+
+        self::assertNotSame($secret, $merged);
+        self::assertSame(['a' => 1], $secret->getMetadata());
+        self::assertSame(['b' => 2, 'c' => 3], $merged->getMetadata());
+    }
+
+    // ---------------------------------------------------------------
+    // isExpired() boundary conditions.
+    // ---------------------------------------------------------------
+
+    /**
+     * Offsets relative to `time()` so the data provider survives a
+     * clock tick between evaluation and assertion.
+     *
+     * @return iterable<string, array{string, bool}>
+     */
+    public static function isExpiredBoundaryProvider(): iterable
+    {
+        yield 'zero means no-expiration' => ['zero', false];
+        yield 'far future' => ['far-future', false];
+        yield '60 seconds in future' => ['+60', false];
+        yield '60 seconds in past is expired' => ['-60', true];
+        yield 'negative absolute means expiresAt > 0 check fails first' => ['negative', false];
+    }
+
+    #[Test]
+    #[DataProvider('isExpiredBoundaryProvider')]
+    public function isExpiredBoundaries(string $kind, bool $expected): void
+    {
+        $expiresAt = match ($kind) {
+            'zero' => 0,
+            'far-future' => PHP_INT_MAX,
+            'negative' => -1,
+            '+60' => time() + 60,
+            '-60' => time() - 60,
+            default => throw new InvalidArgumentException("Unknown kind: $kind", 7112662888),
+        };
+        $secret = new Secret(identifier: 't', expiresAt: $expiresAt);
+
+        self::assertSame($expected, $secret->isExpired());
+    }
+
+    /**
+     * Kills LessThan mutation on isExpired(): `< time()` vs `<= time()`.
+     */
+    #[Test]
+    public function isExpiredReturnsFalseWhenExpiresAtIsSlightlyInFuture(): void
+    {
+        $secret = new Secret(identifier: 't', expiresAt: time() + 1);
 
         self::assertFalse($secret->isExpired());
     }
 
-    #[Test]
-    public function isExpiredReturnsTrueWhenPastExpiration(): void
-    {
-        $secret = new Secret();
-        $secret->setExpiresAt(time() - 3600); // 1 hour ago
-
-        self::assertTrue($secret->isExpired());
-    }
-
-    #[Test]
-    public function isExpiredReturnsFalseWhenFutureExpiration(): void
-    {
-        $secret = new Secret();
-        $secret->setExpiresAt(time() + 3600); // 1 hour from now
-
-        self::assertFalse($secret->isExpired());
-    }
-
-    #[Test]
-    public function incrementVersionIncreasesVersionByOne(): void
-    {
-        $secret = new Secret();
-        self::assertEquals(1, $secret->getVersion());
-
-        $secret->incrementVersion();
-        self::assertEquals(2, $secret->getVersion());
-
-        $secret->incrementVersion();
-        self::assertEquals(3, $secret->getVersion());
-    }
-
-    #[Test]
-    public function incrementReadCountIncreasesCountByOne(): void
-    {
-        $secret = new Secret();
-        self::assertEquals(0, $secret->getReadCount());
-
-        $secret->incrementReadCount();
-        self::assertEquals(1, $secret->getReadCount());
-
-        $secret->incrementReadCount();
-        self::assertEquals(2, $secret->getReadCount());
-    }
-
-    #[Test]
-    public function setAllowedGroupsCastsToIntegers(): void
-    {
-        $secret = new Secret();
-        $secret->setAllowedGroups(['1', '2', '3']);
-
-        self::assertEquals([1, 2, 3], $secret->getAllowedGroups());
-    }
+    // ---------------------------------------------------------------
+    // fromDatabaseRow() — DB-row hydration semantics.
+    // ---------------------------------------------------------------
 
     #[Test]
     public function fromDatabaseRowCreatesCorrectSecret(): void
@@ -150,597 +404,79 @@ final class SecretTest extends TestCase
 
         $secret = Secret::fromDatabaseRow($row);
 
-        self::assertEquals(42, $secret->getUid());
-        self::assertEquals(1, $secret->getScopePid());
-        self::assertEquals('api-key', $secret->getIdentifier());
-        self::assertEquals('Payment gateway API key', $secret->getDescription());
-        self::assertEquals('base64_encrypted_data', $secret->getEncryptedValue());
-        self::assertEquals(5, $secret->getOwnerUid());
-        self::assertEquals([1, 2, 3], $secret->getAllowedGroups());
-        self::assertEquals('payment', $secret->getContext());
-        self::assertEquals(3, $secret->getVersion());
-        self::assertEquals(['service' => 'stripe'], $secret->getMetadata());
-        self::assertEquals(10, $secret->getReadCount());
+        self::assertSame(42, $secret->getUid());
+        self::assertSame(1, $secret->getScopePid());
+        self::assertSame('api-key', $secret->getIdentifier());
+        self::assertSame('Payment gateway API key', $secret->getDescription());
+        self::assertSame('base64_encrypted_data', $secret->getEncryptedValue());
+        self::assertSame(5, $secret->getOwnerUid());
+        self::assertSame([1, 2, 3], $secret->getAllowedGroups());
+        self::assertSame('payment', $secret->getContext());
+        self::assertSame(3, $secret->getVersion());
+        self::assertSame(['service' => 'stripe'], $secret->getMetadata());
+        self::assertSame(10, $secret->getReadCount());
     }
 
     #[Test]
     public function fromDatabaseRowHandlesEmptyMetadata(): void
     {
-        $row = [
+        $secret = Secret::fromDatabaseRow([
             'uid' => 1,
             'identifier' => 'test',
             'metadata' => '',
-        ];
+        ]);
 
-        $secret = Secret::fromDatabaseRow($row);
-
-        self::assertEquals([], $secret->getMetadata());
-    }
-
-    #[Test]
-    public function fromDatabaseRowHandlesNullValues(): void
-    {
-        $row = [
-            'uid' => null,
-            'identifier' => null,
-            'encrypted_value' => null,
-        ];
-
-        $secret = Secret::fromDatabaseRow($row);
-
-        self::assertNull($secret->getUid());
-        self::assertEquals('', $secret->getIdentifier());
-        self::assertNull($secret->getEncryptedValue());
-    }
-
-    #[Test]
-    public function toDatabaseRowReturnsExpectedArray(): void
-    {
-        $secret = new Secret();
-        $secret
-            ->setScopePid(1)
-            ->setIdentifier('test-secret')
-            ->setDescription('Test secret')
-            ->setEncryptedValue('encrypted')
-            ->setEncryptedDek('dek')
-            ->setDekNonce('nonce1')
-            ->setValueNonce('nonce2')
-            ->setValueChecksum('checksum')
-            ->setOwnerUid(5)
-            ->setAllowedGroups([1, 2])
-            ->setContext('testing')
-            ->setVersion(2)
-            ->setExpiresAt(1735689600)
-            ->setMetadata(['key' => 'value'])
-            ->setAdapter('local')
-            ->setDeleted(false)
-            ->setHidden(false);
-
-        $row = $secret->toDatabaseRow();
-
-        self::assertEquals(1, $row['scope_pid']);
-        self::assertEquals('test-secret', $row['identifier']);
-        self::assertEquals('Test secret', $row['description']);
-        self::assertEquals('encrypted', $row['encrypted_value']);
-        self::assertEquals('dek', $row['encrypted_dek']);
-        self::assertEquals('checksum', $row['value_checksum']);
-        self::assertEquals(5, $row['owner_uid']);
-        self::assertEquals('1,2', $row['allowed_groups']);
-        self::assertEquals('testing', $row['context']);
-        self::assertEquals(2, $row['version']);
-        self::assertEquals('{"key":"value"}', $row['metadata']);
-        self::assertEquals(0, $row['deleted']);
-        self::assertEquals(0, $row['hidden']);
-    }
-
-    #[Test]
-    public function encryptionFieldsAreSetCorrectly(): void
-    {
-        $secret = new Secret();
-        $secret
-            ->setEncryptedValue('enc_value')
-            ->setEncryptedDek('enc_dek')
-            ->setDekNonce('dek_nonce')
-            ->setValueNonce('value_nonce')
-            ->setEncryptionVersion(2)
-            ->setValueChecksum('abc123');
-
-        self::assertEquals('enc_value', $secret->getEncryptedValue());
-        self::assertEquals('enc_dek', $secret->getEncryptedDek());
-        self::assertEquals('dek_nonce', $secret->getDekNonce());
-        self::assertEquals('value_nonce', $secret->getValueNonce());
-        self::assertEquals(2, $secret->getEncryptionVersion());
-        self::assertEquals('abc123', $secret->getValueChecksum());
-    }
-
-    #[Test]
-    public function externalReferenceIsStoredCorrectly(): void
-    {
-        $secret = new Secret();
-        $secret->setExternalReference('vault:secret/data/myapp#password');
-
-        self::assertEquals('vault:secret/data/myapp#password', $secret->getExternalReference());
-    }
-
-    #[Test]
-    public function frontendAccessibleDefaultsToFalse(): void
-    {
-        $secret = new Secret();
-
-        self::assertFalse($secret->isFrontendAccessible());
-    }
-
-    #[Test]
-    public function frontendAccessibleCanBeSet(): void
-    {
-        $secret = new Secret();
-        $result = $secret->setFrontendAccessible(true);
-
-        self::assertTrue($secret->isFrontendAccessible());
-        self::assertSame($secret, $result);
-    }
-
-    #[Test]
-    public function lastRotatedAtDefaultsToZero(): void
-    {
-        $secret = new Secret();
-
-        self::assertEquals(0, $secret->getLastRotatedAt());
-    }
-
-    #[Test]
-    public function lastRotatedAtCanBeSet(): void
-    {
-        $secret = new Secret();
-        $timestamp = 1704067200;
-        $result = $secret->setLastRotatedAt($timestamp);
-
-        self::assertEquals($timestamp, $secret->getLastRotatedAt());
-        self::assertSame($secret, $result);
-    }
-
-    #[Test]
-    public function tstampDefaultsToZero(): void
-    {
-        $secret = new Secret();
-
-        self::assertEquals(0, $secret->getTstamp());
-    }
-
-    #[Test]
-    public function tstampCanBeSet(): void
-    {
-        $secret = new Secret();
-        $timestamp = 1704067200;
-        $result = $secret->setTstamp($timestamp);
-
-        self::assertEquals($timestamp, $secret->getTstamp());
-        self::assertSame($secret, $result);
-    }
-
-    #[Test]
-    public function crdateDefaultsToZero(): void
-    {
-        $secret = new Secret();
-
-        self::assertEquals(0, $secret->getCrdate());
-    }
-
-    #[Test]
-    public function crdateCanBeSet(): void
-    {
-        $secret = new Secret();
-        $timestamp = 1704067200;
-        $result = $secret->setCrdate($timestamp);
-
-        self::assertEquals($timestamp, $secret->getCrdate());
-        self::assertSame($secret, $result);
-    }
-
-    #[Test]
-    public function cruserIdDefaultsToZero(): void
-    {
-        $secret = new Secret();
-
-        self::assertEquals(0, $secret->getCruserId());
-    }
-
-    #[Test]
-    public function cruserIdCanBeSet(): void
-    {
-        $secret = new Secret();
-        $result = $secret->setCruserId(42);
-
-        self::assertEquals(42, $secret->getCruserId());
-        self::assertSame($secret, $result);
-    }
-
-    #[Test]
-    public function lastReadAtDefaultsToZero(): void
-    {
-        $secret = new Secret();
-
-        self::assertEquals(0, $secret->getLastReadAt());
-    }
-
-    #[Test]
-    public function lastReadAtCanBeSet(): void
-    {
-        $secret = new Secret();
-        $timestamp = 1704153600;
-        $result = $secret->setLastReadAt($timestamp);
-
-        self::assertEquals($timestamp, $secret->getLastReadAt());
-        self::assertSame($secret, $result);
-    }
-
-    #[Test]
-    public function readCountCanBeSetDirectly(): void
-    {
-        $secret = new Secret();
-        $result = $secret->setReadCount(100);
-
-        self::assertEquals(100, $secret->getReadCount());
-        self::assertSame($secret, $result);
-    }
-
-    #[Test]
-    public function fromDatabaseRowHandlesFrontendAccessibleTrue(): void
-    {
-        $row = [
-            'uid' => 1,
-            'identifier' => 'test',
-            'frontend_accessible' => 1,
-        ];
-
-        $secret = Secret::fromDatabaseRow($row);
-
-        self::assertTrue($secret->isFrontendAccessible());
+        self::assertSame([], $secret->getMetadata());
     }
 
     #[Test]
     public function fromDatabaseRowHandlesInvalidMetadataJson(): void
     {
-        $row = [
+        $secret = Secret::fromDatabaseRow([
             'uid' => 1,
             'identifier' => 'test',
             'metadata' => 'not-valid-json{',
-        ];
+        ]);
 
-        $secret = Secret::fromDatabaseRow($row);
+        self::assertSame([], $secret->getMetadata());
+    }
 
-        self::assertEquals([], $secret->getMetadata());
+    #[Test]
+    public function fromDatabaseRowHandlesNullValues(): void
+    {
+        $secret = Secret::fromDatabaseRow([
+            'uid' => null,
+            'identifier' => null,
+            'encrypted_value' => null,
+        ]);
+
+        self::assertNull($secret->getUid());
+        self::assertSame('', $secret->getIdentifier());
+        self::assertNull($secret->getEncryptedValue());
     }
 
     #[Test]
     public function fromDatabaseRowHandlesEmptyAllowedGroups(): void
     {
-        $row = [
+        $secret = Secret::fromDatabaseRow([
             'uid' => 1,
             'identifier' => 'test',
             'allowed_groups' => '',
-        ];
+        ]);
 
-        $secret = Secret::fromDatabaseRow($row);
-
-        self::assertEquals([], $secret->getAllowedGroups());
+        self::assertSame([], $secret->getAllowedGroups());
     }
 
     #[Test]
-    public function toDatabaseRowIncludesAllFields(): void
+    public function fromDatabaseRowHandlesFrontendAccessibleTrue(): void
     {
-        $secret = new Secret();
-        $secret
-            ->setLastRotatedAt(1704067200)
-            ->setFrontendAccessible(true)
-            ->setReadCount(50)
-            ->setLastReadAt(1704153600);
+        $secret = Secret::fromDatabaseRow([
+            'uid' => 1,
+            'identifier' => 'test',
+            'frontend_accessible' => 1,
+        ]);
 
-        $row = $secret->toDatabaseRow();
-
-        self::assertArrayHasKey('last_rotated_at', $row);
-        self::assertEquals(1704067200, $row['last_rotated_at']);
-        self::assertArrayHasKey('frontend_accessible', $row);
-        self::assertEquals(1, $row['frontend_accessible']);
-        self::assertArrayHasKey('read_count', $row);
-        self::assertEquals(50, $row['read_count']);
-        self::assertArrayHasKey('last_read_at', $row);
-        self::assertEquals(1704153600, $row['last_read_at']);
-    }
-
-    #[Test]
-    public function scopePidCanBeSet(): void
-    {
-        $secret = new Secret();
-        $result = $secret->setScopePid(100);
-
-        self::assertEquals(100, $secret->getScopePid());
-        self::assertSame($secret, $result);
-    }
-
-    #[Test]
-    public function contextCanBeSet(): void
-    {
-        $secret = new Secret();
-        $result = $secret->setContext('payment');
-
-        self::assertEquals('payment', $secret->getContext());
-        self::assertSame($secret, $result);
-    }
-
-    #[Test]
-    public function versionCanBeSet(): void
-    {
-        $secret = new Secret();
-        $result = $secret->setVersion(5);
-
-        self::assertEquals(5, $secret->getVersion());
-        self::assertSame($secret, $result);
-    }
-
-    #[Test]
-    public function adapterCanBeSet(): void
-    {
-        $secret = new Secret();
-        $result = $secret->setAdapter('hashicorp');
-
-        self::assertEquals('hashicorp', $secret->getAdapter());
-        self::assertSame($secret, $result);
-    }
-
-    #[Test]
-    public function createSetsAllFieldsCorrectly(): void
-    {
-        $secret = Secret::create(
-            identifier: 'my-api-key',
-            encryptedValue: 'enc_value',
-            valueChecksum: 'checksum123',
-            encryptedDek: 'enc_dek',
-            dekNonce: 'dek_nonce',
-            valueNonce: 'value_nonce',
-            ownerUid: 5,
-            allowedGroups: [1, 2, 3],
-            context: 'payment',
-            description: 'Stripe key',
-            adapter: 'local',
-            expiresAt: 1735689600,
-            metadata: ['service' => 'stripe'],
-            scopePid: 10,
-            frontendAccessible: true,
-        );
-
-        self::assertEquals('my-api-key', $secret->getIdentifier());
-        self::assertEquals('enc_value', $secret->getEncryptedValue());
-        self::assertEquals('checksum123', $secret->getValueChecksum());
-        self::assertEquals('enc_dek', $secret->getEncryptedDek());
-        self::assertEquals('dek_nonce', $secret->getDekNonce());
-        self::assertEquals('value_nonce', $secret->getValueNonce());
-        self::assertEquals(5, $secret->getOwnerUid());
-        self::assertEquals([1, 2, 3], $secret->getAllowedGroups());
-        self::assertEquals('payment', $secret->getContext());
-        self::assertEquals('Stripe key', $secret->getDescription());
-        self::assertEquals('local', $secret->getAdapter());
-        self::assertEquals(1735689600, $secret->getExpiresAt());
-        self::assertEquals(['service' => 'stripe'], $secret->getMetadata());
-        self::assertEquals(10, $secret->getScopePid());
         self::assertTrue($secret->isFrontendAccessible());
-    }
-
-    #[Test]
-    public function createAllowsAllCryptoFieldsEmpty(): void
-    {
-        $secret = Secret::create(
-            identifier: 'external-ref',
-            encryptedValue: 'enc_value',
-            valueChecksum: 'checksum',
-        );
-
-        self::assertEquals('external-ref', $secret->getIdentifier());
-        self::assertEquals('', $secret->getEncryptedDek());
-        self::assertEquals('', $secret->getDekNonce());
-        self::assertEquals('', $secret->getValueNonce());
-    }
-
-    #[Test]
-    public function createThrowsOnPartialCryptoFields(): void
-    {
-        $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('encryptedDek, dekNonce, and valueNonce must all be set or all be empty');
-
-        Secret::create(
-            identifier: 'broken',
-            encryptedValue: 'enc_value',
-            valueChecksum: 'checksum',
-            encryptedDek: 'has_dek',
-            dekNonce: '',
-            valueNonce: 'has_nonce',
-        );
-    }
-
-    #[Test]
-    public function createThrowsWhenOnlyDekNonceSet(): void
-    {
-        $this->expectException(ValidationException::class);
-
-        Secret::create(
-            identifier: 'broken',
-            encryptedValue: 'enc_value',
-            valueChecksum: 'checksum',
-            dekNonce: 'only_nonce',
-        );
-    }
-
-    // =========================================================================
-    // Strict-assertion tests (kill IncrementInteger/DecrementInteger/CastInt/
-    // Coalesce/ArrayItemRemoval/FalseValue mutators on Secret.php)
-    // =========================================================================
-
-    #[Test]
-    public function newSecretHasStrictZeroDefaultsForAllCounters(): void
-    {
-        $secret = new Secret();
-
-        // Every default must be EXACTLY 0 (kills Increment/Decrement on defaults).
-        self::assertSame(0, $secret->getScopePid());
-        self::assertSame(0, $secret->getOwnerUid());
-        self::assertSame(0, $secret->getExpiresAt());
-        self::assertSame(0, $secret->getLastRotatedAt());
-        self::assertSame(0, $secret->getTstamp());
-        self::assertSame(0, $secret->getCrdate());
-        self::assertSame(0, $secret->getCruserId());
-        self::assertSame(0, $secret->getReadCount());
-        self::assertSame(0, $secret->getLastReadAt());
-    }
-
-    #[Test]
-    public function newSecretHasStrictVersionDefaultsOfOne(): void
-    {
-        $secret = new Secret();
-
-        // Kills Increment/Decrement on encryptionVersion / version defaults.
-        self::assertSame(1, $secret->getVersion());
-        self::assertSame(1, $secret->getEncryptionVersion());
-    }
-
-    #[Test]
-    public function newSecretHasStrictEmptyDefaultsForStringFields(): void
-    {
-        $secret = new Secret();
-
-        // ConcatOperandRemoval / Coalesce mutations surface as non-empty strings.
-        self::assertSame('', $secret->getIdentifier());
-        self::assertSame('', $secret->getDescription());
-        self::assertSame('', $secret->getEncryptedDek());
-        self::assertSame('', $secret->getDekNonce());
-        self::assertSame('', $secret->getValueNonce());
-        self::assertSame('', $secret->getValueChecksum());
-        self::assertSame('', $secret->getContext());
-        self::assertSame('', $secret->getExternalReference());
-    }
-
-    #[Test]
-    public function newSecretAdapterDefaultIsExactlyLocal(): void
-    {
-        $secret = new Secret();
-
-        self::assertSame('local', $secret->getAdapter());
-    }
-
-    #[Test]
-    public function newSecretArrayDefaultsAreStrictlyEmpty(): void
-    {
-        $secret = new Secret();
-
-        self::assertSame([], $secret->getAllowedGroups());
-        self::assertSame([], $secret->getMetadata());
-    }
-
-    /**
-     * @return iterable<string, array{int, int}>
-     */
-    public static function incrementVersionBoundaryProvider(): iterable
-    {
-        yield 'from 1 to 2' => [1, 2];
-        yield 'from 2 to 3' => [2, 3];
-        yield 'from 99 to 100' => [99, 100];
-        yield 'near PHP_INT_MAX' => [PHP_INT_MAX - 2, PHP_INT_MAX - 1];
-    }
-
-    #[Test]
-    #[DataProvider('incrementVersionBoundaryProvider')]
-    public function incrementVersionAddsExactlyOne(int $initial, int $expected): void
-    {
-        $secret = new Secret();
-        $secret->setVersion($initial);
-        $secret->incrementVersion();
-
-        self::assertSame($expected, $secret->getVersion());
-    }
-
-    /**
-     * @return iterable<string, array{int, int}>
-     */
-    public static function incrementReadCountBoundaryProvider(): iterable
-    {
-        yield 'from 0 to 1' => [0, 1];
-        yield 'from 1 to 2' => [1, 2];
-        yield 'from 999 to 1000' => [999, 1000];
-    }
-
-    #[Test]
-    #[DataProvider('incrementReadCountBoundaryProvider')]
-    public function incrementReadCountAddsExactlyOne(int $initial, int $expected): void
-    {
-        $secret = new Secret();
-        $secret->setReadCount($initial);
-        $secret->incrementReadCount();
-
-        self::assertSame($expected, $secret->getReadCount());
-    }
-
-    /**
-     * Kills LessThan mutation on isExpired(): `< time()` vs `<= time()`.
-     *
-     * Provides offsets relative to `time()`, not absolute timestamps, so the
-     * data provider survives a clock tick between provider evaluation and
-     * assertion (which previously caused flaky failures around second
-     * boundaries).
-     *
-     * @return iterable<string, array{int|null, bool}>
-     */
-    public static function isExpiredBoundaryProvider(): iterable
-    {
-        yield 'zero means no-expiration' => ['zero', false];
-        yield 'far future' => ['far-future', false];
-        yield '60 seconds in future' => ['+60', false];
-        yield '60 seconds in past is expired' => ['-60', true];
-        yield 'negative absolute means expiresAt > 0 check fails first' => ['negative', false];
-    }
-
-    #[Test]
-    #[DataProvider('isExpiredBoundaryProvider')]
-    public function isExpiredBoundaries(string $kind, bool $expected): void
-    {
-        $secret = new Secret();
-        $expiresAt = match ($kind) {
-            'zero' => 0,
-            'far-future' => PHP_INT_MAX,
-            'negative' => -1,
-            '+60' => time() + 60,
-            '-60' => time() - 60,
-            default => throw new InvalidArgumentException("Unknown kind: $kind", 7112662888),
-        };
-        $secret->setExpiresAt($expiresAt);
-
-        self::assertSame($expected, $secret->isExpired());
-    }
-
-    #[Test]
-    public function setAllowedGroupsStrictlyCastsStringsToInt(): void
-    {
-        $secret = new Secret();
-        $secret->setAllowedGroups(['1', '2', '3']);
-
-        // assertSame enforces int type — kills UnwrapArrayMap mutation.
-        self::assertSame([1, 2, 3], $secret->getAllowedGroups());
-    }
-
-    #[Test]
-    public function setAllowedGroupsStrictlyCastsFloatToInt(): void
-    {
-        $secret = new Secret();
-        $secret->setAllowedGroups([1.9, 2.1]);
-
-        self::assertSame([1, 2], $secret->getAllowedGroups());
-    }
-
-    #[Test]
-    public function setAllowedGroupsEmptyArrayStaysEmpty(): void
-    {
-        $secret = new Secret();
-        $secret->setAllowedGroups([]);
-
-        self::assertSame([], $secret->getAllowedGroups());
     }
 
     /**
@@ -768,8 +504,6 @@ final class SecretTest extends TestCase
     }
 
     /**
-     * Kills Coalesce + Increment/Decrement on encryption_version default.
-     *
      * @return iterable<string, array{array<string, mixed>, int}>
      */
     public static function encryptionVersionCoalesceProvider(): iterable
@@ -816,8 +550,6 @@ final class SecretTest extends TestCase
     }
 
     /**
-     * Kills Coalesce + Increment/Decrement + CastInt on owner_uid default.
-     *
      * @return iterable<string, array{array<string, mixed>, int}>
      */
     public static function ownerUidCoalesceProvider(): iterable
@@ -909,7 +641,6 @@ final class SecretTest extends TestCase
     {
         $secret = Secret::fromDatabaseRow(['uid' => '42', 'identifier' => 't']);
 
-        // Kills CastInt mutation on line 500.
         self::assertSame(42, $secret->getUid());
     }
 
@@ -918,7 +649,6 @@ final class SecretTest extends TestCase
     {
         $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't']);
 
-        // Kill Coalesce mutators on lines 505-507, 509.
         self::assertSame('', $secret->getEncryptedDek());
         self::assertSame('', $secret->getDekNonce());
         self::assertSame('', $secret->getValueNonce());
@@ -989,17 +719,271 @@ final class SecretTest extends TestCase
         self::assertSame(1704153600, $secret->getLastReadAt());
     }
 
+    // ---------------------------------------------------------------
+    // fromDatabaseRow() — type / cast / coalesce coverage that kills
+    // mutation testing artefacts on the hydration code path.
+    // ---------------------------------------------------------------
+
+    #[Test]
+    public function fromDatabaseRowEncryptionVersionCastsStringToInt(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'encryption_version' => '3']);
+
+        self::assertSame(3, $secret->getEncryptionVersion());
+        self::assertIsInt($secret->getEncryptionVersion());
+    }
+
+    #[Test]
+    public function fromDatabaseRowVersionCastsStringToInt(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'version' => '7']);
+
+        self::assertSame(7, $secret->getVersion());
+        self::assertIsInt($secret->getVersion());
+    }
+
+    #[Test]
+    public function fromDatabaseRowExpiresAtCastsStringToInt(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'expires_at' => '1735689600']);
+
+        self::assertSame(1735689600, $secret->getExpiresAt());
+        self::assertIsInt($secret->getExpiresAt());
+    }
+
+    #[Test]
+    public function fromDatabaseRowLastRotatedAtCastsStringToInt(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'last_rotated_at' => '1704067200']);
+
+        self::assertSame(1704067200, $secret->getLastRotatedAt());
+        self::assertIsInt($secret->getLastRotatedAt());
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, int}>
+     */
+    public static function tstampProvider(): iterable
+    {
+        yield 'missing defaults exactly to 0' => [['uid' => 1, 'identifier' => 't'], 0];
+        yield 'string "42" casts to 42' => [['uid' => 1, 'identifier' => 't', 'tstamp' => '42'], 42];
+        yield 'zero stays zero' => [['uid' => 1, 'identifier' => 't', 'tstamp' => 0], 0];
+        yield 'positive 1704067200' => [['uid' => 1, 'identifier' => 't', 'tstamp' => 1704067200], 1704067200];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    #[Test]
+    #[DataProvider('tstampProvider')]
+    public function fromDatabaseRowTstampCastsAndDefaultsCorrectly(array $row, int $expected): void
+    {
+        $secret = Secret::fromDatabaseRow($row);
+
+        self::assertSame($expected, $secret->getTstamp());
+        self::assertIsInt($secret->getTstamp());
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, int}>
+     */
+    public static function crdateProvider(): iterable
+    {
+        yield 'missing defaults exactly to 0' => [['uid' => 1, 'identifier' => 't'], 0];
+        yield 'string "99" casts to 99' => [['uid' => 1, 'identifier' => 't', 'crdate' => '99'], 99];
+        yield 'positive 1600000000' => [['uid' => 1, 'identifier' => 't', 'crdate' => 1600000000], 1600000000];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    #[Test]
+    #[DataProvider('crdateProvider')]
+    public function fromDatabaseRowCrdateCastsAndDefaultsCorrectly(array $row, int $expected): void
+    {
+        $secret = Secret::fromDatabaseRow($row);
+
+        self::assertSame($expected, $secret->getCrdate());
+        self::assertIsInt($secret->getCrdate());
+    }
+
+    #[Test]
+    public function fromDatabaseRowCruserIdCastsStringToInt(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'cruser_id' => '12']);
+
+        self::assertSame(12, $secret->getCruserId());
+        self::assertIsInt($secret->getCruserId());
+    }
+
+    #[Test]
+    public function fromDatabaseRowReadCountCastsStringToInt(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'read_count' => '55']);
+
+        self::assertSame(55, $secret->getReadCount());
+        self::assertIsInt($secret->getReadCount());
+    }
+
+    #[Test]
+    public function fromDatabaseRowLastReadAtCastsStringToInt(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'last_read_at' => '1704153600']);
+
+        self::assertSame(1704153600, $secret->getLastReadAt());
+        self::assertIsInt($secret->getLastReadAt());
+    }
+
+    #[Test]
+    public function fromDatabaseRowDeletedDefaultIsExactlyFalse(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't']);
+
+        self::assertFalse($secret->isDeleted());
+    }
+
+    #[Test]
+    public function fromDatabaseRowHiddenDefaultIsExactlyFalse(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't']);
+
+        self::assertFalse($secret->isHidden());
+    }
+
+    #[Test]
+    public function fromDatabaseRowDeletedTrueReturnsTrue(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'deleted' => 1]);
+
+        self::assertTrue($secret->isDeleted());
+    }
+
+    #[Test]
+    public function fromDatabaseRowHiddenTrueReturnsTrue(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'hidden' => 1]);
+
+        self::assertTrue($secret->isHidden());
+    }
+
+    #[Test]
+    public function fromDatabaseRowExplicitDeletedTruthyOverridesDefault(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'deleted' => true]);
+
+        self::assertTrue($secret->isDeleted());
+    }
+
+    #[Test]
+    public function fromDatabaseRowExplicitHiddenTruthyOverridesDefault(): void
+    {
+        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'hidden' => true]);
+
+        self::assertTrue($secret->isHidden());
+    }
+
+    #[Test]
+    public function fromDatabaseRowAllowedGroupsFiltersZeroValues(): void
+    {
+        $secret = Secret::fromDatabaseRow([
+            'uid' => 1,
+            'identifier' => 't',
+            'allowed_groups' => '1,0,2,0,3',
+        ]);
+
+        // Zeros must be filtered out — without array_filter() they would remain.
+        self::assertNotContains(0, $secret->getAllowedGroups());
+        self::assertSame([1, 2, 3], array_values($secret->getAllowedGroups()));
+    }
+
+    #[Test]
+    public function fromDatabaseRowAllowedGroupsAllZeroReturnsEmpty(): void
+    {
+        $secret = Secret::fromDatabaseRow([
+            'uid' => 1,
+            'identifier' => 't',
+            'allowed_groups' => '0,0,0',
+        ]);
+
+        self::assertSame([], $secret->getAllowedGroups());
+    }
+
+    // ---------------------------------------------------------------
+    // toDatabaseRow() — serialisation.
+    // ---------------------------------------------------------------
+
+    #[Test]
+    public function toDatabaseRowReturnsExpectedArray(): void
+    {
+        $secret = new Secret(
+            identifier: 'test-secret',
+            scopePid: 1,
+            description: 'Test secret',
+            encryptedValue: 'encrypted',
+            encryptedDek: 'dek',
+            dekNonce: 'nonce1',
+            valueNonce: 'nonce2',
+            valueChecksum: 'checksum',
+            ownerUid: 5,
+            allowedGroups: [1, 2],
+            context: 'testing',
+            version: 2,
+            expiresAt: 1735689600,
+            metadata: ['key' => 'value'],
+            adapter: 'local',
+        );
+
+        $row = $secret->toDatabaseRow();
+
+        self::assertSame(1, $row['scope_pid']);
+        self::assertSame('test-secret', $row['identifier']);
+        self::assertSame('Test secret', $row['description']);
+        self::assertSame('encrypted', $row['encrypted_value']);
+        self::assertSame('dek', $row['encrypted_dek']);
+        self::assertSame('checksum', $row['value_checksum']);
+        self::assertSame(5, $row['owner_uid']);
+        self::assertSame('1,2', $row['allowed_groups']);
+        self::assertSame('testing', $row['context']);
+        self::assertSame(2, $row['version']);
+        self::assertSame('{"key":"value"}', $row['metadata']);
+        self::assertSame(0, $row['deleted']);
+        self::assertSame(0, $row['hidden']);
+    }
+
+    #[Test]
+    public function toDatabaseRowIncludesLifecycleFields(): void
+    {
+        $secret = new Secret(
+            identifier: 't',
+            frontendAccessible: true,
+            lastRotatedAt: 1704067200,
+            readCount: 50,
+            lastReadAt: 1704153600,
+        );
+
+        $row = $secret->toDatabaseRow();
+
+        self::assertArrayHasKey('last_rotated_at', $row);
+        self::assertSame(1704067200, $row['last_rotated_at']);
+        self::assertArrayHasKey('frontend_accessible', $row);
+        self::assertSame(1, $row['frontend_accessible']);
+        self::assertArrayHasKey('read_count', $row);
+        self::assertSame(50, $row['read_count']);
+        self::assertArrayHasKey('last_read_at', $row);
+        self::assertSame(1704153600, $row['last_read_at']);
+    }
+
     #[Test]
     public function toDatabaseRowHasExactKeySet(): void
     {
-        $secret = new Secret();
+        $secret = new Secret(identifier: 't');
         $row = $secret->toDatabaseRow();
 
-        // Kill ArrayItemRemoval by asserting exact key set.
         $expectedKeys = [
             'adapter',
             'allowed_groups',
             'context',
+            'cruser_id',
             'dek_nonce',
             'deleted',
             'description',
@@ -1031,34 +1015,33 @@ final class SecretTest extends TestCase
     #[Test]
     public function toDatabaseRowHasStrictIntegerTypesOnScalarFields(): void
     {
-        $secret = new Secret();
-        $secret
-            ->setScopePid(1)
-            ->setIdentifier('x')
-            ->setEncryptedValue('ev')
-            ->setEncryptedDek('dek')
-            ->setDekNonce('dn')
-            ->setValueNonce('vn')
-            ->setEncryptionVersion(1)
-            ->setValueChecksum('cs')
-            ->setOwnerUid(2)
-            ->setAllowedGroups([3, 4])
-            ->setContext('ctx')
-            ->setFrontendAccessible(true)
-            ->setVersion(5)
-            ->setExpiresAt(100)
-            ->setLastRotatedAt(200)
-            ->setMetadata(['k' => 'v'])
-            ->setAdapter('hashicorp')
-            ->setExternalReference('ref')
-            ->setDeleted(false)
-            ->setHidden(true)
-            ->setReadCount(9)
-            ->setLastReadAt(300);
+        $secret = new Secret(
+            identifier: 'x',
+            scopePid: 1,
+            encryptedValue: 'ev',
+            encryptedDek: 'dek',
+            dekNonce: 'dn',
+            valueNonce: 'vn',
+            encryptionVersion: 1,
+            valueChecksum: 'cs',
+            ownerUid: 2,
+            allowedGroups: [3, 4],
+            context: 'ctx',
+            frontendAccessible: true,
+            version: 5,
+            expiresAt: 100,
+            lastRotatedAt: 200,
+            metadata: ['k' => 'v'],
+            adapter: 'hashicorp',
+            externalReference: 'ref',
+            deleted: false,
+            hidden: true,
+            readCount: 9,
+            lastReadAt: 300,
+        );
 
         $row = $secret->toDatabaseRow();
 
-        // Kill ArrayItem / CastInt mutators — strict types per key.
         self::assertSame(1, $row['scope_pid']);
         self::assertSame('x', $row['identifier']);
         self::assertSame('ev', $row['encrypted_value']);
@@ -1086,7 +1069,7 @@ final class SecretTest extends TestCase
     #[Test]
     public function toDatabaseRowSerialisesEmptyAllowedGroupsAsEmptyString(): void
     {
-        $secret = new Secret();
+        $secret = new Secret(identifier: 't');
 
         $row = $secret->toDatabaseRow();
 
@@ -1097,7 +1080,7 @@ final class SecretTest extends TestCase
     #[Test]
     public function toDatabaseRowSerialisesMetadataAsJsonEmptyArrayFromEmptyArray(): void
     {
-        $secret = new Secret();
+        $secret = new Secret(identifier: 't');
 
         $row = $secret->toDatabaseRow();
 
@@ -1105,470 +1088,46 @@ final class SecretTest extends TestCase
         self::assertSame('[]', $row['metadata']);
     }
 
-    #[Test]
-    public function toDatabaseRowFrontendAccessibleBooleanSerialisedAsZeroOrOne(): void
+    /**
+     * @return iterable<string, array{bool, int}>
+     */
+    public static function frontendAccessibleSerialisationProvider(): iterable
     {
-        $secret = new Secret();
-        $secret->setFrontendAccessible(false);
-        self::assertSame(0, $secret->toDatabaseRow()['frontend_accessible']);
-
-        $secret->setFrontendAccessible(true);
-        self::assertSame(1, $secret->toDatabaseRow()['frontend_accessible']);
+        yield 'false serialises to 0' => [false, 0];
+        yield 'true serialises to 1' => [true, 1];
     }
 
     #[Test]
-    public function toDatabaseRowDeletedAndHiddenBooleansSerialisedAsZeroOrOne(): void
+    #[DataProvider('frontendAccessibleSerialisationProvider')]
+    public function toDatabaseRowFrontendAccessibleBooleanSerialisedAsZeroOrOne(bool $value, int $expected): void
     {
-        $secret = new Secret();
-        $secret->setDeleted(true)->setHidden(false);
+        $secret = new Secret(identifier: 't', frontendAccessible: $value);
+
+        self::assertSame($expected, $secret->toDatabaseRow()['frontend_accessible']);
+    }
+
+    /**
+     * @return iterable<string, array{bool, bool, int, int}>
+     */
+    public static function deletedHiddenSerialisationProvider(): iterable
+    {
+        yield 'deleted=true hidden=false' => [true, false, 1, 0];
+        yield 'deleted=false hidden=true' => [false, true, 0, 1];
+    }
+
+    #[Test]
+    #[DataProvider('deletedHiddenSerialisationProvider')]
+    public function toDatabaseRowDeletedAndHiddenBooleansSerialisedAsZeroOrOne(
+        bool $deleted,
+        bool $hidden,
+        int $expectedDeleted,
+        int $expectedHidden,
+    ): void {
+        $secret = new Secret(identifier: 't', deleted: $deleted, hidden: $hidden);
+
         $row = $secret->toDatabaseRow();
-        self::assertSame(1, $row['deleted']);
-        self::assertSame(0, $row['hidden']);
 
-        $secret->setDeleted(false)->setHidden(true);
-        $row = $secret->toDatabaseRow();
-        self::assertSame(0, $row['deleted']);
-        self::assertSame(1, $row['hidden']);
-    }
-
-    /**
-     * Kills Increment/Decrement mutations on `create()` defaults.
-     */
-    #[Test]
-    public function createDefaultIntegersAreStrictZero(): void
-    {
-        $secret = Secret::create(
-            identifier: 'x',
-            encryptedValue: 'v',
-            valueChecksum: 'c',
-        );
-
-        self::assertSame(0, $secret->getOwnerUid());
-        self::assertSame(0, $secret->getExpiresAt());
-        self::assertSame(0, $secret->getScopePid());
-        self::assertFalse($secret->isFrontendAccessible());
-    }
-
-    /**
-     * Kills CastInt mutation on line 109 — setCount must be int type.
-     */
-    #[Test]
-    public function createTwoSetCryptoFieldsThrows(): void
-    {
-        $this->expectException(ValidationException::class);
-
-        Secret::create(
-            identifier: 'x',
-            encryptedValue: 'v',
-            valueChecksum: 'c',
-            encryptedDek: 'a',
-            dekNonce: 'b',
-        );
-    }
-
-    #[Test]
-    public function createWithOnlyEncryptedDekThrows(): void
-    {
-        $this->expectException(ValidationException::class);
-
-        Secret::create(
-            identifier: 'x',
-            encryptedValue: 'v',
-            valueChecksum: 'c',
-            encryptedDek: 'only_dek',
-        );
-    }
-
-    #[Test]
-    public function createWithOnlyValueNonceThrows(): void
-    {
-        $this->expectException(ValidationException::class);
-
-        Secret::create(
-            identifier: 'x',
-            encryptedValue: 'v',
-            valueChecksum: 'c',
-            valueNonce: 'only_vn',
-        );
-    }
-
-    #[Test]
-    public function createWithAllThreeCryptoFieldsSetSucceeds(): void
-    {
-        $secret = Secret::create(
-            identifier: 'x',
-            encryptedValue: 'v',
-            valueChecksum: 'c',
-            encryptedDek: 'a',
-            dekNonce: 'b',
-            valueNonce: 'cc',
-        );
-
-        self::assertSame('a', $secret->getEncryptedDek());
-        self::assertSame('b', $secret->getDekNonce());
-        self::assertSame('cc', $secret->getValueNonce());
-    }
-
-    #[Test]
-    public function createCastsAllowedGroupsStrictlyToInt(): void
-    {
-        $secret = Secret::create(
-            identifier: 'x',
-            encryptedValue: 'v',
-            valueChecksum: 'c',
-            allowedGroups: ['10', '20'],
-        );
-
-        self::assertSame([10, 20], $secret->getAllowedGroups());
-    }
-
-    // =========================================================================
-    // Strict-type & boundary tests for fromDatabaseRow() — kill CastInt,
-    // Increment/Decrement, Coalesce, FalseValue, UnwrapArrayFilter, LessThan.
-    // =========================================================================
-
-    /**
-     * Kill CastInt on line 508 — encryption_version cast.
-     */
-    #[Test]
-    public function fromDatabaseRowEncryptionVersionCastsStringToInt(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'encryption_version' => '3']);
-
-        self::assertSame(3, $secret->getEncryptionVersion());
-        self::assertIsInt($secret->getEncryptionVersion());
-    }
-
-    /**
-     * Kill CastInt on line 513 — version cast.
-     */
-    #[Test]
-    public function fromDatabaseRowVersionCastsStringToInt(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'version' => '7']);
-
-        self::assertSame(7, $secret->getVersion());
-        self::assertIsInt($secret->getVersion());
-    }
-
-    /**
-     * Kill CastInt on line 514 — expires_at cast.
-     */
-    #[Test]
-    public function fromDatabaseRowExpiresAtCastsStringToInt(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'expires_at' => '1735689600']);
-
-        self::assertSame(1735689600, $secret->getExpiresAt());
-        self::assertIsInt($secret->getExpiresAt());
-    }
-
-    /**
-     * Kill CastInt on line 515 — last_rotated_at cast.
-     */
-    #[Test]
-    public function fromDatabaseRowLastRotatedAtCastsStringToInt(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'last_rotated_at' => '1704067200']);
-
-        self::assertSame(1704067200, $secret->getLastRotatedAt());
-        self::assertIsInt($secret->getLastRotatedAt());
-    }
-
-    /**
-     * Kill CastInt + Increment + Decrement on line 518 — tstamp cast and default.
-     *
-     * @return iterable<string, array{array<string, mixed>, int}>
-     */
-    public static function tstampProvider(): iterable
-    {
-        yield 'missing defaults exactly to 0' => [['uid' => 1, 'identifier' => 't'], 0];
-        yield 'string "42" casts to 42' => [['uid' => 1, 'identifier' => 't', 'tstamp' => '42'], 42];
-        yield 'zero stays zero' => [['uid' => 1, 'identifier' => 't', 'tstamp' => 0], 0];
-        yield 'positive 1704067200' => [['uid' => 1, 'identifier' => 't', 'tstamp' => 1704067200], 1704067200];
-    }
-
-    /**
-     * @param array<string, mixed> $row
-     */
-    #[Test]
-    #[DataProvider('tstampProvider')]
-    public function fromDatabaseRowTstampCastsAndDefaultsCorrectly(array $row, int $expected): void
-    {
-        $secret = Secret::fromDatabaseRow($row);
-
-        self::assertSame($expected, $secret->getTstamp());
-        self::assertIsInt($secret->getTstamp());
-    }
-
-    /**
-     * Kill CastInt + Increment + Decrement on line 519 — crdate cast and default.
-     *
-     * @return iterable<string, array{array<string, mixed>, int}>
-     */
-    public static function crdateProvider(): iterable
-    {
-        yield 'missing defaults exactly to 0' => [['uid' => 1, 'identifier' => 't'], 0];
-        yield 'string "99" casts to 99' => [['uid' => 1, 'identifier' => 't', 'crdate' => '99'], 99];
-        yield 'positive 1600000000' => [['uid' => 1, 'identifier' => 't', 'crdate' => 1600000000], 1600000000];
-    }
-
-    /**
-     * @param array<string, mixed> $row
-     */
-    #[Test]
-    #[DataProvider('crdateProvider')]
-    public function fromDatabaseRowCrdateCastsAndDefaultsCorrectly(array $row, int $expected): void
-    {
-        $secret = Secret::fromDatabaseRow($row);
-
-        self::assertSame($expected, $secret->getCrdate());
-        self::assertIsInt($secret->getCrdate());
-    }
-
-    /**
-     * Kill CastInt on line 520 — cruser_id cast.
-     */
-    #[Test]
-    public function fromDatabaseRowCruserIdCastsStringToInt(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'cruser_id' => '12']);
-
-        self::assertSame(12, $secret->getCruserId());
-        self::assertIsInt($secret->getCruserId());
-    }
-
-    /**
-     * Kill CastInt on line 523 — read_count cast.
-     */
-    #[Test]
-    public function fromDatabaseRowReadCountCastsStringToInt(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'read_count' => '55']);
-
-        self::assertSame(55, $secret->getReadCount());
-        self::assertIsInt($secret->getReadCount());
-    }
-
-    /**
-     * Kill CastInt on line 524 — last_read_at cast.
-     */
-    #[Test]
-    public function fromDatabaseRowLastReadAtCastsStringToInt(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'last_read_at' => '1704153600']);
-
-        self::assertSame(1704153600, $secret->getLastReadAt());
-        self::assertIsInt($secret->getLastReadAt());
-    }
-
-    /**
-     * Kill FalseValue + Coalesce on line 521 — deleted default must be FALSE.
-     */
-    #[Test]
-    public function fromDatabaseRowDeletedDefaultIsExactlyFalse(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't']);
-
-        self::assertFalse($secret->isDeleted());
-    }
-
-    /**
-     * Kill FalseValue + Coalesce on line 522 — hidden default must be FALSE.
-     */
-    #[Test]
-    public function fromDatabaseRowHiddenDefaultIsExactlyFalse(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't']);
-
-        self::assertFalse($secret->isHidden());
-    }
-
-    /**
-     * Kill FalseValue on line 521 — deleted=true (truthy) yields TRUE.
-     */
-    #[Test]
-    public function fromDatabaseRowDeletedTrueReturnsTrue(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'deleted' => 1]);
-
-        self::assertTrue($secret->isDeleted());
-    }
-
-    /**
-     * Kill FalseValue on line 522 — hidden=true (truthy) yields TRUE.
-     */
-    #[Test]
-    public function fromDatabaseRowHiddenTrueReturnsTrue(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'hidden' => 1]);
-
-        self::assertTrue($secret->isHidden());
-    }
-
-    /**
-     * Kill LessThan on line 344 — isExpired() uses strict less than time().
-     * When expires_at == time() (not past), must NOT be expired.
-     */
-    #[Test]
-    public function isExpiredReturnsFalseWhenExpiresAtEqualsCurrentTime(): void
-    {
-        $secret = new Secret();
-        // Set expiry slightly into the future so equality-to-time is what we test.
-        // We cannot mock time() easily, so approximate: set to time + 10 seconds
-        // and assert FALSE. The LessThan mutation (<=) would incorrectly expire.
-        $futureOneSecond = time() + 1;
-        $secret->setExpiresAt($futureOneSecond);
-
-        self::assertFalse($secret->isExpired());
-    }
-
-    /**
-     * Kill UnwrapArrayFilter on line 535 — allowed_groups filter must remove zeros.
-     */
-    #[Test]
-    public function fromDatabaseRowAllowedGroupsFiltersZeroValues(): void
-    {
-        // "0" would be intval-cast to 0 and then array_filter removes it (0 is falsy).
-        $secret = Secret::fromDatabaseRow([
-            'uid' => 1,
-            'identifier' => 't',
-            'allowed_groups' => '1,0,2,0,3',
-        ]);
-
-        // Zeros must be filtered out — without array_filter() they would remain.
-        self::assertNotContains(0, $secret->getAllowedGroups());
-        self::assertSame([1, 2, 3], array_values($secret->getAllowedGroups()));
-    }
-
-    /**
-     * Kill UnwrapArrayFilter on line 535 — only zeros returns empty array.
-     */
-    #[Test]
-    public function fromDatabaseRowAllowedGroupsAllZeroReturnsEmpty(): void
-    {
-        $secret = Secret::fromDatabaseRow([
-            'uid' => 1,
-            'identifier' => 't',
-            'allowed_groups' => '0,0,0',
-        ]);
-
-        self::assertSame([], $secret->getAllowedGroups());
-    }
-
-    /**
-     * Kill CastInt on line 109 — create() uses int arithmetic for setCount.
-     * All three crypto fields set must NOT throw.
-     */
-    #[Test]
-    public function createAllThreeCryptoFieldsSetDoesNotThrow(): void
-    {
-        // No exception expected.
-        $secret = Secret::create(
-            identifier: 'id',
-            encryptedValue: 'v',
-            valueChecksum: 'cs',
-            encryptedDek: 'dek',
-            dekNonce: 'dn',
-            valueNonce: 'vn',
-        );
-
-        self::assertSame('dek', $secret->getEncryptedDek());
-        self::assertSame('dn', $secret->getDekNonce());
-        self::assertSame('vn', $secret->getValueNonce());
-    }
-
-    /**
-     * Kill CastInt on line 109 — create() with only dekNonce set must throw.
-     */
-    #[Test]
-    public function createOnlyDekNonceThrows(): void
-    {
-        $this->expectException(ValidationException::class);
-
-        Secret::create(
-            identifier: 'id',
-            encryptedValue: 'v',
-            valueChecksum: 'cs',
-            dekNonce: 'dn',
-        );
-    }
-
-    /**
-     * Kill CastInt on line 109 — create() with encryptedDek + valueNonce throws.
-     */
-    #[Test]
-    public function createDekAndValueNonceWithoutDekNonceThrows(): void
-    {
-        $this->expectException(ValidationException::class);
-
-        Secret::create(
-            identifier: 'id',
-            encryptedValue: 'v',
-            valueChecksum: 'cs',
-            encryptedDek: 'dek',
-            valueNonce: 'vn',
-        );
-    }
-
-    /**
-     * Kill CastInt on line 109 — create() with dekNonce + valueNonce throws.
-     */
-    #[Test]
-    public function createDekNonceAndValueNonceWithoutEncryptedDekThrows(): void
-    {
-        $this->expectException(ValidationException::class);
-
-        Secret::create(
-            identifier: 'id',
-            encryptedValue: 'v',
-            valueChecksum: 'cs',
-            dekNonce: 'dn',
-            valueNonce: 'vn',
-        );
-    }
-
-    /**
-     * Kill Coalesce on line 521 — default must apply when deleted is absent.
-     */
-    #[Test]
-    public function fromDatabaseRowDeletedAbsentUsesDefaultFalse(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't']);
-
-        self::assertFalse($secret->isDeleted());
-    }
-
-    /**
-     * Kill Coalesce on line 522 — default must apply when hidden is absent.
-     */
-    #[Test]
-    public function fromDatabaseRowHiddenAbsentUsesDefaultFalse(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't']);
-
-        self::assertFalse($secret->isHidden());
-    }
-
-    /**
-     * Kill Coalesce on line 521 — explicit deleted=true overrides default.
-     */
-    #[Test]
-    public function fromDatabaseRowExplicitDeletedTruthyOverridesDefault(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'deleted' => true]);
-
-        self::assertTrue($secret->isDeleted());
-    }
-
-    /**
-     * Kill Coalesce on line 522 — explicit hidden=true overrides default.
-     */
-    #[Test]
-    public function fromDatabaseRowExplicitHiddenTruthyOverridesDefault(): void
-    {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'hidden' => true]);
-
-        self::assertTrue($secret->isHidden());
+        self::assertSame($expectedDeleted, $row['deleted']);
+        self::assertSame($expectedHidden, $row['hidden']);
     }
 }

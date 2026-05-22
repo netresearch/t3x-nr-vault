@@ -23,7 +23,14 @@ interface SecretRepositoryInterface
 
     public function exists(string $identifier): bool;
 
-    public function save(Secret $secret): void;
+    /**
+     * Persist the Secret. Returns the (possibly new) Secret instance.
+     * On INSERT, the returned instance carries the freshly-assigned
+     * UID; on UPDATE, the original is returned unchanged. Callers must
+     * use the return value if they need the populated UID — the input
+     * is readonly and cannot be mutated in place.
+     */
+    public function save(Secret $secret): Secret;
 
     public function delete(Secret $secret): void;
 

@@ -219,23 +219,24 @@ final class SecretDetailsTest extends TestCase
     #[Test]
     public function fromSecretMapsAllFieldsFromSecretModel(): void
     {
-        $secret = new Secret();
-        $secret->setUid(7);
-        $secret->setIdentifier('from-secret-identifier');
-        $secret->setDescription('From secret description');
-        $secret->setOwnerUid(3);
-        $secret->setAllowedGroups([10, 20]);
-        $secret->setContext('backend');
-        $secret->setFrontendAccessible(true);
-        $secret->setVersion(5);
-        $secret->setCrdate(1700000001);
-        $secret->setTstamp(1700000002);
-        $secret->setExpiresAt(1900000000);
-        $secret->setLastRotatedAt(1750000000);
-        $secret->setReadCount(42);
-        $secret->setLastReadAt(1800000000);
-        $secret->setMetadata(['env' => 'prod']);
-        $secret->setScopePid(11);
+        $secret = new Secret(
+            identifier: 'from-secret-identifier',
+            uid: 7,
+            scopePid: 11,
+            description: 'From secret description',
+            ownerUid: 3,
+            allowedGroups: [10, 20],
+            context: 'backend',
+            frontendAccessible: true,
+            version: 5,
+            expiresAt: 1900000000,
+            lastRotatedAt: 1750000000,
+            metadata: ['env' => 'prod'],
+            tstamp: 1700000002,
+            crdate: 1700000001,
+            readCount: 42,
+            lastReadAt: 1800000000,
+        );
 
         $result = SecretDetails::fromSecret($secret);
 
@@ -261,11 +262,13 @@ final class SecretDetailsTest extends TestCase
     public function fromSecretConvertsZeroTimestampsToNull(): void
     {
         // expiresAt, lastRotatedAt, lastReadAt of 0 should become null in the DTO
-        $secret = new Secret();
-        $secret->setUid(1);
-        $secret->setExpiresAt(0);
-        $secret->setLastRotatedAt(0);
-        $secret->setLastReadAt(0);
+        $secret = new Secret(
+            identifier: 'zero-timestamps',
+            uid: 1,
+            expiresAt: 0,
+            lastRotatedAt: 0,
+            lastReadAt: 0,
+        );
 
         $result = SecretDetails::fromSecret($secret);
 
@@ -278,8 +281,8 @@ final class SecretDetailsTest extends TestCase
     public function fromSecretWithNullUidDefaultsToZero(): void
     {
         // Secret with no UID set (getUid() returns null) should default to 0
-        $secret = new Secret();
-        // Do NOT call setUid() – uid remains null
+        $secret = new Secret(identifier: 'null-uid');
+        // uid not passed — defaults to null
 
         $result = SecretDetails::fromSecret($secret);
 

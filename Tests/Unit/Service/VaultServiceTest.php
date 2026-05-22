@@ -55,6 +55,11 @@ final class VaultServiceTest extends TestCase
         parent::setUp();
 
         $this->adapter = $this->createMock(VaultAdapterInterface::class);
+        // VaultAdapterInterface::store() returns the persisted Secret. PHPUnit
+        // cannot auto-generate a return value for a `final readonly` class, so
+        // default the mock to pass the input through. Per-test `expects()->with(...)`
+        // assertions still apply because the more specific matcher takes precedence.
+        $this->adapter->method('store')->willReturnArgument(0);
         $this->encryptionService = $this->createMock(EncryptionServiceInterface::class);
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
@@ -111,7 +116,8 @@ final class VaultServiceTest extends TestCase
             ->method('store')
             ->with(self::callback(static fn (Secret $secret): bool => $secret->getIdentifier() === $identifier
                 && $secret->getEncryptedValue() === 'enc_value'
-                && $secret->getEncryptedDek() === 'enc_dek'));
+                && $secret->getEncryptedDek() === 'enc_dek'))
+            ->willReturnArgument(0);
 
         $this->auditLogService
             ->expects(self::once())
@@ -231,7 +237,8 @@ final class VaultServiceTest extends TestCase
         $this->adapter
             ->expects(self::once())
             ->method('store')
-            ->with(self::callback(static fn (Secret $s): bool => $s->getOwnerUid() === 7));
+            ->with(self::callback(static fn (Secret $s): bool => $s->getOwnerUid() === 7))
+            ->willReturnArgument(0);
 
         $subject->store('coerce', 'plaintext', ['owner' => 99]);
     }
@@ -307,8 +314,7 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function retrieveThrowsExceptionForExpiredSecret(): void
     {
-        $secret = $this->createSecretEntity('expired');
-        $secret->setExpiresAt(time() - 3600); // Expired 1 hour ago
+        $secret = $this->createSecretEntity('expired', expiresAt: time() - 3600); // Expired 1 hour ago
 
         $this->adapter
             ->method('retrieve')
@@ -386,8 +392,7 @@ final class VaultServiceTest extends TestCase
     {
         $identifier = 'toRotate';
         $newSecret = 'new-secret-value';
-        $secret = $this->createSecretEntity($identifier);
-        $secret->setVersion(1);
+        $secret = $this->createSecretEntity($identifier, version: 1);
 
         $this->adapter
             ->method('retrieve')
@@ -408,7 +413,8 @@ final class VaultServiceTest extends TestCase
             ->method('store')
             ->with(self::callback(static fn (Secret $s): bool => $s->getVersion() === 2
                 && $s->getLastRotatedAt() > 0
-                && $s->getEncryptedValue() === 'new_enc'));
+                && $s->getEncryptedValue() === 'new_enc'))
+            ->willReturnArgument(0);
 
         $this->subject->rotate($identifier, $newSecret, 'Annual rotation');
     }
@@ -507,11 +513,13 @@ final class VaultServiceTest extends TestCase
     public function getMetadataReturnsSecretMetadata(): void
     {
         $identifier = 'metaSecret';
-        $secret = $this->createSecretEntity($identifier);
-        $secret->setDescription('Test description');
-        $secret->setContext('testing');
-        $secret->setVersion(3);
-        $secret->setMetadata(['key' => 'value']);
+        $secret = $this->createSecretEntity(
+            $identifier,
+            version: 3,
+            description: 'Test description',
+            context: 'testing',
+            metadata: ['key' => 'value'],
+        );
 
         $this->adapter
             ->method('retrieve')
@@ -587,7 +595,8 @@ final class VaultServiceTest extends TestCase
                 && $s->getContext() === 'testing'
                 && $s->getScopePid() === 100
                 && $s->isFrontendAccessible()
-                && $s->getExpiresAt() === $expiresAt->getTimestamp()));
+                && $s->getExpiresAt() === $expiresAt->getTimestamp()))
+            ->willReturnArgument(0);
 
         $this->subject->store($identifier, $secretValue, [
             'owner' => 5,
@@ -617,7 +626,8 @@ final class VaultServiceTest extends TestCase
         $this->adapter
             ->expects(self::once())
             ->method('store')
-            ->with(self::callback(static fn (Secret $s): bool => $s->getExpiresAt() === $expiresTimestamp));
+            ->with(self::callback(static fn (Secret $s): bool => $s->getExpiresAt() === $expiresTimestamp))
+            ->willReturnArgument(0);
 
         $this->subject->store($identifier, $secretValue, [
             'expiresAt' => $expiresTimestamp,
@@ -630,10 +640,12 @@ final class VaultServiceTest extends TestCase
         $identifier = 'existing';
         $secretValue = 'new-value';
 
-        $existing = $this->createSecretEntity($identifier);
-        $existing->setUid(42);
-        $existing->setCrdate(1000);
-        $existing->setVersion(2);
+        $existing = $this->createSecretEntity(
+            $identifier,
+            uid: 42,
+            version: 2,
+            crdate: 1000,
+        );
 
         $this->encryptionService
             ->method('encrypt')
@@ -651,7 +663,8 @@ final class VaultServiceTest extends TestCase
             ->method('store')
             ->with(self::callback(static fn (Secret $s): bool => $s->getUid() === 42
                 && $s->getCrdate() === 1000
-                && $s->getVersion() === 2));
+                && $s->getVersion() === 2))
+            ->willReturnArgument(0);
 
         $this->subject->store($identifier, $secretValue);
     }
@@ -840,8 +853,7 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function retrieveLogsExpiredSecretAccess(): void
     {
-        $secret = $this->createSecretEntity('expired');
-        $secret->setExpiresAt(time() - 3600);
+        $secret = $this->createSecretEntity('expired', expiresAt: time() - 3600);
 
         $this->adapter
             ->method('retrieve')
@@ -886,26 +898,45 @@ final class VaultServiceTest extends TestCase
         $this->adapter
             ->expects(self::once())
             ->method('store')
-            ->with(self::callback(static fn (Secret $s): bool => $s->getAllowedGroups() === [1, 2, 3]));
+            ->with(self::callback(static fn (Secret $s): bool => $s->getAllowedGroups() === [1, 2, 3]))
+            ->willReturnArgument(0);
 
         $this->subject->store('test', 'secret', [
             'groups' => [1, 2, 3],
         ]);
     }
 
-    private function createSecretEntity(string $identifier): Secret
-    {
-        $secret = new Secret();
-        $secret->setUid(1);
-        $secret->setIdentifier($identifier);
-        $secret->setEncryptedValue('encrypted');
-        $secret->setEncryptedDek('dek');
-        $secret->setDekNonce('nonce1');
-        $secret->setValueNonce('nonce2');
-        $secret->setValueChecksum('checksum');
-        $secret->setOwnerUid(1);
-        $secret->setVersion(1);
-
-        return $secret;
+    /**
+     * Build a Secret with sensible test defaults plus optional per-test
+     * overrides. The immutable entity forces a single ctor call, so any
+     * deviation from defaults (expiresAt, version, uid, …) is passed
+     * through here as a named argument.
+     */
+    private function createSecretEntity(
+        string $identifier,
+        ?int $uid = 1,
+        int $version = 1,
+        int $expiresAt = 0,
+        int $crdate = 0,
+        string $description = '',
+        string $context = '',
+        array $metadata = [],
+    ): Secret {
+        return new Secret(
+            identifier: $identifier,
+            uid: $uid,
+            description: $description,
+            encryptedValue: 'encrypted',
+            encryptedDek: 'dek',
+            dekNonce: 'nonce1',
+            valueNonce: 'nonce2',
+            valueChecksum: 'checksum',
+            ownerUid: 1,
+            context: $context,
+            version: $version,
+            expiresAt: $expiresAt,
+            metadata: $metadata,
+            crdate: $crdate,
+        );
     }
 }

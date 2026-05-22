@@ -21,8 +21,7 @@ final class SecretCreatedEventTest extends TestCase
     #[Test]
     public function constructorSetsProperties(): void
     {
-        $secret = new Secret();
-        $secret->setIdentifier('api-key');
+        $secret = new Secret(identifier: 'api-key');
 
         $event = new SecretCreatedEvent('api-key', $secret, 5);
 

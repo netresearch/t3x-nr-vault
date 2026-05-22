@@ -33,9 +33,9 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
         return true;
     }
 
-    public function store(Secret $secret): void
+    public function store(Secret $secret): Secret
     {
-        $this->secretRepository->save($secret);
+        return $this->secretRepository->save($secret);
     }
 
     public function retrieve(string $identifier): ?Secret
@@ -110,7 +110,6 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
         $existing = $secret->getMetadata();
         /** @var array<string, mixed> $merged */
         $merged = array_merge($existing, $metadata);
-        $secret->setMetadata($merged);
-        $this->secretRepository->save($secret);
+        $this->secretRepository->save($secret->withMetadata($merged));
     }
 }
