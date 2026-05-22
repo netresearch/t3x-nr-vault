@@ -230,9 +230,8 @@ final readonly class OverviewController
 
     private function getLanguageService(): LanguageService
     {
-        /** @var LanguageService $languageService */
-        $languageService = $GLOBALS['LANG'];
+        \assert($GLOBALS['LANG'] instanceof LanguageService);
 
-        return $languageService;
+        return $GLOBALS['LANG'];
     }
 }

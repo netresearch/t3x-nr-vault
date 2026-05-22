@@ -265,13 +265,7 @@ final class VaultSecretInputElement extends AbstractFormElement
             'name' => $itemName,
             'value' => '',
             'class' => 'form-control',
-            'placeholder' => $hasSecret
-                ? ($this->getLanguageService()->sL(
-                    'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:vault_secret_input.placeholder_rotate',
-                ) ?: 'Enter new secret value to rotate')
-                : ($this->getLanguageService()->sL(
-                    'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:vault_secret_input.placeholder_new',
-                ) ?: 'Enter secret value'),
+            'placeholder' => $this->resolvePlaceholder($hasSecret),
             'autocomplete' => 'off',
             'data-formengine-input-name' => $itemName,
             'data-vault-identifier' => $identifier,
@@ -352,5 +346,21 @@ final class VaultSecretInputElement extends AbstractFormElement
         $iconFactory = $this->iconFactory;
 
         return $iconFactory->getIcon($identifier, IconSize::SMALL)->render();
+    }
+
+    /**
+     * Pick the appropriate placeholder text based on whether the record
+     * already has a secret stored — rotate hint for existing secrets,
+     * create hint for new ones. Falls back to English defaults when the
+     * XLIFF lookup returns an empty string.
+     */
+    private function resolvePlaceholder(bool $hasSecret): string
+    {
+        $key = $hasSecret
+            ? 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:vault_secret_input.placeholder_rotate'
+            : 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:vault_secret_input.placeholder_new';
+        $fallback = $hasSecret ? 'Enter new secret value to rotate' : 'Enter secret value';
+
+        return $this->getLanguageService()->sL($key) ?: $fallback;
     }
 }

@@ -72,10 +72,12 @@ final class VaultSecretElement extends AbstractFormElement
         if ($vaultIdentifier !== '') {
             try {
                 $vaultService = GeneralUtility::makeInstance(VaultServiceInterface::class);
-                $metadata = $vaultService->getMetadata($vaultIdentifier);
+                // Probe for existence — throws SecretNotFoundException (or
+                // AccessDeniedException) when the identifier doesn't resolve.
+                $vaultService->getMetadata($vaultIdentifier);
                 $hasValue = true;
             } catch (Throwable) {
-                // Secret doesn't exist yet
+                // Secret doesn't exist yet (or current user can't read it)
             }
         }
 

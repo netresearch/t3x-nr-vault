@@ -525,10 +525,9 @@ final readonly class MigrationController
 
     private function getLanguageService(): LanguageService
     {
-        /** @var LanguageService $lang */
-        $lang = $GLOBALS['LANG'];
+        \assert($GLOBALS['LANG'] instanceof LanguageService);
 
-        return $lang;
+        return $GLOBALS['LANG'];
     }
 
     /**

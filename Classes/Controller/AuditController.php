@@ -265,6 +265,9 @@ final readonly class AuditController
             try {
                 $since = new DateTimeImmutable($sinceValue);
             } catch (Exception) {
+                // Malformed date input from the user — leave $since/$until null
+                // so the filter is simply not applied. The form re-renders the
+                // raw value so the user can correct it.
             }
         }
 
@@ -274,6 +277,9 @@ final readonly class AuditController
             try {
                 $until = new DateTimeImmutable($untilValue);
             } catch (Exception) {
+                // Malformed date input from the user — leave $since/$until null
+                // so the filter is simply not applied. The form re-renders the
+                // raw value so the user can correct it.
             }
         }
 
@@ -406,9 +412,8 @@ final readonly class AuditController
 
     private function getLanguageService(): LanguageService
     {
-        /** @var LanguageService $lang */
-        $lang = $GLOBALS['LANG'];
+        \assert($GLOBALS['LANG'] instanceof LanguageService);
 
-        return $lang;
+        return $GLOBALS['LANG'];
     }
 }

@@ -153,7 +153,13 @@ final class AccessControlService implements AccessControlServiceInterface
         /** @var list<int> $result */
         $result = [];
         foreach ($groups as $groupId) {
-            $result[] = \is_int($groupId) ? $groupId : (is_numeric($groupId) ? (int) $groupId : 0);
+            $normalised = 0;
+            if (\is_int($groupId)) {
+                $normalised = $groupId;
+            } elseif (is_numeric($groupId)) {
+                $normalised = (int) $groupId;
+            }
+            $result[] = $normalised;
         }
 
         return $result;

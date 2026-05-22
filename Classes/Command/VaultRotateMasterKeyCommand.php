@@ -240,7 +240,7 @@ final class VaultRotateMasterKeyCommand extends Command
 
             $io->progressFinish();
 
-            if (\count($failedSecrets) > 0) {
+            if ($failedSecrets !== []) {
                 $connection->rollBack();
                 $io->error(\sprintf(
                     'Rotation failed for %d secret(s). Transaction rolled back.',
