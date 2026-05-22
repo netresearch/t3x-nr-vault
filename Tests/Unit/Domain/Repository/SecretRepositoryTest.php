@@ -160,13 +160,7 @@ final class SecretRepositoryTest extends TestCase
     {
         $connection = $this->useStrictConnectionMock();
 
-        $secret = new Secret();
-        $secret->setIdentifier('new-secret');
-        $secret->setEncryptedValue('encrypted');
-        $secret->setEncryptedDek('dek');
-        $secret->setDekNonce('deknonce');
-        $secret->setValueNonce('valuenonce');
-        $secret->setEncryptionVersion(1);
+        $secret = $this->newEncryptedSecret('new-secret');
 
         $connection
             ->expects(self::once())
@@ -183,9 +177,12 @@ final class SecretRepositoryTest extends TestCase
             ->method('delete')
             ->with('tx_nrvault_secret_begroups_mm', self::anything());
 
-        $this->subject->save($secret);
+        $saved = $this->subject->save($secret);
 
-        self::assertSame(1, $secret->getUid());
+        // save() returns a NEW instance on INSERT (uid attached); the
+        // original is left unmutated by design.
+        self::assertNull($secret->getUid());
+        self::assertSame(1, $saved->getUid());
     }
 
     #[Test]
@@ -193,14 +190,7 @@ final class SecretRepositoryTest extends TestCase
     {
         $connection = $this->useStrictConnectionMock();
 
-        $secret = new Secret();
-        $secret->setUid(42);
-        $secret->setIdentifier('existing-secret');
-        $secret->setEncryptedValue('encrypted');
-        $secret->setEncryptedDek('dek');
-        $secret->setDekNonce('deknonce');
-        $secret->setValueNonce('valuenonce');
-        $secret->setEncryptionVersion(1);
+        $secret = $this->newEncryptedSecret('existing-secret', uid: 42);
 
         $connection
             ->expects(self::once())
@@ -224,8 +214,7 @@ final class SecretRepositoryTest extends TestCase
     {
         $connection = $this->useStrictConnectionMock();
 
-        $secret = new Secret();
-        $secret->setIdentifier('new-unsaved');
+        $secret = new Secret(identifier: 'new-unsaved');
 
         $connection
             ->expects(self::never())
@@ -239,9 +228,7 @@ final class SecretRepositoryTest extends TestCase
     {
         $connection = $this->useStrictConnectionMock();
 
-        $secret = new Secret();
-        $secret->setUid(42);
-        $secret->setIdentifier('to-delete');
+        $secret = new Secret(identifier: 'to-delete', uid: 42);
 
         $connection
             ->expects(self::once())
@@ -477,14 +464,7 @@ final class SecretRepositoryTest extends TestCase
     {
         $connection = $this->useStrictConnectionMock();
 
-        $secret = new Secret();
-        $secret->setIdentifier('new-secret-groups');
-        $secret->setEncryptedValue('encrypted');
-        $secret->setEncryptedDek('dek');
-        $secret->setDekNonce('deknonce');
-        $secret->setValueNonce('valuenonce');
-        $secret->setEncryptionVersion(1);
-        $secret->setAllowedGroups([3, 7]);
+        $secret = $this->newEncryptedSecret('new-secret-groups', allowedGroups: [3, 7]);
 
         $connection
             ->method('lastInsertId')
@@ -500,9 +480,10 @@ final class SecretRepositoryTest extends TestCase
             ->expects(self::once())
             ->method('delete');
 
-        $this->subject->save($secret);
+        $saved = $this->subject->save($secret);
 
-        self::assertSame(5, $secret->getUid());
+        self::assertNull($secret->getUid());
+        self::assertSame(5, $saved->getUid());
     }
 
     /**
@@ -727,13 +708,7 @@ final class SecretRepositoryTest extends TestCase
     #[Test]
     public function saveThrowsWhenConnectionInsertFails(): void
     {
-        $secret = new Secret();
-        $secret->setIdentifier('insert-fail');
-        $secret->setEncryptedValue('encrypted');
-        $secret->setEncryptedDek('dek');
-        $secret->setDekNonce('deknonce');
-        $secret->setValueNonce('valuenonce');
-        $secret->setEncryptionVersion(1);
+        $secret = $this->newEncryptedSecret('insert-fail');
 
         $this->connection
             ->method('insert')
@@ -756,23 +731,20 @@ final class SecretRepositoryTest extends TestCase
     #[DataProvider('nonNumericLastInsertIdProvider')]
     public function saveHandlesNonNumericLastInsertId(string $lastInsertIdValue, int $expectedUid, string $description): void
     {
-        $secret = new Secret();
-        $secret->setIdentifier('nonnum-lastinsert');
-        $secret->setEncryptedValue('encrypted');
-        $secret->setEncryptedDek('dek');
-        $secret->setDekNonce('deknonce');
-        $secret->setValueNonce('valuenonce');
-        $secret->setEncryptionVersion(1);
+        $secret = $this->newEncryptedSecret('nonnum-lastinsert');
 
         $this->connection->method('insert')->willReturn(1);
         $this->connection->method('lastInsertId')->willReturn($lastInsertIdValue);
         $this->connection->method('delete')->willReturn(0);
 
-        $this->subject->save($secret);
+        $saved = $this->subject->save($secret);
 
+        // The original secret's UID is unchanged (immutable entity); the
+        // returned instance carries the coerced UID.
+        self::assertNull($secret->getUid());
         self::assertSame(
             $expectedUid,
-            $secret->getUid(),
+            $saved->getUid(),
             \sprintf('Failed asserting UID fallback for case: %s', $description),
         );
     }
@@ -796,15 +768,7 @@ final class SecretRepositoryTest extends TestCase
     {
         $connection = $this->useStrictConnectionMock();
 
-        $secret = new Secret();
-        $secret->setUid(77);
-        $secret->setIdentifier('existing-with-groups');
-        $secret->setEncryptedValue('encrypted');
-        $secret->setEncryptedDek('dek');
-        $secret->setDekNonce('deknonce');
-        $secret->setValueNonce('valuenonce');
-        $secret->setEncryptionVersion(1);
-        $secret->setAllowedGroups([11, 13]);
+        $secret = $this->newEncryptedSecret('existing-with-groups', uid: 77, allowedGroups: [11, 13]);
 
         // 1 update on the secret row, 2 inserts on the MM table for the 2 groups
         $connection->expects(self::once())->method('update');
@@ -940,6 +904,30 @@ final class SecretRepositoryTest extends TestCase
         $this->queryBuilder->method('createNamedParameter')->willReturn('?');
 
         $this->expressionBuilder->method('eq')->willReturn('field = ?');
+    }
+
+    /**
+     * Build a Secret with the seven crypto/envelope fields populated to
+     * defaults appropriate for save()-path tests. The ctor enforces the
+     * tri-state crypto invariant so callers can't omit individual fields.
+     *
+     * @param list<int> $allowedGroups
+     */
+    private function newEncryptedSecret(
+        string $identifier,
+        ?int $uid = null,
+        array $allowedGroups = [],
+    ): Secret {
+        return new Secret(
+            identifier: $identifier,
+            uid: $uid,
+            encryptedValue: 'encrypted',
+            encryptedDek: 'dek',
+            dekNonce: 'deknonce',
+            valueNonce: 'valuenonce',
+            encryptionVersion: 1,
+            allowedGroups: $allowedGroups,
+        );
     }
 
     /**
