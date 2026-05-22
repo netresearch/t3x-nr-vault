@@ -130,9 +130,9 @@ final class MasterKeyRotationTest extends FunctionalTestCase
                 $newKeyFromFile,
             );
 
-            $secret->setEncryptedDek($reEncrypted->encryptedDek);
-            $secret->setDekNonce($reEncrypted->nonce);
-            $secretRepository->save($secret);
+            $secretRepository->save(
+                $secret->withReEncryptedDek($reEncrypted->encryptedDek, $reEncrypted->nonce),
+            );
         }
 
         // Switch to the new master key file
@@ -259,9 +259,9 @@ final class MasterKeyRotationTest extends FunctionalTestCase
                 $newKeyFromFile,
             );
 
-            $secret->setEncryptedDek($reEncrypted->encryptedDek);
-            $secret->setDekNonce($reEncrypted->nonce);
-            $secretRepository->save($secret);
+            $secretRepository->save(
+                $secret->withReEncryptedDek($reEncrypted->encryptedDek, $reEncrypted->nonce),
+            );
         }
 
         // Verify all DEKs have changed
@@ -371,9 +371,9 @@ final class MasterKeyRotationTest extends FunctionalTestCase
                 $oldKeyFromFile = $this->readKeyFromFile($this->masterKeyPath);
                 $newKeyFromFile = $this->readKeyFromFile($newKeyPath);
 
-                $secret->setEncryptedDek($reEncrypted->encryptedDek);
-                $secret->setDekNonce($reEncrypted->nonce);
-                $secretRepository->save($secret);
+                $secretRepository->save(
+                    $secret->withReEncryptedDek($reEncrypted->encryptedDek, $reEncrypted->nonce),
+                );
             }
 
             self::fail('Rotation should have failed on the 3rd secret due to bogus old key');
