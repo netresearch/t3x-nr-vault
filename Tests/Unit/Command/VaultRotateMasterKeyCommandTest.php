@@ -51,6 +51,14 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         parent::setUp();
 
         $this->secretRepository = $this->createMock(SecretRepositoryInterface::class);
+        // `save()` now returns Secret (was void). PHPUnit cannot auto-generate
+        // a return value for `final readonly` Secret, so install a passthrough
+        // default at setUp() so individual tests don't have to repeat it.
+        // Per-test `->expects()` overrides still take effect.
+        $this->secretRepository
+            ->method('save')
+            ->willReturnArgument(0);
+
         $this->encryptionService = $this->createMock(EncryptionServiceInterface::class);
         $this->masterKeyProviderFactory = $this->createMock(MasterKeyProviderFactoryInterface::class);
         $this->connectionPool = $this->createMock(ConnectionPool::class);
@@ -325,10 +333,16 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->method('getConnectionForTable')
             ->willReturn($connection);
 
+        // `withReEncryptedDek()` returns a NEW Secret instance, so the
+        // saved entity is a different object from `$secret`. Match on the
+        // re-encrypted DEK envelope instead of object identity.
         $this->secretRepository
             ->expects(self::once())
             ->method('save')
-            ->with($secret);
+            ->with(self::callback(static fn (Secret $s): bool => $s->getIdentifier() === 'test-secret'
+                && $s->getEncryptedDek() === 'new-encrypted-dek'
+                && $s->getDekNonce() === 'new-nonce'))
+            ->willReturnArgument(0);
 
         $exitCode = $this->commandTester->execute([
             '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
@@ -527,12 +541,16 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
     private function createTestSecret(string $identifier): Secret
     {
-        $secret = new Secret();
-        $secret->setIdentifier($identifier);
-        $secret->setEncryptedDek('encrypted-dek');
-        $secret->setDekNonce('dek-nonce');
-
-        return $secret;
+        // The ctor enforces the tri-state crypto invariant: encryptedDek,
+        // dekNonce, and valueNonce must all be set or all be empty. The
+        // master-key rotation only re-encrypts the DEK envelope, but the
+        // entity still requires the value-side fields to be consistent.
+        return new Secret(
+            identifier: $identifier,
+            encryptedDek: 'encrypted-dek',
+            dekNonce: 'dek-nonce',
+            valueNonce: 'value-nonce',
+        );
     }
 
     private function mockMasterKeyProvider(string $key): void
