@@ -37,6 +37,10 @@ final readonly class AuditController
 {
     private const MODULE_NAME = 'admin_vault_audit';
 
+    private const LL_PREFIX = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:';
+
+    private const LL_TABS_TAB = self::LL_PREFIX . 'mlang_tabs_tab';
+
     public function __construct(
         private ModuleTemplateFactory $moduleTemplateFactory,
         private IconFactory $iconFactory,
@@ -56,7 +60,7 @@ final readonly class AuditController
         if (method_exists($moduleTemplate->getDocHeaderComponent(), 'setShortcutContext')) {
             $moduleTemplate->getDocHeaderComponent()->setShortcutContext(
                 routeIdentifier: self::MODULE_NAME,
-                displayName: $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab')
+                displayName: $this->getLanguageService()->sL(self::LL_TABS_TAB)
                     . ' - '
                     . $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.title'),
             );
@@ -143,7 +147,7 @@ final readonly class AuditController
         ]);
 
         $moduleTemplate->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab')
+            $this->getLanguageService()->sL(self::LL_TABS_TAB)
             . ' - '
             . $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.title'),
         );
@@ -187,7 +191,7 @@ final readonly class AuditController
         ]);
 
         $moduleTemplate->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab')
+            $this->getLanguageService()->sL(self::LL_TABS_TAB)
             . ' - '
             . $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.verify_chain'),
         );

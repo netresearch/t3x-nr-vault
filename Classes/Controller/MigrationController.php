@@ -55,6 +55,10 @@ final readonly class MigrationController
      */
     private const ALLOWED_ACTIONS = ['index', 'scan', 'review', 'configure', 'execute', 'verify'];
 
+    private const LL_PREFIX = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:';
+
+    private const LL_TABS_TAB = self::LL_PREFIX . 'mlang_tabs_tab';
+
     public function __construct(
         private ModuleTemplateFactory $moduleTemplateFactory,
         private SecretDetectionService $detectionService,
@@ -101,14 +105,14 @@ final readonly class MigrationController
         if (method_exists($moduleTemplate->getDocHeaderComponent(), 'setShortcutContext')) {
             $moduleTemplate->getDocHeaderComponent()->setShortcutContext(
                 routeIdentifier: self::MODULE_NAME,
-                displayName: $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab')
+                displayName: $this->getLanguageService()->sL(self::LL_TABS_TAB)
                     . ' - '
                     . $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.title'),
             );
         }
 
         $moduleTemplate->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab')
+            $this->getLanguageService()->sL(self::LL_TABS_TAB)
             . ' - '
             . $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.title'),
         );
@@ -126,7 +130,7 @@ final readonly class MigrationController
         $this->addBackButton($moduleTemplate, 'index');
 
         $moduleTemplate->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab')
+            $this->getLanguageService()->sL(self::LL_TABS_TAB)
             . ' - '
             . $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan'),
         );
@@ -168,7 +172,7 @@ final readonly class MigrationController
         $this->addBackButton($moduleTemplate, 'scan');
 
         $moduleTemplate->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab')
+            $this->getLanguageService()->sL(self::LL_TABS_TAB)
             . ' - '
             . $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.review'),
         );
@@ -215,7 +219,7 @@ final readonly class MigrationController
         $this->addBackButton($moduleTemplate, 'review');
 
         $moduleTemplate->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab')
+            $this->getLanguageService()->sL(self::LL_TABS_TAB)
             . ' - '
             . $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.configure'),
         );
@@ -343,7 +347,7 @@ final readonly class MigrationController
         $this->addBackButton($moduleTemplate, 'index');
 
         $moduleTemplate->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab')
+            $this->getLanguageService()->sL(self::LL_TABS_TAB)
             . ' - '
             . $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.verify'),
         );

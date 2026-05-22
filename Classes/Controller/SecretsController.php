@@ -42,6 +42,14 @@ final readonly class SecretsController
 {
     private const MODULE_NAME = 'admin_vault_secrets';
 
+    private const DATE_FORMAT = 'Y-m-d H:i:s';
+
+    private const LL_PREFIX = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:';
+
+    private const LL_NO_IDENTIFIER = self::LL_PREFIX . 'secrets.noIdentifier';
+
+    private const LL_NOT_FOUND = self::LL_PREFIX . 'secrets.notFound';
+
     public function __construct(
         private ModuleTemplateFactory $moduleTemplateFactory,
         private IconFactory $iconFactory,
@@ -106,10 +114,10 @@ final readonly class SecretsController
                 'identifier' => $secret->identifier,
                 'owner_uid' => $ownerUid,
                 'owner_name' => $userCache[$ownerUid] ?? 'User #' . $ownerUid,
-                'created' => date('Y-m-d H:i:s', $secret->createdAt),
-                'updated' => date('Y-m-d H:i:s', $secret->updatedAt),
+                'created' => date(self::DATE_FORMAT, $secret->createdAt),
+                'updated' => date(self::DATE_FORMAT, $secret->updatedAt),
                 'read_count' => $secret->readCount,
-                'last_read' => $secret->lastReadAt !== null ? date('Y-m-d H:i:s', $secret->lastReadAt) : '-',
+                'last_read' => $secret->lastReadAt !== null ? date(self::DATE_FORMAT, $secret->lastReadAt) : '-',
                 'description' => $secret->description,
                 'hidden' => false,
             ];
@@ -166,7 +174,7 @@ final readonly class SecretsController
 
         if ($identifier === '') {
             $this->addFlashMessage(
-                $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.noIdentifier'),
+                $lang->sL(self::LL_NO_IDENTIFIER),
                 ContextualFeedbackSeverity::ERROR,
             );
 
@@ -180,7 +188,7 @@ final readonly class SecretsController
             $metadata = $this->vaultService->getMetadata($identifier);
         } catch (SecretNotFoundException) {
             $this->addFlashMessage(
-                \sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.notFound'), $identifier),
+                \sprintf($lang->sL(self::LL_NOT_FOUND), $identifier),
                 ContextualFeedbackSeverity::ERROR,
             );
 
@@ -238,7 +246,7 @@ final readonly class SecretsController
                 return new JsonResponse(['success' => false, 'error' => 'No secret identifier provided'], 400);
             }
             $this->addFlashMessage(
-                $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.noIdentifier'),
+                $lang->sL(self::LL_NO_IDENTIFIER),
                 ContextualFeedbackSeverity::ERROR,
             );
 
@@ -314,7 +322,7 @@ final readonly class SecretsController
                 return new JsonResponse(['success' => false, 'error' => 'Secret not found'], 404);
             }
             $this->addFlashMessage(
-                \sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.notFound'), $identifier),
+                \sprintf($lang->sL(self::LL_NOT_FOUND), $identifier),
                 ContextualFeedbackSeverity::ERROR,
             );
         } catch (Exception $e) {
@@ -351,7 +359,7 @@ final readonly class SecretsController
 
         if ($identifier === '') {
             $this->addFlashMessage(
-                $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.noIdentifier'),
+                $lang->sL(self::LL_NO_IDENTIFIER),
                 ContextualFeedbackSeverity::ERROR,
             );
 
@@ -370,7 +378,7 @@ final readonly class SecretsController
             );
         } catch (SecretNotFoundException) {
             $this->addFlashMessage(
-                \sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.notFound'), $identifier),
+                \sprintf($lang->sL(self::LL_NOT_FOUND), $identifier),
                 ContextualFeedbackSeverity::ERROR,
             );
         } catch (AccessDeniedException) {
