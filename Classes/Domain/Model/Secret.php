@@ -83,74 +83,26 @@ final readonly class Secret
      */
     public function withUid(?int $uid): self
     {
-        return new self(
-            identifier: $this->identifier,
-            uid: $uid,
-            scopePid: $this->scopePid,
-            description: $this->description,
-            encryptedValue: $this->encryptedValue,
-            encryptedDek: $this->encryptedDek,
-            dekNonce: $this->dekNonce,
-            valueNonce: $this->valueNonce,
-            encryptionVersion: $this->encryptionVersion,
-            valueChecksum: $this->valueChecksum,
-            ownerUid: $this->ownerUid,
-            allowedGroups: $this->allowedGroups,
-            context: $this->context,
-            frontendAccessible: $this->frontendAccessible,
-            version: $this->version,
-            expiresAt: $this->expiresAt,
-            lastRotatedAt: $this->lastRotatedAt,
-            metadata: $this->metadata,
-            adapter: $this->adapter,
-            externalReference: $this->externalReference,
-            tstamp: $this->tstamp,
-            crdate: $this->crdate,
-            cruserId: $this->cruserId,
-            deleted: $this->deleted,
-            hidden: $this->hidden,
-            readCount: $this->readCount,
-            lastReadAt: $this->lastReadAt,
-        );
+        return $this->cloneWith(['uid' => $uid]);
     }
 
     /**
      * Apply a value rotation: bundles the seven crypto/version/timestamp
      * fields that change together during `VaultService::rotate()`. Returns
-     * a new Secret with `version + 1`, `lastRotatedAt = now`, and the new
-     * envelope-encryption envelope.
+     * a new Secret with `version + 1`, `lastRotatedAt = $rotatedAt`, and
+     * the new envelope-encryption envelope.
      */
     public function withValueRotation(EncryptedData $encrypted, int $rotatedAt): self
     {
-        return new self(
-            identifier: $this->identifier,
-            uid: $this->uid,
-            scopePid: $this->scopePid,
-            description: $this->description,
-            encryptedValue: $encrypted->encryptedValue,
-            encryptedDek: $encrypted->encryptedDek,
-            dekNonce: $encrypted->dekNonce,
-            valueNonce: $encrypted->valueNonce,
-            encryptionVersion: $this->encryptionVersion,
-            valueChecksum: $encrypted->valueChecksum,
-            ownerUid: $this->ownerUid,
-            allowedGroups: $this->allowedGroups,
-            context: $this->context,
-            frontendAccessible: $this->frontendAccessible,
-            version: $this->version + 1,
-            expiresAt: $this->expiresAt,
-            lastRotatedAt: $rotatedAt,
-            metadata: $this->metadata,
-            adapter: $this->adapter,
-            externalReference: $this->externalReference,
-            tstamp: $this->tstamp,
-            crdate: $this->crdate,
-            cruserId: $this->cruserId,
-            deleted: $this->deleted,
-            hidden: $this->hidden,
-            readCount: $this->readCount,
-            lastReadAt: $this->lastReadAt,
-        );
+        return $this->cloneWith([
+            'encryptedValue' => $encrypted->encryptedValue,
+            'encryptedDek' => $encrypted->encryptedDek,
+            'dekNonce' => $encrypted->dekNonce,
+            'valueNonce' => $encrypted->valueNonce,
+            'valueChecksum' => $encrypted->valueChecksum,
+            'version' => $this->version + 1,
+            'lastRotatedAt' => $rotatedAt,
+        ]);
     }
 
     /**
@@ -161,35 +113,10 @@ final readonly class Secret
      */
     public function withReEncryptedDek(string $encryptedDek, string $dekNonce): self
     {
-        return new self(
-            identifier: $this->identifier,
-            uid: $this->uid,
-            scopePid: $this->scopePid,
-            description: $this->description,
-            encryptedValue: $this->encryptedValue,
-            encryptedDek: $encryptedDek,
-            dekNonce: $dekNonce,
-            valueNonce: $this->valueNonce,
-            encryptionVersion: $this->encryptionVersion,
-            valueChecksum: $this->valueChecksum,
-            ownerUid: $this->ownerUid,
-            allowedGroups: $this->allowedGroups,
-            context: $this->context,
-            frontendAccessible: $this->frontendAccessible,
-            version: $this->version,
-            expiresAt: $this->expiresAt,
-            lastRotatedAt: $this->lastRotatedAt,
-            metadata: $this->metadata,
-            adapter: $this->adapter,
-            externalReference: $this->externalReference,
-            tstamp: $this->tstamp,
-            crdate: $this->crdate,
-            cruserId: $this->cruserId,
-            deleted: $this->deleted,
-            hidden: $this->hidden,
-            readCount: $this->readCount,
-            lastReadAt: $this->lastReadAt,
-        );
+        return $this->cloneWith([
+            'encryptedDek' => $encryptedDek,
+            'dekNonce' => $dekNonce,
+        ]);
     }
 
     /**
@@ -201,35 +128,7 @@ final readonly class Secret
      */
     public function withMetadata(array $metadata): self
     {
-        return new self(
-            identifier: $this->identifier,
-            uid: $this->uid,
-            scopePid: $this->scopePid,
-            description: $this->description,
-            encryptedValue: $this->encryptedValue,
-            encryptedDek: $this->encryptedDek,
-            dekNonce: $this->dekNonce,
-            valueNonce: $this->valueNonce,
-            encryptionVersion: $this->encryptionVersion,
-            valueChecksum: $this->valueChecksum,
-            ownerUid: $this->ownerUid,
-            allowedGroups: $this->allowedGroups,
-            context: $this->context,
-            frontendAccessible: $this->frontendAccessible,
-            version: $this->version,
-            expiresAt: $this->expiresAt,
-            lastRotatedAt: $this->lastRotatedAt,
-            metadata: $metadata,
-            adapter: $this->adapter,
-            externalReference: $this->externalReference,
-            tstamp: $this->tstamp,
-            crdate: $this->crdate,
-            cruserId: $this->cruserId,
-            deleted: $this->deleted,
-            hidden: $this->hidden,
-            readCount: $this->readCount,
-            lastReadAt: $this->lastReadAt,
-        );
+        return $this->cloneWith(['metadata' => $metadata]);
     }
 
     // ------------------------------------------------------------------
@@ -486,5 +385,23 @@ final readonly class Secret
             'read_count' => $this->readCount,
             'last_read_at' => $this->lastReadAt,
         ];
+    }
+
+    /**
+     * Shared cloning primitive for the named withers. Builds a fresh
+     * instance from the current state, overriding the supplied subset
+     * of fields. The named-arg spread expansion relies on the constructor
+     * parameter names matching the property names — constructor promotion
+     * guarantees this by construction.
+     *
+     * @param array<string, mixed> $changes
+     */
+    private function cloneWith(array $changes): self
+    {
+        /** @var array<string, mixed> $current */
+        $current = get_object_vars($this);
+
+        /** @phpstan-ignore-next-line argument.unpackNonIterableStringKeys */
+        return new self(...array_merge($current, $changes));
     }
 }

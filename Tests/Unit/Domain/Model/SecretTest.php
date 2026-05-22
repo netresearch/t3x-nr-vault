@@ -182,14 +182,17 @@ final class SecretTest extends TestCase
         $this->expectException(ValidationException::class);
         $this->expectExceptionMessage('encryptedDek, dekNonce, and valueNonce must all be set or all be empty');
 
-        new Secret(
+        // The constructor MUST throw before returning; assertInstanceOf
+        // is unreachable but uses the constructed value so Sonar's S1848
+        // ("useless object instantiation") doesn't fire on the throw test.
+        self::assertInstanceOf(Secret::class, new Secret(
             identifier: 'broken',
             encryptedValue: 'enc_value',
-            valueChecksum: 'checksum',
             encryptedDek: $encryptedDek,
             dekNonce: $dekNonce,
             valueNonce: $valueNonce,
-        );
+            valueChecksum: 'checksum',
+        ));
     }
 
     #[Test]
@@ -199,10 +202,10 @@ final class SecretTest extends TestCase
         $secret = new Secret(
             identifier: 'id',
             encryptedValue: 'v',
-            valueChecksum: 'cs',
             encryptedDek: 'dek',
             dekNonce: 'dn',
             valueNonce: 'vn',
+            valueChecksum: 'cs',
         );
 
         self::assertSame('dek', $secret->getEncryptedDek());
