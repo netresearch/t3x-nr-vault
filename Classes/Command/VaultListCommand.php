@@ -28,6 +28,10 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 )]
 final class VaultListCommand extends Command
 {
+    private const DATE_FORMAT_SHORT = 'Y-m-d H:i';
+
+    private const DATE_FORMAT_LONG = 'Y-m-d H:i:s';
+
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
     ) {
@@ -117,10 +121,10 @@ final class VaultListCommand extends Command
             $rows[] = [
                 $secret->identifier,
                 $secret->ownerUid,
-                date('Y-m-d H:i', $secret->createdAt),
-                date('Y-m-d H:i', $secret->updatedAt),
+                date(self::DATE_FORMAT_SHORT, $secret->createdAt),
+                date(self::DATE_FORMAT_SHORT, $secret->updatedAt),
                 $secret->readCount,
-                $secret->lastReadAt !== null ? date('Y-m-d H:i', $secret->lastReadAt) : '-',
+                $secret->lastReadAt !== null ? date(self::DATE_FORMAT_SHORT, $secret->lastReadAt) : '-',
             ];
         }
 
@@ -146,10 +150,10 @@ final class VaultListCommand extends Command
                 '%s,%d,%s,%s,%d,%s',
                 $this->escapeCsv($secret->identifier),
                 $secret->ownerUid,
-                date('Y-m-d H:i:s', $secret->createdAt),
-                date('Y-m-d H:i:s', $secret->updatedAt),
+                date(self::DATE_FORMAT_LONG, $secret->createdAt),
+                date(self::DATE_FORMAT_LONG, $secret->updatedAt),
                 $secret->readCount,
-                $secret->lastReadAt !== null ? date('Y-m-d H:i:s', $secret->lastReadAt) : '',
+                $secret->lastReadAt !== null ? date(self::DATE_FORMAT_LONG, $secret->lastReadAt) : '',
             ));
         }
     }

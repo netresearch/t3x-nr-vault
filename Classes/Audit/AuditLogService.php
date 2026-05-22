@@ -59,14 +59,16 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         try {
             $previousHash = $this->fetchPreviousHash($connection);
             $data = $this->buildEntryData(
-                $secretIdentifier,
-                $action,
-                $success,
-                $errorMessage,
-                $reason,
-                $hashBefore,
-                $hashAfter,
-                $context,
+                new AuditLogInputs(
+                    $secretIdentifier,
+                    $action,
+                    $success,
+                    $errorMessage,
+                    $reason,
+                    $hashBefore,
+                    $hashAfter,
+                    $context,
+                ),
                 $previousHash,
             );
             $this->insertAndUpdateHash($connection, $data, $previousHash);
@@ -484,25 +486,16 @@ final readonly class AuditLogService implements AuditLogServiceInterface
      * @return array<string, mixed>
      */
     private function buildEntryData(
-        string $secretIdentifier,
-        string $action,
-        bool $success,
-        ?string $errorMessage,
-        ?string $reason,
-        #[SensitiveParameter]
-        ?string $hashBefore,
-        #[SensitiveParameter]
-        ?string $hashAfter,
-        ?AuditContextInterface $context,
+        AuditLogInputs $inputs,
         string $previousHash,
     ): array {
         return [
             'pid' => 0,
-            'secret_identifier' => $secretIdentifier,
-            'action' => $action,
-            'success' => $success ? 1 : 0,
-            'error_message' => $errorMessage ?? '',
-            'reason' => $reason ?? '',
+            'secret_identifier' => $inputs->secretIdentifier,
+            'action' => $inputs->action,
+            'success' => $inputs->success ? 1 : 0,
+            'error_message' => $inputs->errorMessage ?? '',
+            'reason' => $inputs->reason ?? '',
             'actor_uid' => $this->accessControlService->getCurrentActorUid(),
             'actor_type' => $this->accessControlService->getCurrentActorType(),
             'actor_username' => $this->accessControlService->getCurrentActorUsername(),
@@ -511,11 +504,11 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             'user_agent' => $this->getUserAgent(),
             'request_id' => $this->getRequestId(),
             'previous_hash' => $previousHash,
-            'hash_before' => $hashBefore ?? '',
-            'hash_after' => $hashAfter ?? '',
+            'hash_before' => $inputs->hashBefore ?? '',
+            'hash_after' => $inputs->hashAfter ?? '',
             'crdate' => time(),
             'hmac_key_epoch' => $this->getCurrentEpoch(),
-            'context' => $context instanceof AuditContextInterface ? json_encode($context->toArray()) : '{}',
+            'context' => $inputs->context instanceof AuditContextInterface ? json_encode($inputs->context->toArray()) : '{}',
         ];
     }
 
