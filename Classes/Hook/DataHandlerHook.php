@@ -155,8 +155,15 @@ final class DataHandlerHook
                     $this->vaultService->rotate($vaultIdentifier, $secretValue, 'TCA field updated');
                 }
             } catch (Throwable $e) {
-                // Roll back the dangling UUID - clear the field so no orphan reference remains
-                $this->rollBackField($table, $uid, $fieldName, $isNew ? '' : ($pending->originalChecksum !== '' ? $vaultIdentifier : ''));
+                // Roll back the dangling UUID - clear the field so no orphan
+                // reference remains. New records always clear (no prior value);
+                // updates keep the prior identifier IFF a prior checksum was
+                // captured (i.e. the old secret actually existed).
+                $rollbackValue = '';
+                if (!$isNew && $pending->originalChecksum !== '') {
+                    $rollbackValue = $vaultIdentifier;
+                }
+                $this->rollBackField($table, $uid, $fieldName, $rollbackValue);
 
                 /** @phpstan-ignore method.internal */
                 $dataHandler->log(

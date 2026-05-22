@@ -444,10 +444,9 @@ final readonly class SecretsController
 
     private function getLanguageService(): LanguageService
     {
-        /** @var LanguageService $lang */
-        $lang = $GLOBALS['LANG'];
+        \assert($GLOBALS['LANG'] instanceof LanguageService);
 
-        return $lang;
+        return $GLOBALS['LANG'];
     }
 
     /**
@@ -481,7 +480,12 @@ final readonly class SecretsController
         while ($row = $result->fetchAssociative()) {
             $realName = $row['realName'] ?? '';
             $username = $row['username'] ?? '';
-            $displayName = (\is_string($realName) && $realName !== '') ? $realName : (\is_string($username) ? $username : '');
+            $displayName = '';
+            if (\is_string($realName) && $realName !== '') {
+                $displayName = $realName;
+            } elseif (\is_string($username)) {
+                $displayName = $username;
+            }
             $uidVal = $row['uid'] ?? 0;
             $cache[is_numeric($uidVal) ? (int) $uidVal : 0] = $displayName;
         }
