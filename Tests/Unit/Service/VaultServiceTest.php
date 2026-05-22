@@ -307,8 +307,7 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function retrieveThrowsExceptionForExpiredSecret(): void
     {
-        $secret = $this->createSecretEntity('expired');
-        $secret->setExpiresAt(time() - 3600); // Expired 1 hour ago
+        $secret = $this->createSecretEntity('expired', expiresAt: time() - 3600); // Expired 1 hour ago
 
         $this->adapter
             ->method('retrieve')
@@ -386,8 +385,7 @@ final class VaultServiceTest extends TestCase
     {
         $identifier = 'toRotate';
         $newSecret = 'new-secret-value';
-        $secret = $this->createSecretEntity($identifier);
-        $secret->setVersion(1);
+        $secret = $this->createSecretEntity($identifier, version: 1);
 
         $this->adapter
             ->method('retrieve')
@@ -507,11 +505,13 @@ final class VaultServiceTest extends TestCase
     public function getMetadataReturnsSecretMetadata(): void
     {
         $identifier = 'metaSecret';
-        $secret = $this->createSecretEntity($identifier);
-        $secret->setDescription('Test description');
-        $secret->setContext('testing');
-        $secret->setVersion(3);
-        $secret->setMetadata(['key' => 'value']);
+        $secret = $this->createSecretEntity(
+            $identifier,
+            version: 3,
+            description: 'Test description',
+            context: 'testing',
+            metadata: ['key' => 'value'],
+        );
 
         $this->adapter
             ->method('retrieve')
@@ -630,10 +630,12 @@ final class VaultServiceTest extends TestCase
         $identifier = 'existing';
         $secretValue = 'new-value';
 
-        $existing = $this->createSecretEntity($identifier);
-        $existing->setUid(42);
-        $existing->setCrdate(1000);
-        $existing->setVersion(2);
+        $existing = $this->createSecretEntity(
+            $identifier,
+            uid: 42,
+            version: 2,
+            crdate: 1000,
+        );
 
         $this->encryptionService
             ->method('encrypt')
@@ -840,8 +842,7 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function retrieveLogsExpiredSecretAccess(): void
     {
-        $secret = $this->createSecretEntity('expired');
-        $secret->setExpiresAt(time() - 3600);
+        $secret = $this->createSecretEntity('expired', expiresAt: time() - 3600);
 
         $this->adapter
             ->method('retrieve')
@@ -893,19 +894,37 @@ final class VaultServiceTest extends TestCase
         ]);
     }
 
-    private function createSecretEntity(string $identifier): Secret
-    {
-        $secret = new Secret();
-        $secret->setUid(1);
-        $secret->setIdentifier($identifier);
-        $secret->setEncryptedValue('encrypted');
-        $secret->setEncryptedDek('dek');
-        $secret->setDekNonce('nonce1');
-        $secret->setValueNonce('nonce2');
-        $secret->setValueChecksum('checksum');
-        $secret->setOwnerUid(1);
-        $secret->setVersion(1);
-
-        return $secret;
+    /**
+     * Build a Secret with sensible test defaults plus optional per-test
+     * overrides. The immutable entity forces a single ctor call, so any
+     * deviation from defaults (expiresAt, version, uid, …) is passed
+     * through here as a named argument.
+     */
+    private function createSecretEntity(
+        string $identifier,
+        ?int $uid = 1,
+        int $version = 1,
+        int $expiresAt = 0,
+        int $crdate = 0,
+        string $description = '',
+        string $context = '',
+        array $metadata = [],
+    ): Secret {
+        return new Secret(
+            identifier: $identifier,
+            uid: $uid,
+            description: $description,
+            encryptedValue: 'encrypted',
+            encryptedDek: 'dek',
+            dekNonce: 'nonce1',
+            valueNonce: 'nonce2',
+            valueChecksum: 'checksum',
+            ownerUid: 1,
+            context: $context,
+            version: $version,
+            expiresAt: $expiresAt,
+            metadata: $metadata,
+            crdate: $crdate,
+        );
     }
 }
