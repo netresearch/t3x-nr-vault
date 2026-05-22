@@ -110,7 +110,6 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
         $existing = $secret->getMetadata();
         /** @var array<string, mixed> $merged */
         $merged = array_merge($existing, $metadata);
-        $secret->setMetadata($merged);
-        $this->secretRepository->save($secret);
+        $this->secretRepository->save($secret->withMetadata($merged));
     }
 }

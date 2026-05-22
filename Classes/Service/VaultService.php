@@ -238,14 +238,8 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             // Encrypt the new secret
             $encrypted = $this->encryptionService->encrypt($newSecret, $identifier);
 
-            // Update secret
-            $secret->setEncryptedValue($encrypted->encryptedValue);
-            $secret->setEncryptedDek($encrypted->encryptedDek);
-            $secret->setDekNonce($encrypted->dekNonce);
-            $secret->setValueNonce($encrypted->valueNonce);
-            $secret->setValueChecksum($encrypted->valueChecksum);
-            $secret->incrementVersion();
-            $secret->setLastRotatedAt(time());
+            // Rotate value envelope, bump version, stamp rotation time
+            $secret = $secret->withValueRotation($encrypted, time());
 
             // Store
             $this->adapter->store($secret);
@@ -381,28 +375,29 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         array $options,
         ?Secret $existing,
     ): Secret {
-        $secretEntity = new Secret();
-        $secretEntity->setIdentifier($identifier);
-        $secretEntity->setEncryptedValue($encrypted->encryptedValue);
-        $secretEntity->setEncryptedDek($encrypted->encryptedDek);
-        $secretEntity->setDekNonce($encrypted->dekNonce);
-        $secretEntity->setValueNonce($encrypted->valueNonce);
-        $secretEntity->setValueChecksum($encrypted->valueChecksum);
-        $secretEntity->setAdapter('local');
+        $optional = $this->collectOptionalFields($options);
 
-        $secretEntity->setOwnerUid($this->resolveOwnerUid($options, $existing));
-        $this->applyOptionalFields($secretEntity, $options);
-
-        if (!$existing instanceof Secret) {
-            $secretEntity->setCrdate(time());
-            $secretEntity->setCruserId($this->accessControlService->getCurrentActorUid());
-        } else {
-            $secretEntity->setUid($existing->getUid());
-            $secretEntity->setCrdate($existing->getCrdate());
-            $secretEntity->setVersion($existing->getVersion());
-        }
-
-        return $secretEntity;
+        return new Secret(
+            identifier: $identifier,
+            uid: $existing?->getUid(),
+            scopePid: $optional['scopePid'],
+            description: $optional['description'],
+            encryptedValue: $encrypted->encryptedValue,
+            encryptedDek: $encrypted->encryptedDek,
+            dekNonce: $encrypted->dekNonce,
+            valueNonce: $encrypted->valueNonce,
+            valueChecksum: $encrypted->valueChecksum,
+            ownerUid: $this->resolveOwnerUid($options, $existing),
+            allowedGroups: $optional['allowedGroups'],
+            context: $optional['context'],
+            frontendAccessible: $optional['frontendAccessible'],
+            version: $existing instanceof Secret ? $existing->getVersion() : 1,
+            expiresAt: $optional['expiresAt'],
+            metadata: $optional['metadata'],
+            adapter: 'local',
+            crdate: $existing instanceof Secret ? $existing->getCrdate() : time(),
+            cruserId: $existing instanceof Secret ? $existing->getCruserId() : $this->accessControlService->getCurrentActorUid(),
+        );
     }
 
     /**
@@ -433,37 +428,43 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
     }
 
     /**
-     * Apply the value-type-flexible options from the `store($options)` array
-     * to the Secret entity. Each option is defensively coerced to the
-     * column's expected type.
+     * Collect the value-type-flexible options from the `store($options)`
+     * array into a typed bundle. Each option is defensively coerced to
+     * its expected type; options not supplied get the Secret-default
+     * value (matching the previous mutator-based behaviour where unset
+     * options left the constructed entity at its default).
      *
      * @param array<string, mixed> $options
+     *
+     * @return array{
+     *     scopePid: int,
+     *     description: string,
+     *     allowedGroups: list<int>,
+     *     context: string,
+     *     frontendAccessible: bool,
+     *     expiresAt: int,
+     *     metadata: array<string, mixed>,
+     * }
      */
-    private function applyOptionalFields(Secret $secretEntity, array $options): void
+    private function collectOptionalFields(array $options): array
     {
-        if (isset($options['groups'])) {
-            $secretEntity->setAllowedGroups($this->coerceGroupList($options['groups']));
-        }
-        if (isset($options['context'])) {
-            $secretEntity->setContext($this->coerceToString($options['context']));
-        }
-        if (isset($options['description'])) {
-            $secretEntity->setDescription($this->coerceToString($options['description']));
-        }
+        $metadata = [];
         if (isset($options['metadata'])) {
             /** @var array<string, mixed> $metadata */
             $metadata = (array) $options['metadata'];
-            $secretEntity->setMetadata($metadata);
         }
-        if (isset($options['scopePid'])) {
-            $secretEntity->setScopePid(is_numeric($options['scopePid']) ? (int) $options['scopePid'] : 0);
-        }
-        if (isset($options['expiresAt'])) {
-            $secretEntity->setExpiresAt($this->coerceTimestamp($options['expiresAt']));
-        }
-        if (isset($options['frontendAccessible'])) {
-            $secretEntity->setFrontendAccessible((bool) $options['frontendAccessible']);
-        }
+
+        return [
+            'scopePid' => isset($options['scopePid'])
+                ? (is_numeric($options['scopePid']) ? (int) $options['scopePid'] : 0)
+                : 0,
+            'description' => isset($options['description']) ? $this->coerceToString($options['description']) : '',
+            'allowedGroups' => isset($options['groups']) ? $this->coerceGroupList($options['groups']) : [],
+            'context' => isset($options['context']) ? $this->coerceToString($options['context']) : '',
+            'frontendAccessible' => isset($options['frontendAccessible']) && (bool) $options['frontendAccessible'],
+            'expiresAt' => isset($options['expiresAt']) ? $this->coerceTimestamp($options['expiresAt']) : 0,
+            'metadata' => $metadata,
+        ];
     }
 
     /**

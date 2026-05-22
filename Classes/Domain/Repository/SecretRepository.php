@@ -44,16 +44,10 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             return null;
         }
 
-        $secret = Secret::fromDatabaseRow($row);
-
-        // Load groups from MM table
         $uid = $row['uid'] ?? 0;
         $groups = $this->loadGroupsForSecret(is_numeric($uid) ? (int) $uid : 0);
-        if ($groups !== []) {
-            $secret->setAllowedGroups($groups);
-        }
 
-        return $secret;
+        return Secret::fromDatabaseRow($row, $groups);
     }
 
     public function findByUid(int $uid): ?Secret
@@ -73,15 +67,7 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             return null;
         }
 
-        $secret = Secret::fromDatabaseRow($row);
-
-        // Load groups from MM table
-        $groups = $this->loadGroupsForSecret($uid);
-        if ($groups !== []) {
-            $secret->setAllowedGroups($groups);
-        }
-
-        return $secret;
+        return Secret::fromDatabaseRow($row, $this->loadGroupsForSecret($uid));
     }
 
     public function exists(string $identifier): bool
@@ -100,7 +86,14 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         return (is_numeric($count) ? (int) $count : 0) > 0;
     }
 
-    public function save(Secret $secret): void
+    /**
+     * Persist the Secret. Returns a (possibly new) Secret instance — on
+     * INSERT, the returned instance carries the freshly-assigned UID from
+     * `lastInsertId()`; on UPDATE the original instance is returned
+     * unchanged. Callers MUST use the returned value if they need the
+     * UID after save (it cannot be set on the readonly input).
+     */
+    public function save(Secret $secret): Secret
     {
         $connection = $this->getConnection();
         $data = $secret->toDatabaseRow();
@@ -110,7 +103,7 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             $data['crdate'] = time();
             $connection->insert(self::TABLE_NAME, $data);
             $lastId = $connection->lastInsertId();
-            $secret->setUid(is_numeric($lastId) ? (int) $lastId : 0);
+            $secret = $secret->withUid(is_numeric($lastId) ? (int) $lastId : 0);
         } else {
             // Update existing secret
             $connection->update(
@@ -122,6 +115,8 @@ final readonly class SecretRepository implements SecretRepositoryInterface
 
         // Update MM table for groups
         $this->saveGroupsForSecret($secret);
+
+        return $secret;
     }
 
     public function delete(Secret $secret): void
@@ -239,13 +234,9 @@ final readonly class SecretRepository implements SecretRepositoryInterface
 
         $secrets = [];
         foreach ($rows as $row) {
-            $secret = Secret::fromDatabaseRow($row);
             $rowUid = $row['uid'] ?? 0;
             $groups = $this->loadGroupsForSecret(is_numeric($rowUid) ? (int) $rowUid : 0);
-            if ($groups !== []) {
-                $secret->setAllowedGroups($groups);
-            }
-            $secrets[] = $secret;
+            $secrets[] = Secret::fromDatabaseRow($row, $groups);
         }
 
         return $secrets;
@@ -363,26 +354,25 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             return [];
         }
 
-        // Collect all UIDs for batch group loading
-        $uidMap = [];
-        $secrets = [];
+        // Collect all UIDs and batch-load MM groups in ONE query so each
+        // Secret can be constructed with its allowed-groups list already
+        // populated — readonly entity has no post-construction mutator.
+        $rowsByUid = [];
+        $uids = [];
         foreach ($rows as $row) {
-            $secret = Secret::fromDatabaseRow($row);
             $uid = $row['uid'] ?? 0;
             $intUid = is_numeric($uid) ? (int) $uid : 0;
-            $uidMap[$intUid] = $secret;
-            $secrets[] = $secret;
+            if ($intUid > 0) {
+                $rowsByUid[$intUid] = $row;
+                $uids[] = $intUid;
+            }
         }
 
-        // Batch-load all MM groups in ONE query
-        $allUids = array_keys($uidMap);
-        if ($allUids !== []) {
-            $groupsBySecret = $this->loadGroupsForSecrets($allUids);
-            foreach ($groupsBySecret as $secretUid => $groups) {
-                if ($groups !== [] && isset($uidMap[$secretUid])) {
-                    $uidMap[$secretUid]->setAllowedGroups($groups);
-                }
-            }
+        $groupsBySecret = $uids !== [] ? $this->loadGroupsForSecrets($uids) : [];
+
+        $secrets = [];
+        foreach ($rowsByUid as $uid => $row) {
+            $secrets[] = Secret::fromDatabaseRow($row, $groupsBySecret[$uid] ?? []);
         }
 
         return $secrets;
