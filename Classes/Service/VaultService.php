@@ -81,7 +81,11 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             $encrypted = $this->encryptionService->encrypt($secret, $identifier);
             $secretEntity = $this->buildSecretEntity($identifier, $encrypted, $options, $existing);
 
-            $this->adapter->store($secretEntity);
+            // Capture the stored instance so the SecretCreatedEvent below
+            // sees the freshly-assigned UID — the readonly entity passed in
+            // has uid=null on create, the adapter returns the uid-bearing
+            // instance from the repository's INSERT.
+            $secretEntity = $this->adapter->store($secretEntity);
 
             $this->auditLogService->log(
                 $identifier,
@@ -241,8 +245,10 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             // Rotate value envelope, bump version, stamp rotation time
             $secret = $secret->withValueRotation($encrypted, time());
 
-            // Store
-            $this->adapter->store($secret);
+            // Store; capture the returned instance for the rotated event
+            // (UPDATE returns the same instance unchanged, but use the
+            // result to stay consistent with the create path).
+            $secret = $this->adapter->store($secret);
 
             // Log
             $this->auditLogService->log(

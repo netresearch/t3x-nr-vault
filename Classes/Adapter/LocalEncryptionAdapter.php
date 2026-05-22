@@ -33,9 +33,9 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
         return true;
     }
 
-    public function store(Secret $secret): void
+    public function store(Secret $secret): Secret
     {
-        $this->secretRepository->save($secret);
+        return $this->secretRepository->save($secret);
     }
 
     public function retrieve(string $identifier): ?Secret

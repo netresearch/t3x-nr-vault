@@ -380,6 +380,7 @@ final readonly class Secret
             'adapter' => $this->adapter,
             'external_reference' => $this->externalReference,
             'tstamp' => time(),
+            'cruser_id' => $this->cruserId,
             'deleted' => $this->deleted ? 1 : 0,
             'hidden' => $this->hidden ? 1 : 0,
             'read_count' => $this->readCount,

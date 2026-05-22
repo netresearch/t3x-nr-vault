@@ -357,22 +357,25 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         // Collect all UIDs and batch-load MM groups in ONE query so each
         // Secret can be constructed with its allowed-groups list already
         // populated — readonly entity has no post-construction mutator.
-        $rowsByUid = [];
+        // Traverse rows in their original order (the SELECT's ORDER BY
+        // contract) and preserve duplicates, so this method's external
+        // behaviour matches the pre-readonly version exactly.
         $uids = [];
         foreach ($rows as $row) {
             $uid = $row['uid'] ?? 0;
             $intUid = is_numeric($uid) ? (int) $uid : 0;
             if ($intUid > 0) {
-                $rowsByUid[$intUid] = $row;
-                $uids[] = $intUid;
+                $uids[$intUid] = true;
             }
         }
 
-        $groupsBySecret = $uids !== [] ? $this->loadGroupsForSecrets($uids) : [];
+        $groupsBySecret = $uids !== [] ? $this->loadGroupsForSecrets(array_keys($uids)) : [];
 
         $secrets = [];
-        foreach ($rowsByUid as $uid => $row) {
-            $secrets[] = Secret::fromDatabaseRow($row, $groupsBySecret[$uid] ?? []);
+        foreach ($rows as $row) {
+            $uid = $row['uid'] ?? 0;
+            $intUid = is_numeric($uid) ? (int) $uid : 0;
+            $secrets[] = Secret::fromDatabaseRow($row, $groupsBySecret[$intUid] ?? []);
         }
 
         return $secrets;

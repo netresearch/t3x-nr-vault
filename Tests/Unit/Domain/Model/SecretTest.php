@@ -983,6 +983,7 @@ final class SecretTest extends TestCase
             'adapter',
             'allowed_groups',
             'context',
+            'cruser_id',
             'dek_nonce',
             'deleted',
             'description',

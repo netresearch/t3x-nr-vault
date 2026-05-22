@@ -30,9 +30,13 @@ interface VaultAdapterInterface
     public function isAvailable(): bool;
 
     /**
-     * Store a secret.
+     * Store a secret. Returns the persisted instance; on INSERT this
+     * carries the newly-assigned UID (the input has uid=null), on
+     * UPDATE the original is returned unchanged. Callers that dispatch
+     * events about the just-stored secret MUST use the return value so
+     * downstream consumers see the populated UID.
      */
-    public function store(Secret $secret): void;
+    public function store(Secret $secret): Secret;
 
     /**
      * Retrieve a secret by identifier.

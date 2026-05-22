@@ -55,6 +55,11 @@ final class VaultServiceTest extends TestCase
         parent::setUp();
 
         $this->adapter = $this->createMock(VaultAdapterInterface::class);
+        // VaultAdapterInterface::store() returns the persisted Secret. PHPUnit
+        // cannot auto-generate a return value for a `final readonly` class, so
+        // default the mock to pass the input through. Per-test `expects()->with(...)`
+        // assertions still apply because the more specific matcher takes precedence.
+        $this->adapter->method('store')->willReturnArgument(0);
         $this->encryptionService = $this->createMock(EncryptionServiceInterface::class);
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
@@ -111,7 +116,8 @@ final class VaultServiceTest extends TestCase
             ->method('store')
             ->with(self::callback(static fn (Secret $secret): bool => $secret->getIdentifier() === $identifier
                 && $secret->getEncryptedValue() === 'enc_value'
-                && $secret->getEncryptedDek() === 'enc_dek'));
+                && $secret->getEncryptedDek() === 'enc_dek'))
+            ->willReturnArgument(0);
 
         $this->auditLogService
             ->expects(self::once())
@@ -231,7 +237,8 @@ final class VaultServiceTest extends TestCase
         $this->adapter
             ->expects(self::once())
             ->method('store')
-            ->with(self::callback(static fn (Secret $s): bool => $s->getOwnerUid() === 7));
+            ->with(self::callback(static fn (Secret $s): bool => $s->getOwnerUid() === 7))
+            ->willReturnArgument(0);
 
         $subject->store('coerce', 'plaintext', ['owner' => 99]);
     }
@@ -406,7 +413,8 @@ final class VaultServiceTest extends TestCase
             ->method('store')
             ->with(self::callback(static fn (Secret $s): bool => $s->getVersion() === 2
                 && $s->getLastRotatedAt() > 0
-                && $s->getEncryptedValue() === 'new_enc'));
+                && $s->getEncryptedValue() === 'new_enc'))
+            ->willReturnArgument(0);
 
         $this->subject->rotate($identifier, $newSecret, 'Annual rotation');
     }
@@ -587,7 +595,8 @@ final class VaultServiceTest extends TestCase
                 && $s->getContext() === 'testing'
                 && $s->getScopePid() === 100
                 && $s->isFrontendAccessible()
-                && $s->getExpiresAt() === $expiresAt->getTimestamp()));
+                && $s->getExpiresAt() === $expiresAt->getTimestamp()))
+            ->willReturnArgument(0);
 
         $this->subject->store($identifier, $secretValue, [
             'owner' => 5,
@@ -617,7 +626,8 @@ final class VaultServiceTest extends TestCase
         $this->adapter
             ->expects(self::once())
             ->method('store')
-            ->with(self::callback(static fn (Secret $s): bool => $s->getExpiresAt() === $expiresTimestamp));
+            ->with(self::callback(static fn (Secret $s): bool => $s->getExpiresAt() === $expiresTimestamp))
+            ->willReturnArgument(0);
 
         $this->subject->store($identifier, $secretValue, [
             'expiresAt' => $expiresTimestamp,
@@ -653,7 +663,8 @@ final class VaultServiceTest extends TestCase
             ->method('store')
             ->with(self::callback(static fn (Secret $s): bool => $s->getUid() === 42
                 && $s->getCrdate() === 1000
-                && $s->getVersion() === 2));
+                && $s->getVersion() === 2))
+            ->willReturnArgument(0);
 
         $this->subject->store($identifier, $secretValue);
     }
@@ -887,7 +898,8 @@ final class VaultServiceTest extends TestCase
         $this->adapter
             ->expects(self::once())
             ->method('store')
-            ->with(self::callback(static fn (Secret $s): bool => $s->getAllowedGroups() === [1, 2, 3]));
+            ->with(self::callback(static fn (Secret $s): bool => $s->getAllowedGroups() === [1, 2, 3]))
+            ->willReturnArgument(0);
 
         $this->subject->store('test', 'secret', [
             'groups' => [1, 2, 3],
