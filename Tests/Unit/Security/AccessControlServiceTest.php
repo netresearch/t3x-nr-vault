@@ -525,19 +525,20 @@ final class AccessControlServiceTest extends TestCase
 
     /**
      * Create a test Secret with specified properties.
+     *
+     * @param list<int> $allowedGroups
      */
     private function createSecret(
         int $ownerUid = 0,
         array $allowedGroups = [],
         bool $frontendAccessible = false,
     ): Secret {
-        $secret = new Secret();
-        $secret->setOwnerUid($ownerUid);
-        $secret->setAllowedGroups($allowedGroups);
-        $secret->setFrontendAccessible($frontendAccessible);
-        $secret->setIdentifier('test-secret');
-
-        return $secret;
+        return new Secret(
+            identifier: 'test-secret',
+            ownerUid: $ownerUid,
+            allowedGroups: $allowedGroups,
+            frontendAccessible: $frontendAccessible,
+        );
     }
 
     /**
