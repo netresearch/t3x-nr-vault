@@ -713,6 +713,82 @@ test.describe('Secrets Module User Pathways', () => {
         expect(json?.secret).toBe(plaintext);
       }
     });
+
+    /**
+     * Regression for PR #151 (HIGH-severity audit-bypass fix).
+     *
+     * The JS modules used to keep an in-memory `revealedSecrets` Map
+     * that short-circuited the AJAX request on second-and-subsequent
+     * reveals. That silently bypassed the server-side audit log:
+     * `AjaxController::reveal()` → `VaultService::retrieve()` →
+     * `AuditLogService::log()` only fired on the FIRST reveal of a
+     * browser session. Every later reveal/copy left no trail.
+     *
+     * This test clicks reveal twice (with a modal-close in between)
+     * and asserts BOTH clicks produce a POST to `/vault/reveal`. If
+     * the cache ever comes back, the second AJAX request never
+     * leaves the browser and the test fails.
+     */
+    test('reveals twice — both hit the AJAX endpoint (audit-bypass guard)', async ({
+      authenticatedPage: page,
+    }) => {
+      const testIdentifier = generateTestId();
+      const plaintext = 'second-reveal-test-value';
+
+      // Create the secret.
+      await page.goto('/typo3/module/admin/vault/secrets/create');
+      await waitForModuleContent(page);
+      let frame = getModuleFrame(page);
+      await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
+      await frame.locator('input[data-vault-is-new="1"]').first().fill(plaintext);
+      await saveFormEngine(page, frame);
+
+      // Navigate to the list and filter down to our row.
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
+      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const revealButton = row.getByTestId('vault-reveal-btn').first();
+
+      // First reveal — must hit /vault/reveal.
+      const firstRevealPromise = page.waitForResponse(
+        (resp) => resp.url().includes('/vault/reveal') && resp.request().method() === 'POST',
+        { timeout: 10000 },
+      );
+      await revealButton.click();
+      const firstResp = await firstRevealPromise;
+      expect(firstResp.status()).toBe(200);
+      const firstJson = (await firstResp.json().catch(() => null)) as
+        | { success?: boolean; secret?: string }
+        | null;
+      expect(firstJson?.success).toBe(true);
+      expect(firstJson?.secret).toBe(plaintext);
+
+      // Close the reveal modal so the next click re-enters handleReveal.
+      const closeBtn = page.getByRole('button', { name: 'Close' }).first();
+      await closeBtn.waitFor({ state: 'visible', timeout: 5000 });
+      await closeBtn.click();
+
+      // Second reveal — MUST also hit /vault/reveal (regression guard).
+      // If the in-memory cache regresses, this waitForResponse times out.
+      const secondRevealPromise = page.waitForResponse(
+        (resp) => resp.url().includes('/vault/reveal') && resp.request().method() === 'POST',
+        { timeout: 10000 },
+      );
+      await revealButton.click();
+      const secondResp = await secondRevealPromise;
+      expect(
+        secondResp.status(),
+        'Second reveal click must produce a fresh POST to /vault/reveal — '
+          + 'otherwise the JS layer is caching plaintext and the audit log '
+          + 'misses every reveal-after-first (root AGENTS.md security rule 5).',
+      ).toBe(200);
+      const secondJson = (await secondResp.json().catch(() => null)) as
+        | { success?: boolean; secret?: string }
+        | null;
+      expect(secondJson?.success).toBe(true);
+      expect(secondJson?.secret).toBe(plaintext);
+    });
   });
 
   test.describe('UP-SEC-007: Edit Secret Metadata', () => {

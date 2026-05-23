@@ -13,7 +13,8 @@ class SecretsList {
         // so VaultService::retrieve() fires and an audit-log row is written.
         // Caching the plaintext across reveal-modal opens would silently bypass
         // the audit log on every reveal-after-first (violation of the
-        // "Audit every access" rule — see Classes/AGENTS.md security item 5).
+        // "Audit every access" rule — see root AGENTS.md, Security
+        // Requirements item 5).
         this.init();
     }
 
