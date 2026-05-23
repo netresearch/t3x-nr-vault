@@ -1039,8 +1039,14 @@ final class OAuthTokenManagerTest extends TestCase
     {
         $this->expectException(ArgumentCountError::class);
 
-        /** @phpstan-ignore arguments.count (intentional — proves the parameter is required) */
-        new OAuthTokenManager($this->vaultService);
+        // assertInstanceOf is unreachable (ctor throws before returning) but
+        // uses the constructed value so Sonar's S1848 ("useless object
+        // instantiation") doesn't fire on this throws-from-ctor test.
+        self::assertInstanceOf(
+            OAuthTokenManager::class,
+            /** @phpstan-ignore arguments.count (intentional — proves the parameter is required) */
+            new OAuthTokenManager($this->vaultService),
+        );
     }
 
     /**
