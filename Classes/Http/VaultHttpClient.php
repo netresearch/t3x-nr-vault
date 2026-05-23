@@ -73,17 +73,12 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
 
     private OAuthTokenManager $oauthManager;
 
+    private SecureHttpClientFactory $secureHttpClientFactory;
+
     /**
      * @param VaultServiceInterface $vaultService Vault for secret retrieval
      * @param AuditLogServiceInterface $auditLogService Audit logging
      * @param ClientInterface|null $innerClient Underlying PSR-18 client
-     * @param OAuthTokenManager|null $oauthManager Reusable token manager
-     *                                             (carries the token cache across `with*()` clones). When null, the
-     *                                             constructor builds a fresh one bound to the inner client. The
-     *                                             `with*()` methods MUST forward the existing instance so a single
-     *                                             fluent chain (e.g. `$vault->http()->withOAuth($cfg)->sendRequest()`)
-     *                                             hits the IdP at most once per token lifetime instead of once per
-     *                                             clone.
      * @param string|null $secretIdentifier Configured secret identifier
      * @param SecretPlacement|null $placement Configured placement type
      * @param OAuthConfig|null $oauthConfig Configured OAuth config
@@ -92,12 +87,24 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
      * @param string|null $bodyField Custom body field for BodyField placement
      * @param string|null $usernameSecretIdentifier Username secret for BasicAuth
      * @param string $reason Audit log reason
+     * @param OAuthTokenManager|null $oauthManager Reusable token manager
+     *                                             carrying the token cache across `with*()` clones. When null, the
+     *                                             constructor builds a fresh one bound to the inner client. The
+     *                                             `with*()` methods MUST forward the existing instance so a single
+     *                                             fluent chain (e.g. `$vault->http()->withOAuth($cfg)->sendRequest()`)
+     *                                             hits the IdP at most once per token lifetime instead of once per
+     *                                             clone. Trailing position (after `$reason`) preserves positional BC
+     *                                             for callers built against the pre-PR signature.
+     * @param SecureHttpClientFactory|null $secureHttpClientFactory Factory
+     *                                                              used for (a) building the inner client when none is injected and
+     *                                                              (b) the `isHostAllowed()` gate the OAuth manager applies to its
+     *                                                              token endpoint. When null, `GeneralUtility::makeInstance()` resolves
+     *                                                              it from the DI container. Trailing position preserves positional BC.
      */
     public function __construct(
         private VaultServiceInterface $vaultService,
         private AuditLogServiceInterface $auditLogService,
         ?ClientInterface $innerClient = null,
-        ?OAuthTokenManager $oauthManager = null,
         private ?string $secretIdentifier = null,
         private ?SecretPlacement $placement = null,
         private ?OAuthConfig $oauthConfig = null,
@@ -106,34 +113,29 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
         private ?string $bodyField = null,
         private ?string $usernameSecretIdentifier = null,
         private string $reason = 'HTTP API call',
+        ?OAuthTokenManager $oauthManager = null,
+        ?SecureHttpClientFactory $secureHttpClientFactory = null,
     ) {
-        if ($innerClient instanceof ClientInterface) {
-            $this->innerClient = $innerClient;
-        } else {
-            // Use factory that respects TYPO3's HTTP settings with security hardening
-            $factory = GeneralUtility::makeInstance(SecureHttpClientFactory::class);
-            $this->innerClient = $factory->create();
-        }
+        // Resolve the factory once: it builds the inner client (when missing)
+        // AND backs the OAuth manager's `isHostAllowed()` gate. VaultHttpClient
+        // is a fluent immutable value-object instantiated per call chain, not
+        // a long-lived DI service — `makeInstance()` is the standard TYPO3
+        // bootstrap path here (same pattern as before this PR).
+        $this->secureHttpClientFactory = $secureHttpClientFactory
+            ?? GeneralUtility::makeInstance(SecureHttpClientFactory::class);
 
-        if ($oauthManager instanceof OAuthTokenManager) {
-            $this->oauthManager = $oauthManager;
-        } else {
-            // Share the hardened innerClient with the OAuth manager so token
-            // requests inherit the SSRF / DNS-rebinding / no-redirect defences.
-            // A plain Guzzle Client would let a malicious or misconfigured
-            // OAuthConfig.tokenEndpoint reach internal/cloud-metadata hosts
-            // and follow redirects that leak the client_secret.
-            //
-            // Also pass the factory so the manager can call `isHostAllowed()`
-            // on the token endpoint — closes the allowed_hosts allowlist gap
-            // that the request-time middleware doesn't cover.
-            $secureFactory = GeneralUtility::makeInstance(SecureHttpClientFactory::class);
-            $this->oauthManager = new OAuthTokenManager(
-                $this->vaultService,
-                $this->innerClient,
-                $secureFactory,
-            );
-        }
+        $this->innerClient = $innerClient ?? $this->secureHttpClientFactory->create();
+
+        // Share the hardened innerClient with the OAuth manager so token
+        // requests inherit the SSRF / DNS-rebinding / no-redirect defences.
+        // The shared factory also lets the manager call `isHostAllowed()` on
+        // the token endpoint — closes the allowed_hosts allowlist gap that
+        // the request-time middleware doesn't cover.
+        $this->oauthManager = $oauthManager ?? new OAuthTokenManager(
+            $this->vaultService,
+            $this->innerClient,
+            $this->secureHttpClientFactory,
+        );
     }
 
     public function withAuthentication(
@@ -145,7 +147,6 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             vaultService: $this->vaultService,
             auditLogService: $this->auditLogService,
             innerClient: $this->innerClient,
-            oauthManager: $this->oauthManager,
             secretIdentifier: $secretIdentifier,
             placement: $placement,
             oauthConfig: null,
@@ -154,6 +155,8 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             bodyField: $options['bodyField'] ?? null,
             usernameSecretIdentifier: $options['usernameSecret'] ?? null,
             reason: $options['reason'] ?? $this->reason,
+            oauthManager: $this->oauthManager,
+            secureHttpClientFactory: $this->secureHttpClientFactory,
         );
     }
 
@@ -163,7 +166,6 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             vaultService: $this->vaultService,
             auditLogService: $this->auditLogService,
             innerClient: $this->innerClient,
-            oauthManager: $this->oauthManager,
             secretIdentifier: null,
             placement: SecretPlacement::OAuth2,
             oauthConfig: $config,
@@ -172,6 +174,8 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             bodyField: null,
             usernameSecretIdentifier: null,
             reason: $reason,
+            oauthManager: $this->oauthManager,
+            secureHttpClientFactory: $this->secureHttpClientFactory,
         );
     }
 
@@ -181,7 +185,6 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             vaultService: $this->vaultService,
             auditLogService: $this->auditLogService,
             innerClient: $this->innerClient,
-            oauthManager: $this->oauthManager,
             secretIdentifier: $this->secretIdentifier,
             placement: $this->placement,
             oauthConfig: $this->oauthConfig,
@@ -190,6 +193,8 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             bodyField: $this->bodyField,
             usernameSecretIdentifier: $this->usernameSecretIdentifier,
             reason: $reason,
+            oauthManager: $this->oauthManager,
+            secureHttpClientFactory: $this->secureHttpClientFactory,
         );
     }
 
@@ -212,8 +217,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
 
         // Validate host against allowlist before injecting authentication secrets
         $host = strtolower($request->getUri()->getHost());
-        $factory = GeneralUtility::makeInstance(SecureHttpClientFactory::class);
-        if (!$factory->isHostAllowed($host)) {
+        if (!$this->secureHttpClientFactory->isHostAllowed($host)) {
             throw new VaultException(
                 \sprintf('Host "%s" is not in the allowed hosts list', $host),
                 1735858522,
