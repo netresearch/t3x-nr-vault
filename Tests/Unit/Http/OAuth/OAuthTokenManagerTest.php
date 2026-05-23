@@ -146,6 +146,64 @@ final class OAuthTokenManagerTest extends TestCase
         self::assertSame('cached-token', $token2);
     }
 
+    /**
+     * Regression for PR #145/#148: the cache key MUST include
+     * `clientSecretSecret`. Two configs identical except for their
+     * client-secret vault handle must fetch separate tokens — otherwise
+     * a credential rotation that points the config at a new vault entry
+     * would silently keep serving the pre-rotation token.
+     */
+    #[Test]
+    public function cacheKeyFragmentsOnClientSecretSecret(): void
+    {
+        $configA = OAuthConfig::clientCredentials(
+            tokenEndpoint: 'https://auth.example.com/token',
+            clientIdSecret: 'oauth/client-id',
+            clientSecretSecret: 'oauth/client-secret-v1',
+        );
+        $configB = OAuthConfig::clientCredentials(
+            tokenEndpoint: 'https://auth.example.com/token',
+            clientIdSecret: 'oauth/client-id',
+            clientSecretSecret: 'oauth/client-secret-v2',
+        );
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(fn (string $id): ?string => match ($id) {
+                'oauth/client-id' => 'same-client-id',
+                'oauth/client-secret-v1' => 'old-secret',
+                'oauth/client-secret-v2' => 'rotated-secret',
+                default => null,
+            });
+
+        $this->httpClient
+            ->expects(self::exactly(2))
+            ->method('sendRequest')
+            ->willReturnOnConsecutiveCalls(
+                $this->createSuccessfulTokenResponse([
+                    'access_token' => 'token-from-v1',
+                    'token_type' => 'Bearer',
+                    'expires_in' => 3600,
+                ]),
+                $this->createSuccessfulTokenResponse([
+                    'access_token' => 'token-from-v2',
+                    'token_type' => 'Bearer',
+                    'expires_in' => 3600,
+                ]),
+            );
+
+        $tokenA = $this->subject->getAccessToken($configA);
+        $tokenB = $this->subject->getAccessToken($configB);
+
+        self::assertSame('token-from-v1', $tokenA);
+        self::assertSame(
+            'token-from-v2',
+            $tokenB,
+            'configB must NOT reuse configA\'s cached token — cache key collision means a '
+            . 'credential rotation never takes effect at runtime',
+        );
+    }
+
     #[Test]
     public function getAccessTokenRefreshesExpiredToken(): void
     {
@@ -326,6 +384,70 @@ final class OAuthTokenManagerTest extends TestCase
         $this->expectExceptionMessage('OAuth token request failed: Connection timeout');
 
         $this->subject->getAccessToken($config);
+    }
+
+    /**
+     * Regression for PR #148 (Gemini HIGH): when the token request raises a
+     * `ClientExceptionInterface`, we must NOT attach the original exception as
+     * `previous`. Guzzle exceptions for token requests routinely embed the
+     * request/response body in their message — which carries the very
+     * credentials `redactCredentials()` just stripped from the outer message.
+     * Chaining the unredacted previous gives any
+     * `getPrevious()->getMessage()`-walking error handler a free pass to the
+     * secret. Keep the diagnostic value by including the previous class name
+     * in the outer message instead.
+     */
+    #[Test]
+    public function getAccessTokenDropsUnredactedPreviousOnClientException(): void
+    {
+        $config = OAuthConfig::clientCredentials(
+            tokenEndpoint: 'https://auth.example.com/token',
+            clientIdSecret: 'oauth/client-id',
+            clientSecretSecret: 'oauth/client-secret',
+        );
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(fn (string $id): ?string => match ($id) {
+                'oauth/client-id' => 'my-client-id',
+                'oauth/client-secret' => 'my-client-secret',
+                default => null,
+            });
+
+        // Guzzle-like exception whose message would leak a credential if a
+        // logger walked the chain.
+        $exception = new class ('client_secret=topSecr3t was rejected') extends RuntimeException implements ClientExceptionInterface {};
+
+        $this->httpClient
+            ->method('sendRequest')
+            ->willThrowException($exception);
+
+        try {
+            $this->subject->getAccessToken($config);
+            self::fail('Expected OAuthException');
+        } catch (OAuthException $oauthException) {
+            self::assertNull(
+                $oauthException->getPrevious(),
+                'OAuthException must not chain the original exception — its message '
+                . 'carries credentials that redactCredentials() already scrubbed from '
+                . 'the outer message',
+            );
+            self::assertStringContainsString(
+                'client_secret=[REDACTED]',
+                $oauthException->getMessage(),
+                'Outer message must carry the redacted form so operators still see what failed',
+            );
+            self::assertStringNotContainsString(
+                'topSecr3t',
+                $oauthException->getMessage(),
+                'Outer message must NOT carry the raw credential',
+            );
+            self::assertStringContainsString(
+                '(caused by ',
+                $oauthException->getMessage(),
+                'Outer message must include the previous-class hint for diagnostics',
+            );
+        }
     }
 
     #[Test]

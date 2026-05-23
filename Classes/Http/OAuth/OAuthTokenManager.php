@@ -258,9 +258,14 @@ final class OAuthTokenManager
             return $token;
         } catch (ClientExceptionInterface $e) {
             $redacted = $this->redactCredentials($e->getMessage());
-            $this->logger?->error('OAuth token request failed', ['error' => $redacted]);
+            $this->logger?->error('OAuth token request failed', [
+                'error' => $redacted,
+                'previous_class' => $e::class,
+            ]);
 
-            throw OAuthException::requestFailed($redacted, $e);
+            throw OAuthException::requestFailed(
+                $redacted . \sprintf(' (caused by %s)', $e::class),
+            );
         } catch (JsonException $e) {
             throw OAuthException::invalidJsonResponse($e);
         } finally {
@@ -523,6 +528,17 @@ final class OAuthTokenManager
      * the access token, NOT the client_secret value — the identifier is
      * non-sensitive enough to feed into a cache key.
      */
+    private function getCacheKey(OAuthConfig $config): string
+    {
+        return hash('xxh128', implode(':', [
+            $config->tokenEndpoint,
+            $config->clientIdSecret,
+            $config->clientSecretSecret,
+            $config->grantType,
+            $config->getScopesString(),
+        ]));
+    }
+
     /**
      * Defensive redaction of common credential patterns from upstream error
      * messages before they reach the logger / audit log / OAuthException.
@@ -564,16 +580,5 @@ final class OAuthTokenManager
             ],
             $message,
         );
-    }
-
-    private function getCacheKey(OAuthConfig $config): string
-    {
-        return hash('xxh128', implode(':', [
-            $config->tokenEndpoint,
-            $config->clientIdSecret,
-            $config->clientSecretSecret,
-            $config->grantType,
-            $config->getScopesString(),
-        ]));
     }
 }
