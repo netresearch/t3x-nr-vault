@@ -788,6 +788,84 @@ final class SecretRepositoryTest extends TestCase
     }
 
     /**
+     * Regression guard for the table-routing audit: MM-table operations
+     * MUST resolve their connection via `getConnectionForTable(MM_TABLE)`,
+     * not via the secret-table connection. On the single-DB setup this
+     * isn't visible (TYPO3 returns the same connection for any unmapped
+     * table), but on sharded setups the MM ops would otherwise silently
+     * hit the wrong DB. See PR #143.
+     */
+    #[Test]
+    public function findByIdentifierResolvesMmConnectionForGroupsLookup(): void
+    {
+        $secretRow = [
+            'uid' => 42,
+            'identifier' => 'route-test',
+            'encrypted_value' => 'enc',
+            'encrypted_dek' => 'dek',
+            'dek_nonce' => 'dn',
+            'value_nonce' => 'vn',
+            'value_checksum' => 'cs',
+        ];
+
+        $secretResult = $this->createStub(Result::class);
+        $secretResult->method('fetchAssociative')->willReturn($secretRow);
+
+        $mmResult = $this->createStub(Result::class);
+        $mmResult->method('fetchAllAssociative')->willReturn([]);
+
+        // Two separate Connection stubs — one per table.
+        $secretConnection = $this->createStub(Connection::class);
+        $secretQueryBuilder = $this->createStub(QueryBuilder::class);
+        $secretQueryBuilder->method('expr')->willReturn($this->expressionBuilder);
+        $secretQueryBuilder->method('select')->willReturnSelf();
+        $secretQueryBuilder->method('from')->willReturnSelf();
+        $secretQueryBuilder->method('where')->willReturnSelf();
+        $secretQueryBuilder->method('createNamedParameter')->willReturn('?');
+        $secretQueryBuilder->method('executeQuery')->willReturn($secretResult);
+        $secretConnection->method('createQueryBuilder')->willReturn($secretQueryBuilder);
+
+        $mmConnection = $this->createStub(Connection::class);
+        $mmQueryBuilder = $this->createStub(QueryBuilder::class);
+        $mmQueryBuilder->method('expr')->willReturn($this->expressionBuilder);
+        $mmQueryBuilder->method('select')->willReturnSelf();
+        $mmQueryBuilder->method('from')->willReturnSelf();
+        $mmQueryBuilder->method('where')->willReturnSelf();
+        $mmQueryBuilder->method('orderBy')->willReturnSelf();
+        $mmQueryBuilder->method('executeQuery')->willReturn($mmResult);
+        $mmConnection->method('createQueryBuilder')->willReturn($mmQueryBuilder);
+
+        // Spy on the routing: ConnectionPool::getConnectionForTable() must
+        // be called with BOTH 'tx_nrvault_secret' (for the row fetch) AND
+        // 'tx_nrvault_secret_begroups_mm' (for the groups lookup).
+        $requestedTables = [];
+        $pool = $this->createMock(ConnectionPool::class);
+        $pool->method('getConnectionForTable')->willReturnCallback(
+            static function (string $table) use (&$requestedTables, $secretConnection, $mmConnection): Connection {
+                $requestedTables[] = $table;
+
+                return $table === 'tx_nrvault_secret_begroups_mm'
+                    ? $mmConnection
+                    : $secretConnection;
+            },
+        );
+
+        $subject = new SecretRepository($pool);
+        $subject->findByIdentifier('route-test');
+
+        self::assertContains(
+            'tx_nrvault_secret',
+            $requestedTables,
+            'Secret-row fetch must route via tx_nrvault_secret connection',
+        );
+        self::assertContains(
+            'tx_nrvault_secret_begroups_mm',
+            $requestedTables,
+            'MM-table groups lookup must route via tx_nrvault_secret_begroups_mm connection',
+        );
+    }
+
+    /**
      * Swap the default Connection stub for a strict MockObject and re-wire the
      * connection pool. Call BEFORE any test-specific stubbing. Use from tests
      * that need $connection->expects(...) verification.

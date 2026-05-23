@@ -484,11 +484,14 @@ final readonly class SecretRepository implements SecretRepositoryInterface
 
     /**
      * Resolve the connection for the MM-relations table separately from the
-     * main secret table. TYPO3 supports per-table connection routing via
-     * \$GLOBALS['TYPO3_CONF_VARS']['DB']['Connections']; an admin who maps
-     * the MM table to a different DB would otherwise see MM operations
-     * issued against the WRONG connection (silently lost on a single-DB
-     * setup; failing entirely on a sharded one).
+     * main secret table. TYPO3 routes per-table connections via
+     * `$GLOBALS['TYPO3_CONF_VARS']['DB']['TableMapping']` (the connection
+     * targets themselves live under `['DB']['Connections']`). On the common
+     * single-DB setup both tables map to `Default`, so this returns the same
+     * connection as `getConnection()` — the indirection only matters on
+     * sharded setups, where an admin may have mapped the MM table to a
+     * different DB. The original code lost that distinction; MM operations
+     * issued via the secret-table connection would have hit the wrong DB.
      */
     private function getMmConnection(): Connection
     {
