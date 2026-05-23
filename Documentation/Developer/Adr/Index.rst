@@ -48,6 +48,11 @@ ADR      Title                                       Status
 021      :ref:`adr-021-batch-secret-loading`         Accepted
 022      :ref:`adr-022-dedicated-oauth-exception`    Accepted
 023      :ref:`adr-023-audit-hash-chain-hmac`        Accepted
+024      :ref:`adr-024-audit-hash-forensic-fields`   Accepted
+025      :ref:`adr-025-secret-entity-readonly`       Accepted
+026      :ref:`adr-026-dns-rebinding-defence`        Accepted
+027      :ref:`adr-027-oauth-client-unification`     Accepted
+028      :ref:`adr-028-phpat-http-client-lock`       Accepted
 =======  ==========================================  ========
 
 .. toctree::
@@ -77,3 +82,8 @@ ADR      Title                                       Status
    ADR-021-BatchSecretLoading
    ADR-022-DedicatedOAuthException
    ADR-023-AuditHashChainHmac
+   ADR-024-AuditHashForensicFields
+   ADR-025-SecretEntityReadonly
+   ADR-026-DnsRebindingDefence
+   ADR-027-OAuthClientUnification
+   ADR-028-PhpatHttpClientLock
