@@ -77,6 +77,13 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
      * @param VaultServiceInterface $vaultService Vault for secret retrieval
      * @param AuditLogServiceInterface $auditLogService Audit logging
      * @param ClientInterface|null $innerClient Underlying PSR-18 client
+     * @param OAuthTokenManager|null $oauthManager Reusable token manager
+     *                                             (carries the token cache across `with*()` clones). When null, the
+     *                                             constructor builds a fresh one bound to the inner client. The
+     *                                             `with*()` methods MUST forward the existing instance so a single
+     *                                             fluent chain (e.g. `$vault->http()->withOAuth($cfg)->sendRequest()`)
+     *                                             hits the IdP at most once per token lifetime instead of once per
+     *                                             clone.
      * @param string|null $secretIdentifier Configured secret identifier
      * @param SecretPlacement|null $placement Configured placement type
      * @param OAuthConfig|null $oauthConfig Configured OAuth config
@@ -90,6 +97,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
         private VaultServiceInterface $vaultService,
         private AuditLogServiceInterface $auditLogService,
         ?ClientInterface $innerClient = null,
+        ?OAuthTokenManager $oauthManager = null,
         private ?string $secretIdentifier = null,
         private ?SecretPlacement $placement = null,
         private ?OAuthConfig $oauthConfig = null,
@@ -106,21 +114,26 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             $factory = GeneralUtility::makeInstance(SecureHttpClientFactory::class);
             $this->innerClient = $factory->create();
         }
-        // Share the hardened innerClient with the OAuth manager so token
-        // requests inherit the SSRF / DNS-rebinding / no-redirect defences.
-        // A plain Guzzle Client would let a malicious or misconfigured
-        // OAuthConfig.tokenEndpoint reach internal/cloud-metadata hosts
-        // and follow redirects that leak the client_secret.
-        //
-        // Also pass the factory so the manager can call `isHostAllowed()`
-        // on the token endpoint — closes the allowed_hosts allowlist gap
-        // that the request-time middleware doesn't cover.
-        $secureFactory = GeneralUtility::makeInstance(SecureHttpClientFactory::class);
-        $this->oauthManager = new OAuthTokenManager(
-            $this->vaultService,
-            $this->innerClient,
-            $secureFactory,
-        );
+
+        if ($oauthManager instanceof OAuthTokenManager) {
+            $this->oauthManager = $oauthManager;
+        } else {
+            // Share the hardened innerClient with the OAuth manager so token
+            // requests inherit the SSRF / DNS-rebinding / no-redirect defences.
+            // A plain Guzzle Client would let a malicious or misconfigured
+            // OAuthConfig.tokenEndpoint reach internal/cloud-metadata hosts
+            // and follow redirects that leak the client_secret.
+            //
+            // Also pass the factory so the manager can call `isHostAllowed()`
+            // on the token endpoint — closes the allowed_hosts allowlist gap
+            // that the request-time middleware doesn't cover.
+            $secureFactory = GeneralUtility::makeInstance(SecureHttpClientFactory::class);
+            $this->oauthManager = new OAuthTokenManager(
+                $this->vaultService,
+                $this->innerClient,
+                $secureFactory,
+            );
+        }
     }
 
     public function withAuthentication(
@@ -132,6 +145,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             vaultService: $this->vaultService,
             auditLogService: $this->auditLogService,
             innerClient: $this->innerClient,
+            oauthManager: $this->oauthManager,
             secretIdentifier: $secretIdentifier,
             placement: $placement,
             oauthConfig: null,
@@ -149,6 +163,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             vaultService: $this->vaultService,
             auditLogService: $this->auditLogService,
             innerClient: $this->innerClient,
+            oauthManager: $this->oauthManager,
             secretIdentifier: null,
             placement: SecretPlacement::OAuth2,
             oauthConfig: $config,
@@ -166,6 +181,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             vaultService: $this->vaultService,
             auditLogService: $this->auditLogService,
             innerClient: $this->innerClient,
+            oauthManager: $this->oauthManager,
             secretIdentifier: $this->secretIdentifier,
             placement: $this->placement,
             oauthConfig: $this->oauthConfig,

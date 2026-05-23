@@ -9,11 +9,13 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Architecture;
 
+use GuzzleHttp\Client;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
 use Netresearch\NrVault\Http\OAuth\OAuthToken;
 use Netresearch\NrVault\Http\SecretPlacement;
+use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Http\VaultHttpClient;
 use Netresearch\NrVault\Service\Detection\Severity;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
@@ -163,6 +165,42 @@ final class ArchitectureTest
             ->shouldImplement()
             ->classes(Selector::classname('/.*Interface$/', true))
             ->because('services should be injected via interfaces for testability');
+    }
+
+    /**
+     * Only `SecureHttpClientFactory` may instantiate Guzzle's HTTP client.
+     *
+     * Architectural lock-in for the SSRF / DNS-rebinding / no-redirect
+     * defences: every outbound HTTP path in the extension MUST construct
+     * its client via `SecureHttpClientFactory::create()` so the
+     * `ssrf-dns-pin` middleware, the proxy/TLS config, and the
+     * `allow_redirects: false` default all apply.
+     *
+     * `OAuthTokenManager` previously defaulted its `$httpClient` parameter
+     * to `new GuzzleHttp\Client(...)` and silently bypassed every guard.
+     * PR #145 removed that default; this rule prevents the gap from
+     * re-opening — and catches any other module that quietly stands up
+     * a fresh client (e.g. an experiment, a debug script, copy-pasta
+     * from upstream).
+     *
+     * @see https://github.com/netresearch/t3x-nr-vault/pull/145
+     */
+    public function testOnlySecureHttpClientFactoryInstantiatesGuzzleClient(): BuildStep
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace('Netresearch\NrVault'))
+            ->excluding(
+                Selector::classname(SecureHttpClientFactory::class),
+                Selector::inNamespace('Netresearch\NrVault\Tests'),
+            )
+            ->shouldNot()
+            ->dependOn()
+            ->classes(Selector::classname(Client::class))
+            ->because(
+                'all outbound HTTP must flow through SecureHttpClientFactory; '
+                . 'instantiating GuzzleHttp\Client directly bypasses SSRF + '
+                . 'DNS-rebinding + no-redirect defences (PR #145)',
+            );
     }
 
     /**

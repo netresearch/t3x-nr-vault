@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Http;
 
+use Netresearch\NrVault\Http\OAuth\OAuthTokenManager;
 use Exception;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
@@ -29,6 +30,7 @@ use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
+use ReflectionClass;
 
 #[CoversClass(VaultHttpClient::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -992,5 +994,69 @@ final class VaultHttpClientTest extends TestCase
 
         $request = new Request('GET', 'https://api.example.com/data');
         $authenticatedClient->sendRequest($request);
+    }
+
+    /**
+     * Regression guard: the OAuth token manager (and therefore its token
+     * cache) MUST survive `withAuthentication()` / `withOAuth()` /
+     * `withReason()` clones.
+     *
+     * Before the fix, every clone built a fresh `OAuthTokenManager` via
+     * `new self(...)` in the constructor — meaning each fluent chain
+     * re-hit the IdP for a new token, plus extra audit-log writes and
+     * `client_secret` decryptions. Reflection-based identity check is
+     * the most robust assertion: even if a future caching change moves
+     * tokens elsewhere, the manager instance equality still proves the
+     * with-clones share state.
+     */
+    #[Test]
+    public function oauthManagerSurvivesWithAuthenticationWithOAuthAndWithReasonClones(): void
+    {
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $originalManager = $this->extractOAuthManager($client);
+
+        $afterAuth = $client->withAuthentication('my_key', SecretPlacement::Bearer);
+        $afterOAuth = $client->withOAuth(OAuthConfig::clientCredentials(
+            tokenEndpoint: 'https://auth.example.com/token',
+            clientIdSecret: 'cid',
+            clientSecretSecret: 'csec',
+        ));
+        $afterReason = $afterAuth->withReason('updated');
+        $afterChain = $afterOAuth->withReason('chained');
+
+        self::assertSame(
+            $originalManager,
+            $this->extractOAuthManager($afterAuth),
+            'withAuthentication() must forward the same OAuthTokenManager',
+        );
+        self::assertSame(
+            $originalManager,
+            $this->extractOAuthManager($afterOAuth),
+            'withOAuth() must forward the same OAuthTokenManager',
+        );
+        self::assertSame(
+            $originalManager,
+            $this->extractOAuthManager($afterReason),
+            'withReason() (after withAuthentication) must forward the same OAuthTokenManager',
+        );
+        self::assertSame(
+            $originalManager,
+            $this->extractOAuthManager($afterChain),
+            'withReason() (after withOAuth) must forward the same OAuthTokenManager — token cache is dead if this fails',
+        );
+    }
+
+    private function extractOAuthManager(VaultHttpClient $client): OAuthTokenManager
+    {
+        $property = (new ReflectionClass(VaultHttpClient::class))->getProperty('oauthManager');
+        $value = $property->getValue($client);
+        self::assertInstanceOf(OAuthTokenManager::class, $value);
+
+        return $value;
     }
 }
