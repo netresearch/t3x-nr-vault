@@ -166,8 +166,8 @@ final class OAuthFuzzTest extends TestCase
 
         $manager = new OAuthTokenManager(
             $this->vaultService,
-            new NullLogger(),
             $this->httpClient,
+            new NullLogger(),
         );
 
         $config = OAuthConfig::clientCredentials(
@@ -217,8 +217,8 @@ final class OAuthFuzzTest extends TestCase
 
         $manager = new OAuthTokenManager(
             $this->vaultService,
-            new NullLogger(),
             $this->httpClient,
+            new NullLogger(),
         );
 
         $config = OAuthConfig::clientCredentials(

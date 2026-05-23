@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Http\OAuth;
 
+use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use Netresearch\NrVault\Audit\AuditLogEntry;
@@ -145,7 +146,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         );
 
         // Get token manager and acquire token
-        $tokenManager = new OAuthTokenManager($vaultService);
+        $tokenManager = new OAuthTokenManager($vaultService, new GuzzleClient());
         $accessToken = $tokenManager->getAccessToken($config);
 
         self::assertNotEmpty($accessToken);
@@ -167,7 +168,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             clientSecretSecret: 'cache_oauth_client_secret',
         );
 
-        $tokenManager = new OAuthTokenManager($vaultService);
+        $tokenManager = new OAuthTokenManager($vaultService, new GuzzleClient());
 
         // First call - fetches from server
         $token1 = $tokenManager->getAccessToken($config);
@@ -194,7 +195,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             clientSecretSecret: 'clear_oauth_client_secret',
         );
 
-        $tokenManager = new OAuthTokenManager($vaultService);
+        $tokenManager = new OAuthTokenManager($vaultService, new GuzzleClient());
 
         // Get initial token
         $token1 = $tokenManager->getAccessToken($config);
@@ -415,8 +416,8 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
         $tokenManager = new OAuthTokenManager(
             vaultService: $vaultService,
-            logger: null,
             httpClient: $httpClient,
+            logger: null,
             auditLogService: $auditService,
         );
 
@@ -526,7 +527,6 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
         $tokenManager = new OAuthTokenManager(
             vaultService: $vaultService,
-            logger: null,
             httpClient: $httpClient,
         );
 

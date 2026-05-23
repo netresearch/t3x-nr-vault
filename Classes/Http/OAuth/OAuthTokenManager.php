@@ -13,7 +13,6 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Http\OAuth;
 
 use DateTimeImmutable;
-use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\HttpFactory;
 use JsonException;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -52,10 +51,20 @@ final class OAuthTokenManager
 
     private readonly StreamFactoryInterface $streamFactory;
 
+    /**
+     * @param ClientInterface $httpClient HTTP client to dispatch the token
+     *                                    request through. Callers MUST inject a hardened client (e.g. built
+     *                                    by `SecureHttpClientFactory::create()`) — the default plain
+     *                                    `GuzzleHttp\Client` was removed to prevent OAuth token endpoints
+     *                                    bypassing the SSRF + DNS-rebinding + no-redirect-by-default guards.
+     *                                    A misconfigured (or attacker-controlled) `OAuthConfig.tokenEndpoint`
+     *                                    would otherwise leak the bearer `client_secret` to internal IPs,
+     *                                    cloud-metadata services, or arbitrary redirect targets.
+     */
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
+        private readonly ClientInterface $httpClient,
         private readonly ?LoggerInterface $logger = null,
-        private readonly ClientInterface $httpClient = new Client(['timeout' => 30, 'connect_timeout' => 10]),
         ?RequestFactoryInterface $requestFactory = null,
         ?StreamFactoryInterface $streamFactory = null,
         private readonly ?AuditLogServiceInterface $auditLogService = null,

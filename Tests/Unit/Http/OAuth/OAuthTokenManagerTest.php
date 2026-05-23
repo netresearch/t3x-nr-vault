@@ -31,6 +31,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
+use ReflectionParameter;
 use RuntimeException;
 
 #[CoversClass(OAuthTokenManager::class)]
@@ -64,8 +65,8 @@ final class OAuthTokenManagerTest extends TestCase
 
         $this->subject = new OAuthTokenManager(
             $this->vaultService,
-            $this->logger,
             $this->httpClient,
+            $this->logger,
             $this->requestFactory,
             $this->streamFactory,
         );
@@ -881,8 +882,8 @@ final class OAuthTokenManagerTest extends TestCase
 
         $subject = new OAuthTokenManager(
             $this->vaultService,
-            $this->logger,
             $this->httpClient,
+            $this->logger,
             $this->requestFactory,
             $this->streamFactory,
             $auditLogService,
@@ -1015,6 +1016,29 @@ final class OAuthTokenManagerTest extends TestCase
         self::assertSame('new-access-token', $token);
     }
 
+    /**
+     * Regression guard: the `httpClient` constructor parameter MUST be
+     * required (no default value). The previous default
+     * `new GuzzleHttp\Client(['timeout' => 30, ...])` silently bypassed
+     * `SecureHttpClientFactory`'s SSRF / DNS-rebinding / no-redirect
+     * defences; callers could forget to inject and OAuth token endpoints
+     * would reach internal IPs unchecked. See PR #145 / the OAuth client
+     * unification follow-up to PR #144.
+     */
+    #[Test]
+    public function constructorRequiresHttpClient(): void
+    {
+        $parameter = new ReflectionParameter([OAuthTokenManager::class, '__construct'], 'httpClient');
+
+        self::assertFalse(
+            $parameter->isOptional(),
+            'OAuthTokenManager::__construct(httpClient) MUST stay required — '
+            . 'a default would let callers bypass SecureHttpClientFactory and '
+            . 'reach internal IPs / cloud metadata via attacker-controlled '
+            . 'OAuthConfig.tokenEndpoint.',
+        );
+    }
+
     private function setupRequestFactory(): void
     {
         $mockStream = $this->createMock(StreamInterface::class);
@@ -1031,9 +1055,6 @@ final class OAuthTokenManagerTest extends TestCase
             ->willReturn($mockRequest);
     }
 
-    /**
-     * @param array<string, mixed> $data
-     */
     private function createSuccessfulTokenResponse(array $data): ResponseInterface&MockObject
     {
         $stream = $this->createMock(StreamInterface::class);

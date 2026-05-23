@@ -106,7 +106,12 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             $factory = GeneralUtility::makeInstance(SecureHttpClientFactory::class);
             $this->innerClient = $factory->create();
         }
-        $this->oauthManager = new OAuthTokenManager($this->vaultService);
+        // Share the hardened innerClient with the OAuth manager so token
+        // requests inherit the SSRF / DNS-rebinding / no-redirect defences.
+        // A plain Guzzle Client would let a malicious or misconfigured
+        // OAuthConfig.tokenEndpoint reach internal/cloud-metadata hosts
+        // and follow redirects that leak the client_secret.
+        $this->oauthManager = new OAuthTokenManager($this->vaultService, $this->innerClient);
     }
 
     public function withAuthentication(
