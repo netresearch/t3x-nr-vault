@@ -45,31 +45,43 @@ mechanical fence, not just convention.
 Decision
 ========
 
-Add a PHPat architectural rule to ``Tests/Architecture/ArchitectureTest.php``:
+Add a PHPat architectural rule to ``Tests/Architecture/ArchitectureTest.php``
+(verbatim from ``testOnlySecureHttpClientFactoryInstantiatesGuzzleClient``):
 
 .. code-block:: php
 
-    public function testOnlySecureHttpClientFactoryInstantiatesGuzzleClient(): Rule
+    public function testOnlySecureHttpClientFactoryInstantiatesGuzzleClient(): BuildStep
     {
         return PHPat::rule()
-            ->classes(Selector::namespaceMatches('/^Netresearch\\\\NrVault(\\\\.*)?$/'))
+            ->classes(Selector::inNamespace('Netresearch\\NrVault'))
             ->excluding(
                 Selector::classname(SecureHttpClientFactory::class),
-                Selector::classname(VaultHttpClient::class),
+                Selector::inNamespace('Netresearch\\NrVault\\Tests'),
             )
-            ->shouldNotConstruct(
-                Selector::classname(\GuzzleHttp\Client::class),
+            ->shouldNot()
+            ->dependOn()
+            ->classes(Selector::classname(Client::class))
+            ->because(
+                'all outbound HTTP must flow through SecureHttpClientFactory; '
+                . 'instantiating GuzzleHttp\\Client directly bypasses SSRF + '
+                . 'DNS-rebinding + no-redirect defences (PR #145)',
             );
     }
 
-Allowed construction sites (an explicit allowlist, not a regex):
+The rule uses ``shouldNot()->dependOn()`` rather than a hypothetical
+``shouldNotConstruct``. ``dependOn`` is intentionally broader: it forbids
+any reference to ``GuzzleHttp\\Client`` (``new``, ``use``, type-hint,
+static call) outside the allowed namespaces. That's the strictest
+fence PHPat offers and matches the intent — production code shouldn't
+even *name* the class.
+
+Allowed namespaces (an explicit allowlist, not a regex):
 
 -  ``SecureHttpClientFactory`` — the single legitimate constructor.
--  ``VaultHttpClient`` — wraps the factory output during cloning
-   transitions (``withBaseUri``, ``withHeaders``, ``withCredentials``);
-   keeps the immutable-builder pattern honest without re-running
-   the factory's expensive setup. The factory is still the only
-   thing that *builds* a fresh client.
+-  ``Netresearch\\NrVault\\Tests`` — test doubles and fixtures need
+   to construct ``GuzzleHttp\\Client`` instances directly to wire
+   ``MockHandler``-driven flows. Tests don't ship in the distributed
+   extension, so they can't widen the production attack surface.
 
 The rule runs in the standard PHPat suite (``composer ci`` and the
 CI ``architecture`` job), so violations fail the build with a

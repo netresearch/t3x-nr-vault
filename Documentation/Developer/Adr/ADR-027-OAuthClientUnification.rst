@@ -13,7 +13,11 @@ ADR-027: OAuth token requests use the secure HTTP client
 Status
 ======
 
-Accepted
+Accepted — documents the unified state after PRs #145, #146, and
+the LOW-followups PR #148 land. The cache-key extension to
+``clientSecretSecret`` and the ``redactCredentials`` helper are
+specifically introduced in #148; the rest is on ``main`` as of
+PR #146.
 
 Date
 ====
@@ -54,21 +58,31 @@ Decision
 
 Three converging changes packaged as PRs #145 and #146:
 
-1.  **Single client surface.** ``OAuthTokenManager`` accepts a
-    ``SecureHttpClientFactory`` and builds its own per-request
-    client via ``factory->create(...)``. The pre-existing
-    ``ClientInterface`` constructor parameter remains for explicit
-    test-double injection and adapter-supplied stubs, but the
-    production path goes through the factory so the SSRF
+1.  **Mandatory hardened client.** ``OAuthTokenManager``'s
+    ``ClientInterface $httpClient`` constructor parameter no longer
+    defaults to ``new GuzzleHttp\\Client(...)``. Callers MUST inject
+    a hardened client — in practice every production caller threads
+    one built by ``SecureHttpClientFactory::create()``, so the SSRF
     middleware (see :ref:`adr-026-dns-rebinding-defence`) protects
-    the token endpoint too.
+    the token endpoint just like every other outbound request.
+    Removing the default closes the only path that constructed a
+    raw Guzzle client at runtime. The architectural lock added in
+    :ref:`adr-028-phpat-http-client-lock` enforces that no other
+    code re-introduces one.
 
-2.  **tokenEndpoint isHostAllowed gate.** Before any token request
-    fires, ``dispatchTokenRequest`` calls
-    ``isHostAllowed(tokenEndpoint)``. Adapter misconfiguration
-    pointing at ``http://169.254.169.254`` fails fast with an
-    audit-logged ``OAUTH_TOKEN_REJECTED`` row, not as a stack
-    trace exposing internal infra.
+2.  **tokenEndpoint isHostAllowed gate.** ``OAuthTokenManager``
+    additionally accepts a ``SecureHttpClientFactory`` solely to
+    gate the configured ``tokenEndpoint`` host through
+    ``isHostAllowed()`` before any token request fires. The DNS-pin
+    middleware on the injected client rejects dangerous resolved IPs
+    at request time, but it does NOT apply the
+    ``$GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']``
+    allowlist admins use to restrict outbound calls to a known set
+    of partner hostnames. Without this extra gate, an
+    attacker-controlled config pointing at
+    ``http://169.254.169.254`` would fail per-request DNS
+    validation but the host-allowlist failure mode (a hard,
+    audit-logged refusal pre-flight) was missing.
 
 3.  **Cache key fragmentation by secret.** The OAuth token-cache
     key now includes ``$config->clientSecretSecret`` (the vault
@@ -109,11 +123,17 @@ Positive
 Negative
 --------
 
--  Constructor signature grew: ``OAuthTokenManager`` now takes
+-  Constructor signature change is a positional BC break for callers
+   using positional arguments: ``OAuthTokenManager`` now takes
    ``VaultServiceInterface, ClientInterface, SecureHttpClientFactory,
    ?LoggerInterface, ?RequestFactoryInterface, ?StreamFactoryInterface,
-   ?AuditLogServiceInterface``. Optional params are trailing-only to
-   avoid positional BC breaks for the existing fuzz tests.
+   ?AuditLogServiceInterface``. The new required third parameter
+   (``SecureHttpClientFactory``) shifts every parameter after it.
+   Callers using named arguments are unaffected; positional callers
+   must update — DI containers were updated in lockstep.
+   Optional params are confined to the trailing positions (no
+   required parameter follows an optional one) so adding *future*
+   optional dependencies stays additive.
 -  Adapter authors must invalidate their own caches if they cache
    ``OAuthTokenManager`` instances across config changes. (Most
    adapters fetch the manager from DI per request, so this is a
