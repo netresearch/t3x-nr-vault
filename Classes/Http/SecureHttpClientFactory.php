@@ -12,9 +12,12 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Http;
 
+use Closure;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\HandlerStack;
 use Psr\Http\Client\ClientInterface;
+use Psr\Http\Message\RequestInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -100,6 +103,12 @@ final class SecureHttpClientFactory
 
         // Create handler stack without any logging middleware
         $stack = HandlerStack::create();
+
+        // Push the DNS-rebinding defence middleware on top of the stack.
+        // It resolves the host AT REQUEST TIME and pins the resulting IP via
+        // curl's CURLOPT_RESOLVE so the upstream client can't re-resolve to
+        // a different (internal) address between our check and the connect.
+        $stack->push($this->buildSsrfDefenceMiddleware(), 'ssrf-dns-pin');
         $options['handler'] = $stack;
 
         return new Client($options);
@@ -172,6 +181,120 @@ final class SecureHttpClientFactory
         }
 
         return false;
+    }
+
+    /**
+     * Guzzle middleware factory: resolves and validates the request host on
+     * every outgoing request, then pins the resolved IP via curl's
+     * `CURLOPT_RESOLVE` option so curl skips its own (potentially rebound)
+     * DNS lookup at connect time.
+     *
+     * Why we cannot do this once in `create()`: that factory builds a
+     * URL-agnostic Guzzle Client. The host isn't known until a request is
+     * actually sent. A middleware fires per request and can inspect the URI.
+     *
+     * Behaviour:
+     *  - Host that resolves to one or more SAFE IPs → those IPs are pinned;
+     *    curl uses them without re-resolving.
+     *  - Host that resolves to a dangerous IP → the request is rejected
+     *    with a `RequestException` BEFORE the socket opens.
+     *  - Host that cannot be resolved at all → no pin is added; curl handles
+     *    the resolution failure with its usual error path. (The caller's
+     *    earlier `isHostAllowed()` check already rejected IP-literal targets
+     *    in dangerous ranges.)
+     *  - IP-literal hosts (already an IPv4/IPv6 address) → no pin needed;
+     *    `isHostAllowed()` validated the literal directly.
+     */
+    private function buildSsrfDefenceMiddleware(): Closure /** @phpstan-ignore missingType.callable (Guzzle's middleware contract is loosely-typed by design) */
+    {
+        return function (callable $handler): Closure { /** @phpstan-ignore missingType.callable */
+            return function (RequestInterface $request, array $options) use ($handler) {
+                $host = $request->getUri()->getHost();
+                $port = $request->getUri()->getPort()
+                    ?? (strtolower($request->getUri()->getScheme()) === 'https' ? 443 : 80);
+
+                $resolveEntries = $this->buildResolveEntries($host, $port);
+
+                if ($resolveEntries === null) {
+                    throw new RequestException(
+                        \sprintf(
+                            'Refused to send request: host "%s" resolves to a disallowed IP range '
+                            . '(DNS rebinding defence).',
+                            $host,
+                        ),
+                        $request,
+                    );
+                }
+
+                if ($resolveEntries !== []) {
+                    $curlOptions = \is_array($options['curl'] ?? null) ? $options['curl'] : [];
+                    /** @var list<string> $existing */
+                    $existing = \is_array($curlOptions[\CURLOPT_RESOLVE] ?? null)
+                        ? $curlOptions[\CURLOPT_RESOLVE]
+                        : [];
+                    $curlOptions[\CURLOPT_RESOLVE] = array_values(array_unique(
+                        array_merge($existing, $resolveEntries),
+                    ));
+                    $options['curl'] = $curlOptions;
+                }
+
+                return $handler($request, $options);
+            };
+        };
+    }
+
+    /**
+     * Resolve `$host` to one or more IP addresses and convert each safe entry
+     * into the `host:port:ip` form curl expects for `CURLOPT_RESOLVE`.
+     *
+     * Returns:
+     *  - `null` if the host resolved to AT LEAST ONE dangerous IP (the entire
+     *    request must be rejected — even if some A records look safe, the
+     *    presence of a dangerous answer signals an active rebinding attempt).
+     *  - `[]` if the host is an IP literal (no pin needed) OR if resolution
+     *    failed entirely (let curl handle the error path).
+     *  - `list<string>` of pin entries to add to `CURLOPT_RESOLVE` for safe
+     *    multi-record hosts.
+     *
+     * @return list<string>|null
+     */
+    private function buildResolveEntries(string $host, int $port): ?array
+    {
+        // IP literal — `isHostAllowed()` already validated it; no DNS to pin.
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return [];
+        }
+
+        // Suppress DNS lookup warnings (banned `@` operator).
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $records = dns_get_record($host, DNS_A | DNS_AAAA);
+        } finally {
+            restore_error_handler();
+        }
+
+        if (!\is_array($records) || $records === []) {
+            // Resolution failed — let curl produce the usual connection error.
+            return [];
+        }
+
+        $entries = [];
+        foreach ($records as $record) {
+            $ip = $record['ip'] ?? $record['ipv6'] ?? null;
+            if (!\is_string($ip)) {
+                continue;
+            }
+            if ($this->isDangerousIpLiteral($ip)) {
+                // ANY dangerous answer kills the entire request. A "split-horizon"
+                // rebinding setup could otherwise return one safe + one internal
+                // IP; if curl picked the internal one, we'd leak.
+                return null;
+            }
+            $entries[] = \sprintf('%s:%d:%s', $host, $port, $ip);
+        }
+
+        return $entries;
     }
 
     /**
