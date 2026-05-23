@@ -18,6 +18,7 @@ use JsonException;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Exception\OAuthException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
+use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
@@ -60,10 +61,20 @@ final class OAuthTokenManager
      *                                    A misconfigured (or attacker-controlled) `OAuthConfig.tokenEndpoint`
      *                                    would otherwise leak the bearer `client_secret` to internal IPs,
      *                                    cloud-metadata services, or arbitrary redirect targets.
+     * @param SecureHttpClientFactory $secureHttpClientFactory used ONLY to
+     *                                                         gate the token endpoint host through `isHostAllowed()` before the
+     *                                                         request is sent. The `$httpClient` middleware already rejects
+     *                                                         dangerous resolved IPs at request time, but it does NOT apply the
+     *                                                         `$GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']` allowlist
+     *                                                         admins use to restrict outbound calls to a known set of partner
+     *                                                         hostnames. Without this extra gate, an attacker-controlled
+     *                                                         `tokenEndpoint` could reach any public host the IP guards consider
+     *                                                         "safe" — defeating the allowlist on the OAuth leg only.
      */
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
         private readonly ClientInterface $httpClient,
+        private readonly SecureHttpClientFactory $secureHttpClientFactory,
         private readonly ?LoggerInterface $logger = null,
         ?RequestFactoryInterface $requestFactory = null,
         ?StreamFactoryInterface $streamFactory = null,
@@ -308,6 +319,24 @@ final class OAuthTokenManager
      */
     private function dispatchTokenRequest(OAuthConfig $config, OAuthTokenRequestParams $params): ResponseInterface
     {
+        // Gate the host BEFORE building the request body so the bearer
+        // `client_secret` never gets serialised when the host is rejected
+        // by the allowlist. The `$httpClient` middleware also rejects
+        // dangerous IPs at request time, but it does NOT enforce the
+        // `allowed_hosts` allowlist — this is the OAuth-leg equivalent of
+        // the gate `VaultHttpClient::sendRequest()` applies on outer API
+        // requests (see VaultHttpClient.php — same call shape).
+        $host = parse_url($config->tokenEndpoint, PHP_URL_HOST);
+        if (!\is_string($host) || !$this->secureHttpClientFactory->isHostAllowed($host)) {
+            throw new OAuthException(
+                \sprintf(
+                    'OAuth token endpoint host "%s" is not in the allowed hosts list.',
+                    \is_string($host) ? $host : '(unparseable)',
+                ),
+                3149205122,
+            );
+        }
+
         // `toHttpQuery()` builds a one-shot encoded body. Any throw from
         // the stream/request factories (or sendRequest) bubbles to the
         // outer `finally` in `fetchToken()` which calls

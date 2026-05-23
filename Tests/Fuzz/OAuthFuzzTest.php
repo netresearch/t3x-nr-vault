@@ -16,6 +16,7 @@ use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
 use Netresearch\NrVault\Http\OAuth\OAuthToken;
 use Netresearch\NrVault\Http\OAuth\OAuthTokenManager;
+use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -167,6 +168,7 @@ final class OAuthFuzzTest extends TestCase
         $manager = new OAuthTokenManager(
             $this->vaultService,
             $this->httpClient,
+            new SecureHttpClientFactory(),
             new NullLogger(),
         );
 
@@ -218,6 +220,7 @@ final class OAuthFuzzTest extends TestCase
         $manager = new OAuthTokenManager(
             $this->vaultService,
             $this->httpClient,
+            new SecureHttpClientFactory(),
             new NullLogger(),
         );
 

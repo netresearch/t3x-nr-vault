@@ -23,6 +23,7 @@ use Netresearch\NrVault\Exception\OAuthException;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
 use Netresearch\NrVault\Http\OAuth\OAuthTokenManager;
 use Netresearch\NrVault\Http\SecretPlacement;
+use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Http\VaultHttpClientInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -146,7 +147,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         );
 
         // Get token manager and acquire token
-        $tokenManager = new OAuthTokenManager($vaultService, new GuzzleClient());
+        $tokenManager = new OAuthTokenManager($vaultService, $this->buildTestClient(), new SecureHttpClientFactory());
         $accessToken = $tokenManager->getAccessToken($config);
 
         self::assertNotEmpty($accessToken);
@@ -168,7 +169,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             clientSecretSecret: 'cache_oauth_client_secret',
         );
 
-        $tokenManager = new OAuthTokenManager($vaultService, new GuzzleClient());
+        $tokenManager = new OAuthTokenManager($vaultService, $this->buildTestClient(), new SecureHttpClientFactory());
 
         // First call - fetches from server
         $token1 = $tokenManager->getAccessToken($config);
@@ -195,7 +196,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             clientSecretSecret: 'clear_oauth_client_secret',
         );
 
-        $tokenManager = new OAuthTokenManager($vaultService, new GuzzleClient());
+        $tokenManager = new OAuthTokenManager($vaultService, $this->buildTestClient(), new SecureHttpClientFactory());
 
         // Get initial token
         $token1 = $tokenManager->getAccessToken($config);
@@ -417,6 +418,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         $tokenManager = new OAuthTokenManager(
             vaultService: $vaultService,
             httpClient: $httpClient,
+            secureHttpClientFactory: new SecureHttpClientFactory(),
             logger: null,
             auditLogService: $auditService,
         );
@@ -528,6 +530,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         $tokenManager = new OAuthTokenManager(
             vaultService: $vaultService,
             httpClient: $httpClient,
+            secureHttpClientFactory: new SecureHttpClientFactory(),
         );
 
         $this->expectException(OAuthException::class);
@@ -588,6 +591,30 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                 'Options: Set MOCK_OAUTH_URL env var, use runTests.sh, or start ddev.',
             );
         }
+    }
+
+    /**
+     * Build a plain Guzzle Client for tests that target the local
+     * mock-OAuth sidecar in DDEV. The hardened SecureHttpClientFactory
+     * is INTENTIONALLY bypassed here because:
+     *
+     *  - The sidecar lives on a private DDEV bridge network and only
+     *    accepts traffic from the test container; SSRF guards aren't
+     *    the assertion under test.
+     *  - Functional tests can't reach a real DNS resolver, so the
+     *    `ssrf-dns-pin` middleware would reject `mock-oauth` hosts.
+     *
+     * Production OAuth flows always go through SecureHttpClientFactory
+     * via VaultHttpClient::__construct (see PR #145). Do NOT copy this
+     * pattern into unit tests or any production code path.
+     */
+    private function buildTestClient(): GuzzleClient
+    {
+        return new GuzzleClient([
+            'timeout' => 10,         // hard cap so a stuck sidecar doesn't hang CI
+            'connect_timeout' => 5,
+            'http_errors' => false,  // OAuth manager handles non-2xx itself
+        ]);
     }
 
     /**

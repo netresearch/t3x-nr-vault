@@ -111,7 +111,16 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
         // A plain Guzzle Client would let a malicious or misconfigured
         // OAuthConfig.tokenEndpoint reach internal/cloud-metadata hosts
         // and follow redirects that leak the client_secret.
-        $this->oauthManager = new OAuthTokenManager($this->vaultService, $this->innerClient);
+        //
+        // Also pass the factory so the manager can call `isHostAllowed()`
+        // on the token endpoint — closes the allowed_hosts allowlist gap
+        // that the request-time middleware doesn't cover.
+        $secureFactory = GeneralUtility::makeInstance(SecureHttpClientFactory::class);
+        $this->oauthManager = new OAuthTokenManager(
+            $this->vaultService,
+            $this->innerClient,
+            $secureFactory,
+        );
     }
 
     public function withAuthentication(

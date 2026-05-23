@@ -12,11 +12,13 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Http\OAuth;
 
+use ArgumentCountError;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Exception\OAuthException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
 use Netresearch\NrVault\Http\OAuth\OAuthTokenManager;
+use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -31,7 +33,6 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
-use ReflectionParameter;
 use RuntimeException;
 
 #[CoversClass(OAuthTokenManager::class)]
@@ -66,6 +67,7 @@ final class OAuthTokenManagerTest extends TestCase
         $this->subject = new OAuthTokenManager(
             $this->vaultService,
             $this->httpClient,
+            new SecureHttpClientFactory(),
             $this->logger,
             $this->requestFactory,
             $this->streamFactory,
@@ -883,6 +885,7 @@ final class OAuthTokenManagerTest extends TestCase
         $subject = new OAuthTokenManager(
             $this->vaultService,
             $this->httpClient,
+            new SecureHttpClientFactory(),
             $this->logger,
             $this->requestFactory,
             $this->streamFactory,
@@ -1024,19 +1027,70 @@ final class OAuthTokenManagerTest extends TestCase
      * defences; callers could forget to inject and OAuth token endpoints
      * would reach internal IPs unchecked. See PR #145 / the OAuth client
      * unification follow-up to PR #144.
+     *
+     * Behavioural assertion (not `ReflectionParameter::isOptional()`):
+     * a future refactor could declare `?ClientInterface $httpClient = null`
+     * + a body `?? new Client()` — `isOptional()` would return true while
+     * the security regression returns. Constructing without the argument
+     * MUST throw `ArgumentCountError` instead.
      */
     #[Test]
     public function constructorRequiresHttpClient(): void
     {
-        $parameter = new ReflectionParameter([OAuthTokenManager::class, '__construct'], 'httpClient');
+        $this->expectException(ArgumentCountError::class);
 
-        self::assertFalse(
-            $parameter->isOptional(),
-            'OAuthTokenManager::__construct(httpClient) MUST stay required — '
-            . 'a default would let callers bypass SecureHttpClientFactory and '
-            . 'reach internal IPs / cloud metadata via attacker-controlled '
-            . 'OAuthConfig.tokenEndpoint.',
-        );
+        /** @phpstan-ignore arguments.count (intentional — proves the parameter is required) */
+        new OAuthTokenManager($this->vaultService);
+    }
+
+    /**
+     * Security gate: the `tokenEndpoint` host MUST pass
+     * `SecureHttpClientFactory::isHostAllowed()` BEFORE the request body
+     * (containing the bearer `client_secret`) is built. The request-time
+     * middleware already rejects dangerous IPs, but the `allowed_hosts`
+     * allowlist is per-host and must apply to OAuth too.
+     */
+    #[Test]
+    public function dispatchTokenRequestRejectsHostNotInAllowedHostsList(): void
+    {
+        $originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $GLOBALS['TYPO3_CONF_VARS'] = [
+            'HTTP' => ['allowed_hosts' => ['only.this.example.com']],
+        ];
+
+        try {
+            $config = OAuthConfig::clientCredentials(
+                tokenEndpoint: 'https://elsewhere.example/token',
+                clientIdSecret: 'oauth/client-id',
+                clientSecretSecret: 'oauth/client-secret',
+            );
+
+            $this->vaultService
+                ->method('retrieve')
+                ->willReturnCallback(fn (string $id): string => match ($id) {
+                    'oauth/client-id' => 'cid',
+                    'oauth/client-secret' => 'csec',
+                    default => '',
+                });
+
+            // The middleware on $httpClient would also block — but the gate
+            // we're testing runs first, BEFORE the request is built and
+            // sent, so sendRequest must NEVER be called.
+            $this->httpClient
+                ->expects(self::never())
+                ->method('sendRequest');
+
+            $this->expectException(OAuthException::class);
+            $this->expectExceptionMessageMatches('/not in the allowed hosts list/i');
+
+            $this->subject->getAccessToken($config);
+        } finally {
+            if ($originalGlobals !== null) {
+                $GLOBALS['TYPO3_CONF_VARS'] = $originalGlobals;
+            } else {
+                unset($GLOBALS['TYPO3_CONF_VARS']);
+            }
+        }
     }
 
     private function setupRequestFactory(): void
