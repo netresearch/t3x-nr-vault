@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Form\Element;
 
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Utility\LocalisationHelper;
 use Throwable;
 use TYPO3\CMS\Backend\Form\Element\AbstractFormElement;
 use TYPO3\CMS\Core\Imaging\IconFactory;
@@ -361,6 +362,6 @@ final class VaultSecretInputElement extends AbstractFormElement
             : 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:vault_secret_input.placeholder_new';
         $fallback = $hasSecret ? 'Enter new secret value to rotate' : 'Enter secret value';
 
-        return $this->getLanguageService()->sL($key) ?: $fallback;
+        return LocalisationHelper::translateOrFallback($this->getLanguageService(), $key, $fallback);
     }
 }

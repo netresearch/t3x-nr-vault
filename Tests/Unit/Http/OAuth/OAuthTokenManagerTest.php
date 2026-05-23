@@ -23,6 +23,7 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Client\ClientExceptionInterface;
@@ -33,6 +34,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
+use ReflectionClass;
 use RuntimeException;
 
 #[CoversClass(OAuthTokenManager::class)]
@@ -1097,6 +1099,60 @@ final class OAuthTokenManagerTest extends TestCase
                 unset($GLOBALS['TYPO3_CONF_VARS']);
             }
         }
+    }
+
+    /**
+     * Security gate: `redactCredentials()` must scrub bearer / basic auth /
+     * client_secret / refresh_token from upstream error messages before they
+     * reach the logger, audit log, or OAuthException. Cheap defence against
+     * a future OAuth server (or refactor) that echoes credentials back in
+     * its error responses.
+     */
+    #[Test]
+    #[DataProvider('credentialPatternsProvider')]
+    public function redactCredentialsScrubsKnownPatterns(string $raw, string $expected): void
+    {
+        // `redactCredentials` is private; invoke via reflection. Handles
+        // both static and instance method forms so cgl / rector can flip
+        // it freely without breaking the regression guard.
+        $method = (new ReflectionClass(OAuthTokenManager::class))->getMethod('redactCredentials');
+        $target = $method->isStatic() ? null : $this->subject;
+        self::assertSame($expected, $method->invoke($target, $raw));
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function credentialPatternsProvider(): iterable
+    {
+        yield 'client_secret in form body' => [
+            'POST /token grant_type=client_credentials&client_secret=topSecr3t&scope=read',
+            'POST /token grant_type=client_credentials&client_secret=[REDACTED]&scope=read',
+        ];
+        yield 'refresh_token in form body' => [
+            'grant_type=refresh_token&refresh_token=eyJabc.def.ghi&scope=read',
+            'grant_type=refresh_token&refresh_token=[REDACTED]&scope=read',
+        ];
+        yield 'Bearer Authorization header' => [
+            'response headers: Authorization: Bearer abc123def456 — rejected',
+            'response headers: Authorization: Bearer [REDACTED] — rejected',
+        ];
+        yield 'Basic Authorization header' => [
+            'sent: Authorization: Basic dXNlcjpwYXNz== to endpoint',
+            'sent: Authorization: Basic [REDACTED] to endpoint',
+        ];
+        yield 'mixed multiple credentials' => [
+            'client_secret=abc&refresh_token=def — Authorization: Bearer xyz',
+            'client_secret=[REDACTED]&refresh_token=[REDACTED] — Authorization: Bearer [REDACTED]',
+        ];
+        yield 'case-insensitive Authorization header' => [
+            'authorization: bearer ABC123',
+            'authorization: bearer [REDACTED]',
+        ];
+        yield 'safe message passes through' => [
+            'Connection refused (timeout after 10s)',
+            'Connection refused (timeout after 10s)',
+        ];
     }
 
     private function setupRequestFactory(): void

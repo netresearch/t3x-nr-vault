@@ -191,7 +191,7 @@ final class OAuthTokenManager
 
             $this->logger?->warning('OAuth refresh_token rejected, falling back to client_credentials', [
                 'token_endpoint' => $config->tokenEndpoint,
-                'original_error' => $e->getMessage(),
+                'original_error' => $this->redactCredentials($e->getMessage()),
             ]);
 
             // Audit the failed refresh attempt so the fallback is not silent.
@@ -199,7 +199,7 @@ final class OAuthTokenManager
                 $config->refreshTokenSecret ?? $config->clientIdSecret,
                 'oauth_refresh_failed',
                 false,
-                $e->getMessage(),
+                $this->redactCredentials($e->getMessage()),
                 'refresh_token rejected by OAuth server (HTTP non-200)',
             );
 
@@ -257,9 +257,10 @@ final class OAuthTokenManager
 
             return $token;
         } catch (ClientExceptionInterface $e) {
-            $this->logger?->error('OAuth token request failed', ['error' => $e->getMessage()]);
+            $redacted = $this->redactCredentials($e->getMessage());
+            $this->logger?->error('OAuth token request failed', ['error' => $redacted]);
 
-            throw OAuthException::requestFailed($e->getMessage(), $e);
+            throw OAuthException::requestFailed($redacted, $e);
         } catch (JsonException $e) {
             throw OAuthException::invalidJsonResponse($e);
         } finally {
@@ -477,17 +478,18 @@ final class OAuthTokenManager
         $message = 'OAuth refresh_token rotation: vault store failed — returning access_token but '
             . 'subsequent refresh will fail until vault is writeable (auto-recovers via '
             . 'fetchTokenWithFallback()).';
+        $redactedError = $this->redactCredentials($storeException->getMessage());
         $context = [
             'token_endpoint' => $config->tokenEndpoint,
             'refresh_token_secret_hash' => $secretIdHash,
-            'error' => $storeException->getMessage(),
+            'error' => $redactedError,
         ];
 
         try {
             $this->logger?->error($message, $context);
         } catch (Throwable) {
             // Last-resort: PHP's own error log is independent of DB / logger backend.
-            error_log('nr-vault: ' . $message . ' [' . $storeException->getMessage() . ']');
+            error_log('nr-vault: ' . $message . ' [' . $redactedError . ']');
         }
 
         try {
@@ -513,12 +515,63 @@ final class OAuthTokenManager
      * collision-resistant enough for cache-keying; we avoid md5/sha1 because
      * Sonar flags them across the board, and avoid sha256 because the extra
      * cost is wasted for a non-security use.
+     *
+     * `clientSecretSecret` is included so two configs that share the same
+     * client_id-secret identifier but reference different client_secret-secret
+     * identifiers don't collide on the cache (e.g. a key rotation that swaps
+     * the secret identifier without changing the client_id). The cache holds
+     * the access token, NOT the client_secret value — the identifier is
+     * non-sensitive enough to feed into a cache key.
      */
+    /**
+     * Defensive redaction of common credential patterns from upstream error
+     * messages before they reach the logger / audit log / OAuthException.
+     *
+     * Guzzle's `RequestException::getMessage()` typically includes the RESPONSE
+     * body, not the request — so a well-behaved server doesn't leak the
+     * `client_secret` we sent. But:
+     *
+     *  - OAuth servers sometimes echo the offending input back ("Invalid
+     *    client_secret 'xyz'"). RFC 6749 doesn't forbid it.
+     *  - A future refactor could land HTTP Basic auth (`Authorization: Basic
+     *    base64(client_id:client_secret)`) which DOES appear in
+     *    `RequestException::getMessage()` when verbose error formatting kicks
+     *    in.
+     *  - Generic Bearer tokens shouldn't appear here today but the same
+     *    pattern would mask them too.
+     *
+     * Defence in depth: never trust upstream error messages to be free of
+     * credentials. Cheap to apply, eliminates an entire class of accidental
+     * leaks through logs/audit/exception chains.
+     */
+    private function redactCredentials(string $message): string
+    {
+        return (string) preg_replace(
+            [
+                // form-encoded `client_secret=...` (request bodies, query strings)
+                '/(client_secret=)[^&\s"\'<>]+/i',
+                // form-encoded `refresh_token=...`
+                '/(refresh_token=)[^&\s"\'<>]+/i',
+                // Bearer / Basic Authorization headers (any case)
+                '/(Authorization:\s*Bearer\s+)\S+/i',
+                '/(Authorization:\s*Basic\s+)\S+/i',
+            ],
+            [
+                '$1[REDACTED]',
+                '$1[REDACTED]',
+                '$1[REDACTED]',
+                '$1[REDACTED]',
+            ],
+            $message,
+        );
+    }
+
     private function getCacheKey(OAuthConfig $config): string
     {
         return hash('xxh128', implode(':', [
             $config->tokenEndpoint,
             $config->clientIdSecret,
+            $config->clientSecretSecret,
             $config->grantType,
             $config->getScopesString(),
         ]));
