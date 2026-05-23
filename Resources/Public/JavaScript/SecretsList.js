@@ -9,7 +9,12 @@ import Severity from '@typo3/backend/severity.js';
 
 class SecretsList {
     constructor() {
-        this.revealedSecrets = new Map();
+        // No in-memory secret cache: every reveal MUST hit the AJAX endpoint
+        // so VaultService::retrieve() fires and an audit-log row is written.
+        // Caching the plaintext across reveal-modal opens would silently bypass
+        // the audit log on every reveal-after-first (violation of the
+        // "Audit every access" rule — see root AGENTS.md, Security
+        // Requirements item 5).
         this.init();
     }
 
@@ -183,12 +188,6 @@ class SecretsList {
             return;
         }
 
-        // Check cache first
-        if (this.revealedSecrets.has(identifier)) {
-            this.showRevealModal(identifier, this.revealedSecrets.get(identifier));
-            return;
-        }
-
         // Show loading modal
         const loadingModal = Modal.advanced({
             title: 'Loading Secret',
@@ -211,7 +210,6 @@ class SecretsList {
             loadingModal.hideModal();
 
             if (data.success && data.secret !== undefined) {
-                this.revealedSecrets.set(identifier, data.secret);
                 this.showRevealModal(identifier, data.secret);
             } else {
                 Notification.error('Error', data.error || 'Failed to reveal secret', 5);
@@ -351,8 +349,6 @@ class SecretsList {
 
             if (data.success) {
                 modal.hideModal();
-                // Clear cached secret since it's been rotated
-                this.revealedSecrets.delete(identifier);
                 Notification.success('Success', data.message || 'Secret rotated successfully', 3);
             } else {
                 Notification.error('Error', data.error || 'Failed to rotate secret', 5);
