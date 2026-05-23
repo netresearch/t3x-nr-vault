@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-23  
 **Scope:** READ-ONLY audit of `Tests/E2E/` test coverage for TYPO3 v13/v14 secrets-vault extension.  
-**Baseline:** 140 total E2E tests across 11 spec files; 34.1% FULL coverage per `USER_PATHWAY_COVERAGE.md`.
+**Baseline:** 140 total E2E tests across 14 spec files; 34.1% FULL coverage per `USER_PATHWAY_COVERAGE.md`.
 
 ---
 
@@ -29,6 +29,7 @@ Additionally, **9 fragility risks** across existing specs (hardcoded timeouts, C
 | `user-pathways/migration.spec.ts` | 420 | PARTIAL | Wizard steps (intro, scan, review, configure, execute, verify); scan-result counts NOT asserted. |
 | `user-pathways/cross-module.spec.ts` | 365 | PARTIAL | Full lifecycle audit cross-check, dashboard counter deltas, browser navigation. |
 | `security/security.spec.ts` | 454 | NEW | Unauthenticated redirect, AJAX 401/403, CSRF, XSS (description field), plaintext leakage, session-expiry, concurrent edits, method enforcement. |
+| `security/csrf-cookies.spec.ts` | n/a | NEW | SameSite + secure-cookie posture for AJAX endpoints. |
 | `security/lifecycle-extended.spec.ts` | 283 | NEW | Per-step audit-entry verification (create/read/update/rotate/enable/disable/delete), dashboard counter deltas. |
 | `security/audit-tamper.spec.ts` | 140 | NEW | Direct DB mutation via fixture hook, hash-chain re-verify, status callout assertion. |
 | `security/audit-extended.spec.ts` | 174 | NEW | JSON/CSV export shapes, pagination (Next/Prev/First/Last), combined filters. |
