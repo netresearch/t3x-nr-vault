@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Form\Element;
 
 use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Utility\LocalisationHelper;
 use Throwable;
 use TYPO3\CMS\Backend\Form\Element\AbstractFormElement;
 use TYPO3\CMS\Core\Imaging\IconFactory;
@@ -165,9 +166,11 @@ final class VaultSecretElement extends AbstractFormElement
     private function resolvePlaceholder(bool $hasValue, array $config): string
     {
         if ($hasValue) {
-            return $this->getLanguageService()->sL(
+            return LocalisationHelper::translateOrFallback(
+                $this->getLanguageService(),
                 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:vault_secret.placeholder_exists',
-            ) ?: '••••••••';
+                '••••••••',
+            );
         }
 
         $placeholderValue = $config['placeholder'] ?? '';

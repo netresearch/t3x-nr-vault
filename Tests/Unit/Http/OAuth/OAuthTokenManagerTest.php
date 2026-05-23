@@ -23,6 +23,7 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Client\ClientExceptionInterface;
@@ -33,6 +34,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
+use ReflectionClass;
 use RuntimeException;
 
 #[CoversClass(OAuthTokenManager::class)]
@@ -142,6 +144,64 @@ final class OAuthTokenManagerTest extends TestCase
 
         self::assertSame('cached-token', $token1);
         self::assertSame('cached-token', $token2);
+    }
+
+    /**
+     * Regression for PR #145/#148: the cache key MUST include
+     * `clientSecretSecret`. Two configs identical except for their
+     * client-secret vault handle must fetch separate tokens — otherwise
+     * a credential rotation that points the config at a new vault entry
+     * would silently keep serving the pre-rotation token.
+     */
+    #[Test]
+    public function cacheKeyFragmentsOnClientSecretSecret(): void
+    {
+        $configA = OAuthConfig::clientCredentials(
+            tokenEndpoint: 'https://auth.example.com/token',
+            clientIdSecret: 'oauth/client-id',
+            clientSecretSecret: 'oauth/client-secret-v1',
+        );
+        $configB = OAuthConfig::clientCredentials(
+            tokenEndpoint: 'https://auth.example.com/token',
+            clientIdSecret: 'oauth/client-id',
+            clientSecretSecret: 'oauth/client-secret-v2',
+        );
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(fn (string $id): ?string => match ($id) {
+                'oauth/client-id' => 'same-client-id',
+                'oauth/client-secret-v1' => 'old-secret',
+                'oauth/client-secret-v2' => 'rotated-secret',
+                default => null,
+            });
+
+        $this->httpClient
+            ->expects(self::exactly(2))
+            ->method('sendRequest')
+            ->willReturnOnConsecutiveCalls(
+                $this->createSuccessfulTokenResponse([
+                    'access_token' => 'token-from-v1',
+                    'token_type' => 'Bearer',
+                    'expires_in' => 3600,
+                ]),
+                $this->createSuccessfulTokenResponse([
+                    'access_token' => 'token-from-v2',
+                    'token_type' => 'Bearer',
+                    'expires_in' => 3600,
+                ]),
+            );
+
+        $tokenA = $this->subject->getAccessToken($configA);
+        $tokenB = $this->subject->getAccessToken($configB);
+
+        self::assertSame('token-from-v1', $tokenA);
+        self::assertSame(
+            'token-from-v2',
+            $tokenB,
+            'configB must NOT reuse configA\'s cached token — cache key collision means a '
+            . 'credential rotation never takes effect at runtime',
+        );
     }
 
     #[Test]
@@ -324,6 +384,70 @@ final class OAuthTokenManagerTest extends TestCase
         $this->expectExceptionMessage('OAuth token request failed: Connection timeout');
 
         $this->subject->getAccessToken($config);
+    }
+
+    /**
+     * Regression for PR #148 (Gemini HIGH): when the token request raises a
+     * `ClientExceptionInterface`, we must NOT attach the original exception as
+     * `previous`. Guzzle exceptions for token requests routinely embed the
+     * request/response body in their message — which carries the very
+     * credentials `redactCredentials()` just stripped from the outer message.
+     * Chaining the unredacted previous gives any
+     * `getPrevious()->getMessage()`-walking error handler a free pass to the
+     * secret. Keep the diagnostic value by including the previous class name
+     * in the outer message instead.
+     */
+    #[Test]
+    public function getAccessTokenDropsUnredactedPreviousOnClientException(): void
+    {
+        $config = OAuthConfig::clientCredentials(
+            tokenEndpoint: 'https://auth.example.com/token',
+            clientIdSecret: 'oauth/client-id',
+            clientSecretSecret: 'oauth/client-secret',
+        );
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(fn (string $id): ?string => match ($id) {
+                'oauth/client-id' => 'my-client-id',
+                'oauth/client-secret' => 'my-client-secret',
+                default => null,
+            });
+
+        // Guzzle-like exception whose message would leak a credential if a
+        // logger walked the chain.
+        $exception = new class ('client_secret=topSecr3t was rejected') extends RuntimeException implements ClientExceptionInterface {};
+
+        $this->httpClient
+            ->method('sendRequest')
+            ->willThrowException($exception);
+
+        try {
+            $this->subject->getAccessToken($config);
+            self::fail('Expected OAuthException');
+        } catch (OAuthException $oauthException) {
+            self::assertNull(
+                $oauthException->getPrevious(),
+                'OAuthException must not chain the original exception — its message '
+                . 'carries credentials that redactCredentials() already scrubbed from '
+                . 'the outer message',
+            );
+            self::assertStringContainsString(
+                'client_secret=[REDACTED]',
+                $oauthException->getMessage(),
+                'Outer message must carry the redacted form so operators still see what failed',
+            );
+            self::assertStringNotContainsString(
+                'topSecr3t',
+                $oauthException->getMessage(),
+                'Outer message must NOT carry the raw credential',
+            );
+            self::assertStringContainsString(
+                '(caused by ',
+                $oauthException->getMessage(),
+                'Outer message must include the previous-class hint for diagnostics',
+            );
+        }
     }
 
     #[Test]
@@ -1097,6 +1221,60 @@ final class OAuthTokenManagerTest extends TestCase
                 unset($GLOBALS['TYPO3_CONF_VARS']);
             }
         }
+    }
+
+    /**
+     * Security gate: `redactCredentials()` must scrub bearer / basic auth /
+     * client_secret / refresh_token from upstream error messages before they
+     * reach the logger, audit log, or OAuthException. Cheap defence against
+     * a future OAuth server (or refactor) that echoes credentials back in
+     * its error responses.
+     */
+    #[Test]
+    #[DataProvider('credentialPatternsProvider')]
+    public function redactCredentialsScrubsKnownPatterns(string $raw, string $expected): void
+    {
+        // `redactCredentials` is private; invoke via reflection. Handles
+        // both static and instance method forms so cgl / rector can flip
+        // it freely without breaking the regression guard.
+        $method = (new ReflectionClass(OAuthTokenManager::class))->getMethod('redactCredentials');
+        $target = $method->isStatic() ? null : $this->subject;
+        self::assertSame($expected, $method->invoke($target, $raw));
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function credentialPatternsProvider(): iterable
+    {
+        yield 'client_secret in form body' => [
+            'POST /token grant_type=client_credentials&client_secret=topSecr3t&scope=read',
+            'POST /token grant_type=client_credentials&client_secret=[REDACTED]&scope=read',
+        ];
+        yield 'refresh_token in form body' => [
+            'grant_type=refresh_token&refresh_token=eyJabc.def.ghi&scope=read',
+            'grant_type=refresh_token&refresh_token=[REDACTED]&scope=read',
+        ];
+        yield 'Bearer Authorization header' => [
+            'response headers: Authorization: Bearer abc123def456 — rejected',
+            'response headers: Authorization: Bearer [REDACTED] — rejected',
+        ];
+        yield 'Basic Authorization header' => [
+            'sent: Authorization: Basic dXNlcjpwYXNz== to endpoint',
+            'sent: Authorization: Basic [REDACTED] to endpoint',
+        ];
+        yield 'mixed multiple credentials' => [
+            'client_secret=abc&refresh_token=def — Authorization: Bearer xyz',
+            'client_secret=[REDACTED]&refresh_token=[REDACTED] — Authorization: Bearer [REDACTED]',
+        ];
+        yield 'case-insensitive Authorization header' => [
+            'authorization: bearer ABC123',
+            'authorization: bearer [REDACTED]',
+        ];
+        yield 'safe message passes through' => [
+            'Connection refused (timeout after 10s)',
+            'Connection refused (timeout after 10s)',
+        ];
     }
 
     private function setupRequestFactory(): void

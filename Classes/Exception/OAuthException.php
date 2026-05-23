@@ -61,7 +61,7 @@ final class OAuthException extends VaultException
         );
     }
 
-    public static function requestFailed(string $message, Throwable $previous): self
+    public static function requestFailed(string $message, ?Throwable $previous = null): self
     {
         return new self(
             \sprintf('OAuth token request failed: %s', $message),
