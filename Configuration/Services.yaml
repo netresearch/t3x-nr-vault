@@ -32,6 +32,9 @@ services:
   Netresearch\NrVault\Http\VaultHttpClientFactoryInterface:
     alias: Netresearch\NrVault\Http\VaultHttpClientFactory
 
+  Netresearch\NrVault\Http\DnsResolverInterface:
+    alias: Netresearch\NrVault\Http\DefaultDnsResolver
+
   Netresearch\NrVault\Service\VaultServiceInterface:
     alias: Netresearch\NrVault\Service\VaultService
     # public: makeInstance call sites in FormEngine (VaultSecretElement,

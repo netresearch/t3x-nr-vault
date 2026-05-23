@@ -43,6 +43,10 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  */
 final class SecureHttpClientFactory
 {
+    public function __construct(
+        private readonly DnsResolverInterface $dnsResolver = new DefaultDnsResolver(),
+    ) {}
+
     /**
      * Create a PSR-18 HTTP client with TYPO3 settings and security hardening.
      */
@@ -110,6 +114,22 @@ final class SecureHttpClientFactory
         // a different (internal) address between our check and the connect.
         $stack->push($this->buildSsrfDefenceMiddleware(), 'ssrf-dns-pin');
         $options['handler'] = $stack;
+
+        // ext-curl absence: Guzzle's HandlerStack::create() falls back to
+        // StreamHandler, which IGNORES the curl-only `CURLOPT_RESOLVE` option.
+        // The middleware still rejects dangerous-resolving hosts at lookup
+        // time (defence-in-depth), but the race-free pinning guarantee is
+        // gone — between our DNS check and stream's own resolution, an
+        // attacker can still rebind. Warn so operators notice the gap.
+        if (!\function_exists('curl_init')) {
+            $this->getLogger()->warning(
+                'PHP ext-curl is not loaded; the nr-vault HTTP client falls back '
+                . 'to the stream handler. DNS rebinding is no longer race-protected '
+                . '(the pre-request resolve-and-check is still enforced, but the '
+                . 'connect-time IP can drift). Install ext-curl to restore the '
+                . 'CURLOPT_RESOLVE pin.',
+            );
+        }
 
         return new Client($options);
     }
@@ -209,7 +229,10 @@ final class SecureHttpClientFactory
     {
         return function (callable $handler): Closure { /** @phpstan-ignore missingType.callable */
             return function (RequestInterface $request, array $options) use ($handler) {
-                $host = $request->getUri()->getHost();
+                // PSR-7 `getHost()` returns IPv6 literals wrapped in brackets
+                // (`[::1]`). The IP validators and `dns_get_record()` reject
+                // that form, so normalise to the bare host first.
+                $host = $this->normaliseHost($request->getUri()->getHost());
                 $port = $request->getUri()->getPort()
                     ?? (strtolower($request->getUri()->getScheme()) === 'https' ? 443 : 80);
 
@@ -265,16 +288,8 @@ final class SecureHttpClientFactory
             return [];
         }
 
-        // Suppress DNS lookup warnings (banned `@` operator).
-        set_error_handler(static fn (): bool => true);
-
-        try {
-            $records = dns_get_record($host, DNS_A | DNS_AAAA);
-        } finally {
-            restore_error_handler();
-        }
-
-        if (!\is_array($records) || $records === []) {
+        $records = $this->dnsResolver->resolve($host);
+        if ($records === []) {
             // Resolution failed — let curl produce the usual connection error.
             return [];
         }
@@ -291,7 +306,11 @@ final class SecureHttpClientFactory
                 // IP; if curl picked the internal one, we'd leak.
                 return null;
             }
-            $entries[] = \sprintf('%s:%d:%s', $host, $port, $ip);
+            // libcurl's CURLOPT_RESOLVE format is `host:port:address`. IPv6
+            // addresses contain colons, so they MUST be bracketed or curl
+            // misparses the entry (see curl docs / CVE-2025-* class of bugs).
+            $formattedIp = str_contains($ip, ':') ? '[' . $ip . ']' : $ip;
+            $entries[] = \sprintf('%s:%d:%s', $host, $port, $formattedIp);
         }
 
         return $entries;
@@ -502,20 +521,7 @@ final class SecureHttpClientFactory
             return false;
         }
 
-        // Suppress DNS lookup warnings without using `@` (banned by phpstan-strict-rules).
-        set_error_handler(static fn (): bool => true);
-
-        try {
-            $records = dns_get_record($host, DNS_A | DNS_AAAA);
-        } finally {
-            restore_error_handler();
-        }
-
-        if (!\is_array($records) || $records === []) {
-            return false;
-        }
-
-        foreach ($records as $record) {
+        foreach ($this->dnsResolver->resolve($host) as $record) {
             $ip = $record['ip'] ?? $record['ipv6'] ?? null;
             if (\is_string($ip) && $this->isDangerousIpLiteral($ip)) {
                 return true;
