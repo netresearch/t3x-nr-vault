@@ -151,10 +151,17 @@ final class EncryptionServiceTest extends TestCase
 
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
 
-        // Tamper with the encrypted value
-        $tamperedValue = base64_encode(
-            substr(base64_decode($encrypted->encryptedValue, true), 0, -1) . 'X',
-        );
+        // Flip every bit in the last ciphertext byte. The previous
+        // implementation appended a literal 'X' which collided with the
+        // original byte on ~1/256 runs (when it happened to already be
+        // 0x58) and let decryption succeed correctly — a real CI flake
+        // (see PR #147 / main-CI on 222009c). XOR-with-0xFF guarantees
+        // a different byte regardless of the underlying value.
+        $raw = base64_decode($encrypted->encryptedValue, true);
+        self::assertIsString($raw, 'EncryptedData::$encryptedValue must be valid base64');
+        $lastIndex = \strlen($raw) - 1;
+        $flipped = \chr(\ord($raw[$lastIndex]) ^ 0xFF);
+        $tamperedValue = base64_encode(substr($raw, 0, $lastIndex) . $flipped);
 
         $this->expectException(EncryptionException::class);
 
