@@ -8,7 +8,9 @@
  */
 class VaultSecretInput {
     constructor() {
-        this.revealedSecrets = new Map();
+        // No in-memory secret cache: every reveal MUST hit the AJAX endpoint
+        // so the server writes an audit row. Copy reads the value from the
+        // visible input field (DOM is the source of truth while revealed).
         this.init();
     }
 
@@ -68,12 +70,6 @@ class VaultSecretInput {
             return;
         }
 
-        // Check cache first
-        if (this.revealedSecrets.has(identifier)) {
-            this.showRevealedSecret(button, this.revealedSecrets.get(identifier));
-            return;
-        }
-
         // Show loading state
         button.disabled = true;
         const originalChildren = Array.from(button.childNodes);
@@ -98,7 +94,6 @@ class VaultSecretInput {
             const data = await response.json();
 
             if (data.success && data.secret !== undefined) {
-                this.revealedSecrets.set(identifier, data.secret);
                 // Restore icon before showing revealed secret
                 button.replaceChildren(...originalChildren);
                 this.showRevealedSecret(button, data.secret);
@@ -186,10 +181,15 @@ class VaultSecretInput {
      */
     async handleCopy(event) {
         const button = event.currentTarget;
-        const identifier = button.dataset.identifier;
+        const inputGroup = button.closest('.input-group');
+        const displayInput = inputGroup?.querySelector('input[data-vault-display]');
 
-        // Get from cache
-        const secret = this.revealedSecrets.get(identifier);
+        // Source of truth = the visible DOM input. When revealed, its value
+        // holds the plaintext; when hidden (input.type === 'password'), it
+        // holds the placeholder dots.
+        const secret = (displayInput && displayInput.type === 'text')
+            ? displayInput.value
+            : '';
         if (!secret) {
             if (top.TYPO3?.Notification) {
                 top.TYPO3.Notification.warning('Warning', 'Reveal the secret first before copying');

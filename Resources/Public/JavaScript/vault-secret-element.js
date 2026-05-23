@@ -8,7 +8,9 @@
  */
 class VaultSecretElement {
     constructor() {
-        this.revealedSecrets = new Map();
+        // No in-memory secret cache: every reveal MUST hit the AJAX endpoint
+        // so the server writes an audit row. Copy reads the value from the
+        // visible input field (DOM is the source of truth while revealed).
         this.originalButtonContents = new WeakMap();
         this.init();
     }
@@ -61,12 +63,6 @@ class VaultSecretElement {
             return;
         }
 
-        // If we have a cached secret, show it directly
-        if (identifier && this.revealedSecrets.has(identifier)) {
-            this.showSecret(input, button, inputGroup, this.revealedSecrets.get(identifier));
-            return;
-        }
-
         // No identifier means no stored secret — just toggle input type locally
         if (!identifier) {
             input.type = input.type === 'password' ? 'text' : 'password';
@@ -95,7 +91,6 @@ class VaultSecretElement {
             const data = await response.json();
 
             if (data.success && data.secret !== undefined) {
-                this.revealedSecrets.set(identifier, data.secret);
                 this.restoreButton(button);
                 this.showSecret(input, button, inputGroup, data.secret);
             } else {
@@ -153,9 +148,15 @@ class VaultSecretElement {
      */
     async handleCopy(event) {
         const button = event.currentTarget;
-        const identifier = this.getIdentifier(button);
+        const inputGroup = button.closest('.input-group');
+        const input = inputGroup?.querySelector('input[type="text"], input[type="password"]');
 
-        const secret = identifier ? this.revealedSecrets.get(identifier) : null;
+        // Source of truth = the visible DOM input. When revealed, its value
+        // holds the plaintext; when hidden, the value is empty (cleared by
+        // handleToggleVisibility) so copy refuses.
+        const secret = (input && input.type === 'text' && input.dataset.vaultRevealed === '1')
+            ? input.value
+            : '';
         if (!secret) {
             if (top.TYPO3?.Notification) {
                 top.TYPO3.Notification.warning('Warning', 'Reveal the secret first before copying');
@@ -191,12 +192,6 @@ class VaultSecretElement {
             input.value = '';
             input.placeholder = '';
             input.dataset.vaultRevealed = '0';
-
-            // Clear from cache
-            const identifier = this.getIdentifier(button);
-            if (identifier) {
-                this.revealedSecrets.delete(identifier);
-            }
 
             // Mark as cleared by removing the checksum
             const checksumField = input.closest('.formengine-field-item')
