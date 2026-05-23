@@ -198,10 +198,8 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             return [];
         }
 
-        $connection = $this->getConnection();
-
-        // Find secret UIDs that have any of the specified groups
-        $mmQuery = $connection->createQueryBuilder();
+        // First query hits the MM table — must use the MM connection.
+        $mmQuery = $this->getMmConnection()->createQueryBuilder();
         $intGroupUids = [];
         foreach ($groupUids as $gid) {
             $intGroupUids[] = (int) $gid;
@@ -221,7 +219,9 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         foreach ($secretUids as $sid) {
             $intSecretUids[] = is_numeric($sid) ? (int) $sid : 0;
         }
-        $queryBuilder = $connection->createQueryBuilder();
+
+        // Second query hits the secret table — uses the main connection.
+        $queryBuilder = $this->getConnection()->createQueryBuilder();
         $rows = $queryBuilder
             ->select('*')
             ->from(self::TABLE_NAME)
@@ -406,7 +406,7 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             return [];
         }
 
-        $queryBuilder = $this->getConnection()->createQueryBuilder();
+        $queryBuilder = $this->getMmConnection()->createQueryBuilder();
         $rows = $queryBuilder
             ->select('uid_local', 'uid_foreign')
             ->from(self::MM_TABLE_NAME)
@@ -433,7 +433,7 @@ final readonly class SecretRepository implements SecretRepositoryInterface
      */
     private function loadGroupsForSecret(int $secretUid): array
     {
-        $queryBuilder = $this->getConnection()->createQueryBuilder();
+        $queryBuilder = $this->getMmConnection()->createQueryBuilder();
         $rows = $queryBuilder
             ->select('uid_foreign')
             ->from(self::MM_TABLE_NAME)
@@ -460,15 +460,15 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             return;
         }
 
-        $connection = $this->getConnection();
+        $mmConnection = $this->getMmConnection();
 
         // Delete existing relations
-        $connection->delete(self::MM_TABLE_NAME, ['uid_local' => $secret->getUid()]);
+        $mmConnection->delete(self::MM_TABLE_NAME, ['uid_local' => $secret->getUid()]);
 
         // Insert new relations
         $groups = $secret->getAllowedGroups();
         foreach ($groups as $sorting => $groupUid) {
-            $connection->insert(self::MM_TABLE_NAME, [
+            $mmConnection->insert(self::MM_TABLE_NAME, [
                 'uid_local' => $secret->getUid(),
                 'uid_foreign' => $groupUid,
                 'sorting' => $sorting,
@@ -480,5 +480,18 @@ final readonly class SecretRepository implements SecretRepositoryInterface
     private function getConnection(): Connection
     {
         return $this->connectionPool->getConnectionForTable(self::TABLE_NAME);
+    }
+
+    /**
+     * Resolve the connection for the MM-relations table separately from the
+     * main secret table. TYPO3 supports per-table connection routing via
+     * \$GLOBALS['TYPO3_CONF_VARS']['DB']['Connections']; an admin who maps
+     * the MM table to a different DB would otherwise see MM operations
+     * issued against the WRONG connection (silently lost on a single-DB
+     * setup; failing entirely on a sharded one).
+     */
+    private function getMmConnection(): Connection
+    {
+        return $this->connectionPool->getConnectionForTable(self::MM_TABLE_NAME);
     }
 }
