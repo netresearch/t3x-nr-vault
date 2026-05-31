@@ -462,11 +462,21 @@ final class SecureHttpClientFactory
      *   ::                  (unspecified)
      *   ::1/128             (loopback)
      *   ::ffff:0:0/96       (IPv4-mapped — recurse to v4 check)
+     *   ::a.b.c.d/96        (IPv4-compatible, deprecated — recurse to v4 check)
      *   64:ff9b::/96        (NAT64 well-known prefix)
+     *   2002::/16           (6to4 — recurse on the embedded IPv4)
+     *   2001::/32           (Teredo — recurse on the embedded client+server IPv4)
      *   100::/64            (discard-only)
      *   fc00::/7            (ULA)
      *   fe80::/10           (link-local)
      *   ff00::/8            (multicast)
+     *
+     * The transition forms (6to4 / Teredo / IPv4-compatible) embed an IPv4
+     * address inside the IPv6 address. A naive range check that omits them
+     * lets an attacker smuggle a metadata/RFC1918 IPv4 target past the SSRF
+     * filter as a valid AAAA record or IP literal (CVE-2026-48736 class).
+     * Each branch decodes the embedded IPv4 and recurses into the v4 deny
+     * check, mirroring the existing NAT64/IPv4-mapped handling.
      */
     private function isDangerousIpv6(string $packed): bool
     {
@@ -499,12 +509,50 @@ final class SecureHttpClientFactory
 
         // IPv4-mapped ::ffff:0:0/96 — recurse on the embedded IPv4
         if (substr($packed, 0, 10) === str_repeat("\x00", 10) && substr($packed, 10, 2) === "\xff\xff") {
-            $v4 = inet_ntop(substr($packed, 12, 4));
+            return $this->embeddedIpv4IsDangerous(substr($packed, 12, 4));
+        }
 
-            return \is_string($v4) && $this->isDangerousIpLiteral($v4);
+        // 6to4 2002::/16 — bytes 2-5 carry the embedded IPv4 (RFC 3056).
+        if (substr($packed, 0, 2) === "\x20\x02") {
+            return $this->embeddedIpv4IsDangerous(substr($packed, 2, 4));
+        }
+
+        // Teredo 2001::/32 (prefix 2001:0000::/32, RFC 4380). The Teredo
+        // server IPv4 is bytes 4-7 verbatim; the Teredo CLIENT IPv4 is
+        // bytes 12-15 stored obfuscated (XOR 0xFFFFFFFF). Either reaching a
+        // dangerous IPv4 is enough to reject.
+        if (substr($packed, 0, 4) === "\x20\x01\x00\x00") {
+            $serverV4 = substr($packed, 4, 4);
+            $clientV4 = substr($packed, 12, 4) ^ "\xff\xff\xff\xff";
+
+            return $this->embeddedIpv4IsDangerous($serverV4)
+                || $this->embeddedIpv4IsDangerous($clientV4);
+        }
+
+        // IPv4-compatible ::a.b.c.d/96 (deprecated, RFC 4291 §2.5.5.1):
+        // first 12 bytes zero and a non-trivial trailing IPv4. `::` and `::1`
+        // are already handled above, so any remaining all-zero-prefix address
+        // here carries an embedded IPv4 we must inspect (e.g. ::127.0.0.1).
+        if (substr($packed, 0, 12) === str_repeat("\x00", 12)) {
+            return $this->embeddedIpv4IsDangerous(substr($packed, 12, 4));
         }
 
         return false;
+    }
+
+    /**
+     * Decode a 4-byte packed IPv4 address embedded inside an IPv6 transition
+     * form and recurse into the IPv4 deny check.
+     */
+    private function embeddedIpv4IsDangerous(string $packedV4): bool
+    {
+        if (\strlen($packedV4) !== 4) {
+            return false;
+        }
+
+        $v4 = inet_ntop($packedV4);
+
+        return \is_string($v4) && $this->isDangerousIpLiteral($v4);
     }
 
     /**
