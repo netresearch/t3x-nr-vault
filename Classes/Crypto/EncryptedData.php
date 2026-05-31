@@ -16,7 +16,8 @@ namespace Netresearch\NrVault\Crypto;
  * Value object representing encrypted data from envelope encryption.
  *
  * Contains the encrypted value, encrypted DEK, nonces, and checksum.
- * All values are base64-encoded for safe storage/transport.
+ * The value/DEK/nonce fields are base64-encoded for safe storage/transport;
+ * the checksum is a hex-encoded keyed HMAC-SHA-256 over the ciphertext.
  */
 final readonly class EncryptedData
 {
@@ -29,7 +30,7 @@ final readonly class EncryptedData
         public string $dekNonce,
         /** Base64-encoded nonce used for value encryption */
         public string $valueNonce,
-        /** SHA-256 hash of plaintext for change detection */
+        /** Hex-encoded keyed HMAC-SHA-256 over the ciphertext (per-secret MAC key derived from the DEK) for change detection */
         public string $valueChecksum,
     ) {}
 
@@ -40,7 +41,7 @@ final readonly class EncryptedData
      * @param string $encryptedDek Raw encrypted DEK bytes
      * @param string $dekNonce Raw DEK nonce bytes
      * @param string $valueNonce Raw value nonce bytes
-     * @param string $valueChecksum Hex-encoded SHA-256 hash
+     * @param string $valueChecksum Hex-encoded keyed HMAC-SHA-256 over the ciphertext
      */
     public static function fromRaw(
         string $encryptedValue,

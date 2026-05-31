@@ -169,6 +169,46 @@ final class EncryptionServiceTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function encryptValueChecksumIsKeyedNotPlaintextSha256(): void
+    {
+        // End-to-end with the real file master-key provider and libsodium: the
+        // stored change-detection token must be a keyed MAC over the ciphertext,
+        // not an offline-computable hash of the plaintext (SEC-CRYPTO-1).
+        $encryptionService = $this->get(EncryptionServiceInterface::class);
+        $plaintext = 'low-entropy-guessable';
+
+        FileMasterKeyProvider::clearCachedKey();
+        $encrypted = $encryptionService->encrypt($plaintext, 'checksum_keyed_' . bin2hex(random_bytes(4)));
+
+        self::assertSame(64, \strlen((string) $encrypted->valueChecksum));
+        self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $encrypted->valueChecksum);
+        self::assertNotSame(
+            hash('sha256', $plaintext),
+            $encrypted->valueChecksum,
+            'Stored checksum must not be an unkeyed sha256 of the plaintext',
+        );
+    }
+
+    #[Test]
+    public function encryptValueChecksumDiffersPerSecretForIdenticalPlaintext(): void
+    {
+        $encryptionService = $this->get(EncryptionServiceInterface::class);
+        $plaintext = 'identical-across-secrets';
+
+        FileMasterKeyProvider::clearCachedKey();
+        $first = $encryptionService->encrypt($plaintext, 'checksum_a_' . bin2hex(random_bytes(4)));
+
+        FileMasterKeyProvider::clearCachedKey();
+        $second = $encryptionService->encrypt($plaintext, 'checksum_b_' . bin2hex(random_bytes(4)));
+
+        self::assertNotSame(
+            $first->valueChecksum,
+            $second->valueChecksum,
+            'Per-secret DEK-derived MAC key must yield different checksums for identical plaintext',
+        );
+    }
+
+    #[Test]
     public function reEncryptDekChangesEncryptedDekBytes(): void
     {
         // This test uses the full vault service to round-trip secrets across key rotation,

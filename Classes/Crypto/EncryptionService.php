@@ -22,6 +22,15 @@ use SodiumException;
  */
 final readonly class EncryptionService implements EncryptionServiceInterface
 {
+    /**
+     * HKDF domain-separation context for deriving the per-secret checksum MAC
+     * key from the DEK. Distinct from any other HKDF use in the codebase.
+     */
+    private const CHECKSUM_HKDF_INFO = 'nr-vault-checksum';
+
+    /** Length (bytes) of the derived checksum MAC key. */
+    private const CHECKSUM_MAC_KEY_LENGTH = 32;
+
     public function __construct(
         private MasterKeyProviderInterface $masterKeyProvider,
         private ExtensionConfigurationInterface $configuration,
@@ -46,11 +55,19 @@ final readonly class EncryptionService implements EncryptionServiceInterface
             // Encrypt the value with DEK
             $encryptedValue = $this->encryptWithKey($plaintext, $dek, $valueNonce, $identifier);
 
-            // Calculate checksum for change detection
-            $checksum = $this->calculateChecksum($plaintext);
+            // Change-detection token: a KEYED MAC over the ciphertext, never the
+            // plaintext. The MAC key is derived per-secret from the DEK via HKDF,
+            // so the stored checksum is not an offline-computable function of the
+            // plaintext (no guess-confirmation oracle) and identical plaintexts in
+            // different secrets yield different checksums (no equality leakage).
+            // Integrity itself comes from the AEAD tag; this is solely a change
+            // detector / audit before-after token. See SEC-CRYPTO-1 / ADR-002.
+            $macKey = hash_hkdf('sha256', $dek, self::CHECKSUM_MAC_KEY_LENGTH, self::CHECKSUM_HKDF_INFO);
+            $checksum = hash_hmac('sha256', $encryptedValue, $macKey);
 
             // Securely wipe sensitive data
             sodium_memzero($dek);
+            sodium_memzero($macKey);
             sodium_memzero($masterKey);
             sodium_memzero($plaintext);
 
@@ -63,6 +80,15 @@ final readonly class EncryptionService implements EncryptionServiceInterface
             );
         } catch (SodiumException) {
             throw EncryptionException::encryptionFailed('Encryption operation failed');
+        } finally {
+            // Wipe key material on every path, including the SodiumException
+            // error path that bypasses the in-try wipes above.
+            if (isset($dek)) {
+                sodium_memzero($dek);
+            }
+            if (isset($macKey)) {
+                sodium_memzero($macKey);
+            }
         }
     }
 
@@ -102,6 +128,15 @@ final readonly class EncryptionService implements EncryptionServiceInterface
             return $plaintext;
         } catch (SodiumException) {
             throw EncryptionException::decryptionFailed('Decryption operation failed');
+        } finally {
+            // Wipe the freshly unwrapped DEK on every path, including the
+            // SodiumException error path reachable via tampered ciphertext that
+            // bypasses the in-try wipe above. The master key is the provider's
+            // request-cached value and is handled by the in-try wipe only (see
+            // SEC-CRYPTO-2 / ADR-002), to avoid clobbering the shared cache.
+            if (isset($dek)) {
+                sodium_memzero($dek);
+            }
         }
     }
 

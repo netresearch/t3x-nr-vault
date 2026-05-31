@@ -231,6 +231,84 @@ final class EncryptionServiceTest extends TestCase
     }
 
     #[Test]
+    public function encryptValueChecksumIsHex64(): void
+    {
+        $encrypted = $this->subject->encrypt('shape-check', 'shape-id');
+
+        // Keep the 64-hex shape so downstream/audit usage is unchanged.
+        self::assertSame(64, \strlen($encrypted->valueChecksum));
+        self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $encrypted->valueChecksum);
+    }
+
+    #[Test]
+    public function encryptValueChecksumIsNotPlaintextSha256(): void
+    {
+        $plaintext = 'low-entropy-guessable-secret';
+
+        $encrypted = $this->subject->encrypt($plaintext, 'oracle-id');
+
+        // The stored change-detection token must NOT be an offline-computable
+        // function of the plaintext (SEC-CRYPTO-1): no sha256(plaintext) oracle.
+        self::assertNotSame(hash('sha256', $plaintext), $encrypted->valueChecksum);
+    }
+
+    #[Test]
+    public function encryptValueChecksumDiffersPerSecretForIdenticalPlaintext(): void
+    {
+        $plaintext = 'identical-plaintext-across-secrets';
+
+        $first = $this->subject->encrypt($plaintext, 'secret-a');
+        $second = $this->subject->encrypt($plaintext, 'secret-b');
+
+        // Per-secret DEK => per-secret MAC key + per-call ciphertext => the
+        // checksum must not leak plaintext equality across secrets.
+        self::assertNotSame($first->valueChecksum, $second->valueChecksum);
+    }
+
+    #[Test]
+    public function decryptStillSucceedsAfterTamperedDecryptInSameRequest(): void
+    {
+        // Proves the throw path's DEK wipe (a finally on a fresh local $dek)
+        // does not clobber the shared request-cached master key: a tampered
+        // decrypt throws, yet a subsequent legitimate decrypt still works.
+        $plaintext = 'sequential-decrypt-secret';
+        $identifier = 'seq-id';
+
+        $encrypted = $this->subject->encrypt($plaintext, $identifier);
+
+        $raw = base64_decode($encrypted->encryptedValue, true);
+        self::assertIsString($raw);
+        $lastIndex = \strlen($raw) - 1;
+        $flipped = \chr(\ord($raw[$lastIndex]) ^ 0xFF);
+        $tamperedValue = base64_encode(substr($raw, 0, $lastIndex) . $flipped);
+
+        $threw = false;
+
+        try {
+            $this->subject->decrypt(
+                $tamperedValue,
+                $encrypted->encryptedDek,
+                $encrypted->dekNonce,
+                $encrypted->valueNonce,
+                $identifier,
+            );
+        } catch (EncryptionException) {
+            $threw = true;
+        }
+        self::assertTrue($threw, 'tampered ciphertext must fail closed on the throw path');
+
+        // Same request, legitimate decrypt must still round-trip.
+        $decrypted = $this->subject->decrypt(
+            $encrypted->encryptedValue,
+            $encrypted->encryptedDek,
+            $encrypted->dekNonce,
+            $encrypted->valueNonce,
+            $identifier,
+        );
+        self::assertSame($plaintext, $decrypted);
+    }
+
+    #[Test]
     public function reEncryptDekWorksWithNewMasterKey(): void
     {
         $plaintext = 'reencrypt-test';
