@@ -21,6 +21,7 @@ services:
   # `GeneralUtility::makeInstance(<Interface>::class)` — verified by
   # grepping `Classes/` + `Tests/Functional/` + `Tests/Fuzz/`:
   #   - VaultServiceInterface: 3 sites (Form/Element/Task)
+  #   - SecretRepositoryInterface: OrphanCleanupTask scheduler context
   # Every other alias resolves via constructor DI only and can stay private.
 
   Netresearch\NrVault\Configuration\ExtensionConfigurationInterface:
@@ -50,6 +51,14 @@ services:
 
   Netresearch\NrVault\Adapter\VaultAdapterInterface:
     alias: Netresearch\NrVault\Adapter\LocalEncryptionAdapter
+
+  Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface:
+    alias: Netresearch\NrVault\Domain\Repository\SecretRepository
+    # public: OrphanCleanupTask runs in the scheduler context (unserialized
+    # with null ctor args) and resolves the repository via
+    # GeneralUtility::makeInstance(SecretRepositoryInterface::class) for its
+    # UID-windowed orphan scan — which requires a public alias.
+    public: true
 
   Netresearch\NrVault\Service\SecretDetectionServiceInterface:
     alias: Netresearch\NrVault\Service\SecretDetectionService
