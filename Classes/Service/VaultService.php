@@ -14,6 +14,7 @@ namespace Netresearch\NrVault\Service;
 
 use DateTimeInterface;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
+use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\EncryptedData;
@@ -28,6 +29,7 @@ use Netresearch\NrVault\Event\SecretDeletedEvent;
 use Netresearch\NrVault\Event\SecretRotatedEvent;
 use Netresearch\NrVault\Event\SecretUpdatedEvent;
 use Netresearch\NrVault\Exception\AccessDeniedException;
+use Netresearch\NrVault\Exception\AuditWriteException;
 use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Exception\SecretExpiredException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
@@ -37,7 +39,9 @@ use Netresearch\NrVault\Http\VaultHttpClientInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Psr\Log\LoggerInterface;
 use SensitiveParameter;
+use Throwable;
 use TYPO3\CMS\Core\SingletonInterface;
 
 /**
@@ -56,6 +60,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         private readonly ExtensionConfigurationInterface $configuration,
         private readonly VaultHttpClientFactoryInterface $httpClientFactory,
         private readonly ?EventDispatcherInterface $eventDispatcher = null,
+        private readonly ?LoggerInterface $logger = null,
     ) {}
 
     public function __destruct()
@@ -87,15 +92,39 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             // instance from the repository's INSERT.
             $secretEntity = $this->adapter->store($secretEntity);
 
-            $this->auditLogService->log(
-                $identifier,
-                $existing instanceof Secret ? 'update' : 'create',
-                true,
-                null,
-                null,
-                $existing?->getValueChecksum(),
-                $encrypted->valueChecksum,
-            );
+            // SEC-3 atomicity: the mutation and its tamper-evident audit
+            // entry MUST be all-or-nothing. A single shared DB transaction is
+            // NOT usable here — AuditLogService manages its own transaction
+            // lifecycle (SQLite `BEGIN EXCLUSIVE`/`COMMIT`, MySQL advisory
+            // GET_LOCK), so nesting log() inside an outer transaction would
+            // either error or prematurely commit the mutation. We therefore
+            // compensate: if the audit write throws, revert the adapter change
+            // so a secret never persists without an audit record.
+            try {
+                $this->auditLogService->log(
+                    $identifier,
+                    $existing instanceof Secret ? AuditAction::Update->value : AuditAction::Create->value,
+                    true,
+                    null,
+                    null,
+                    $existing?->getValueChecksum(),
+                    $encrypted->valueChecksum,
+                );
+            } catch (AuditWriteException $auditException) {
+                $this->compensateAuditFailure(
+                    $identifier,
+                    function () use ($existing, $identifier): void {
+                        if ($existing instanceof Secret) {
+                            // Update: restore the prior encrypted envelope/version.
+                            $this->adapter->store($existing);
+                        } else {
+                            // Create: remove the just-inserted record.
+                            $this->adapter->delete($identifier);
+                        }
+                    },
+                    $auditException,
+                );
+            }
 
             $this->dispatchStoreEvent($identifier, $secretEntity, !$existing instanceof Secret);
 
@@ -120,14 +149,14 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
         // Check access
         if (!$this->accessControlService->canRead($secret)) {
-            $this->auditLogService->log($identifier, 'access_denied', false, 'Read access denied');
+            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Read access denied');
 
             throw AccessDeniedException::forIdentifier($identifier, 'insufficient permissions');
         }
 
         // Check expiration
         if ($secret->isExpired()) {
-            $this->auditLogService->log($identifier, 'read', false, 'Secret has expired');
+            $this->auditLogService->log($identifier, AuditAction::Read->value, false, 'Secret has expired');
 
             throw SecretExpiredException::forIdentifier($identifier, $secret->getExpiresAt());
         }
@@ -142,7 +171,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
                 $identifier,
             );
         } catch (EncryptionException $e) {
-            $this->auditLogService->log($identifier, 'read', false, 'Decryption failed: ' . $e->getMessage());
+            $this->auditLogService->log($identifier, AuditAction::Read->value, false, 'Decryption failed: ' . $e->getMessage());
 
             throw $e;
         }
@@ -155,7 +184,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
         // Log success (can be disabled for high-throughput scenarios)
         if ($this->configuration->isAuditReadsEnabled()) {
-            $this->auditLogService->log($identifier, 'read', true);
+            $this->auditLogService->log($identifier, AuditAction::Read->value, true);
         }
 
         // Dispatch PSR-14 event
@@ -187,7 +216,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
         // Check access
         if (!$this->accessControlService->canDelete($secret)) {
-            $this->auditLogService->log($identifier, 'access_denied', false, 'Delete access denied');
+            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Delete access denied');
 
             throw AccessDeniedException::forIdentifier($identifier, 'delete permission denied');
         }
@@ -197,15 +226,27 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         // Delete
         $this->adapter->delete($identifier);
 
-        // Log
-        $this->auditLogService->log(
-            $identifier,
-            'delete',
-            true,
-            null,
-            $reason,
-            $hashBefore,
-        );
+        // SEC-3 atomicity (compensating rollback — see store() for rationale):
+        // if the audit write fails, re-insert the just-deleted record so a
+        // delete never persists without a tamper-evident audit entry.
+        try {
+            $this->auditLogService->log(
+                $identifier,
+                AuditAction::Delete->value,
+                true,
+                null,
+                $reason,
+                $hashBefore,
+            );
+        } catch (AuditWriteException $auditException) {
+            $this->compensateAuditFailure(
+                $identifier,
+                function () use ($secret): void {
+                    $this->adapter->store($secret);
+                },
+                $auditException,
+            );
+        }
 
         // Dispatch PSR-14 event
         $this->eventDispatcher?->dispatch(new SecretDeletedEvent(
@@ -227,7 +268,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
         // Check access
         if (!$this->accessControlService->canWrite($secret)) {
-            $this->auditLogService->log($identifier, 'access_denied', false, 'Rotate access denied');
+            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Rotate access denied');
 
             throw AccessDeniedException::forIdentifier($identifier, 'rotate permission denied');
         }
@@ -238,6 +279,9 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
         try {
             $hashBefore = $secret->getValueChecksum();
+
+            // Keep the pre-rotation instance for compensating rollback.
+            $previousSecret = $secret;
 
             // Encrypt the new secret
             $encrypted = $this->encryptionService->encrypt($newSecret, $identifier);
@@ -250,16 +294,29 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             // result to stay consistent with the create path).
             $secret = $this->adapter->store($secret);
 
-            // Log
-            $this->auditLogService->log(
-                $identifier,
-                'rotate',
-                true,
-                null,
-                $reason,
-                $hashBefore,
-                $encrypted->valueChecksum,
-            );
+            // SEC-3 atomicity (compensating rollback — see store() for
+            // rationale): if the audit write fails, restore the previous
+            // envelope/version so a rotation never persists without a
+            // tamper-evident audit entry.
+            try {
+                $this->auditLogService->log(
+                    $identifier,
+                    AuditAction::Rotate->value,
+                    true,
+                    null,
+                    $reason,
+                    $hashBefore,
+                    $encrypted->valueChecksum,
+                );
+            } catch (AuditWriteException $auditException) {
+                $this->compensateAuditFailure(
+                    $identifier,
+                    function () use ($previousSecret): void {
+                        $this->adapter->store($previousSecret);
+                    },
+                    $auditException,
+                );
+            }
 
             // Dispatch PSR-14 event
             $this->eventDispatcher?->dispatch(new SecretRotatedEvent(
@@ -316,7 +373,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
         // Check access
         if (!$this->accessControlService->canRead($secret)) {
-            $this->auditLogService->log($identifier, 'access_denied', false, 'Metadata access denied');
+            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Metadata access denied');
 
             throw AccessDeniedException::forIdentifier($identifier, 'insufficient permissions');
         }
@@ -343,6 +400,53 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
     }
 
     /**
+     * Compensate a failed audit write by reverting the just-applied mutation,
+     * then re-throw the original `AuditWriteException` so the caller sees the
+     * real cause.
+     *
+     * The revert is itself guarded: if it throws (e.g. the same DB fault that
+     * broke the audit write also breaks the revert), the mutation has persisted
+     * WITHOUT a tamper-evident audit record — a violation of the SEC-3
+     * all-or-nothing invariant. We log that inconsistency at CRITICAL (with the
+     * identifier, never the secret value) so it can be reconciled, chain the
+     * revert failure onto the original exception as `previous`, and still
+     * surface the original `AuditWriteException` as the thrown type.
+     *
+     * @param callable():void $revert Reapplies the pre-mutation adapter state.
+     */
+    private function compensateAuditFailure(
+        string $identifier,
+        callable $revert,
+        AuditWriteException $auditException,
+    ): never {
+        try {
+            $revert();
+        } catch (Throwable $revertFailure) {
+            $this->logger?->critical(
+                'Vault inconsistency: mutation persisted without an audit record; '
+                . 'the compensating rollback also failed. Manual reconciliation required.',
+                [
+                    'identifier' => $identifier,
+                    'auditError' => $auditException->getMessage(),
+                    'rollbackError' => $revertFailure->getMessage(),
+                ],
+            );
+
+            unset($this->cache[$identifier]);
+
+            throw new AuditWriteException(
+                $auditException->getMessage(),
+                $auditException->getCode(),
+                $revertFailure,
+            );
+        }
+
+        unset($this->cache[$identifier]);
+
+        throw $auditException;
+    }
+
+    /**
      * Verify the current actor can create-or-update this secret. Logs the
      * denial and throws `AccessDeniedException` on rejection.
      *
@@ -353,7 +457,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
     {
         if (!$existing instanceof Secret) {
             if (!$this->accessControlService->canCreate()) {
-                $this->auditLogService->log($identifier, 'access_denied', false, 'Create access denied');
+                $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Create access denied');
 
                 throw AccessDeniedException::forIdentifier($identifier, 'create permission denied');
             }
@@ -361,7 +465,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             return;
         }
         if (!$this->accessControlService->canWrite($existing)) {
-            $this->auditLogService->log($identifier, 'access_denied', false, 'Update access denied');
+            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Update access denied');
 
             throw AccessDeniedException::forIdentifier($identifier, 'update permission denied');
         }
@@ -396,7 +500,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             ownerUid: $this->resolveOwnerUid($options, $existing),
             allowedGroups: $optional['allowedGroups'],
             context: $optional['context'],
-            frontendAccessible: $optional['frontendAccessible'],
+            frontendAccessible: $this->resolveFrontendAccessible($optional['frontendAccessible'], $existing),
             version: $existing instanceof Secret ? $existing->getVersion() : 1,
             expiresAt: $optional['expiresAt'],
             metadata: $optional['metadata'],
@@ -431,6 +535,31 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         }
 
         return $requestedOwner;
+    }
+
+    /**
+     * `frontend_accessible` is privileged: it flips a secret from
+     * "encrypted, ACL-gated" to "readable by any frontend/api code path".
+     * Mirroring the `owner_uid` coercion, a non-admin BACKEND caller that
+     * tries to mark a secret frontend-accessible is silently coerced back
+     * to the secret's prior value (false on create, the existing flag on
+     * update). CLI/api/scheduler actor types are trusted callers and are
+     * not coerced (a non-BE programmatic caller already controls the call,
+     * consistent with `resolveOwnerUid`).
+     */
+    private function resolveFrontendAccessible(bool $requested, ?Secret $existing): bool
+    {
+        $default = $existing instanceof Secret && $existing->isFrontendAccessible();
+        if ($requested === $default) {
+            return $default;
+        }
+        if ($this->accessControlService->getCurrentActorType() === 'backend'
+            && !$this->accessControlService->isCurrentActorAdmin()
+        ) {
+            return $default;
+        }
+
+        return $requested;
     }
 
     /**

@@ -18,6 +18,7 @@ use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\AccessDeniedException;
+use Netresearch\NrVault\Exception\AuditWriteException;
 use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Exception\SecretExpiredException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
@@ -241,6 +242,75 @@ final class VaultServiceTest extends TestCase
             ->willReturnArgument(0);
 
         $subject->store('coerce', 'plaintext', ['owner' => 99]);
+    }
+
+    #[Test]
+    public function storeCoercesFrontendAccessibleForNonAdminBackendActor(): void
+    {
+        $beActorAccess = $this->createMock(AccessControlServiceInterface::class);
+        $beActorAccess->method('getCurrentActorUid')->willReturn(7);
+        $beActorAccess->method('getCurrentActorType')->willReturn('backend');
+        $beActorAccess->method('canCreate')->willReturn(true);
+        $beActorAccess->method('isCurrentActorAdmin')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $beActorAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+
+        $this->adapter->method('retrieve')->willReturn(null);
+
+        // Non-admin BE actor marking frontendAccessible=true must be coerced
+        // back to false (privileged flag, SEC-ACCESS-11).
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::callback(static fn (Secret $s): bool => $s->isFrontendAccessible() === false))
+            ->willReturnArgument(0);
+
+        $subject->store('coerce_fe', 'plaintext', ['frontendAccessible' => true]);
+    }
+
+    #[Test]
+    public function storeAllowsFrontendAccessibleForAdminBackendActor(): void
+    {
+        $adminAccess = $this->createMock(AccessControlServiceInterface::class);
+        $adminAccess->method('getCurrentActorUid')->willReturn(1);
+        $adminAccess->method('getCurrentActorType')->willReturn('backend');
+        $adminAccess->method('canCreate')->willReturn(true);
+        $adminAccess->method('isCurrentActorAdmin')->willReturn(true);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $adminAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+
+        $this->adapter->method('retrieve')->willReturn(null);
+
+        // Admin BE actor may mark a secret frontend-accessible.
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::callback(static fn (Secret $s): bool => $s->isFrontendAccessible()))
+            ->willReturnArgument(0);
+
+        $subject->store('admin_fe', 'plaintext', ['frontendAccessible' => true]);
     }
 
     #[Test]
@@ -904,6 +974,133 @@ final class VaultServiceTest extends TestCase
         $this->subject->store('test', 'secret', [
             'groups' => [1, 2, 3],
         ]);
+    }
+
+    #[Test]
+    public function storeRollsBackCreateWhenAuditWriteFails(): void
+    {
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+
+        $this->adapter->method('retrieve')->willReturn(null);
+
+        // SEC-3: a failing audit write must trigger a compensating delete of
+        // the just-inserted record so it never persists without an audit entry.
+        $this->auditLogService
+            ->method('log')
+            ->willThrowException(new AuditWriteException('audit down', 1747825331));
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('delete')
+            ->with('rollback_create');
+
+        $this->expectException(AuditWriteException::class);
+
+        $this->subject->store('rollback_create', 'plaintext');
+    }
+
+    #[Test]
+    public function storeRollsBackUpdateWhenAuditWriteFails(): void
+    {
+        $existing = $this->createSecretEntity('rollback_update', uid: 42, version: 2, crdate: 1000);
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        $this->auditLogService
+            ->method('log')
+            ->willThrowException(new AuditWriteException('audit down', 1747825331));
+
+        // On update, the compensating action restores the prior instance:
+        // store() is called twice — once for the mutation, once to restore.
+        $storeArgs = [];
+        $this->adapter
+            ->expects(self::exactly(2))
+            ->method('store')
+            ->willReturnCallback(static function (Secret $s) use (&$storeArgs): Secret {
+                $storeArgs[] = $s;
+
+                return $s;
+            });
+
+        $this->expectException(AuditWriteException::class);
+
+        try {
+            $this->subject->store('rollback_update', 'new-value');
+        } finally {
+            // The second (compensating) store must be the original $existing.
+            self::assertSame($existing, $storeArgs[1] ?? null);
+        }
+    }
+
+    #[Test]
+    public function deleteRollsBackWhenAuditWriteFails(): void
+    {
+        $secret = $this->createSecretEntity('rollback_delete');
+
+        $this->adapter->method('retrieve')->willReturn($secret);
+        $this->accessControlService->method('canDelete')->willReturn(true);
+
+        $this->adapter->expects(self::once())->method('delete')->with('rollback_delete');
+
+        $this->auditLogService
+            ->method('log')
+            ->willThrowException(new AuditWriteException('audit down', 1747825331));
+
+        // Compensating action: re-insert the just-deleted record.
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with($secret)
+            ->willReturnArgument(0);
+
+        $this->expectException(AuditWriteException::class);
+
+        $this->subject->delete('rollback_delete', 'reason');
+    }
+
+    #[Test]
+    public function rotateRollsBackWhenAuditWriteFails(): void
+    {
+        $secret = $this->createSecretEntity('rollback_rotate', version: 1);
+
+        $this->adapter->method('retrieve')->willReturn($secret);
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('new_enc', 'new_dek', 'n1', 'n2', 'new_cs'));
+
+        $this->auditLogService
+            ->method('log')
+            ->willThrowException(new AuditWriteException('audit down', 1747825331));
+
+        // store() called twice: rotated value, then compensating restore of
+        // the pre-rotation instance.
+        $storeArgs = [];
+        $this->adapter
+            ->expects(self::exactly(2))
+            ->method('store')
+            ->willReturnCallback(static function (Secret $s) use (&$storeArgs): Secret {
+                $storeArgs[] = $s;
+
+                return $s;
+            });
+
+        $this->expectException(AuditWriteException::class);
+
+        try {
+            $this->subject->rotate('rollback_rotate', 'new-value', 'reason');
+        } finally {
+            // The compensating store must be the original pre-rotation secret.
+            self::assertSame($secret, $storeArgs[1] ?? null);
+        }
     }
 
     /**
