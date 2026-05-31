@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Controller;
 
 use DateTimeImmutable;
 use Exception;
+use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -143,7 +144,11 @@ final readonly class AuditController
             'filters' => ['_form' => $formData],
             'pagination' => $pagination,
             'isAdmin' => $this->isAdmin(),
-            'actions' => ['create', 'read', 'update', 'delete', 'rotate', 'access_denied', 'http_call'],
+            // Derive the action-filter list from the AuditAction enum so the UI
+            // can never drift from the actions actually written to the chain
+            // (the previous hard-coded list silently omitted master_key_* and
+            // oauth_* actions).
+            'actions' => array_map(static fn (AuditAction $action): string => $action->value, AuditAction::cases()),
         ]);
 
         $moduleTemplate->setTitle(

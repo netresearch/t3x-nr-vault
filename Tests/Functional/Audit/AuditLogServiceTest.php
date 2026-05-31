@@ -42,12 +42,12 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         $auditService = $this->get(AuditLogServiceInterface::class);
         $identifier = 'test_audit_logcreation';
 
-        $auditService->log($identifier, 'store', true, null, 'Unit test');
+        $auditService->log($identifier, 'create', true, null, 'Unit test');
 
         $entries = $auditService->query(AuditLogFilter::forSecret($identifier));
         self::assertCount(1, $entries);
         self::assertSame($identifier, $entries[0]->secretIdentifier);
-        self::assertSame('store', $entries[0]->action);
+        self::assertSame('create', $entries[0]->action);
         self::assertTrue($entries[0]->success);
     }
 
