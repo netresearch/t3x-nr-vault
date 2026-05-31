@@ -13,16 +13,17 @@ use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Hook\DataHandlerHook;
+use Netresearch\NrVault\Hook\PendingSecretExtractor;
+use Netresearch\NrVault\Hook\PendingSecretPersister;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
+use Netresearch\NrVault\Utility\VaultFieldResolver;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionProperty;
 use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
-use TYPO3\CMS\Core\Messaging\FlashMessageService;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -226,9 +227,10 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
     {
         $hook = new DataHandlerHook(
             $this->get(ConnectionPool::class),
-            $this->get(TcaSchemaFactory::class),
             $this->get(VaultServiceInterface::class),
-            $this->get(FlashMessageService::class),
+            $this->get(VaultFieldResolver::class),
+            $this->get(PendingSecretExtractor::class),
+            $this->get(PendingSecretPersister::class),
         );
 
         // Pre-seed the field cache via reflection (setAccessible is a no-op since PHP 8.1)

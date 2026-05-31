@@ -14,6 +14,8 @@ namespace Netresearch\NrVault\Audit;
 
 use DateTimeInterface;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
+use Generator;
+use InvalidArgumentException;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
@@ -52,6 +54,18 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         ?string $hashAfter = null,
         ?AuditContextInterface $context = null,
     ): void {
+        // The action is kept a string for BC (callers pass AuditAction::Xxx->value),
+        // but it MUST be a known action: a typo would be sealed into the
+        // tamper-evident chain forever. Reject unknown actions loudly. This is a
+        // programming error, not a write failure, so it is NOT an AuditWriteException
+        // (which the VaultService atomicity path compensates) — it must surface.
+        if (AuditAction::tryFrom($action) === null) {
+            throw new InvalidArgumentException(
+                \sprintf('Unknown audit action "%s"; must be one of AuditAction::cases().', $action),
+                1717100000,
+            );
+        }
+
         $connection = $this->getConnection();
         $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
         $this->acquireAuditLock($connection, $isSQLite);
@@ -122,7 +136,36 @@ final readonly class AuditLogService implements AuditLogServiceInterface
 
     public function export(?AuditLogFilter $filter = null): array
     {
-        return $this->query($filter, PHP_INT_MAX, 0);
+        $entries = [];
+        foreach ($this->exportIterable($filter) as $entry) {
+            $entries[] = $entry;
+        }
+
+        return $entries;
+    }
+
+    /**
+     * Stream audit entries in bounded-memory chunks instead of materialising
+     * the whole table at once. The audit log is the fastest-growing table in
+     * the system (every read can add a row), so the previous PHP_INT_MAX
+     * single fetch risked OOM on large installs. Each chunk is fetched,
+     * yielded, and released before the next is read — peak memory is
+     * O(chunkSize), not O(total rows).
+     *
+     * @return Generator<int, AuditLogEntry>
+     */
+    public function exportIterable(?AuditLogFilter $filter = null, int $chunkSize = 1000): Generator
+    {
+        $chunkSize = max(1, $chunkSize);
+        $offset = 0;
+
+        do {
+            $chunk = $this->query($filter, $chunkSize, $offset);
+            foreach ($chunk as $entry) {
+                yield $entry;
+            }
+            $offset += $chunkSize;
+        } while (\count($chunk) === $chunkSize);
     }
 
     public function verifyHashChain(?int $fromUid = null, ?int $toUid = null): HashChainVerificationResult
@@ -232,19 +275,21 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                     default => self::calculateHashV2(self::extractV2HashRow($row), $previousHash, $hmacKey),
                 };
 
-                // Verify previous_hash matches
-                $rowPrevHash = $row['previous_hash'] ?? '';
-                if ($rowPrevHash !== $previousHash) {
+                // Verify previous_hash matches. Use hash_equals() for the
+                // constant-time comparison the project mandates for integrity
+                // tags (AGENTS.md Security Requirement #2).
+                $rowPrevHash = \is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '';
+                if (!hash_equals($previousHash, $rowPrevHash)) {
                     $errors[$uid] = 'Previous hash mismatch - chain broken';
                 }
 
-                // Verify entry_hash is correct
-                $rowEntryHash = $row['entry_hash'] ?? '';
-                if ($rowEntryHash !== $expectedHash) {
+                // Verify entry_hash is correct (constant-time).
+                $rowEntryHash = \is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '';
+                if (!hash_equals($expectedHash, $rowEntryHash)) {
                     $errors[$uid] = 'Entry hash mismatch - possible tampering';
                 }
 
-                $previousHash = \is_string($rowEntryHash) ? $rowEntryHash : '';
+                $previousHash = $rowEntryHash;
             }
         } finally {
             sodium_memzero($hmacKey);
@@ -494,7 +539,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             'secret_identifier' => $inputs->secretIdentifier,
             'action' => $inputs->action,
             'success' => $inputs->success ? 1 : 0,
-            'error_message' => $inputs->errorMessage ?? '',
+            'error_message' => $this->sanitizeErrorMessage($inputs->errorMessage),
             'reason' => $inputs->reason ?? '',
             'actor_uid' => $this->accessControlService->getCurrentActorUid(),
             'actor_type' => $this->accessControlService->getCurrentActorType(),
@@ -510,6 +555,38 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             'hmac_key_epoch' => $this->getCurrentEpoch(),
             'context' => $inputs->context instanceof AuditContextInterface ? json_encode($inputs->context->toArray()) : '{}',
         ];
+    }
+
+    /**
+     * Normalise a caller-supplied error message before it is sealed into the
+     * tamper-evident, long-retained audit row (SEC-AUDIT-5).
+     *
+     * Raw `$e->getMessage()` from libsodium/Doctrine can carry filesystem
+     * paths, key-length detail, or fragments of internal state, and the audit
+     * log is frequently exported and read by lower-privilege operators. We
+     * keep the audit row's `error_message` to a bounded, single-line,
+     * control-character-free string; verbose diagnostics belong in the
+     * privileged system log, not here. The discipline lives at this boundary
+     * so no individual caller can reintroduce the leak.
+     */
+    private function sanitizeErrorMessage(?string $errorMessage): string
+    {
+        if ($errorMessage === null || $errorMessage === '') {
+            return '';
+        }
+
+        // Collapse any control characters / newlines to single spaces so a
+        // multi-line stack fragment cannot bloat or break the forensic row.
+        $clean = (string) preg_replace('/[\x00-\x1F\x7F]+/', ' ', $errorMessage);
+        $clean = trim($clean);
+
+        // Bound the length: forensic value is in the category of failure, not
+        // a verbose dump. 200 chars is plenty for a human-readable summary.
+        if (mb_strlen($clean) > 200) {
+            return mb_substr($clean, 0, 197) . '...';
+        }
+
+        return $clean;
     }
 
     /**

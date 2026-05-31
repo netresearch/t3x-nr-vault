@@ -1,935 +1,992 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
-    <file source-language="en" datatype="plaintext" original="messages" date="2024-12-28T00:00:00Z" product-name="nr_vault">
-        <header/>
-        <body>
-            <!-- Parent module labels -->
-            <trans-unit id="mlang_tabs_tab">
-                <source>Vault</source>
-            </trans-unit>
+  <file source-language="en" datatype="plaintext" original="messages" date="2024-12-28T00:00:00Z" product-name="nr_vault">
+    <header/>
+    <body>
+      <!-- Parent module labels -->
+      <trans-unit id="mlang_tabs_tab">
+        <source>Vault</source>
+      </trans-unit>
 
-            <!-- Secrets list -->
-            <trans-unit id="secrets.title">
-                <source>Secrets</source>
-            </trans-unit>
-            <trans-unit id="secrets.identifier">
-                <source>Identifier</source>
-            </trans-unit>
-            <trans-unit id="secrets.description">
-                <source>Description</source>
-            </trans-unit>
-            <trans-unit id="secrets.owner">
-                <source>Owner</source>
-            </trans-unit>
-            <trans-unit id="secrets.created">
-                <source>Created</source>
-            </trans-unit>
-            <trans-unit id="secrets.read_count">
-                <source>Read Count</source>
-            </trans-unit>
-            <trans-unit id="secrets.last_read">
-                <source>Last Read</source>
-            </trans-unit>
-            <trans-unit id="secrets.actions">
-                <source>Actions</source>
-            </trans-unit>
-            <trans-unit id="secrets.status">
-                <source>Status</source>
-            </trans-unit>
-            <trans-unit id="secrets.status.active">
-                <source>Active</source>
-            </trans-unit>
-            <trans-unit id="secrets.status.disabled">
-                <source>Disabled</source>
-            </trans-unit>
-            <trans-unit id="secrets.empty">
-                <source>No secrets found. Click "Create Secret" to add one.</source>
-            </trans-unit>
+      <!-- Secrets list -->
+      <trans-unit id="secrets.title">
+        <source>Secrets</source>
+      </trans-unit>
+      <trans-unit id="secrets.identifier">
+        <source>Identifier</source>
+      </trans-unit>
+      <trans-unit id="secrets.description">
+        <source>Description</source>
+      </trans-unit>
+      <trans-unit id="secrets.owner">
+        <source>Owner</source>
+      </trans-unit>
+      <trans-unit id="secrets.created">
+        <source>Created</source>
+      </trans-unit>
+      <trans-unit id="secrets.read_count">
+        <source>Read Count</source>
+      </trans-unit>
+      <trans-unit id="secrets.last_read">
+        <source>Last Read</source>
+      </trans-unit>
+      <trans-unit id="secrets.actions">
+        <source>Actions</source>
+      </trans-unit>
+      <trans-unit id="secrets.status">
+        <source>Status</source>
+      </trans-unit>
+      <trans-unit id="secrets.status.active">
+        <source>Active</source>
+      </trans-unit>
+      <trans-unit id="secrets.status.disabled">
+        <source>Disabled</source>
+      </trans-unit>
+      <trans-unit id="secrets.empty">
+        <source>No secrets found. Click "Create Secret" to add one.</source>
+      </trans-unit>
 
-            <!-- Filter bar -->
-            <trans-unit id="secrets.filter.identifier.placeholder">
-                <source>Search identifier...</source>
-            </trans-unit>
-            <trans-unit id="secrets.filter.status.all">
-                <source>All status</source>
-            </trans-unit>
-            <trans-unit id="secrets.filter.owner.all">
-                <source>All owners</source>
-            </trans-unit>
-            <trans-unit id="secrets.filter.apply">
-                <source>Filter</source>
-            </trans-unit>
-            <trans-unit id="secrets.filter.reset">
-                <source>Reset filters</source>
-            </trans-unit>
-            <trans-unit id="secrets.filter.results">
-                <source>secrets</source>
-            </trans-unit>
+      <!-- Filter bar -->
+      <trans-unit id="secrets.filter.identifier.placeholder">
+        <source>Search identifier...</source>
+      </trans-unit>
+      <trans-unit id="secrets.filter.status.all">
+        <source>All status</source>
+      </trans-unit>
+      <trans-unit id="secrets.filter.owner.all">
+        <source>All owners</source>
+      </trans-unit>
+      <trans-unit id="secrets.filter.apply">
+        <source>Filter</source>
+      </trans-unit>
+      <trans-unit id="secrets.filter.reset">
+        <source>Reset filters</source>
+      </trans-unit>
+      <trans-unit id="secrets.filter.results">
+        <source>secrets</source>
+      </trans-unit>
 
-            <!-- Secret actions -->
-            <trans-unit id="secrets.action.reveal">
-                <source>Reveal secret</source>
-            </trans-unit>
-            <trans-unit id="secrets.action.edit">
-                <source>Edit secret</source>
-            </trans-unit>
-            <trans-unit id="secrets.action.delete">
-                <source>Delete secret</source>
-            </trans-unit>
-            <trans-unit id="secrets.action.rotate">
-                <source>Rotate secret</source>
-            </trans-unit>
-            <trans-unit id="secrets.action.enable">
-                <source>Enable secret</source>
-            </trans-unit>
-            <trans-unit id="secrets.action.disable">
-                <source>Disable secret</source>
-            </trans-unit>
-            <trans-unit id="secrets.create">
-                <source>Create Secret</source>
-            </trans-unit>
-            <trans-unit id="secrets.enabled.success">
-                <source>Secret enabled successfully</source>
-            </trans-unit>
-            <trans-unit id="secrets.disabled.success">
-                <source>Secret disabled successfully</source>
-            </trans-unit>
-            <trans-unit id="secrets.delete.success">
-                <source>Secret deleted successfully</source>
-            </trans-unit>
-            <trans-unit id="secrets.back">
-                <source>Back to List</source>
-            </trans-unit>
+      <!-- Secret actions -->
+      <trans-unit id="secrets.action.reveal">
+        <source>Reveal secret</source>
+      </trans-unit>
+      <trans-unit id="secrets.action.edit">
+        <source>Edit secret</source>
+      </trans-unit>
+      <trans-unit id="secrets.action.delete">
+        <source>Delete secret</source>
+      </trans-unit>
+      <trans-unit id="secrets.action.rotate">
+        <source>Rotate secret</source>
+      </trans-unit>
+      <trans-unit id="secrets.action.enable">
+        <source>Enable secret</source>
+      </trans-unit>
+      <trans-unit id="secrets.action.disable">
+        <source>Disable secret</source>
+      </trans-unit>
+      <trans-unit id="secrets.create">
+        <source>Create Secret</source>
+      </trans-unit>
+      <trans-unit id="secrets.enabled.success">
+        <source>Secret enabled successfully</source>
+      </trans-unit>
+      <trans-unit id="secrets.disabled.success">
+        <source>Secret disabled successfully</source>
+      </trans-unit>
+      <trans-unit id="secrets.delete.success">
+        <source>Secret deleted successfully</source>
+      </trans-unit>
+      <trans-unit id="secrets.empty.title">
+        <source>No Secrets Found</source>
+      </trans-unit>
+      <trans-unit id="secrets.total">
+        <source>%d secrets total</source>
+      </trans-unit>
+      <trans-unit id="secrets.back">
+        <source>Back to List</source>
+      </trans-unit>
 
-            <!-- Audit log -->
-            <trans-unit id="audit.title">
-                <source>Audit Log</source>
-            </trans-unit>
-            <trans-unit id="audit.empty">
-                <source>No audit entries found</source>
-            </trans-unit>
-            <trans-unit id="audit.col.time">
-                <source>Time</source>
-            </trans-unit>
-            <trans-unit id="audit.col.secret">
-                <source>Secret</source>
-            </trans-unit>
-            <trans-unit id="audit.col.action">
-                <source>Action</source>
-            </trans-unit>
-            <trans-unit id="audit.col.status">
-                <source>Status</source>
-            </trans-unit>
-            <trans-unit id="audit.col.actor">
-                <source>Actor</source>
-            </trans-unit>
-            <trans-unit id="audit.col.ip_address">
-                <source>IP Address</source>
-            </trans-unit>
-            <trans-unit id="audit.col.details">
-                <source>Details</source>
-            </trans-unit>
-            <trans-unit id="audit.filter.secret">
-                <source>Secret</source>
-            </trans-unit>
-            <trans-unit id="audit.filter.action">
-                <source>Action</source>
-            </trans-unit>
-            <trans-unit id="audit.filter.status">
-                <source>Status</source>
-            </trans-unit>
-            <trans-unit id="audit.filter.from">
-                <source>From</source>
-            </trans-unit>
-            <trans-unit id="audit.filter.to">
-                <source>To</source>
-            </trans-unit>
-            <trans-unit id="audit.filter.apply">
-                <source>Filter</source>
-            </trans-unit>
-            <trans-unit id="audit.filter.reset">
-                <source>Reset</source>
-            </trans-unit>
-            <trans-unit id="audit.filter.status.all">
-                <source>[all]</source>
-            </trans-unit>
-            <trans-unit id="audit.filter.status.success">
-                <source>Success</source>
-            </trans-unit>
-            <trans-unit id="audit.filter.status.failed">
-                <source>Failed</source>
-            </trans-unit>
-            <trans-unit id="audit.filter.secret.placeholder">
-                <source>Secret identifier</source>
-            </trans-unit>
-            <trans-unit id="audit.export">
-                <source>Export</source>
-            </trans-unit>
-            <trans-unit id="audit.verify_chain">
-                <source>Verify Hash Chain</source>
-            </trans-unit>
-            <trans-unit id="audit.chain_valid">
-                <source>Hash chain is valid - no tampering detected</source>
-            </trans-unit>
-            <trans-unit id="audit.chain_invalid">
-                <source>Hash chain verification failed</source>
-            </trans-unit>
-            <trans-unit id="audit.verification_errors">
-                <source>Verification Errors</source>
-            </trans-unit>
+      <!-- Audit log -->
+      <trans-unit id="audit.title">
+        <source>Audit Log</source>
+      </trans-unit>
+      <trans-unit id="audit.empty">
+        <source>No audit entries found</source>
+      </trans-unit>
+      <trans-unit id="audit.col.time">
+        <source>Time</source>
+      </trans-unit>
+      <trans-unit id="audit.col.secret">
+        <source>Secret</source>
+      </trans-unit>
+      <trans-unit id="audit.col.action">
+        <source>Action</source>
+      </trans-unit>
+      <trans-unit id="audit.col.status">
+        <source>Status</source>
+      </trans-unit>
+      <trans-unit id="audit.col.actor">
+        <source>Actor</source>
+      </trans-unit>
+      <trans-unit id="audit.col.ip_address">
+        <source>IP Address</source>
+      </trans-unit>
+      <trans-unit id="audit.col.details">
+        <source>Details</source>
+      </trans-unit>
+      <trans-unit id="audit.filter.secret">
+        <source>Secret</source>
+      </trans-unit>
+      <trans-unit id="audit.filter.action">
+        <source>Action</source>
+      </trans-unit>
+      <trans-unit id="audit.filter.status">
+        <source>Status</source>
+      </trans-unit>
+      <trans-unit id="audit.filter.from">
+        <source>From</source>
+      </trans-unit>
+      <trans-unit id="audit.filter.to">
+        <source>To</source>
+      </trans-unit>
+      <trans-unit id="audit.filter.apply">
+        <source>Filter</source>
+      </trans-unit>
+      <trans-unit id="audit.filter.reset">
+        <source>Reset</source>
+      </trans-unit>
+      <trans-unit id="audit.filter.status.all">
+        <source>[all]</source>
+      </trans-unit>
+      <trans-unit id="audit.filter.status.success">
+        <source>Success</source>
+      </trans-unit>
+      <trans-unit id="audit.filter.status.failed">
+        <source>Failed</source>
+      </trans-unit>
+      <trans-unit id="audit.filter.secret.placeholder">
+        <source>Secret identifier</source>
+      </trans-unit>
+      <trans-unit id="audit.export">
+        <source>Export</source>
+      </trans-unit>
+      <trans-unit id="audit.verify_chain">
+        <source>Verify Hash Chain</source>
+      </trans-unit>
+      <trans-unit id="audit.chain_valid">
+        <source>Hash chain is valid - no tampering detected</source>
+      </trans-unit>
+      <trans-unit id="audit.chain_invalid">
+        <source>Hash chain verification failed</source>
+      </trans-unit>
+      <trans-unit id="audit.verification_errors">
+        <source>Verification Errors</source>
+      </trans-unit>
+      <trans-unit id="audit.empty.title">
+        <source>No Audit Entries</source>
+      </trans-unit>
+      <trans-unit id="audit.stats.entries">
+        <source>entries</source>
+      </trans-unit>
+      <trans-unit id="audit.pagination.page">
+        <source>Page %1$d of %2$d</source>
+      </trans-unit>
+      <trans-unit id="audit.warnings">
+        <source>Warnings</source>
+      </trans-unit>
+      <trans-unit id="audit.chain_valid.description">
+        <source>The audit log hash chain has been verified successfully. No tampering or modifications have been detected.</source>
+      </trans-unit>
+      <trans-unit id="audit.chain_invalid.description">
+        <source>Hash chain verification failed. The audit log may have been tampered with.</source>
+      </trans-unit>
+      <trans-unit id="audit.chain_invalid.range">
+        <source>Affected entries: UID %1$s to %2$s. Entries after the first break are no longer trustworthy.</source>
+      </trans-unit>
+      <trans-unit id="audit.chain_invalid.guidance.title">
+        <source>What to do now</source>
+      </trans-unit>
+      <trans-unit id="audit.chain_invalid.guidance.snapshot">
+        <source>Snapshot the audit table immediately (database dump of tx_nrvault_audit_log) before any further changes.</source>
+      </trans-unit>
+      <trans-unit id="audit.chain_invalid.guidance.escalate">
+        <source>Escalate to your security officer — a broken chain may indicate tampering or a database restore from an inconsistent backup.</source>
+      </trans-unit>
+      <trans-unit id="audit.chain_invalid.guidance.no_mutate">
+        <source>Do not delete, edit, or re-run operations on the affected secrets until the cause is understood.</source>
+      </trans-unit>
 
-            <!-- Migration wizard -->
-            <trans-unit id="migration.title">
-                <source>Secret Migration Wizard</source>
-            </trans-unit>
-            <trans-unit id="migration.scan">
-                <source>Scan</source>
-            </trans-unit>
-            <trans-unit id="migration.review">
-                <source>Review</source>
-            </trans-unit>
-            <trans-unit id="migration.configure">
-                <source>Configure</source>
-            </trans-unit>
-            <trans-unit id="migration.verify">
-                <source>Verify</source>
-            </trans-unit>
+      <!-- Migration wizard -->
+      <trans-unit id="migration.title">
+        <source>Secret Migration Wizard</source>
+      </trans-unit>
+      <trans-unit id="migration.scan">
+        <source>Scan</source>
+      </trans-unit>
+      <trans-unit id="migration.review">
+        <source>Review</source>
+      </trans-unit>
+      <trans-unit id="migration.configure">
+        <source>Configure</source>
+      </trans-unit>
+      <trans-unit id="migration.verify">
+        <source>Verify</source>
+      </trans-unit>
 
-            <!-- Error/flash messages -->
-            <trans-unit id="error">
-                <source>Error</source>
-            </trans-unit>
-            <trans-unit id="secrets.notFound">
-                <source>Secret not found: %s</source>
-            </trans-unit>
-            <trans-unit id="secrets.noIdentifier">
-                <source>No secret identifier provided</source>
-            </trans-unit>
-            <trans-unit id="secrets.uidNotFound">
-                <source>Secret UID not found</source>
-            </trans-unit>
-            <trans-unit id="secrets.accessDenied">
-                <source>Access denied</source>
-            </trans-unit>
-            <trans-unit id="secrets.error">
-                <source>Error: %s</source>
-            </trans-unit>
+      <!-- Error/flash messages -->
+      <trans-unit id="error">
+        <source>Error</source>
+      </trans-unit>
+      <trans-unit id="secrets.notFound">
+        <source>Secret not found: %s</source>
+      </trans-unit>
+      <trans-unit id="secrets.noIdentifier">
+        <source>No secret identifier provided</source>
+      </trans-unit>
+      <trans-unit id="secrets.uidNotFound">
+        <source>Secret UID not found</source>
+      </trans-unit>
+      <trans-unit id="secrets.accessDenied">
+        <source>Access denied</source>
+      </trans-unit>
+      <trans-unit id="secrets.error">
+        <source>Error: %s</source>
+      </trans-unit>
 
-            <!-- Navigation -->
-            <trans-unit id="action.back">
-                <source>Back</source>
-            </trans-unit>
+      <!-- Navigation -->
+      <trans-unit id="action.back">
+        <source>Back</source>
+      </trans-unit>
 
-            <!-- Overview descriptions -->
-            <trans-unit id="overview.secrets.description">
-                <source>Manage encrypted secrets stored in the vault.</source>
-            </trans-unit>
-            <trans-unit id="overview.audit.description">
-                <source>View access logs and verify audit chain integrity.</source>
-            </trans-unit>
-            <trans-unit id="overview.migration.description">
-                <source>Detect and migrate plaintext secrets to the vault.</source>
-            </trans-unit>
+      <!-- Overview descriptions -->
+      <trans-unit id="overview.secrets.description">
+        <source>Manage encrypted secrets stored in the vault.</source>
+      </trans-unit>
+      <trans-unit id="overview.audit.description">
+        <source>View access logs and verify audit chain integrity.</source>
+      </trans-unit>
+      <trans-unit id="overview.migration.description">
+        <source>Detect and migrate plaintext secrets to the vault.</source>
+      </trans-unit>
 
-            <!-- Migration messages -->
-            <trans-unit id="migration.noSecretsSelected">
-                <source>No secrets selected for migration.</source>
-            </trans-unit>
-            <trans-unit id="migration.selectionRequired">
-                <source>Selection Required</source>
-            </trans-unit>
-            <trans-unit id="migration.noMigrationsConfigured">
-                <source>No migrations configured.</source>
-            </trans-unit>
-            <trans-unit id="migration.configurationRequired">
-                <source>Configuration Required</source>
-            </trans-unit>
-            <trans-unit id="migration.complete">
-                <source>Migration Complete</source>
-            </trans-unit>
-            <trans-unit id="migration.success">
-                <source>Successfully migrated %d secret(s) to the vault.</source>
-            </trans-unit>
-            <trans-unit id="migration.errors">
-                <source>Migration Errors</source>
-            </trans-unit>
-            <trans-unit id="migration.failed">
-                <source>%d secret(s) failed to migrate.</source>
-            </trans-unit>
+      <!-- Migration messages -->
+      <trans-unit id="migration.noSecretsSelected">
+        <source>No secrets selected for migration.</source>
+      </trans-unit>
+      <trans-unit id="migration.selectionRequired">
+        <source>Selection Required</source>
+      </trans-unit>
+      <trans-unit id="migration.noMigrationsConfigured">
+        <source>No migrations configured.</source>
+      </trans-unit>
+      <trans-unit id="migration.configurationRequired">
+        <source>Configuration Required</source>
+      </trans-unit>
+      <trans-unit id="migration.complete">
+        <source>Migration Complete</source>
+      </trans-unit>
+      <trans-unit id="migration.success">
+        <source>Successfully migrated %d secret(s) to the vault.</source>
+      </trans-unit>
+      <trans-unit id="migration.errors">
+        <source>Migration Errors</source>
+      </trans-unit>
+      <trans-unit id="migration.failed">
+        <source>%d secret(s) failed to migrate.</source>
+      </trans-unit>
 
-            <!-- Overview page -->
-            <trans-unit id="overview.title">
-                <source>Vault - Secrets Management</source>
-            </trans-unit>
-            <trans-unit id="overview.subtitle">
-                <source>Secure storage and management for sensitive configuration data.</source>
-            </trans-unit>
-            <trans-unit id="overview.health.issue.heading">
-                <source>Vault Health Issue</source>
-            </trans-unit>
-            <trans-unit id="overview.health.encryption_not_available">
-                <source>Encryption is not available.</source>
-            </trans-unit>
-            <trans-unit id="overview.health.encryption_not_available.description">
-                <source>No master key provider is configured or accessible. Vault cannot encrypt or decrypt secrets.</source>
-            </trans-unit>
-            <trans-unit id="overview.health.detail">
-                <source>Detail:</source>
-            </trans-unit>
-            <trans-unit id="overview.health.encryption_not_available.remedy">
-                <source>Ensure that %s is set, or configure an alternative master key provider (environment variable or file-based).</source>
-            </trans-unit>
-            <trans-unit id="overview.health.encryption_broken">
-                <source>Master key provider "%s" is available but encryption is broken.</source>
-            </trans-unit>
-            <trans-unit id="overview.health.encryption_active">
-                <source>Encryption is active using the %s master key provider.</source>
-            </trans-unit>
-            <trans-unit id="overview.stats.total_secrets">
-                <source>Total Secrets</source>
-            </trans-unit>
-            <trans-unit id="overview.stats.active">
-                <source>Active</source>
-            </trans-unit>
-            <trans-unit id="overview.stats.disabled">
-                <source>Disabled</source>
-            </trans-unit>
-            <trans-unit id="overview.modules">
-                <source>Modules</source>
-            </trans-unit>
-            <trans-unit id="overview.quickstart">
-                <source>Quick Start</source>
-            </trans-unit>
-            <trans-unit id="overview.quickstart.store.title">
-                <source>Store a Secret</source>
-            </trans-unit>
-            <trans-unit id="overview.quickstart.store.description">
-                <source>Navigate to Secrets and click the + button in the header to create a new secret. Provide an identifier (e.g., stripe_api_key) and the secret value.</source>
-            </trans-unit>
-            <trans-unit id="overview.quickstart.use.title">
-                <source>Use in Configuration</source>
-            </trans-unit>
-            <trans-unit id="overview.quickstart.use.description">
-                <source>Reference secrets in your TYPO3 configuration using the vault syntax:</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.title">
-                <source>When to Use What</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.site_keys.title">
-                <source>Site-Specific API Keys</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.site_keys.description">
-                <source>Payment gateways, external services, or any secret that differs per site. Resolved at runtime from config/sites/*/config.yaml.</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.per_record.title">
-                <source>Per-Record Credentials</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.per_record.description">
-                <source>Let editors manage secrets per record (e.g., per-integration or per-client settings). Values encrypted automatically via TCA.</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.extension.title">
-                <source>Extension Services</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.extension.description">
-                <source>When your extension needs secrets programmatically - API clients, payment processors, external integrations.</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.http_client.title">
-                <source>HTTP Client with Secrets</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.http_client.description">
-                <source>PSR-18 compatible API calls with automatic secret injection. Supports Bearer, API-Key, Basic Auth, OAuth2, and more.</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.deployment.title">
-                <source>Deployment &amp; CI/CD</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.deployment.description">
-                <source>Automate secret provisioning in deployment pipelines, or manage secrets via scripts without backend access.</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.frontend.title">
-                <source>Frontend Rendering</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.frontend.sparingly">
-                <source>(use sparingly)</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.frontend.description">
-                <source>When secrets must appear in rendered output (e.g., JS API keys). Requires frontend_accessible flag and cache disabled.</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.tca_helper.title">
-                <source>TCA Helper API</source>
-            </trans-unit>
-            <trans-unit id="overview.usage.tca_helper.description">
-                <source>Shorthand for common vault field patterns with sensible defaults (exclude: true, l10n_mode: exclude).</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.title">
-                <source>CLI Commands</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.col.command">
-                <source>Command</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.col.description">
-                <source>Description</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.init">
-                <source>Initialize vault and generate master key</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.store">
-                <source>Store a new secret</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.retrieve">
-                <source>Retrieve a secret value</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.list">
-                <source>List all secrets</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.rotate">
-                <source>Rotate a secret's value</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.delete">
-                <source>Delete a secret</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.audit">
-                <source>View audit log entries</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.scan">
-                <source>Scan for plaintext secrets in database</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.migrate_field">
-                <source>Migrate a database field to vault</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.rotate_master_key">
-                <source>Rotate the master encryption key</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.cleanup_orphans">
-                <source>Remove orphaned secrets</source>
-            </trans-unit>
-            <trans-unit id="overview.cli.help_hint">
-                <source>Run bin/typo3 vault:&lt;command&gt; --help for detailed usage.</source>
-            </trans-unit>
-            <trans-unit id="overview.security.title">
-                <source>Security Features</source>
-            </trans-unit>
-            <trans-unit id="overview.security.envelope.title">
-                <source>Envelope Encryption</source>
-            </trans-unit>
-            <trans-unit id="overview.security.envelope.description">
-                <source>Each secret is encrypted with its own unique Data Encryption Key (DEK), which is then encrypted with the master key.</source>
-            </trans-unit>
-            <trans-unit id="overview.security.access.title">
-                <source>Access Control</source>
-            </trans-unit>
-            <trans-unit id="overview.security.access.description">
-                <source>Secrets can be restricted to specific backend users or groups. Every access is logged in the audit trail.</source>
-            </trans-unit>
-            <trans-unit id="overview.security.audit.title">
-                <source>Audit Logging</source>
-            </trans-unit>
-            <trans-unit id="overview.security.audit.description">
-                <source>Tamper-evident audit chain records all secret operations with cryptographic integrity verification.</source>
-            </trans-unit>
-            <trans-unit id="overview.documentation.title">
-                <source>Documentation</source>
-            </trans-unit>
-            <trans-unit id="overview.documentation.text">
-                <source>For detailed information, see the</source>
-            </trans-unit>
-            <trans-unit id="overview.documentation.link">
-                <source>extension documentation</source>
-            </trans-unit>
+      <!-- Overview page -->
+      <trans-unit id="overview.title">
+        <source>Vault - Secrets Management</source>
+      </trans-unit>
+      <trans-unit id="overview.subtitle">
+        <source>Secure storage and management for sensitive configuration data.</source>
+      </trans-unit>
+      <trans-unit id="overview.health.issue.heading">
+        <source>Vault Health Issue</source>
+      </trans-unit>
+      <trans-unit id="overview.health.encryption_not_available">
+        <source>Encryption is not available.</source>
+      </trans-unit>
+      <trans-unit id="overview.health.encryption_not_available.description">
+        <source>No master key provider is configured or accessible. Vault cannot encrypt or decrypt secrets.</source>
+      </trans-unit>
+      <trans-unit id="overview.health.detail">
+        <source>Detail:</source>
+      </trans-unit>
+      <trans-unit id="overview.health.encryption_not_available.remedy">
+        <source>Ensure that %s is set, or configure an alternative master key provider (environment variable or file-based).</source>
+      </trans-unit>
+      <trans-unit id="overview.health.encryption_broken">
+        <source>Master key provider "%s" is available but encryption is broken.</source>
+      </trans-unit>
+      <trans-unit id="overview.health.encryption_active">
+        <source>Encryption is active using the %s master key provider.</source>
+      </trans-unit>
+      <trans-unit id="overview.tab.dashboard">
+        <source>Dashboard</source>
+      </trans-unit>
+      <trans-unit id="overview.tab.help">
+        <source>Help</source>
+      </trans-unit>
+      <trans-unit id="overview.health.next_steps">
+        <source>Next steps to finish setup:</source>
+      </trans-unit>
+      <trans-unit id="overview.health.step.run_init">
+        <source>Run bin/typo3 vault:init to generate a master key and verify the configuration.</source>
+      </trans-unit>
+      <trans-unit id="overview.health.step.configure_provider">
+        <source>Or set the TYPO3_VAULT_MASTER_KEY environment variable, or configure a key file in the extension settings.</source>
+      </trans-unit>
+      <trans-unit id="overview.health.step.see_help">
+        <source>See the Help tab for provider details and troubleshooting.</source>
+      </trans-unit>
+      <trans-unit id="overview.stats.total_secrets">
+        <source>Total Secrets</source>
+      </trans-unit>
+      <trans-unit id="overview.stats.active">
+        <source>Active</source>
+      </trans-unit>
+      <trans-unit id="overview.stats.disabled">
+        <source>Disabled</source>
+      </trans-unit>
+      <trans-unit id="overview.modules">
+        <source>Modules</source>
+      </trans-unit>
+      <trans-unit id="overview.quickstart">
+        <source>Quick Start</source>
+      </trans-unit>
+      <trans-unit id="overview.quickstart.store.title">
+        <source>Store a Secret</source>
+      </trans-unit>
+      <trans-unit id="overview.quickstart.store.description">
+        <source>Navigate to Secrets and click the + button in the header to create a new secret. Provide an identifier (e.g., stripe_api_key) and the secret value.</source>
+      </trans-unit>
+      <trans-unit id="overview.quickstart.use.title">
+        <source>Use in Configuration</source>
+      </trans-unit>
+      <trans-unit id="overview.quickstart.use.description">
+        <source>Reference secrets in your TYPO3 configuration using the vault syntax:</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.title">
+        <source>When to Use What</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.site_keys.title">
+        <source>Site-Specific API Keys</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.site_keys.description">
+        <source>Payment gateways, external services, or any secret that differs per site. Resolved at runtime from config/sites/*/config.yaml.</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.per_record.title">
+        <source>Per-Record Credentials</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.per_record.description">
+        <source>Let editors manage secrets per record (e.g., per-integration or per-client settings). Values encrypted automatically via TCA.</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.extension.title">
+        <source>Extension Services</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.extension.description">
+        <source>When your extension needs secrets programmatically - API clients, payment processors, external integrations.</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.http_client.title">
+        <source>HTTP Client with Secrets</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.http_client.description">
+        <source>PSR-18 compatible API calls with automatic secret injection. Supports Bearer, API-Key, Basic Auth, OAuth2, and more.</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.deployment.title">
+        <source>Deployment &amp; CI/CD</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.deployment.description">
+        <source>Automate secret provisioning in deployment pipelines, or manage secrets via scripts without backend access.</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.frontend.title">
+        <source>Frontend Rendering</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.frontend.sparingly">
+        <source>(use sparingly)</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.frontend.description">
+        <source>When secrets must appear in rendered output (e.g., JS API keys). Requires frontend_accessible flag and cache disabled.</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.tca_helper.title">
+        <source>TCA Helper API</source>
+      </trans-unit>
+      <trans-unit id="overview.usage.tca_helper.description">
+        <source>Shorthand for common vault field patterns with sensible defaults (exclude: true, l10n_mode: exclude).</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.title">
+        <source>CLI Commands</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.col.command">
+        <source>Command</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.col.description">
+        <source>Description</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.init">
+        <source>Initialize vault and generate master key</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.store">
+        <source>Store a new secret</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.retrieve">
+        <source>Retrieve a secret value</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.list">
+        <source>List all secrets</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.rotate">
+        <source>Rotate a secret's value</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.delete">
+        <source>Delete a secret</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.audit">
+        <source>View audit log entries</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.scan">
+        <source>Scan for plaintext secrets in database</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.migrate_field">
+        <source>Migrate a database field to vault</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.rotate_master_key">
+        <source>Rotate the master encryption key</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.cleanup_orphans">
+        <source>Remove orphaned secrets</source>
+      </trans-unit>
+      <trans-unit id="overview.cli.help_hint">
+        <source>Run bin/typo3 vault:&lt;command&gt; --help for detailed usage.</source>
+      </trans-unit>
+      <trans-unit id="overview.security.title">
+        <source>Security Features</source>
+      </trans-unit>
+      <trans-unit id="overview.security.envelope.title">
+        <source>Envelope Encryption</source>
+      </trans-unit>
+      <trans-unit id="overview.security.envelope.description">
+        <source>Each secret is encrypted with its own unique Data Encryption Key (DEK), which is then encrypted with the master key.</source>
+      </trans-unit>
+      <trans-unit id="overview.security.access.title">
+        <source>Access Control</source>
+      </trans-unit>
+      <trans-unit id="overview.security.access.description">
+        <source>Secrets can be restricted to specific backend users or groups. Every access is logged in the audit trail.</source>
+      </trans-unit>
+      <trans-unit id="overview.security.audit.title">
+        <source>Audit Logging</source>
+      </trans-unit>
+      <trans-unit id="overview.security.audit.description">
+        <source>Tamper-evident audit chain records all secret operations with cryptographic integrity verification.</source>
+      </trans-unit>
+      <trans-unit id="overview.documentation.title">
+        <source>Documentation</source>
+      </trans-unit>
+      <trans-unit id="overview.documentation.text">
+        <source>For detailed information, see the</source>
+      </trans-unit>
+      <trans-unit id="overview.documentation.link">
+        <source>extension documentation</source>
+      </trans-unit>
 
-            <!-- Help page -->
-            <trans-unit id="help.title">
-                <source>Vault Help</source>
-            </trans-unit>
-            <trans-unit id="help.lead">
-                <source>This guide explains how vault encryption works, how to manage secrets, and how to troubleshoot common issues.</source>
-            </trans-unit>
-            <trans-unit id="help.getting_started.title">
-                <source>Getting started</source>
-            </trans-unit>
-            <trans-unit id="help.getting_started.intro">
-                <source>The Vault extension provides secure storage for sensitive configuration data (API keys, passwords, tokens) using envelope encryption. Follow these steps to get started:</source>
-            </trans-unit>
-            <trans-unit id="help.getting_started.step1.title">
-                <source>Step 1 — Verify encryption health</source>
-            </trans-unit>
-            <trans-unit id="help.getting_started.step1.text">
-                <source>Visit the Dashboard and check the health indicator at the top. A green banner confirms that encryption is active and working. If you see an error, ensure that %s is set in your TYPO3 configuration or configure an alternative master key provider.</source>
-            </trans-unit>
-            <trans-unit id="help.getting_started.step2.title">
-                <source>Step 2 — Create your first secret</source>
-            </trans-unit>
-            <trans-unit id="help.getting_started.step2.text">
-                <source>Navigate to Secrets and click the + button in the header. Choose a descriptive identifier (e.g., stripe_api_key) and enter the secret value. The value is encrypted before it reaches the database.</source>
-            </trans-unit>
-            <trans-unit id="help.getting_started.step3.title">
-                <source>Step 3 — Reference secrets in configuration</source>
-            </trans-unit>
-            <trans-unit id="help.getting_started.step3.text">
-                <source>Use the vault syntax anywhere TYPO3 resolves configuration values:</source>
-            </trans-unit>
-            <trans-unit id="help.getting_started.step3.text2">
-                <source>This works in site configuration YAML, TypoScript, and any configuration that uses the TYPO3 expression language.</source>
-            </trans-unit>
-            <trans-unit id="help.getting_started.step4.title">
-                <source>Step 4 — Migrate existing plaintext secrets (optional)</source>
-            </trans-unit>
-            <trans-unit id="help.getting_started.step4.text">
-                <source>The Migration Wizard scans your database for plaintext secrets and guides you through encrypting them. It supports batch processing and verifies each migration before committing.</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.title">
-                <source>Envelope encryption</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.intro">
-                <source>Vault uses a two-layer encryption scheme called envelope encryption, the same pattern used by AWS KMS, Google Cloud KMS, and Azure Key Vault:</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.how_it_works">
-                <source>How it works</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.dek.label">
-                <source>Data Encryption Key (DEK)</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.dek.text">
-                <source>Each secret is encrypted with its own unique random key using AES-256-GCM. This means compromising one secret does not reveal others.</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.kek.label">
-                <source>Key Encryption Key (KEK / Master Key)</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.kek.text">
-                <source>The DEK is then encrypted with the master key and stored alongside the ciphertext. The master key never leaves the server.</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.providers.title">
-                <source>Master key providers</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.providers.intro">
-                <source>The master key can come from several sources (in priority order):</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.providers.env">
-                <source>Environment variable</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.providers.env.note">
-                <source>recommended for production</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.providers.file">
-                <source>File-based</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.providers.file.note">
-                <source>a key file outside the web root</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.providers.typo3">
-                <source>TYPO3 encryption key</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.providers.typo3.note">
-                <source>fallback using</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.rotation.title">
-                <source>Key rotation</source>
-            </trans-unit>
-            <trans-unit id="help.encryption.rotation.text">
-                <source>The master key can be rotated without downtime using %s. This re-encrypts all DEKs with the new master key. Individual secrets can also be rotated with %s.</source>
-            </trans-unit>
-            <trans-unit id="help.audit.title">
-                <source>Audit trail</source>
-            </trans-unit>
-            <trans-unit id="help.audit.intro">
-                <source>Every secret operation (create, read, update, delete, rotate) is recorded in a tamper-evident audit chain. Each entry includes:</source>
-            </trans-unit>
-            <trans-unit id="help.audit.item.action">
-                <source>The action performed and the secret identifier</source>
-            </trans-unit>
-            <trans-unit id="help.audit.item.user">
-                <source>The backend user who performed the action</source>
-            </trans-unit>
-            <trans-unit id="help.audit.item.timestamp">
-                <source>A timestamp and IP address</source>
-            </trans-unit>
-            <trans-unit id="help.audit.item.hash">
-                <source>A cryptographic hash linking each entry to the previous one</source>
-            </trans-unit>
-            <trans-unit id="help.audit.text">
-                <source>Use the Audit Log module to browse entries and the Verify Chain action to check integrity. Any tampered or missing entries will be flagged.</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.title">
-                <source>Troubleshooting</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.encryption.title">
-                <source>"Encryption is not available" on the dashboard</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.encryption.text">
-                <source>The master key provider could not be initialized. Check that at least one of the following is configured:</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.encryption.item1">
-                <source>The TYPO3_VAULT_MASTER_KEY environment variable is set</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.encryption.item2">
-                <source>A valid key file path is configured in extension settings</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.encryption.item3">
-                <source>The TYPO3 encryptionKey is not empty</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.decryption.title">
-                <source>Secret values show as "decryption failed"</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.decryption.text">
-                <source>This means the master key has changed since the secret was encrypted. If the master key was rotated correctly, all DEKs should have been re-encrypted. If the key was lost, the affected secrets cannot be recovered — store a new value.</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.no_candidates.title">
-                <source>Migration wizard finds no candidates</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.no_candidates.text">
-                <source>The scanner looks for fields matching common secret patterns (columns named *password*, *key*, *token*, *secret*). If your field uses a different naming convention, you can add it manually via the CLI:</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.chain.title">
-                <source>Audit chain verification fails</source>
-            </trans-unit>
-            <trans-unit id="help.troubleshooting.chain.text">
-                <source>A broken chain means an entry was modified or deleted outside of vault operations. This could indicate tampering or a database restore from an inconsistent backup. The verification report shows exactly which entries are affected.</source>
-            </trans-unit>
-            <trans-unit id="help.faq.title">
-                <source>Frequently asked questions</source>
-            </trans-unit>
-            <trans-unit id="help.faq.site_config.question">
-                <source>Can I use vault secrets in site configuration YAML?</source>
-            </trans-unit>
-            <trans-unit id="help.faq.site_config.answer">
-                <source>Yes. Use the %vault(identifier)% syntax in your config/sites/*/config.yaml. Values are resolved at runtime, so they never appear in plain text in files.</source>
-            </trans-unit>
-            <trans-unit id="help.faq.lost_key.question">
-                <source>What happens if I lose the master key?</source>
-            </trans-unit>
-            <trans-unit id="help.faq.lost_key.answer">
-                <source>Without the master key, encrypted secrets cannot be recovered. This is by design — the security of envelope encryption depends on the master key. Always back up your master key separately from the database.</source>
-            </trans-unit>
-            <trans-unit id="help.faq.editors.question">
-                <source>Can editors access secrets?</source>
-            </trans-unit>
-            <trans-unit id="help.faq.editors.answer">
-                <source>The vault backend module is restricted to administrators. However, editors can interact with vault-backed TCA fields (e.g., renderType=vaultSecret) without seeing the actual values — they enter values which are encrypted automatically.</source>
-            </trans-unit>
-            <trans-unit id="help.faq.cicd.question">
-                <source>How do I rotate secrets in a CI/CD pipeline?</source>
-            </trans-unit>
-            <trans-unit id="help.faq.cicd.answer.intro">
-                <source>Use the CLI commands in your deployment scripts:</source>
-            </trans-unit>
-            <trans-unit id="help.faq.cicd.answer.outro">
-                <source>Ensure the TYPO3_VAULT_MASTER_KEY environment variable is available in your CI/CD environment.</source>
-            </trans-unit>
+      <!-- Help page -->
+      <trans-unit id="help.title">
+        <source>Vault Help</source>
+      </trans-unit>
+      <trans-unit id="help.lead">
+        <source>This guide explains how vault encryption works, how to manage secrets, and how to troubleshoot common issues.</source>
+      </trans-unit>
+      <trans-unit id="help.getting_started.title">
+        <source>Getting started</source>
+      </trans-unit>
+      <trans-unit id="help.getting_started.intro">
+        <source>The Vault extension provides secure storage for sensitive configuration data (API keys, passwords, tokens) using envelope encryption. Follow these steps to get started:</source>
+      </trans-unit>
+      <trans-unit id="help.getting_started.step1.title">
+        <source>Step 1 — Verify encryption health</source>
+      </trans-unit>
+      <trans-unit id="help.getting_started.step1.text">
+        <source>Visit the Dashboard and check the health indicator at the top. A green banner confirms that encryption is active and working. If you see an error, ensure that %s is set in your TYPO3 configuration or configure an alternative master key provider.</source>
+      </trans-unit>
+      <trans-unit id="help.getting_started.step2.title">
+        <source>Step 2 — Create your first secret</source>
+      </trans-unit>
+      <trans-unit id="help.getting_started.step2.text">
+        <source>Navigate to Secrets and click the + button in the header. Choose a descriptive identifier (e.g., stripe_api_key) and enter the secret value. The value is encrypted before it reaches the database.</source>
+      </trans-unit>
+      <trans-unit id="help.getting_started.step3.title">
+        <source>Step 3 — Reference secrets in configuration</source>
+      </trans-unit>
+      <trans-unit id="help.getting_started.step3.text">
+        <source>Use the vault syntax anywhere TYPO3 resolves configuration values:</source>
+      </trans-unit>
+      <trans-unit id="help.getting_started.step3.text2">
+        <source>This works in site configuration YAML, TypoScript, and any configuration that uses the TYPO3 expression language.</source>
+      </trans-unit>
+      <trans-unit id="help.getting_started.step4.title">
+        <source>Step 4 — Migrate existing plaintext secrets (optional)</source>
+      </trans-unit>
+      <trans-unit id="help.getting_started.step4.text">
+        <source>The Migration Wizard scans your database for plaintext secrets and guides you through encrypting them. It supports batch processing and verifies each migration before committing.</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.title">
+        <source>Envelope encryption</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.intro">
+        <source>Vault uses a two-layer encryption scheme called envelope encryption, the same pattern used by AWS KMS, Google Cloud KMS, and Azure Key Vault:</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.how_it_works">
+        <source>How it works</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.dek.label">
+        <source>Data Encryption Key (DEK)</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.dek.text">
+        <source>Each secret is encrypted with its own unique random key using AES-256-GCM. This means compromising one secret does not reveal others.</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.kek.label">
+        <source>Key Encryption Key (KEK / Master Key)</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.kek.text">
+        <source>The DEK is then encrypted with the master key and stored alongside the ciphertext. The master key never leaves the server.</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.providers.title">
+        <source>Master key providers</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.providers.intro">
+        <source>The master key can come from several sources (in priority order):</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.providers.env">
+        <source>Environment variable</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.providers.env.note">
+        <source>recommended for production</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.providers.file">
+        <source>File-based</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.providers.file.note">
+        <source>a key file outside the web root</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.providers.typo3">
+        <source>TYPO3 encryption key</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.providers.typo3.note">
+        <source>fallback using</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.rotation.title">
+        <source>Key rotation</source>
+      </trans-unit>
+      <trans-unit id="help.encryption.rotation.text">
+        <source>The master key can be rotated without downtime using %s. This re-encrypts all DEKs with the new master key. Individual secrets can also be rotated with %s.</source>
+      </trans-unit>
+      <trans-unit id="help.audit.title">
+        <source>Audit trail</source>
+      </trans-unit>
+      <trans-unit id="help.audit.intro">
+        <source>Every secret operation (create, read, update, delete, rotate) is recorded in a tamper-evident audit chain. Each entry includes:</source>
+      </trans-unit>
+      <trans-unit id="help.audit.item.action">
+        <source>The action performed and the secret identifier</source>
+      </trans-unit>
+      <trans-unit id="help.audit.item.user">
+        <source>The backend user who performed the action</source>
+      </trans-unit>
+      <trans-unit id="help.audit.item.timestamp">
+        <source>A timestamp and IP address</source>
+      </trans-unit>
+      <trans-unit id="help.audit.item.hash">
+        <source>A cryptographic hash linking each entry to the previous one</source>
+      </trans-unit>
+      <trans-unit id="help.audit.text">
+        <source>Use the Audit Log module to browse entries and the Verify Chain action to check integrity. Any tampered or missing entries will be flagged.</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.title">
+        <source>Troubleshooting</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.encryption.title">
+        <source>"Encryption is not available" on the dashboard</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.encryption.text">
+        <source>The master key provider could not be initialized. Check that at least one of the following is configured:</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.encryption.item1">
+        <source>The TYPO3_VAULT_MASTER_KEY environment variable is set</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.encryption.item2">
+        <source>A valid key file path is configured in extension settings</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.encryption.item3">
+        <source>The TYPO3 encryptionKey is not empty</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.decryption.title">
+        <source>Secret values show as "decryption failed"</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.decryption.text">
+        <source>This means the master key has changed since the secret was encrypted. If the master key was rotated correctly, all DEKs should have been re-encrypted. If the key was lost, the affected secrets cannot be recovered — store a new value.</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.no_candidates.title">
+        <source>Migration wizard finds no candidates</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.no_candidates.text">
+        <source>The scanner looks for fields matching common secret patterns (columns named *password*, *key*, *token*, *secret*). If your field uses a different naming convention, you can add it manually via the CLI:</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.chain.title">
+        <source>Audit chain verification fails</source>
+      </trans-unit>
+      <trans-unit id="help.troubleshooting.chain.text">
+        <source>A broken chain means an entry was modified or deleted outside of vault operations. This could indicate tampering or a database restore from an inconsistent backup. The verification report shows exactly which entries are affected.</source>
+      </trans-unit>
+      <trans-unit id="help.faq.title">
+        <source>Frequently asked questions</source>
+      </trans-unit>
+      <trans-unit id="help.faq.site_config.question">
+        <source>Can I use vault secrets in site configuration YAML?</source>
+      </trans-unit>
+      <trans-unit id="help.faq.site_config.answer">
+        <source>Yes. Use the %vault(identifier)% syntax in your config/sites/*/config.yaml. Values are resolved at runtime, so they never appear in plain text in files.</source>
+      </trans-unit>
+      <trans-unit id="help.faq.lost_key.question">
+        <source>What happens if I lose the master key?</source>
+      </trans-unit>
+      <trans-unit id="help.faq.lost_key.answer">
+        <source>Without the master key, encrypted secrets cannot be recovered. This is by design — the security of envelope encryption depends on the master key. Always back up your master key separately from the database.</source>
+      </trans-unit>
+      <trans-unit id="help.faq.editors.question">
+        <source>Can editors access secrets?</source>
+      </trans-unit>
+      <trans-unit id="help.faq.editors.answer">
+        <source>The vault backend module is restricted to administrators. However, editors can interact with vault-backed TCA fields (e.g., renderType=vaultSecret) without seeing the actual values — they enter values which are encrypted automatically.</source>
+      </trans-unit>
+      <trans-unit id="help.faq.cicd.question">
+        <source>How do I rotate secrets in a CI/CD pipeline?</source>
+      </trans-unit>
+      <trans-unit id="help.faq.cicd.answer.intro">
+        <source>Use the CLI commands in your deployment scripts:</source>
+      </trans-unit>
+      <trans-unit id="help.faq.cicd.answer.outro">
+        <source>Ensure the TYPO3_VAULT_MASTER_KEY environment variable is available in your CI/CD environment.</source>
+      </trans-unit>
 
-            <!-- Migration Index page -->
-            <trans-unit id="migration.index.description">
-                <source>This wizard helps you detect and migrate plaintext secrets from your database and configuration to the secure vault.</source>
-            </trans-unit>
-            <trans-unit id="migration.index.how_it_works">
-                <source>How it works</source>
-            </trans-unit>
-            <trans-unit id="migration.index.step.scan">
-                <source>The system scans your database columns and extension configuration for values that look like secrets (API keys, passwords, tokens).</source>
-            </trans-unit>
-            <trans-unit id="migration.index.step.review">
-                <source>You review the detected secrets and select which ones to migrate.</source>
-            </trans-unit>
-            <trans-unit id="migration.index.step.configure">
-                <source>Set migration options like identifier patterns and ownership.</source>
-            </trans-unit>
-            <trans-unit id="migration.index.step.execute">
-                <source>The selected secrets are encrypted and stored in the vault, and database columns are updated with vault references.</source>
-            </trans-unit>
-            <trans-unit id="migration.index.step.verify">
-                <source>Confirm that the migration completed successfully.</source>
-            </trans-unit>
-            <trans-unit id="migration.index.detected.title">
-                <source>What is detected?</source>
-            </trans-unit>
-            <trans-unit id="migration.index.detected.database.title">
-                <source>Database Columns</source>
-            </trans-unit>
-            <trans-unit id="migration.index.detected.database.subtitle">
-                <source>Columns with names suggesting secrets</source>
-            </trans-unit>
-            <trans-unit id="migration.index.detected.patterns.title">
-                <source>Known API Key Formats</source>
-            </trans-unit>
-            <trans-unit id="migration.index.detected.patterns.subtitle">
-                <source>Values matching patterns for</source>
-            </trans-unit>
-            <trans-unit id="migration.index.detected.patterns.list">
-                <source>Stripe, AWS, Google API keys</source>
-            </trans-unit>
-            <trans-unit id="migration.index.detected.patterns.github">
-                <source>GitHub tokens (PAT, OAuth)</source>
-            </trans-unit>
-            <trans-unit id="migration.index.detected.patterns.other">
-                <source>Slack, SendGrid, Twilio tokens</source>
-            </trans-unit>
-            <trans-unit id="migration.index.notes.title">
-                <source>Important Notes</source>
-            </trans-unit>
-            <trans-unit id="migration.index.notes.backup">
-                <source>Always create a database backup before running migrations.</source>
-            </trans-unit>
-            <trans-unit id="migration.index.notes.test">
-                <source>Run the scan on a test system first to review what will be detected.</source>
-            </trans-unit>
-            <trans-unit id="migration.index.notes.false_positives">
-                <source>Not all detected values are actual secrets. Review carefully before migrating.</source>
-            </trans-unit>
-            <trans-unit id="migration.index.notes.hashes">
-                <source>Hashed passwords (bcrypt, argon2) are automatically excluded as they are already secure.</source>
-            </trans-unit>
-            <trans-unit id="migration.index.config_secrets.title">
-                <source>Configuration Secrets</source>
-            </trans-unit>
-            <trans-unit id="migration.index.config_secrets.text">
-                <source>Configuration secrets (in LocalConfiguration.php or extension settings) are detected but must be migrated manually. Replace the value with %vault(identifier)% after storing the secret in the vault.</source>
-            </trans-unit>
-            <trans-unit id="migration.index.start_scan">
-                <source>Start Scan</source>
-            </trans-unit>
-            <trans-unit id="migration.index.notes.backup.label">
-                <source>Backup first</source>
-            </trans-unit>
-            <trans-unit id="migration.index.notes.test.label">
-                <source>Test environment</source>
-            </trans-unit>
-            <trans-unit id="migration.index.notes.false_positives.label">
-                <source>False positives</source>
-            </trans-unit>
-            <trans-unit id="migration.index.notes.hashes.label">
-                <source>Password hashes</source>
-            </trans-unit>
+      <!-- Migration Index page -->
+      <trans-unit id="migration.index.description">
+        <source>This wizard helps you detect and migrate plaintext secrets from your database and configuration to the secure vault.</source>
+      </trans-unit>
+      <trans-unit id="migration.index.how_it_works">
+        <source>How it works</source>
+      </trans-unit>
+      <trans-unit id="migration.index.step.scan">
+        <source>The system scans your database columns and extension configuration for values that look like secrets (API keys, passwords, tokens).</source>
+      </trans-unit>
+      <trans-unit id="migration.index.step.review">
+        <source>You review the detected secrets and select which ones to migrate.</source>
+      </trans-unit>
+      <trans-unit id="migration.index.step.configure">
+        <source>Set migration options like identifier patterns and ownership.</source>
+      </trans-unit>
+      <trans-unit id="migration.index.step.execute">
+        <source>The selected secrets are encrypted and stored in the vault, and database columns are updated with vault references.</source>
+      </trans-unit>
+      <trans-unit id="migration.index.step.verify">
+        <source>Confirm that the migration completed successfully.</source>
+      </trans-unit>
+      <trans-unit id="migration.index.detected.title">
+        <source>What is detected?</source>
+      </trans-unit>
+      <trans-unit id="migration.index.detected.database.title">
+        <source>Database Columns</source>
+      </trans-unit>
+      <trans-unit id="migration.index.detected.database.subtitle">
+        <source>Columns with names suggesting secrets</source>
+      </trans-unit>
+      <trans-unit id="migration.index.detected.patterns.title">
+        <source>Known API Key Formats</source>
+      </trans-unit>
+      <trans-unit id="migration.index.detected.patterns.subtitle">
+        <source>Values matching patterns for</source>
+      </trans-unit>
+      <trans-unit id="migration.index.detected.patterns.list">
+        <source>Stripe, AWS, Google API keys</source>
+      </trans-unit>
+      <trans-unit id="migration.index.detected.patterns.github">
+        <source>GitHub tokens (PAT, OAuth)</source>
+      </trans-unit>
+      <trans-unit id="migration.index.detected.patterns.other">
+        <source>Slack, SendGrid, Twilio tokens</source>
+      </trans-unit>
+      <trans-unit id="migration.index.notes.title">
+        <source>Important Notes</source>
+      </trans-unit>
+      <trans-unit id="migration.index.notes.backup">
+        <source>Always create a database backup before running migrations.</source>
+      </trans-unit>
+      <trans-unit id="migration.index.notes.test">
+        <source>Run the scan on a test system first to review what will be detected.</source>
+      </trans-unit>
+      <trans-unit id="migration.index.notes.false_positives">
+        <source>Not all detected values are actual secrets. Review carefully before migrating.</source>
+      </trans-unit>
+      <trans-unit id="migration.index.notes.hashes">
+        <source>Hashed passwords (bcrypt, argon2) are automatically excluded as they are already secure.</source>
+      </trans-unit>
+      <trans-unit id="migration.index.config_secrets.title">
+        <source>Configuration Secrets</source>
+      </trans-unit>
+      <trans-unit id="migration.index.config_secrets.text">
+        <source>Configuration secrets (in LocalConfiguration.php or extension settings) are detected but must be migrated manually. Replace the value with %vault(identifier)% after storing the secret in the vault.</source>
+      </trans-unit>
+      <trans-unit id="migration.index.start_scan">
+        <source>Start Scan</source>
+      </trans-unit>
+      <trans-unit id="migration.index.notes.backup.label">
+        <source>Backup first</source>
+      </trans-unit>
+      <trans-unit id="migration.index.notes.test.label">
+        <source>Test environment</source>
+      </trans-unit>
+      <trans-unit id="migration.index.notes.false_positives.label">
+        <source>False positives</source>
+      </trans-unit>
+      <trans-unit id="migration.index.notes.hashes.label">
+        <source>Password hashes</source>
+      </trans-unit>
 
-            <!-- Migration Scan page -->
-            <trans-unit id="migration.scan.title">
-                <source>Step 1: Scan for Plaintext Secrets</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.description">
-                <source>The system has scanned your TYPO3 installation for potential plaintext secrets that should be migrated to the vault.</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.potential_secrets">
-                <source>Potential secrets detected</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.in_database">
-                <source>In database columns</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.in_config">
-                <source>In configuration</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.by_severity">
-                <source>Secrets by Severity</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.severity.critical">
-                <source>Critical</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.severity.high">
-                <source>High</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.severity.medium">
-                <source>Medium</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.severity.low">
-                <source>Low</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.found">
-                <source>found</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.col.location">
-                <source>Location</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.col.patterns">
-                <source>Patterns</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.col.records">
-                <source>Records</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.records">
-                <source>records</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.patterns.hint">
-                <source>Known API key formats (Stripe, AWS, GitHub, etc.). "—" means detected by field name only.</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.records.hint">
-                <source>Database records affected. "n/a" for configuration secrets (must be migrated manually).</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.back">
-                <source>Back</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.rescan">
-                <source>Rescan</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.continue">
-                <source>Continue to Review (%d database secrets)</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.no_database_secrets.title">
-                <source>No Database Secrets to Migrate</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.no_database_secrets.text">
-                <source>Only configuration secrets were detected. These must be migrated manually by updating your configuration to use %vault(identifier)% references. See the documentation for details.</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.no_secrets.title">
-                <source>No Plaintext Secrets Detected</source>
-            </trans-unit>
-            <trans-unit id="migration.scan.no_secrets.text">
-                <source>Great! No potential plaintext secrets were found in your database or configuration. Your sensitive data appears to be properly protected.</source>
-            </trans-unit>
+      <!-- Migration Scan page -->
+      <trans-unit id="migration.scan.title">
+        <source>Step 1: Scan for Plaintext Secrets</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.description">
+        <source>The system has scanned your TYPO3 installation for potential plaintext secrets that should be migrated to the vault.</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.potential_secrets">
+        <source>Potential secrets detected</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.in_database">
+        <source>In database columns</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.in_config">
+        <source>In configuration</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.by_severity">
+        <source>Secrets by Severity</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.severity.critical">
+        <source>Critical</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.severity.high">
+        <source>High</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.severity.medium">
+        <source>Medium</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.severity.low">
+        <source>Low</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.found">
+        <source>found</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.col.location">
+        <source>Location</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.col.patterns">
+        <source>Patterns</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.col.records">
+        <source>Records</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.records">
+        <source>records</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.patterns.hint">
+        <source>Known API key formats (Stripe, AWS, GitHub, etc.). "—" means detected by field name only.</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.records.hint">
+        <source>Database records affected. "n/a" for configuration secrets (must be migrated manually).</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.back">
+        <source>Back</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.rescan">
+        <source>Rescan</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.continue">
+        <source>Continue to Review (%d database secrets)</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.no_database_secrets.title">
+        <source>No Database Secrets to Migrate</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.no_database_secrets.text">
+        <source>Only configuration secrets were detected. These must be migrated manually by updating your configuration to use %vault(identifier)% references. See the documentation for details.</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.no_secrets.title">
+        <source>No Plaintext Secrets Detected</source>
+      </trans-unit>
+      <trans-unit id="migration.scan.no_secrets.text">
+        <source>Great! No potential plaintext secrets were found in your database or configuration. Your sensitive data appears to be properly protected.</source>
+      </trans-unit>
 
-            <!-- Migration Review page -->
-            <trans-unit id="migration.review.title">
-                <source>Step 2: Review and Select Secrets</source>
-            </trans-unit>
-            <trans-unit id="migration.review.description">
-                <source>Select which database secrets you want to migrate to the vault. Configuration secrets must be migrated manually.</source>
-            </trans-unit>
-            <trans-unit id="migration.review.db_only.title">
-                <source>Database Secrets Only</source>
-            </trans-unit>
-            <trans-unit id="migration.review.db_only.text">
-                <source>Only database secrets can be migrated via this wizard. Configuration secrets need to be updated manually to use %vault(identifier)% references.</source>
-            </trans-unit>
-            <trans-unit id="migration.review.select_all">
-                <source>Select all</source>
-            </trans-unit>
-            <trans-unit id="migration.review.col.location">
-                <source>Location</source>
-            </trans-unit>
-            <trans-unit id="migration.review.col.records">
-                <source>Records</source>
-            </trans-unit>
-            <trans-unit id="migration.review.col.severity">
-                <source>Severity</source>
-            </trans-unit>
-            <trans-unit id="migration.review.col.patterns">
-                <source>Patterns</source>
-            </trans-unit>
-            <trans-unit id="migration.review.patterns.hint">
-                <source>Known API key formats (Stripe, AWS, GitHub, etc.). "—" means detected by field name only.</source>
-            </trans-unit>
-            <trans-unit id="migration.review.back_to_scan">
-                <source>Back to Scan</source>
-            </trans-unit>
-            <trans-unit id="migration.review.configure_selected">
-                <source>Configure Selected</source>
-            </trans-unit>
-            <trans-unit id="migration.review.no_secrets.title">
-                <source>No Database Secrets Found</source>
-            </trans-unit>
-            <trans-unit id="migration.review.no_secrets.text">
-                <source>No database secrets were found to migrate. The scan may have detected only configuration secrets, which must be migrated manually by updating your configuration to use %vault(identifier)% references.</source>
-            </trans-unit>
+      <!-- Migration Review page -->
+      <trans-unit id="migration.review.title">
+        <source>Step 2: Review and Select Secrets</source>
+      </trans-unit>
+      <trans-unit id="migration.review.description">
+        <source>Select which database secrets you want to migrate to the vault. Configuration secrets must be migrated manually.</source>
+      </trans-unit>
+      <trans-unit id="migration.review.db_only.title">
+        <source>Database Secrets Only</source>
+      </trans-unit>
+      <trans-unit id="migration.review.db_only.text">
+        <source>Only database secrets can be migrated via this wizard. Configuration secrets need to be updated manually to use %vault(identifier)% references.</source>
+      </trans-unit>
+      <trans-unit id="migration.review.select_all">
+        <source>Select all</source>
+      </trans-unit>
+      <trans-unit id="migration.review.col.location">
+        <source>Location</source>
+      </trans-unit>
+      <trans-unit id="migration.review.col.records">
+        <source>Records</source>
+      </trans-unit>
+      <trans-unit id="migration.review.col.severity">
+        <source>Severity</source>
+      </trans-unit>
+      <trans-unit id="migration.review.col.patterns">
+        <source>Patterns</source>
+      </trans-unit>
+      <trans-unit id="migration.review.patterns.hint">
+        <source>Known API key formats (Stripe, AWS, GitHub, etc.). "—" means detected by field name only.</source>
+      </trans-unit>
+      <trans-unit id="migration.review.back_to_scan">
+        <source>Back to Scan</source>
+      </trans-unit>
+      <trans-unit id="migration.review.configure_selected">
+        <source>Configure Selected</source>
+      </trans-unit>
+      <trans-unit id="migration.review.no_secrets.title">
+        <source>No Database Secrets Found</source>
+      </trans-unit>
+      <trans-unit id="migration.review.no_secrets.text">
+        <source>No database secrets were found to migrate. The scan may have detected only configuration secrets, which must be migrated manually by updating your configuration to use %vault(identifier)% references.</source>
+      </trans-unit>
 
-            <!-- Migration Configure page -->
-            <trans-unit id="migration.configure.title">
-                <source>Step 3: Configure Migration</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.description">
-                <source>Review the migration settings for each selected secret. The identifier pattern determines how secrets will be stored in the vault.</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.warning.title">
-                <source>Database Modification</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.warning.text">
-                <source>This will modify your database. Make sure you have a backup before proceeding.</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.col.table">
-                <source>Table</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.col.column">
-                <source>Column</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.col.identifier_pattern">
-                <source>Identifier Pattern</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.pattern_help">
-                <source>Use {uid} as placeholder for record UID</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.options.title">
-                <source>Migration Options</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.options.clear_originals">
-                <source>Replace original values with vault identifiers</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.options.clear_originals.help">
-                <source>When enabled, the original plaintext values in the database will be replaced with vault identifiers. This is the recommended approach for production environments.</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.back_to_review">
-                <source>Back to Review</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.execute">
-                <source>Execute Migration</source>
-            </trans-unit>
-            <trans-unit id="migration.configure.warning.label">
-                <source>Warning:</source>
-            </trans-unit>
+      <!-- Migration Configure page -->
+      <trans-unit id="migration.configure.title">
+        <source>Step 3: Configure Migration</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.description">
+        <source>Review the migration settings for each selected secret. The identifier pattern determines how secrets will be stored in the vault.</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.warning.title">
+        <source>Database Modification</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.warning.text">
+        <source>This will modify your database. Make sure you have a backup before proceeding.</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.col.table">
+        <source>Table</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.col.column">
+        <source>Column</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.col.identifier_pattern">
+        <source>Identifier Pattern</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.pattern_help">
+        <source>Use {uid} as placeholder for record UID</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.options.title">
+        <source>Migration Options</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.options.clear_originals">
+        <source>Replace original values with vault identifiers</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.options.clear_originals.help">
+        <source>When enabled, the original plaintext values in the database will be replaced with vault identifiers. This is the recommended approach for production environments.</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.back_to_review">
+        <source>Back to Review</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.execute">
+        <source>Execute Migration</source>
+      </trans-unit>
+      <trans-unit id="migration.configure.warning.label">
+        <source>Warning:</source>
+      </trans-unit>
 
-            <!-- Migration Verify page -->
-            <trans-unit id="migration.verify.title">
-                <source>Step 5: Migration Results</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.secrets_migrated">
-                <source>Secrets migrated</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.failed">
-                <source>Failed</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.details.title">
-                <source>Migration Details</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.col.table">
-                <source>Table</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.col.column">
-                <source>Column</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.col.migrated">
-                <source>Migrated</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.col.skipped">
-                <source>Skipped</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.col.failed">
-                <source>Failed</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.col.status">
-                <source>Status</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.status.error">
-                <source>Error</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.status.partial">
-                <source>Partial</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.status.complete">
-                <source>Complete</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.db_updated.title">
-                <source>Database Updated</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.db_updated.text">
-                <source>Original plaintext values have been replaced with vault identifiers in the database.</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.next_steps.title">
-                <source>Next Steps</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.next_steps.view">
-                <source>View migrated secrets</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.next_steps.view.suffix">
-                <source>in the Secrets Manager</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.next_steps.update_code">
-                <source>Update your extension code to use VaultFieldResolver::resolveFields() to retrieve secrets</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.next_steps.test">
-                <source>Test that your application still works correctly with the migrated secrets</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.next_steps.rescan">
-                <source>Consider running another scan to check for any remaining plaintext secrets</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.run_another_scan">
-                <source>Run Another Scan</source>
-            </trans-unit>
-            <trans-unit id="migration.verify.view_secrets">
-                <source>View Secrets</source>
-            </trans-unit>
-        </body>
-    </file>
+      <!-- Migration Verify page -->
+      <trans-unit id="migration.verify.title">
+        <source>Step 5: Migration Results</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.secrets_migrated">
+        <source>Secrets migrated</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.failed">
+        <source>Failed</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.details.title">
+        <source>Migration Details</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.col.table">
+        <source>Table</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.col.column">
+        <source>Column</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.col.migrated">
+        <source>Migrated</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.col.skipped">
+        <source>Skipped</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.col.failed">
+        <source>Failed</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.col.status">
+        <source>Status</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.status.error">
+        <source>Error</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.status.partial">
+        <source>Partial</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.status.complete">
+        <source>Complete</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.db_updated.title">
+        <source>Database Updated</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.db_updated.text">
+        <source>Original plaintext values have been replaced with vault identifiers in the database.</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.next_steps.title">
+        <source>Next Steps</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.next_steps.view">
+        <source>View migrated secrets</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.next_steps.view.suffix">
+        <source>in the Secrets Manager</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.next_steps.update_code">
+        <source>Update your extension code to use VaultFieldResolver::resolveFields() to retrieve secrets</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.next_steps.test">
+        <source>Test that your application still works correctly with the migrated secrets</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.next_steps.rescan">
+        <source>Consider running another scan to check for any remaining plaintext secrets</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.run_another_scan">
+        <source>Run Another Scan</source>
+      </trans-unit>
+      <trans-unit id="migration.verify.view_secrets">
+        <source>View Secrets</source>
+      </trans-unit>
+    </body>
+  </file>
 </xliff>

@@ -83,6 +83,54 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
 
    Number of days to retain audit log entries. Set to 0 for unlimited retention.
 
+.. confval:: auditReads
+   :name: ext-nrvault-auditReads
+   :type: boolean
+   :Default: true
+
+   Log every secret *read* to the audit log. Disable only for
+   high-throughput scenarios where read logging is not required.
+
+   .. warning::
+
+      Disabling read logging means secret retrievals leave no audit
+      trail. The toggle is configurable by design
+      (see :ref:`adr-019-configurable-audit-read-logging`), but flipping
+      it does not itself emit a sentinel entry. For tamper-resistant
+      deployments, pin the value filesystem-only via
+      :file:`config/system/additional.php` so it cannot be changed from
+      the backend Settings module:
+
+      .. code-block:: php
+
+         $GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['auditReads'] = true;
+
+.. confval:: auditHmacEpoch
+   :name: ext-nrvault-auditHmacEpoch
+   :type: integer
+   :Default: 2
+
+   Hash-algorithm version marker for the audit log hash chain:
+
+   0
+      Legacy SHA-256 without HMAC.
+
+   1
+      HMAC-SHA256 over identity fields only.
+
+   2
+      HMAC-SHA256 over identity **and** forensic fields (``success``,
+      ``error_message``, ``reason``, ``ip_address``, ``user_agent``,
+      ``context``).
+
+   The default (``2``) binds the forensic surface into the chain so a
+   DB-write attacker cannot flip ``success`` or rewrite
+   ``error_message`` without breaking the chain. After raising this
+   value, run the Install Tool wizard *Migrate audit hash chain* (or
+   the :ref:`vault:audit-migrate-hmac <command-audit-migrate-hmac>`
+   command) to re-hash existing rows. See
+   :ref:`adr-023-audit-hash-chain-hmac`.
+
 .. confval:: preferXChaCha20
    :name: ext-nrvault-preferXChaCha20
    :type: boolean

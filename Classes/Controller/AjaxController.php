@@ -1,7 +1,10 @@
 <?php
 
 /*
- * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * This file is part of the nr-vault TYPO3 extension.
+ *
+ * (c) Netresearch DTT GmbH
+ *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -16,6 +19,7 @@ use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Exception\SecretExpiredException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\ValidationException;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -34,26 +38,35 @@ final readonly class AjaxController
 {
     public function __construct(
         private VaultServiceInterface $vaultService,
+        private AccessControlServiceInterface $accessControlService,
     ) {}
 
     /**
      * Reveal a secret value.
      *
-     * Accepts both GET (query params) and POST (JSON body) requests.
+     * Accepts POST requests with a JSON body containing `identifier`.
+     * Admin-only and server-side re-checked (see SEC-ACCESS-6).
      *
      * @return ResponseInterface JSON response with secret or error
      */
     public function revealAction(ServerRequestInterface $request): ResponseInterface
     {
-        // Support both GET (query params) and POST (JSON body)
+        // SEC-ACCESS-6: defense-in-depth — do not rely solely on the route's
+        // `methods => ['POST']` / `access => admin` config. Re-assert the POST
+        // method (mirroring rotateAction) and re-check admin server-side, so
+        // authorization holds even if the route config is later loosened.
+        if ($request->getMethod() !== 'POST') {
+            return $this->jsonError('Method not allowed', 405);
+        }
+
+        if (!$this->accessControlService->isCurrentActorAdmin()) {
+            return $this->jsonError('Access denied', 403);
+        }
+
         $identifier = $this->getIdentifierFromRequest($request);
 
         if ($identifier === '') {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'No identifier provided',
-            ], 400);
+            return $this->jsonError('No identifier provided', 400);
         }
 
         try {
@@ -61,11 +74,7 @@ final readonly class AjaxController
 
             // retrieve() returns null when secret not found
             if ($secret === null) {
-                /** @phpstan-ignore new.internalClass, method.internalClass */
-                return new JsonResponse([
-                    'success' => false,
-                    'error' => 'Secret not found',
-                ], 404);
+                return $this->jsonError('Secret not found', 404);
             }
 
             /** @phpstan-ignore new.internalClass, method.internalClass */
@@ -74,29 +83,13 @@ final readonly class AjaxController
                 'secret' => $secret,
             ]);
         } catch (AccessDeniedException) {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'Access denied',
-            ], 403);
+            return $this->jsonError('Access denied', 403);
         } catch (SecretExpiredException) {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'Secret has expired',
-            ], 410);
+            return $this->jsonError('Secret has expired', 410);
         } catch (EncryptionException) {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'Decryption failed',
-            ], 500);
+            return $this->jsonError('Decryption failed', 500);
         } catch (Exception) {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'Failed to retrieve secret',
-            ], 500);
+            return $this->jsonError('Failed to retrieve secret', 500);
         }
     }
 
@@ -113,11 +106,12 @@ final readonly class AjaxController
     {
         // Only accept POST
         if ($request->getMethod() !== 'POST') {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'Method not allowed',
-            ], 405);
+            return $this->jsonError('Method not allowed', 405);
+        }
+
+        // SEC-ACCESS-6: defense-in-depth admin re-check (see revealAction).
+        if (!$this->accessControlService->isCurrentActorAdmin()) {
+            return $this->jsonError('Access denied', 403);
         }
 
         $body = $this->getJsonBody($request);
@@ -125,19 +119,11 @@ final readonly class AjaxController
         $newSecret = isset($body['secret']) && \is_string($body['secret']) ? $body['secret'] : '';
 
         if ($identifier === '') {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'No identifier provided',
-            ], 400);
+            return $this->jsonError('No identifier provided', 400);
         }
 
         if ($newSecret === '') {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'No secret value provided',
-            ], 400);
+            return $this->jsonError('No secret value provided', 400);
         }
 
         try {
@@ -154,36 +140,32 @@ final readonly class AjaxController
                 'version' => $updatedMetadata->version,
             ]);
         } catch (SecretNotFoundException) {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'Secret not found',
-            ], 404);
+            return $this->jsonError('Secret not found', 404);
         } catch (ValidationException $e) { // @phpstan-ignore catch.neverThrown
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'Validation error: ' . $e->getMessage(),
-            ], 400);
+            return $this->jsonError('Validation error: ' . $e->getMessage(), 400);
         } catch (AccessDeniedException) {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'Access denied',
-            ], 403);
+            return $this->jsonError('Access denied', 403);
         } catch (EncryptionException) {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'Encryption failed',
-            ], 500);
+            return $this->jsonError('Encryption failed', 500);
         } catch (Exception) {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
-                'success' => false,
-                'error' => 'Failed to rotate secret',
-            ], 500);
+            return $this->jsonError('Failed to rotate secret', 500);
         }
+    }
+
+    /**
+     * Build a uniform JSON error envelope.
+     *
+     * Centralises the `{success: false, error: ...}` shape so every failure
+     * path is byte-identical and the single `JsonResponse` PHPStan suppression
+     * lives in one place rather than at every call site.
+     */
+    private function jsonError(string $message, int $status): ResponseInterface
+    {
+        /** @phpstan-ignore new.internalClass, method.internalClass */
+        return new JsonResponse([
+            'success' => false,
+            'error' => $message,
+        ], $status);
     }
 
     /**

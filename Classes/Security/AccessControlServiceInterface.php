@@ -17,17 +17,30 @@ use Netresearch\NrVault\Domain\Model\Secret;
 interface AccessControlServiceInterface
 {
     /**
-     * Check if current user can read a secret.
+     * Check if the current actor can READ a secret.
+     *
+     * Granted to: owner, admin, system maintainer, read-tier groups
+     * (`allowedGroups`) and write-tier groups (`writeGroups`), CLI (when
+     * allowed), and any frontend/API context for `frontend_accessible`
+     * secrets. The broadest tier (ADR-005 least-privilege split).
      */
     public function canRead(Secret $secret): bool;
 
     /**
-     * Check if current user can write/update a secret.
+     * Check if the current actor can WRITE/UPDATE a secret.
+     *
+     * Granted to: owner, admin, system maintainer, and write-tier groups
+     * (`writeGroups`). NOT granted to read-tier groups or the frontend
+     * (ADR-005 least-privilege split).
      */
     public function canWrite(Secret $secret): bool;
 
     /**
-     * Check if current user can delete a secret.
+     * Check if the current actor can DELETE a secret.
+     *
+     * The most restrictive tier: granted only to owner, admin, and system
+     * maintainer. No group tier — neither read- nor write-tier group
+     * members can delete (ADR-005 least-privilege split).
      */
     public function canDelete(Secret $secret): bool;
 

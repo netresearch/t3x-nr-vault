@@ -21,13 +21,23 @@ The main service for interacting with the vault.
 
    Main interface for vault operations.
 
+   .. note::
+
+      The plaintext parameters ``$secret`` / ``$newSecret`` carry the
+      PHP ``#[\SensitiveParameter]`` attribute on the interface, so they
+      are redacted from stack traces and ``var_dump()`` output. Mirror
+      the attribute on any custom implementation.
+
    .. php:method:: store(string $identifier, string $secret, array $options = []): void
 
-      Store a secret in the vault.
+      Store a secret in the vault. ``$secret`` is a
+      ``#[\SensitiveParameter]``.
 
       :param string $identifier: Unique identifier for the secret.
-      :param string $secret: The secret value to store.
-      :param array $options: Optional configuration (owner, groups, context, expiresAt, metadata).
+      :param string $secret: The secret value to store (``#[\SensitiveParameter]``).
+      :param array $options: Optional configuration: ``owner`` (int BE-user UID), ``groups`` (int[] BE-group UIDs), ``context`` (string), ``expiresAt`` (int|\DateTimeInterface|null), ``metadata`` (array), ``description`` (string), ``scopePid`` (int).
+      :throws ValidationException: If the identifier is invalid.
+      :throws EncryptionException: If encryption fails.
 
    .. php:method:: retrieve(string $identifier)
 
@@ -57,31 +67,110 @@ The main service for interacting with the vault.
 
    .. php:method:: rotate(string $identifier, string $newSecret, string $reason = ''): void
 
-      Rotate a secret with a new value.
+      Rotate a secret with a new value. ``$newSecret`` is a
+      ``#[\SensitiveParameter]``.
 
       :param string $identifier: The secret identifier.
-      :param string $newSecret: The new secret value.
+      :param string $newSecret: The new secret value (``#[\SensitiveParameter]``).
       :param string $reason: Optional reason for rotation (logged).
 
-   .. php:method:: list(string $pattern = null): array
+   .. php:method:: list(?string $pattern = null): array
 
       List accessible secrets.
 
-      :param string|null $pattern: Optional pattern to filter identifiers.
-      :returns: Array of secret metadata.
+      :param string|null $pattern: Optional pattern to filter identifiers (supports the ``*`` wildcard).
+      :returns: A ``list<SecretMetadata>`` of secret metadata DTOs (``Netresearch\NrVault\Domain\Dto\SecretMetadata``).
 
-   .. php:method:: getMetadata(string $identifier): array
+   .. php:method:: getMetadata(string $identifier): SecretDetails
 
       Get metadata for a secret without retrieving its value.
 
       :param string $identifier: The secret identifier.
-      :returns: Array with identifier, description, owner, groups, version, etc.
+      :returns: A ``SecretDetails`` DTO (``Netresearch\NrVault\Domain\Dto\SecretDetails``) with identifier, description, owner, groups, version, etc.
+      :throws SecretNotFoundException: If secret doesn't exist.
+      :throws AccessDeniedException: If user lacks permission.
+
+   .. php:method:: clearCache(): void
+
+      Clear the request-scoped cache of decrypted secrets, securely
+      wiping cached plaintext from memory.
 
    .. php:method:: http(): VaultHttpClientInterface
 
       Get an HTTP client that can inject secrets into requests.
 
       :returns: A PSR-18 compatible vault-aware HTTP client.
+
+.. _api-encryption-service:
+
+EncryptionService
+=================
+
+The crypto boundary: libsodium envelope encryption (per-secret DEK
+wrapped by the master key).
+
+.. php:namespace:: Netresearch\NrVault\Crypto
+
+.. php:interface:: EncryptionServiceInterface
+
+   Low-level encryption operations. Most callers use
+   :php:`VaultServiceInterface` instead.
+
+   .. note::
+
+      Plaintext and key parameters (``$plaintext``, ``$encryptedValue``,
+      ``$encryptedDek``, ``$oldMasterKey``, ``$newMasterKey``) carry the
+      ``#[\SensitiveParameter]`` attribute on the interface.
+
+   .. php:method:: encrypt(string $plaintext, string $identifier): EncryptedData
+
+      Encrypt a plaintext value with a unique DEK. ``$plaintext`` is a
+      ``#[\SensitiveParameter]``.
+
+      :param string $plaintext: The value to encrypt (``#[\SensitiveParameter]``).
+      :param string $identifier: Secret identifier (used as AAD).
+      :returns: An ``EncryptedData`` value object (``Netresearch\NrVault\Crypto\EncryptedData``) holding the ciphertext, encrypted DEK, and nonces.
+      :throws EncryptionException: If encryption fails.
+
+   .. php:method:: decrypt(string $encryptedValue, string $encryptedDek, string $dekNonce, string $valueNonce, string $identifier): string
+
+      Decrypt a previously encrypted value. ``$encryptedValue`` and
+      ``$encryptedDek`` are ``#[\SensitiveParameter]``.
+
+      :param string $encryptedValue: Base64-encoded ciphertext (``#[\SensitiveParameter]``).
+      :param string $encryptedDek: Base64-encoded encrypted DEK (``#[\SensitiveParameter]``).
+      :param string $dekNonce: Base64-encoded DEK nonce.
+      :param string $valueNonce: Base64-encoded value nonce.
+      :param string $identifier: Secret identifier (used as AAD).
+      :returns: The decrypted plaintext.
+      :throws EncryptionException: If decryption fails.
+
+   .. php:method:: generateDek(): string
+
+      Generate a new Data Encryption Key.
+
+      :returns: A 32-byte random key.
+
+   .. php:method:: calculateChecksum(string $plaintext): string
+
+      Calculate a value checksum for change detection. ``$plaintext`` is
+      a ``#[\SensitiveParameter]``.
+
+      :param string $plaintext: The secret value (``#[\SensitiveParameter]``).
+      :returns: SHA-256 hash (64 hex characters).
+
+   .. php:method:: reEncryptDek(string $encryptedDek, string $dekNonce, string $identifier, string $oldMasterKey, string $newMasterKey): ReEncryptedDek
+
+      Re-encrypt a DEK with a new master key (used during master-key
+      rotation). ``$encryptedDek``, ``$oldMasterKey`` and
+      ``$newMasterKey`` are ``#[\SensitiveParameter]``.
+
+      :param string $encryptedDek: Current encrypted DEK (``#[\SensitiveParameter]``).
+      :param string $dekNonce: Current DEK nonce.
+      :param string $identifier: Secret identifier.
+      :param string $oldMasterKey: Previous master key (``#[\SensitiveParameter]``).
+      :param string $newMasterKey: New master key (``#[\SensitiveParameter]``).
+      :returns: A ``ReEncryptedDek`` value object (``Netresearch\NrVault\Crypto\ReEncryptedDek``).
 
 .. _api-usage-examples:
 

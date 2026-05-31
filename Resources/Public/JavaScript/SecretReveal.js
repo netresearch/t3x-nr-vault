@@ -7,6 +7,26 @@ import Modal from '@typo3/backend/modal.js';
 import Notification from '@typo3/backend/notification.js';
 import Severity from '@typo3/backend/severity.js';
 
+/**
+ * Look up a backend label registered via PageRenderer::addInlineLanguageLabelFile()
+ * (locallang_js.xlf), falling back to the English default. Supports {0}, {1}, ...
+ * placeholder substitution.
+ *
+ * @param {string} key
+ * @param {string} fallback
+ * @param {...string} args
+ * @returns {string}
+ */
+function lang(key, fallback, ...args) {
+    let text = (typeof TYPO3 !== 'undefined' && TYPO3.lang && TYPO3.lang[key]) || fallback;
+    args.forEach((value, index) => {
+        // Use a replacer function so `$`-sequences (e.g. $&, $1) in the value
+        // are inserted literally rather than interpreted by String.replace().
+        text = text.replace('{' + index + '}', () => value);
+    });
+    return text;
+}
+
 class SecretView {
     constructor() {
         this.revealBtn = document.getElementById('reveal-secret-btn');
@@ -49,9 +69,9 @@ class SecretView {
     hideSecret() {
         this.secretInput.type = 'password';
         this.secretInput.value = '••••••••••••••••';
-        this.btnText.textContent = 'Reveal';
+        this.btnText.textContent = lang('nrvault.reveal.action', 'Reveal');
         if (this.copyBtn) {
-            this.copyBtn.style.display = 'none';
+            this.copyBtn.classList.add('d-none');
         }
         this.isRevealed = false;
     }
@@ -59,9 +79,9 @@ class SecretView {
     showSecret() {
         this.secretInput.type = 'text';
         this.secretInput.value = this.secretValue;
-        this.btnText.textContent = 'Hide';
+        this.btnText.textContent = lang('nrvault.reveal.hideAction', 'Hide');
         if (this.copyBtn) {
-            this.copyBtn.style.display = 'inline-block';
+            this.copyBtn.classList.remove('d-none');
         }
         this.isRevealed = true;
     }
@@ -86,12 +106,12 @@ class SecretView {
                 this.secretValue = data.secret;
                 this.showSecret();
             } else {
-                Notification.error('Error', data.error || 'Unknown error', 5);
-                this.btnText.textContent = 'Reveal';
+                Notification.error(lang('nrvault.error', 'Error'), data.error || lang('nrvault.unknownError', 'An error occurred'), 5);
+                this.btnText.textContent = lang('nrvault.reveal.action', 'Reveal');
             }
         } catch (error) {
-            Notification.error('Error', 'Error fetching secret: ' + error.message, 5);
-            this.btnText.textContent = 'Reveal';
+            Notification.error(lang('nrvault.error', 'Error'), lang('nrvault.reveal.fetchError', 'Error fetching secret: {0}', error.message), 5);
+            this.btnText.textContent = lang('nrvault.reveal.action', 'Reveal');
         } finally {
             this.revealBtn.disabled = false;
             this.showLoading(false);
@@ -103,7 +123,7 @@ class SecretView {
             if (loading) {
                 this.btnIcon.classList.add('d-none');
                 this.btnSpinner.classList.remove('d-none');
-                this.btnText.textContent = 'Loading...';
+                this.btnText.textContent = lang('nrvault.reveal.loadingAction', 'Loading...');
             } else {
                 this.btnIcon.classList.remove('d-none');
                 this.btnSpinner.classList.add('d-none');
@@ -120,15 +140,15 @@ class SecretView {
             this.copyBtn.textContent = '';
             const copiedSpan = document.createElement('span');
             copiedSpan.className = 'text-success';
-            copiedSpan.textContent = 'Copied!';
+            copiedSpan.textContent = lang('nrvault.copied.inline', 'Copied!');
             this.copyBtn.appendChild(copiedSpan);
             setTimeout(() => {
                 this.copyBtn.textContent = '';
                 originalChildNodes.forEach(node => this.copyBtn.appendChild(node));
             }, 2000);
-            Notification.success('Copied', 'Secret copied to clipboard', 2);
+            Notification.success(lang('nrvault.copied', 'Copied'), lang('nrvault.copy.success', 'Secret copied to clipboard'), 2);
         } catch {
-            Notification.error('Error', 'Failed to copy to clipboard', 5);
+            Notification.error(lang('nrvault.error', 'Error'), lang('nrvault.copy.failed', 'Failed to copy to clipboard'), 5);
         }
     }
 
@@ -148,18 +168,22 @@ class SecretView {
         const identifier = button.dataset.identifier;
 
         Modal.confirm(
-            'Delete Secret',
-            'Are you sure you want to delete the secret "' + this.escapeText(identifier) + '"? This action cannot be undone.',
+            lang('nrvault.delete.title', 'Delete Secret'),
+            lang(
+                'nrvault.delete.confirm',
+                'Are you sure you want to delete the secret "{0}"? This action cannot be undone.',
+                this.escapeText(identifier),
+            ),
             Severity.warning,
             [
                 {
-                    text: 'Cancel',
+                    text: lang('nrvault.cancel', 'Cancel'),
                     active: true,
                     btnClass: 'btn-default',
                     trigger: () => Modal.dismiss()
                 },
                 {
-                    text: 'Delete',
+                    text: lang('nrvault.delete', 'Delete'),
                     btnClass: 'btn-danger',
                     trigger: () => {
                         Modal.dismiss();

@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Utility;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Log\LoggerInterface;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
 /**
  * Service for resolving vault secrets in FlexForm data.
@@ -41,6 +42,7 @@ final readonly class FlexFormVaultResolver
     public function __construct(
         private VaultServiceInterface $vaultService,
         private LoggerInterface $logger,
+        private TcaSchemaFactory $tcaSchemaFactory,
     ) {}
 
     /**
@@ -117,6 +119,35 @@ final readonly class FlexFormVaultResolver
         }
 
         return (bool) preg_match(self::UUID_PATTERN, $value);
+    }
+
+    /**
+     * Get the FlexForm (type 'flex') field names for a table from its TCA schema.
+     *
+     * Used by the DataHandler FlexForm hook to discover which fields may carry
+     * vault secrets, so the discovery logic lives in one place.
+     *
+     * @param string $table The table name
+     *
+     * @return list<string> Field names that are FlexForm fields
+     */
+    public function getFlexFieldsForTable(string $table): array
+    {
+        if (!$this->tcaSchemaFactory->has($table)) {
+            return [];
+        }
+
+        $schema = $this->tcaSchemaFactory->get($table);
+        $flexFields = [];
+
+        foreach ($schema->getFields() as $field) {
+            $configType = $field->getConfiguration()['type'] ?? '';
+            if (\is_string($configType) && $configType === 'flex') {
+                $flexFields[] = $field->getName();
+            }
+        }
+
+        return $flexFields;
     }
 
     /**

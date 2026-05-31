@@ -17,12 +17,9 @@ use SensitiveParameter;
 /**
  * Environment variable-based master key provider.
  */
-final class EnvironmentMasterKeyProvider implements MasterKeyProviderInterface
+final class EnvironmentMasterKeyProvider extends AbstractMasterKeyProvider
 {
     private const KEY_LENGTH = 32; // 256 bits
-
-    /** @var string|null Request-lifetime cached master key */
-    private static ?string $cachedKey = null;
 
     public function __construct(
         private readonly ExtensionConfigurationInterface $configuration,
@@ -30,6 +27,9 @@ final class EnvironmentMasterKeyProvider implements MasterKeyProviderInterface
 
     public function __destruct()
     {
+        // File/Env providers wipe their request-lifetime cache on destruction;
+        // the inherited static cache is keyed by class so this clears only this
+        // provider's slot. See ADR-020.
         self::clearCachedKey();
     }
 
@@ -46,54 +46,6 @@ final class EnvironmentMasterKeyProvider implements MasterKeyProviderInterface
         return $value !== false && $value !== '';
     }
 
-    /**
-     * Clear the cached master key from memory.
-     */
-    public static function clearCachedKey(): void
-    {
-        if (self::$cachedKey !== null) {
-            sodium_memzero(self::$cachedKey);
-            self::$cachedKey = null;
-        }
-    }
-
-    public function getMasterKey(): string
-    {
-        if (self::$cachedKey !== null) {
-            return self::$cachedKey;
-        }
-
-        $varName = $this->getEnvVarName();
-        $value = getenv($varName);
-
-        if ($value === false || $value === '') {
-            throw MasterKeyException::environmentVariableNotSet($varName);
-        }
-
-        // Handle base64-encoded keys
-        if (\strlen($value) === self::KEY_LENGTH) {
-            // Raw binary key - return directly (don't zero $value, it IS the key)
-            self::$cachedKey = $value;
-
-            return self::$cachedKey;
-        }
-
-        $decoded = base64_decode($value, true);
-        if ($decoded !== false && \strlen($decoded) === self::KEY_LENGTH) {
-            // Zero the raw base64 string, keep decoded key
-            sodium_memzero($value);
-            self::$cachedKey = $decoded;
-
-            return self::$cachedKey;
-        }
-
-        // Neither raw nor valid base64
-        $length = \strlen($value);
-        sodium_memzero($value);
-
-        throw MasterKeyException::invalidLength(self::KEY_LENGTH, $length);
-    }
-
     public function storeMasterKey(#[SensitiveParameter] string $key): void
     {
         // Cannot store to environment variable at runtime
@@ -105,6 +57,36 @@ final class EnvironmentMasterKeyProvider implements MasterKeyProviderInterface
     public function generateMasterKey(): string
     {
         return random_bytes(self::KEY_LENGTH);
+    }
+
+    protected function loadRawKey(): string
+    {
+        $varName = $this->getEnvVarName();
+        $value = getenv($varName);
+
+        if ($value === false || $value === '') {
+            throw MasterKeyException::environmentVariableNotSet($varName);
+        }
+
+        // Handle base64-encoded keys
+        if (\strlen($value) === self::KEY_LENGTH) {
+            // Raw binary key - return directly (don't zero $value, it IS the key)
+            return $value;
+        }
+
+        $decoded = base64_decode($value, true);
+        if ($decoded !== false && \strlen($decoded) === self::KEY_LENGTH) {
+            // Zero the raw base64 string, keep decoded key
+            sodium_memzero($value);
+
+            return $decoded;
+        }
+
+        // Neither raw nor valid base64
+        $length = \strlen($value);
+        sodium_memzero($value);
+
+        throw MasterKeyException::invalidLength(self::KEY_LENGTH, $length);
     }
 
     private function getEnvVarName(): string

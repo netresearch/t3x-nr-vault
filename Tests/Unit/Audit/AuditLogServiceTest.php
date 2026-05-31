@@ -1511,17 +1511,20 @@ final class AuditLogServiceTest extends TestCase
     }
 
     /**
-     * Kill MethodCallRemoval on `export()` — uses PHP_INT_MAX limit and 0 offset.
+     * Kill MethodCallRemoval on `export()` — streams bounded chunks from
+     * offset 0 instead of a single PHP_INT_MAX fetch (avoids OOM on large
+     * audit tables). An empty first chunk terminates the loop, so exactly one
+     * query runs with a finite chunk size as the limit and offset 0.
      */
     #[Test]
-    public function exportUsesMaxIntLimitAndZeroOffset(): void
+    public function exportStreamsBoundedChunksFromZeroOffset(): void
     {
         $this->setupQueryMocks([]);
 
         $this->queryBuilder
             ->expects(self::once())
             ->method('setMaxResults')
-            ->with(PHP_INT_MAX)
+            ->with(self::lessThan(PHP_INT_MAX))
             ->willReturnSelf();
 
         $this->queryBuilder
@@ -1530,7 +1533,7 @@ final class AuditLogServiceTest extends TestCase
             ->with(0)
             ->willReturnSelf();
 
-        $this->getSubject()->export();
+        self::assertSame([], $this->getSubject()->export());
     }
 
     // =========================================================================

@@ -168,6 +168,23 @@
     margin-top: 1rem;
 }
 
+/* Audit log table column widths (moved off inline styles for CSP style-src) */
+.vault-col-time {
+    width: 100px;
+}
+
+.vault-col-action {
+    width: 100px;
+}
+
+.vault-col-status {
+    width: 80px;
+}
+
+.vault-col-ip {
+    width: 130px;
+}
+
 /* Audit log styling */
 
 .vault-date-header {

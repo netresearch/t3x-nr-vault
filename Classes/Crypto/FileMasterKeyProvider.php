@@ -17,12 +17,9 @@ use SensitiveParameter;
 /**
  * File-based master key provider.
  */
-final class FileMasterKeyProvider implements MasterKeyProviderInterface
+final class FileMasterKeyProvider extends AbstractMasterKeyProvider
 {
     private const KEY_LENGTH = 32; // 256 bits
-
-    /** @var string|null Request-lifetime cached master key */
-    private static ?string $cachedKey = null;
 
     public function __construct(
         private readonly ExtensionConfigurationInterface $configuration,
@@ -30,6 +27,9 @@ final class FileMasterKeyProvider implements MasterKeyProviderInterface
 
     public function __destruct()
     {
+        // File/Env providers wipe their request-lifetime cache on destruction;
+        // the inherited static cache is keyed by class so this clears only this
+        // provider's slot. See ADR-020.
         self::clearCachedKey();
     }
 
@@ -43,76 +43,6 @@ final class FileMasterKeyProvider implements MasterKeyProviderInterface
         $path = $this->getKeyPath();
 
         return $path !== '' && file_exists($path) && is_readable($path);
-    }
-
-    /**
-     * Clear the cached master key from memory.
-     */
-    public static function clearCachedKey(): void
-    {
-        if (self::$cachedKey !== null) {
-            sodium_memzero(self::$cachedKey);
-            self::$cachedKey = null;
-        }
-    }
-
-    public function getMasterKey(): string
-    {
-        if (self::$cachedKey !== null) {
-            return self::$cachedKey;
-        }
-
-        $path = $this->getKeyPath();
-
-        if ($path === '') {
-            throw MasterKeyException::notFound('No path configured');
-        }
-
-        if (!file_exists($path)) {
-            // Try auto-generated key path for development
-            $autoPath = $this->configuration->getAutoKeyPath();
-            if (file_exists($autoPath) && is_readable($autoPath)) {
-                $path = $autoPath;
-            } else {
-                throw MasterKeyException::notFound($path);
-            }
-        }
-
-        if (!is_readable($path)) {
-            throw MasterKeyException::notFound($path . ' (not readable)');
-        }
-
-        $raw = file_get_contents($path);
-        if ($raw === false) {
-            throw MasterKeyException::notFound($path);
-        }
-
-        // Trim whitespace first (handles trailing newlines from text editors)
-        $trimmed = trim($raw);
-
-        // Try trimmed value as raw binary key
-        if (\strlen($trimmed) === self::KEY_LENGTH) {
-            self::$cachedKey = $trimmed;
-
-            return self::$cachedKey;
-        }
-
-        // Try base64 decode of trimmed value
-        $decoded = base64_decode($trimmed, true);
-        if ($decoded !== false && \strlen($decoded) === self::KEY_LENGTH) {
-            self::$cachedKey = $decoded;
-
-            return self::$cachedKey;
-        }
-
-        // Try raw file contents as binary (no trimming of binary data)
-        if (\strlen($raw) === self::KEY_LENGTH) {
-            self::$cachedKey = $raw;
-
-            return self::$cachedKey;
-        }
-
-        throw MasterKeyException::invalidLength(self::KEY_LENGTH, \strlen($trimmed));
     }
 
     public function storeMasterKey(#[SensitiveParameter] string $key): void
@@ -154,6 +84,55 @@ final class FileMasterKeyProvider implements MasterKeyProviderInterface
     public function generateMasterKey(): string
     {
         return random_bytes(self::KEY_LENGTH);
+    }
+
+    protected function loadRawKey(): string
+    {
+        $path = $this->getKeyPath();
+
+        if ($path === '') {
+            throw MasterKeyException::notFound('No path configured');
+        }
+
+        if (!file_exists($path)) {
+            // Try auto-generated key path for development
+            $autoPath = $this->configuration->getAutoKeyPath();
+            if (file_exists($autoPath) && is_readable($autoPath)) {
+                $path = $autoPath;
+            } else {
+                throw MasterKeyException::notFound($path);
+            }
+        }
+
+        if (!is_readable($path)) {
+            throw MasterKeyException::notFound($path . ' (not readable)');
+        }
+
+        $raw = file_get_contents($path);
+        if ($raw === false) {
+            throw MasterKeyException::notFound($path);
+        }
+
+        // Trim whitespace first (handles trailing newlines from text editors)
+        $trimmed = trim($raw);
+
+        // Try trimmed value as raw binary key
+        if (\strlen($trimmed) === self::KEY_LENGTH) {
+            return $trimmed;
+        }
+
+        // Try base64 decode of trimmed value
+        $decoded = base64_decode($trimmed, true);
+        if ($decoded !== false && \strlen($decoded) === self::KEY_LENGTH) {
+            return $decoded;
+        }
+
+        // Try raw file contents as binary (no trimming of binary data)
+        if (\strlen($raw) === self::KEY_LENGTH) {
+            return $raw;
+        }
+
+        throw MasterKeyException::invalidLength(self::KEY_LENGTH, \strlen($trimmed));
     }
 
     private function getKeyPath(): string

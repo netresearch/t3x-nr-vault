@@ -85,16 +85,19 @@ final class SecretRepositoryTest extends TestCase
         $result = $this->createStub(Result::class);
         $result->method('fetchAssociative')->willReturn($secretRow);
 
-        // Group load issues a second executeQuery on the MM table — wire both
-        // result mocks explicitly instead of letting fetchAllAssociative
-        // silently default to []. Passing the same $result mock previously
-        // made the test pass for the wrong reason.
-        $groupResult = $this->createStub(Result::class);
-        $groupResult->method('fetchAllAssociative')->willReturn([]);
+        // Group load issues two further executeQuery calls on the MM tables
+        // (read tier + write tier) — wire all three result mocks explicitly
+        // instead of letting fetchAllAssociative silently default to [].
+        // Passing the same $result mock previously made the test pass for the
+        // wrong reason.
+        $readGroupResult = $this->createStub(Result::class);
+        $readGroupResult->method('fetchAllAssociative')->willReturn([]);
+        $writeGroupResult = $this->createStub(Result::class);
+        $writeGroupResult->method('fetchAllAssociative')->willReturn([]);
 
         $this->setupQueryBuilderForSelect($result);
         $this->queryBuilder->method('executeQuery')
-            ->willReturnOnConsecutiveCalls($result, $groupResult);
+            ->willReturnOnConsecutiveCalls($result, $readGroupResult, $writeGroupResult);
 
         $secret = $this->subject->findByIdentifier('test-id');
 
@@ -120,12 +123,15 @@ final class SecretRepositoryTest extends TestCase
         $result = $this->createStub(Result::class);
         $result->method('fetchAssociative')->willReturn($secretRow);
 
-        $groupResult = $this->createStub(Result::class);
-        $groupResult->method('fetchAllAssociative')->willReturn([]);
+        // Read tier + write tier MM lookups follow the secret-row fetch.
+        $readGroupResult = $this->createStub(Result::class);
+        $readGroupResult->method('fetchAllAssociative')->willReturn([]);
+        $writeGroupResult = $this->createStub(Result::class);
+        $writeGroupResult->method('fetchAllAssociative')->willReturn([]);
 
         $this->setupQueryBuilderForSelect($result);
         $this->queryBuilder->method('executeQuery')
-            ->willReturnOnConsecutiveCalls($result, $groupResult);
+            ->willReturnOnConsecutiveCalls($result, $readGroupResult, $writeGroupResult);
 
         $secret = $this->subject->findByUid(42);
 
@@ -172,10 +178,17 @@ final class SecretRepositoryTest extends TestCase
             ->method('lastInsertId')
             ->willReturn('1');
 
-        // Mock MM table delete (no groups)
+        // save() clears BOTH MM tiers (read + write) before re-inserting, so
+        // delete() is called once per MM table. Match either table name.
         $connection
             ->method('delete')
-            ->with('tx_nrvault_secret_begroups_mm', self::anything());
+            ->with(
+                self::logicalOr(
+                    'tx_nrvault_secret_begroups_mm',
+                    'tx_nrvault_secret_writegroups_mm',
+                ),
+                self::anything(),
+            );
 
         $saved = $this->subject->save($secret);
 
@@ -201,10 +214,17 @@ final class SecretRepositoryTest extends TestCase
                 ['uid' => 42],
             );
 
-        // Mock MM table delete
+        // save() clears BOTH MM tiers (read + write) for the secret's uid,
+        // so delete() is called once per MM table with the same criteria.
         $connection
             ->method('delete')
-            ->with('tx_nrvault_secret_begroups_mm', ['uid_local' => 42]);
+            ->with(
+                self::logicalOr(
+                    'tx_nrvault_secret_begroups_mm',
+                    'tx_nrvault_secret_writegroups_mm',
+                ),
+                ['uid_local' => 42],
+            );
 
         $this->subject->save($secret);
     }
@@ -407,22 +427,28 @@ final class SecretRepositoryTest extends TestCase
         $secretResult = $this->createStub(Result::class);
         $secretResult->method('fetchAssociative')->willReturn($secretRow);
 
-        $groupResult = $this->createStub(Result::class);
-        $groupResult->method('fetchAllAssociative')->willReturn([
+        // Read-tier MM lookup returns two groups; the separate write-tier
+        // lookup (a third createQueryBuilder) returns none.
+        $readGroupResult = $this->createStub(Result::class);
+        $readGroupResult->method('fetchAllAssociative')->willReturn([
             ['uid_foreign' => 3],
             ['uid_foreign' => 7],
         ]);
+        $writeGroupResult = $this->createStub(Result::class);
+        $writeGroupResult->method('fetchAllAssociative')->willReturn([]);
 
         $qb1 = $this->createQueryBuilderStub($secretResult, $expressionBuilder);
-        $qb2 = $this->createQueryBuilderStub($groupResult, $expressionBuilder);
+        $qb2 = $this->createQueryBuilderStub($readGroupResult, $expressionBuilder);
+        $qb3 = $this->createQueryBuilderStub($writeGroupResult, $expressionBuilder);
 
         $connection->method('createQueryBuilder')
-            ->willReturnOnConsecutiveCalls($qb1, $qb2);
+            ->willReturnOnConsecutiveCalls($qb1, $qb2, $qb3);
 
         $secret = $subject->findByIdentifier('secret-with-groups');
 
         self::assertInstanceOf(Secret::class, $secret);
         self::assertSame([3, 7], $secret->getAllowedGroups());
+        self::assertSame([], $secret->getWriteGroups());
     }
 
     #[Test]
@@ -442,21 +468,27 @@ final class SecretRepositoryTest extends TestCase
         $secretResult = $this->createStub(Result::class);
         $secretResult->method('fetchAssociative')->willReturn($secretRow);
 
-        $groupResult = $this->createStub(Result::class);
-        $groupResult->method('fetchAllAssociative')->willReturn([
+        // Read-tier MM lookup returns one group; the separate write-tier
+        // lookup (a third createQueryBuilder) returns none.
+        $readGroupResult = $this->createStub(Result::class);
+        $readGroupResult->method('fetchAllAssociative')->willReturn([
             ['uid_foreign' => 5],
         ]);
+        $writeGroupResult = $this->createStub(Result::class);
+        $writeGroupResult->method('fetchAllAssociative')->willReturn([]);
 
         $qb1 = $this->createQueryBuilderStub($secretResult, $expressionBuilder);
-        $qb2 = $this->createQueryBuilderStub($groupResult, $expressionBuilder);
+        $qb2 = $this->createQueryBuilderStub($readGroupResult, $expressionBuilder);
+        $qb3 = $this->createQueryBuilderStub($writeGroupResult, $expressionBuilder);
 
         $connection->method('createQueryBuilder')
-            ->willReturnOnConsecutiveCalls($qb1, $qb2);
+            ->willReturnOnConsecutiveCalls($qb1, $qb2, $qb3);
 
         $secret = $subject->findByUid(20);
 
         self::assertInstanceOf(Secret::class, $secret);
         self::assertSame([5], $secret->getAllowedGroups());
+        self::assertSame([], $secret->getWriteGroups());
     }
 
     #[Test]
@@ -470,18 +502,34 @@ final class SecretRepositoryTest extends TestCase
             ->method('lastInsertId')
             ->willReturn('5');
 
-        // Expect: 1 secret insert + 2 MM group inserts = 3 inserts total
+        // Expect: 1 secret insert + 2 read-tier MM group inserts = 3 inserts.
+        // The write tier is empty, so it contributes no inserts.
         $connection
             ->expects(self::exactly(3))
             ->method('insert');
 
-        // Expect: 1 delete of existing MM rows before saving groups
+        // save() clears BOTH MM tiers (read + write) before re-inserting.
+        // Record the deleted tables and assert each DISTINCT MM table was
+        // cleared once — a count-only matcher would still pass if production
+        // cleared the read table twice and never touched the write table.
+        $deletedTables = [];
         $connection
-            ->expects(self::once())
-            ->method('delete');
+            ->expects(self::exactly(2))
+            ->method('delete')
+            ->willReturnCallback(static function (string $table) use (&$deletedTables): int {
+                $deletedTables[] = $table;
+
+                return 1;
+            });
 
         $saved = $this->subject->save($secret);
 
+        sort($deletedTables);
+        self::assertSame(
+            ['tx_nrvault_secret_begroups_mm', 'tx_nrvault_secret_writegroups_mm'],
+            $deletedTables,
+            'save() must clear BOTH the read-tier and write-tier MM tables, each exactly once',
+        );
         self::assertNull($secret->getUid());
         self::assertSame(5, $saved->getUid());
     }
@@ -549,14 +597,19 @@ final class SecretRepositoryTest extends TestCase
         $mainResult = $this->createStub(Result::class);
         $mainResult->method('fetchAllAssociative')->willReturn([$row1, $row2]);
 
-        $mmResult = $this->createStub(Result::class);
-        $mmResult->method('fetchAllAssociative')->willReturn([]);
+        // hydrateRowsWithGroups batch-loads BOTH MM tiers (read + write) in
+        // one query each, so after the main query there are two MM queries.
+        $readMmResult = $this->createStub(Result::class);
+        $readMmResult->method('fetchAllAssociative')->willReturn([]);
+        $writeMmResult = $this->createStub(Result::class);
+        $writeMmResult->method('fetchAllAssociative')->willReturn([]);
 
         $qb1 = $this->createQueryBuilderStub($mainResult, $expressionBuilder);
-        $qb2 = $this->createQueryBuilderStub($mmResult, $expressionBuilder);
+        $qb2 = $this->createQueryBuilderStub($readMmResult, $expressionBuilder);
+        $qb3 = $this->createQueryBuilderStub($writeMmResult, $expressionBuilder);
 
         $connection->method('createQueryBuilder')
-            ->willReturnOnConsecutiveCalls($qb1, $qb2);
+            ->willReturnOnConsecutiveCalls($qb1, $qb2, $qb3);
 
         $secrets = $subject->findAllWithFilters();
 
@@ -627,16 +680,17 @@ final class SecretRepositoryTest extends TestCase
         $secretsResult = $this->createStub(Result::class);
         $secretsResult->method('fetchAllAssociative')->willReturn([$row1, $row2]);
 
-        // Third/fourth calls: individual group loads per secret (returns empty)
-        $emptyResult1 = $this->createStub(Result::class);
-        $emptyResult1->method('fetchAllAssociative')->willReturn([]);
-        $emptyResult2 = $this->createStub(Result::class);
-        $emptyResult2->method('fetchAllAssociative')->willReturn([]);
+        // Third/fourth calls: batch group loads (read tier, then write tier)
+        // via hydrateRowsWithGroups — one query per tier, not one per secret.
+        $readGroupsResult = $this->createStub(Result::class);
+        $readGroupsResult->method('fetchAllAssociative')->willReturn([]);
+        $writeGroupsResult = $this->createStub(Result::class);
+        $writeGroupsResult->method('fetchAllAssociative')->willReturn([]);
 
         $qb1 = $this->createQueryBuilderStub($mmResult, $expressionBuilder);
         $qb2 = $this->createQueryBuilderStub($secretsResult, $expressionBuilder);
-        $qb3 = $this->createQueryBuilderStub($emptyResult1, $expressionBuilder);
-        $qb4 = $this->createQueryBuilderStub($emptyResult2, $expressionBuilder);
+        $qb3 = $this->createQueryBuilderStub($readGroupsResult, $expressionBuilder);
+        $qb4 = $this->createQueryBuilderStub($writeGroupsResult, $expressionBuilder);
 
         $connection->method('createQueryBuilder')
             ->willReturnOnConsecutiveCalls($qb1, $qb2, $qb3, $qb4);
@@ -770,7 +824,8 @@ final class SecretRepositoryTest extends TestCase
 
         $secret = $this->newEncryptedSecret('existing-with-groups', uid: 77, allowedGroups: [11, 13]);
 
-        // 1 update on the secret row, 2 inserts on the MM table for the 2 groups
+        // 1 update on the secret row, 2 inserts on the read-tier MM table for
+        // the 2 read groups. The write tier is empty, so it adds no inserts.
         $connection->expects(self::once())->method('update');
         $connection->expects(self::exactly(2))->method('insert')
             ->with(
@@ -780,11 +835,31 @@ final class SecretRepositoryTest extends TestCase
                     && isset($data['sorting'])),
             );
 
-        // Exactly one MM delete before the re-inserts
-        $connection->expects(self::once())->method('delete')
-            ->with('tx_nrvault_secret_begroups_mm', ['uid_local' => 77]);
+        // save() clears BOTH MM tiers (read + write) before re-inserting.
+        // Record the deleted tables so we can assert each DISTINCT MM table
+        // was cleared once — a `logicalOr` count-only matcher would still pass
+        // if production deleted the read table twice and never touched the
+        // write table, so we pin both table names explicitly here.
+        $deletedTables = [];
+        $connection->expects(self::exactly(2))->method('delete')
+            ->with(
+                self::anything(),
+                ['uid_local' => 77],
+            )
+            ->willReturnCallback(static function (string $table) use (&$deletedTables): int {
+                $deletedTables[] = $table;
+
+                return 1;
+            });
 
         $this->subject->save($secret);
+
+        sort($deletedTables);
+        self::assertSame(
+            ['tx_nrvault_secret_begroups_mm', 'tx_nrvault_secret_writegroups_mm'],
+            $deletedTables,
+            'save() must clear BOTH the read-tier and write-tier MM tables, each exactly once',
+        );
     }
 
     /**

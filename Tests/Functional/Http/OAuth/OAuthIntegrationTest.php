@@ -15,6 +15,7 @@ namespace Netresearch\NrVault\Tests\Functional\Http\OAuth;
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
+use JsonException;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -630,7 +631,34 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         ]);
 
         $result = @file_get_contents($url, false, $context);
+        if (!\is_string($result) || $result === '') {
+            return false;
+        }
 
-        return $result !== false;
+        // `ignore_errors => true` makes file_get_contents return the body even
+        // for 3xx/4xx responses, so a non-false result is NOT proof the mock
+        // OAuth server is there. A foreign service squatting on the port (e.g.
+        // a TYPO3 instance redirecting `/.well-known/...` to the install tool)
+        // would otherwise be mistaken for the sidecar and the sidecar-dependent
+        // tests would run against the wrong server instead of skipping.
+        //
+        // Only accept a genuine OpenID Connect discovery document: HTTP 2xx
+        // with JSON exposing the mandatory `token_endpoint` (RFC 8414 / OpenID
+        // Connect Discovery 1.0). This is what mock-oauth2-server serves and
+        // what these tests actually need.
+        $statusLine = $http_response_header[0] ?? '';
+        if (preg_match('#\s(2\d\d)\s#', $statusLine) !== 1) {
+            return false;
+        }
+
+        try {
+            $decoded = json_decode($result, true, 16, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            return false;
+        }
+
+        return \is_array($decoded)
+            && isset($decoded['token_endpoint'])
+            && \is_string($decoded['token_endpoint']);
     }
 }

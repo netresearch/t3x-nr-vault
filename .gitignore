@@ -48,3 +48,13 @@ test-results/
 playwright/.cache/
 .Build/infection/
 composer.phar
+
+# nr-vault: transient multi-agent review artifacts are NOT committed — only the
+# curated, hand-maintained notes (README.md, e2e-coverage-gaps.md,
+# ui-ux-dx-review.md) stay tracked. Dated run reports, per-axis agent scratch,
+# the _pr154 review pass, and generated HTML are local-only working artifacts.
+/.review-notes/_agents/
+/.review-notes/_pr154/
+/.review-notes/_*.txt
+/.review-notes/*.html
+/.review-notes/20*-*.md

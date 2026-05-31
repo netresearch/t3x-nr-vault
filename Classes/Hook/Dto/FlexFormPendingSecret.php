@@ -92,7 +92,11 @@ readonly class FlexFormPendingSecret
     }
 
     /**
-     * Convert to array for serialization.
+     * Convert to array for serialization/debugging.
+     *
+     * The secret `value` is intentionally redacted: this array form is meant
+     * for logging/serialisation, which must never carry plaintext. Use the
+     * `$value` property (or {@see hasChanged()}) when the raw value is needed.
      *
      * @return array{flexField: string, sheet: string, fieldPath: string, value: string, identifier: string, originalChecksum: string, isNew: bool}
      */
@@ -102,7 +106,7 @@ readonly class FlexFormPendingSecret
             'flexField' => $this->flexField,
             'sheet' => $this->sheet,
             'fieldPath' => $this->fieldPath,
-            'value' => $this->value,
+            'value' => '[REDACTED]',
             'identifier' => $this->identifier,
             'originalChecksum' => $this->originalChecksum,
             'isNew' => $this->isNew,

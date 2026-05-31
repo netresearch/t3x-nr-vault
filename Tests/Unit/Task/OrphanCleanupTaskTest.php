@@ -11,10 +11,12 @@ namespace Netresearch\NrVault\Tests\Unit\Task;
 
 use Doctrine\DBAL\Result;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
-use Netresearch\NrVault\Domain\Dto\SecretMetadata;
+use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Task\OrphanCleanupTask;
+use Netresearch\NrVault\Tests\Unit\Fixtures\SecretFixtureBuilder;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -40,6 +42,8 @@ final class OrphanCleanupTaskTest extends TestCase
 
     private ConnectionPool&MockObject $connectionPool;
 
+    private SecretRepositoryInterface&MockObject $secretRepository;
+
     private LoggerInterface&MockObject $logger;
 
     protected function setUp(): void
@@ -48,6 +52,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
         $this->connectionPool = $this->createMock(ConnectionPool::class);
+        $this->secretRepository = $this->createMock(SecretRepositoryInterface::class);
         $this->logger = $this->createMock(LoggerInterface::class);
 
         // Mock GeneralUtility::makeInstance
@@ -60,6 +65,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         GeneralUtility::addInstance(VaultServiceInterface::class, $this->vaultService);
         GeneralUtility::addInstance(ConnectionPool::class, $this->connectionPool);
+        GeneralUtility::addInstance(SecretRepositoryInterface::class, $this->secretRepository);
         GeneralUtility::setSingletonInstance(LogManager::class, $logManager);
     }
 
@@ -72,7 +78,7 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function hasDefaultRetentionDays(): void
     {
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
 
         $params = $task->getTaskParameters();
         self::assertSame(7, $params['nr_vault_retention_days']);
@@ -81,7 +87,7 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function hasEmptyDefaultTableFilter(): void
     {
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
 
         $params = $task->getTaskParameters();
         self::assertSame('', $params['nr_vault_table_filter']);
@@ -90,9 +96,9 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function returnsTrueWithNoSecrets(): void
     {
-        $this->vaultService->method('list')->willReturn([]);
+        $this->secretRepository->method('findPaginatedAfterUid')->willReturn([]);
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -101,13 +107,13 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function skipsNonTcaSecrets(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata('manual_secret', time(), ['source' => 'manual']),
+        $this->mockPage([
+            $this->createSecret('manual_secret', time(), ['source' => 'manual']),
         ]);
 
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -116,8 +122,8 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function skipsSecretsWithExistingRecords(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'tx_myext__api_key__1',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
@@ -127,7 +133,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->mockRecordExists(1, true);
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -136,8 +142,8 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function deletesOrphansOlderThanRetention(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'tx_myext__api_key__1',
                 time() - 86400 * 30, // 30 days old
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
@@ -151,7 +157,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('delete')
             ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 7]);
         $result = $task->execute();
 
@@ -161,8 +167,8 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function skipsOrphansWithinRetentionPeriod(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'tx_myext__api_key__1',
                 time() - 86400 * 3, // 3 days old
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
@@ -172,7 +178,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->mockRecordExists(1, false);
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 7]);
         $result = $task->execute();
 
@@ -182,16 +188,18 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function appliesTableFilter(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'tx_myext__api_key__1',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
+                1,
             ),
-            $this->createSecretMetadata(
+            $this->createSecret(
                 'tx_other__secret__1',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_other', 'field' => 'secret', 'uid' => 1],
+                2,
             ),
         ]);
 
@@ -202,7 +210,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('delete')
             ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters([
             'nr_vault_retention_days' => 0,
             'nr_vault_table_filter' => 'tx_myext',
@@ -215,8 +223,8 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function returnsFalseOnDeleteFailure(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'tx_myext__api_key__1',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
@@ -229,7 +237,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('delete')
             ->willThrowException(new VaultException('Delete failed'));
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
         $result = $task->execute();
 
@@ -239,8 +247,8 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function handlesMigrationSourceSecrets(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'tx_myext__api_key__1',
                 time() - 86400 * 30,
                 ['source' => 'migration', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
@@ -254,7 +262,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('delete')
             ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
         $result = $task->execute();
 
@@ -264,8 +272,8 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function skipsSecretsWithInvalidMetadata(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'invalid_format',
                 time() - 86400 * 30,
                 ['source' => 'tca_field'],
@@ -274,7 +282,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -283,8 +291,8 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function skipsSecretsWithZeroUidInMetadata(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'some_uuid_identifier',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 0],
@@ -293,7 +301,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -302,8 +310,8 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function skipsSecretsWithNonNumericUidInMetadata(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'some_uuid_identifier',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 'not_a_number'],
@@ -312,7 +320,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -321,8 +329,8 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function skipsSecretsWithEmptyTableInMetadata(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'some_uuid_identifier',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => '', 'field' => 'api_key', 'uid' => 1],
@@ -331,7 +339,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -340,8 +348,8 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function parsesFlexFieldFromMetadata(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'uuid_flex_secret',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'flexField' => 'settings.apiKey', 'uid' => 1],
@@ -355,7 +363,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('delete')
             ->with('uuid_flex_secret', 'Scheduler orphan cleanup');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
         $result = $task->execute();
 
@@ -365,7 +373,7 @@ final class OrphanCleanupTaskTest extends TestCase
     #[Test]
     public function logsCleanupProgress(): void
     {
-        $this->vaultService->method('list')->willReturn([]);
+        $this->secretRepository->method('findPaginatedAfterUid')->willReturn([]);
 
         $this->logger
             ->expects($this->atLeastOnce())
@@ -374,7 +382,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $logManager = $this->createMock(LogManager::class);
         $logManager->method('getLogger')->willReturn($this->logger);
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService, $logManager);
+        $task = $this->createTask($logManager);
         $task->execute();
     }
 
@@ -383,13 +391,13 @@ final class OrphanCleanupTaskTest extends TestCase
     // =========================================================================
 
     /**
-     * Kill IncrementInteger/DecrementInteger/Coalesce on line 72 — default is
-     * exactly 7 retention days, not 6 and not 8.
+     * Kill IncrementInteger/DecrementInteger/Coalesce on the retention default —
+     * default is exactly 7 retention days, not 6 and not 8.
      */
     #[Test]
     public function setTaskParametersDefaultRetentionIsExactlySeven(): void
     {
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters([]);
 
         // Call through getTaskParameters which returns int (retentionDays is int).
@@ -398,12 +406,12 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill CastInt / Ternary on line 73 — numeric-string gets cast to int.
+     * Kill CastInt / Ternary — numeric-string gets cast to int.
      */
     #[Test]
     public function setTaskParametersNumericStringCastsToInt(): void
     {
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => '42']);
 
         $params = $task->getTaskParameters();
@@ -411,12 +419,12 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill Ternary on line 73 — non-numeric falls back to default 7.
+     * Kill Ternary — non-numeric falls back to default 7.
      */
     #[Test]
     public function setTaskParametersNonNumericFallsBackToDefault(): void
     {
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 'abc']);
 
         $params = $task->getTaskParameters();
@@ -424,12 +432,12 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill UnwrapTrim on line 76 — tableFilter is trimmed.
+     * Kill UnwrapTrim — tableFilter is trimmed.
      */
     #[Test]
     public function setTaskParametersTrimmedTableFilter(): void
     {
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_table_filter' => '  tx_myext  ']);
 
         $params = $task->getTaskParameters();
@@ -437,12 +445,12 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill Ternary on line 73 — zero stays zero (not default 7).
+     * Kill Ternary — zero stays zero (not default 7).
      */
     #[Test]
     public function setTaskParametersZeroRetentionStaysZero(): void
     {
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
         $params = $task->getTaskParameters();
@@ -450,12 +458,12 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill Coalesce on line 72 — explicit value overrides default.
+     * Kill Coalesce — explicit value overrides default.
      */
     #[Test]
     public function setTaskParametersExplicitValueOverridesDefault(): void
     {
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 30]);
 
         $params = $task->getTaskParameters();
@@ -463,13 +471,13 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill ArrayItem / MethodCallRemoval on line 85-87 — logger info is called with
-     * correct context keys (retentionDays, tableFilter).
+     * Kill ArrayItem / MethodCallRemoval on the opening log line — logger info is
+     * called with correct context keys (retentionDays, tableFilter).
      */
     #[Test]
     public function executeLogsRetentionAndFilterContext(): void
     {
-        $this->vaultService->method('list')->willReturn([]);
+        $this->secretRepository->method('findPaginatedAfterUid')->willReturn([]);
 
         $this->logger
             ->expects($this->atLeastOnce())
@@ -483,25 +491,26 @@ final class OrphanCleanupTaskTest extends TestCase
         $logManager = $this->createMock(LogManager::class);
         $logManager->method('getLogger')->willReturn($this->logger);
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService, $logManager);
+        $task = $this->createTask($logManager);
         $task->execute();
     }
 
     /**
-     * Kill Continue_ on line 105 — non-TCA source must NOT short-circuit the
-     * loop. When a non-TCA secret appears BEFORE a TCA orphan, the TCA orphan
-     * must still be deleted. If `continue` becomes `break`, only the first
-     * element is examined.
+     * Kill Continue_ on the non-TCA source guard — a non-TCA source must NOT
+     * short-circuit the loop. When a non-TCA secret appears BEFORE a TCA orphan,
+     * the TCA orphan must still be deleted. If `continue` becomes `break`, only
+     * the first element is examined.
      */
     #[Test]
     public function executeContinuesOnNonTcaSourceAndProcessesLaterTcaOrphan(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata('manual_secret', time() - 86400 * 30, ['source' => 'manual']),
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret('manual_secret', time() - 86400 * 30, ['source' => 'manual'], 1),
+            $this->createSecret(
                 'tx_myext__api_key__1',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
+                2,
             ),
         ]);
 
@@ -512,29 +521,31 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('delete')
             ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
         self::assertTrue($task->execute());
     }
 
     /**
-     * Kill Continue_ on line 111 — invalid metadata must not short-circuit.
-     * Place an invalid-metadata secret BEFORE a valid TCA orphan.
+     * Kill Continue_ on the invalid-metadata guard — invalid metadata must not
+     * short-circuit. Place an invalid-metadata secret BEFORE a valid TCA orphan.
      */
     #[Test]
     public function executeContinuesOnInvalidMetadataAndProcessesLaterTcaOrphan(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'invalid_secret',
                 time() - 86400 * 30,
                 ['source' => 'tca_field'],   // table/uid missing
+                1,
             ),
-            $this->createSecretMetadata(
+            $this->createSecret(
                 'tx_myext__api_key__1',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
+                2,
             ),
         ]);
 
@@ -545,29 +556,31 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('delete')
             ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
         self::assertTrue($task->execute());
     }
 
     /**
-     * Kill Continue_ on line 116 — table filter must not short-circuit.
-     * Filtered-out secret appears BEFORE the matching one.
+     * Kill Continue_ on the table-filter guard — table filter must not
+     * short-circuit. Filtered-out secret appears BEFORE the matching one.
      */
     #[Test]
     public function executeContinuesOnTableFilterMismatchAndProcessesLaterMatchingSecret(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'filtered_out',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_other', 'field' => 'key', 'uid' => 1],
+                1,
             ),
-            $this->createSecretMetadata(
+            $this->createSecret(
                 'tx_myext__api_key__1',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
+                2,
             ),
         ]);
 
@@ -578,16 +591,16 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('delete')
             ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0, 'nr_vault_table_filter' => 'tx_myext']);
 
         self::assertTrue($task->execute());
     }
 
     /**
-     * Kill GreaterThan / LessThan on line 125 — createdAt strictly less than
-     * retentionCutoff. If mutation makes it <=, secrets at exactly the cutoff
-     * wouldn't be deleted. We use a clearly old createdAt to drive the condition.
+     * Kill GreaterThan / LessThan on the retention cutoff comparison — createdAt
+     * strictly less than retentionCutoff. We use a clearly old createdAt to drive
+     * the condition.
      */
     #[Test]
     public function executeUsesStrictLessThanCutoffForOldOrphans(): void
@@ -595,8 +608,8 @@ final class OrphanCleanupTaskTest extends TestCase
         // 30 days old — clearly past any reasonable retention.
         $thirtyDaysAgo = time() - 86400 * 30;
 
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'tx_myext__api_key__1',
                 $thirtyDaysAgo,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
@@ -609,21 +622,22 @@ final class OrphanCleanupTaskTest extends TestCase
             ->expects($this->once())
             ->method('delete');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 7]);
 
         self::assertTrue($task->execute());
     }
 
     /**
-     * Kill LogicalAndAllSubExprNegation on line 104 — BOTH source conditions.
-     * source='unknown' must be skipped (neither 'tca_field' nor 'migration').
+     * Kill LogicalAndAllSubExprNegation on the source check — BOTH source
+     * conditions. source='unknown' must be skipped (neither 'tca_field' nor
+     * 'migration').
      */
     #[Test]
     public function executeSkipsUnknownSourceValues(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'weird',
                 time() - 86400 * 30,
                 ['source' => 'unknown', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
@@ -632,20 +646,20 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
         self::assertTrue($task->execute());
     }
 
     /**
-     * Kill Ternary on line 192 — getAdditionalInformation includes the table
-     * filter label when it's set.
+     * Kill Ternary on getAdditionalInformation — includes the table filter label
+     * when it's set.
      */
     #[Test]
     public function getAdditionalInformationIncludesTableFilterWhenSet(): void
     {
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_table_filter' => 'tx_myext']);
 
         $info = $task->getAdditionalInformation();
@@ -654,13 +668,13 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill Ternary on line 192 — getAdditionalInformation omits table filter
-     * label when filter is empty (default).
+     * Kill Ternary on getAdditionalInformation — omits table filter label when
+     * filter is empty (default).
      */
     #[Test]
     public function getAdditionalInformationOmitsTableFilterWhenEmpty(): void
     {
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
 
         $info = $task->getAdditionalInformation();
         self::assertStringNotContainsString('Table filter', $info);
@@ -669,13 +683,13 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill Coalesce on line 179 — field fallback to flexField.
+     * Kill Coalesce on the field fallback — field falls back to flexField.
      */
     #[Test]
     public function parseMetadataReferenceFallsBackToFlexFieldWhenFieldMissing(): void
     {
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'uuid_flex',
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'flexField' => 'settings.apiKey', 'uid' => 1],
@@ -689,22 +703,22 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('delete')
             ->with('uuid_flex', 'Scheduler orphan cleanup');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
         self::assertTrue($task->execute());
     }
 
     /**
-     * Kill ArrayItemRemoval + MethodCallRemoval on line 140 — logger info is
-     * called with ['identifier' => ...] context when deletion succeeds.
+     * Kill ArrayItemRemoval + MethodCallRemoval on the success log — logger info
+     * is called with ['identifier' => ...] context when deletion succeeds.
      */
     #[Test]
     public function executeLogsDeletedOrphanWithIdentifierContext(): void
     {
         $identifier = 'tx_myext__api_key__1';
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 $identifier,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
@@ -724,7 +738,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $logManager = $this->createMock(LogManager::class);
         $logManager->method('getLogger')->willReturn($this->logger);
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService, $logManager);
+        $task = $this->createTask($logManager);
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
         self::assertTrue($task->execute());
 
@@ -738,15 +752,15 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill ArrayItemRemoval on line 142 — error log context includes identifier.
-     * Kill MethodCallRemoval too.
+     * Kill ArrayItemRemoval on the error log — error log context includes
+     * identifier. Kill MethodCallRemoval too.
      */
     #[Test]
     public function executeLogsErrorWithIdentifierAndErrorContextOnDeleteFailure(): void
     {
         $identifier = 'tx_myext__api_key__1';
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 $identifier,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
@@ -769,7 +783,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $logManager = $this->createMock(LogManager::class);
         $logManager->method('getLogger')->willReturn($this->logger);
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService, $logManager);
+        $task = $this->createTask($logManager);
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
         self::assertFalse($task->execute());
 
@@ -783,15 +797,15 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill ArrayItem on line 144 + ArrayItemRemoval — logger error context
-     * includes 'error' key with exception message.
+     * Kill ArrayItem + ArrayItemRemoval on the error context — logger error
+     * context includes 'error' key with exception message.
      */
     #[Test]
     public function executeLogsErrorIncludesExceptionMessage(): void
     {
         $identifier = 'tx_myext__api_key__1';
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 $identifier,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
@@ -816,21 +830,22 @@ final class OrphanCleanupTaskTest extends TestCase
         $logManager = $this->createMock(LogManager::class);
         $logManager->method('getLogger')->willReturn($this->logger);
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService, $logManager);
+        $task = $this->createTask($logManager);
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
         self::assertFalse($task->execute());
     }
 
     /**
-     * Kill GreaterThan on line 92 — retentionDays > 0 is strict. When 0, uses
-     * PHP_INT_MAX cutoff (so ALL orphans pass the "older than retention" test).
+     * Kill GreaterThan on the retentionDays > 0 guard — it is strict. When 0,
+     * uses PHP_INT_MAX cutoff (so ALL orphans pass the "older than retention"
+     * test).
      */
     #[Test]
     public function executeWithZeroRetentionTreatsAllOldOrphansAsEligible(): void
     {
         $now = time();
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'tx_myext__api_key__1',
                 $now - 1,  // just 1 second old
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
@@ -840,22 +855,22 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->once())->method('delete');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
         self::assertTrue($task->execute());
     }
 
     /**
-     * Kill Coalesce on line 221/226 — these are the `$metadata['X'] ?? default`
-     * fallbacks in parseMetadataReference. Test that a missing field-key yields
-     * empty string, not null/error.
+     * Kill Coalesce on the parseMetadataReference fallbacks — the
+     * `$metadata['X'] ?? default` fallbacks. Test that a missing field-key
+     * yields empty string, not null/error.
      */
     #[Test]
     public function parseMetadataReferenceMissingFieldAndFlexFieldDefaultsToEmptyString(): void
     {
         $identifier = 'ident1';
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 $identifier,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'uid' => 1],
@@ -869,20 +884,20 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('delete')
             ->with($identifier);
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
         self::assertTrue($task->execute());
     }
 
     /**
-     * Kill CastInt on line 186 — uid cast from numeric string.
+     * Kill CastInt on the uid parse — uid cast from numeric string.
      */
     #[Test]
     public function parseMetadataReferenceCastsStringUidToInt(): void
     {
         $identifier = 'id-for-string-uid';
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 $identifier,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'k', 'uid' => '42'],
@@ -895,19 +910,19 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('delete')
             ->with($identifier);
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
         self::assertTrue($task->execute());
     }
 
     /**
-     * Kill ArrayItem on line 86 — logger info('Starting ...', [...]) context
-     * uses '(all)' placeholder when tableFilter is empty.
+     * Kill ArrayItem on the opening log — logger info('Starting ...', [...])
+     * context uses '(all)' placeholder when tableFilter is empty.
      */
     #[Test]
     public function executeLogsStartingWithAllPlaceholderWhenFilterEmpty(): void
     {
-        $this->vaultService->method('list')->willReturn([]);
+        $this->secretRepository->method('findPaginatedAfterUid')->willReturn([]);
 
         $calls = [];
         $this->logger
@@ -919,7 +934,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $logManager = $this->createMock(LogManager::class);
         $logManager->method('getLogger')->willReturn($this->logger);
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService, $logManager);
+        $task = $this->createTask($logManager);
         $task->execute();
 
         // Find the 'Starting vault orphan cleanup' call with tableFilter == '(all)'.
@@ -930,13 +945,13 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill Ternary on line 87 — tableFilter ?: '(all)'. When tableFilter is SET,
-     * context shows the actual filter, not '(all)'.
+     * Kill Ternary on the opening log — tableFilter ?: '(all)'. When tableFilter
+     * is SET, context shows the actual filter, not '(all)'.
      */
     #[Test]
     public function executeLogsStartingWithActualFilterWhenSet(): void
     {
-        $this->vaultService->method('list')->willReturn([]);
+        $this->secretRepository->method('findPaginatedAfterUid')->willReturn([]);
 
         $calls = [];
         $this->logger
@@ -948,7 +963,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $logManager = $this->createMock(LogManager::class);
         $logManager->method('getLogger')->willReturn($this->logger);
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService, $logManager);
+        $task = $this->createTask($logManager);
         $task->setTaskParameters(['nr_vault_table_filter' => 'tx_specific']);
         $task->execute();
 
@@ -959,17 +974,15 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill IncrementInteger on line 93 — 86400 seconds per day constant.
-     * 30-day-old secret with 30-day retention: strictly before cutoff → delete.
-     * (Testing the factor: if it were 86401, 30 days would be 30*86401 ≈ 30.1 days,
-     * barely still before cutoff → we test at a boundary.)
+     * Kill IncrementInteger on the 86400-seconds-per-day constant.
+     * 30-day-old secret with 29-day retention: strictly before cutoff → delete.
      */
     #[Test]
     public function executeUsesEightySixFourHundredSecondsPerDay(): void
     {
         // Age: 30 days + 60 seconds (to provide a tiny buffer that survives minor mutations).
-        $this->vaultService->method('list')->willReturn([
-            $this->createSecretMetadata(
+        $this->mockPage([
+            $this->createSecret(
                 'orphan',
                 time() - (30 * 86400) - 60,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'k', 'uid' => 1],
@@ -979,9 +992,57 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->once())->method('delete');
 
-        $task = new OrphanCleanupTask($this->connectionPool, $this->vaultService);
+        $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 29]);  // cutoff: 29 days ago
         self::assertTrue($task->execute());
+    }
+
+    /**
+     * The vault is walked through the repository's UID-windowed finder, not
+     * through VaultService::list(). Assert the finder is the entry point and
+     * receives the configured page size.
+     */
+    #[Test]
+    public function executeWalksVaultViaPaginatedRepositoryFinder(): void
+    {
+        $this->secretRepository
+            ->expects($this->atLeastOnce())
+            ->method('findPaginatedAfterUid')
+            ->with($this->isInt(), 200)
+            ->willReturn([]);
+
+        $task = $this->createTask();
+
+        self::assertTrue($task->execute());
+    }
+
+    /**
+     * Build the task with the new four-argument nullable constructor. The
+     * repository and vault service come from the shared mocks; a custom
+     * LogManager may be supplied for log-assertion tests.
+     */
+    private function createTask(?LogManager $logManager = null): OrphanCleanupTask
+    {
+        return new OrphanCleanupTask(
+            $this->connectionPool,
+            $this->vaultService,
+            $logManager,
+            $this->secretRepository,
+        );
+    }
+
+    /**
+     * Stub the repository's UID-windowed finder to yield a single page. The
+     * page is smaller than PAGE_SIZE (200), so the production do/while loop
+     * terminates after one iteration.
+     *
+     * @param Secret[] $secrets
+     */
+    private function mockPage(array $secrets): void
+    {
+        $this->secretRepository
+            ->method('findPaginatedAfterUid')
+            ->willReturn($secrets);
     }
 
     private function mockRecordExists(int $uid, bool $exists): void
@@ -1019,23 +1080,22 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
+     * Build a real Secret domain entity as returned by the repository's
+     * paginated finder. `execute()` reads getUid(), getMetadata(), getCrdate()
+     * and getIdentifier() from each entity.
+     *
      * @param array<string, mixed> $metadata
      */
-    private function createSecretMetadata(
+    private function createSecret(
         string $identifier,
         int $createdAt,
         array $metadata = [],
-    ): SecretMetadata {
-        return new SecretMetadata(
-            identifier: $identifier,
-            ownerUid: 1,
-            createdAt: $createdAt,
-            updatedAt: $createdAt,
-            readCount: 0,
-            lastReadAt: null,
-            description: '',
-            version: 1,
-            metadata: $metadata,
-        );
+        int $uid = 1,
+    ): Secret {
+        return SecretFixtureBuilder::create($identifier)
+            ->withUid($uid)
+            ->withCreatedAt($createdAt)
+            ->withMetadata($metadata)
+            ->buildSecret();
     }
 }

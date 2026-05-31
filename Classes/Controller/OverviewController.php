@@ -10,7 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Controller;
 
 use Exception;
-use Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface;
+use Netresearch\NrVault\Service\VaultHealthServiceInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
@@ -19,6 +19,7 @@ use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Page\PageRenderer;
 
 /**
  * Backend module controller for vault overview/dashboard.
@@ -31,8 +32,9 @@ final readonly class OverviewController
     public function __construct(
         private ModuleTemplateFactory $moduleTemplateFactory,
         private ConnectionPool $connectionPool,
-        private MasterKeyProviderFactoryInterface $masterKeyProviderFactory,
+        private VaultHealthServiceInterface $vaultHealthService,
         private BackendUriBuilder $backendUriBuilder,
+        private PageRenderer $pageRenderer,
     ) {}
 
     /**
@@ -51,6 +53,10 @@ final readonly class OverviewController
             );
         }
 
+        // Expose JS UI labels to TYPO3.lang for any vault ESM module that may
+        // run on the overview surface (graceful: modules fall back to English).
+        $this->pageRenderer->addInlineLanguageLabelFile('EXT:nr_vault/Resources/Private/Language/locallang_js.xlf');
+
         // Get statistics for the overview
         $stats = $this->getVaultStatistics();
         $healthChecks = $this->getHealthChecks();
@@ -64,19 +70,19 @@ final readonly class OverviewController
                 [
                     'route' => 'admin_vault_secrets',
                     'icon' => 'content-elements-login',
-                    'title' => 'Secrets',
+                    'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.title'),
                     'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.secrets.description'),
                 ],
                 [
                     'route' => 'admin_vault_audit',
                     'icon' => 'actions-document-history-open',
-                    'title' => 'Audit Log',
+                    'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.title'),
                     'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.audit.description'),
                 ],
                 [
                     'route' => 'admin_vault_migration',
                     'icon' => 'actions-database-import',
-                    'title' => 'Migration Wizard',
+                    'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.title'),
                     'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.migration.description'),
                 ],
             ],
@@ -108,12 +114,13 @@ final readonly class OverviewController
         ModuleTemplate $moduleTemplate,
         string $activeTab,
     ): void {
+        $lang = $this->getLanguageService();
         $menuRegistry = $moduleTemplate->getDocHeaderComponent()->getMenuRegistry();
         $menu = $menuRegistry->makeMenu();
         $menu->setIdentifier('VaultOverviewMenu');
 
         $dashboardItem = $menu->makeMenuItem()
-            ->setTitle('Dashboard')
+            ->setTitle($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.tab.dashboard'))
             ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME));
         if ($activeTab === 'dashboard') {
             $dashboardItem->setActive(true);
@@ -121,7 +128,7 @@ final readonly class OverviewController
         $menu->addMenuItem($dashboardItem);
 
         $helpItem = $menu->makeMenuItem()
-            ->setTitle('Help')
+            ->setTitle($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.tab.help'))
             ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME . '.help'));
         if ($activeTab === 'help') {
             $helpItem->setActive(true);
@@ -179,53 +186,26 @@ final readonly class OverviewController
     }
 
     /**
-     * Run health checks and return status information.
+     * Run health checks and return status information for the template.
      *
-     * @return array{masterKeyAvailable: bool, masterKeyProvider: string, masterKeyError: string, encryptionWorking: bool, encryptionError: string, hasIssues: bool}
+     * The probe lives in {@see VaultHealthServiceInterface} so this controller
+     * does not depend on the Crypto namespace (ARCHITECTURE-2). Only generic
+     * booleans + the provider identifier reach the view — no raw exception
+     * text or key file paths (SEC-INJECTION-LEAK-2); detail is logged in the
+     * service.
+     *
+     * @return array{masterKeyAvailable: bool, masterKeyProvider: string, encryptionWorking: bool, hasIssues: bool}
      */
     private function getHealthChecks(): array
     {
-        $result = [
-            'masterKeyAvailable' => false,
-            'masterKeyProvider' => '',
-            'masterKeyError' => '',
-            'encryptionWorking' => false,
-            'encryptionError' => '',
-            'hasIssues' => false,
+        $status = $this->vaultHealthService->checkHealth();
+
+        return [
+            'masterKeyAvailable' => $status->masterKeyAvailable,
+            'masterKeyProvider' => $status->masterKeyProvider,
+            'encryptionWorking' => $status->encryptionWorking,
+            'hasIssues' => $status->hasIssues,
         ];
-
-        // Check 1: Is a master key provider available?
-        try {
-            $provider = $this->masterKeyProviderFactory->getAvailableProvider();
-            $result['masterKeyProvider'] = $provider->getIdentifier();
-
-            if ($provider->isAvailable()) {
-                $result['masterKeyAvailable'] = true;
-
-                // Check 2: Can we actually derive/read the master key?
-                try {
-                    $key = $provider->getMasterKey();
-                    if ($key === '') {
-                        $result['encryptionError'] = 'Master key provider returned an empty key.';
-                        $result['hasIssues'] = true;
-                    } else {
-                        $result['encryptionWorking'] = true;
-                        sodium_memzero($key);
-                    }
-                } catch (Exception $e) {
-                    $result['encryptionError'] = $e->getMessage();
-                    $result['hasIssues'] = true;
-                }
-            } else {
-                $result['masterKeyError'] = 'Master key provider "' . $provider->getIdentifier() . '" is configured but not available.';
-                $result['hasIssues'] = true;
-            }
-        } catch (Exception $e) {
-            $result['masterKeyError'] = $e->getMessage();
-            $result['hasIssues'] = true;
-        }
-
-        return $result;
     }
 
     private function getLanguageService(): LanguageService

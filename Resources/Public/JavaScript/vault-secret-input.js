@@ -6,6 +6,27 @@
  * - Reveal existing secrets via AJAX
  * - Copy to clipboard functionality
  */
+
+/**
+ * Look up a backend label registered via PageRenderer::addInlineLanguageLabelFile()
+ * (locallang_js.xlf), falling back to the English default. Supports {0}, {1}, ...
+ * placeholder substitution.
+ *
+ * @param {string} key
+ * @param {string} fallback
+ * @param {...string} args
+ * @returns {string}
+ */
+function lang(key, fallback, ...args) {
+    let text = (typeof TYPO3 !== 'undefined' && TYPO3.lang && TYPO3.lang[key]) || fallback;
+    args.forEach((value, index) => {
+        // Use a replacer function so `$`-sequences (e.g. $&, $1) in the value
+        // are inserted literally rather than interpreted by String.replace().
+        text = text.replace('{' + index + '}', () => value);
+    });
+    return text;
+}
+
 class VaultSecretInput {
     constructor() {
         // No in-memory secret cache: every reveal MUST hit the AJAX endpoint
@@ -103,7 +124,7 @@ class VaultSecretInput {
         } catch (error) {
             console.error('Error revealing secret:', error);
             if (top.TYPO3?.Notification) {
-                top.TYPO3.Notification.error('Error', error.message || 'Failed to reveal secret');
+                top.TYPO3.Notification.error(lang('nrvault.error', 'Error'), error.message || lang('nrvault.reveal.failed', 'Failed to reveal secret'));
             }
             button.replaceChildren(...originalChildren);
             button.disabled = false;
@@ -192,7 +213,7 @@ class VaultSecretInput {
             : '';
         if (!secret) {
             if (top.TYPO3?.Notification) {
-                top.TYPO3.Notification.warning('Warning', 'Reveal the secret first before copying');
+                top.TYPO3.Notification.warning(lang('nrvault.warning', 'Warning'), lang('nrvault.copy.revealFirst', 'Reveal the secret first before copying'));
             }
             return;
         }
@@ -200,7 +221,7 @@ class VaultSecretInput {
         try {
             await navigator.clipboard.writeText(secret);
             if (top.TYPO3?.Notification) {
-                top.TYPO3.Notification.success('Success', 'Secret copied to clipboard');
+                top.TYPO3.Notification.success(lang('nrvault.success', 'Success'), lang('nrvault.copy.success', 'Secret copied to clipboard'));
             }
 
             // Visual feedback
@@ -216,7 +237,7 @@ class VaultSecretInput {
         } catch (error) {
             console.error('Failed to copy:', error);
             if (top.TYPO3?.Notification) {
-                top.TYPO3.Notification.error('Error', 'Failed to copy to clipboard');
+                top.TYPO3.Notification.error(lang('nrvault.error', 'Error'), lang('nrvault.copy.failed', 'Failed to copy to clipboard'));
             }
         }
     }

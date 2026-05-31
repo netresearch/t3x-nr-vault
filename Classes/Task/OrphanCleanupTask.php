@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Task;
 
 use Netresearch\NrVault\Domain\Dto\OrphanReference;
+use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -33,6 +34,9 @@ use TYPO3\CMS\Scheduler\Task\AbstractTask;
  */
 final class OrphanCleanupTask extends AbstractTask
 {
+    /** Page size for the UID-windowed secret scan (bounds peak memory). */
+    private const PAGE_SIZE = 200;
+
     /** Only delete orphans older than this many days. */
     protected int $retentionDays = 7;
 
@@ -43,6 +47,7 @@ final class OrphanCleanupTask extends AbstractTask
         private readonly ?ConnectionPool $connectionPool = null,
         private readonly ?VaultServiceInterface $vaultService = null,
         private readonly ?LogManager $logManager = null,
+        private readonly ?SecretRepositoryInterface $secretRepository = null,
     ) {
         parent::__construct();
     }
@@ -80,6 +85,7 @@ final class OrphanCleanupTask extends AbstractTask
     {
         $vaultService = $this->getVaultService();
         $connectionPool = $this->getConnectionPool();
+        $repository = $this->getSecretRepository();
         $logger = $this->getLogger();
 
         $logger->info('Starting vault orphan cleanup', [
@@ -87,65 +93,78 @@ final class OrphanCleanupTask extends AbstractTask
             'tableFilter' => $this->tableFilter ?: '(all)',
         ]);
 
-        // Get all TCA-sourced secrets
-        $allSecrets = $vaultService->list();
         $retentionCutoff = $this->retentionDays > 0
             ? time() - ($this->retentionDays * 86400)
             : PHP_INT_MAX;
 
-        $orphans = [];
+        // Walk the vault in UID-windowed pages so peak memory is bounded by
+        // the page size, not the total vault size (PERFORMANCE-8). Identify
+        // and delete orphans page-by-page; deletes still route through
+        // VaultService (ACL + audit preserved).
+        $afterUid = 0;
         $checked = 0;
+        $orphansFound = 0;
+        $success = true;
 
-        foreach ($allSecrets as $secret) {
-            $metadata = $secret->metadata;
-            $source = $metadata['source'] ?? '';
-
-            // Only check TCA-sourced secrets
-            if ($source !== 'tca_field' && $source !== 'migration') {
-                continue;
+        do {
+            $page = $repository->findPaginatedAfterUid($afterUid, self::PAGE_SIZE);
+            if ($page === []) {
+                break;
             }
 
-            // Extract reference from metadata (table, field, uid are stored by DataHandlerHook)
-            $reference = $this->parseMetadataReference($metadata);
-            if (!$reference instanceof OrphanReference) {
-                continue;
-            }
+            foreach ($page as $secret) {
+                $uid = $secret->getUid();
+                if ($uid !== null) {
+                    $afterUid = max($afterUid, $uid);
+                }
 
-            // Apply table filter if specified
-            if ($this->tableFilter !== '' && $reference->table !== $this->tableFilter) {
-                continue;
-            }
+                $metadata = $secret->getMetadata();
+                $source = $metadata['source'] ?? '';
 
-            $checked++;
-            $identifier = $secret->identifier;
-            $createdAt = $secret->createdAt;
+                // Only check TCA-sourced secrets
+                if ($source !== 'tca_field' && $source !== 'migration') {
+                    continue;
+                }
 
-            // Check if record still exists
-            // Only include if older than retention period
-            if (!$this->recordExists($connectionPool, $reference->table, $reference->uid) && $createdAt < $retentionCutoff) {
-                $orphans[] = $identifier;
+                // Extract reference from metadata (table, field, uid are stored by DataHandlerHook)
+                $reference = $this->parseMetadataReference($metadata);
+                if (!$reference instanceof OrphanReference) {
+                    continue;
+                }
+
+                // Apply table filter if specified
+                if ($this->tableFilter !== '' && $reference->table !== $this->tableFilter) {
+                    continue;
+                }
+
+                $checked++;
+                $createdAt = $secret->getCrdate();
+
+                // Only delete if the source record is gone AND the secret is
+                // older than the retention period.
+                if ($this->recordExists($connectionPool, $reference->table, $reference->uid) || $createdAt >= $retentionCutoff) {
+                    continue;
+                }
+
+                $orphansFound++;
+
+                try {
+                    $vaultService->delete($secret->getIdentifier(), 'Scheduler orphan cleanup');
+                    $logger->info('Deleted orphan secret', ['identifier' => $secret->getIdentifier()]);
+                } catch (Throwable $e) {
+                    $logger->error('Failed to delete orphan secret', [
+                        'identifier' => $secret->getIdentifier(),
+                        'error' => $e->getMessage(),
+                    ]);
+                    $success = false;
+                }
             }
-        }
+        } while (\count($page) === self::PAGE_SIZE);
 
         $logger->info('Orphan check complete', [
             'secretsChecked' => $checked,
-            'orphansFound' => \count($orphans),
+            'orphansFound' => $orphansFound,
         ]);
-
-        // Delete identified orphans
-        $success = true;
-        foreach ($orphans as $orphanIdentifier) {
-            try {
-                $vaultService->delete($orphanIdentifier, 'Scheduler orphan cleanup');
-                $logger->info('Deleted orphan secret', ['identifier' => $orphanIdentifier]);
-            } catch (Throwable $e) {
-                $logger->error('Failed to delete orphan secret', [
-                    'identifier' => $orphanIdentifier,
-                    'error' => $e->getMessage(),
-                ]);
-                $success = false;
-            }
-        }
 
         return $success;
     }
@@ -219,6 +238,11 @@ final class OrphanCleanupTask extends AbstractTask
     private function getVaultService(): VaultServiceInterface
     {
         return $this->vaultService ?? GeneralUtility::makeInstance(VaultServiceInterface::class);
+    }
+
+    private function getSecretRepository(): SecretRepositoryInterface
+    {
+        return $this->secretRepository ?? GeneralUtility::makeInstance(SecretRepositoryInterface::class);
     }
 
     private function getConnectionPool(): ConnectionPool

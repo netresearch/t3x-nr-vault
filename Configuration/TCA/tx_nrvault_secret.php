@@ -21,6 +21,11 @@ return [
         'tstamp' => 'tstamp',
         'crdate' => 'crdate',
         'delete' => 'deleted',
+        'default_sortby' => 'identifier ASC',
+        // searchFields is ignored on v14 (option removed, see #106972 — the
+        // backend derives searchable fields from per-column `searchable`
+        // flags there) but enables backend live-search on v13.
+        'searchFields' => 'identifier,description,context',
         'hideTable' => false,
         'enablecolumns' => [
             'disabled' => 'hidden',
@@ -76,6 +81,7 @@ return [
 
         'description' => [
             'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.description',
+            'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.description.description',
             'config' => [
                 'type' => 'text',
                 'rows' => 3,
@@ -113,6 +119,24 @@ return [
                 'maxitems' => 20,
                 'minitems' => 0,
                 'MM' => 'tx_nrvault_secret_begroups_mm',
+                'suggestOptions' => [
+                    'default' => [
+                        'additionalSearchFields' => 'description',
+                    ],
+                ],
+            ],
+        ],
+
+        'write_groups' => [
+            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.write_groups',
+            'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.write_groups.description',
+            'config' => [
+                'type' => 'group',
+                'allowed' => 'be_groups',
+                'size' => 5,
+                'maxitems' => 20,
+                'minitems' => 0,
+                'MM' => 'tx_nrvault_secret_writegroups_mm',
                 'suggestOptions' => [
                     'default' => [
                         'additionalSearchFields' => 'description',
@@ -231,6 +255,7 @@ return [
                 --div--;LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tabs.access,
                     owner_uid,
                     allowed_groups,
+                    write_groups,
                     frontend_accessible,
                 --div--;LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tabs.settings,
                     context,

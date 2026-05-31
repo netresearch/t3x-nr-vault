@@ -53,4 +53,14 @@ interface MasterKeyProviderInterface
      * @return string 32-byte random key (not stored, just generated)
      */
     public function generateMasterKey(): string;
+
+    /**
+     * Clear the request-lifetime cached master key from memory.
+     *
+     * Wipes any cached key material via sodium_memzero(). Long-running
+     * processes (scheduler tasks, daemons) and test teardown should call this
+     * to bound key residency and to observe a rotated source key. Static so it
+     * is reachable without an instance, mirroring the implementations.
+     */
+    public static function clearCachedKey(): void;
 }

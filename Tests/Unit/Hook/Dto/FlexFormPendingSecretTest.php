@@ -195,7 +195,7 @@ final class FlexFormPendingSecretTest extends TestCase
             'flexField' => 'pi_flexform',
             'sheet' => 'sDEF',
             'fieldPath' => 'settings.token',
-            'value' => 'mytoken',
+            'value' => '[REDACTED]',
             'identifier' => 'app/token',
             'originalChecksum' => 'checksum123',
             'isNew' => false,

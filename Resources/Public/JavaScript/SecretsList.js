@@ -7,6 +7,26 @@ import Modal from '@typo3/backend/modal.js';
 import Notification from '@typo3/backend/notification.js';
 import Severity from '@typo3/backend/severity.js';
 
+/**
+ * Look up a backend label registered via PageRenderer::addInlineLanguageLabelFile()
+ * (locallang_js.xlf). Falls back to the English default so the UI never shows a
+ * raw key if the label file was not registered on the current page.
+ *
+ * @param {string} key      label key, e.g. 'nrvault.delete.title'
+ * @param {string} fallback English default
+ * @param {...string} args  values substituted for {0}, {1}, ... placeholders
+ * @returns {string}
+ */
+function lang(key, fallback, ...args) {
+    let text = (typeof TYPO3 !== 'undefined' && TYPO3.lang && TYPO3.lang[key]) || fallback;
+    args.forEach((value, index) => {
+        // Use a replacer function so `$`-sequences (e.g. $&, $1) in the value
+        // are inserted literally rather than interpreted by String.replace().
+        text = text.replace('{' + index + '}', () => value);
+    });
+    return text;
+}
+
 class SecretsList {
     constructor() {
         // No in-memory secret cache: every reveal MUST hit the AJAX endpoint
@@ -50,18 +70,22 @@ class SecretsList {
         const identifier = row?.dataset.identifier || form.querySelector('input[name="identifier"]')?.value || 'secret';
 
         Modal.confirm(
-            'Delete Secret',
-            'Are you sure you want to delete the secret "' + this.escapeHtml(identifier) + '"? This action cannot be undone.',
+            lang('nrvault.delete.title', 'Delete Secret'),
+            lang(
+                'nrvault.delete.confirm',
+                'Are you sure you want to delete the secret "{0}"? This action cannot be undone.',
+                this.escapeHtml(identifier),
+            ),
             Severity.warning,
             [
                 {
-                    text: 'Cancel',
+                    text: lang('nrvault.cancel', 'Cancel'),
                     active: true,
                     btnClass: 'btn-default',
                     trigger: () => Modal.dismiss()
                 },
                 {
-                    text: 'Delete',
+                    text: lang('nrvault.delete', 'Delete'),
                     btnClass: 'btn-danger',
                     trigger: () => {
                         Modal.dismiss();
@@ -108,12 +132,12 @@ class SecretsList {
                 button.replaceChildren(...originalChildren);
                 this.updateRowState(row, result.hidden);
                 this.updateButtonState(button, result.hidden);
-                Notification.success('Success', result.message, 3);
+                Notification.success(lang('nrvault.success', 'Success'), result.message, 3);
             } else {
-                Notification.error('Error', result.error || 'Unknown error', 5);
+                Notification.error(lang('nrvault.error', 'Error'), result.error || lang('nrvault.unknownError', 'An error occurred'), 5);
             }
         } catch (error) {
-            Notification.error('Error', error.message || 'An error occurred', 5);
+            Notification.error(lang('nrvault.error', 'Error'), error.message || lang('nrvault.unknownError', 'An error occurred'), 5);
         } finally {
             button.disabled = false;
             // Restore original children on any non-success path (error/thrown).
@@ -184,14 +208,15 @@ class SecretsList {
         const identifier = button.dataset.vaultReveal;
 
         if (!identifier) {
-            Notification.error('Error', 'No identifier found', 5);
+            Notification.error(lang('nrvault.error', 'Error'), lang('nrvault.noIdentifier', 'No identifier found'), 5);
             return;
         }
 
         // Show loading modal
+        const loadingBody = lang('nrvault.reveal.loading.body', 'Fetching secret...');
         const loadingModal = Modal.advanced({
-            title: 'Loading Secret',
-            content: '<div class="text-center p-4"><span class="spinner-border" role="status"></span><p class="mt-2">Fetching secret...</p></div>',
+            title: lang('nrvault.reveal.loading.title', 'Loading Secret'),
+            content: '<div class="text-center p-4"><span class="spinner-border" role="status"></span><p class="mt-2">' + this.escapeHtml(loadingBody) + '</p></div>',
             severity: Severity.info,
             size: Modal.sizes.small,
             buttons: []
@@ -212,11 +237,11 @@ class SecretsList {
             if (data.success && data.secret !== undefined) {
                 this.showRevealModal(identifier, data.secret);
             } else {
-                Notification.error('Error', data.error || 'Failed to reveal secret', 5);
+                Notification.error(lang('nrvault.error', 'Error'), data.error || lang('nrvault.reveal.failed', 'Failed to reveal secret'), 5);
             }
         } catch (error) {
             loadingModal.hideModal();
-            Notification.error('Error', error.message || 'Failed to reveal secret', 5);
+            Notification.error(lang('nrvault.error', 'Error'), error.message || lang('nrvault.reveal.failed', 'Failed to reveal secret'), 5);
         }
     }
 
@@ -227,13 +252,13 @@ class SecretsList {
         const content = this.buildRevealModalContent(identifier, secret);
 
         const modal = Modal.advanced({
-            title: 'Secret Value',
+            title: lang('nrvault.reveal.title', 'Secret Value'),
             content: content,
             severity: Severity.info,
             size: Modal.sizes.default,
             buttons: [
                 {
-                    text: 'Close',
+                    text: lang('nrvault.close', 'Close'),
                     active: true,
                     btnClass: 'btn-default',
                     trigger: () => modal.hideModal()
@@ -261,9 +286,9 @@ class SecretsList {
                 copyBtn.addEventListener('click', async () => {
                     try {
                         await navigator.clipboard.writeText(secret);
-                        Notification.success('Copied', 'Secret copied to clipboard', 2);
+                        Notification.success(lang('nrvault.copied', 'Copied'), lang('nrvault.copy.success', 'Secret copied to clipboard'), 2);
                     } catch (e) {
-                        Notification.error('Error', 'Failed to copy to clipboard', 5);
+                        Notification.error(lang('nrvault.error', 'Error'), lang('nrvault.copy.failed', 'Failed to copy to clipboard'), 5);
                     }
                 });
             }
@@ -278,26 +303,26 @@ class SecretsList {
         const identifier = button.dataset.vaultRotate;
 
         if (!identifier) {
-            Notification.error('Error', 'No identifier found', 5);
+            Notification.error(lang('nrvault.error', 'Error'), lang('nrvault.noIdentifier', 'No identifier found'), 5);
             return;
         }
 
         const content = this.buildRotateModalContent();
 
         const modal = Modal.advanced({
-            title: 'Rotate Secret: ' + identifier,
+            title: lang('nrvault.rotate.title', 'Rotate Secret: {0}', identifier),
             content: content,
             severity: Severity.warning,
             size: Modal.sizes.default,
             buttons: [
                 {
-                    text: 'Cancel',
+                    text: lang('nrvault.cancel', 'Cancel'),
                     active: true,
                     btnClass: 'btn-default',
                     trigger: () => modal.hideModal()
                 },
                 {
-                    text: 'Rotate Secret',
+                    text: lang('nrvault.rotate.button', 'Rotate Secret'),
                     btnClass: 'btn-warning',
                     trigger: () => this.performRotate(modal, identifier)
                 }
@@ -332,7 +357,7 @@ class SecretsList {
         const newSecret = input?.value || '';
 
         if (!newSecret) {
-            Notification.error('Error', 'Please enter a new secret value', 5);
+            Notification.error(lang('nrvault.error', 'Error'), lang('nrvault.rotate.enterValue', 'Please enter a new secret value'), 5);
             return;
         }
 
@@ -349,12 +374,12 @@ class SecretsList {
 
             if (data.success) {
                 modal.hideModal();
-                Notification.success('Success', data.message || 'Secret rotated successfully', 3);
+                Notification.success(lang('nrvault.success', 'Success'), data.message || lang('nrvault.rotate.success', 'Secret rotated successfully'), 3);
             } else {
-                Notification.error('Error', data.error || 'Failed to rotate secret', 5);
+                Notification.error(lang('nrvault.error', 'Error'), data.error || lang('nrvault.rotate.failed', 'Failed to rotate secret'), 5);
             }
         } catch (error) {
-            Notification.error('Error', error.message || 'Failed to rotate secret', 5);
+            Notification.error(lang('nrvault.error', 'Error'), error.message || lang('nrvault.rotate.failed', 'Failed to rotate secret'), 5);
         }
     }
 
@@ -377,7 +402,8 @@ class SecretsList {
         group.className = 'form-group mb-3';
         const label = document.createElement('label');
         label.className = 'form-label fw-bold';
-        label.textContent = 'Secret Value';
+        label.setAttribute('for', 'reveal-modal-secret');
+        label.textContent = lang('nrvault.reveal.label', 'Secret Value');
         const inputGroup = document.createElement('div');
         inputGroup.className = 'input-group';
 
@@ -390,15 +416,15 @@ class SecretsList {
         inputGroup.append(input);
 
         inputGroup.append(
-            this.buildIconButton('reveal-modal-toggle', 'Toggle visibility', 'icon-actions-eye'),
-            this.buildIconButton('reveal-modal-copy', 'Copy to clipboard', 'icon-actions-clipboard'),
+            this.buildIconButton('reveal-modal-toggle', lang('nrvault.toggle.visibility', 'Toggle visibility'), 'icon-actions-eye'),
+            this.buildIconButton('reveal-modal-copy', lang('nrvault.copy.clipboard', 'Copy to clipboard'), 'icon-actions-clipboard'),
         );
 
         group.append(label, inputGroup);
 
         const hint = document.createElement('p');
         hint.className = 'text-muted small mb-0';
-        hint.append(document.createTextNode('Secret value for: '));
+        hint.append(document.createTextNode(lang('nrvault.reveal.hint', 'Secret value for: ')));
         const code = document.createElement('code');
         code.textContent = identifier;
         hint.append(code);
@@ -418,7 +444,7 @@ class SecretsList {
         const label = document.createElement('label');
         label.className = 'form-label fw-bold';
         label.setAttribute('for', 'rotate-modal-secret');
-        label.textContent = 'New Secret Value';
+        label.textContent = lang('nrvault.rotate.label', 'New Secret Value');
 
         const inputGroup = document.createElement('div');
         inputGroup.className = 'input-group';
@@ -426,22 +452,22 @@ class SecretsList {
         input.type = 'password';
         input.className = 'form-control';
         input.id = 'rotate-modal-secret';
-        input.placeholder = 'Enter new secret value';
+        input.placeholder = lang('nrvault.rotate.placeholder', 'Enter new secret value');
         input.autocomplete = 'new-password';
         inputGroup.append(input);
-        inputGroup.append(this.buildIconButton('rotate-modal-toggle', 'Toggle visibility', 'icon-actions-eye'));
+        inputGroup.append(this.buildIconButton('rotate-modal-toggle', lang('nrvault.toggle.visibility', 'Toggle visibility'), 'icon-actions-eye'));
 
         const help = document.createElement('div');
         help.className = 'form-text';
-        help.textContent = 'Enter the new secret value. This will replace the existing secret.';
+        help.textContent = lang('nrvault.rotate.help', 'Enter the new secret value. This will replace the existing secret.');
 
         group.append(label, inputGroup, help);
 
         const warning = document.createElement('p');
         warning.className = 'text-warning small mb-0';
         const strong = document.createElement('strong');
-        strong.textContent = 'Warning:';
-        warning.append(strong, document.createTextNode(' Rotating a secret is irreversible. The previous value cannot be recovered.'));
+        strong.textContent = lang('nrvault.rotate.warning.label', 'Warning:');
+        warning.append(strong, document.createTextNode(lang('nrvault.rotate.warning.body', ' Rotating a secret is irreversible. The previous value cannot be recovered.')));
 
         root.append(group, warning);
         return root;

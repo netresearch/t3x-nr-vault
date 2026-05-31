@@ -16,6 +16,7 @@ use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Exception\SecretExpiredException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\ValidationException;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -33,12 +34,18 @@ final class AjaxControllerTest extends TestCase
 
     private VaultServiceInterface&MockObject $vaultService;
 
+    private AccessControlServiceInterface&MockObject $accessControlService;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
-        $this->subject = new AjaxController($this->vaultService);
+        $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $this->accessControlService
+            ->method('isCurrentActorAdmin')
+            ->willReturn(true);
+        $this->subject = new AjaxController($this->vaultService, $this->accessControlService);
     }
 
     #[Test]
@@ -145,6 +152,7 @@ final class AjaxControllerTest extends TestCase
         self::assertSame(500, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
+        self::assertIsString($body['error']);
         self::assertStringContainsString('Decryption failed', $body['error']);
     }
 
@@ -163,6 +171,7 @@ final class AjaxControllerTest extends TestCase
         self::assertSame(500, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
+        self::assertIsString($body['error']);
         self::assertStringContainsString('Failed to retrieve secret', $body['error']);
     }
 
@@ -189,6 +198,35 @@ final class AjaxControllerTest extends TestCase
     }
 
     #[Test]
+    public function revealActionReturns405ForNonPostRequests(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('GET');
+
+        $response = $this->subject->revealAction($request);
+
+        self::assertSame(405, $response->getStatusCode());
+        $body = json_decode((string) $response->getBody(), true);
+        self::assertFalse($body['success']);
+        self::assertSame('Method not allowed', $body['error']);
+    }
+
+    #[Test]
+    public function revealActionReturns403WhenNotAdmin(): void
+    {
+        $request = $this->createRequestWithJsonBody(['identifier' => 'restricted-id']);
+
+        $controller = $this->createControllerForNonAdmin();
+
+        $response = $controller->revealAction($request);
+
+        self::assertSame(403, $response->getStatusCode());
+        $body = json_decode((string) $response->getBody(), true);
+        self::assertFalse($body['success']);
+        self::assertSame('Access denied', $body['error']);
+    }
+
+    #[Test]
     public function rotateActionReturns405ForNonPostRequests(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
@@ -200,6 +238,24 @@ final class AjaxControllerTest extends TestCase
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
         self::assertSame('Method not allowed', $body['error']);
+    }
+
+    #[Test]
+    public function rotateActionReturns403WhenNotAdmin(): void
+    {
+        $request = $this->createPostRequestWithBody([
+            'identifier' => 'restricted-id',
+            'secret' => 'new-value',
+        ]);
+
+        $controller = $this->createControllerForNonAdmin();
+
+        $response = $controller->rotateAction($request);
+
+        self::assertSame(403, $response->getStatusCode());
+        $body = json_decode((string) $response->getBody(), true);
+        self::assertFalse($body['success']);
+        self::assertSame('Access denied', $body['error']);
     }
 
     #[Test]
@@ -316,6 +372,7 @@ final class AjaxControllerTest extends TestCase
         self::assertSame(400, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
+        self::assertIsString($body['error']);
         self::assertStringContainsString('Validation error', $body['error']);
     }
 
@@ -336,6 +393,7 @@ final class AjaxControllerTest extends TestCase
         self::assertSame(500, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
+        self::assertIsString($body['error']);
         self::assertStringContainsString('Encryption failed', $body['error']);
     }
 
@@ -356,6 +414,7 @@ final class AjaxControllerTest extends TestCase
         self::assertSame(500, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
+        self::assertIsString($body['error']);
         self::assertStringContainsString('Failed to rotate secret', $body['error']);
     }
 
@@ -423,11 +482,29 @@ final class AjaxControllerTest extends TestCase
     }
 
     /**
+     * Build a controller whose access-control seam denies admin status.
+     *
+     * `createMock()` allows a method to be configured only once, so the
+     * non-admin variant needs a dedicated controller rather than re-stubbing
+     * the admin mock created in setUp().
+     */
+    private function createControllerForNonAdmin(): AjaxController
+    {
+        $accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $accessControlService
+            ->method('isCurrentActorAdmin')
+            ->willReturn(false);
+
+        return new AjaxController($this->vaultService, $accessControlService);
+    }
+
+    /**
      * @param array<string, mixed> $body
      */
     private function createRequestWithJsonBody(array $body): ServerRequestInterface&MockObject
     {
         $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
         $request->method('getQueryParams')->willReturn([]);
         $request->method('getParsedBody')->willReturn($body);
 

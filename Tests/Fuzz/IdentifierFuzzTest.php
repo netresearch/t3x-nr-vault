@@ -63,6 +63,7 @@ final class IdentifierFuzzTest extends TestCase
         $this->flexFormVaultResolver = new FlexFormVaultResolver(
             $vaultService,
             $logger,
+            $tcaSchemaFactory,
         );
     }
 

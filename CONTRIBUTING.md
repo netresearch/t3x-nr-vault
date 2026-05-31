@@ -47,28 +47,46 @@ Use descriptive branch names with prefixes:
 
 ### Commit Messages
 
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+The local `commit-msg` hook (CaptainHook, see `captainhook.json`)
+enforces a **subject-style** policy, not Conventional-Commit type
+prefixes. Each subject line must:
+
+- be capitalized,
+- use the imperative mood ("Add", not "Added"/"Adds"),
+- stay within the length limit,
+- not be empty,
+- not end with a period.
 
 ```
-feat: add secret rotation support
-fix: resolve memory leak in encryption service
-docs: update installation instructions
-test: add unit tests for VaultService
-refactor: simplify access control logic
+Add secret rotation support
+Fix memory leak in encryption service
+Update installation instructions
+Add unit tests for VaultService
 ```
+
+> Note: lowercase Conventional-Commit prefixes (`feat:`, `fix:`) are
+> **rejected** by the imperative-mood / capitalize-subject rules. Write
+> the subject as an imperative sentence instead.
+
+#### Sign-off (DCO)
+
+Every commit must carry a `Signed-off-by:` trailer (Developer
+Certificate of Origin). Add it with `git commit -s`. This is **required
+and enforced at the pull-request gate**; the local commit-msg hook does
+not currently check for it, so always pass `-s`.
 
 ### Code Style
 
 This project follows PER-CS 2.0 coding standards. Run the fixer before committing:
 
 ```bash
-composer cs-fix
+composer ci:cgl
 ```
 
-Check for code style issues:
+Check for code style issues (dry-run, no changes written):
 
 ```bash
-composer cs-check
+composer ci:test:php:cgl
 ```
 
 ### Static Analysis
@@ -76,15 +94,24 @@ composer cs-check
 We use PHPStan at the maximum level (10). Run analysis:
 
 ```bash
-composer phpstan
+composer ci:test:php:phpstan
 ```
+
+> **Git worktree note:** in a fresh git worktree (before
+> `phpstan/extension-installer` has populated `.Build/vendor/...`),
+> `composer ci:test:php:phpstan` can fail with a cryptic include error.
+> If that happens, run PHPStan with the plugin-free config:
+>
+> ```bash
+> .Build/bin/phpstan analyse --configuration=Build/phpstan.no-plugins.neon
+> ```
 
 ### Testing
 
-Run all tests:
+Run the full CI suite (unit + fuzz + phpstan + architecture + code style):
 
 ```bash
-composer test
+composer ci
 ```
 
 Run specific test suites:
@@ -95,6 +122,9 @@ composer ci:test:php:unit
 
 # Functional tests
 composer ci:test:php:functional
+
+# Unit + functional together
+composer test:all
 ```
 
 ## Pull Request Process
@@ -105,7 +135,7 @@ composer ci:test:php:functional
 
 3. **Test**: Ensure all tests pass and add new tests for your changes
 
-4. **Commit**: Use conventional commit messages
+4. **Commit**: Use the subject-style commit messages described above, signed off with `git commit -s`
 
 5. **Push**: Push your branch to your fork
 

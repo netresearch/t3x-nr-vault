@@ -10,16 +10,19 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Hook;
 
 use Doctrine\DBAL\Result;
-use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Hook\DataHandlerHook;
+use Netresearch\NrVault\Hook\PendingSecretExtractor;
+use Netresearch\NrVault\Hook\PendingSecretPersister;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use Netresearch\NrVault\Utility\IdentifierValidator;
+use Netresearch\NrVault\Utility\VaultFieldResolver;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use Psr\Log\LoggerInterface;
 use ReflectionClass;
 use RuntimeException;
 use TYPO3\CMS\Core\Database\Connection;
@@ -28,7 +31,6 @@ use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 #[CoversClass(DataHandlerHook::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -44,8 +46,6 @@ final class DataHandlerHookTest extends TestCase
 
     private VaultServiceInterface&MockObject $vaultService;
 
-    private AuditLogServiceInterface&MockObject $auditLogService;
-
     private DataHandler&MockObject $dataHandler;
 
     private ConnectionPool&MockObject $connectionPool;
@@ -59,24 +59,30 @@ final class DataHandlerHookTest extends TestCase
         $this->connectionPool = $this->createMock(ConnectionPool::class);
         $this->tcaSchemaFactory = $this->createMock(TcaSchemaFactory::class);
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
-        $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
         $this->flashMessageService = $this->createMock(FlashMessageService::class);
         $this->dataHandler = $this->createMock(DataHandler::class);
 
-        $this->subject = new DataHandlerHook(
-            $this->connectionPool,
+        // The hook's collaborators are pure extracted logic: wire them for real
+        // so the vault-service, flash-message and rollback expectations exercise
+        // the actual decision pipeline rather than mock theatre.
+        $vaultFieldResolver = new VaultFieldResolver(
+            $this->vaultService,
             $this->tcaSchemaFactory,
+            $this->createMock(LoggerInterface::class),
+        );
+        $pendingSecretExtractor = new PendingSecretExtractor();
+        $pendingSecretPersister = new PendingSecretPersister(
             $this->vaultService,
             $this->flashMessageService,
         );
 
-        GeneralUtility::addInstance(AuditLogServiceInterface::class, $this->auditLogService);
-    }
-
-    protected function tearDown(): void
-    {
-        GeneralUtility::purgeInstances();
-        parent::tearDown();
+        $this->subject = new DataHandlerHook(
+            $this->connectionPool,
+            $this->vaultService,
+            $vaultFieldResolver,
+            $pendingSecretExtractor,
+            $pendingSecretPersister,
+        );
     }
 
     #[Test]
@@ -351,7 +357,7 @@ final class DataHandlerHookTest extends TestCase
                 'tx_test',
                 42,
                 2,
-                0,
+                null,
                 1,
                 self::stringContains('api_key'),
             );
@@ -977,7 +983,7 @@ final class DataHandlerHookTest extends TestCase
                 'tx_test',
                 42,
                 3,
-                0,
+                null,
                 1,
                 self::stringContains('api_key'),
             );
@@ -1443,7 +1449,7 @@ final class DataHandlerHookTest extends TestCase
                 'tx_test',
                 100,
                 1,
-                0,
+                null,
                 1,
                 self::stringContains('api_key'),
             );

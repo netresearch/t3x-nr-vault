@@ -13,13 +13,10 @@ use Exception;
 use Netresearch\NrVault\Hook\Dto\PendingSecret;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
+use Netresearch\NrVault\Utility\VaultFieldResolver;
 use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
-use TYPO3\CMS\Core\Messaging\FlashMessage;
-use TYPO3\CMS\Core\Messaging\FlashMessageService;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
-use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 
 /**
  * DataHandler hook for vault secret TCA fields.
@@ -47,9 +44,10 @@ final class DataHandlerHook
 
     public function __construct(
         private readonly ConnectionPool $connectionPool,
-        private readonly TcaSchemaFactory $tcaSchemaFactory,
         private readonly VaultServiceInterface $vaultService,
-        private readonly FlashMessageService $flashMessageService,
+        private readonly VaultFieldResolver $vaultFieldResolver,
+        private readonly PendingSecretExtractor $pendingSecretExtractor,
+        private readonly PendingSecretPersister $pendingSecretPersister,
     ) {}
 
     /**
@@ -71,39 +69,19 @@ final class DataHandlerHook
                 continue;
             }
 
-            $value = $fieldArray[$fieldName];
-
-            // Handle array format from form element
-            if (\is_array($value)) {
-                $rawSecretValue = $value['value'] ?? $value[0] ?? '';
-                $rawIdentifier = $value['_vault_identifier'] ?? '';
-                $rawChecksum = $value['_vault_checksum'] ?? '';
-                $secretValue = \is_string($rawSecretValue) || \is_int($rawSecretValue) ? (string) $rawSecretValue : '';
-                $existingIdentifier = \is_string($rawIdentifier) ? $rawIdentifier : '';
-                $originalChecksum = \is_string($rawChecksum) ? $rawChecksum : '';
-            } else {
-                $secretValue = \is_string($value) || \is_int($value) ? (string) $value : '';
-                $existingIdentifier = '';
-                $originalChecksum = '';
-            }
+            $pending = $this->pendingSecretExtractor->extract($fieldArray[$fieldName]);
 
             // Skip if empty and no existing value
-            if ($secretValue === '' && $originalChecksum === '') {
+            if (!$pending instanceof PendingSecret) {
                 unset($fieldArray[$fieldName]);
                 continue;
             }
 
-            // Determine vault identifier
-            $isNewSecret = $existingIdentifier === '' || $originalChecksum === '';
-            $vaultIdentifier = $isNewSecret ? IdentifierValidator::generateUuid() : $existingIdentifier;
-
             // Store pending secret for post-processing
-            $this->pendingSecrets[$table][$id][$fieldName] = $isNewSecret
-                ? PendingSecret::createNew($secretValue, $vaultIdentifier)
-                : PendingSecret::createUpdate($secretValue, $vaultIdentifier, $originalChecksum);
+            $this->pendingSecrets[$table][$id][$fieldName] = $pending;
 
             // Store UUID in the database field (empty string if clearing)
-            $fieldArray[$fieldName] = $secretValue !== '' ? $vaultIdentifier : '';
+            $fieldArray[$fieldName] = $pending->value !== '' ? $pending->identifier : '';
         }
     }
 
@@ -131,40 +109,38 @@ final class DataHandlerHook
         $pendingForRecord = $this->pendingSecrets[$table][$id] ?? [];
 
         foreach ($pendingForRecord as $fieldName => $pending) {
-            $secretValue = $pending->value;
-            $vaultIdentifier = $pending->identifier;
-            $originalChecksum = $pending->originalChecksum;
-            $isNew = $pending->isNew;
+            // Roll back the dangling UUID - clear the field so no orphan
+            // reference remains. New records always clear (no prior value);
+            // updates keep the prior identifier IFF a prior checksum was
+            // captured (i.e. the old secret actually existed).
+            $rollbackValue = '';
+            if (!$pending->isNew && $pending->originalChecksum !== '') {
+                $rollbackValue = $pending->identifier;
+            }
 
-            try {
-                if ($secretValue === '') {
-                    // Empty value means delete the secret
-                    if ($originalChecksum !== '') {
-                        $this->vaultService->delete($vaultIdentifier, 'TCA field cleared');
-                    }
-                } elseif ($isNew) {
-                    // New secret with new UUID
-                    $this->vaultService->store($vaultIdentifier, $secretValue, [
-                        'table' => $table,
-                        'field' => $fieldName,
-                        'uid' => $uid,
-                        'source' => 'tca_field',
-                    ]);
-                } else {
-                    // Update existing - use rotate to maintain audit trail
-                    $this->vaultService->rotate($vaultIdentifier, $secretValue, 'TCA field updated');
-                }
-            } catch (Throwable $e) {
-                // Roll back the dangling UUID - clear the field so no orphan
-                // reference remains. New records always clear (no prior value);
-                // updates keep the prior identifier IFF a prior checksum was
-                // captured (i.e. the old secret actually existed).
-                $rollbackValue = '';
-                if (!$isNew && $pending->originalChecksum !== '') {
-                    $rollbackValue = $vaultIdentifier;
-                }
-                $this->rollBackField($table, $uid, $fieldName, $rollbackValue);
+            $error = $this->pendingSecretPersister->persist(
+                $pending,
+                [
+                    'table' => $table,
+                    'field' => $fieldName,
+                    'uid' => $uid,
+                    'source' => 'tca_field',
+                ],
+                'TCA field cleared',
+                'TCA field updated',
+                static fn (Throwable $e): string => \sprintf(
+                    'Vault storage failed for field "%s" on %s:%d: %s. The field value has been rolled back.',
+                    $fieldName,
+                    $table,
+                    $uid,
+                    $e->getMessage(),
+                ),
+                function () use ($table, $uid, $fieldName, $rollbackValue): void {
+                    $this->rollBackField($table, $uid, $fieldName, $rollbackValue);
+                },
+            );
 
+            if ($error instanceof Throwable) {
                 /** @phpstan-ignore method.internal */
                 $dataHandler->log(
                     $table,
@@ -172,20 +148,7 @@ final class DataHandlerHook
                     $status === 'new' ? 1 : 2,
                     null,
                     1,
-                    'Vault error for field "' . $fieldName . '": ' . $e->getMessage(),
-                );
-
-                // Add a visible flash message so the backend user sees the error
-                $this->addFlashMessage(
-                    \sprintf(
-                        'Vault storage failed for field "%s" on %s:%d: %s. The field value has been rolled back.',
-                        $fieldName,
-                        $table,
-                        $uid,
-                        $e->getMessage(),
-                    ),
-                    'Vault Error',
-                    ContextualFeedbackSeverity::ERROR,
+                    'Vault error for field "' . $fieldName . '": ' . $error->getMessage(),
                 );
             }
         }
@@ -307,6 +270,8 @@ final class DataHandlerHook
                 continue;
             }
 
+            $sourceValue = null;
+
             try {
                 // Get source secret
                 $sourceValue = $this->vaultService->retrieve($sourceIdentifier);
@@ -338,6 +303,11 @@ final class DataHandlerHook
                     1,
                     'Vault error during copy for field "' . $fieldName . '": ' . $e->getMessage(),
                 );
+            } finally {
+                // Scrub the decrypted plaintext from memory (success or failure).
+                if ($sourceValue !== null && $sourceValue !== '') {
+                    sodium_memzero($sourceValue);
+                }
             }
         }
 
@@ -370,53 +340,16 @@ final class DataHandlerHook
     }
 
     /**
-     * Add a flash message visible to the backend user.
-     */
-    private function addFlashMessage(
-        string $message,
-        string $title,
-        ContextualFeedbackSeverity $severity,
-    ): void {
-        try {
-            $flashMessage = new FlashMessage($message, $title, $severity, true);
-            $this->flashMessageService
-                ->getMessageQueueByIdentifier()
-                ->addMessage($flashMessage);
-        } catch (Exception) {
-            // Flash message service may not be available in all contexts (e.g., CLI)
-        }
-    }
-
-    /**
      * Get field names with vaultSecret renderType from TCA schema.
+     *
+     * Discovery is delegated to {@see VaultFieldResolver}; results are cached
+     * per table for the lifetime of this hook instance.
      *
      * @return list<string>
      */
     private function getVaultFieldNames(string $table): array
     {
-        if (isset($this->vaultFieldCache[$table])) {
-            return $this->vaultFieldCache[$table];
-        }
-
-        if (!$this->tcaSchemaFactory->has($table)) {
-            $this->vaultFieldCache[$table] = [];
-
-            return [];
-        }
-
-        $schema = $this->tcaSchemaFactory->get($table);
-        $vaultFields = [];
-
-        foreach ($schema->getFields() as $field) {
-            $config = $field->getConfiguration();
-            $renderType = $config['renderType'] ?? '';
-            if ($renderType === 'vaultSecret') {
-                $vaultFields[] = $field->getName();
-            }
-        }
-
-        $this->vaultFieldCache[$table] = $vaultFields;
-
-        return $vaultFields;
+        return $this->vaultFieldCache[$table]
+            ??= $this->vaultFieldResolver->getVaultFieldsForTable($table);
     }
 }

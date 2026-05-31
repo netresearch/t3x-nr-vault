@@ -19,6 +19,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
 #[AllowMockObjectsWithoutExpectations]
 final class FlexFormVaultResolverTest extends TestCase
@@ -26,6 +27,8 @@ final class FlexFormVaultResolverTest extends TestCase
     private VaultServiceInterface&MockObject $vaultService;
 
     private LoggerInterface&MockObject $logger;
+
+    private TcaSchemaFactory&MockObject $tcaSchemaFactory;
 
     private FlexFormVaultResolver $subject;
 
@@ -35,10 +38,12 @@ final class FlexFormVaultResolverTest extends TestCase
 
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
         $this->logger = $this->createMock(LoggerInterface::class);
+        $this->tcaSchemaFactory = $this->createMock(TcaSchemaFactory::class);
 
         $this->subject = new FlexFormVaultResolver(
             $this->vaultService,
             $this->logger,
+            $this->tcaSchemaFactory,
         );
     }
 

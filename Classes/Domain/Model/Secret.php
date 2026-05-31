@@ -24,7 +24,8 @@ use Netresearch\NrVault\Exception\ValidationException;
 final readonly class Secret
 {
     /**
-     * @param int[] $allowedGroups
+     * @param int[] $allowedGroups Backend group UIDs with READ access (read-only tier)
+     * @param int[] $writeGroups Backend group UIDs with WRITE access (read + write tier)
      * @param array<string, mixed> $metadata
      *
      * @throws ValidationException If cryptographic fields are inconsistent
@@ -42,6 +43,7 @@ final readonly class Secret
         public string $valueChecksum = '',
         public int $ownerUid = 0,
         public array $allowedGroups = [],
+        public array $writeGroups = [],
         public string $context = '',
         public bool $frontendAccessible = false,
         public int $version = 1,
@@ -131,6 +133,28 @@ final readonly class Secret
         return $this->cloneWith(['metadata' => $metadata]);
     }
 
+    /**
+     * Replace the read-tier allowed-groups list. Returns a new Secret;
+     * the MM relations are persisted by `SecretRepository::save()`.
+     *
+     * @param int[] $allowedGroups
+     */
+    public function cloneWithGroups(array $allowedGroups): self
+    {
+        return $this->cloneWith(['allowedGroups' => array_map(\intval(...), $allowedGroups)]);
+    }
+
+    /**
+     * Replace the write-tier groups list. Returns a new Secret; the MM
+     * relations are persisted by `SecretRepository::save()`.
+     *
+     * @param int[] $writeGroups
+     */
+    public function cloneWithWriteGroups(array $writeGroups): self
+    {
+        return $this->cloneWith(['writeGroups' => array_map(\intval(...), $writeGroups)]);
+    }
+
     // ------------------------------------------------------------------
     // Derived state.
     // ------------------------------------------------------------------
@@ -211,6 +235,14 @@ final readonly class Secret
     public function getAllowedGroups(): array
     {
         return $this->allowedGroups;
+    }
+
+    /**
+     * @return int[]
+     */
+    public function getWriteGroups(): array
+    {
+        return $this->writeGroups;
     }
 
     public function getContext(): string
@@ -296,15 +328,16 @@ final readonly class Secret
     // ------------------------------------------------------------------
 
     /**
-     * Hydrate from a `tx_nrvault_secret` row. The allowed-groups list is
-     * stored in a separate MM table, so the caller must look it up and
-     * pass it here — there is no second-step `setAllowedGroups()` after
-     * construction.
+     * Hydrate from a `tx_nrvault_secret` row. The allowed-groups and
+     * write-groups lists are each stored in a separate MM table, so the
+     * caller must look them up and pass them here — there is no
+     * second-step `setAllowedGroups()` after construction.
      *
      * @param array<string, mixed> $row
-     * @param int[] $allowedGroups
+     * @param int[] $allowedGroups Read-tier group UIDs (from MM table)
+     * @param int[] $writeGroups Write-tier group UIDs (from MM table)
      */
-    public static function fromDatabaseRow(array $row, array $allowedGroups = []): self
+    public static function fromDatabaseRow(array $row, array $allowedGroups = [], array $writeGroups = []): self
     {
         $metadata = [];
         if (!empty($row['metadata'])) {
@@ -318,6 +351,14 @@ final readonly class Secret
             $groups = (string) $row['allowed_groups'];
             $allowedGroups = array_values(array_filter(
                 array_map(\intval(...), explode(',', $groups)),
+            ));
+        }
+
+        // Same legacy-CSV fallback for the write-tier groups.
+        if ($writeGroups === [] && !empty($row['write_groups'])) {
+            $wGroups = (string) $row['write_groups'];
+            $writeGroups = array_values(array_filter(
+                array_map(\intval(...), explode(',', $wGroups)),
             ));
         }
 
@@ -336,6 +377,7 @@ final readonly class Secret
             valueChecksum: (string) ($row['value_checksum'] ?? ''),
             ownerUid: (int) ($row['owner_uid'] ?? 0),
             allowedGroups: array_map(\intval(...), $allowedGroups),
+            writeGroups: array_map(\intval(...), $writeGroups),
             context: (string) ($row['context'] ?? ''),
             frontendAccessible: (bool) ($row['frontend_accessible'] ?? false),
             version: (int) ($row['version'] ?? 1),
@@ -355,6 +397,19 @@ final readonly class Secret
     }
 
     /**
+     * Serialise to a `tx_nrvault_secret` row for INSERT/UPDATE.
+     *
+     * Note: `uid` and `crdate` are intentionally omitted (the DB layer
+     * assigns/owns them — `uid` is auto-increment, `crdate` is set by
+     * `SecretRepository::save()` on INSERT only), and `tstamp` is set to
+     * the current time on every write rather than echoing `$this->tstamp`.
+     * These three columns are therefore DB-managed; a `fromDatabaseRow()`
+     * → `toDatabaseRow()` round-trip is not an identity for them.
+     *
+     * The `allowed_groups`/`write_groups` CSV columns are written for
+     * legacy-read fallback only; the authoritative source of truth for
+     * group relations is the MM tables (written by `SecretRepository`).
+     *
      * @return array<string, mixed>
      */
     public function toDatabaseRow(): array
@@ -371,6 +426,7 @@ final readonly class Secret
             'value_checksum' => $this->valueChecksum,
             'owner_uid' => $this->ownerUid,
             'allowed_groups' => implode(',', $this->allowedGroups),
+            'write_groups' => implode(',', $this->writeGroups),
             'context' => $this->context,
             'frontend_accessible' => $this->frontendAccessible ? 1 : 0,
             'version' => $this->version,
