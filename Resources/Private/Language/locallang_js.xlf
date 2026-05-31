@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" datatype="plaintext" original="messages" product-name="nr_vault">
+    <header/>
+    <body>
+      <!-- Generic notification headers / buttons -->
+      <trans-unit id="nrvault.error">
+        <source>Error</source>
+      </trans-unit>
+      <trans-unit id="nrvault.success">
+        <source>Success</source>
+      </trans-unit>
+      <trans-unit id="nrvault.warning">
+        <source>Warning</source>
+      </trans-unit>
+      <trans-unit id="nrvault.cancel">
+        <source>Cancel</source>
+      </trans-unit>
+      <trans-unit id="nrvault.close">
+        <source>Close</source>
+      </trans-unit>
+      <trans-unit id="nrvault.delete">
+        <source>Delete</source>
+      </trans-unit>
+      <trans-unit id="nrvault.unknownError">
+        <source>An error occurred</source>
+      </trans-unit>
+      <trans-unit id="nrvault.noIdentifier">
+        <source>No identifier found</source>
+      </trans-unit>
+
+      <!-- Clipboard -->
+      <trans-unit id="nrvault.copied">
+        <source>Copied</source>
+      </trans-unit>
+      <trans-unit id="nrvault.copy.success">
+        <source>Secret copied to clipboard</source>
+      </trans-unit>
+      <trans-unit id="nrvault.copy.failed">
+        <source>Failed to copy to clipboard</source>
+      </trans-unit>
+      <trans-unit id="nrvault.copy.revealFirst">
+        <source>Reveal the secret first before copying</source>
+      </trans-unit>
+
+      <!-- Delete confirmation -->
+      <trans-unit id="nrvault.delete.title">
+        <source>Delete Secret</source>
+      </trans-unit>
+      <trans-unit id="nrvault.delete.confirm">
+        <source>Are you sure you want to delete the secret "{0}"? This action cannot be undone.</source>
+      </trans-unit>
+
+      <!-- Reveal modal -->
+      <trans-unit id="nrvault.reveal.loading.title">
+        <source>Loading Secret</source>
+      </trans-unit>
+      <trans-unit id="nrvault.reveal.loading.body">
+        <source>Fetching secret...</source>
+      </trans-unit>
+      <trans-unit id="nrvault.reveal.title">
+        <source>Secret Value</source>
+      </trans-unit>
+      <trans-unit id="nrvault.reveal.label">
+        <source>Secret Value</source>
+      </trans-unit>
+      <trans-unit id="nrvault.reveal.hint">
+        <source>Secret value for: </source>
+      </trans-unit>
+      <trans-unit id="nrvault.reveal.failed">
+        <source>Failed to reveal secret</source>
+      </trans-unit>
+      <trans-unit id="nrvault.toggle.visibility">
+        <source>Toggle visibility</source>
+      </trans-unit>
+      <trans-unit id="nrvault.copy.clipboard">
+        <source>Copy to clipboard</source>
+      </trans-unit>
+      <trans-unit id="nrvault.reveal.action">
+        <source>Reveal</source>
+      </trans-unit>
+      <trans-unit id="nrvault.reveal.hideAction">
+        <source>Hide</source>
+      </trans-unit>
+      <trans-unit id="nrvault.reveal.loadingAction">
+        <source>Loading...</source>
+      </trans-unit>
+      <trans-unit id="nrvault.copied.inline">
+        <source>Copied!</source>
+      </trans-unit>
+      <trans-unit id="nrvault.reveal.fetchError">
+        <source>Error fetching secret: {0}</source>
+      </trans-unit>
+
+      <!-- Rotate modal -->
+      <trans-unit id="nrvault.rotate.title">
+        <source>Rotate Secret: {0}</source>
+      </trans-unit>
+      <trans-unit id="nrvault.rotate.label">
+        <source>New Secret Value</source>
+      </trans-unit>
+      <trans-unit id="nrvault.rotate.placeholder">
+        <source>Enter new secret value</source>
+      </trans-unit>
+      <trans-unit id="nrvault.rotate.help">
+        <source>Enter the new secret value. This will replace the existing secret.</source>
+      </trans-unit>
+      <trans-unit id="nrvault.rotate.warning.label">
+        <source>Warning:</source>
+      </trans-unit>
+      <trans-unit id="nrvault.rotate.warning.body">
+        <source> Rotating a secret is irreversible. The previous value cannot be recovered.</source>
+      </trans-unit>
+      <trans-unit id="nrvault.rotate.button">
+        <source>Rotate Secret</source>
+      </trans-unit>
+      <trans-unit id="nrvault.rotate.enterValue">
+        <source>Please enter a new secret value</source>
+      </trans-unit>
+      <trans-unit id="nrvault.rotate.success">
+        <source>Secret rotated successfully</source>
+      </trans-unit>
+      <trans-unit id="nrvault.rotate.failed">
+        <source>Failed to rotate secret</source>
+      </trans-unit>
+
+      <!-- Clear secret (TCA form element) -->
+      <trans-unit id="nrvault.clear.confirm">
+        <source>Are you sure you want to clear this secret? This action cannot be undone.</source>
+      </trans-unit>
+
+      <!-- Hash chain verification (vault-backend.js) -->
+      <trans-unit id="nrvault.verify.valid.title">
+        <source>Hash Chain Valid</source>
+      </trans-unit>
+      <trans-unit id="nrvault.verify.invalid.title">
+        <source>Hash Chain Invalid</source>
+      </trans-unit>
+      <trans-unit id="nrvault.verify.errors.title">
+        <source>Verification Errors</source>
+      </trans-unit>
+      <trans-unit id="nrvault.verify.failed.title">
+        <source>Verification Failed</source>
+      </trans-unit>
+      <trans-unit id="nrvault.verify.entry">
+        <source>Entry {0}: {1}</source>
+      </trans-unit>
+      <trans-unit id="nrvault.verify.running">
+        <source>Verifying...</source>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

@@ -62,8 +62,8 @@
 
         <!-- Stats -->
         <div class="mb-3" role="status" aria-live="polite">
-            <span class="badge text-bg-info">{totalCount} entries</span>
-            <span class="badge text-bg-secondary">Page {currentPage} of {totalPages}</span>
+            <span class="badge text-bg-info">{totalCount} <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.stats.entries" /></span>
+            <span class="badge text-bg-secondary"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.pagination.page" arguments="{0: currentPage, 1: totalPages}" /></span>
         </div>
 
         <f:if condition="{entries}">
@@ -76,12 +76,12 @@
                             <caption id="audit-table-{date}" class="visually-hidden">Audit log entries for {date}</caption>
                             <thead>
                                 <tr>
-                                    <th scope="col" style="width: 100px;"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.col.time" /></th>
+                                    <th scope="col" class="vault-col-time"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.col.time" /></th>
                                     <th scope="col"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.col.secret" /></th>
-                                    <th scope="col" style="width: 100px;"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.col.action" /></th>
-                                    <th scope="col" style="width: 80px;"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.col.status" /></th>
+                                    <th scope="col" class="vault-col-action"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.col.action" /></th>
+                                    <th scope="col" class="vault-col-status"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.col.status" /></th>
                                     <th scope="col"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.col.actor" /></th>
-                                    <th scope="col" style="width: 130px;"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.col.ip_address" /></th>
+                                    <th scope="col" class="vault-col-ip"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.col.ip_address" /></th>
                                     <th scope="col"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.col.details" /></th>
                                 </tr>
                             </thead>
@@ -154,7 +154,7 @@
                                 </f:else>
                             </f:if>
                             <li class="page-item">
-                                <span class="page-link">Page {currentPage} / {totalPages}</span>
+                                <span class="page-link"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.pagination.page" arguments="{0: currentPage, 1: totalPages}" /></span>
                             </li>
                             <f:if condition="{currentPage} < {totalPages}">
                                 <f:then>
@@ -188,7 +188,7 @@
                 </f:if>
             </f:then>
             <f:else>
-                <f:be.infobox title="No Audit Entries" state="-1">
+                <f:be.infobox title="{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.empty.title')}" state="-1">
                     <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.empty" />
                 </f:be.infobox>
             </f:else>

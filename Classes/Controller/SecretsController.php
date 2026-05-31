@@ -124,6 +124,9 @@ final readonly class SecretsController
         }
 
         $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
+        // Expose JS UI labels to TYPO3.lang for the SecretsList ESM module
+        // (delete/reveal/rotate dialogs, clipboard + error toasts).
+        $this->pageRenderer->addInlineLanguageLabelFile('EXT:nr_vault/Resources/Private/Language/locallang_js.xlf');
 
         $moduleTemplate->assignMultiple([
             'secrets' => $formattedSecrets,

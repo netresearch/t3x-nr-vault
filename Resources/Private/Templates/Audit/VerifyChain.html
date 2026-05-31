@@ -10,13 +10,29 @@
         <f:if condition="{valid}">
             <f:then>
                 <f:be.infobox title="{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_valid')}" state="0">
-                    The audit log hash chain has been verified successfully. No tampering or modifications have been detected.
+                    <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_valid.description" />
                 </f:be.infobox>
             </f:then>
             <f:else>
                 <f:be.infobox title="{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_invalid')}" state="2">
-                    Hash chain verification failed. The audit log may have been tampered with.
+                    <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_invalid.description" />
                 </f:be.infobox>
+
+                <!-- Forensic guidance: a chain break is a security event, not a generic error. -->
+                <div class="card card-size-medium mt-4">
+                    <div class="card-header">
+                        <div class="card-header-body">
+                            <h2 class="card-title"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_invalid.guidance.title" /></h2>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <ol class="mb-0">
+                            <li><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_invalid.guidance.snapshot" /></li>
+                            <li><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_invalid.guidance.escalate" /></li>
+                            <li><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_invalid.guidance.no_mutate" /></li>
+                        </ol>
+                    </div>
+                </div>
 
                 <f:if condition="{errors}">
                     <div class="card card-size-medium mt-4">
@@ -27,10 +43,10 @@
                         </div>
                         <div class="card-body">
                             <ul class="list-group">
-                                <f:for each="{errors}" as="error">
+                                <f:for each="{errors}" as="error" key="uid">
                                     <li class="list-group-item list-group-item-danger">
                                         <core:icon identifier="actions-exclamation-circle" size="small" />
-                                        {error}
+                                        <strong>#{uid}</strong> &mdash; {error}
                                     </li>
                                 </f:for>
                             </ul>
@@ -44,7 +60,7 @@
             <div class="card card-size-medium mt-4">
                 <div class="card-header">
                     <div class="card-header-body">
-                        <h2 class="card-title">Warnings</h2>
+                        <h2 class="card-title"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.warnings" /></h2>
                     </div>
                 </div>
                 <div class="card-body">
