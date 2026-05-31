@@ -120,8 +120,10 @@ final class PendingSecretTest extends TestCase
             isNew: false,
         );
 
+        // toArray() redacts the secret value: the plaintext must never leak
+        // into a logged/serialised array (SEC / VO-DTO hardening).
         self::assertSame([
-            'value' => 'secretvalue',
+            'value' => '[REDACTED]',
             'identifier' => 'my/identifier',
             'originalChecksum' => 'oldchecksum',
             'isNew' => false,

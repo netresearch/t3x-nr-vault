@@ -144,18 +144,15 @@ final class SecretTcaHook
 
             if ($secretValue !== '') {
                 try {
-                    // Build options from record data
-                    $ownerUidRaw = $record['owner_uid'] ?? 0;
-                    $scopePidRaw = $record['scope_pid'] ?? 0;
-                    $options = [
-                        'ownerUid' => is_numeric($ownerUidRaw) ? (int) $ownerUidRaw : 0,
-                        'allowedGroups' => $record['allowed_groups'] ?? '',
-                        'scopePid' => is_numeric($scopePidRaw) ? (int) $scopePidRaw : 0,
-                    ];
-
+                    // Owner/group/scope ACL is persisted via the tx_nrvault_secret
+                    // TCA columns (owner_uid, allowed_groups, scope_pid) by DataHandler
+                    // itself, so no store() options are needed here. (Previously this
+                    // passed ownerUid/allowedGroups/scopePid keys that VaultService
+                    // never reads — they read owner/groups/scope_pid — so they were
+                    // silently dropped; removed to avoid the impression they apply.)
                     if ($status === 'new') {
                         // New record - store the secret
-                        $this->vaultService->store($identifier, $secretValue, $options);
+                        $this->vaultService->store($identifier, $secretValue);
                         $secretStored = true;
                     } else {
                         // Existing record - rotate the secret

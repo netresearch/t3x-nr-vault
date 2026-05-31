@@ -62,14 +62,18 @@ readonly class PendingSecret
     }
 
     /**
-     * Convert to array for serialization.
+     * Convert to array for serialization/debugging.
+     *
+     * The secret `value` is intentionally redacted: this array form is meant
+     * for logging/serialisation, which must never carry plaintext. Use the
+     * `$value` property (or {@see hasChanged()}) when the raw value is needed.
      *
      * @return array{value: string, identifier: string, originalChecksum: string, isNew: bool}
      */
     public function toArray(): array
     {
         return [
-            'value' => $this->value,
+            'value' => '[REDACTED]',
             'identifier' => $this->identifier,
             'originalChecksum' => $this->originalChecksum,
             'isNew' => $this->isNew,

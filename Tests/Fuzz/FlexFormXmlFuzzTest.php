@@ -19,6 +19,7 @@ use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use stdClass;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
 /**
  * Fuzz tests for FlexForm XML / array resolution pathways.
@@ -61,7 +62,11 @@ final class FlexFormXmlFuzzTest extends TestCase
                 return 'resolved_' . $identifier;
             },
         );
-        $this->resolver = new FlexFormVaultResolver($vaultService, new NullLogger());
+        $this->resolver = new FlexFormVaultResolver(
+            $vaultService,
+            new NullLogger(),
+            $this->createMock(TcaSchemaFactory::class),
+        );
         $this->retrievedIdentifiers = [];
     }
 
