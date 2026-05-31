@@ -123,6 +123,66 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     }
 
     #[Test]
+    public function buildResolveEntriesPinsDangerousIpWhenExplicitlyAllowlisted(): void
+    {
+        // A host the operator has opted in to via a literal `allowed_hosts`
+        // entry (e.g. a self-hosted Ollama reached by a docker service name)
+        // resolves to a private IP. With the allowlist flag set, the request
+        // is NOT rejected — the resolved IP is pinned so a later rebind to a
+        // different address is still blocked.
+        $this->dnsResolver->program('ollama', [['ip' => '172.18.0.5']]);
+
+        $entries = $this->callBuildResolveEntries('ollama', 11434, true);
+
+        self::assertSame(['ollama:11434:172.18.0.5'], $entries);
+    }
+
+    #[Test]
+    public function buildResolveEntriesStillRejectsDangerousIpWhenNotAllowlisted(): void
+    {
+        // Same host, but without the allowlist opt-in: the private-IP guard
+        // still rejects (this is the request-time middleware's default).
+        $this->dnsResolver->program('ollama', [['ip' => '172.18.0.5']]);
+
+        $entries = $this->callBuildResolveEntries('ollama', 11434);
+
+        self::assertNull($entries);
+    }
+
+    #[Test]
+    public function middlewareAllowsHostResolvingToDangerousIpWhenExplicitlyAllowlisted(): void
+    {
+        // End-to-end: a literal `allowed_hosts` entry lets the request-time
+        // middleware reach a private-resolving host instead of throwing — this
+        // is the gap that 0.6.0 left open (the middleware ignored allowed_hosts).
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['ollama'];
+        $this->dnsResolver->program('ollama', [['ip' => '172.18.0.5']]);
+        $client = $this->buildCapturingClient($capturedOptions);
+
+        $client->get('http://ollama:11434/api/tags');
+
+        // No exception; the resolved private IP is pinned for the trusted host.
+        $curlOpts = $capturedOptions['curl'] ?? null;
+        self::assertIsArray($curlOpts);
+        self::assertSame(['ollama:11434:172.18.0.5'], $curlOpts[\CURLOPT_RESOLVE]);
+    }
+
+    #[Test]
+    public function middlewareStillRejectsPrivateIpForWildcardAllowlistEntry(): void
+    {
+        // Wildcards must NEVER bypass the private-IP guard: a wildcard owner
+        // could register an internal DNS record under their zone and pivot.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['*.example'];
+        $this->dnsResolver->program('evil.example', [['ip' => '169.254.169.254']]);
+        $client = $this->buildCapturingClient($capturedOptions);
+
+        $this->expectException(RequestException::class);
+        $this->expectExceptionMessageMatches('/DNS rebinding defence/i');
+
+        $client->get('http://evil.example/');
+    }
+
+    #[Test]
     public function middlewareIsRegisteredInTheHandlerStack(): void
     {
         $client = $this->subject->create();
@@ -229,12 +289,12 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     /**
      * @return list<string>|null
      */
-    private function callBuildResolveEntries(string $host, int $port): ?array
+    private function callBuildResolveEntries(string $host, int $port, bool $allowlisted = false): ?array
     {
         $method = (new ReflectionClass(SecureHttpClientFactory::class))
             ->getMethod('buildResolveEntries');
 
-        return $method->invoke($this->subject, $host, $port);
+        return $method->invoke($this->subject, $host, $port, $allowlisted);
     }
 }
 

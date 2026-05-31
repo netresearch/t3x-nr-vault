@@ -155,12 +155,7 @@ final class SecureHttpClientFactory
             return false;
         }
 
-        /** @var array<string, array<string, mixed>> $confVars */
-        $confVars = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
-        /** @var array<string, mixed> $httpConfig */
-        $httpConfig = $confVars['HTTP'] ?? [];
-        $allowedHosts = $httpConfig['allowed_hosts'] ?? null;
-        $allowedHostsList = \is_array($allowedHosts) ? $allowedHosts : [];
+        $allowedHostsList = $this->resolveAllowedHostsList();
 
         // EXPLICIT allowlist match overrides the private-IP defence so on-prem
         // deployments where the Vault server lives on RFC1918 can still reach
@@ -236,7 +231,18 @@ final class SecureHttpClientFactory
                 $port = $request->getUri()->getPort()
                     ?? (strtolower($request->getUri()->getScheme()) === 'https' ? 443 : 80);
 
-                $resolveEntries = $this->buildResolveEntries($host, $port);
+                // A literal `allowed_hosts` entry opts this host back in past
+                // the private-IP guard (e.g. an on-prem service or a
+                // self-hosted endpoint the operator deliberately trusts). This
+                // mirrors isHostAllowed() so both the helper gate and the
+                // request-time middleware honour the same opt-in. Wildcard
+                // entries never bypass the guard (DNS-rebinding pivot risk).
+                $allowlisted = $this->isExplicitlyAllowlisted(
+                    $host,
+                    $this->resolveAllowedHostsList(),
+                );
+
+                $resolveEntries = $this->buildResolveEntries($host, $port, $allowlisted);
 
                 if ($resolveEntries === null) {
                     throw new RequestException(
@@ -271,17 +277,25 @@ final class SecureHttpClientFactory
      * into the `host:port:ip` form curl expects for `CURLOPT_RESOLVE`.
      *
      * Returns:
-     *  - `null` if the host resolved to AT LEAST ONE dangerous IP (the entire
-     *    request must be rejected — even if some A records look safe, the
-     *    presence of a dangerous answer signals an active rebinding attempt).
+     *  - `null` if the host resolved to AT LEAST ONE dangerous IP and is NOT
+     *    explicitly allowlisted (the entire request must be rejected — even if
+     *    some A records look safe, the presence of a dangerous answer signals
+     *    an active rebinding attempt).
      *  - `[]` if the host is an IP literal (no pin needed) OR if resolution
      *    failed entirely (let curl handle the error path).
      *  - `list<string>` of pin entries to add to `CURLOPT_RESOLVE` for safe
      *    multi-record hosts.
      *
+     * @param bool $allowlisted When the host carries a literal `allowed_hosts`
+     *                          entry, resolved IPs in otherwise-dangerous
+     *                          ranges are pinned instead of rejected — the
+     *                          operator has explicitly opted in. The pin is
+     *                          still added so rebinding to a *different*
+     *                          address stays blocked.
+     *
      * @return list<string>|null
      */
-    private function buildResolveEntries(string $host, int $port): ?array
+    private function buildResolveEntries(string $host, int $port, bool $allowlisted = false): ?array
     {
         // IP literal — `isHostAllowed()` already validated it; no DNS to pin.
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
@@ -300,10 +314,13 @@ final class SecureHttpClientFactory
             if (!\is_string($ip)) {
                 continue;
             }
-            if ($this->isDangerousIpLiteral($ip)) {
+            if (!$allowlisted && $this->isDangerousIpLiteral($ip)) {
                 // ANY dangerous answer kills the entire request. A "split-horizon"
                 // rebinding setup could otherwise return one safe + one internal
-                // IP; if curl picked the internal one, we'd leak.
+                // IP; if curl picked the internal one, we'd leak. A literal
+                // allowed_hosts opt-in skips this rejection but still pins the
+                // resolved IP below, so rebinding to a *different* address
+                // remains blocked.
                 return null;
             }
             // libcurl's CURLOPT_RESOLVE format is `host:port:address`. IPv6
@@ -314,6 +331,25 @@ final class SecureHttpClientFactory
         }
 
         return $entries;
+    }
+
+    /**
+     * Read the `allowed_hosts` allowlist from TYPO3's HTTP configuration.
+     *
+     * Shared by isHostAllowed() and the request-time SSRF middleware so both
+     * honour the same operator-controlled opt-in list.
+     *
+     * @return array<int|string, mixed>
+     */
+    private function resolveAllowedHostsList(): array
+    {
+        /** @var array<string, array<string, mixed>> $confVars */
+        $confVars = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
+        /** @var array<string, mixed> $httpConfig */
+        $httpConfig = $confVars['HTTP'] ?? [];
+        $allowedHosts = $httpConfig['allowed_hosts'] ?? null;
+
+        return \is_array($allowedHosts) ? $allowedHosts : [];
     }
 
     /**
