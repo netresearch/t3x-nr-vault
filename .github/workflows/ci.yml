@@ -67,6 +67,13 @@ jobs:
     permissions:
       contents: read
 
+  docs:
+    # Renders the documentation and (once the upstream version-check step lands)
+    # asserts Documentation/guides.xml == ext_emconf.php so version drift fails CI.
+    uses: netresearch/typo3-ci-workflows/.github/workflows/docs.yml@main
+    permissions:
+      contents: read
+
   codeql:
     uses: netresearch/.github/.github/workflows/codeql.yml@main
     permissions:

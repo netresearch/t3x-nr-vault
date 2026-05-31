@@ -27,13 +27,13 @@
 | Lint (syntax) | `make lint` | `php -l` across sources |
 | CS check | `make cgl` | php-cs-fixer --dry-run |
 | CS fix | `make fix` | alias of `make cgl-fix` |
-| PHPStan | `make phpstan` | Static analysis |
+| PHPStan | `make phpstan` | Static analysis. In a fresh git worktree use `.Build/bin/phpstan analyse --configuration=Build/phpstan.no-plugins.neon` (the plugin config errors before `.Build/vendor` is populated) |
 | Rector (dry-run) | `make rector` | |
 | Unit tests | `make test-unit` | `composer ci:test:php:unit` |
 | Functional tests | `make test-functional` | `composer ci:test:php:functional` |
 | All tests | `make test` | unit + functional |
 | Mutation tests | `make test-mutation` | Infection |
-| All CI | `make ci` | lint+cs+phpstan+rector+tests |
+| All CI | `make ci` | cgl + phpstan + unit + fuzz (no lint/rector/functional) |
 | Docs render | `make docs` | |
 
 Direct composer (without make):
@@ -84,7 +84,7 @@ Build/           → phpunit.xml, FunctionalTests.xml
 | AJAX route | Add to `Configuration/Backend/AjaxRoutes.php` + controller in `Classes/Controller/` |
 | Touching secrets | Audit log every read/write via `AuditLogServiceInterface::log()` |
 | Running locally | `make up` then `make shell` |
-| Committing | Conventional Commits (feat:/fix:/chore:/docs:/refactor:/test:) |
+| Committing | Subject-style enforced by `captainhook.json`: capitalized, imperative mood, length-limited, no trailing period (NOT lowercase `feat:`/`fix:` prefixes). Sign off with `git commit -s`. See CONTRIBUTING.md |
 | Merging PRs | Merge commit (not squash, not rebase) — preserves GPG signatures |
 
 ## Security Requirements
@@ -137,12 +137,21 @@ AuditLogServiceInterface::verifyHashChain(?int $fromUid = null, ?int $toUid = nu
 ```
 
 ## CLI Commands (TYPO3 `vendor/bin/typo3`)
+> All 12 registered `vault:*` commands. Full options/examples in
+> `Documentation/Developer/Commands.rst`.
 ```
+vault:init                 # Initialize the vault (generate master key, verify configuration)
+vault:store                # Store a secret in the vault
+vault:retrieve             # Retrieve a secret from the vault
+vault:list                 # List all secrets in the vault
+vault:rotate               # Rotate (replace) a secret value
+vault:delete               # Delete a secret from the vault
+vault:scan                 # Scan database content for exposed secrets
+vault:migrate-field        # Migrate a database field value into the vault
 vault:audit                # View / verify audit log entries
 vault:audit-migrate-hmac   # Migrate audit log hash chain from SHA-256 to HMAC-SHA256
-vault:migrate-field        # Move DB field values into the vault
-vault:rotate-master-key    # Re-encrypt all DEKs with a new master key
-vault:cleanup-orphans      # Scheduled task wrapper
+vault:rotate-master-key    # Re-encrypt all secrets with a new master key
+vault:cleanup-orphans      # Clean up orphaned vault entries (scheduled task wrapper)
 ```
 
 ## Boundaries
@@ -188,7 +197,7 @@ MUST read when working in these directories:
 - **Default branch:** `main`
 - **Merge strategy:** merge commit (required for GPG signature preservation)
 - **Signed commits:** required (GPG/SSH)
-- **DCO:** required (`Signed-off-by:` trailer on every commit)
+- **DCO:** required (`Signed-off-by:` trailer on every commit — use `git commit -s`). Enforced at the PR gate; the local commit-msg hook does NOT check it.
 
 ## When Stuck
 1. TYPO3 v14 docs: <https://docs.typo3.org/m/typo3/reference-coreapi/main/en-us/>

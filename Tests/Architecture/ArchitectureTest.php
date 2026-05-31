@@ -12,6 +12,8 @@ namespace Netresearch\NrVault\Tests\Architecture;
 use GuzzleHttp\Client;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
+use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
+use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
 use Netresearch\NrVault\Http\OAuth\OAuthToken;
 use Netresearch\NrVault\Http\SecretPlacement;
@@ -333,6 +335,45 @@ final class ArchitectureTest
             ->shouldNotDependOn()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Controller'))
             ->because('CLI commands should not use web controllers');
+    }
+
+    /**
+     * Commands must not reach across the service layer into the
+     * persistence repository — except the one blessed bulk operation.
+     *
+     * `VaultRotateMasterKeyCommand` legitimately bypasses `VaultService`
+     * to re-wrap every secret's DEK in a single transaction without
+     * per-secret ACL/audit (an admin re-keying the whole store); going
+     * through `VaultService::retrieve/store` would be wrong there. That
+     * one bypass is documented and allow-listed here (mirroring the
+     * `SecureHttpClientFactory` Guzzle-lock allow-one pattern), so any
+     * NEW command that injects the repository fails CI.
+     *
+     * The rule targets both the `Domain\Repository` namespace (the
+     * concrete `SecretRepository`) AND the `SecretRepositoryInterface`
+     * by classname, because PHPat does not reliably trip on
+     * constructor-injected *interface* dependencies via the namespace
+     * selector alone (see the OverviewController -> Crypto miss noted in
+     * the architecture review). Naming the interface explicitly closes
+     * that gap, since the blessed command injects the interface, not the
+     * concrete class.
+     */
+    public function testCommandsDoNotDependOnRepository(): BuildStep
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace('Netresearch\NrVault\Command'))
+            ->excluding(Selector::classname(VaultRotateMasterKeyCommand::class))
+            ->shouldNot()
+            ->dependOn()
+            ->classes(
+                Selector::inNamespace('Netresearch\NrVault\Domain\Repository'),
+                Selector::classname(SecretRepositoryInterface::class),
+            )
+            ->because(
+                'commands must go through the service layer; only the '
+                . 'blessed VaultRotateMasterKeyCommand may drive the '
+                . 'repository directly for bulk master-key rotation',
+            );
     }
 
     /**

@@ -10,7 +10,13 @@
         "encryption",
         "security",
         "api-keys",
-        "credentials"
+        "credentials",
+        "secrets-management",
+        "key-rotation",
+        "audit-log",
+        "envelope-encryption",
+        "oauth",
+        "libsodium"
     ],
     "authors": [
         {
@@ -31,6 +37,7 @@
         "ext-json": "*",
         "typo3/cms-core": "^13.4 || ^14.0",
         "typo3/cms-backend": "^13.4 || ^14.0",
+        "typo3/cms-install": "^13.4 || ^14.0",
         "psr/http-client": "^1.0",
         "psr/http-factory": "^1.0"
     },
@@ -78,9 +85,11 @@
             "@ci:test:php:unit",
             "@ci:test:php:fuzz",
             "@ci:test:php:phpstan",
+            "@ci:test:php:arch",
             "@ci:test:php:cgl"
         ],
         "ci:audit": "@composer audit --locked --format=plain --abandoned=fail",
+        "ci:test:php:arch": "@php Tests/scripts/check-test-base-class.php",
         "ci:cgl": "php-cs-fixer fix",
         "ci:test:php:cgl": "php-cs-fixer fix --dry-run --diff",
         "ci:test:php:coverage": "@php -d pcov.enabled=0 -d xdebug.mode=coverage .Build/bin/phpunit -c Build/phpunit.xml --testsuite Unit --path-coverage --coverage-clover=.Build/coverage/clover.xml --coverage-html=.Build/coverage/html --coverage-text",
