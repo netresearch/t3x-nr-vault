@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-05-31
+
+### Fixed
+- **`SecureHttpClientFactory`'s request-time SSRF middleware now honours
+  literal `allowed_hosts` entries.** In 0.6.0 the per-request DNS-rebinding
+  middleware rejected every host that resolved into a private/loopback range
+  regardless of `allowed_hosts`, so the documented on-prem opt-in ("LITERAL
+  allowlist entries can opt back in") only applied to the `isHostAllowed()`
+  gate, not to clients built by `create()`. Consumers that reach an
+  internal/self-hosted endpoint through a `create()` client — e.g. an LLM
+  provider talking to a local Ollama at a private-resolving hostname — were
+  silently blocked with no way to opt back in. The middleware now applies the
+  same literal-allowlist check as `isHostAllowed()`; an allowlisted host whose
+  DNS answer is private is pinned via `CURLOPT_RESOLVE` instead of rejected, so
+  rebinding to a *different* address stays blocked. Wildcard `allowed_hosts`
+  entries still never bypass the guard.
+
 ## [0.6.0] - 2026-05-31
 
 ### Security
