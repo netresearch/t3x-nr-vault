@@ -22,21 +22,23 @@
                     <strong>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.encryption_not_available')}</strong>
                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.encryption_not_available.description')}
                 </p>
-                <f:if condition="{healthChecks.masterKeyError}">
-                    <p class="mb-1 text-body-secondary"><small>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.detail')} {healthChecks.masterKeyError}</small></p>
-                </f:if>
                 <hr />
-                <p class="mb-0">
+                <p class="mb-1">
                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.encryption_not_available.remedy', arguments: {0: '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SYS\'][\'encryptionKey\']'})}
                 </p>
+                <p class="mb-1 mt-2"><strong>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.next_steps')}</strong></p>
+                <ol class="mb-0">
+                    <li><code>bin/typo3 vault:init</code> &mdash; {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.step.run_init')}</li>
+                    <li>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.step.configure_provider')}</li>
+                    <li>
+                        <f:be.link route="admin_vault.help">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.step.see_help')}</f:be.link>
+                    </li>
+                </ol>
             </f:if>
             <f:if condition="{healthChecks.masterKeyAvailable} && !{healthChecks.encryptionWorking}">
-                <p class="mb-1">
+                <p class="mb-0">
                     <strong>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.encryption_broken', arguments: {0: healthChecks.masterKeyProvider})}</strong>
                 </p>
-                <f:if condition="{healthChecks.encryptionError}">
-                    <p class="mb-0 text-body-secondary"><small>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.detail')} {healthChecks.encryptionError}</small></p>
-                </f:if>
             </f:if>
         </div>
     </f:if>
