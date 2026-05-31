@@ -1,142 +1,142 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
-    <file source-language="en" datatype="plaintext" original="messages" date="2024-12-28T00:00:00Z" product-name="nr_vault">
-        <header/>
-        <body>
-            <!-- Table title -->
-            <trans-unit id="tx_nrvault_secret">
-                <source>Vault Secret</source>
-            </trans-unit>
+  <file source-language="en" datatype="plaintext" original="messages" date="2024-12-28T00:00:00Z" product-name="nr_vault">
+    <header/>
+    <body>
+      <!-- Table title -->
+      <trans-unit id="tx_nrvault_secret">
+        <source>Vault Secret</source>
+      </trans-unit>
 
-            <!-- Tabs -->
-            <trans-unit id="tabs.access">
-                <source>Access Control</source>
-            </trans-unit>
-            <trans-unit id="tabs.settings">
-                <source>Settings</source>
-            </trans-unit>
-            <trans-unit id="tabs.info">
-                <source>Information</source>
-            </trans-unit>
+      <!-- Tabs -->
+      <trans-unit id="tabs.access">
+        <source>Access Control</source>
+      </trans-unit>
+      <trans-unit id="tabs.settings">
+        <source>Settings</source>
+      </trans-unit>
+      <trans-unit id="tabs.info">
+        <source>Information</source>
+      </trans-unit>
 
-            <!-- Fields -->
-            <trans-unit id="tx_nrvault_secret.identifier">
-                <source>Identifier</source>
-            </trans-unit>
-            <trans-unit id="tx_nrvault_secret.identifier.description">
-                <source>Unique identifier for this secret (alphanumeric, underscores, dashes)</source>
-            </trans-unit>
+      <!-- Fields -->
+      <trans-unit id="tx_nrvault_secret.identifier">
+        <source>Identifier</source>
+      </trans-unit>
+      <trans-unit id="tx_nrvault_secret.identifier.description">
+        <source>Unique identifier for this secret (alphanumeric, underscores, dashes)</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.description">
-                <source>Description</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.description">
+        <source>Description</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.owner_uid">
-                <source>Owner</source>
-            </trans-unit>
-            <trans-unit id="tx_nrvault_secret.owner_uid.description">
-                <source>Backend user who owns this secret</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.owner_uid">
+        <source>Owner</source>
+      </trans-unit>
+      <trans-unit id="tx_nrvault_secret.owner_uid.description">
+        <source>Backend user who owns this secret</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.allowed_groups">
-                <source>Allowed Groups</source>
-            </trans-unit>
-            <trans-unit id="tx_nrvault_secret.allowed_groups.description">
-                <source>Backend groups that can access this secret</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.allowed_groups">
+        <source>Allowed Groups</source>
+      </trans-unit>
+      <trans-unit id="tx_nrvault_secret.allowed_groups.description">
+        <source>Backend groups that can access this secret</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.context">
-                <source>Context</source>
-            </trans-unit>
-            <trans-unit id="tx_nrvault_secret.context.description">
-                <source>Application context (e.g., production, staging)</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.context">
+        <source>Context</source>
+      </trans-unit>
+      <trans-unit id="tx_nrvault_secret.context.description">
+        <source>Application context (e.g., production, staging)</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.frontend_accessible">
-                <source>Frontend Accessible</source>
-            </trans-unit>
-            <trans-unit id="tx_nrvault_secret.frontend_accessible.description">
-                <source>Allow this secret to be accessed in frontend context (TypoScript, Fluid)</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.frontend_accessible">
+        <source>Frontend Accessible</source>
+      </trans-unit>
+      <trans-unit id="tx_nrvault_secret.frontend_accessible.description">
+        <source>Allow this secret to be accessed in frontend context (TypoScript, Fluid)</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.expires_at">
-                <source>Expires At</source>
-            </trans-unit>
-            <trans-unit id="tx_nrvault_secret.expires_at.description">
-                <source>Optional expiration date for the secret</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.expires_at">
+        <source>Expires At</source>
+      </trans-unit>
+      <trans-unit id="tx_nrvault_secret.expires_at.description">
+        <source>Optional expiration date for the secret</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.metadata">
-                <source>Custom Metadata</source>
-            </trans-unit>
-            <trans-unit id="tx_nrvault_secret.metadata.description">
-                <source>Additional metadata as JSON</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.metadata">
+        <source>Custom Metadata</source>
+      </trans-unit>
+      <trans-unit id="tx_nrvault_secret.metadata.description">
+        <source>Additional metadata as JSON</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.scope_pid">
-                <source>Scope Page</source>
-            </trans-unit>
-            <trans-unit id="tx_nrvault_secret.scope_pid.description">
-                <source>Page used for multi-site scoping of this secret</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.scope_pid">
+        <source>Scope Page</source>
+      </trans-unit>
+      <trans-unit id="tx_nrvault_secret.scope_pid.description">
+        <source>Page used for multi-site scoping of this secret</source>
+      </trans-unit>
 
-            <!-- Info fields -->
-            <trans-unit id="tx_nrvault_secret.version">
-                <source>Version</source>
-            </trans-unit>
+      <!-- Info fields -->
+      <trans-unit id="tx_nrvault_secret.version">
+        <source>Version</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.last_rotated_at">
-                <source>Last Rotated</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.last_rotated_at">
+        <source>Last Rotated</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.read_count">
-                <source>Read Count</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.read_count">
+        <source>Read Count</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.last_read_at">
-                <source>Last Read</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.last_read_at">
+        <source>Last Read</source>
+      </trans-unit>
 
-            <trans-unit id="tx_nrvault_secret.adapter">
-                <source>Storage Adapter</source>
-            </trans-unit>
+      <trans-unit id="tx_nrvault_secret.adapter">
+        <source>Storage Adapter</source>
+      </trans-unit>
 
-            <!-- Secret input field -->
-            <trans-unit id="tx_nrvault_secret.secret_input">
-                <source>Secret Value</source>
-            </trans-unit>
-            <trans-unit id="tx_nrvault_secret.secret_input.description">
-                <source>The encrypted secret value stored in the vault</source>
-            </trans-unit>
+      <!-- Secret input field -->
+      <trans-unit id="tx_nrvault_secret.secret_input">
+        <source>Secret Value</source>
+      </trans-unit>
+      <trans-unit id="tx_nrvault_secret.secret_input.description">
+        <source>The encrypted secret value stored in the vault</source>
+      </trans-unit>
 
-            <!-- VaultSecretInputElement labels -->
-            <trans-unit id="vault_secret_input.placeholder_new">
-                <source>Enter secret value</source>
-            </trans-unit>
-            <trans-unit id="vault_secret_input.placeholder_rotate">
-                <source>Enter new secret value to rotate</source>
-            </trans-unit>
-            <trans-unit id="vault_secret_input.help_new">
-                <source>Enter the secret value. It will be encrypted when the record is saved.</source>
-            </trans-unit>
-            <trans-unit id="vault_secret_input.help_rotate">
-                <source>Leave empty to keep current secret. Enter a new value to rotate.</source>
-            </trans-unit>
-            <trans-unit id="vault_secret_input.current_secret">
-                <source>Current Secret</source>
-            </trans-unit>
-            <trans-unit id="vault_secret_input.new_secret">
-                <source>New Secret Value</source>
-            </trans-unit>
-            <trans-unit id="vault_secret_input.secret_value">
-                <source>Secret Value</source>
-            </trans-unit>
-            <trans-unit id="vault_secret_input.rotate">
-                <source>Rotate Secret</source>
-            </trans-unit>
-            <trans-unit id="vault_secret_input.no_secret">
-                <source>No secret value stored. Enter a value below.</source>
-            </trans-unit>
-        </body>
-    </file>
+      <!-- VaultSecretInputElement labels -->
+      <trans-unit id="vault_secret_input.placeholder_new">
+        <source>Enter secret value</source>
+      </trans-unit>
+      <trans-unit id="vault_secret_input.placeholder_rotate">
+        <source>Enter new secret value to rotate</source>
+      </trans-unit>
+      <trans-unit id="vault_secret_input.help_new">
+        <source>Enter the secret value. It will be encrypted when the record is saved.</source>
+      </trans-unit>
+      <trans-unit id="vault_secret_input.help_rotate">
+        <source>Leave empty to keep current secret. Enter a new value to rotate.</source>
+      </trans-unit>
+      <trans-unit id="vault_secret_input.current_secret">
+        <source>Current Secret</source>
+      </trans-unit>
+      <trans-unit id="vault_secret_input.new_secret">
+        <source>New Secret Value</source>
+      </trans-unit>
+      <trans-unit id="vault_secret_input.secret_value">
+        <source>Secret Value</source>
+      </trans-unit>
+      <trans-unit id="vault_secret_input.rotate">
+        <source>Rotate Secret</source>
+      </trans-unit>
+      <trans-unit id="vault_secret_input.no_secret">
+        <source>No secret value stored. Enter a value below.</source>
+      </trans-unit>
+    </body>
+  </file>
 </xliff>

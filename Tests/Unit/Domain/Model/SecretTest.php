@@ -1005,6 +1005,7 @@ final class SecretTest extends TestCase
             'value_checksum',
             'value_nonce',
             'version',
+            'write_groups',
         ];
         $actualKeys = array_keys($row);
         sort($actualKeys);

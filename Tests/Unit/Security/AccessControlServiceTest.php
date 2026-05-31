@@ -312,13 +312,16 @@ final class AccessControlServiceTest extends TestCase
     }
 
     #[Test]
-    public function hasAccessDelegatesToFrontendAccessibleWhenNoBackendUserAndNotCli(): void
+    public function frontendAccessibleGrantsReadOnlyWithoutBackendUser(): void
     {
-        // canWrite and canDelete also delegate to hasAccess, which ends at isFrontendAccessible()
+        // ADR-005 least-privilege split: frontend_accessible is READ-ONLY.
+        // Without a backend or CLI actor, write/delete must always be denied
+        // even when the secret is frontend-accessible.
         $secret = $this->createSecret(ownerUid: 0, frontendAccessible: true);
 
-        self::assertTrue($this->subject->canWrite($secret));
-        self::assertTrue($this->subject->canDelete($secret));
+        self::assertTrue($this->subject->canRead($secret), 'frontend-accessible secret is readable');
+        self::assertFalse($this->subject->canWrite($secret), 'frontend has no write tier');
+        self::assertFalse($this->subject->canDelete($secret), 'frontend has no delete tier');
     }
 
     #[Test]
@@ -379,25 +382,111 @@ final class AccessControlServiceTest extends TestCase
     }
 
     #[Test]
-    public function canWriteReturnsTrueForGroupMember(): void
+    public function readTierGroupMemberCannotWrite(): void
     {
+        // ADR-005 least-privilege split: a member of the READ tier
+        // (allowed_groups) may read but MUST NOT write.
         $this->setBackendUser(uid: 5, isAdmin: false, groups: [10, 20]);
         $secret = $this->createSecret(ownerUid: 999, allowedGroups: [20]);
 
         $subject = $this->createSubjectWithExistingGroups([10, 20]);
 
-        self::assertTrue($subject->canWrite($secret));
+        self::assertFalse($subject->canWrite($secret), 'read-tier group must not write');
     }
 
     #[Test]
-    public function canDeleteReturnsTrueForGroupMember(): void
+    public function readTierGroupMemberCannotDelete(): void
     {
+        // ADR-005: a read-tier member must never delete (delete has no
+        // group tier at all).
         $this->setBackendUser(uid: 5, isAdmin: false, groups: [10, 20]);
         $secret = $this->createSecret(ownerUid: 999, allowedGroups: [20]);
 
         $subject = $this->createSubjectWithExistingGroups([10, 20]);
 
-        self::assertTrue($subject->canDelete($secret));
+        self::assertFalse($subject->canDelete($secret), 'read-tier group must not delete');
+    }
+
+    #[Test]
+    public function writeTierGroupMemberCanReadAndWriteButNotDelete(): void
+    {
+        // ADR-005 least-privilege split: a member of the WRITE tier
+        // (write_groups) may read and write, but delete is reserved for
+        // owner/admin/maintainer.
+        $this->setBackendUser(uid: 5, isAdmin: false, groups: [10, 20]);
+        $secret = $this->createSecret(ownerUid: 999, writeGroups: [20]);
+
+        $subject = $this->createSubjectWithExistingGroups([10, 20]);
+
+        self::assertTrue($subject->canRead($secret), 'write-tier member can read');
+        self::assertTrue($subject->canWrite($secret), 'write-tier member can write');
+        self::assertFalse($subject->canDelete($secret), 'write-tier member cannot delete');
+    }
+
+    #[Test]
+    public function writeTierMemberWithoutReadTierStillReads(): void
+    {
+        // A user who is ONLY in the write tier (not listed in allowed_groups)
+        // must still be able to read — write implies read.
+        $this->setBackendUser(uid: 5, isAdmin: false, groups: [7]);
+        $secret = $this->createSecret(ownerUid: 999, allowedGroups: [3], writeGroups: [7]);
+
+        $subject = $this->createSubjectWithExistingGroups([7]);
+
+        self::assertTrue($subject->canRead($secret), 'write-only-tier member can read');
+        self::assertTrue($subject->canWrite($secret), 'write-only-tier member can write');
+    }
+
+    #[Test]
+    public function nonGroupMemberGetsNothingAcrossAllTiers(): void
+    {
+        // A user in neither tier gets no access at all.
+        $this->setBackendUser(uid: 5, isAdmin: false, groups: [99]);
+        $secret = $this->createSecret(ownerUid: 999, allowedGroups: [1], writeGroups: [2]);
+
+        $subject = $this->createSubjectWithExistingGroups([1, 2, 99]);
+
+        self::assertFalse($subject->canRead($secret));
+        self::assertFalse($subject->canWrite($secret));
+        self::assertFalse($subject->canDelete($secret));
+    }
+
+    #[Test]
+    public function ownerHasFullAccessAcrossAllTiers(): void
+    {
+        // The owner gets read/write/delete regardless of group tiers.
+        $this->setBackendUser(uid: 5, isAdmin: false);
+        $secret = $this->createSecret(ownerUid: 5, allowedGroups: [1], writeGroups: [2]);
+
+        self::assertTrue($this->subject->canRead($secret));
+        self::assertTrue($this->subject->canWrite($secret));
+        self::assertTrue($this->subject->canDelete($secret));
+    }
+
+    #[Test]
+    public function adminHasFullAccessAcrossAllTiers(): void
+    {
+        $this->setBackendUser(uid: 1, isAdmin: true);
+        $secret = $this->createSecret(ownerUid: 999, allowedGroups: [1], writeGroups: [2]);
+
+        self::assertTrue($this->subject->canRead($secret));
+        self::assertTrue($this->subject->canWrite($secret));
+        self::assertTrue($this->subject->canDelete($secret));
+    }
+
+    #[Test]
+    public function writeTierIgnoresStaleGroupIds(): void
+    {
+        // Defence-in-depth: a stale (deleted) write-tier group UID still in
+        // the session must NOT grant write access.
+        $this->setBackendUser(uid: 5, isAdmin: false, groups: [88888]);
+        $secret = $this->createSecret(ownerUid: 999, writeGroups: [88888]);
+
+        // be_groups reports the group as NOT existing.
+        $subject = $this->createSubjectWithExistingGroups([]);
+
+        self::assertFalse($subject->canWrite($secret), 'stale write-tier group must not grant write');
+        self::assertFalse($subject->canRead($secret), 'stale write-tier group must not grant read');
     }
 
     #[Test]
@@ -527,16 +616,19 @@ final class AccessControlServiceTest extends TestCase
      * Create a test Secret with specified properties.
      *
      * @param list<int> $allowedGroups
+     * @param list<int> $writeGroups
      */
     private function createSecret(
         int $ownerUid = 0,
         array $allowedGroups = [],
         bool $frontendAccessible = false,
+        array $writeGroups = [],
     ): Secret {
         return new Secret(
             identifier: 'test-secret',
             ownerUid: $ownerUid,
             allowedGroups: $allowedGroups,
+            writeGroups: $writeGroups,
             frontendAccessible: $frontendAccessible,
         );
     }

@@ -23,6 +23,8 @@ final readonly class SecretRepository implements SecretRepositoryInterface
 
     private const MM_TABLE_NAME = 'tx_nrvault_secret_begroups_mm';
 
+    private const MM_WRITE_TABLE_NAME = 'tx_nrvault_secret_writegroups_mm';
+
     public function __construct(
         private ConnectionPool $connectionPool,
     ) {}
@@ -45,9 +47,13 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         }
 
         $uid = $row['uid'] ?? 0;
-        $groups = $this->loadGroupsForSecret(is_numeric($uid) ? (int) $uid : 0);
+        $intUid = is_numeric($uid) ? (int) $uid : 0;
 
-        return Secret::fromDatabaseRow($row, $groups);
+        return Secret::fromDatabaseRow(
+            $row,
+            $this->loadGroupsForSecret($intUid),
+            $this->loadGroupsForSecret($intUid, self::MM_WRITE_TABLE_NAME),
+        );
     }
 
     public function findByUid(int $uid): ?Secret
@@ -67,7 +73,11 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             return null;
         }
 
-        return Secret::fromDatabaseRow($row, $this->loadGroupsForSecret($uid));
+        return Secret::fromDatabaseRow(
+            $row,
+            $this->loadGroupsForSecret($uid),
+            $this->loadGroupsForSecret($uid, self::MM_WRITE_TABLE_NAME),
+        );
     }
 
     public function exists(string $identifier): bool
@@ -113,8 +123,9 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             );
         }
 
-        // Update MM table for groups
-        $this->saveGroupsForSecret($secret);
+        // Update MM tables for the read-tier and write-tier groups.
+        $this->saveGroupsForSecret($secret, self::MM_TABLE_NAME, $secret->getAllowedGroups());
+        $this->saveGroupsForSecret($secret, self::MM_WRITE_TABLE_NAME, $secret->getWriteGroups());
 
         return $secret;
     }
@@ -154,8 +165,12 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             }
 
             if ($filters->prefix !== null) {
+                // Escape LIKE metacharacters (% and _) in the caller-supplied
+                // prefix so they match literally, then append the trailing
+                // wildcard ourselves (SEC-INJECTION-LEAK-1).
+                $escapedPrefix = $queryBuilder->escapeLikeWildcards($filters->prefix);
                 $queryBuilder->andWhere(
-                    $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter($filters->prefix . '%')),
+                    $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter($escapedPrefix . '%')),
                 );
             }
 
@@ -232,14 +247,9 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             ->executeQuery()
             ->fetchAllAssociative();
 
-        $secrets = [];
-        foreach ($rows as $row) {
-            $rowUid = $row['uid'] ?? 0;
-            $groups = $this->loadGroupsForSecret(is_numeric($rowUid) ? (int) $rowUid : 0);
-            $secrets[] = Secret::fromDatabaseRow($row, $groups);
-        }
-
-        return $secrets;
+        // Batch-load both group tiers in a constant number of queries
+        // instead of one-per-row (PERFORMANCE-2).
+        return $this->hydrateRowsWithGroups($rows);
     }
 
     /**
@@ -261,7 +271,7 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             ->executeQuery()
             ->fetchAllAssociative();
 
-        return array_map(Secret::fromDatabaseRow(...), $rows);
+        return $this->hydrateRowsWithGroups($rows);
     }
 
     /**
@@ -287,7 +297,7 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             ->executeQuery()
             ->fetchAllAssociative();
 
-        return array_map(Secret::fromDatabaseRow(...), $rows);
+        return $this->hydrateRowsWithGroups($rows);
     }
 
     /**
@@ -328,8 +338,12 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             }
 
             if ($filters->prefix !== null) {
+                // Escape LIKE metacharacters (% and _) in the caller-supplied
+                // prefix so they match literally, then append the trailing
+                // wildcard ourselves (SEC-INJECTION-LEAK-1).
+                $escapedPrefix = $queryBuilder->escapeLikeWildcards($filters->prefix);
                 $queryBuilder->andWhere(
-                    $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter($filters->prefix . '%')),
+                    $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter($escapedPrefix . '%')),
                 );
             }
 
@@ -350,35 +364,39 @@ final readonly class SecretRepository implements SecretRepositoryInterface
 
         $rows = $queryBuilder->executeQuery()->fetchAllAssociative();
 
-        if ($rows === []) {
+        return $this->hydrateRowsWithGroups($rows);
+    }
+
+    /**
+     * Find a window of active secrets ordered by UID, for memory-bounded
+     * batch processing (e.g. the orphan-cleanup scheduler task). Returns
+     * up to `$limit` secrets whose UID is strictly greater than
+     * `$afterUid`; pass the last returned UID back as `$afterUid` to fetch
+     * the next page. An empty result signals the end of the table
+     * (PERFORMANCE-8).
+     *
+     * @return Secret[]
+     */
+    public function findPaginatedAfterUid(int $afterUid, int $limit): array
+    {
+        if ($limit < 1) {
             return [];
         }
 
-        // Collect all UIDs and batch-load MM groups in ONE query so each
-        // Secret can be constructed with its allowed-groups list already
-        // populated — readonly entity has no post-construction mutator.
-        // Traverse rows in their original order (the SELECT's ORDER BY
-        // contract) and preserve duplicates, so this method's external
-        // behaviour matches the pre-readonly version exactly.
-        $uids = [];
-        foreach ($rows as $row) {
-            $uid = $row['uid'] ?? 0;
-            $intUid = is_numeric($uid) ? (int) $uid : 0;
-            if ($intUid > 0) {
-                $uids[$intUid] = true;
-            }
-        }
+        $queryBuilder = $this->getConnection()->createQueryBuilder();
+        $rows = $queryBuilder
+            ->select('*')
+            ->from(self::TABLE_NAME)
+            ->where(
+                $queryBuilder->expr()->eq('deleted', 0),
+                $queryBuilder->expr()->gt('uid', $queryBuilder->createNamedParameter($afterUid, Connection::PARAM_INT)),
+            )
+            ->orderBy('uid', 'ASC')
+            ->setMaxResults($limit)
+            ->executeQuery()
+            ->fetchAllAssociative();
 
-        $groupsBySecret = $uids !== [] ? $this->loadGroupsForSecrets(array_keys($uids)) : [];
-
-        $secrets = [];
-        foreach ($rows as $row) {
-            $uid = $row['uid'] ?? 0;
-            $intUid = is_numeric($uid) ? (int) $uid : 0;
-            $secrets[] = Secret::fromDatabaseRow($row, $groupsBySecret[$intUid] ?? []);
-        }
-
-        return $secrets;
+        return $this->hydrateRowsWithGroups($rows);
     }
 
     /**
@@ -394,22 +412,69 @@ final readonly class SecretRepository implements SecretRepositoryInterface
     }
 
     /**
-     * Batch-load groups for multiple secrets from MM table.
+     * Hydrate secret rows into Secret objects, batch-loading both group
+     * tiers (read + write) in a constant number of MM queries regardless
+     * of the number of rows. Preserves the input row order and duplicates,
+     * matching the SELECT's ORDER BY contract.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     *
+     * @return Secret[]
+     */
+    private function hydrateRowsWithGroups(array $rows): array
+    {
+        if ($rows === []) {
+            return [];
+        }
+
+        // Collect distinct UIDs once, then batch-load each group tier in a
+        // single query so a readonly Secret can be built with its lists
+        // already populated (it has no post-construction mutator).
+        $uids = [];
+        foreach ($rows as $row) {
+            $uid = $row['uid'] ?? 0;
+            $intUid = is_numeric($uid) ? (int) $uid : 0;
+            if ($intUid > 0) {
+                $uids[$intUid] = true;
+            }
+        }
+
+        $uidList = array_keys($uids);
+        $readGroupsBySecret = $uidList !== [] ? $this->loadGroupsForSecrets($uidList, self::MM_TABLE_NAME) : [];
+        $writeGroupsBySecret = $uidList !== [] ? $this->loadGroupsForSecrets($uidList, self::MM_WRITE_TABLE_NAME) : [];
+
+        $secrets = [];
+        foreach ($rows as $row) {
+            $uid = $row['uid'] ?? 0;
+            $intUid = is_numeric($uid) ? (int) $uid : 0;
+            $secrets[] = Secret::fromDatabaseRow(
+                $row,
+                $readGroupsBySecret[$intUid] ?? [],
+                $writeGroupsBySecret[$intUid] ?? [],
+            );
+        }
+
+        return $secrets;
+    }
+
+    /**
+     * Batch-load groups for multiple secrets from a given MM table.
      *
      * @param int[] $secretUids
+     * @param string $mmTable One of the MM relation tables (read/write tier)
      *
      * @return array<int, int[]> Map of secret UID to group UIDs
      */
-    private function loadGroupsForSecrets(array $secretUids): array
+    private function loadGroupsForSecrets(array $secretUids, string $mmTable = self::MM_TABLE_NAME): array
     {
         if ($secretUids === []) {
             return [];
         }
 
-        $queryBuilder = $this->getMmConnection()->createQueryBuilder();
+        $queryBuilder = $this->getMmConnection($mmTable)->createQueryBuilder();
         $rows = $queryBuilder
             ->select('uid_local', 'uid_foreign')
-            ->from(self::MM_TABLE_NAME)
+            ->from($mmTable)
             ->where($queryBuilder->expr()->in('uid_local', $secretUids))
             ->orderBy('uid_local', 'ASC')
             ->addOrderBy('sorting', 'ASC')
@@ -427,16 +492,18 @@ final readonly class SecretRepository implements SecretRepositoryInterface
     }
 
     /**
-     * Load groups for a secret from MM table.
+     * Load groups for a single secret from a given MM table.
+     *
+     * @param string $mmTable One of the MM relation tables (read/write tier)
      *
      * @return int[]
      */
-    private function loadGroupsForSecret(int $secretUid): array
+    private function loadGroupsForSecret(int $secretUid, string $mmTable = self::MM_TABLE_NAME): array
     {
-        $queryBuilder = $this->getMmConnection()->createQueryBuilder();
+        $queryBuilder = $this->getMmConnection($mmTable)->createQueryBuilder();
         $rows = $queryBuilder
             ->select('uid_foreign')
-            ->from(self::MM_TABLE_NAME)
+            ->from($mmTable)
             ->where($queryBuilder->expr()->eq('uid_local', $secretUid))
             ->orderBy('sorting', 'ASC')
             ->executeQuery()
@@ -452,23 +519,25 @@ final readonly class SecretRepository implements SecretRepositoryInterface
     }
 
     /**
-     * Save groups for a secret to MM table.
+     * Save a group tier for a secret to its MM table (delete-then-insert).
+     *
+     * @param string $mmTable One of the MM relation tables (read/write tier)
+     * @param int[] $groups Group UIDs to persist for this tier
      */
-    private function saveGroupsForSecret(Secret $secret): void
+    private function saveGroupsForSecret(Secret $secret, string $mmTable, array $groups): void
     {
         if ($secret->getUid() === null) {
             return;
         }
 
-        $mmConnection = $this->getMmConnection();
+        $mmConnection = $this->getMmConnection($mmTable);
 
         // Delete existing relations
-        $mmConnection->delete(self::MM_TABLE_NAME, ['uid_local' => $secret->getUid()]);
+        $mmConnection->delete($mmTable, ['uid_local' => $secret->getUid()]);
 
         // Insert new relations
-        $groups = $secret->getAllowedGroups();
         foreach ($groups as $sorting => $groupUid) {
-            $mmConnection->insert(self::MM_TABLE_NAME, [
+            $mmConnection->insert($mmTable, [
                 'uid_local' => $secret->getUid(),
                 'uid_foreign' => $groupUid,
                 'sorting' => $sorting,
@@ -483,18 +552,18 @@ final readonly class SecretRepository implements SecretRepositoryInterface
     }
 
     /**
-     * Resolve the connection for the MM-relations table separately from the
+     * Resolve the connection for an MM-relations table separately from the
      * main secret table. TYPO3 routes per-table connections via
      * `$GLOBALS['TYPO3_CONF_VARS']['DB']['TableMapping']` (the connection
      * targets themselves live under `['DB']['Connections']`). On the common
-     * single-DB setup both tables map to `Default`, so this returns the same
+     * single-DB setup all tables map to `Default`, so this returns the same
      * connection as `getConnection()` — the indirection only matters on
-     * sharded setups, where an admin may have mapped the MM table to a
+     * sharded setups, where an admin may have mapped an MM table to a
      * different DB. The original code lost that distinction; MM operations
      * issued via the secret-table connection would have hit the wrong DB.
      */
-    private function getMmConnection(): Connection
+    private function getMmConnection(string $mmTable = self::MM_TABLE_NAME): Connection
     {
-        return $this->connectionPool->getConnectionForTable(self::MM_TABLE_NAME);
+        return $this->connectionPool->getConnectionForTable($mmTable);
     }
 }

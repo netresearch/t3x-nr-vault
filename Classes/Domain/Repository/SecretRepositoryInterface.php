@@ -47,6 +47,16 @@ interface SecretRepositoryInterface
     public function findAllWithFilters(?SecretFilters $filters = null): array;
 
     /**
+     * Find a window of active secrets ordered by UID, for memory-bounded
+     * batch processing. Returns up to `$limit` secrets whose UID is
+     * strictly greater than `$afterUid`. An empty result signals the end
+     * of the table.
+     *
+     * @return Secret[]
+     */
+    public function findPaginatedAfterUid(int $afterUid, int $limit): array;
+
+    /**
      * Find all secrets accessible by specific groups.
      *
      * @param int[] $groupUids

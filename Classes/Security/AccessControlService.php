@@ -25,6 +25,18 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 final class AccessControlService implements AccessControlServiceInterface
 {
     /**
+     * Least-privilege permission tiers (ADR-005). READ is the broadest
+     * (read-tier groups + write-tier groups), WRITE is narrower (write-tier
+     * groups only), DELETE is the most restrictive (owner/admin/maintainer
+     * only — no group tier).
+     */
+    private const PERMISSION_READ = 'read';
+
+    private const PERMISSION_WRITE = 'write';
+
+    private const PERMISSION_DELETE = 'delete';
+
+    /**
      * Per-request cache of group UIDs that actually exist in the be_groups table.
      * Reset only for the lifetime of the service instance.
      *
@@ -39,17 +51,17 @@ final class AccessControlService implements AccessControlServiceInterface
 
     public function canRead(Secret $secret): bool
     {
-        return $this->hasAccess($secret);
+        return $this->hasAccess($secret, self::PERMISSION_READ);
     }
 
     public function canWrite(Secret $secret): bool
     {
-        return $this->hasAccess($secret);
+        return $this->hasAccess($secret, self::PERMISSION_WRITE);
     }
 
     public function canDelete(Secret $secret): bool
     {
-        return $this->hasAccess($secret);
+        return $this->hasAccess($secret, self::PERMISSION_DELETE);
     }
 
     public function canCreate(): bool
@@ -210,15 +222,17 @@ final class AccessControlService implements AccessControlServiceInterface
     }
 
     /**
-     * Check access to a secret.
+     * Check access to a secret for a given permission tier.
+     *
+     * @param self::PERMISSION_* $permission
      */
-    private function hasAccess(Secret $secret): bool
+    private function hasAccess(Secret $secret, string $permission): bool
     {
         $backendUser = $this->getBackendUser();
 
         // Backend user takes precedence
         if ($backendUser instanceof BackendUserAuthentication) {
-            return $this->hasBackendUserAccess($backendUser, $secret);
+            return $this->hasBackendUserAccess($backendUser, $secret, $permission);
         }
 
         // CLI access control (only when no backend user)
@@ -230,26 +244,43 @@ final class AccessControlService implements AccessControlServiceInterface
             // Check CLI access groups if configured
             $cliAccessGroups = $this->configuration->getCliAccessGroups();
             if ($cliAccessGroups !== []) {
-                $secretGroups = $secret->getAllowedGroups();
+                // The trusted CLI operator is scoped to the configured
+                // groups. The applicable secret-group set widens with the
+                // permission tier: read may match read- OR write-tier
+                // groups, write only write-tier groups, delete has no group
+                // tier at all (owner/admin/maintainer-only — none of which a
+                // CLI actor is — so group-restricted CLI cannot delete).
+                $secretGroups = $this->secretGroupsForPermission($secret, $permission);
 
                 return array_intersect($secretGroups, $cliAccessGroups) !== [];
             }
 
-            // CLI allowed and no group restrictions
+            // CLI allowed and no group restrictions: trusted operator gets
+            // the requested tier.
             return true;
         }
 
-        // Frontend access for secrets explicitly marked as frontend_accessible
-        // This allows TypoScript and other frontend contexts to resolve vault placeholders
-        // No backend user and not CLI
+        // Frontend access for secrets explicitly marked as frontend_accessible.
+        // This allows TypoScript and other frontend contexts to resolve vault
+        // placeholders. Frontend is READ-ONLY — write/delete are never granted
+        // without a backend or CLI actor. No backend user and not CLI.
+        if ($permission !== self::PERMISSION_READ) {
+            return false;
+        }
+
         return $secret->isFrontendAccessible();
     }
 
     /**
-     * Check if backend user has access to a secret.
+     * Check if backend user has access to a secret for a permission tier.
+     *
+     * @param self::PERMISSION_* $permission
      */
-    private function hasBackendUserAccess(BackendUserAuthentication $backendUser, Secret $secret): bool
-    {
+    private function hasBackendUserAccess(
+        BackendUserAuthentication $backendUser,
+        Secret $secret,
+        string $permission,
+    ): bool {
         // BUG FIX: Defence-in-depth — disabled users must be rejected even if
         // their BE_USER session somehow reaches this layer. TYPO3 core normally
         // blocks disabled users earlier, but the vault MUST NOT rely on that
@@ -258,17 +289,17 @@ final class AccessControlService implements AccessControlServiceInterface
             return false;
         }
 
-        // Admin access
+        // Admin access — full access to every tier.
         if ($backendUser->isAdmin()) {
             return true;
         }
 
-        // System maintainer access
+        // System maintainer access — full access to every tier.
         if ($backendUser->isSystemMaintainer()) {
             return true;
         }
 
-        // Owner access
+        // Owner access — full access to every tier (read/write/delete).
         /** @phpstan-ignore property.internal */
         $userRecord = $backendUser->user;
         /** @var array<string, mixed> $userRecordTyped */
@@ -278,8 +309,10 @@ final class AccessControlService implements AccessControlServiceInterface
             return true;
         }
 
-        // Group access
-        $secretGroups = $secret->getAllowedGroups();
+        // Group access — the applicable secret-group set depends on the tier
+        // (least-privilege split, ADR-005). DELETE has no group tier, so the
+        // applicable set is empty and group members can never delete.
+        $secretGroups = $this->secretGroupsForPermission($secret, $permission);
         if ($secretGroups !== []) {
             // BUG FIX: Filter out stale / deleted group UIDs before the
             // intersection check. A deleted group whose UID is still in the
@@ -292,6 +325,30 @@ final class AccessControlService implements AccessControlServiceInterface
         }
 
         return false;
+    }
+
+    /**
+     * Resolve which secret group UIDs grant the requested permission tier:
+     *
+     * - READ:   read-tier (`allowedGroups`) ∪ write-tier (`writeGroups`)
+     *           — a write-tier member can always read.
+     * - WRITE:  write-tier (`writeGroups`) only.
+     * - DELETE: no group tier — deletion is owner/admin/maintainer-only.
+     *
+     * @param self::PERMISSION_* $permission
+     *
+     * @return int[]
+     */
+    private function secretGroupsForPermission(Secret $secret, string $permission): array
+    {
+        return match ($permission) {
+            self::PERMISSION_READ => array_values(array_unique(array_merge(
+                $secret->getAllowedGroups(),
+                $secret->getWriteGroups(),
+            ))),
+            self::PERMISSION_WRITE => $secret->getWriteGroups(),
+            self::PERMISSION_DELETE => [],
+        };
     }
 
     /**
