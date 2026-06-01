@@ -135,7 +135,12 @@ final class VaultSeedDemoCommand extends Command
             ->set('read_count', $spec->readCount)
             ->set('last_read_at', $spec->lastReadDaysAgo !== null ? $now - ($spec->lastReadDaysAgo * 86400) : 0)
             ->set('last_rotated_at', $spec->lastRotatedDaysAgo !== null ? $now - ($spec->lastRotatedDaysAgo * 86400) : 0)
-            ->where($qb->expr()->eq('identifier', $qb->createNamedParameter($spec->identifier)))
+            // Scope to the live row only: after a --force reseed a soft-deleted
+            // tombstone (deleted=1) shares this identifier (UNIQUE KEY identifier,deleted).
+            ->where(
+                $qb->expr()->eq('identifier', $qb->createNamedParameter($spec->identifier)),
+                $qb->expr()->eq('deleted', 0),
+            )
             ->executeStatement();
     }
 
