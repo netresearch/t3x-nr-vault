@@ -119,6 +119,13 @@ services:
   Netresearch\NrVault\Utility\FlexFormVaultResolver:
     public: true
 
+  # Demo-data seeder for the analytics dashboard. Fetched only via
+  # `$this->get(AuditChainSeeder::class)` in functional tests and (later) via
+  # the seed command's makeInstance — no DI consumer injects it, so the
+  # container compiler would prune the private service without this flag.
+  Netresearch\NrVault\Seeder\AuditChainSeeder:
+    public: true
+
   # ----- Tagged services that need explicit registration ------------------
   # The `upgrade.wizard` tag has no #[Attribute] form yet (unlike
   # #[AsCommand] / #[AsController] / #[AsEventListener]) so it must be
