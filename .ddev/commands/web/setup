@@ -1,0 +1,12 @@
+#!/bin/bash
+
+## Description: One-shot project setup (canonical entry point — delegates to install-v14)
+## Usage: setup
+## Example: ddev setup
+
+set -e
+
+# Canonical Netresearch convention: `ddev setup` is the single entry point that
+# Makefile targets and aliases delegate to. For nr-vault that is the TYPO3 v14
+# install + extension wiring implemented in `install-v14`.
+exec "$(dirname "$0")/install-v14" "$@"

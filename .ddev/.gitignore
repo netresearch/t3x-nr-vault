@@ -1,0 +1,13 @@
+# DDEV-local working artifacts — not committed.
+# The tracked DDEV config (config.yaml, commands/, web-build/, docker-compose.*,
+# mock-oauth/, apache/, addon-metadata/) stays versioned; everything below is
+# generated or developer-machine-specific.
+/.v14-data/
+/db_snapshots/
+/import.yaml
+/import-db/
+/sequelace.yaml
+/.dbimageBuild/
+/.ddev-docker-compose-*.yaml
+/.global_commands/
+/.homeadditions/
