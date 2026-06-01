@@ -16,6 +16,10 @@ if [ ! -d "$V14_DIR" ]; then
     mkdir -p "$V14_DIR"
 fi
 
+# On first run the v14 path is a fresh DDEV volume owned by root; take ownership
+# so composer/cp can write into it (the container runs as the mapped host user).
+sudo chown -R "$(id -u):$(id -g)" "$V14_DIR" 2>/dev/null || true
+
 cd "$V14_DIR"
 
 # Initialize composer project if not exists
