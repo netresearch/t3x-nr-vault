@@ -987,6 +987,86 @@
       <trans-unit id="migration.verify.view_secrets">
         <source>View Secrets</source>
       </trans-unit>
+
+      <!-- Analytics page -->
+      <trans-unit id="analytics.title">
+        <source>Vault Analytics</source>
+      </trans-unit>
+      <trans-unit id="analytics.subtitle">
+        <source>Usage overview and secrets that may be safe to remove.</source>
+      </trans-unit>
+      <trans-unit id="analytics.kpi.total">
+        <source>Total secrets</source>
+      </trans-unit>
+      <trans-unit id="analytics.kpi.expired">
+        <source>Expired</source>
+      </trans-unit>
+      <trans-unit id="analytics.kpi.candidates">
+        <source>Redaction candidates</source>
+      </trans-unit>
+      <trans-unit id="analytics.kpi.frontend">
+        <source>Frontend-accessible</source>
+      </trans-unit>
+      <trans-unit id="analytics.kpi.neverRotated">
+        <source>Never rotated</source>
+      </trans-unit>
+      <trans-unit id="analytics.kpi.reads">
+        <source>Reads in window</source>
+      </trans-unit>
+      <trans-unit id="analytics.section.distribution">
+        <source>Distribution</source>
+      </trans-unit>
+      <trans-unit id="analytics.byAdapter">
+        <source>Secrets by adapter</source>
+      </trans-unit>
+      <trans-unit id="analytics.byContext">
+        <source>Secrets by context</source>
+      </trans-unit>
+      <trans-unit id="analytics.candidates.title">
+        <source>Redaction candidates</source>
+      </trans-unit>
+      <trans-unit id="analytics.candidates.empty">
+        <source>No redaction candidates — every secret looks in use.</source>
+      </trans-unit>
+      <trans-unit id="analytics.col.identifier">
+        <source>Identifier</source>
+      </trans-unit>
+      <trans-unit id="analytics.col.rules">
+        <source>Why flagged</source>
+      </trans-unit>
+      <trans-unit id="analytics.col.lastRead">
+        <source>Last read (any)</source>
+      </trans-unit>
+      <trans-unit id="analytics.col.reads">
+        <source>Reads in window (auto / manual)</source>
+      </trans-unit>
+      <trans-unit id="analytics.col.age">
+        <source>Age (days)</source>
+      </trans-unit>
+      <trans-unit id="analytics.open">
+        <source>Open</source>
+      </trans-unit>
+      <trans-unit id="analytics.window">
+        <source>Window</source>
+      </trans-unit>
+      <trans-unit id="analytics.never">
+        <source>never</source>
+      </trans-unit>
+      <trans-unit id="analytics.rule.dead">
+        <source>Dead</source>
+      </trans-unit>
+      <trans-unit id="analytics.rule.expired">
+        <source>Expired</source>
+      </trans-unit>
+      <trans-unit id="analytics.rule.automation_stale">
+        <source>Automation-stale</source>
+      </trans-unit>
+      <trans-unit id="analytics.rule.never_rotated">
+        <source>Never rotated</source>
+      </trans-unit>
+      <trans-unit id="analytics.note">
+        <source>Core signals use durable secret metadata; the automated/manual split is derived from the audit log (actor_type is a proxy). "Automation-stale" means revealed manually but not read by automation — review, do not auto-delete.</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>
