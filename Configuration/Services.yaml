@@ -69,6 +69,13 @@ services:
   Netresearch\NrVault\Http\VaultHttpClientInterface:
     alias: Netresearch\NrVault\Http\VaultHttpClient
 
+  Netresearch\NrVault\Service\Analytics\VaultAnalyticsServiceInterface:
+    alias: Netresearch\NrVault\Service\Analytics\VaultAnalyticsService
+    # public: no DI consumer exists yet (A5's AnalyticsController will inject
+    # it via constructor), so the container compiler would prune the private
+    # service and the functional test's $this->get() could not resolve it.
+    public: true
+
   # ----- Factory-resolved services ----------------------------------------
   # Factories cannot be discovered by autowire and must be declared explicitly.
 
