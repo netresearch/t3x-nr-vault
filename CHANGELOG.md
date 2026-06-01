@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Require TYPO3 v14.3 LTS instead of v14.0** for the v14 line
+  (`typo3/cms-* : ^13.4 || ^14.3`). 14.0/14.1/14.2 were unsupported sprint
+  releases; 14.3 is the LTS. The CI matrix, README, and bug-report template
+  are aligned to the same constraint. (`ext_emconf.php` keeps its coarse
+  `13.4.0-14.99.99` range — a single continuous range cannot express the
+  `^13.4 || ^14.3` gap. Because nr-vault requires a composer-based TYPO3
+  installation, `composer.json` is the authoritative version constraint.)
+
 ### Fixed
 - **`SecretRepository::findIdentifiers()` now skips non-string identifier
   rows** instead of coercing them to an empty string. A driver/schema

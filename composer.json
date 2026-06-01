@@ -35,9 +35,9 @@
         "php": "^8.2",
         "ext-sodium": "*",
         "ext-json": "*",
-        "typo3/cms-core": "^13.4 || ^14.0",
-        "typo3/cms-backend": "^13.4 || ^14.0",
-        "typo3/cms-install": "^13.4 || ^14.0",
+        "typo3/cms-core": "^13.4 || ^14.3",
+        "typo3/cms-backend": "^13.4 || ^14.3",
+        "typo3/cms-install": "^13.4 || ^14.3",
         "psr/http-client": "^1.0",
         "psr/http-factory": "^1.0"
     },
@@ -45,7 +45,7 @@
         "mikey179/vfsstream": "^1.6",
         "netresearch/typo3-ci-workflows": "^1.0",
         "roave/security-advisories": "dev-latest",
-        "typo3/cms-scheduler": "^13.4 || ^14.0"
+        "typo3/cms-scheduler": "^13.4 || ^14.3"
     },
     "autoload": {
         "psr-4": {

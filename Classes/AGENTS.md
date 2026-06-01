@@ -39,7 +39,7 @@ Strict types, final classes, readonly properties, constructor promotion. DI via 
 ## Setup
 - `make up` — DDEV + TYPO3 v14 install
 - `make shell` — container shell
-- PHP `^8.2`, TYPO3 `^13.4 || ^14.0`
+- PHP `^8.2`, TYPO3 `^13.4 || ^14.3`
 
 ## Directory Structure
 ```

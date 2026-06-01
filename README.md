@@ -4,7 +4,7 @@
 [![codecov](https://codecov.io/gh/netresearch/t3x-nr-vault/graph/badge.svg)](https://codecov.io/gh/netresearch/t3x-nr-vault)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/netresearch/t3x-nr-vault/badge)](https://securityscorecards.dev/viewer/?uri=github.com/netresearch/t3x-nr-vault)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11695/badge)](https://www.bestpractices.dev/projects/11695)
-[![TYPO3](https://img.shields.io/badge/TYPO3-13.4%20|%2014-orange.svg)](https://typo3.org/)
+[![TYPO3](https://img.shields.io/badge/TYPO3-13.4%20|%2014.3-orange.svg)](https://typo3.org/)
 [![PHP](https://img.shields.io/badge/PHP-8.2+-blue.svg)](https://www.php.net/)
 [![PHPStan](https://img.shields.io/badge/PHPStan-level%2010-brightgreen.svg)](https://phpstan.org/)
 [![License](https://img.shields.io/badge/License-GPL--2.0--or--later-blue.svg)](LICENSE)
@@ -233,7 +233,7 @@ vendor/bin/typo3 vault:audit-migrate-hmac
 
 ## Requirements
 
-- **TYPO3**: v13.4 / v14.0+
+- **TYPO3**: v13.4 LTS / v14.3 LTS+
 - **PHP**: ^8.2
 - **Extensions**: `ext-sodium` (bundled with PHP)
 - **CPU**: AES-NI support recommended (XChaCha20-Poly1305 fallback available)
