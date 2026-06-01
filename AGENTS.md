@@ -10,7 +10,7 @@
 
 ## Project Overview
 
-- **Stack:** PHP 8.2+, TYPO3 ^13.4 || ^14.0, libsodium (XChaCha20-Poly1305 / AES-256-GCM envelope encryption)
+- **Stack:** PHP 8.2+, TYPO3 ^13.4 || ^14.3, libsodium (XChaCha20-Poly1305 / AES-256-GCM envelope encryption)
 - **Environment:** DDEV for local development
 - **License:** GPL-2.0-or-later
 - **Namespace:** `Netresearch\NrVault\` (PSR-4 from `Classes/`)
