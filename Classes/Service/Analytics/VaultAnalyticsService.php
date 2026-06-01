@@ -48,15 +48,16 @@ final readonly class VaultAnalyticsService implements VaultAnalyticsServiceInter
             $qb->expr()->lt('expires_at', $qb->createNamedParameter($now, Connection::PARAM_INT)),
         ));
         $frontend = $this->countSecrets(static fn (QueryBuilder $qb) => $qb->andWhere($qb->expr()->eq('frontend_accessible', 1)));
+        // <= to match StalenessEvaluator (>= N days since rotation/creation).
         $neverRotated = $this->countSecrets(static fn (QueryBuilder $qb) => $qb->andWhere(
             $qb->expr()->or(
                 $qb->expr()->and(
                     $qb->expr()->gt('last_rotated_at', 0),
-                    $qb->expr()->lt('last_rotated_at', $qb->createNamedParameter($rotateCutoff, Connection::PARAM_INT)),
+                    $qb->expr()->lte('last_rotated_at', $qb->createNamedParameter($rotateCutoff, Connection::PARAM_INT)),
                 ),
                 $qb->expr()->and(
                     $qb->expr()->eq('last_rotated_at', 0),
-                    $qb->expr()->lt('crdate', $qb->createNamedParameter($rotateCutoff, Connection::PARAM_INT)),
+                    $qb->expr()->lte('crdate', $qb->createNamedParameter($rotateCutoff, Connection::PARAM_INT)),
                 ),
             ),
         ));

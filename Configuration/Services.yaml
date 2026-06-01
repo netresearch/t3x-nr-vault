@@ -71,9 +71,9 @@ services:
 
   Netresearch\NrVault\Service\Analytics\VaultAnalyticsServiceInterface:
     alias: Netresearch\NrVault\Service\Analytics\VaultAnalyticsService
-    # public: no DI consumer exists yet (A5's AnalyticsController will inject
-    # it via constructor), so the container compiler would prune the private
-    # service and the functional test's $this->get() could not resolve it.
+    # public: required so the functional test can resolve the interface via the
+    # container's get(); Symfony only exposes public services to get().
+    # (AnalyticsController injects it via constructor, which works while private.)
     public: true
 
   # ----- Factory-resolved services ----------------------------------------
@@ -119,10 +119,11 @@ services:
   Netresearch\NrVault\Utility\FlexFormVaultResolver:
     public: true
 
-  # Demo-data seeder for the analytics dashboard. Fetched only via
-  # `$this->get(AuditChainSeeder::class)` in functional tests and (later) via
-  # the seed command's makeInstance — no DI consumer injects it, so the
-  # container compiler would prune the private service without this flag.
+  # Demo-data seeder for the analytics dashboard.
+  # public: required so the functional test can resolve it via the container's
+  # `$this->get(AuditChainSeeder::class)`; Symfony only exposes public services
+  # to get(). (VaultSeedDemoCommand injects it via constructor, which works
+  # while private.)
   Netresearch\NrVault\Seeder\AuditChainSeeder:
     public: true
 
