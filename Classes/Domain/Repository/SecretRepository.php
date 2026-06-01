@@ -193,8 +193,18 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         $identifiers = [];
 
         while ($row = $result->fetchAssociative()) {
-            $identifier = $row['identifier'] ?? '';
-            $identifiers[] = \is_string($identifier) ? $identifier : '';
+            $identifier = $row['identifier'] ?? null;
+            // Skip rows whose identifier is not a non-empty string (driver/schema
+            // anomaly). Emitting '' here would inject a bogus empty identifier
+            // into callers (list views, rotation loops), so drop it instead.
+            if (!\is_string($identifier)) {
+                continue;
+            }
+            if ($identifier === '') {
+                continue;
+            }
+
+            $identifiers[] = $identifier;
         }
 
         return $identifiers;
