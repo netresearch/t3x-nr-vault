@@ -619,3 +619,43 @@ Example
    This command requires a valid master key to derive the HMAC key.
    Always backup your database before running the migration. Once migrated,
    entries cannot be reverted to plain SHA-256 without restoring the backup.
+
+.. _command-seed-demo:
+
+vault:seed-demo
+===============
+
+Populate a development instance with realistic, historic demo secrets and a
+matching audit-log history (useful for exploring the Analytics module).
+
+.. code-block:: bash
+   :caption: Command syntax
+
+   vendor/bin/typo3 vault:seed-demo [options]
+
+.. _command-seed-demo-options:
+
+Options
+-------
+
+--force, -f
+   Delete existing demo data and reseed.
+
+.. _command-seed-demo-example:
+
+Example
+-------
+
+.. code-block:: bash
+   :caption: vault:seed-demo examples
+
+   # Seed demo data (no-op if already seeded)
+   vendor/bin/typo3 vault:seed-demo
+
+   # Wipe existing demo data and reseed
+   vendor/bin/typo3 vault:seed-demo --force
+
+.. warning::
+
+   Development only. The command refuses to run in a Production application
+   context and creates dummy secrets with obviously-fake values.
