@@ -19,13 +19,8 @@ use PHPUnit\Framework\Attributes\Test;
 final class StalenessEvaluatorTest extends TestCase
 {
     private const NOW = 1_700_000_000;
-    private const DAY = 86_400;
 
-    private function evaluator(): StalenessEvaluator
-    {
-        // thresholds: neverRead 30, notRead 90, neverRotated 180
-        return new StalenessEvaluator(30, 90, 180);
-    }
+    private const DAY = 86_400;
 
     #[Test]
     public function neverReadAndAgedIsDead(): void
@@ -218,5 +213,11 @@ final class StalenessEvaluatorTest extends TestCase
         );
 
         self::assertNotContains(StalenessRule::Expired, $rules);
+    }
+
+    private function evaluator(): StalenessEvaluator
+    {
+        // thresholds: neverRead 30, notRead 90, neverRotated 180
+        return new StalenessEvaluator(30, 90, 180);
     }
 }
