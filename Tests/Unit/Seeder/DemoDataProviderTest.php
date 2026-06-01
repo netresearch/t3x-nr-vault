@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Seeder;
 
 use Netresearch\NrVault\Seeder\DemoDataProvider;
+use Netresearch\NrVault\Seeder\DemoEvent;
 use Netresearch\NrVault\Seeder\DemoSecretSpec;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -17,6 +18,7 @@ use PHPUnit\Framework\Attributes\Test;
 
 #[CoversClass(DemoDataProvider::class)]
 #[CoversClass(DemoSecretSpec::class)]
+#[CoversClass(DemoEvent::class)]
 final class DemoDataProviderTest extends TestCase
 {
     #[Test]
