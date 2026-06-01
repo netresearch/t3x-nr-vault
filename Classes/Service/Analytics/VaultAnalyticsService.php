@@ -21,7 +21,7 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
  * Aggregates KPIs and redaction candidates from `tx_nrvault_secret` (durable
  * signals) and `tx_nrvault_audit_log` (automated-vs-manual read split).
  */
-final readonly class VaultAnalyticsService implements VaultAnalyticsServiceInterface
+final class VaultAnalyticsService implements VaultAnalyticsServiceInterface
 {
     private const SECRET_TABLE = 'tx_nrvault_secret';
 
@@ -30,9 +30,18 @@ final readonly class VaultAnalyticsService implements VaultAnalyticsServiceInter
     /** actor_type values that count as automated (machine) reads. */
     private const AUTOMATED_ACTORS = ['cli', 'api', 'scheduler'];
 
+    /**
+     * Request-scoped memo of the audit read-split, keyed by windowStart, so the
+     * large audit table is queried once even though getUsageStats() and
+     * getRedactionCandidates() both need it within one request.
+     *
+     * @var array<int, array<string, array{automated: int, manual: int}>>
+     */
+    private array $readSplitCache = [];
+
     public function __construct(
-        private ConnectionPool $connectionPool,
-        private ExtensionConfigurationInterface $extensionConfiguration,
+        private readonly ConnectionPool $connectionPool,
+        private readonly ExtensionConfigurationInterface $extensionConfiguration,
     ) {}
 
     public function getUsageStats(int $windowDays): VaultUsageStats
@@ -41,15 +50,15 @@ final readonly class VaultAnalyticsService implements VaultAnalyticsServiceInter
         $windowStart = $now - ($windowDays * 86400);
         $rotateCutoff = $now - ($this->extensionConfiguration->getStaleNeverRotatedDays() * 86400);
 
-        $total = $this->countSecrets(static fn (QueryBuilder $qb) => $qb);
-        $disabled = $this->countSecrets(static fn (QueryBuilder $qb) => $qb->andWhere($qb->expr()->eq('hidden', 1)));
-        $expired = $this->countSecrets(static fn (QueryBuilder $qb) => $qb->andWhere(
+        $total = $this->countSecrets(static fn (QueryBuilder $qb): QueryBuilder => $qb);
+        $disabled = $this->countSecrets(static fn (QueryBuilder $qb): QueryBuilder => $qb->andWhere($qb->expr()->eq('hidden', 1)));
+        $expired = $this->countSecrets(static fn (QueryBuilder $qb): QueryBuilder => $qb->andWhere(
             $qb->expr()->gt('expires_at', 0),
             $qb->expr()->lt('expires_at', $qb->createNamedParameter($now, Connection::PARAM_INT)),
         ));
-        $frontend = $this->countSecrets(static fn (QueryBuilder $qb) => $qb->andWhere($qb->expr()->eq('frontend_accessible', 1)));
+        $frontend = $this->countSecrets(static fn (QueryBuilder $qb): QueryBuilder => $qb->andWhere($qb->expr()->eq('frontend_accessible', 1)));
         // <= to match StalenessEvaluator (>= N days since rotation/creation).
-        $neverRotated = $this->countSecrets(static fn (QueryBuilder $qb) => $qb->andWhere(
+        $neverRotated = $this->countSecrets(static fn (QueryBuilder $qb): QueryBuilder => $qb->andWhere(
             $qb->expr()->or(
                 $qb->expr()->and(
                     $qb->expr()->gt('last_rotated_at', 0),
@@ -198,6 +207,10 @@ final readonly class VaultAnalyticsService implements VaultAnalyticsServiceInter
      */
     private function readSplitByIdentifier(int $windowStart): array
     {
+        if (isset($this->readSplitCache[$windowStart])) {
+            return $this->readSplitCache[$windowStart];
+        }
+
         // Audit table has no TCA enable-fields; use the connection's plain
         // QueryBuilder (no restrictions), mirroring AuditLogService.
         $qb = $this->connectionPool->getConnectionForTable(self::AUDIT_TABLE)->createQueryBuilder();
@@ -222,7 +235,7 @@ final readonly class VaultAnalyticsService implements VaultAnalyticsServiceInter
             $map[$id][$bucket] += $this->toInt($r['cnt']);
         }
 
-        return $map;
+        return $this->readSplitCache[$windowStart] = $map;
     }
 
     /**

@@ -72,12 +72,14 @@ final readonly class AnalyticsController
     {
         $rules = [];
         foreach ($secret->rules as $rule) {
+            $translated = $this->getLanguageService()->sL(
+                'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.rule.' . $rule->value,
+            );
             $rules[] = [
                 'key' => $rule->value,
                 'severity' => $rule->severity(),
-                'label' => $this->getLanguageService()->sL(
-                    'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.rule.' . $rule->value,
-                ),
+                // sL() returns the raw "LLL:" key when a translation is missing — fall back to the enum label.
+                'label' => ($translated !== '' && !str_starts_with($translated, 'LLL:')) ? $translated : $rule->label(),
             ];
         }
 

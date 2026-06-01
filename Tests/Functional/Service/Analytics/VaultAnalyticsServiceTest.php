@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Service\Analytics;
 
+use Netresearch\NrVault\Domain\Dto\StaleSecret;
 use Netresearch\NrVault\Domain\StalenessRule;
 use Netresearch\NrVault\Service\Analytics\VaultAnalyticsService;
 use Netresearch\NrVault\Service\Analytics\VaultAnalyticsServiceInterface;
@@ -101,9 +102,9 @@ final class VaultAnalyticsServiceTest extends FunctionalTestCase
     }
 
     /**
-     * @param list<\Netresearch\NrVault\Domain\Dto\StaleSecret> $candidates
+     * @param list<StaleSecret> $candidates
      */
-    private function candidate(array $candidates, string $identifier): \Netresearch\NrVault\Domain\Dto\StaleSecret
+    private function candidate(array $candidates, string $identifier): StaleSecret
     {
         foreach ($candidates as $c) {
             if ($c->identifier === $identifier) {

@@ -41,8 +41,8 @@ final class DemoDataProviderTest extends TestCase
             $specs,
             static fn (DemoSecretSpec $s): bool =>
             $s->events !== []
-            && array_filter($s->events, static fn ($e): bool => $e->action === 'read' && $e->actorType === 'backend') !== []
-            && array_filter($s->events, static fn ($e): bool => $e->action === 'read' && \in_array($e->actorType, ['api', 'cli', 'scheduler'], true)) === [],
+            && array_filter($s->events, static fn (DemoEvent $e): bool => $e->action === 'read' && $e->actorType === 'backend') !== []
+            && array_filter($s->events, static fn (DemoEvent $e): bool => $e->action === 'read' && \in_array($e->actorType, ['api', 'cli', 'scheduler'], true)) === [],
         ));
         // at least one healthy actively-read specimen
         self::assertNotEmpty(array_filter($specs, static fn (DemoSecretSpec $s): bool => $s->readCount >= 20 && $s->lastReadDaysAgo !== null && $s->lastReadDaysAgo <= 5));

@@ -122,7 +122,7 @@ final class VaultSeedDemoCommand extends Command
             ->executeQuery()
             ->fetchFirstColumn();
 
-        return array_values(array_filter($rows, static fn (mixed $identifier): bool => \is_string($identifier)));
+        return array_values(array_filter($rows, \is_string(...)));
     }
 
     private function backdateSecret(DemoSecretSpec $spec, int $now): void

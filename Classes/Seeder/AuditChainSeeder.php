@@ -107,7 +107,7 @@ final readonly class AuditChainSeeder
             'hash_after' => '',
             'crdate' => $event['crdate'],
             'hmac_key_epoch' => $epoch,
-            'context' => json_encode($event['context'], JSON_THROW_ON_ERROR),
+            'context' => json_encode($event['context'], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
             'entry_hash' => '',
         ];
     }
