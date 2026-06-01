@@ -16,6 +16,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\UriBuilder as BackendUriBuilder;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
+use TYPO3\CMS\Core\Localization\LanguageService;
 
 /**
  * Backend module controller for the vault usage-analytics submodule.
@@ -65,13 +66,19 @@ final readonly class AnalyticsController
     }
 
     /**
-     * @return array{uid: int, identifier: string, context: string, adapter: string, lastReadAt: int|null, automatedReads: int, manualReveals: int, ageDays: int, severity: string, rules: list<array{key: string, severity: string}>, editUrl: string}
+     * @return array{uid: int, identifier: string, context: string, adapter: string, lastReadAt: int|null, automatedReads: int, manualReveals: int, ageDays: int, severity: string, rules: list<array{key: string, severity: string, label: string}>, editUrl: string}
      */
     private function toRow(StaleSecret $secret): array
     {
         $rules = [];
         foreach ($secret->rules as $rule) {
-            $rules[] = ['key' => $rule->value, 'severity' => $rule->severity()];
+            $rules[] = [
+                'key' => $rule->value,
+                'severity' => $rule->severity(),
+                'label' => $this->getLanguageService()->sL(
+                    'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.rule.' . $rule->value,
+                ),
+            ];
         }
 
         return [
@@ -107,5 +114,12 @@ final readonly class AnalyticsController
         }
 
         return $options;
+    }
+
+    private function getLanguageService(): LanguageService
+    {
+        \assert($GLOBALS['LANG'] instanceof LanguageService);
+
+        return $GLOBALS['LANG'];
     }
 }

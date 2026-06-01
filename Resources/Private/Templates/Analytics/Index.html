@@ -105,7 +105,7 @@
                             <td><code>{row.identifier}</code><br /><span class="text-body-secondary small">{row.context} · {row.adapter}</span></td>
                             <td>
                                 <f:for each="{row.rules}" as="rule">
-                                    <span class="badge text-bg-{rule.severity} me-1">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.rule.{rule.key}')}</span>
+                                    <span class="badge text-bg-{rule.severity} me-1">{rule.label}</span>
                                 </f:for>
                             </td>
                             <td class="nowrap">
