@@ -97,7 +97,7 @@ causes:
 
 1. Verify that the active master key matches the one used during
    encryption.
-2. Check database integrity for the ``tx_vault_secret`` table.
+2. Check database integrity for the ``tx_nrvault_secret`` table.
 3. If the data is corrupt, restore from a database backup and ensure
    the matching master key is in place.
 
@@ -150,7 +150,7 @@ If you manage a large number of secrets, consider these optimizations:
    implications).
 
 **Database indexing**
-   The ``tx_vault_secret`` table includes indexes on commonly queried
+   The ``tx_nrvault_secret`` table includes indexes on commonly queried
    columns. Ensure these indexes exist after migrations.
 
 .. _troubleshooting-rotate-master-key:
@@ -163,20 +163,28 @@ new master key without changing the actual secret values.
 
 1. **Create a backup** of the current master key and database.
 
-2. **Generate a new master key:**
+2. **Generate a new master key.** The file master-key provider accepts either
+   32 raw bytes or a base64-encoded 32-byte key. A base64 key file is easy to
+   create with:
 
    .. code-block:: bash
 
-      vendor/bin/typo3 vault:generate-key > /secure/path/new-master-key
+      openssl rand -base64 32 > /secure/path/new-master-key
 
-3. **Run the rotation command:**
+   (``vault:init`` itself writes a raw 32-byte key file by default, or a
+   base64 value with ``--env``; the file provider reads both.)
+
+3. **Run the rotation command** with ``--confirm`` (without it the command
+   prints an opt-in warning and exits without rotating):
 
    .. code-block:: bash
 
-      vendor/bin/typo3 vault:rotate-master-key
+      vendor/bin/typo3 vault:rotate-master-key \
+          --new-key=/secure/path/new-master-key \
+          --confirm
 
-   The command will prompt for or auto-detect the old and new keys
-   depending on your provider configuration.
+   Use ``--dry-run`` first to simulate, and ``--old-key`` if the current key
+   cannot be auto-detected from your provider configuration.
 
 4. **Update your configuration** to point to the new master key.
 
@@ -209,8 +217,8 @@ vault-managed secrets:
    .. code-block:: bash
 
       vendor/bin/typo3 vault:migrate-field \
-          --table=tx_myext_domain_model_connection \
-          --field=api_key
+          tx_myext_domain_model_connection \
+          api_key
 
    This reads the current plaintext value, encrypts it into the vault,
    and replaces the field value with a vault reference identifier.

@@ -701,27 +701,15 @@ final class SecretRepositoryTest extends TestCase
     }
 
     /**
-     * Characterisation test + documented gap.
+     * A non-string identifier row (driver/schema anomaly) must be skipped,
+     * not coerced to an empty string. Emitting '' would inject a bogus empty
+     * identifier into downstream consumers (list views, rotation loops) that
+     * cannot distinguish it from a real value.
      *
-     * `SecretRepository::findIdentifiers()` silently coerces a non-string
-     * identifier row to an empty string and appends it to the result array.
-     * This is BUG-MASKING behaviour — downstream consumers cannot
-     * distinguish a real (but empty) identifier from a data-integrity
-     * problem.
-     *
-     * Correct behaviour would be either:
-     *   (a) log a warning and skip the row, OR
-     *   (b) throw a domain exception.
-     *
-     * We mark this test INCOMPLETE so it is visible in every CI run as a
-     * pending quality debt, without blocking unrelated merges. When the
-     * production code is fixed to (a) or (b), the `markTestIncomplete()`
-     * call must be removed and the assertions below re-enabled.
-     *
-     * @see SecretRepository::findIdentifiers() lines 183-190
+     * @see SecretRepository::findIdentifiers()
      */
     #[Test]
-    public function findIdentifiersDoesNotSilentlyReturnEmptyStringForNonStringRow(): void
+    public function findIdentifiersSkipsNonStringRow(): void
     {
         $result = $this->createStub(Result::class);
         $result->method('fetchAssociative')
@@ -732,18 +720,8 @@ final class SecretRepositoryTest extends TestCase
 
         $this->setupQueryBuilderForSelect($result);
 
-        // Pin the current buggy behaviour so a regression to "worse" (e.g.
-        // returning a bogus non-empty string) is caught.
         $identifiers = $this->subject->findIdentifiers();
-        self::assertSame([''], $identifiers, 'current (buggy) behaviour pinned');
-
-        self::markTestIncomplete(
-            'BUG: SecretRepository::findIdentifiers() silently returns [""] for '
-            . 'a non-string identifier row. It should either skip the row with '
-            . 'a logged warning or throw. Fix the production code, then remove '
-            . 'this markTestIncomplete() call and change the assertion to '
-            . '`assertNotSame([""], $identifiers)`.',
-        );
+        self::assertSame([], $identifiers, 'non-string identifier row is skipped, not coerced to ""');
     }
 
     // ------------------------------------------------------------------

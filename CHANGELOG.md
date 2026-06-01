@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`SecretRepository::findIdentifiers()` now skips non-string identifier
+  rows** instead of coercing them to an empty string. A driver/schema
+  anomaly that returned a non-string `identifier` previously injected a
+  bogus empty identifier into list views and rotation loops; such rows are
+  now dropped (an empty identifier is unreachable for valid data).
+
+### Added
+- **CLI documentation drift guard** (`Tests/scripts/check-cli-docs.php`,
+  wired into `composer ci` as `ci:test:php:doc-cli`). It verifies every
+  documented `vault:*` example across `README.md` and the whole
+  `Documentation/` tree against the command classes — unknown commands,
+  unknown options, and excess positional arguments fail the build. Backslash
+  line-continuations are joined so options on continuation lines are checked,
+  and both `#[AsCommand(name: …)]` and positional `#[AsCommand(…)]` forms are
+  recognised.
+- `.gitattributes` (`export-ignore` dev-only paths for smaller composer/TER
+  packages), `.ddev/.gitignore`, and a canonical `.ddev/commands/web/setup`
+  entry point.
+
+### Documentation
+- README CLI reference expanded from 5 to all 12 `vault:*` commands with
+  corrected argument signatures (`vault:store --value=…`, `vault:audit
+  --since=…`).
+- Corrected `vault:*` examples across the documentation that drifted from the
+  actual command signatures: `vault:store` value via `--value`/`--metadata`
+  (not `--description`/`--context`/`--expires` or a positional), `vault:audit`
+  `--since`/`--until` (not `--days`), `vault:migrate-field` positional
+  `<table> <field>` (not `--table`/`--field`), `vault:rotate-master-key`
+  `--confirm`/`--new-key`, the full `vault:audit` option reference, and
+  `tx_vault_secret` → `tx_nrvault_secret`.
+
 ## [0.6.1] - 2026-05-31
 
 ### Fixed

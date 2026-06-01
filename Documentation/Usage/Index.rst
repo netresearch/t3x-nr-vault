@@ -170,12 +170,11 @@ Create or update a secret:
    # Interactive (prompts for value)
    vendor/bin/typo3 vault:store stripe_api_key
 
-   # With all options
+   # With options (arbitrary metadata via repeatable --metadata key=value)
    vendor/bin/typo3 vault:store payment_key \
      --value="sk_live_..." \
-     --description="Stripe production key" \
-     --context="payment" \
-     --expires="+90 days" \
+     --metadata="description=Stripe production key" \
+     --metadata="context=payment" \
      --groups="1,2"
 
 .. _usage-cli-vault-retrieve:
@@ -248,8 +247,8 @@ View the audit log:
 .. code-block:: bash
    :caption: View audit log
 
-   # View recent entries
-   vendor/bin/typo3 vault:audit --days=7
+   # View entries since a given date
+   vendor/bin/typo3 vault:audit --since=2026-05-01
 
    # Filter by secret
    vendor/bin/typo3 vault:audit --identifier=stripe_api_key
