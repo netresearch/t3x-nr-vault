@@ -16,7 +16,10 @@ services:
     # Make accessible via ddev router
     # Access at https://nr-vault.ddev.site:9443 or http://nr-vault.ddev.site:9080
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/.well-known/openid-configuration"]
+      # GET, not --spider: --spider issues a HEAD request and mock-oauth2-server
+      # answers HTTP 405 on the discovery endpoint (GET only), so the probe must
+      # do a real GET and discard the body.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/.well-known/openid-configuration"]
       interval: 10s
       timeout: 5s
       retries: 3
