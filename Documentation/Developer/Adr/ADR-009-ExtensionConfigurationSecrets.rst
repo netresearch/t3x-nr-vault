@@ -138,7 +138,7 @@ Example: Translation service integration
 .. code-block:: bash
    :caption: Store secret via CLI
 
-   ./vendor/bin/typo3 vault:store acme_translate_api_key "your-actual-api-key"
+   ./vendor/bin/typo3 vault:store acme_translate_api_key --value="your-actual-api-key"
 
 Why this is safe
 ----------------

@@ -84,7 +84,7 @@ validation. See :ref:`adr-009-extension-configuration-secrets` for the design ra
    .. code-block:: bash
       :caption: Store API key via command line
 
-      ./vendor/bin/typo3 vault:store deepl_api_key "your-deepl-api-key-here"
+      ./vendor/bin/typo3 vault:store deepl_api_key --value="your-deepl-api-key-here"
 
 2. Configure extension setting with vault reference:
 

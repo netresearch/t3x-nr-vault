@@ -192,21 +192,43 @@ Secret placement options: `Bearer`, `BasicAuth`, `Header`, `QueryParam`, `BodyFi
 
 ## CLI Commands
 
+All 12 `vault:*` commands (full options and examples in
+[`Documentation/Developer/Commands.rst`](Documentation/Developer/Commands.rst)):
+
 ```bash
-# Initialize vault (create master key)
+# --- Setup ---
+# Initialize the vault by generating a master key
 vendor/bin/typo3 vault:init
 
-# List secrets (respects access control)
+# --- Secret CRUD ---
+# Store a secret in the vault (value via --value, --stdin, --file, or interactive prompt)
+vendor/bin/typo3 vault:store my_secret_id --value="s3cr3t-value"
+# Retrieve a secret from the vault
+vendor/bin/typo3 vault:retrieve my_secret_id
+# List secrets in the vault (respects access control)
 vendor/bin/typo3 vault:list
-
-# Rotate a secret
+# Rotate (update) a secret
 vendor/bin/typo3 vault:rotate my_secret_id --reason="Scheduled rotation"
+# Delete a secret from the vault
+vendor/bin/typo3 vault:delete my_secret_id
 
-# Rotate master key (re-encrypts all DEKs)
+# --- Master key ---
+# Rotate the master encryption key (re-encrypts all DEKs)
 vendor/bin/typo3 vault:rotate-master-key --new-key=/path/to/new.key --confirm
 
-# View audit log
-vendor/bin/typo3 vault:audit --identifier=my_secret_id --days=30
+# --- Migration & hardening ---
+# Migrate an existing plaintext DB field value into the vault
+vendor/bin/typo3 vault:migrate-field tx_myext_settings api_key
+# Scan database and configuration for potential plaintext secrets
+vendor/bin/typo3 vault:scan
+# Clean up orphaned vault secrets from deleted TCA records
+vendor/bin/typo3 vault:cleanup-orphans
+
+# --- Audit ---
+# Query and export vault audit logs (filter by --since / --until, Y-m-d)
+vendor/bin/typo3 vault:audit --identifier=my_secret_id --since=2026-05-01
+# Migrate the audit log hash chain from SHA-256 to HMAC-SHA256
+vendor/bin/typo3 vault:audit-migrate-hmac
 ```
 
 ## Requirements

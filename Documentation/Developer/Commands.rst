@@ -107,12 +107,11 @@ Example
    # Interactive (prompts for secret)
    vendor/bin/typo3 vault:store stripe_api_key
 
-   # With options
+   # With options (arbitrary metadata via repeatable --metadata key=value)
    vendor/bin/typo3 vault:store payment_key \
      --value="sk_live_..." \
-     --description="Stripe production key" \
-     --context="payment" \
-     --expires="+90 days" \
+     --metadata="description=Stripe production key" \
+     --metadata="context=payment" \
      --groups="1,2"
 
 .. _command-retrieve:
@@ -275,20 +274,35 @@ View the audit log.
 Options
 -------
 
---identifier=ID
+--identifier, -i =ID
    Filter by secret identifier.
 
---action=ACTION
-   Filter by action (create, read, update, delete, rotate).
+--action, -a =ACTION
+   Filter by action (create, read, update, delete, rotate, access_denied).
 
---days=N
-   Show entries from last N days (default: 30).
+--actor=UID
+   Filter by actor (backend user UID).
 
---limit=N
-   Maximum entries to show (default: 100).
+--since=DATE
+   Show entries since the given date (``Y-m-d`` or ``Y-m-d H:i:s``).
 
---format=FORMAT
-   Output format: table (default), json.
+--until=DATE
+   Show entries up to the given date (``Y-m-d`` or ``Y-m-d H:i:s``).
+
+--success=BOOL
+   Filter by success status (``true``/``false``).
+
+--limit, -l =N
+   Maximum number of results (default: 50).
+
+--format, -f =FORMAT
+   Output format: ``table`` (default), ``json``, ``csv``.
+
+--verify
+   Verify hash chain integrity instead of listing entries.
+
+--export, -e =FILE
+   Export results to a file (format taken from ``--format``).
 
 .. _command-audit-example:
 
@@ -298,8 +312,8 @@ Example
 .. code-block:: bash
    :caption: vault:audit examples
 
-   # View recent audit log
-   vendor/bin/typo3 vault:audit --days=7
+   # View audit log since a given date
+   vendor/bin/typo3 vault:audit --since=2026-05-01
 
    # Filter by secret
    vendor/bin/typo3 vault:audit --identifier=stripe_api_key
