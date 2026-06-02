@@ -52,6 +52,7 @@ nr-vault provides:
 - **Master key management** (file, environment variable, or derived)
 - **Per-secret access control** via backend user groups with context scoping
 - **Audit logging** of all secret access with tamper-evident hash chain
+- **Usage analytics** dashboard that surfaces stale, expired, never-rotated, and unused secrets (redaction candidates), counting automated vs. manual reads separately
 - **Key rotation** support for both secrets and master key
 - **TCA integration** via custom `vaultSecret` field type
 - **Vault HTTP Client** - make authenticated API calls without exposing secrets
