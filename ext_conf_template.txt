@@ -76,3 +76,16 @@ aws.region =
 
 # cat=AWS Secrets Manager; type=string; label=Secret Prefix: Prefix for secret names in AWS Secrets Manager
 aws.secretPrefix = typo3/
+
+#################
+### ANALYTICS ###
+#################
+
+# cat=Analytics; type=int+; label=Stale never-read days: A secret never read AND older than this many days is flagged "dead"
+staleNeverReadDays = 30
+
+# cat=Analytics; type=int+; label=Stale not-read days: A secret not read for this many days is flagged "dead"
+staleNotReadDays = 90
+
+# cat=Analytics; type=int+; label=Stale never-rotated days: A secret not rotated (or created) for this many days is flagged "never rotated"
+staleNeverRotatedDays = 180

@@ -1,0 +1,140 @@
+<html xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+      xmlns:core="http://typo3.org/ns/TYPO3/CMS/Core/ViewHelpers"
+      data-namespace-typo3-fluid="true">
+
+<f:layout name="Module" />
+
+<f:section name="Content">
+    <h1>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.title')}</h1>
+    <p class="text-body-secondary mb-3">
+        {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.subtitle')}
+    </p>
+
+    <!-- Window selector (links; CSP-clean, no JS) -->
+    <div class="btn-group mb-4" role="group" aria-label="{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.window')}">
+        <f:for each="{windowOptions}" as="opt">
+            <a href="{opt.url}" class="btn btn-sm {f:if(condition: opt.active, then: 'btn-primary', else: 'btn-default')}">{opt.days}d</a>
+        </f:for>
+    </div>
+
+    <!-- KPI cards -->
+    <div class="card-container mb-4" role="group" data-testid="analytics-kpis">
+        <div class="card card-size-fixed-small">
+            <div class="card-header"><div class="card-header-body">
+                <span class="card-title">{stats.total}</span>
+                <span class="card-subtitle">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.kpi.total')}</span>
+            </div></div>
+        </div>
+        <div class="card card-size-fixed-small">
+            <div class="card-header"><div class="card-header-body">
+                <span class="card-title text-warning">{stats.expired}</span>
+                <span class="card-subtitle">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.kpi.expired')}</span>
+            </div></div>
+        </div>
+        <div class="card card-size-fixed-small">
+            <div class="card-header"><div class="card-header-body">
+                <span class="card-title text-danger" data-testid="kpi-candidates">{candidateCount}</span>
+                <span class="card-subtitle">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.kpi.candidates')}</span>
+            </div></div>
+        </div>
+        <div class="card card-size-fixed-small">
+            <div class="card-header"><div class="card-header-body">
+                <span class="card-title">{stats.frontendAccessible}</span>
+                <span class="card-subtitle">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.kpi.frontend')}</span>
+            </div></div>
+        </div>
+        <div class="card card-size-fixed-small">
+            <div class="card-header"><div class="card-header-body">
+                <span class="card-title text-warning">{stats.neverRotated}</span>
+                <span class="card-subtitle">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.kpi.neverRotated')}</span>
+            </div></div>
+        </div>
+        <div class="card card-size-fixed-small">
+            <div class="card-header"><div class="card-header-body">
+                <span class="card-title">{stats.automatedReads} / {stats.manualReveals}</span>
+                <span class="card-subtitle">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.kpi.reads')}</span>
+            </div></div>
+        </div>
+    </div>
+
+    <!-- Distribution -->
+    <h2 class="h5">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.section.distribution')}</h2>
+    <div class="row row-cols-1 row-cols-md-2 g-3 mb-4">
+        <div class="col"><div class="card h-100"><div class="card-body">
+            <h3 class="h6">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.byAdapter')}</h3>
+            <f:for each="{stats.byAdapter}" as="bar">
+                <div class="d-flex align-items-center mb-2">
+                    <span class="me-2" style="min-width:7rem">{bar.label}</span>
+                    <div class="progress flex-grow-1" role="progressbar" aria-valuenow="{bar.percent}" aria-valuemin="0" aria-valuemax="100" style="height:1rem">
+                        <div class="progress-bar" style="width:{bar.percent}%">{bar.value}</div>
+                    </div>
+                </div>
+            </f:for>
+        </div></div></div>
+        <div class="col"><div class="card h-100"><div class="card-body">
+            <h3 class="h6">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.byContext')}</h3>
+            <f:for each="{stats.byContext}" as="bar">
+                <div class="d-flex align-items-center mb-2">
+                    <span class="me-2" style="min-width:7rem">{bar.label}</span>
+                    <div class="progress flex-grow-1" role="progressbar" aria-valuenow="{bar.percent}" aria-valuemin="0" aria-valuemax="100" style="height:1rem">
+                        <div class="progress-bar" style="width:{bar.percent}%">{bar.value}</div>
+                    </div>
+                </div>
+            </f:for>
+        </div></div></div>
+    </div>
+
+    <!-- Redaction candidates -->
+    <h2 class="h5">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.candidates.title')} ({candidateCount})</h2>
+    <f:if condition="{candidates}">
+        <f:then>
+            <table class="table table-striped table-hover" data-testid="analytics-candidates">
+                <thead>
+                    <tr>
+                        <th scope="col">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.col.identifier')}</th>
+                        <th scope="col">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.col.rules')}</th>
+                        <th scope="col">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.col.lastRead')}</th>
+                        <th scope="col" class="text-end">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.col.reads')}</th>
+                        <th scope="col" class="text-end">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.col.age')}</th>
+                        <th scope="col" class="col-control"><span class="visually-hidden">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.open')}</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <f:for each="{candidates}" as="row">
+                        <tr data-testid="candidate-{row.identifier}">
+                            <td><code>{row.identifier}</code><br /><span class="text-body-secondary small">{row.context} · {row.adapter}</span></td>
+                            <td>
+                                <f:for each="{row.rules}" as="rule">
+                                    <span class="badge text-bg-{rule.severity} me-1">{rule.label}</span>
+                                </f:for>
+                            </td>
+                            <td class="nowrap">
+                                <f:if condition="{row.lastReadAt}">
+                                    <f:then><f:format.date format="Y-m-d">@{row.lastReadAt}</f:format.date></f:then>
+                                    <f:else><span class="text-body-secondary">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.never')}</span></f:else>
+                                </f:if>
+                            </td>
+                            <td class="text-end nowrap"><span class="text-info">{row.automatedReads}</span> / <span class="text-body-secondary">{row.manualReveals}</span></td>
+                            <td class="text-end">{row.ageDays}</td>
+                            <td class="col-control nowrap">
+                                <a href="{row.editUrl}" class="btn btn-default btn-sm">
+                                    <core:icon identifier="actions-open" size="small" /> {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.open')}
+                                </a>
+                            </td>
+                        </tr>
+                    </f:for>
+                </tbody>
+            </table>
+        </f:then>
+        <f:else>
+            <div class="callout callout-success">
+                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.candidates.empty')}
+            </div>
+        </f:else>
+    </f:if>
+
+    <div class="callout callout-info mt-4">
+        {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.note')}
+    </div>
+</f:section>
+</html>

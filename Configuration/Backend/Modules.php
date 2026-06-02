@@ -7,6 +7,7 @@
 
 declare(strict_types=1);
 
+use Netresearch\NrVault\Controller\AnalyticsController;
 use Netresearch\NrVault\Controller\AuditController;
 use Netresearch\NrVault\Controller\MigrationController;
 use Netresearch\NrVault\Controller\OverviewController;
@@ -102,6 +103,20 @@ return [
             'delete' => [
                 'target' => SecretsController::class . '::deleteAction',
                 'methods' => ['POST'],
+            ],
+        ],
+    ],
+
+    // Analytics submodule
+    'admin_vault_analytics' => [
+        'parent' => 'admin_vault',
+        'access' => 'admin',
+        'workspaces' => 'live',
+        'path' => '/module/admin/vault/analytics',
+        'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/analytics.xlf',
+        'routes' => [
+            '_default' => [
+                'target' => AnalyticsController::class . '::indexAction',
             ],
         ],
     ],

@@ -53,6 +53,12 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
      */
     public const DEFAULT_AUDIT_HMAC_EPOCH = 2;
 
+    public const DEFAULT_STALE_NEVER_READ_DAYS = 30;
+
+    public const DEFAULT_STALE_NOT_READ_DAYS = 90;
+
+    public const DEFAULT_STALE_NEVER_ROTATED_DAYS = 180;
+
     private const EXTENSION_KEY = 'nr_vault';
 
     /** @var array<string, mixed> */
@@ -192,6 +198,36 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         $val = $this->configuration['auditHmacEpoch'] ?? self::DEFAULT_AUDIT_HMAC_EPOCH;
 
         return is_numeric($val) ? (int) $val : self::DEFAULT_AUDIT_HMAC_EPOCH;
+    }
+
+    /**
+     * Days after creation with zero reads before a secret is "dead".
+     */
+    public function getStaleNeverReadDays(): int
+    {
+        $val = $this->configuration['staleNeverReadDays'] ?? self::DEFAULT_STALE_NEVER_READ_DAYS;
+
+        return is_numeric($val) ? (int) $val : self::DEFAULT_STALE_NEVER_READ_DAYS;
+    }
+
+    /**
+     * Days since last read of any kind before a secret is "dead".
+     */
+    public function getStaleNotReadDays(): int
+    {
+        $val = $this->configuration['staleNotReadDays'] ?? self::DEFAULT_STALE_NOT_READ_DAYS;
+
+        return is_numeric($val) ? (int) $val : self::DEFAULT_STALE_NOT_READ_DAYS;
+    }
+
+    /**
+     * Days since last rotation (or creation) before a secret is "never rotated".
+     */
+    public function getStaleNeverRotatedDays(): int
+    {
+        $val = $this->configuration['staleNeverRotatedDays'] ?? self::DEFAULT_STALE_NEVER_ROTATED_DAYS;
+
+        return is_numeric($val) ? (int) $val : self::DEFAULT_STALE_NEVER_ROTATED_DAYS;
     }
 
     /**

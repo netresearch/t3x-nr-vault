@@ -92,6 +92,12 @@ PHP
 echo "Setting up extensions..."
 vendor/bin/typo3 extension:setup
 
+# Seed demo data (idempotent). vault:seed-demo refuses to run in Production
+# context, and a DDEV TYPO3 install defaults to Production — so run it in
+# Development context here, otherwise the seed is silently skipped.
+echo "Seeding demo data..."
+TYPO3_CONTEXT=Development vendor/bin/typo3 vault:seed-demo || echo "  (demo seeding skipped/failed — non-fatal)"
+
 # Clear caches
 echo "Clearing caches..."
 vendor/bin/typo3 cache:flush

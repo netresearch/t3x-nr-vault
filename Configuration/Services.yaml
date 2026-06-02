@@ -69,6 +69,9 @@ services:
   Netresearch\NrVault\Http\VaultHttpClientInterface:
     alias: Netresearch\NrVault\Http\VaultHttpClient
 
+  Netresearch\NrVault\Service\Analytics\VaultAnalyticsServiceInterface:
+    alias: Netresearch\NrVault\Service\Analytics\VaultAnalyticsService
+
   # ----- Factory-resolved services ----------------------------------------
   # Factories cannot be discovered by autowire and must be declared explicitly.
 
@@ -123,8 +126,8 @@ services:
         identifier: nrVaultAuditHmacMigration
 
   # ----- Notes on removed entries -----------------------------------------
-  # - 5 controller entries — covered by #[AsController] + autoconfigure.
-  # - 12 command entries — covered by #[AsCommand] + autoconfigure.
+  # - 6 controller entries — covered by #[AsController] + autoconfigure.
+  # - 13 command entries — covered by #[AsCommand] + autoconfigure.
   # - 11 redundant `public: true` flags on interface aliases — interfaces
   #   resolve via constructor DI, no $container->get() / makeInstance use.
   #   (VaultServiceInterface kept public — 3 makeInstance call sites.)

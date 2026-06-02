@@ -130,6 +130,12 @@ Audit logging
    Tamper-evident logs with hash chain verification. Know exactly who accessed
    what, when - for compliance and incident response.
 
+Usage analytics
+   A backend dashboard surfaces stale, expired, never-rotated, and unused
+   secrets - redaction candidates you can safely remove. Automated and manual
+   reads are counted separately, so a secret revealed only by hand is not
+   mistaken for one a running integration still depends on.
+
 TYPO3-native integration
    TCA field type, site configuration support, TypoScript integration, CLI
    commands. Works the way TYPO3 developers expect.

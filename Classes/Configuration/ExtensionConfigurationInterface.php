@@ -80,6 +80,21 @@ interface ExtensionConfigurationInterface
     public function getAuditHmacEpoch(): int;
 
     /**
+     * Days after creation with zero reads before a secret is "dead".
+     */
+    public function getStaleNeverReadDays(): int;
+
+    /**
+     * Days since last read of any kind before a secret is "dead".
+     */
+    public function getStaleNotReadDays(): int;
+
+    /**
+     * Days since last rotation (or creation) before a secret is "never rotated".
+     */
+    public function getStaleNeverRotatedDays(): int;
+
+    /**
      * Get the auto-generated key storage path (for development).
      */
     public function getAutoKeyPath(): string;

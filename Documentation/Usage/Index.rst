@@ -69,6 +69,88 @@ Click :guilabel:`Reveal` to temporarily show a secret value.
 
    The secrets list provides filtering, bulk actions, and quick access to secret operations
 
+.. _usage-analytics:
+
+Analytics
+---------
+
+The :guilabel:`Analytics` submodule gives administrators an at-a-glance view of
+secret usage and highlights secrets that may be safe to remove. Choose the
+evaluation window with the :guilabel:`30d` / :guilabel:`90d` / :guilabel:`180d`
+/ :guilabel:`365d` selector at the top.
+
+.. figure:: /Images/VaultAnalytics.png
+   :alt: Vault Analytics module with KPI cards, usage distribution, and a redaction-candidates table
+   :class: with-shadow
+
+   The analytics dashboard summarises usage and flags redaction candidates
+
+.. _usage-analytics-metrics:
+
+Key metrics
+~~~~~~~~~~~
+
+Total secrets
+   Active (non-deleted) secrets in the vault.
+
+Expired
+   Secrets whose expiration date has passed but that still exist.
+
+Redaction candidates
+   Secrets flagged by at least one staleness rule (see below).
+
+Frontend-accessible
+   Secrets marked ``frontend_accessible`` - review these with extra care.
+
+Never rotated
+   Secrets that have never been rotated within the configured threshold.
+
+Reads in window (automated / manual)
+   Read activity for the selected window, split into automated reads (CLI,
+   scheduler, API) and manual reveals performed in the backend.
+
+.. _usage-analytics-redaction:
+
+Redaction candidates
+~~~~~~~~~~~~~~~~~~~~~
+
+The table lists every flagged secret together with the rule(s) that flagged it,
+its last read of any kind, the automated / manual read split for the window, and
+its age in days. :guilabel:`Open` deep-links straight to the secret record so you
+can review or delete it.
+
+Secrets are flagged by these rules:
+
+Dead
+   Never read and older than the threshold, or not read for a long time - the
+   primary deletion candidate.
+
+Expired
+   Past its expiration date but still present in the vault.
+
+Never rotated
+   Older than the rotation threshold without ever having been rotated.
+
+Automation-stale
+   Revealed manually but **never read by automation**. This is a *review*
+   signal rather than a deletion signal: the secret may legitimately be used
+   only through manual workflows. It is therefore never combined with
+   :guilabel:`Dead`.
+
+.. note::
+
+   The automated-versus-manual split is derived from the audit log
+   (``actor_type``), so it reflects only reads recorded while audit logging was
+   active. The day thresholds are configurable - see
+   :ref:`usage-extension-settings`.
+
+.. tip::
+
+   To explore the dashboard with realistic, dated history on a development
+   instance, seed demo secrets and audit events with the
+   :ref:`vault:seed-demo <command-seed-demo>` command (development context
+   only).
+
 .. _usage-site-configuration:
 
 Site configuration

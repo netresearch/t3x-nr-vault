@@ -35,6 +35,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.gitattributes` (`export-ignore` dev-only paths for smaller composer/TER
   packages), `.ddev/.gitignore`, and a canonical `.ddev/commands/web/setup`
   entry point.
+- **Vault Analytics backend module** — a new "Analytics" submodule under the
+  Vault module showing usage KPIs (total / expired / frontend-accessible /
+  never-rotated secrets and reads in the selected window) and, most usefully, a
+  **redaction-candidates** table that flags secrets which appear unused and may
+  be safe to remove. Candidates are graded into delete-candidates (never read,
+  not read for a configurable period, or expired) and review-candidates
+  (revealed manually but never read by automation; never rotated). A time-window
+  selector (30/90/180/365 days) drives the usage signals, and each flagged
+  secret links straight to its edit view. Thresholds are configurable under the
+  extension's Analytics settings.
+- **`vault:seed-demo` command** — populates a development instance with
+  realistic, historic demo secrets and a matching audit-log history so the
+  Analytics module has lifelike data to show. Idempotent, refuses to run in
+  Production, and reseeds with `--force`.
 
 ### Documentation
 - README CLI reference expanded from 5 to all 12 `vault:*` commands with
@@ -47,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<table> <field>` (not `--table`/`--field`), `vault:rotate-master-key`
   `--confirm`/`--new-key`, the full `vault:audit` option reference, and
   `tx_vault_secret` → `tx_nrvault_secret`.
+- Documented the dev-only ``vault:seed-demo`` command in the CLI reference.
 
 ## [0.6.1] - 2026-05-31
 
