@@ -73,9 +73,20 @@ if [ ! -f "config/system/settings.php" ]; then
         --force
 fi
 
-# Configure trusted hosts pattern for DDEV
+# Configure trusted hosts pattern for DDEV.
+# The landing page, v14 backend and docs all live under *.ddev.site, so any of
+# them (e.g. v14.<project>.ddev.site) must be a trusted host or TYPO3 throws
+# "host header value does not match the configured trusted hosts pattern"
+# (#1396795884) — which happens over HTTPS once the ddev router is in front.
+# Written to additional.php (the override file) instead of patched into the
+# auto-managed settings.php: it is robust against the generated sitename value
+# and survives re-runs of `typo3 setup`.
 echo "Configuring trusted hosts..."
-sed -i "s/'sitename' => 'EXT:nr_vault Dev',/'sitename' => 'EXT:nr_vault Dev',\n        'trustedHostsPattern' => '.*\\\\.ddev\\\\.site',/" config/system/settings.php
+cat > config/system/additional.php <<'PHP'
+<?php
+// Trust all *.ddev.site hostnames used by this multi-host DDEV setup.
+$GLOBALS['TYPO3_CONF_VARS']['SYS']['trustedHostsPattern'] = '.*\.ddev\.site';
+PHP
 
 # Set up all extensions (includes nr_vault)
 echo "Setting up extensions..."
