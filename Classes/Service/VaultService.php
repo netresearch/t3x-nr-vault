@@ -590,9 +590,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         }
 
         return [
-            'scopePid' => isset($options['scopePid'])
-                ? (is_numeric($options['scopePid']) ? (int) $options['scopePid'] : 0)
-                : 0,
+            'scopePid' => (isset($options['scopePid']) && is_numeric($options['scopePid'])) ? (int) $options['scopePid'] : 0,
             'description' => isset($options['description']) ? $this->coerceToString($options['description']) : '',
             'allowedGroups' => isset($options['groups']) ? $this->coerceGroupList($options['groups']) : [],
             'context' => isset($options['context']) ? $this->coerceToString($options['context']) : '',
