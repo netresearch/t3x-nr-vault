@@ -271,21 +271,14 @@ final readonly class MigrationController
     {
         $parsedBody = $request->getParsedBody();
         $parsedBodyArray = \is_array($parsedBody) ? $parsedBody : [];
-        $migrations = $parsedBodyArray['migrations'] ?? [];
+        $migrationsRaw = $parsedBodyArray['migrations'] ?? [];
+        $migrations = \is_array($migrationsRaw) ? $migrationsRaw : [];
         $clearOriginalsValue = $parsedBodyArray['clearOriginals'] ?? false;
         $clearOriginals = (\is_string($clearOriginalsValue) || \is_int($clearOriginalsValue)) && (bool) $clearOriginalsValue;
 
-        $lang = $this->getLanguageService();
-
-        if (!\is_array($migrations) || $migrations === []) {
-            $this->addFlashMessage(
-                $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.noMigrationsConfigured'),
-                $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.configurationRequired'),
-                ContextualFeedbackSeverity::ERROR,
-            );
-
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new RedirectResponse($this->buildUri('scan'));
+        $guardResponse = $this->validateMigrationsRequest($migrations);
+        if ($guardResponse instanceof ResponseInterface) {
+            return $guardResponse;
         }
 
         $results = [];
@@ -293,36 +286,85 @@ final readonly class MigrationController
         $totalFailed = 0;
 
         foreach ($migrations as $migration) {
-            if (!\is_array($migration)) {
+            $result = $this->processMigrationEntry($migration);
+            if (!$result instanceof MigrationResult) {
                 continue;
             }
-            $tableVal = $migration['table'] ?? '';
-            $table = \is_string($tableVal) ? $tableVal : '';
-            $columnVal = $migration['column'] ?? '';
-            $column = \is_string($columnVal) ? $columnVal : '';
-            $identifierPatternVal = $migration['identifierPattern'] ?? '';
-            $identifierPattern = \is_string($identifierPatternVal) ? $identifierPatternVal : '';
-            if ($table === '') {
-                continue;
-            }
-            if ($column === '') {
-                continue;
-            }
-            if ($identifierPattern === '') {
-                continue;
-            }
-
-            try {
-                $result = $this->migrateColumn($table, $column, $identifierPattern);
-                $results[] = $result->toArray();
-                $totalMigrated += $result->migrated;
-                $totalFailed += $result->failed;
-            } catch (Exception $e) {
-                $results[] = MigrationResult::error($table, $column, $e->getMessage())->toArray();
-            }
+            $results[] = $result->toArray();
+            $totalMigrated += $result->migrated;
+            $totalFailed += $result->failed;
         }
 
-        // Store results in session for verify step
+        $this->storeMigrationResults($results, $totalMigrated, $totalFailed, $clearOriginals);
+
+        /** @phpstan-ignore new.internalClass, method.internalClass */
+        return new RedirectResponse($this->buildUri('verify'));
+    }
+
+    /**
+     * Validate that migrations were configured; returns a redirect response when invalid, null otherwise.
+     *
+     * @param array<mixed> $migrations
+     */
+    private function validateMigrationsRequest(array $migrations): ?ResponseInterface
+    {
+        if ($migrations !== []) {
+            return null;
+        }
+
+        $lang = $this->getLanguageService();
+        $this->addFlashMessage(
+            $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.noMigrationsConfigured'),
+            $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.configurationRequired'),
+            ContextualFeedbackSeverity::ERROR,
+        );
+
+        /** @phpstan-ignore new.internalClass, method.internalClass */
+        return new RedirectResponse($this->buildUri('scan'));
+    }
+
+    /**
+     * Process a single migration entry; returns the migration result, or null when the entry is skipped.
+     */
+    private function processMigrationEntry(mixed $migration): ?MigrationResult
+    {
+        if (!\is_array($migration)) {
+            return null;
+        }
+        $tableVal = $migration['table'] ?? '';
+        $table = \is_string($tableVal) ? $tableVal : '';
+        $columnVal = $migration['column'] ?? '';
+        $column = \is_string($columnVal) ? $columnVal : '';
+        $identifierPatternVal = $migration['identifierPattern'] ?? '';
+        $identifierPattern = \is_string($identifierPatternVal) ? $identifierPatternVal : '';
+        if ($table === '') {
+            return null;
+        }
+        if ($column === '') {
+            return null;
+        }
+        if ($identifierPattern === '') {
+            return null;
+        }
+
+        try {
+            return $this->migrateColumn($table, $column, $identifierPattern);
+        } catch (Exception $e) {
+            return MigrationResult::error($table, $column, $e->getMessage());
+        }
+    }
+
+    /**
+     * Store migration results in the backend user session for the verify step.
+     *
+     * @param list<array<string, mixed>> $results
+     */
+    private function storeMigrationResults(
+        array $results,
+        int $totalMigrated,
+        int $totalFailed,
+        bool $clearOriginals,
+    ): void {
         $beUser = $GLOBALS['BE_USER'] ?? null;
         if (\is_object($beUser) && method_exists($beUser, 'setAndSaveSessionData')) {
             $beUser->setAndSaveSessionData('vault_migration_results', [
@@ -332,9 +374,6 @@ final readonly class MigrationController
                 'clearOriginals' => $clearOriginals,
             ]);
         }
-
-        /** @phpstan-ignore new.internalClass, method.internalClass */
-        return new RedirectResponse($this->buildUri('verify'));
     }
 
     /**

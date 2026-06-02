@@ -14,6 +14,7 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -177,6 +178,68 @@ final class VaultMigrateFieldCommand extends Command
         $progressBar = $io->createProgressBar($totalRecords);
         $progressBar->start();
 
+        ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors] = $this->migrateRecords(
+            $records,
+            $batchSize,
+            $table,
+            $field,
+            $uidField,
+            $clearSource,
+            $progressBar,
+        );
+
+        $progressBar->finish();
+        $io->newLine(2);
+
+        // Summary
+        $io->section('Migration Summary');
+        $io->definitionList(
+            ['Total records' => $totalRecords],
+            ['Successfully migrated' => $migrated],
+            ['Failed' => $failed],
+        );
+
+        $this->reportErrors($io, $errors);
+
+        if ($failed > 0) {
+            $io->warning(\sprintf('Migration completed with %d errors', $failed));
+
+            return Command::FAILURE;
+        }
+
+        $io->success('Migration completed successfully');
+
+        // Show next steps
+        $io->section('Next Steps');
+        $io->listing([
+            'Update TCA configuration to use renderType => "vaultSecret" for this field',
+            'Test that the field displays correctly in the TYPO3 backend',
+            'Update any code that reads this field to use VaultFieldResolver::resolveFields()',
+            $clearSource
+                ? 'Source field has been cleared'
+                : 'Consider clearing or removing the source field after verifying migration',
+        ]);
+
+        return Command::SUCCESS;
+    }
+
+    /**
+     * Processes the records in batches, storing each value in the vault.
+     *
+     * @param array<int, array<string, mixed>> $records
+     * @param int<1, max> $batchSize
+     *
+     * @return array{migrated: int, failed: int, errors: list<string>}
+     */
+    private function migrateRecords(
+        array $records,
+        int $batchSize,
+        string $table,
+        string $field,
+        string $uidField,
+        bool $clearSource,
+        ProgressBar $progressBar,
+    ): array {
         $migrated = 0;
         $failed = 0;
         $errors = [];
@@ -224,47 +287,25 @@ final class VaultMigrateFieldCommand extends Command
             }
         }
 
-        $progressBar->finish();
-        $io->newLine(2);
+        return ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors];
+    }
 
-        // Summary
-        $io->section('Migration Summary');
-        $io->definitionList(
-            ['Total records' => $totalRecords],
-            ['Successfully migrated' => $migrated],
-            ['Failed' => $failed],
-        );
-
-        if ($errors !== []) {
-            $io->section('Errors');
-            foreach (\array_slice($errors, 0, 10) as $error) {
-                $io->text('<error>✗</error> ' . $error);
-            }
-            if (\count($errors) > 10) {
-                $io->text(\sprintf('... and %d more errors', \count($errors) - 10));
-            }
+    /**
+     * @param list<string> $errors
+     */
+    private function reportErrors(SymfonyStyle $io, array $errors): void
+    {
+        if ($errors === []) {
+            return;
         }
 
-        if ($failed > 0) {
-            $io->warning(\sprintf('Migration completed with %d errors', $failed));
-
-            return Command::FAILURE;
+        $io->section('Errors');
+        foreach (\array_slice($errors, 0, 10) as $error) {
+            $io->text('<error>✗</error> ' . $error);
         }
-
-        $io->success('Migration completed successfully');
-
-        // Show next steps
-        $io->section('Next Steps');
-        $io->listing([
-            'Update TCA configuration to use renderType => "vaultSecret" for this field',
-            'Test that the field displays correctly in the TYPO3 backend',
-            'Update any code that reads this field to use VaultFieldResolver::resolveFields()',
-            $clearSource
-                ? 'Source field has been cleared'
-                : 'Consider clearing or removing the source field after verifying migration',
-        ]);
-
-        return Command::SUCCESS;
+        if (\count($errors) > 10) {
+            $io->text(\sprintf('... and %d more errors', \count($errors) - 10));
+        }
     }
 
     private function tableExists(string $table): bool

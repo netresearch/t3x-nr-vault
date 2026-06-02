@@ -48,40 +48,26 @@ final readonly class AuditLogEntry implements JsonSerializable
      */
     public static function fromDatabaseRow(array $row): self
     {
-        /** @var array<string, mixed> $context */
-        $context = [];
-        if (!empty($row['context'])) {
-            $contextValue = $row['context'];
-            $decoded = json_decode(\is_string($contextValue) ? $contextValue : '', true);
-            if (\is_array($decoded)) {
-                /** @var array<string, mixed> $decoded */
-                $context = $decoded;
-            }
-        }
-
-        $errorMessage = $row['error_message'] ?? null;
-        $reason = $row['reason'] ?? null;
-
         return new self(
-            uid: is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
-            secretIdentifier: \is_string($row['secret_identifier'] ?? null) ? $row['secret_identifier'] : '',
-            action: \is_string($row['action'] ?? null) ? $row['action'] : '',
+            uid: self::intOrZero($row['uid'] ?? null),
+            secretIdentifier: self::stringOrEmpty($row['secret_identifier'] ?? null),
+            action: self::stringOrEmpty($row['action'] ?? null),
             success: (bool) ($row['success'] ?? false),
-            errorMessage: \is_string($errorMessage) && $errorMessage !== '' ? $errorMessage : null,
-            reason: \is_string($reason) && $reason !== '' ? $reason : null,
-            actorUid: is_numeric($row['actor_uid'] ?? null) ? (int) $row['actor_uid'] : 0,
-            actorType: \is_string($row['actor_type'] ?? null) ? $row['actor_type'] : '',
-            actorUsername: \is_string($row['actor_username'] ?? null) ? $row['actor_username'] : '',
-            actorRole: \is_string($row['actor_role'] ?? null) ? $row['actor_role'] : '',
-            ipAddress: \is_string($row['ip_address'] ?? null) ? $row['ip_address'] : '',
-            userAgent: \is_string($row['user_agent'] ?? null) ? $row['user_agent'] : '',
-            requestId: \is_string($row['request_id'] ?? null) ? $row['request_id'] : '',
-            previousHash: \is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '',
-            entryHash: \is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '',
-            hashBefore: \is_string($row['hash_before'] ?? null) ? $row['hash_before'] : '',
-            hashAfter: \is_string($row['hash_after'] ?? null) ? $row['hash_after'] : '',
-            crdate: is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : 0,
-            context: $context,
+            errorMessage: self::nonEmptyStringOrNull($row['error_message'] ?? null),
+            reason: self::nonEmptyStringOrNull($row['reason'] ?? null),
+            actorUid: self::intOrZero($row['actor_uid'] ?? null),
+            actorType: self::stringOrEmpty($row['actor_type'] ?? null),
+            actorUsername: self::stringOrEmpty($row['actor_username'] ?? null),
+            actorRole: self::stringOrEmpty($row['actor_role'] ?? null),
+            ipAddress: self::stringOrEmpty($row['ip_address'] ?? null),
+            userAgent: self::stringOrEmpty($row['user_agent'] ?? null),
+            requestId: self::stringOrEmpty($row['request_id'] ?? null),
+            previousHash: self::stringOrEmpty($row['previous_hash'] ?? null),
+            entryHash: self::stringOrEmpty($row['entry_hash'] ?? null),
+            hashBefore: self::stringOrEmpty($row['hash_before'] ?? null),
+            hashAfter: self::stringOrEmpty($row['hash_after'] ?? null),
+            crdate: self::intOrZero($row['crdate'] ?? null),
+            context: self::decodeContext($row['context'] ?? null),
         );
     }
 
@@ -111,5 +97,40 @@ final readonly class AuditLogEntry implements JsonSerializable
             'timestamp' => date('c', $this->crdate),
             'context' => $this->context,
         ];
+    }
+
+    /**
+     * Decode the JSON-encoded context column into an array.
+     *
+     * @return array<string, mixed>
+     */
+    private static function decodeContext(mixed $contextValue): array
+    {
+        if (empty($contextValue)) {
+            return [];
+        }
+
+        $decoded = json_decode(\is_string($contextValue) ? $contextValue : '', true);
+        if (\is_array($decoded)) {
+            /** @var array<string, mixed> $decoded */
+            return $decoded;
+        }
+
+        return [];
+    }
+
+    private static function stringOrEmpty(mixed $value): string
+    {
+        return \is_string($value) ? $value : '';
+    }
+
+    private static function nonEmptyStringOrNull(mixed $value): ?string
+    {
+        return \is_string($value) && $value !== '' ? $value : null;
+    }
+
+    private static function intOrZero(mixed $value): int
+    {
+        return is_numeric($value) ? (int) $value : 0;
     }
 }

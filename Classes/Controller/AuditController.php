@@ -248,45 +248,11 @@ final readonly class AuditController
      */
     private function buildAuditFilters(array $queryParams): array
     {
-        // Form values for repopulation (always strings for form fields)
-        $secretIdVal = $queryParams['secretIdentifier'] ?? '';
-        $filterActionVal = $queryParams['filterAction'] ?? '';
-        $successFormVal = $queryParams['success'] ?? '';
-        $sinceFormVal = $queryParams['since'] ?? '';
-        $untilFormVal = $queryParams['until'] ?? '';
-
-        $formData = [
-            'secretIdentifier' => \is_string($secretIdVal) ? $secretIdVal : '',
-            'action' => \is_string($filterActionVal) ? $filterActionVal : '',
-            'success' => \is_string($successFormVal) || \is_int($successFormVal) ? (string) $successFormVal : '',
-            'since' => \is_string($sinceFormVal) ? $sinceFormVal : '',
-            'until' => \is_string($untilFormVal) ? $untilFormVal : '',
-        ];
+        $formData = $this->buildAuditFormData($queryParams);
 
         // Parse dates
-        $since = null;
-        $sinceValue = $queryParams['since'] ?? '';
-        if (\is_string($sinceValue) && $sinceValue !== '') {
-            try {
-                $since = new DateTimeImmutable($sinceValue);
-            } catch (Exception) {
-                // Malformed date input from the user — leave $since/$until null
-                // so the filter is simply not applied. The form re-renders the
-                // raw value so the user can correct it.
-            }
-        }
-
-        $until = null;
-        $untilValue = $queryParams['until'] ?? '';
-        if (\is_string($untilValue) && $untilValue !== '') {
-            try {
-                $until = new DateTimeImmutable($untilValue);
-            } catch (Exception) {
-                // Malformed date input from the user — leave $since/$until null
-                // so the filter is simply not applied. The form re-renders the
-                // raw value so the user can correct it.
-            }
-        }
+        $since = $this->parseFilterDate($queryParams['since'] ?? '');
+        $until = $this->parseFilterDate($queryParams['until'] ?? '');
 
         // Parse success filter
         $success = null;
@@ -312,6 +278,48 @@ final readonly class AuditController
             'filter' => $filter->isEmpty() ? null : $filter,
             'form' => $formData,
         ];
+    }
+
+    /**
+     * Build form values for repopulation (always strings for form fields).
+     *
+     * @param array<string, mixed> $queryParams
+     *
+     * @return array<string, string>
+     */
+    private function buildAuditFormData(array $queryParams): array
+    {
+        $secretIdVal = $queryParams['secretIdentifier'] ?? '';
+        $filterActionVal = $queryParams['filterAction'] ?? '';
+        $successFormVal = $queryParams['success'] ?? '';
+        $sinceFormVal = $queryParams['since'] ?? '';
+        $untilFormVal = $queryParams['until'] ?? '';
+
+        return [
+            'secretIdentifier' => \is_string($secretIdVal) ? $secretIdVal : '',
+            'action' => \is_string($filterActionVal) ? $filterActionVal : '',
+            'success' => \is_string($successFormVal) || \is_int($successFormVal) ? (string) $successFormVal : '',
+            'since' => \is_string($sinceFormVal) ? $sinceFormVal : '',
+            'until' => \is_string($untilFormVal) ? $untilFormVal : '',
+        ];
+    }
+
+    /**
+     * Parse a date filter value; malformed or empty input yields null so the
+     * filter is simply not applied. The form re-renders the raw value so the
+     * user can correct it.
+     */
+    private function parseFilterDate(mixed $value): ?DateTimeImmutable
+    {
+        if (\is_string($value) && $value !== '') {
+            try {
+                return new DateTimeImmutable($value);
+            } catch (Exception) {
+                // Malformed date input from the user — fall through to null.
+            }
+        }
+
+        return null;
     }
 
     /**

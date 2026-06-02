@@ -75,13 +75,7 @@ final class VaultInitCommand extends Command
         $outputEnv = $input->getOption('env');
 
         if ($outputFile === null && $outputEnv === false) {
-            // Use configured source (file path) or default
-            $source = $this->configuration->getMasterKeySource();
-            // Only use source if it looks like a path (contains / or \)
-            $outputFile = (str_contains($source, '/') || str_contains($source, '\\')) ? $source : '';
-            if ($outputFile === '') {
-                $outputFile = Environment::getVarPath() . '/vault/master.key';
-            }
+            $outputFile = $this->resolveDefaultOutputFile();
         }
 
         // Check if key already exists
@@ -107,50 +101,78 @@ final class VaultInitCommand extends Command
             $io->newLine();
             $io->warning('Store this key securely! It cannot be recovered if lost.');
         } else {
-            // Ensure directory exists
-            $outputFilePath = $outputFile ?? '';
-            $dir = \dirname($outputFilePath);
-            if (!is_dir($dir) && !mkdir($dir, 0o700, true)) {
-                $io->error(\sprintf('Failed to create directory: %s', $dir));
+            $writeResult = $this->writeMasterKeyToFile($io, $outputFile ?? '', $masterKey);
+            if ($writeResult !== Command::SUCCESS) {
                 sodium_memzero($masterKey);
 
-                return Command::FAILURE;
+                return $writeResult;
             }
-
-            // Write key to file with restrictive permissions
-            $result = file_put_contents($outputFilePath, $masterKey);
-            if ($result === false) {
-                $io->error(\sprintf('Failed to write master key to: %s', $outputFilePath));
-                sodium_memzero($masterKey);
-
-                return Command::FAILURE;
-            }
-
-            // Set restrictive permissions (owner read/write only)
-            chmod($outputFilePath, 0o600);
-
-            $io->success(\sprintf('Master key generated and saved to: %s', $outputFilePath));
-            $io->table(
-                ['Property', 'Value'],
-                [
-                    ['Key file', $outputFilePath],
-                    ['Permissions', '0600 (owner read/write only)'],
-                    ['Algorithm', 'XSalsa20-Poly1305 (sodium_crypto_secretbox)'],
-                    ['Key length', \strlen($masterKey) . ' bytes'],
-                ],
-            );
-
-            $io->warning([
-                'IMPORTANT SECURITY NOTES:',
-                '1. Back up this key securely - it cannot be recovered if lost',
-                '2. All secrets are unrecoverable without this key',
-                '3. Keep this file outside of version control',
-                '4. Consider using environment variables in production',
-            ]);
         }
 
         // Clear key from memory
         sodium_memzero($masterKey);
+
+        return Command::SUCCESS;
+    }
+
+    /**
+     * Resolve the default master key output file from configuration or fall back to the var path.
+     */
+    private function resolveDefaultOutputFile(): string
+    {
+        // Use configured source (file path) or default
+        $source = $this->configuration->getMasterKeySource();
+        // Only use source if it looks like a path (contains / or \)
+        $outputFile = (str_contains($source, '/') || str_contains($source, '\\')) ? $source : '';
+        if ($outputFile === '') {
+            return Environment::getVarPath() . '/vault/master.key';
+        }
+
+        return $outputFile;
+    }
+
+    /**
+     * Persist the master key to disk with restrictive permissions; the caller zeroes the key.
+     */
+    private function writeMasterKeyToFile(SymfonyStyle $io, string $outputFilePath, string $masterKey): int
+    {
+        // Ensure directory exists
+        $dir = \dirname($outputFilePath);
+        if (!is_dir($dir) && !mkdir($dir, 0o700, true)) {
+            $io->error(\sprintf('Failed to create directory: %s', $dir));
+
+            return Command::FAILURE;
+        }
+
+        // Write key to file with restrictive permissions
+        $result = file_put_contents($outputFilePath, $masterKey);
+        if ($result === false) {
+            $io->error(\sprintf('Failed to write master key to: %s', $outputFilePath));
+
+            return Command::FAILURE;
+        }
+
+        // Set restrictive permissions (owner read/write only)
+        chmod($outputFilePath, 0o600);
+
+        $io->success(\sprintf('Master key generated and saved to: %s', $outputFilePath));
+        $io->table(
+            ['Property', 'Value'],
+            [
+                ['Key file', $outputFilePath],
+                ['Permissions', '0600 (owner read/write only)'],
+                ['Algorithm', 'XSalsa20-Poly1305 (sodium_crypto_secretbox)'],
+                ['Key length', \strlen($masterKey) . ' bytes'],
+            ],
+        );
+
+        $io->warning([
+            'IMPORTANT SECURITY NOTES:',
+            '1. Back up this key securely - it cannot be recovered if lost',
+            '2. All secrets are unrecoverable without this key',
+            '3. Keep this file outside of version control',
+            '4. Consider using environment variables in production',
+        ]);
 
         return Command::SUCCESS;
     }

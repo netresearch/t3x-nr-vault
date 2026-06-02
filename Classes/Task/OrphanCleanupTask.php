@@ -118,44 +118,22 @@ final class OrphanCleanupTask extends AbstractTask
                     $afterUid = max($afterUid, $uid);
                 }
 
-                $metadata = $secret->getMetadata();
-                $source = $metadata['source'] ?? '';
-
-                // Only check TCA-sourced secrets
-                if ($source !== 'tca_field' && $source !== 'migration') {
-                    continue;
-                }
-
-                // Extract reference from metadata (table, field, uid are stored by DataHandlerHook)
-                $reference = $this->parseMetadataReference($metadata);
+                $reference = $this->resolveOrphanReference($secret->getMetadata());
                 if (!$reference instanceof OrphanReference) {
                     continue;
                 }
 
-                // Apply table filter if specified
-                if ($this->tableFilter !== '' && $reference->table !== $this->tableFilter) {
-                    continue;
-                }
-
                 $checked++;
-                $createdAt = $secret->getCrdate();
 
                 // Only delete if the source record is gone AND the secret is
                 // older than the retention period.
-                if ($this->recordExists($connectionPool, $reference->table, $reference->uid) || $createdAt >= $retentionCutoff) {
+                if ($this->recordExists($connectionPool, $reference->table, $reference->uid) || $secret->getCrdate() >= $retentionCutoff) {
                     continue;
                 }
 
                 $orphansFound++;
 
-                try {
-                    $vaultService->delete($secret->getIdentifier(), 'Scheduler orphan cleanup');
-                    $logger->info('Deleted orphan secret', ['identifier' => $secret->getIdentifier()]);
-                } catch (Throwable $e) {
-                    $logger->error('Failed to delete orphan secret', [
-                        'identifier' => $secret->getIdentifier(),
-                        'error' => $e->getMessage(),
-                    ]);
+                if (!$this->deleteOrphan($vaultService, $logger, $secret->getIdentifier())) {
                     $success = false;
                 }
             }
@@ -182,6 +160,57 @@ final class OrphanCleanupTask extends AbstractTask
         }
 
         return implode(', ', $info);
+    }
+
+    /**
+     * Resolve a deletable orphan reference from a secret's metadata, or null
+     * when the secret is not a TCA-sourced candidate, has no parseable
+     * reference, or is excluded by the configured table filter.
+     *
+     * @param array<string, mixed> $metadata Secret metadata
+     */
+    private function resolveOrphanReference(array $metadata): ?OrphanReference
+    {
+        $source = $metadata['source'] ?? '';
+
+        // Only check TCA-sourced secrets
+        if ($source !== 'tca_field' && $source !== 'migration') {
+            return null;
+        }
+
+        // Extract reference from metadata (table, field, uid are stored by DataHandlerHook)
+        $reference = $this->parseMetadataReference($metadata);
+        if (!$reference instanceof OrphanReference) {
+            return null;
+        }
+
+        // Apply table filter if specified
+        if ($this->tableFilter !== '' && $reference->table !== $this->tableFilter) {
+            return null;
+        }
+
+        return $reference;
+    }
+
+    /**
+     * Delete a single orphan secret through the VaultService (ACL + audit
+     * preserved). Returns false when deletion failed.
+     */
+    private function deleteOrphan(VaultServiceInterface $vaultService, LoggerInterface $logger, string $identifier): bool
+    {
+        try {
+            $vaultService->delete($identifier, 'Scheduler orphan cleanup');
+            $logger->info('Deleted orphan secret', ['identifier' => $identifier]);
+
+            return true;
+        } catch (Throwable $e) {
+            $logger->error('Failed to delete orphan secret', [
+                'identifier' => $identifier,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
     }
 
     /**
