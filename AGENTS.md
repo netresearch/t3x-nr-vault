@@ -82,6 +82,7 @@ Build/           → phpunit.xml, FunctionalTests.xml
 | Adding class | PSR-4 under `Classes/`, namespace `Netresearch\NrVault\*` |
 | New command | `Classes/Command/` + register in `Configuration/Services.yaml` |
 | AJAX route | Add to `Configuration/Backend/AjaxRoutes.php` + controller in `Classes/Controller/` |
+| New backend submodule | (1) register in `Configuration/Backend/Modules.php` (with its dedicated labels XLF); (2) add a card to the `submodules` list in `OverviewController::indexAction` (with localized title/description in `locallang_mod.xlf`); (3) add a `Documentation/Usage/Index.rst` section + a `Documentation/Images/*.png` screenshot; (4) exclude the controller in `Build/phpunit.xml` coverage (backend module render is E2E-covered) **or** unit-test its extractable logic. Not done = incomplete feature. |
 | Touching secrets | Audit log every read/write via `AuditLogServiceInterface::log()` |
 | Running locally | `make up` then `make shell` |
 | Committing | Subject-style enforced by `captainhook.json`: capitalized, imperative mood, length-limited, no trailing period (NOT lowercase `feat:`/`fix:` prefixes). Sign off with `git commit -s`. See CONTRIBUTING.md |
