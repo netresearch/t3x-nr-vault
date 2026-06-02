@@ -12,7 +12,7 @@ namespace Netresearch\NrVault\Seeder;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
-use RuntimeException;
+use Netresearch\NrVault\Exception\ConfigurationException;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
@@ -40,7 +40,7 @@ final readonly class AuditChainSeeder
     {
         $epoch = $this->extensionConfiguration->getAuditHmacEpoch();
         if (!\in_array($epoch, self::SUPPORTED_EPOCHS, true)) {
-            throw new RuntimeException(
+            throw new ConfigurationException(
                 \sprintf('Demo seeder supports audit epoch 0/1/2; configured epoch is %d.', $epoch),
                 1_748_736_000,
             );
