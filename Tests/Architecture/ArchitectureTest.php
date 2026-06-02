@@ -45,6 +45,18 @@ use PHPat\Test\PHPat;
  */
 final class ArchitectureTest
 {
+    private const NAMESPACE_CRYPTO = 'Netresearch\NrVault\Crypto';
+
+    private const NAMESPACE_SERVICE = 'Netresearch\NrVault\Service';
+
+    private const NAMESPACE_CONTROLLER = 'Netresearch\NrVault\Controller';
+
+    private const NAMESPACE_COMMAND = 'Netresearch\NrVault\Command';
+
+    private const NAMESPACE_HOOK = 'Netresearch\NrVault\Hook';
+
+    private const SELECTOR_INTERFACE_REGEX = '/.*Interface$/';
+
     // =========================================================================
     // IMMUTABILITY RULES - Security-critical classes must be immutable
     // =========================================================================
@@ -127,8 +139,8 @@ final class ArchitectureTest
     public function testCryptoImplementationsMustBeFinal(): BuildStep
     {
         return PHPat::rule()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Crypto'))
-            ->excluding(Selector::classname('/.*Interface$/', true))
+            ->classes(Selector::inNamespace(self::NAMESPACE_CRYPTO))
+            ->excluding(Selector::classname(self::SELECTOR_INTERFACE_REGEX, true))
             ->shouldBeFinal()
             ->because('crypto implementations must not be overridden');
     }
@@ -140,7 +152,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Security'))
-            ->excluding(Selector::classname('/.*Interface$/', true))
+            ->excluding(Selector::classname(self::SELECTOR_INTERFACE_REGEX, true))
             ->shouldBeFinal()
             ->because('security implementations must not be overridden');
     }
@@ -161,11 +173,11 @@ final class ArchitectureTest
                 Selector::classname('/^Netresearch\\\\NrVault\\\\.*Service$/', true),
             )
             ->excluding(
-                Selector::classname('/.*Interface$/', true),
+                Selector::classname(self::SELECTOR_INTERFACE_REGEX, true),
                 Selector::classname('/.*Factory$/', true),
             )
             ->shouldImplement()
-            ->classes(Selector::classname('/.*Interface$/', true))
+            ->classes(Selector::classname(self::SELECTOR_INTERFACE_REGEX, true))
             ->because('services should be injected via interfaces for testability');
     }
 
@@ -212,7 +224,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Adapter'))
-            ->excluding(Selector::classname('/.*Interface$/', true))
+            ->excluding(Selector::classname(self::SELECTOR_INTERFACE_REGEX, true))
             ->shouldImplement()
             ->classes(Selector::classname(VaultAdapterInterface::class))
             ->because('adapters must follow the adapter contract');
@@ -230,9 +242,9 @@ final class ArchitectureTest
     public function testServicesDoNotDependOnControllers(): BuildStep
     {
         return PHPat::rule()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Service'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_SERVICE))
             ->shouldNotDependOn()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Controller'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_CONTROLLER))
             ->because('services should be independent of the presentation layer');
     }
 
@@ -244,9 +256,9 @@ final class ArchitectureTest
     public function testServicesDoNotDependOnCommands(): BuildStep
     {
         return PHPat::rule()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Service'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_SERVICE))
             ->shouldNotDependOn()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Command'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_COMMAND))
             ->because('services should be independent of CLI commands');
     }
 
@@ -261,9 +273,9 @@ final class ArchitectureTest
             ->classes(Selector::inNamespace('Netresearch\NrVault\Domain'))
             ->shouldNotDependOn()
             ->classes(
-                Selector::inNamespace('Netresearch\NrVault\Controller'),
-                Selector::inNamespace('Netresearch\NrVault\Command'),
-                Selector::inNamespace('Netresearch\NrVault\Hook'),
+                Selector::inNamespace(self::NAMESPACE_CONTROLLER),
+                Selector::inNamespace(self::NAMESPACE_COMMAND),
+                Selector::inNamespace(self::NAMESPACE_HOOK),
                 Selector::inNamespace('Netresearch\NrVault\Form'),
                 Selector::inNamespace('Netresearch\NrVault\Task'),
             )
@@ -278,16 +290,16 @@ final class ArchitectureTest
     public function testCryptoIsIsolated(): BuildStep
     {
         return PHPat::rule()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Crypto'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_CRYPTO))
             ->shouldNotDependOn()
             ->classes(
                 Selector::inNamespace('Netresearch\NrVault\Http'),
-                Selector::inNamespace('Netresearch\NrVault\Controller'),
-                Selector::inNamespace('Netresearch\NrVault\Command'),
-                Selector::inNamespace('Netresearch\NrVault\Hook'),
+                Selector::inNamespace(self::NAMESPACE_CONTROLLER),
+                Selector::inNamespace(self::NAMESPACE_COMMAND),
+                Selector::inNamespace(self::NAMESPACE_HOOK),
                 Selector::inNamespace('Netresearch\NrVault\Form'),
                 Selector::inNamespace('Netresearch\NrVault\Audit'),
-                Selector::inNamespace('Netresearch\NrVault\Service'),
+                Selector::inNamespace(self::NAMESPACE_SERVICE),
             )
             ->because('crypto operations must be independent of application context');
     }
@@ -304,7 +316,7 @@ final class ArchitectureTest
             ->shouldNotDependOn()
             ->classes(
                 Selector::inNamespace('Netresearch\NrVault\Http'),
-                Selector::inNamespace('Netresearch\NrVault\Controller'),
+                Selector::inNamespace(self::NAMESPACE_CONTROLLER),
             )
             ->because('security layer must be context-independent');
     }
@@ -317,9 +329,9 @@ final class ArchitectureTest
     public function testHooksDoNotDependOnControllers(): BuildStep
     {
         return PHPat::rule()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Hook'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_HOOK))
             ->shouldNotDependOn()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Controller'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_CONTROLLER))
             ->because('hooks should use services, not controllers');
     }
 
@@ -331,9 +343,9 @@ final class ArchitectureTest
     public function testCommandsDoNotDependOnControllers(): BuildStep
     {
         return PHPat::rule()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Command'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_COMMAND))
             ->shouldNotDependOn()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Controller'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_CONTROLLER))
             ->because('CLI commands should not use web controllers');
     }
 
@@ -361,7 +373,7 @@ final class ArchitectureTest
     public function testCommandsDoNotDependOnRepository(): BuildStep
     {
         return PHPat::rule()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Command'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_COMMAND))
             ->excluding(Selector::classname(VaultRotateMasterKeyCommand::class))
             ->shouldNot()
             ->dependOn()
@@ -384,9 +396,9 @@ final class ArchitectureTest
     public function testControllersDoNotDependOnCrypto(): BuildStep
     {
         return PHPat::rule()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Controller'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_CONTROLLER))
             ->shouldNotDependOn()
-            ->classes(Selector::inNamespace('Netresearch\NrVault\Crypto'))
+            ->classes(Selector::inNamespace(self::NAMESPACE_CRYPTO))
             ->because('controllers should use services for crypto operations');
     }
 
@@ -401,9 +413,9 @@ final class ArchitectureTest
             ->classes(Selector::inNamespace('Netresearch\NrVault\Configuration'))
             ->shouldNotDependOn()
             ->classes(
-                Selector::inNamespace('Netresearch\NrVault\Service'),
-                Selector::inNamespace('Netresearch\NrVault\Controller'),
-                Selector::inNamespace('Netresearch\NrVault\Command'),
+                Selector::inNamespace(self::NAMESPACE_SERVICE),
+                Selector::inNamespace(self::NAMESPACE_CONTROLLER),
+                Selector::inNamespace(self::NAMESPACE_COMMAND),
             )
             ->because('configuration should be low-level infrastructure');
     }
@@ -419,8 +431,8 @@ final class ArchitectureTest
             ->classes(Selector::inNamespace('Netresearch\NrVault\EventListener'))
             ->shouldNotDependOn()
             ->classes(
-                Selector::inNamespace('Netresearch\NrVault\Controller'),
-                Selector::inNamespace('Netresearch\NrVault\Command'),
+                Selector::inNamespace(self::NAMESPACE_CONTROLLER),
+                Selector::inNamespace(self::NAMESPACE_COMMAND),
             )
             ->because('event listeners should use services, not presentation layer');
     }
@@ -436,9 +448,9 @@ final class ArchitectureTest
             ->classes(Selector::inNamespace('Netresearch\NrVault\Utility'))
             ->shouldNotDependOn()
             ->classes(
-                Selector::inNamespace('Netresearch\NrVault\Controller'),
-                Selector::inNamespace('Netresearch\NrVault\Command'),
-                Selector::inNamespace('Netresearch\NrVault\Hook'),
+                Selector::inNamespace(self::NAMESPACE_CONTROLLER),
+                Selector::inNamespace(self::NAMESPACE_COMMAND),
+                Selector::inNamespace(self::NAMESPACE_HOOK),
             )
             ->because('utilities should be stateless helpers');
     }

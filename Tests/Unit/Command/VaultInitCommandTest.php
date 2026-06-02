@@ -24,6 +24,8 @@ use Symfony\Component\Console\Tester\CommandTester;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultInitCommandTest extends TestCase
 {
+    private const MASTER_KEY_PATH = 'vault/master.key';
+
     private ExtensionConfigurationInterface&MockObject $configuration;
 
     private CommandTester $commandTester;
@@ -95,7 +97,7 @@ final class VaultInitCommandTest extends TestCase
             ->method('getMasterKeySource')
             ->willReturn('');
 
-        $outputFile = vfsStream::url('vault/master.key');
+        $outputFile = vfsStream::url(self::MASTER_KEY_PATH);
 
         $exitCode = $this->commandTester->execute([
             '--output' => $outputFile,
@@ -120,7 +122,7 @@ final class VaultInitCommandTest extends TestCase
             ->method('getMasterKeyProvider')
             ->willReturn('file');
 
-        $outputFile = vfsStream::url('vault/master.key');
+        $outputFile = vfsStream::url(self::MASTER_KEY_PATH);
 
         $exitCode = $this->commandTester->execute([
             '--output' => $outputFile,
@@ -144,7 +146,7 @@ final class VaultInitCommandTest extends TestCase
             ->method('getMasterKeyProvider')
             ->willReturn('file');
 
-        $outputFile = vfsStream::url('vault/master.key');
+        $outputFile = vfsStream::url(self::MASTER_KEY_PATH);
 
         $exitCode = $this->commandTester->execute([
             '--output' => $outputFile,
@@ -204,7 +206,7 @@ final class VaultInitCommandTest extends TestCase
             ->willReturn('file');
 
         $exitCode = $this->commandTester->execute([
-            '--output' => vfsStream::url('vault/master.key'),
+            '--output' => vfsStream::url(self::MASTER_KEY_PATH),
         ]);
 
         self::assertSame(0, $exitCode);

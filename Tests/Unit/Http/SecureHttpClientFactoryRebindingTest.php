@@ -40,6 +40,12 @@ use TypeError;
 #[CoversClass(SecureHttpClientFactory::class)]
 final class SecureHttpClientFactoryRebindingTest extends TestCase
 {
+    private const METADATA_IP = '169.254.169.254';
+
+    private const DOCKER_IP = '172.18.0.5';
+
+    private const PUBLIC_IP = '93.184.216.34';
+
     private SecureHttpClientFactory $subject;
 
     private InMemoryDnsResolver $dnsResolver;
@@ -70,7 +76,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     {
         // IPv4 and IPv6 literals are validated by isHostAllowed() — the
         // middleware doesn't need to add a pin entry.
-        self::assertSame([], $this->callBuildResolveEntries('93.184.216.34', 443));
+        self::assertSame([], $this->callBuildResolveEntries(self::PUBLIC_IP, 443));
         self::assertSame([], $this->callBuildResolveEntries('::1', 443));
     }
 
@@ -87,7 +93,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     #[Test]
     public function buildResolveEntriesPinsSafeIpv4(): void
     {
-        $this->dnsResolver->program('api.example.com', [['ip' => '93.184.216.34']]);
+        $this->dnsResolver->program('api.example.com', [['ip' => self::PUBLIC_IP]]);
 
         $entries = $this->callBuildResolveEntries('api.example.com', 443);
 
@@ -113,8 +119,8 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // dangerous answer must kill the request — curl could otherwise pick
         // the internal one and we'd leak.
         $this->dnsResolver->program('rebind.example.com', [
-            ['ip' => '93.184.216.34'],
-            ['ip' => '169.254.169.254'], // AWS metadata
+            ['ip' => self::PUBLIC_IP],
+            ['ip' => self::METADATA_IP], // AWS metadata
         ]);
 
         $entries = $this->callBuildResolveEntries('rebind.example.com', 443);
@@ -130,7 +136,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // resolves to a private IP. With the allowlist flag set, the request
         // is NOT rejected — the resolved IP is pinned so a later rebind to a
         // different address is still blocked.
-        $this->dnsResolver->program('ollama', [['ip' => '172.18.0.5']]);
+        $this->dnsResolver->program('ollama', [['ip' => self::DOCKER_IP]]);
 
         $entries = $this->callBuildResolveEntries('ollama', 11434, true);
 
@@ -142,7 +148,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     {
         // Same host, but without the allowlist opt-in: the private-IP guard
         // still rejects (this is the request-time middleware's default).
-        $this->dnsResolver->program('ollama', [['ip' => '172.18.0.5']]);
+        $this->dnsResolver->program('ollama', [['ip' => self::DOCKER_IP]]);
 
         $entries = $this->callBuildResolveEntries('ollama', 11434);
 
@@ -156,7 +162,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // middleware reach a private-resolving host instead of throwing — this
         // is the gap that 0.6.0 left open (the middleware ignored allowed_hosts).
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['ollama'];
-        $this->dnsResolver->program('ollama', [['ip' => '172.18.0.5']]);
+        $this->dnsResolver->program('ollama', [['ip' => self::DOCKER_IP]]);
         $client = $this->buildCapturingClient($capturedOptions);
 
         $client->get('http://ollama:11434/api/tags');
@@ -173,7 +179,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // Wildcards must NEVER bypass the private-IP guard: a wildcard owner
         // could register an internal DNS record under their zone and pivot.
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['*.example'];
-        $this->dnsResolver->program('evil.example', [['ip' => '169.254.169.254']]);
+        $this->dnsResolver->program('evil.example', [['ip' => self::METADATA_IP]]);
         $client = $this->buildCapturingClient($capturedOptions);
 
         $this->expectException(RequestException::class);
@@ -210,7 +216,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     #[Test]
     public function middlewareRejectsRequestToHostResolvingToDangerousIp(): void
     {
-        $this->dnsResolver->program('attacker.example', [['ip' => '169.254.169.254']]);
+        $this->dnsResolver->program('attacker.example', [['ip' => self::METADATA_IP]]);
         $client = $this->buildCapturingClient($capturedOptions);
 
         $this->expectException(RequestException::class);
@@ -222,7 +228,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     #[Test]
     public function middlewareAddsCurlResolvePinForResolvedHost(): void
     {
-        $this->dnsResolver->program('safe.example', [['ip' => '93.184.216.34']]);
+        $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
         $client = $this->buildCapturingClient($capturedOptions);
 
         $client->get('https://safe.example/api');
@@ -245,7 +251,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // Verified indirectly: send to a bracketed FQDN-style host that
         // resolves via the in-memory resolver. If normalisation runs, the
         // resolver receives the bare host and the pin is generated.
-        $this->dnsResolver->program('safe.example', [['ip' => '93.184.216.34']]);
+        $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
         $client = $this->buildCapturingClient($capturedOptions);
 
         $client->get('http://safe.example/api');

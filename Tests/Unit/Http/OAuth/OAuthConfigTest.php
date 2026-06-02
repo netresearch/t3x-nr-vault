@@ -21,25 +21,33 @@ use ReflectionClass;
 #[CoversClass(OAuthConfig::class)]
 final class OAuthConfigTest extends TestCase
 {
+    private const TOKEN_ENDPOINT = 'https://auth.example.com/token';
+
+    private const CLIENT_ID_SECRET = 'oauth/client-id';
+
+    private const CLIENT_SECRET_SECRET = 'oauth/client-secret';
+
+    private const REFRESH_TOKEN_SECRET = 'oauth/refresh-token';
+
     #[Test]
     public function constructorSetsAllProperties(): void
     {
         $config = new OAuthConfig(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
             grantType: 'client_credentials',
-            refreshTokenSecret: 'oauth/refresh-token',
+            refreshTokenSecret: self::REFRESH_TOKEN_SECRET,
             scopes: ['read', 'write'],
             tokenExpiryBuffer: 120,
             additionalParams: ['audience' => 'https://api.example.com'],
         );
 
-        self::assertSame('https://auth.example.com/token', $config->tokenEndpoint);
-        self::assertSame('oauth/client-id', $config->clientIdSecret);
-        self::assertSame('oauth/client-secret', $config->clientSecretSecret);
+        self::assertSame(self::TOKEN_ENDPOINT, $config->tokenEndpoint);
+        self::assertSame(self::CLIENT_ID_SECRET, $config->clientIdSecret);
+        self::assertSame(self::CLIENT_SECRET_SECRET, $config->clientSecretSecret);
         self::assertSame('client_credentials', $config->grantType);
-        self::assertSame('oauth/refresh-token', $config->refreshTokenSecret);
+        self::assertSame(self::REFRESH_TOKEN_SECRET, $config->refreshTokenSecret);
         self::assertSame(['read', 'write'], $config->scopes);
         self::assertSame(120, $config->tokenExpiryBuffer);
         self::assertSame(['audience' => 'https://api.example.com'], $config->additionalParams);
@@ -49,9 +57,9 @@ final class OAuthConfigTest extends TestCase
     public function constructorHasCorrectDefaults(): void
     {
         $config = new OAuthConfig(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         self::assertSame('client_credentials', $config->grantType);
@@ -65,15 +73,15 @@ final class OAuthConfigTest extends TestCase
     public function clientCredentialsCreatesCorrectConfig(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
             scopes: ['api.read'],
         );
 
-        self::assertSame('https://auth.example.com/token', $config->tokenEndpoint);
-        self::assertSame('oauth/client-id', $config->clientIdSecret);
-        self::assertSame('oauth/client-secret', $config->clientSecretSecret);
+        self::assertSame(self::TOKEN_ENDPOINT, $config->tokenEndpoint);
+        self::assertSame(self::CLIENT_ID_SECRET, $config->clientIdSecret);
+        self::assertSame(self::CLIENT_SECRET_SECRET, $config->clientSecretSecret);
         self::assertSame('client_credentials', $config->grantType);
         self::assertNull($config->refreshTokenSecret);
         self::assertSame(['api.read'], $config->scopes);
@@ -83,18 +91,18 @@ final class OAuthConfigTest extends TestCase
     public function refreshTokenCreatesCorrectConfig(): void
     {
         $config = OAuthConfig::refreshToken(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
-            refreshTokenSecret: 'oauth/refresh-token',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            refreshTokenSecret: self::REFRESH_TOKEN_SECRET,
             scopes: ['offline_access'],
         );
 
-        self::assertSame('https://auth.example.com/token', $config->tokenEndpoint);
-        self::assertSame('oauth/client-id', $config->clientIdSecret);
-        self::assertSame('oauth/client-secret', $config->clientSecretSecret);
+        self::assertSame(self::TOKEN_ENDPOINT, $config->tokenEndpoint);
+        self::assertSame(self::CLIENT_ID_SECRET, $config->clientIdSecret);
+        self::assertSame(self::CLIENT_SECRET_SECRET, $config->clientSecretSecret);
         self::assertSame('refresh_token', $config->grantType);
-        self::assertSame('oauth/refresh-token', $config->refreshTokenSecret);
+        self::assertSame(self::REFRESH_TOKEN_SECRET, $config->refreshTokenSecret);
         self::assertSame(['offline_access'], $config->scopes);
     }
 
@@ -102,9 +110,9 @@ final class OAuthConfigTest extends TestCase
     public function getScopesStringReturnsSpaceSeparatedScopes(): void
     {
         $config = new OAuthConfig(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
             scopes: ['read', 'write', 'admin'],
         );
 
@@ -115,9 +123,9 @@ final class OAuthConfigTest extends TestCase
     public function getScopesStringReturnsEmptyForNoScopes(): void
     {
         $config = new OAuthConfig(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
             scopes: [],
         );
 

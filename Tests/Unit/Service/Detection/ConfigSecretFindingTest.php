@@ -19,11 +19,15 @@ use PHPUnit\Framework\Attributes\Test;
 #[CoversClass(ConfigSecretFinding::class)]
 final class ConfigSecretFindingTest extends TestCase
 {
+    private const SYS_KEY_PATH = 'SYS/key';
+
+    private const CUSTOM_MESSAGE = 'Custom message';
+
     #[Test]
     public function implementsSecretFinding(): void
     {
         $finding = new ConfigSecretFinding(
-            path: 'SYS/key',
+            path: self::SYS_KEY_PATH,
             severity: Severity::High,
             isLocalConfiguration: true,
         );
@@ -39,14 +43,14 @@ final class ConfigSecretFindingTest extends TestCase
             severity: Severity::Critical,
             isLocalConfiguration: false,
             patterns: ['API Key'],
-            message: 'Custom message',
+            message: self::CUSTOM_MESSAGE,
         );
 
         self::assertEquals('EXTENSIONS/my_ext/apiKey', $finding->path);
         self::assertEquals(Severity::Critical, $finding->severity);
         self::assertFalse($finding->isLocalConfiguration);
         self::assertEquals(['API Key'], $finding->patterns);
-        self::assertEquals('Custom message', $finding->message);
+        self::assertEquals(self::CUSTOM_MESSAGE, $finding->message);
     }
 
     #[Test]
@@ -164,7 +168,7 @@ final class ConfigSecretFindingTest extends TestCase
     public function jsonSerializeReturnsCorrectStructureForLocalConfig(): void
     {
         $finding = new ConfigSecretFinding(
-            path: 'SYS/key',
+            path: self::SYS_KEY_PATH,
             severity: Severity::High,
             isLocalConfiguration: true,
             patterns: ['Secret'],
@@ -173,7 +177,7 @@ final class ConfigSecretFindingTest extends TestCase
         $json = $finding->jsonSerialize();
 
         self::assertEquals('LocalConfiguration', $json['source']);
-        self::assertEquals('SYS/key', $json['path']);
+        self::assertEquals(self::SYS_KEY_PATH, $json['path']);
         self::assertEquals('high', $json['severity']);
         self::assertEquals(['Secret'], $json['patterns']);
         self::assertArrayNotHasKey('message', $json);
@@ -200,13 +204,13 @@ final class ConfigSecretFindingTest extends TestCase
             path: 'path',
             severity: Severity::High,
             isLocalConfiguration: true,
-            message: 'Custom message',
+            message: self::CUSTOM_MESSAGE,
         );
 
         $json = $finding->jsonSerialize();
 
         self::assertArrayHasKey('message', $json);
-        self::assertEquals('Custom message', $json['message']);
+        self::assertEquals(self::CUSTOM_MESSAGE, $json['message']);
     }
 
     #[Test]

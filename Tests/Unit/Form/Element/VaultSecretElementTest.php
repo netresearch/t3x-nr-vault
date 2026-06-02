@@ -35,6 +35,14 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultSecretElementTest extends TestCase
 {
+    private const FIELD_LABEL = 'API Key';
+
+    private const FIELD_DESCRIPTION = 'My field description';
+
+    private const VAULT_IDENTIFIER = '01937b6e-4b6c-7abc-8def-0123456789ab';
+
+    private const ITEM_FORM_EL_NAME = 'data[tx_test][1][api_key]';
+
     protected bool $resetSingletonInstances = true;
 
     private VaultSecretElement $subject;
@@ -146,14 +154,14 @@ final class VaultSecretElementTest extends TestCase
     {
         $langService = $this->createMock(LanguageService::class);
         $langService->method('sL')->willReturnCallback(
-            static fn (string $key): string => $key === 'My field description' ? 'My field description' : '',
+            static fn (string $key): string => $key === self::FIELD_DESCRIPTION ? self::FIELD_DESCRIPTION : '',
         );
         $GLOBALS['LANG'] = $langService;
 
         $this->setUpData([
             'fieldConf' => [
-                'label' => 'API Key',
-                'description' => 'My field description',
+                'label' => self::FIELD_LABEL,
+                'description' => self::FIELD_DESCRIPTION,
                 'config' => [
                     'type' => 'input',
                     'renderType' => 'vaultSecret',
@@ -166,7 +174,7 @@ final class VaultSecretElementTest extends TestCase
 
         self::assertIsString($result['html']);
         self::assertStringContainsString('form-description', $result['html']);
-        self::assertStringContainsString('My field description', $result['html']);
+        self::assertStringContainsString(self::FIELD_DESCRIPTION, $result['html']);
     }
 
     #[Test]
@@ -189,7 +197,7 @@ final class VaultSecretElementTest extends TestCase
 
         self::assertIsString($result['html']);
         self::assertStringContainsString('_vault_checksum', $result['html']);
-        $expectedChecksum = hash('sha256', '01937b6e-4b6c-7abc-8def-0123456789ab');
+        $expectedChecksum = hash('sha256', self::VAULT_IDENTIFIER);
         self::assertStringContainsString($expectedChecksum, $result['html']);
     }
 
@@ -265,7 +273,7 @@ final class VaultSecretElementTest extends TestCase
     {
         $this->setUpData([
             'fieldConf' => [
-                'label' => 'API Key',
+                'label' => self::FIELD_LABEL,
                 'config' => [
                     'type' => 'input',
                     'renderType' => 'vaultSecret',
@@ -286,7 +294,7 @@ final class VaultSecretElementTest extends TestCase
     {
         $this->setUpData([
             'fieldConf' => [
-                'label' => 'API Key',
+                'label' => self::FIELD_LABEL,
                 'config' => [
                     'type' => 'input',
                     'renderType' => 'vaultSecret',
@@ -342,7 +350,7 @@ final class VaultSecretElementTest extends TestCase
     #[Test]
     public function renderOutputHandlesVaultServiceExceptionGracefully(): void
     {
-        $vaultIdentifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $vaultIdentifier = self::VAULT_IDENTIFIER;
 
         $this->vaultService
             ->method('getMetadata')
@@ -354,10 +362,10 @@ final class VaultSecretElementTest extends TestCase
             'tableName' => 'tx_test',
             'fieldName' => 'api_key',
             'parameterArray' => [
-                'itemFormElName' => 'data[tx_test][1][api_key]',
+                'itemFormElName' => self::ITEM_FORM_EL_NAME,
                 'itemFormElValue' => $vaultIdentifier,
                 'fieldConf' => [
-                    'label' => 'API Key',
+                    'label' => self::FIELD_LABEL,
                     'config' => [
                         'type' => 'input',
                         'renderType' => 'vaultSecret',
@@ -381,7 +389,7 @@ final class VaultSecretElementTest extends TestCase
     {
         $this->setUpData([
             'fieldConf' => [
-                'label' => 'API Key',
+                'label' => self::FIELD_LABEL,
                 'config' => [
                     'type' => 'input',
                     'renderType' => 'vaultSecret',
@@ -403,10 +411,10 @@ final class VaultSecretElementTest extends TestCase
     private function setUpData(array $parameterArrayOverrides = []): void
     {
         $defaultParameterArray = [
-            'itemFormElName' => 'data[tx_test][1][api_key]',
+            'itemFormElName' => self::ITEM_FORM_EL_NAME,
             'itemFormElValue' => '',
             'fieldConf' => [
-                'label' => 'API Key',
+                'label' => self::FIELD_LABEL,
                 'config' => [
                     'type' => 'input',
                     'renderType' => 'vaultSecret',
@@ -426,7 +434,7 @@ final class VaultSecretElementTest extends TestCase
 
     private function setUpExistingSecretData(): void
     {
-        $vaultIdentifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $vaultIdentifier = self::VAULT_IDENTIFIER;
 
         $metadata = $this->createMock(SecretDetails::class);
         $this->vaultService
@@ -441,10 +449,10 @@ final class VaultSecretElementTest extends TestCase
             'tableName' => 'tx_test',
             'fieldName' => 'api_key',
             'parameterArray' => [
-                'itemFormElName' => 'data[tx_test][1][api_key]',
+                'itemFormElName' => self::ITEM_FORM_EL_NAME,
                 'itemFormElValue' => $vaultIdentifier,
                 'fieldConf' => [
-                    'label' => 'API Key',
+                    'label' => self::FIELD_LABEL,
                     'config' => [
                         'type' => 'input',
                         'renderType' => 'vaultSecret',

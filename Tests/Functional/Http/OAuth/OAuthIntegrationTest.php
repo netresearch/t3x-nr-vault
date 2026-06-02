@@ -64,6 +64,14 @@ final class OAuthIntegrationTest extends FunctionalTestCase
     /** Mock OAuth server URL (external access). NOSONAR — test-only, see above. */
     private const MOCK_OAUTH_EXTERNAL_URL = 'http://localhost:8080'; // NOSONAR
 
+    private const DEFAULT_TOKEN_PATH = '/default/token';
+
+    private const CLIENT_CRED_TOKEN_URL = 'https://auth.example.com/token';
+
+    private const CONTENT_TYPE_JSON = 'application/json';
+
+    private const DELETE_REASON_CLEANUP = 'test cleanup';
+
     protected array $testExtensionsToLoad = [
         'netresearch/nr-vault',
     ];
@@ -141,7 +149,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
         // Create OAuth config
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: $this->mockOAuthUrl . '/default/token',
+            tokenEndpoint: $this->mockOAuthUrl . self::DEFAULT_TOKEN_PATH,
             clientIdSecret: 'test_oauth_client_id',
             clientSecretSecret: 'test_oauth_client_secret',
             scopes: ['read', 'write'],
@@ -165,7 +173,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         $vaultService->store('cache_oauth_client_secret', 'test-client-secret');
 
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: $this->mockOAuthUrl . '/default/token',
+            tokenEndpoint: $this->mockOAuthUrl . self::DEFAULT_TOKEN_PATH,
             clientIdSecret: 'cache_oauth_client_id',
             clientSecretSecret: 'cache_oauth_client_secret',
         );
@@ -192,7 +200,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         $vaultService->store('clear_oauth_client_secret', 'test-client-secret');
 
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: $this->mockOAuthUrl . '/default/token',
+            tokenEndpoint: $this->mockOAuthUrl . self::DEFAULT_TOKEN_PATH,
             clientIdSecret: 'clear_oauth_client_id',
             clientSecretSecret: 'clear_oauth_client_secret',
         );
@@ -225,7 +233,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         $vaultService->store('http_oauth_client_secret', 'test-client-secret');
 
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: $this->mockOAuthUrl . '/default/token',
+            tokenEndpoint: $this->mockOAuthUrl . self::DEFAULT_TOKEN_PATH,
             clientIdSecret: 'http_oauth_client_id',
             clientSecretSecret: 'http_oauth_client_secret',
         );
@@ -274,14 +282,14 @@ final class OAuthIntegrationTest extends FunctionalTestCase
     {
         // Test client_credentials factory
         $clientCredConfig = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
+            tokenEndpoint: self::CLIENT_CRED_TOKEN_URL,
             clientIdSecret: 'client_id_secret',
             clientSecretSecret: 'client_secret_secret',
             scopes: ['read', 'write'],
         );
 
         self::assertEquals('client_credentials', $clientCredConfig->grantType);
-        self::assertEquals('https://auth.example.com/token', $clientCredConfig->tokenEndpoint);
+        self::assertEquals(self::CLIENT_CRED_TOKEN_URL, $clientCredConfig->tokenEndpoint);
         self::assertEquals('client_id_secret', $clientCredConfig->clientIdSecret);
         self::assertEquals('client_secret_secret', $clientCredConfig->clientSecretSecret);
         self::assertEquals(['read', 'write'], $clientCredConfig->scopes);
@@ -289,7 +297,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
         // Test refresh_token factory
         $refreshConfig = OAuthConfig::refreshToken(
-            tokenEndpoint: 'https://auth.example.com/token',
+            tokenEndpoint: self::CLIENT_CRED_TOKEN_URL,
             clientIdSecret: 'client_id_secret',
             clientSecretSecret: 'client_secret_secret',
             refreshTokenSecret: 'refresh_token_secret',
@@ -389,7 +397,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                 if ($grantType === 'refresh_token') {
                     return new Response(
                         401,
-                        ['Content-Type' => 'application/json'],
+                        ['Content-Type' => self::CONTENT_TYPE_JSON],
                         '{"error":"invalid_grant","error_description":"refresh token revoked"}',
                     );
                 }
@@ -397,7 +405,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                 // Successful client_credentials response.
                 return new Response(
                     200,
-                    ['Content-Type' => 'application/json'],
+                    ['Content-Type' => self::CONTENT_TYPE_JSON],
                     json_encode([
                         'access_token' => 'fallback-access-token',
                         'token_type' => 'Bearer',
@@ -486,11 +494,11 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         }
 
         // Cleanup
-        $vaultService->delete('fallback_client_id', 'test cleanup');
-        $vaultService->delete('fallback_client_secret', 'test cleanup');
+        $vaultService->delete('fallback_client_id', self::DELETE_REASON_CLEANUP);
+        $vaultService->delete('fallback_client_secret', self::DELETE_REASON_CLEANUP);
 
         try {
-            $vaultService->delete('fallback_refresh_token', 'test cleanup');
+            $vaultService->delete('fallback_refresh_token', self::DELETE_REASON_CLEANUP);
         } catch (Throwable) {
             // may have already been consumed
         }
@@ -515,7 +523,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                 // Both grant types fail.
                 return new Response(
                     401,
-                    ['Content-Type' => 'application/json'],
+                    ['Content-Type' => self::CONTENT_TYPE_JSON],
                     '{"error":"invalid_client"}',
                 );
             }
@@ -540,11 +548,11 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             $tokenManager->getAccessToken($config);
         } finally {
             // Cleanup even on failure
-            $vaultService->delete('double_fail_client_id', 'test cleanup');
-            $vaultService->delete('double_fail_client_secret', 'test cleanup');
+            $vaultService->delete('double_fail_client_id', self::DELETE_REASON_CLEANUP);
+            $vaultService->delete('double_fail_client_secret', self::DELETE_REASON_CLEANUP);
 
             try {
-                $vaultService->delete('double_fail_refresh_token', 'test cleanup');
+                $vaultService->delete('double_fail_refresh_token', self::DELETE_REASON_CLEANUP);
             } catch (Throwable) {
                 // ignore
             }

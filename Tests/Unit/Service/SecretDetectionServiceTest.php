@@ -40,6 +40,8 @@ use TYPO3\CMS\Core\Package\PackageManager;
 #[AllowMockObjectsWithoutExpectations]
 final class SecretDetectionServiceTest extends TestCase
 {
+    private const UUID_V7 = '01937b6e-4b6c-7abc-8def-0123456789ab';
+
     private ConnectionPool&MockObject $connectionPool;
 
     private PackageManager&MockObject $packageManager;
@@ -205,7 +207,7 @@ final class SecretDetectionServiceTest extends TestCase
     public static function vaultIdentifierProvider(): array
     {
         return [
-            'UUID v7 format' => ['01937b6e-4b6c-7abc-8def-0123456789ab', true],
+            'UUID v7 format' => [self::UUID_V7, true],
             'vault reference' => ['%vault(my_secret_key)%', true],
             'old TCA format (no longer detected)' => ['tx_myext_config__api_key__123', false],
             'regular value' => ['some_regular_value', false],
@@ -473,7 +475,7 @@ final class SecretDetectionServiceTest extends TestCase
             ->with('test_ext')
             ->willReturn([
                 'apiKey' => '%vault(my_api_key)%',
-                'password' => '01937b6e-4b6c-7abc-8def-0123456789ab', // UUID v7
+                'password' => self::UUID_V7, // UUID v7
             ]);
 
         $this->service->scanExtensionConfiguration();
@@ -851,7 +853,7 @@ final class SecretDetectionServiceTest extends TestCase
         // All samples are vault identifiers — should NOT be flagged
         $sampleResult = $this->createMock(Result::class);
         $sampleResult->method('fetchAllAssociative')->willReturn([
-            ['api_token' => '01937b6e-4b6c-7abc-8def-0123456789ab'],
+            ['api_token' => self::UUID_V7],
         ]);
 
         $countQb = $this->createMock(QueryBuilder::class);

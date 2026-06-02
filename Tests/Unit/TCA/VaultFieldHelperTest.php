@@ -15,6 +15,8 @@ use PHPUnit\Framework\Attributes\Test;
 
 final class VaultFieldHelperTest extends TestCase
 {
+    private const LABEL_API_KEY = 'API Key';
+
     protected bool $resetSingletonInstances = true;
 
     #[Test]
@@ -31,9 +33,9 @@ final class VaultFieldHelperTest extends TestCase
     #[Test]
     public function getFieldConfigAcceptsLabel(): void
     {
-        $config = VaultFieldHelper::getFieldConfig(['label' => 'API Key']);
+        $config = VaultFieldHelper::getFieldConfig(['label' => self::LABEL_API_KEY]);
 
-        self::assertSame('API Key', $config['label']);
+        self::assertSame(self::LABEL_API_KEY, $config['label']);
     }
 
     #[Test]
@@ -107,9 +109,9 @@ final class VaultFieldHelperTest extends TestCase
     #[Test]
     public function getSecureFieldConfigIncludesDefaults(): void
     {
-        $config = VaultFieldHelper::getSecureFieldConfig('API Key');
+        $config = VaultFieldHelper::getSecureFieldConfig(self::LABEL_API_KEY);
 
-        self::assertSame('API Key', $config['label']);
+        self::assertSame(self::LABEL_API_KEY, $config['label']);
         self::assertTrue($config['exclude']);
         self::assertSame('exclude', $config['l10n_mode']);
         self::assertSame('vaultSecret', $config['config']['renderType']);
@@ -118,7 +120,7 @@ final class VaultFieldHelperTest extends TestCase
     #[Test]
     public function getSecureFieldConfigAllowsOverrides(): void
     {
-        $config = VaultFieldHelper::getSecureFieldConfig('API Key', [
+        $config = VaultFieldHelper::getSecureFieldConfig(self::LABEL_API_KEY, [
             'exclude' => false,
             'required' => true,
         ]);
@@ -145,7 +147,7 @@ final class VaultFieldHelperTest extends TestCase
         ];
 
         $result = VaultFieldHelper::addVaultFields($tca, [
-            'api_key' => ['label' => 'API Key'],
+            'api_key' => ['label' => self::LABEL_API_KEY],
             'api_secret' => ['label' => 'API Secret', 'required' => true],
         ]);
 

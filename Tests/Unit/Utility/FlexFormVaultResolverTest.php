@@ -24,6 +24,10 @@ use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 #[AllowMockObjectsWithoutExpectations]
 final class FlexFormVaultResolverTest extends TestCase
 {
+    private const TEST_UUID = '01937b6e-4b6c-7abc-8def-0123456789ab';
+
+    private const DECRYPTION_FAILED_MESSAGE = 'Decryption failed';
+
     private VaultServiceInterface&MockObject $vaultService;
 
     private LoggerInterface&MockObject $logger;
@@ -52,7 +56,7 @@ final class FlexFormVaultResolverTest extends TestCase
     {
         // FlexForm and TCA vault fields now use UUID v7 format
         self::assertTrue($this->subject->isVaultIdentifier(
-            '01937b6e-4b6c-7abc-8def-0123456789ab',
+            self::TEST_UUID,
         ));
         self::assertTrue($this->subject->isVaultIdentifier(
             '01937b6f-0000-7000-8000-000000000000',
@@ -112,7 +116,7 @@ final class FlexFormVaultResolverTest extends TestCase
     #[Test]
     public function resolveSettingsResolvesVaultIdentifiers(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::TEST_UUID;
         $secretValue = 'my-secret-api-key';
 
         $this->vaultService
@@ -142,7 +146,7 @@ final class FlexFormVaultResolverTest extends TestCase
     public static function uuidIdentifierProvider(): array
     {
         return [
-            'valid uuid v7 lowercase' => ['01937b6e-4b6c-7abc-8def-0123456789ab', true],
+            'valid uuid v7 lowercase' => [self::TEST_UUID, true],
             'valid uuid v7 uppercase' => ['01937B6E-4B6C-7ABC-8DEF-0123456789AB', true],
             'valid uuid v7 mixed case' => ['01937b6e-4B6C-7abc-8DEF-0123456789ab', true],
             'empty string' => ['', false],
@@ -161,7 +165,7 @@ final class FlexFormVaultResolverTest extends TestCase
     #[Test]
     public function resolveAllResolvesNestedVaultIdentifiers(): void
     {
-        $identifier1 = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier1 = self::TEST_UUID;
         $identifier2 = '01937b6f-0000-7000-8000-000000000000';
 
         $this->vaultService
@@ -192,7 +196,7 @@ final class FlexFormVaultResolverTest extends TestCase
     #[Test]
     public function resolveSettingsReturnsNullForSecretNotFound(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::TEST_UUID;
 
         $this->vaultService
             ->method('retrieve')
@@ -210,18 +214,18 @@ final class FlexFormVaultResolverTest extends TestCase
     #[Test]
     public function resolveSettingsLogsErrorForVaultException(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::TEST_UUID;
 
         $this->vaultService
             ->method('retrieve')
-            ->willThrowException(new VaultException('Decryption failed', 1234567890));
+            ->willThrowException(new VaultException(self::DECRYPTION_FAILED_MESSAGE, 1234567890));
 
         $this->logger
             ->expects(self::once())
             ->method('error')
             ->with('Failed to resolve FlexForm vault field', self::callback(fn (array $context): bool => $context['field'] === 'apiKey'
                 && $context['identifier'] === $identifier
-                && str_contains((string) $context['error'], 'Decryption failed')));
+                && str_contains((string) $context['error'], self::DECRYPTION_FAILED_MESSAGE)));
 
         $settings = [
             'apiKey' => $identifier,
@@ -235,11 +239,11 @@ final class FlexFormVaultResolverTest extends TestCase
     #[Test]
     public function resolveSettingsThrowsWhenThrowOnErrorIsTrue(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::TEST_UUID;
 
         $this->vaultService
             ->method('retrieve')
-            ->willThrowException(new VaultException('Decryption failed', 1234567890));
+            ->willThrowException(new VaultException(self::DECRYPTION_FAILED_MESSAGE, 1234567890));
 
         $settings = [
             'apiKey' => $identifier,
@@ -252,18 +256,18 @@ final class FlexFormVaultResolverTest extends TestCase
     #[Test]
     public function resolveAllLogsErrorForVaultException(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::TEST_UUID;
 
         $this->vaultService
             ->method('retrieve')
-            ->willThrowException(new VaultException('Decryption failed', 1234567890));
+            ->willThrowException(new VaultException(self::DECRYPTION_FAILED_MESSAGE, 1234567890));
 
         $this->logger
             ->expects(self::once())
             ->method('error')
             ->with('Failed to resolve vault identifier', self::callback(fn (array $context): bool => $context['key'] === 'apiKey'
                 && $context['identifier'] === $identifier
-                && str_contains((string) $context['error'], 'Decryption failed')));
+                && str_contains((string) $context['error'], self::DECRYPTION_FAILED_MESSAGE)));
 
         $settings = [
             'apiKey' => $identifier,
@@ -277,7 +281,7 @@ final class FlexFormVaultResolverTest extends TestCase
     #[Test]
     public function resolveAllHandlesSecretNotFoundException(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::TEST_UUID;
 
         $this->vaultService
             ->method('retrieve')

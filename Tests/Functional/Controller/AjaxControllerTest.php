@@ -25,6 +25,8 @@ use TYPO3\CMS\Core\Http\Stream;
 #[CoversClass(AjaxController::class)]
 final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
 {
+    private const REASON_TEST_CLEANUP = 'Test cleanup';
+
     // Each test explicitly calls `setUpBackendUser()` with its own uid (admin
     // vs. editor), so the base class must not log anyone in automatically.
     protected ?int $backendUserUid = null;
@@ -52,7 +54,7 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
         self::assertSame($secretValue, $body['secret']);
 
         // Cleanup
-        $vaultService->delete($identifier, 'Test cleanup');
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
     }
 
     #[Test]
@@ -95,7 +97,7 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
 
         // Cleanup as admin
         $this->setUpBackendUser(1);
-        $vaultService->delete($identifier, 'Test cleanup');
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
     }
 
     #[Test]
@@ -126,7 +128,7 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
         self::assertSame('rotated-secret', $retrieved);
 
         // Cleanup
-        $vaultService->delete($identifier, 'Test cleanup');
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
     }
 
     #[Test]

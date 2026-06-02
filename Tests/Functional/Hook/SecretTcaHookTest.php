@@ -24,6 +24,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 #[CoversClass(SecretTcaHook::class)]
 final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
 {
+    private const DELETE_REASON_CLEANUP = 'Test cleanup';
+
     protected ?string $backendUserFixture = __DIR__ . '/Fixtures/be_users.csv';
 
     #[Test]
@@ -197,7 +199,7 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
         self::assertEquals($secretValue, $retrieved);
 
         // Cleanup
-        $vaultService->delete($identifier, 'Test cleanup');
+        $vaultService->delete($identifier, self::DELETE_REASON_CLEANUP);
     }
 
     #[Test]
@@ -252,7 +254,7 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
         self::assertEquals(2, $metadataAfter->version);
 
         // Cleanup
-        $vaultService->delete($identifier, 'Test cleanup');
+        $vaultService->delete($identifier, self::DELETE_REASON_CLEANUP);
     }
 
     #[Test]
@@ -310,7 +312,7 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
         // Cleanup vault entry
         $vaultService = $this->get(VaultServiceInterface::class);
         if ($vaultService->exists($identifier)) {
-            $vaultService->delete($identifier, 'Test cleanup');
+            $vaultService->delete($identifier, self::DELETE_REASON_CLEANUP);
         }
     }
 }

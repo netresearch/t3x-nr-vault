@@ -36,6 +36,12 @@ use ReflectionClass;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultHttpClientTest extends TestCase
 {
+    private const API_URL = 'https://api.example.com/data';
+
+    private const TOKEN_ENDPOINT = 'https://auth.example.com/token';
+
+    private const CONTENT_TYPE_JSON = 'application/json';
+
     /** @phpstan-ignore property.uninitialized */
     private VaultServiceInterface&MockObject $vaultService;
 
@@ -88,7 +94,7 @@ final class VaultHttpClientTest extends TestCase
             $this->innerClient,
         );
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $response = $client->sendRequest($request);
 
         self::assertSame(200, $response->getStatusCode());
@@ -134,7 +140,7 @@ final class VaultHttpClientTest extends TestCase
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::Bearer);
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $response = $authenticatedClient->sendRequest($request);
 
         self::assertSame(200, $response->getStatusCode());
@@ -165,7 +171,7 @@ final class VaultHttpClientTest extends TestCase
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::ApiKey);
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $authenticatedClient->sendRequest($request);
     }
 
@@ -198,7 +204,7 @@ final class VaultHttpClientTest extends TestCase
             ['headerName' => 'X-Custom-Auth'],
         );
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $authenticatedClient->sendRequest($request);
     }
 
@@ -228,7 +234,7 @@ final class VaultHttpClientTest extends TestCase
 
         $authenticatedClient = $client->withAuthentication('my_credentials', SecretPlacement::BasicAuth);
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $authenticatedClient->sendRequest($request);
     }
 
@@ -264,7 +270,7 @@ final class VaultHttpClientTest extends TestCase
             ['usernameSecret' => 'my_username'],
         );
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $authenticatedClient->sendRequest($request);
     }
 
@@ -293,7 +299,7 @@ final class VaultHttpClientTest extends TestCase
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::QueryParam);
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $authenticatedClient->sendRequest($request);
     }
 
@@ -326,7 +332,7 @@ final class VaultHttpClientTest extends TestCase
             ['queryParam' => 'access_token'],
         );
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $authenticatedClient->sendRequest($request);
     }
 
@@ -377,7 +383,7 @@ final class VaultHttpClientTest extends TestCase
 
         $authenticatedClient = $client->withAuthentication('nonexistent_key', SecretPlacement::Bearer);
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
 
         $this->expectException(SecretNotFoundException::class);
         $authenticatedClient->sendRequest($request);
@@ -417,7 +423,7 @@ final class VaultHttpClientTest extends TestCase
             ->withAuthentication('my_key', SecretPlacement::Bearer)
             ->withReason('Custom audit reason');
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $authenticatedClient->sendRequest($request);
     }
 
@@ -433,7 +439,7 @@ final class VaultHttpClientTest extends TestCase
             ->method('sendRequest')
             ->willReturnCallback(function (RequestInterface $request): Response {
                 // Original headers should be preserved
-                self::assertSame('application/json', $request->getHeaderLine('Content-Type'));
+                self::assertSame(self::CONTENT_TYPE_JSON, $request->getHeaderLine('Content-Type'));
                 self::assertSame('CustomAgent', $request->getHeaderLine('User-Agent'));
                 // Auth header should be added
                 self::assertSame('Bearer token', $request->getHeaderLine('Authorization'));
@@ -449,8 +455,8 @@ final class VaultHttpClientTest extends TestCase
 
         $authenticatedClient = $client->withAuthentication('my_key', SecretPlacement::Bearer);
 
-        $request = new Request('POST', 'https://api.example.com/data', [
-            'Content-Type' => 'application/json',
+        $request = new Request('POST', self::API_URL, [
+            'Content-Type' => self::CONTENT_TYPE_JSON,
             'User-Agent' => 'CustomAgent',
         ]);
 
@@ -498,7 +504,7 @@ final class VaultHttpClientTest extends TestCase
 
         $authenticatedClient = $client->withAuthentication('my_key', SecretPlacement::Bearer);
 
-        $request = new Request('POST', 'https://api.example.com/data');
+        $request = new Request('POST', self::API_URL);
         $authenticatedClient->sendRequest($request);
     }
 
@@ -556,8 +562,8 @@ final class VaultHttpClientTest extends TestCase
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
 
-        $request = new Request('POST', 'https://api.example.com/data', [
-            'Content-Type' => 'application/json',
+        $request = new Request('POST', self::API_URL, [
+            'Content-Type' => self::CONTENT_TYPE_JSON,
         ], json_encode(['field' => 'existing']));
 
         $authenticatedClient->sendRequest($request);
@@ -591,7 +597,7 @@ final class VaultHttpClientTest extends TestCase
 
         $authenticatedClient = $client->withAuthentication('my_secret', SecretPlacement::BodyField);
 
-        $request = new Request('POST', 'https://api.example.com/data', [
+        $request = new Request('POST', self::API_URL, [
             'Content-Type' => 'application/x-www-form-urlencoded',
         ], 'other_field=existing_value');
 
@@ -629,8 +635,8 @@ final class VaultHttpClientTest extends TestCase
             ['bodyField' => 'access_token'],
         );
 
-        $request = new Request('POST', 'https://api.example.com/data', [
-            'Content-Type' => 'application/json',
+        $request = new Request('POST', self::API_URL, [
+            'Content-Type' => self::CONTENT_TYPE_JSON,
         ], '{}');
 
         $authenticatedClient->sendRequest($request);
@@ -672,7 +678,7 @@ final class VaultHttpClientTest extends TestCase
 
         $authenticatedClient = $client->withAuthentication('my_key', SecretPlacement::Bearer);
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
 
         $this->expectException(ClientExceptionInterface::class);
         $authenticatedClient->sendRequest($request);
@@ -688,7 +694,7 @@ final class VaultHttpClientTest extends TestCase
         );
 
         $oauthConfig = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
             clientIdSecret: 'oauth/client-id',
             clientSecretSecret: 'oauth/client-secret',
         );
@@ -709,7 +715,7 @@ final class VaultHttpClientTest extends TestCase
         );
 
         $oauthConfig = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
             clientIdSecret: 'oauth/client-id',
             clientSecretSecret: 'oauth/client-secret',
         );
@@ -739,7 +745,7 @@ final class VaultHttpClientTest extends TestCase
             $this->innerClient,
         );
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $response = $client->sendRequest($request);
 
         self::assertSame(200, $response->getStatusCode());
@@ -769,7 +775,7 @@ final class VaultHttpClientTest extends TestCase
             $this->innerClient,
         );
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $client->sendRequest($request);
     }
 
@@ -800,7 +806,7 @@ final class VaultHttpClientTest extends TestCase
         // Header placement without custom headerName
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::Header);
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $authenticatedClient->sendRequest($request);
     }
 
@@ -832,8 +838,8 @@ final class VaultHttpClientTest extends TestCase
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
 
         // JSON request with empty body
-        $request = new Request('POST', 'https://api.example.com/data', [
-            'Content-Type' => 'application/json',
+        $request = new Request('POST', self::API_URL, [
+            'Content-Type' => self::CONTENT_TYPE_JSON,
         ], '');
 
         $authenticatedClient->sendRequest($request);
@@ -867,7 +873,7 @@ final class VaultHttpClientTest extends TestCase
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
 
         // Form request with empty body
-        $request = new Request('POST', 'https://api.example.com/data', [
+        $request = new Request('POST', self::API_URL, [
             'Content-Type' => 'application/x-www-form-urlencoded',
         ], '');
 
@@ -947,7 +953,7 @@ final class VaultHttpClientTest extends TestCase
                 $this->innerClient,
             );
 
-            $request = new Request('GET', 'https://api.example.com/data');
+            $request = new Request('GET', self::API_URL);
             $response = $client->sendRequest($request);
 
             self::assertSame(200, $response->getStatusCode());
@@ -992,7 +998,7 @@ final class VaultHttpClientTest extends TestCase
             ->withAuthentication('my_key', SecretPlacement::Bearer)
             ->withReason('Updated reason');
 
-        $request = new Request('GET', 'https://api.example.com/data');
+        $request = new Request('GET', self::API_URL);
         $authenticatedClient->sendRequest($request);
     }
 
@@ -1022,7 +1028,7 @@ final class VaultHttpClientTest extends TestCase
 
         $afterAuth = $client->withAuthentication('my_key', SecretPlacement::Bearer);
         $afterOAuth = $client->withOAuth(OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
             clientIdSecret: 'cid',
             clientSecretSecret: 'csec',
         ));

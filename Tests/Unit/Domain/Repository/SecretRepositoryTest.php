@@ -33,6 +33,10 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 #[CoversClass(SecretRepository::class)]
 final class SecretRepositoryTest extends TestCase
 {
+    private const EXPR_EQ = 'field = ?';
+
+    private const EXPR_IN = 'field IN (?)';
+
     private SecretRepository $subject;
 
     private ConnectionPool $connectionPool;
@@ -417,7 +421,7 @@ final class SecretRepositoryTest extends TestCase
         $connectionPool = $this->createStub(ConnectionPool::class);
         $connection = $this->createStub(Connection::class);
         $expressionBuilder = $this->createStub(ExpressionBuilder::class);
-        $expressionBuilder->method('eq')->willReturn('field = ?');
+        $expressionBuilder->method('eq')->willReturn(self::EXPR_EQ);
 
         $connectionPool->method('getConnectionForTable')->willReturn($connection);
         $subject = new SecretRepository($connectionPool);
@@ -458,7 +462,7 @@ final class SecretRepositoryTest extends TestCase
         $connectionPool = $this->createStub(ConnectionPool::class);
         $connection = $this->createStub(Connection::class);
         $expressionBuilder = $this->createStub(ExpressionBuilder::class);
-        $expressionBuilder->method('eq')->willReturn('field = ?');
+        $expressionBuilder->method('eq')->willReturn(self::EXPR_EQ);
 
         $connectionPool->method('getConnectionForTable')->willReturn($connection);
         $subject = new SecretRepository($connectionPool);
@@ -585,8 +589,8 @@ final class SecretRepositoryTest extends TestCase
         $connectionPool = $this->createStub(ConnectionPool::class);
         $connection = $this->createStub(Connection::class);
         $expressionBuilder = $this->createStub(ExpressionBuilder::class);
-        $expressionBuilder->method('eq')->willReturn('field = ?');
-        $expressionBuilder->method('in')->willReturn('field IN (?)');
+        $expressionBuilder->method('eq')->willReturn(self::EXPR_EQ);
+        $expressionBuilder->method('in')->willReturn(self::EXPR_IN);
 
         $connectionPool->method('getConnectionForTable')->willReturn($connection);
         $subject = new SecretRepository($connectionPool);
@@ -663,8 +667,8 @@ final class SecretRepositoryTest extends TestCase
         $connectionPool = $this->createStub(ConnectionPool::class);
         $connection = $this->createStub(Connection::class);
         $expressionBuilder = $this->createStub(ExpressionBuilder::class);
-        $expressionBuilder->method('eq')->willReturn('field = ?');
-        $expressionBuilder->method('in')->willReturn('field IN (?)');
+        $expressionBuilder->method('eq')->willReturn(self::EXPR_EQ);
+        $expressionBuilder->method('in')->willReturn(self::EXPR_IN);
 
         $connectionPool->method('getConnectionForTable')->willReturn($connection);
 
@@ -1019,8 +1023,8 @@ final class SecretRepositoryTest extends TestCase
         $this->queryBuilder->method('executeQuery')->willReturn($result);
         $this->queryBuilder->method('createNamedParameter')->willReturn('?');
 
-        $this->expressionBuilder->method('eq')->willReturn('field = ?');
-        $this->expressionBuilder->method('in')->willReturn('field IN (?)');
+        $this->expressionBuilder->method('eq')->willReturn(self::EXPR_EQ);
+        $this->expressionBuilder->method('in')->willReturn(self::EXPR_IN);
         $this->expressionBuilder->method('gt')->willReturn('field > ?');
         $this->expressionBuilder->method('lt')->willReturn('field < ?');
         $this->expressionBuilder->method('lte')->willReturn('field <= ?');
@@ -1034,7 +1038,7 @@ final class SecretRepositoryTest extends TestCase
         $this->queryBuilder->method('executeQuery')->willReturn($result);
         $this->queryBuilder->method('createNamedParameter')->willReturn('?');
 
-        $this->expressionBuilder->method('eq')->willReturn('field = ?');
+        $this->expressionBuilder->method('eq')->willReturn(self::EXPR_EQ);
     }
 
     /**

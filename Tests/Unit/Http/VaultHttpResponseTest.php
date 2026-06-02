@@ -24,6 +24,10 @@ use Psr\Http\Message\StreamInterface;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultHttpResponseTest extends TestCase
 {
+    private const CONTENT_TYPE_JSON = 'application/json';
+
+    private const CONTENT_TYPE_HTML = 'text/html';
+
     #[Test]
     public function getStatusCodeReturnsResponseStatusCode(): void
     {
@@ -251,11 +255,11 @@ final class VaultHttpResponseTest extends TestCase
     public function getHeaderReturnsFirstHeaderValue(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('getHeader')->with('Content-Type')->willReturn(['application/json', 'charset=utf-8']);
+        $psrResponse->method('getHeader')->with('Content-Type')->willReturn([self::CONTENT_TYPE_JSON, 'charset=utf-8']);
 
         $response = new VaultHttpResponse($psrResponse);
 
-        self::assertSame('application/json', $response->getHeader('Content-Type'));
+        self::assertSame(self::CONTENT_TYPE_JSON, $response->getHeader('Content-Type'));
     }
 
     #[Test]
@@ -273,11 +277,11 @@ final class VaultHttpResponseTest extends TestCase
     public function getHeaderValuesReturnsAllValues(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('getHeader')->with('Accept')->willReturn(['application/json', 'text/html']);
+        $psrResponse->method('getHeader')->with('Accept')->willReturn([self::CONTENT_TYPE_JSON, self::CONTENT_TYPE_HTML]);
 
         $response = new VaultHttpResponse($psrResponse);
 
-        self::assertSame(['application/json', 'text/html'], $response->getHeaderValues('Accept'));
+        self::assertSame([self::CONTENT_TYPE_JSON, self::CONTENT_TYPE_HTML], $response->getHeaderValues('Accept'));
     }
 
     #[Test]
@@ -290,7 +294,7 @@ final class VaultHttpResponseTest extends TestCase
 
         $response = new VaultHttpResponse($psrResponse);
 
-        self::assertSame('application/json', $response->getContentType());
+        self::assertSame(self::CONTENT_TYPE_JSON, $response->getContentType());
     }
 
     #[Test]
@@ -299,7 +303,7 @@ final class VaultHttpResponseTest extends TestCase
         $jsonResponse = $this->createMock(ResponseInterface::class);
         $jsonResponse->method('getHeader')
             ->with('Content-Type')
-            ->willReturn(['application/json']);
+            ->willReturn([self::CONTENT_TYPE_JSON]);
 
         $apiResponse = $this->createMock(ResponseInterface::class);
         $apiResponse->method('getHeader')
@@ -309,7 +313,7 @@ final class VaultHttpResponseTest extends TestCase
         $htmlResponse = $this->createMock(ResponseInterface::class);
         $htmlResponse->method('getHeader')
             ->with('Content-Type')
-            ->willReturn(['text/html']);
+            ->willReturn([self::CONTENT_TYPE_HTML]);
 
         self::assertTrue((new VaultHttpResponse($jsonResponse))->isJson());
         self::assertTrue((new VaultHttpResponse($apiResponse))->isJson());
@@ -381,7 +385,7 @@ final class VaultHttpResponseTest extends TestCase
     public function getHeadersReturnsAllHeaders(): void
     {
         $headers = [
-            'Content-Type' => ['application/json'],
+            'Content-Type' => [self::CONTENT_TYPE_JSON],
             'X-Custom' => ['value1', 'value2'],
         ];
 

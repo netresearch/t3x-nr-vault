@@ -37,6 +37,10 @@ use PHPUnit\Framework\MockObject\MockObject;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultServiceTest extends TestCase
 {
+    private const TEST_DESCRIPTION = 'Test description';
+
+    private const AUDIT_WRITE_ERROR = 'audit down';
+
     private VaultService $subject;
 
     private VaultAdapterInterface&MockObject $adapter;
@@ -586,7 +590,7 @@ final class VaultServiceTest extends TestCase
         $secret = $this->createSecretEntity(
             $identifier,
             version: 3,
-            description: 'Test description',
+            description: self::TEST_DESCRIPTION,
             context: 'testing',
             metadata: ['key' => 'value'],
         );
@@ -602,7 +606,7 @@ final class VaultServiceTest extends TestCase
         $result = $this->subject->getMetadata($identifier);
 
         self::assertEquals($identifier, $result->identifier);
-        self::assertEquals('Test description', $result->description);
+        self::assertEquals(self::TEST_DESCRIPTION, $result->description);
         self::assertEquals('testing', $result->context);
         self::assertEquals(3, $result->version);
         self::assertEquals(['key' => 'value'], $result->metadata);
@@ -661,7 +665,7 @@ final class VaultServiceTest extends TestCase
             ->expects(self::once())
             ->method('store')
             ->with(self::callback(static fn (Secret $s): bool => $s->getOwnerUid() === 5
-                && $s->getDescription() === 'Test description'
+                && $s->getDescription() === self::TEST_DESCRIPTION
                 && $s->getContext() === 'testing'
                 && $s->getScopePid() === 100
                 && $s->isFrontendAccessible()
@@ -672,7 +676,7 @@ final class VaultServiceTest extends TestCase
             'owner' => 5,
             'groups' => [1, 2, 3],
             'context' => 'testing',
-            'description' => 'Test description',
+            'description' => self::TEST_DESCRIPTION,
             'metadata' => ['key' => 'value'],
             'scopePid' => 100,
             'expiresAt' => $expiresAt,
@@ -989,7 +993,7 @@ final class VaultServiceTest extends TestCase
         // the just-inserted record so it never persists without an audit entry.
         $this->auditLogService
             ->method('log')
-            ->willThrowException(new AuditWriteException('audit down', 1747825331));
+            ->willThrowException(new AuditWriteException(self::AUDIT_WRITE_ERROR, 1747825331));
 
         $this->adapter
             ->expects(self::once())
@@ -1015,7 +1019,7 @@ final class VaultServiceTest extends TestCase
 
         $this->auditLogService
             ->method('log')
-            ->willThrowException(new AuditWriteException('audit down', 1747825331));
+            ->willThrowException(new AuditWriteException(self::AUDIT_WRITE_ERROR, 1747825331));
 
         // On update, the compensating action restores the prior instance:
         // store() is called twice — once for the mutation, once to restore.
@@ -1051,7 +1055,7 @@ final class VaultServiceTest extends TestCase
 
         $this->auditLogService
             ->method('log')
-            ->willThrowException(new AuditWriteException('audit down', 1747825331));
+            ->willThrowException(new AuditWriteException(self::AUDIT_WRITE_ERROR, 1747825331));
 
         // Compensating action: re-insert the just-deleted record.
         $this->adapter
@@ -1079,7 +1083,7 @@ final class VaultServiceTest extends TestCase
 
         $this->auditLogService
             ->method('log')
-            ->willThrowException(new AuditWriteException('audit down', 1747825331));
+            ->willThrowException(new AuditWriteException(self::AUDIT_WRITE_ERROR, 1747825331));
 
         // store() called twice: rotated value, then compensating restore of
         // the pre-rotation instance.
