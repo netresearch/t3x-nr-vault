@@ -36,6 +36,8 @@ use TYPO3\CMS\Core\Http\JsonResponse;
 #[AsController]
 final readonly class AjaxController
 {
+    private const ERROR_ACCESS_DENIED = 'Access denied';
+
     public function __construct(
         private VaultServiceInterface $vaultService,
         private AccessControlServiceInterface $accessControlService,
@@ -60,7 +62,7 @@ final readonly class AjaxController
         }
 
         if (!$this->accessControlService->isCurrentActorAdmin()) {
-            return $this->jsonError('Access denied', 403);
+            return $this->jsonError(self::ERROR_ACCESS_DENIED, 403);
         }
 
         $identifier = $this->getIdentifierFromRequest($request);
@@ -83,7 +85,7 @@ final readonly class AjaxController
                 'secret' => $secret,
             ]);
         } catch (AccessDeniedException) {
-            return $this->jsonError('Access denied', 403);
+            return $this->jsonError(self::ERROR_ACCESS_DENIED, 403);
         } catch (SecretExpiredException) {
             return $this->jsonError('Secret has expired', 410);
         } catch (EncryptionException) {
@@ -111,7 +113,7 @@ final readonly class AjaxController
 
         // SEC-ACCESS-6: defense-in-depth admin re-check (see revealAction).
         if (!$this->accessControlService->isCurrentActorAdmin()) {
-            return $this->jsonError('Access denied', 403);
+            return $this->jsonError(self::ERROR_ACCESS_DENIED, 403);
         }
 
         $body = $this->getJsonBody($request);
@@ -144,7 +146,7 @@ final readonly class AjaxController
         } catch (ValidationException $e) { // @phpstan-ignore catch.neverThrown
             return $this->jsonError('Validation error: ' . $e->getMessage(), 400);
         } catch (AccessDeniedException) {
-            return $this->jsonError('Access denied', 403);
+            return $this->jsonError(self::ERROR_ACCESS_DENIED, 403);
         } catch (EncryptionException) {
             return $this->jsonError('Encryption failed', 500);
         } catch (Exception) {

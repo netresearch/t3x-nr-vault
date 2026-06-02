@@ -41,6 +41,8 @@ use Throwable;
  */
 final class OAuthTokenManager
 {
+    private const REDACT_REPLACEMENT = '$1[REDACTED]';
+
     /**
      * Cached tokens indexed by config hash.
      *
@@ -572,12 +574,7 @@ final class OAuthTokenManager
                 '/(Authorization:\s*Bearer\s+)\S+/i',
                 '/(Authorization:\s*Basic\s+)\S+/i',
             ],
-            [
-                '$1[REDACTED]',
-                '$1[REDACTED]',
-                '$1[REDACTED]',
-                '$1[REDACTED]',
-            ],
+            self::REDACT_REPLACEMENT,
             $message,
         );
     }
