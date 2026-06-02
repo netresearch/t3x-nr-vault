@@ -25,6 +25,8 @@ use TYPO3\CMS\Core\Site\Entity\Site;
 #[AllowMockObjectsWithoutExpectations]
 final class SiteConfigurationVaultProcessorTest extends TestCase
 {
+    private const VAULT_PLACEHOLDER = '%vault(my_key)%';
+
     private VaultServiceInterface&MockObject $vaultService;
 
     private LoggerInterface&MockObject $logger;
@@ -106,7 +108,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
     public function processConfigurationPreservesNonVaultValues(): void
     {
         $config = [
-            'apiKey' => '%vault(my_key)%',
+            'apiKey' => self::VAULT_PLACEHOLDER,
             'regularValue' => 'not_a_vault_reference',
             'numericValue' => 42,
             'booleanValue' => true,
@@ -157,7 +159,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
     #[Test]
     public function isVaultReferenceReturnsTrueForValidReferences(): void
     {
-        self::assertTrue($this->processor->isVaultReference('%vault(my_key)%'));
+        self::assertTrue($this->processor->isVaultReference(self::VAULT_PLACEHOLDER));
         self::assertTrue($this->processor->isVaultReference('%vault(some_long_identifier_123)%'));
     }
 
@@ -182,7 +184,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
     #[Test]
     public function extractIdentifierReturnsIdentifier(): void
     {
-        $result = $this->processor->extractIdentifier('%vault(my_key)%');
+        $result = $this->processor->extractIdentifier(self::VAULT_PLACEHOLDER);
 
         self::assertSame('my_key', $result);
     }

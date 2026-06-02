@@ -19,6 +19,10 @@ use PHPUnit\Framework\Attributes\Test;
 #[CoversClass(IdentifierValidator::class)]
 final class IdentifierValidatorTest extends TestCase
 {
+    private const TEST_UUID = '01937b6e-4b6c-7abc-8def-0123456789ab';
+
+    private const EXPECTED_VALIDATION_EXCEPTION = 'Expected ValidationException';
+
     #[Test]
     public function validateAcceptsValidIdentifier(): void
     {
@@ -457,7 +461,7 @@ final class IdentifierValidatorTest extends TestCase
     {
         try {
             IdentifierValidator::validate('');
-            self::fail('Expected ValidationException');
+            self::fail(self::EXPECTED_VALIDATION_EXCEPTION);
         } catch (ValidationException $e) {
             // Kills ConcatOperandRemoval — exact message text matters.
             self::assertStringContainsString('empty', $e->getMessage());
@@ -469,7 +473,7 @@ final class IdentifierValidatorTest extends TestCase
     {
         try {
             IdentifierValidator::validate('a');
-            self::fail('Expected ValidationException');
+            self::fail(self::EXPECTED_VALIDATION_EXCEPTION);
         } catch (ValidationException $e) {
             // Kills IncrementInteger/DecrementInteger on MIN_LENGTH (3).
             self::assertStringContainsString('at least 3', $e->getMessage());
@@ -481,7 +485,7 @@ final class IdentifierValidatorTest extends TestCase
     {
         try {
             IdentifierValidator::validate(str_repeat('a', 300));
-            self::fail('Expected ValidationException');
+            self::fail(self::EXPECTED_VALIDATION_EXCEPTION);
         } catch (ValidationException $e) {
             // Kills IncrementInteger/DecrementInteger on MAX_LENGTH (255).
             self::assertStringContainsString('255', $e->getMessage());
@@ -541,7 +545,7 @@ final class IdentifierValidatorTest extends TestCase
     #[Test]
     public function looksLikeVaultIdentifierUuidV7CaseInsensitive(): void
     {
-        $lower = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $lower = self::TEST_UUID;
         $upper = '01937B6E-4B6C-7ABC-8DEF-0123456789AB';
 
         self::assertTrue(IdentifierValidator::looksLikeVaultIdentifier($lower));
@@ -554,7 +558,7 @@ final class IdentifierValidatorTest extends TestCase
     public static function uuidVariantProvider(): iterable
     {
         // Only [89ab] is a valid UUID variant (RFC 4122 10xx).
-        yield 'variant 8' => ['01937b6e-4b6c-7abc-8def-0123456789ab', true];
+        yield 'variant 8' => [self::TEST_UUID, true];
         yield 'variant 9' => ['01937b6e-4b6c-7abc-9def-0123456789ab', true];
         yield 'variant a' => ['01937b6e-4b6c-7abc-adef-0123456789ab', true];
         yield 'variant b' => ['01937b6e-4b6c-7abc-bdef-0123456789ab', true];
@@ -577,7 +581,7 @@ final class IdentifierValidatorTest extends TestCase
      */
     public static function uuidVersionProvider(): iterable
     {
-        yield 'version 7 accepted' => ['01937b6e-4b6c-7abc-8def-0123456789ab', true];
+        yield 'version 7 accepted' => [self::TEST_UUID, true];
         yield 'version 4 rejected' => ['01937b6e-4b6c-4abc-8def-0123456789ab', false];
         yield 'version 1 rejected' => ['01937b6e-4b6c-1abc-8def-0123456789ab', false];
         yield 'version 6 rejected' => ['01937b6e-4b6c-6abc-8def-0123456789ab', false];

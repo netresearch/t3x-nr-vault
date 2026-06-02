@@ -18,6 +18,16 @@ use PHPUnit\Framework\Attributes\Test;
 #[CoversClass(VaultServerConfig::class)]
 final class VaultServerConfigTest extends TestCase
 {
+    private const ADDRESS_EXAMPLE = 'https://vault.example.com';
+
+    private const ADDRESS_INTERNAL = 'https://vault.internal';
+
+    private const ADDRESS_VAULT = 'https://vault.com';
+
+    private const PATH_SECRET_DATA = 'secret/data';
+
+    private const PATH_KV_MYAPP = 'kv/myapp';
+
     #[Test]
     public function constructorDefaultsAllPropertiesToEmptyString(): void
     {
@@ -33,14 +43,14 @@ final class VaultServerConfigTest extends TestCase
     public function constructorSetsProvidedValues(): void
     {
         $subject = new VaultServerConfig(
-            address: 'https://vault.example.com',
-            path: 'secret/data',
+            address: self::ADDRESS_EXAMPLE,
+            path: self::PATH_SECRET_DATA,
             authMethod: 'token',
             token: 's.mytoken123',
         );
 
-        self::assertSame('https://vault.example.com', $subject->address);
-        self::assertSame('secret/data', $subject->path);
+        self::assertSame(self::ADDRESS_EXAMPLE, $subject->address);
+        self::assertSame(self::PATH_SECRET_DATA, $subject->path);
         self::assertSame('token', $subject->authMethod);
         self::assertSame('s.mytoken123', $subject->token);
     }
@@ -49,14 +59,14 @@ final class VaultServerConfigTest extends TestCase
     public function fromArrayCreatesObjectWithAllFields(): void
     {
         $subject = VaultServerConfig::fromArray([
-            'address' => 'https://vault.internal',
-            'path' => 'kv/myapp',
+            'address' => self::ADDRESS_INTERNAL,
+            'path' => self::PATH_KV_MYAPP,
             'authMethod' => 'token',
             'token' => 's.abc123',
         ]);
 
-        self::assertSame('https://vault.internal', $subject->address);
-        self::assertSame('kv/myapp', $subject->path);
+        self::assertSame(self::ADDRESS_INTERNAL, $subject->address);
+        self::assertSame(self::PATH_KV_MYAPP, $subject->path);
         self::assertSame('token', $subject->authMethod);
         self::assertSame('s.abc123', $subject->token);
     }
@@ -76,11 +86,11 @@ final class VaultServerConfigTest extends TestCase
     public function fromArrayIgnoresMissingOptionalFields(): void
     {
         $subject = VaultServerConfig::fromArray([
-            'address' => 'https://vault.example.com',
+            'address' => self::ADDRESS_EXAMPLE,
             'path' => 'secret',
         ]);
 
-        self::assertSame('https://vault.example.com', $subject->address);
+        self::assertSame(self::ADDRESS_EXAMPLE, $subject->address);
         self::assertSame('secret', $subject->path);
         self::assertSame('', $subject->authMethod);
         self::assertSame('', $subject->token);
@@ -100,9 +110,9 @@ final class VaultServerConfigTest extends TestCase
 
     public static function isValidProvider(): iterable
     {
-        yield 'address and path set => valid' => ['https://vault.example.com', 'kv/data', true];
+        yield 'address and path set => valid' => [self::ADDRESS_EXAMPLE, 'kv/data', true];
         yield 'empty address => invalid' => ['', 'kv/data', false];
-        yield 'empty path => invalid' => ['https://vault.example.com', '', false];
+        yield 'empty path => invalid' => [self::ADDRESS_EXAMPLE, '', false];
         yield 'both empty => invalid' => ['', '', false];
     }
 
@@ -110,13 +120,13 @@ final class VaultServerConfigTest extends TestCase
     public function isValidIgnoresAuthMethodAndToken(): void
     {
         $withToken = new VaultServerConfig(
-            address: 'https://vault.com',
+            address: self::ADDRESS_VAULT,
             path: 'kv',
             authMethod: 'token',
             token: 's.abc',
         );
         $withoutToken = new VaultServerConfig(
-            address: 'https://vault.com',
+            address: self::ADDRESS_VAULT,
             path: 'kv',
         );
 
@@ -132,7 +142,7 @@ final class VaultServerConfigTest extends TestCase
         bool $expected,
     ): void {
         $subject = new VaultServerConfig(
-            address: 'https://vault.com',
+            address: self::ADDRESS_VAULT,
             path: 'kv',
             authMethod: $authMethod,
             token: $token,
@@ -154,15 +164,15 @@ final class VaultServerConfigTest extends TestCase
     public function toArrayReturnsCorrectStructure(): void
     {
         $subject = new VaultServerConfig(
-            address: 'https://vault.example.com',
-            path: 'kv/myapp',
+            address: self::ADDRESS_EXAMPLE,
+            path: self::PATH_KV_MYAPP,
             authMethod: 'token',
             token: 's.secret',
         );
 
         self::assertSame([
-            'address' => 'https://vault.example.com',
-            'path' => 'kv/myapp',
+            'address' => self::ADDRESS_EXAMPLE,
+            'path' => self::PATH_KV_MYAPP,
             'authMethod' => 'token',
             'token' => 's.secret',
         ], $subject->toArray());
@@ -193,8 +203,8 @@ final class VaultServerConfigTest extends TestCase
     public function fromArrayRoundTripToArray(): void
     {
         $original = [
-            'address' => 'https://vault.internal',
-            'path' => 'secret/data',
+            'address' => self::ADDRESS_INTERNAL,
+            'path' => self::PATH_SECRET_DATA,
             'authMethod' => 'token',
             'token' => 's.roundtrip',
         ];

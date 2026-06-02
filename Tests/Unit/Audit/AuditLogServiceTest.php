@@ -35,6 +35,12 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 #[AllowMockObjectsWithoutExpectations]
 final class AuditLogServiceTest extends TestCase
 {
+    private const SHA256_HEX_PATTERN = '/^[a-f0-9]{64}$/';
+
+    private const IP_ADDRESS = '10.0.0.5';
+
+    private const USER_AGENT = 'curl/8';
+
     private ?AuditLogService $subject = null;
 
     private ?MockObject $connectionPool = null;
@@ -784,7 +790,7 @@ final class AuditLogServiceTest extends TestCase
 
         // The HMAC hash should not be empty and should be a valid hex string
         self::assertNotEmpty($hmacHash);
-        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $hmacHash);
+        self::assertMatchesRegularExpression(self::SHA256_HEX_PATTERN, $hmacHash);
 
         // The HMAC hash should differ from a plain SHA-256 of the same payload
         $legacySha256 = hash('sha256', $payload);
@@ -1060,7 +1066,7 @@ final class AuditLogServiceTest extends TestCase
     public function calculateHashV2DiffersForDifferentIpAddress(): void
     {
         $hmacKey = str_repeat("\xAA", 32);
-        $base = $this->makeV2Row(ipAddress: '10.0.0.5');
+        $base = $this->makeV2Row(ipAddress: self::IP_ADDRESS);
         $tampered = $this->makeV2Row(ipAddress: '192.168.1.1');
 
         $h1 = AuditLogService::calculateHashV2($base, '', $hmacKey);
@@ -1084,8 +1090,8 @@ final class AuditLogServiceTest extends TestCase
             'crdate' => 1704067200,
             'error_message' => 'access denied',
             'reason' => 'group not in allowlist',
-            'ip_address' => '10.0.0.5',
-            'user_agent' => 'curl/8',
+            'ip_address' => self::IP_ADDRESS,
+            'user_agent' => self::USER_AGENT,
             'hash_before' => '',
             'hash_after' => '',
             'context' => '{}',
@@ -1547,7 +1553,7 @@ final class AuditLogServiceTest extends TestCase
         $hash = AuditLogService::calculateHash(1, 'identifier', 'create', 42, 1704067200, '');
 
         self::assertSame(64, \strlen($hash));
-        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $hash);
+        self::assertMatchesRegularExpression(self::SHA256_HEX_PATTERN, $hash);
     }
 
     #[Test]
@@ -1557,7 +1563,7 @@ final class AuditLogServiceTest extends TestCase
         $hash = AuditLogService::calculateHash(1, 'id', 'create', 42, 1704067200, '', $hmacKey);
 
         self::assertSame(64, \strlen($hash));
-        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $hash);
+        self::assertMatchesRegularExpression(self::SHA256_HEX_PATTERN, $hash);
     }
 
     #[Test]
@@ -1660,8 +1666,8 @@ final class AuditLogServiceTest extends TestCase
         $h0 = AuditLogService::calculateHash(0, '', '', 0, 0, '');
         $hMax = AuditLogService::calculateHash(PHP_INT_MAX, 'max', 'max', PHP_INT_MAX, PHP_INT_MAX, '');
 
-        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $h0);
-        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $hMax);
+        self::assertMatchesRegularExpression(self::SHA256_HEX_PATTERN, $h0);
+        self::assertMatchesRegularExpression(self::SHA256_HEX_PATTERN, $hMax);
         self::assertNotSame($h0, $hMax);
     }
 
@@ -2119,8 +2125,8 @@ final class AuditLogServiceTest extends TestCase
             'crdate' => 1704067200,
             'error_message' => '',
             'reason' => '',
-            'ip_address' => '10.0.0.5',
-            'user_agent' => 'curl/8',
+            'ip_address' => self::IP_ADDRESS,
+            'user_agent' => self::USER_AGENT,
             'hash_before' => '',
             'hash_after' => '',
             'context' => '{}',
@@ -2147,8 +2153,8 @@ final class AuditLogServiceTest extends TestCase
         int $crdate = 1704067200,
         string $errorMessage = '',
         string $reason = '',
-        string $ipAddress = '10.0.0.5',
-        string $userAgent = 'curl/8',
+        string $ipAddress = self::IP_ADDRESS,
+        string $userAgent = self::USER_AGENT,
         string $hashBefore = '',
         string $hashAfter = '',
         string $context = '{}',

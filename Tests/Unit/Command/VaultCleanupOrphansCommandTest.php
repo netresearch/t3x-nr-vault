@@ -33,6 +33,16 @@ use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface
 #[AllowMockObjectsWithoutExpectations]
 final class VaultCleanupOrphansCommandTest extends TestCase
 {
+    private const MSG_NO_TCA_SECRETS = 'No TCA-sourced secrets found';
+
+    private const MSG_NO_ORPHANS = 'No orphaned secrets found';
+
+    private const IDENTIFIER = '01937b6e-4b6c-7abc-8def-0123456789ab';
+
+    private const IDENTIFIER_1 = '01937b6e-4b6c-7abc-8def-0123456789a1';
+
+    private const IDENTIFIER_2 = '01937b6e-4b6c-7abc-8def-0123456789a2';
+
     private VaultServiceInterface&MockObject $vaultService;
 
     private ConnectionPool&MockObject $connectionPool;
@@ -76,7 +86,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $exitCode = $this->commandTester->execute([]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('No TCA-sourced secrets found', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::MSG_NO_TCA_SECRETS, $this->commandTester->getDisplay());
     }
 
     #[Test]
@@ -89,7 +99,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $exitCode = $this->commandTester->execute([]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('No TCA-sourced secrets found', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::MSG_NO_TCA_SECRETS, $this->commandTester->getDisplay());
     }
 
     #[Test]
@@ -98,7 +108,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         // Metadata must include table, field, and uid for orphan detection
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
@@ -109,7 +119,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $exitCode = $this->commandTester->execute([]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('No orphaned secrets found', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::MSG_NO_ORPHANS, $this->commandTester->getDisplay());
     }
 
     #[Test]
@@ -117,7 +127,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
@@ -143,12 +153,12 @@ final class VaultCleanupOrphansCommandTest extends TestCase
 
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789a1',
+                self::IDENTIFIER_1,
                 $recentOrphan,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789a2',
+                self::IDENTIFIER_2,
                 $oldOrphan,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 2],
             ),
@@ -172,12 +182,12 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789a1',
+                self::IDENTIFIER_1,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789a2',
+                self::IDENTIFIER_2,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_other', 'field' => 'secret', 'uid' => 1],
             ),
@@ -201,7 +211,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
@@ -212,7 +222,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->vaultService
             ->expects($this->once())
             ->method('delete')
-            ->with('01937b6e-4b6c-7abc-8def-0123456789ab', 'Orphan cleanup');
+            ->with(self::IDENTIFIER, 'Orphan cleanup');
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([]);
@@ -226,7 +236,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
@@ -250,7 +260,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
@@ -272,7 +282,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'migration', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
@@ -440,7 +450,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'key', 'uid' => 1],
             ),
@@ -450,7 +460,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $exitCode = $this->commandTester->execute([]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('No orphaned secrets found', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::MSG_NO_ORPHANS, $this->commandTester->getDisplay());
     }
 
     #[Test]
@@ -458,7 +468,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'key', 'uid' => 1],
             ),
@@ -506,7 +516,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
 
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 $createdAt,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'key', 'uid' => 1],
             ),
@@ -522,7 +532,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $display = $this->commandTester->getDisplay();
 
         if ($expectedOrphanCount === 0) {
-            self::assertStringContainsString('No orphaned secrets found', $display);
+            self::assertStringContainsString(self::MSG_NO_ORPHANS, $display);
         } else {
             self::assertStringContainsString(
                 \sprintf('Found %d orphaned secrets', $expectedOrphanCount),
@@ -554,7 +564,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => $source, 'table' => 'tx_myext', 'field' => 'key', 'uid' => 1],
             ),
@@ -568,7 +578,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         if ($expectProcessed) {
             self::assertStringContainsString('Found 1 TCA-sourced', $display);
         } else {
-            self::assertStringContainsString('No TCA-sourced secrets found', $display);
+            self::assertStringContainsString(self::MSG_NO_TCA_SECRETS, $display);
         }
     }
 
@@ -581,7 +591,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'uid' => 1], // no 'table' key
             ),
@@ -592,7 +602,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->commandTester->setInputs(['yes']);
         $this->commandTester->execute([]);
 
-        self::assertStringContainsString('No orphaned secrets found', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::MSG_NO_ORPHANS, $this->commandTester->getDisplay());
     }
 
     /**
@@ -603,7 +613,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'key', 'uid' => 0],
             ),
@@ -614,7 +624,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->commandTester->setInputs(['yes']);
         $this->commandTester->execute([]);
 
-        self::assertStringContainsString('No orphaned secrets found', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::MSG_NO_ORPHANS, $this->commandTester->getDisplay());
     }
 
     /**
@@ -625,7 +635,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'flexform_field', 'table' => 'tt_content', 'flexField' => 'pi_flexform', 'uid' => 1],
             ),
@@ -646,7 +656,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     #[Test]
     public function dryRunListsExactIdentifierForOrphan(): void
     {
-        $uuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $uuid = self::IDENTIFIER;
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
                 $uuid,
@@ -670,7 +680,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     #[Test]
     public function deleteFailureErrorContainsIdentifierAndMessage(): void
     {
-        $uuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $uuid = self::IDENTIFIER;
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
                 $uuid,
@@ -701,7 +711,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     #[Test]
     public function deletePassesOrphanCleanupReasonExactly(): void
     {
-        $uuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $uuid = self::IDENTIFIER;
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
                 $uuid,
@@ -743,7 +753,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'key', 'uid' => 1],
             ),
@@ -767,7 +777,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'key', 'uid' => 1],
             ),
@@ -792,7 +802,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
-                '01937b6e-4b6c-7abc-8def-0123456789ab',
+                self::IDENTIFIER,
                 time() - 86400 * 30,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'key', 'uid' => 1],
             ),
@@ -810,8 +820,8 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     #[Test]
     public function summaryShowsExactDeletedAndFailedCountsOnMixedOutcome(): void
     {
-        $uuid1 = '01937b6e-4b6c-7abc-8def-0123456789a1';
-        $uuid2 = '01937b6e-4b6c-7abc-8def-0123456789a2';
+        $uuid1 = self::IDENTIFIER_1;
+        $uuid2 = self::IDENTIFIER_2;
 
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
@@ -857,7 +867,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     #[Test]
     public function liveModeDisplaysSuccessMessageAfterDeletion(): void
     {
-        $uuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $uuid = self::IDENTIFIER;
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
                 $uuid,
@@ -1047,7 +1057,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     #[Test]
     public function displaysDeletingSectionOnLiveRun(): void
     {
-        $uuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $uuid = self::IDENTIFIER;
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
                 $uuid,
@@ -1069,7 +1079,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     #[Test]
     public function displaysCancelledMessageOnNoConfirmation(): void
     {
-        $uuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $uuid = self::IDENTIFIER;
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
                 $uuid,
@@ -1096,7 +1106,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     #[Test]
     public function dryRunDisplaysWouldBeDeletedSection(): void
     {
-        $uuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $uuid = self::IDENTIFIER;
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
                 $uuid,

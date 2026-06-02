@@ -31,6 +31,10 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 #[CoversClass(EncryptionService::class)]
 final class MasterKeyRotationTest extends FunctionalTestCase
 {
+    private const NEW_KEY_FILENAME = '/master-new.key';
+
+    private const REASON_TEST_CLEANUP = 'Test cleanup';
+
     protected array $testExtensionsToLoad = [
         'netresearch/nr-vault',
     ];
@@ -107,7 +111,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         }
 
         // Create a new key file
-        $newKeyPath = $this->instancePath . '/master-new.key';
+        $newKeyPath = $this->instancePath . self::NEW_KEY_FILENAME;
         $newKey = sodium_crypto_secretbox_keygen();
         file_put_contents($newKeyPath, $newKey);
 
@@ -150,7 +154,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
         // Cleanup
         foreach (array_keys($secrets) as $identifier) {
-            $vaultService->delete($identifier, 'Test cleanup');
+            $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
         }
         if (file_exists($newKeyPath)) {
             // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
@@ -172,7 +176,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         $vaultService->store($identifier2, 'secret-2');
 
         // Create a new key file
-        $newKeyPath = $this->instancePath . '/master-new.key';
+        $newKeyPath = $this->instancePath . self::NEW_KEY_FILENAME;
         $newKey = sodium_crypto_secretbox_keygen();
         file_put_contents($newKeyPath, $newKey);
 
@@ -206,8 +210,8 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         self::assertSame('secret-2', $retrieved2, 'Second secret must remain accessible after failed rotation');
 
         // Cleanup
-        $vaultService->delete($identifier1, 'Test cleanup');
-        $vaultService->delete($identifier2, 'Test cleanup');
+        $vaultService->delete($identifier1, self::REASON_TEST_CLEANUP);
+        $vaultService->delete($identifier2, self::REASON_TEST_CLEANUP);
         if (file_exists($newKeyPath)) {
             // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
             unlink($newKeyPath);
@@ -238,7 +242,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         }
 
         // Create a new key file
-        $newKeyPath = $this->instancePath . '/master-new.key';
+        $newKeyPath = $this->instancePath . self::NEW_KEY_FILENAME;
         $newKey = sodium_crypto_secretbox_keygen();
         file_put_contents($newKeyPath, $newKey);
 
@@ -287,7 +291,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
         // Cleanup
         foreach ($identifiers as $identifier) {
-            $vaultService->delete($identifier, 'Test cleanup');
+            $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
         }
         if (file_exists($newKeyPath)) {
             // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path

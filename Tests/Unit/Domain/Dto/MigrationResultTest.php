@@ -18,6 +18,8 @@ use PHPUnit\Framework\Attributes\Test;
 #[CoversClass(MigrationResult::class)]
 final class MigrationResultTest extends TestCase
 {
+    private const SOME_ERROR = 'some error';
+
     #[Test]
     public function constructorSetsAllProperties(): void
     {
@@ -27,7 +29,7 @@ final class MigrationResultTest extends TestCase
             migrated: 10,
             failed: 2,
             skipped: 1,
-            error: 'some error',
+            error: self::SOME_ERROR,
         );
 
         self::assertSame('tt_content', $subject->table);
@@ -35,7 +37,7 @@ final class MigrationResultTest extends TestCase
         self::assertSame(10, $subject->migrated);
         self::assertSame(2, $subject->failed);
         self::assertSame(1, $subject->skipped);
-        self::assertSame('some error', $subject->error);
+        self::assertSame(self::SOME_ERROR, $subject->error);
     }
 
     #[Test]
@@ -145,7 +147,7 @@ final class MigrationResultTest extends TestCase
     #[Test]
     public function hasErrorReturnsTrueWhenErrorIsSet(): void
     {
-        $subject = MigrationResult::error('t', 'c', 'some error');
+        $subject = MigrationResult::error('t', 'c', self::SOME_ERROR);
 
         self::assertTrue($subject->hasError());
     }

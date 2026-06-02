@@ -23,6 +23,14 @@ use PHPUnit\Framework\Attributes\Test;
 #[AllowMockObjectsWithoutExpectations]
 final class FileMasterKeyProviderTest extends TestCase
 {
+    private const MASTER_KEY_PATH = 'vault/master.key';
+
+    private const NONEXISTENT_KEY_PATH = 'vault/nonexistent.key';
+
+    private const AUTO_KEY_PATH = 'vault/auto.key';
+
+    private const INVALID_KEY_LENGTH_MESSAGE = 'Invalid master key length';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -43,7 +51,7 @@ final class FileMasterKeyProviderTest extends TestCase
     #[Test]
     public function isAvailableReturnsTrueWhenFileExists(): void
     {
-        $keyPath = vfsStream::url('vault/master.key');
+        $keyPath = vfsStream::url(self::MASTER_KEY_PATH);
         // Use a fixed 32-byte key to avoid NUL byte issues
         file_put_contents($keyPath, base64_encode('AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH'));
 
@@ -59,7 +67,7 @@ final class FileMasterKeyProviderTest extends TestCase
     public function isAvailableReturnsFalseWhenFileDoesNotExist(): void
     {
         $config = $this->createMock(ExtensionConfigurationInterface::class);
-        $config->method('getMasterKeySource')->willReturn(vfsStream::url('vault/nonexistent.key'));
+        $config->method('getMasterKeySource')->willReturn(vfsStream::url(self::NONEXISTENT_KEY_PATH));
 
         $provider = new FileMasterKeyProvider($config);
 
@@ -82,7 +90,7 @@ final class FileMasterKeyProviderTest extends TestCase
     {
         // Use a fixed 32-byte key without NUL bytes or whitespace to avoid trim issues
         $key = 'XXXXYYYYZZZZAAAABBBBCCCCDDDDEEEE';
-        $keyPath = vfsStream::url('vault/master.key');
+        $keyPath = vfsStream::url(self::MASTER_KEY_PATH);
         file_put_contents($keyPath, base64_encode($key));
 
         $config = $this->createMock(ExtensionConfigurationInterface::class);
@@ -98,7 +106,7 @@ final class FileMasterKeyProviderTest extends TestCase
     {
         // Use a fixed 32-byte key without NUL bytes or whitespace to avoid trim issues
         $key = '12345678901234567890123456789012';
-        $keyPath = vfsStream::url('vault/master.key');
+        $keyPath = vfsStream::url(self::MASTER_KEY_PATH);
         file_put_contents($keyPath, $key);
 
         $config = $this->createMock(ExtensionConfigurationInterface::class);
@@ -114,7 +122,7 @@ final class FileMasterKeyProviderTest extends TestCase
     {
         $config = $this->createMock(ExtensionConfigurationInterface::class);
         $config->method('getMasterKeySource')->willReturn(ExtensionConfiguration::DEFAULT_MASTER_KEY_SOURCE);
-        $config->method('getAutoKeyPath')->willReturn(vfsStream::url('vault/auto.key'));
+        $config->method('getAutoKeyPath')->willReturn(vfsStream::url(self::AUTO_KEY_PATH));
 
         $provider = new FileMasterKeyProvider($config);
 
@@ -129,11 +137,11 @@ final class FileMasterKeyProviderTest extends TestCase
     {
         // Use a fixed 32-byte key without NUL bytes or whitespace to avoid trim issues
         $key = 'AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH';
-        $autoKeyPath = vfsStream::url('vault/auto.key');
+        $autoKeyPath = vfsStream::url(self::AUTO_KEY_PATH);
         file_put_contents($autoKeyPath, base64_encode($key));
 
         $config = $this->createMock(ExtensionConfigurationInterface::class);
-        $config->method('getMasterKeySource')->willReturn(vfsStream::url('vault/nonexistent.key'));
+        $config->method('getMasterKeySource')->willReturn(vfsStream::url(self::NONEXISTENT_KEY_PATH));
         $config->method('getAutoKeyPath')->willReturn($autoKeyPath);
 
         $provider = new FileMasterKeyProvider($config);
@@ -144,7 +152,7 @@ final class FileMasterKeyProviderTest extends TestCase
     #[Test]
     public function getMasterKeyThrowsWhenKeyLengthInvalid(): void
     {
-        $keyPath = vfsStream::url('vault/master.key');
+        $keyPath = vfsStream::url(self::MASTER_KEY_PATH);
         file_put_contents($keyPath, 'tooshort');
 
         $config = $this->createMock(ExtensionConfigurationInterface::class);
@@ -153,7 +161,7 @@ final class FileMasterKeyProviderTest extends TestCase
         $provider = new FileMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('Invalid master key length');
+        $this->expectExceptionMessage(self::INVALID_KEY_LENGTH_MESSAGE);
 
         $provider->getMasterKey();
     }
@@ -178,7 +186,7 @@ final class FileMasterKeyProviderTest extends TestCase
     public function storeMasterKeyUsesAutoKeyPathWhenSourceEmpty(): void
     {
         $key = random_bytes(32);
-        $autoKeyPath = vfsStream::url('vault/auto.key');
+        $autoKeyPath = vfsStream::url(self::AUTO_KEY_PATH);
 
         $config = $this->createMock(ExtensionConfigurationInterface::class);
         $config->method('getMasterKeySource')->willReturn('');
@@ -197,7 +205,7 @@ final class FileMasterKeyProviderTest extends TestCase
         $provider = new FileMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('Invalid master key length');
+        $this->expectExceptionMessage(self::INVALID_KEY_LENGTH_MESSAGE);
 
         $provider->storeMasterKey('tooshort');
     }
@@ -222,7 +230,7 @@ final class FileMasterKeyProviderTest extends TestCase
     {
         // Main path does not exist and auto path also does not exist
         $config = $this->createMock(ExtensionConfigurationInterface::class);
-        $config->method('getMasterKeySource')->willReturn(vfsStream::url('vault/nonexistent.key'));
+        $config->method('getMasterKeySource')->willReturn(vfsStream::url(self::NONEXISTENT_KEY_PATH));
         $config->method('getAutoKeyPath')->willReturn(vfsStream::url('vault/also-nonexistent.key'));
 
         $provider = new FileMasterKeyProvider($config);
@@ -247,7 +255,7 @@ final class FileMasterKeyProviderTest extends TestCase
         $provider = new FileMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('Invalid master key length');
+        $this->expectExceptionMessage(self::INVALID_KEY_LENGTH_MESSAGE);
 
         $provider->getMasterKey();
     }

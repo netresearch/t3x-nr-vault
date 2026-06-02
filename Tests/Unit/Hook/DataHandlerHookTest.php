@@ -38,6 +38,12 @@ final class DataHandlerHookTest extends TestCase
 {
     private const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
 
+    private const EXISTING_UUID = '01937b6e-4b6c-7abc-8def-0123456789ab';
+
+    private const TEST_TITLE = 'Test Title';
+
+    private const STORAGE_FAILED = 'Storage failed';
+
     protected bool $resetSingletonInstances = true;
 
     protected TcaSchemaFactory&MockObject $tcaSchemaFactory;
@@ -92,7 +98,7 @@ final class DataHandlerHookTest extends TestCase
             'title' => ['type' => 'input'],
         ]);
 
-        $fieldArray = ['title' => 'Test Title'];
+        $fieldArray = ['title' => self::TEST_TITLE];
 
         $this->subject->processDatamap_preProcessFieldArray(
             $fieldArray,
@@ -100,7 +106,7 @@ final class DataHandlerHookTest extends TestCase
             1,
         );
 
-        self::assertSame(['title' => 'Test Title'], $fieldArray);
+        self::assertSame(['title' => self::TEST_TITLE], $fieldArray);
     }
 
     #[Test]
@@ -135,7 +141,7 @@ final class DataHandlerHookTest extends TestCase
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
-        $existingUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $existingUuid = self::EXISTING_UUID;
         $fieldArray = [
             'api_key' => [
                 'value' => 'updated-secret',
@@ -251,7 +257,7 @@ final class DataHandlerHookTest extends TestCase
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
-        $existingUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $existingUuid = self::EXISTING_UUID;
         $fieldArray = [
             'api_key' => [
                 'value' => 'updated-secret',
@@ -291,7 +297,7 @@ final class DataHandlerHookTest extends TestCase
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
-        $existingUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $existingUuid = self::EXISTING_UUID;
         $fieldArray = [
             'api_key' => [
                 'value' => '',
@@ -348,7 +354,7 @@ final class DataHandlerHookTest extends TestCase
 
         $this->vaultService
             ->method('store')
-            ->willThrowException(new VaultException('Storage failed'));
+            ->willThrowException(new VaultException(self::STORAGE_FAILED));
 
         $this->dataHandler
             ->expects(self::once())
@@ -400,7 +406,7 @@ final class DataHandlerHookTest extends TestCase
 
         $this->vaultService
             ->method('store')
-            ->willThrowException(new VaultException('Storage failed'));
+            ->willThrowException(new VaultException(self::STORAGE_FAILED));
 
         $this->subject->processDatamap_afterDatabaseOperations(
             'update',
@@ -418,7 +424,7 @@ final class DataHandlerHookTest extends TestCase
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
-        $existingUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $existingUuid = self::EXISTING_UUID;
 
         // Mock connection for rollback - update failure should keep existing identifier
         $connection = $this->createMock(Connection::class);
@@ -487,7 +493,7 @@ final class DataHandlerHookTest extends TestCase
 
         $this->vaultService
             ->method('store')
-            ->willThrowException(new VaultException('Storage failed'));
+            ->willThrowException(new VaultException(self::STORAGE_FAILED));
 
         $this->subject->processDatamap_afterDatabaseOperations(
             'update',
@@ -525,7 +531,7 @@ final class DataHandlerHookTest extends TestCase
 
         $this->vaultService
             ->method('store')
-            ->willThrowException(new VaultException('Storage failed'));
+            ->willThrowException(new VaultException(self::STORAGE_FAILED));
 
         $this->subject->processDatamap_afterDatabaseOperations(
             'new',
@@ -609,7 +615,7 @@ final class DataHandlerHookTest extends TestCase
         $fieldArray = [
             'api_key' => 'key-value',
             'api_secret' => 'secret-value',
-            'title' => 'Test Title',
+            'title' => self::TEST_TITLE,
         ];
 
         $this->subject->processDatamap_preProcessFieldArray(
@@ -624,7 +630,7 @@ final class DataHandlerHookTest extends TestCase
         // UUIDs should be different for each field
         self::assertNotSame($fieldArray['api_key'], $fieldArray['api_secret']);
         // Non-vault field unchanged
-        self::assertSame('Test Title', $fieldArray['title']);
+        self::assertSame(self::TEST_TITLE, $fieldArray['title']);
     }
 
     #[Test]
@@ -693,7 +699,7 @@ final class DataHandlerHookTest extends TestCase
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
-        $existingUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $existingUuid = self::EXISTING_UUID;
         $fieldArray = [
             'api_key' => [
                 'value' => '',
@@ -815,7 +821,7 @@ final class DataHandlerHookTest extends TestCase
         ]);
 
         // Setup pending secrets via preProcess with existing UUID
-        $existingUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $existingUuid = self::EXISTING_UUID;
         $fieldArray = [
             'api_key' => [
                 'value' => 'updated-secret',
@@ -924,7 +930,7 @@ final class DataHandlerHookTest extends TestCase
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
-        $existingUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $existingUuid = self::EXISTING_UUID;
 
         // Mock database connection
         $connection = $this->createMock(Connection::class);
@@ -959,7 +965,7 @@ final class DataHandlerHookTest extends TestCase
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
-        $existingUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $existingUuid = self::EXISTING_UUID;
 
         // Mock database connection
         $connection = $this->createMock(Connection::class);
@@ -1069,7 +1075,7 @@ final class DataHandlerHookTest extends TestCase
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
-        $sourceUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $sourceUuid = self::EXISTING_UUID;
 
         // Mock copy mapping
         $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
@@ -1165,7 +1171,7 @@ final class DataHandlerHookTest extends TestCase
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
-        $sourceUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $sourceUuid = self::EXISTING_UUID;
 
         $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
 
@@ -1339,7 +1345,7 @@ final class DataHandlerHookTest extends TestCase
 
         $this->vaultService
             ->method('store')
-            ->willThrowException(new VaultException('Storage failed'));
+            ->willThrowException(new VaultException(self::STORAGE_FAILED));
 
         // Should not throw - rollback failure is silently caught
         $this->subject->processDatamap_afterDatabaseOperations(
@@ -1380,7 +1386,7 @@ final class DataHandlerHookTest extends TestCase
 
         $this->vaultService
             ->method('store')
-            ->willThrowException(new VaultException('Storage failed'));
+            ->willThrowException(new VaultException(self::STORAGE_FAILED));
 
         // Should not throw - flash message failure is silently caught
         $this->subject->processDatamap_afterDatabaseOperations(
@@ -1404,7 +1410,7 @@ final class DataHandlerHookTest extends TestCase
         ]);
 
         // Only 'title' is in fieldArray, 'api_key' vault field is not
-        $fieldArray = ['title' => 'Test Title'];
+        $fieldArray = ['title' => self::TEST_TITLE];
 
         $this->subject->processDatamap_preProcessFieldArray(
             $fieldArray,
@@ -1413,7 +1419,7 @@ final class DataHandlerHookTest extends TestCase
         );
 
         // Field array should remain unchanged - vault field was not present
-        self::assertSame(['title' => 'Test Title'], $fieldArray);
+        self::assertSame(['title' => self::TEST_TITLE], $fieldArray);
         self::assertArrayNotHasKey('api_key', $fieldArray);
     }
 
@@ -1424,7 +1430,7 @@ final class DataHandlerHookTest extends TestCase
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
-        $sourceUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $sourceUuid = self::EXISTING_UUID;
 
         $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
 

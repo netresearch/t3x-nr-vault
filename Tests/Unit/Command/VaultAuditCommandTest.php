@@ -27,6 +27,8 @@ use Symfony\Component\Console\Tester\CommandTester;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultAuditCommandTest extends TestCase
 {
+    private const IP_ADDRESS = '127.0.0.1';
+
     private AuditLogServiceInterface&MockObject $auditLogService;
 
     private CommandTester $commandTester;
@@ -78,7 +80,7 @@ final class VaultAuditCommandTest extends TestCase
             'actor_uid' => 1,
             'actor_username' => 'admin',
             'actor_type' => 'be_user',
-            'ip_address' => '127.0.0.1',
+            'ip_address' => self::IP_ADDRESS,
             'entry_hash' => 'abc123def456',
             'previous_hash' => 'prev123',
             'context' => '{}',
@@ -281,7 +283,7 @@ final class VaultAuditCommandTest extends TestCase
             'actor_uid' => 1,
             'actor_username' => 'admin',
             'actor_type' => 'be_user',
-            'ip_address' => '127.0.0.1',
+            'ip_address' => self::IP_ADDRESS,
             'entry_hash' => 'exporthash',
             'previous_hash' => '',
             'context' => '{}',
@@ -428,7 +430,7 @@ final class VaultAuditCommandTest extends TestCase
                 'actor_uid' => 1,
                 'actor_username' => 'admin',
                 'actor_type' => 'be_user',
-                'ip_address' => '127.0.0.1',
+                'ip_address' => self::IP_ADDRESS,
                 'entry_hash' => 'hash1',
                 'previous_hash' => '',
                 'context' => '{}',
@@ -516,7 +518,7 @@ final class VaultAuditCommandTest extends TestCase
             'actor_uid' => 1,
             'actor_username' => 'admin',
             'actor_type' => 'be_user',
-            'ip_address' => '127.0.0.1',
+            'ip_address' => self::IP_ADDRESS,
             'entry_hash' => 'csvhash',
             'previous_hash' => '',
             'context' => '{}',

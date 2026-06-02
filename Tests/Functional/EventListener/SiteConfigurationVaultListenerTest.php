@@ -28,6 +28,12 @@ use TYPO3\CMS\Core\Configuration\Event\SiteConfigurationLoadedEvent;
 #[CoversClass(SiteConfigurationVaultProcessor::class)]
 final class SiteConfigurationVaultListenerTest extends AbstractVaultFunctionalTestCase
 {
+    private const EXAMPLE_BASE_URL = 'https://example.com/';
+
+    private const VAULT_REFERENCE_TEMPLATE = '%%vault(%s)%%';
+
+    private const REASON_TEST_CLEANUP = 'test cleanup';
+
     protected ?string $backendUserFixture = __DIR__ . '/../Fixtures/Users/be_users.csv';
 
     /** @var array<string, mixed> */
@@ -44,8 +50,8 @@ final class SiteConfigurationVaultListenerTest extends AbstractVaultFunctionalTe
 
         $listener = $this->get(SiteConfigurationVaultListener::class);
         $configuration = [
-            'base' => 'https://example.com/',
-            'apiKey' => \sprintf('%%vault(%s)%%', $identifier),
+            'base' => self::EXAMPLE_BASE_URL,
+            'apiKey' => \sprintf(self::VAULT_REFERENCE_TEMPLATE, $identifier),
         ];
 
         $event = new SiteConfigurationLoadedEvent('test-site', $configuration);
@@ -53,10 +59,10 @@ final class SiteConfigurationVaultListenerTest extends AbstractVaultFunctionalTe
 
         $result = $event->getConfiguration();
         self::assertSame('resolved-api-key-value', $result['apiKey']);
-        self::assertSame('https://example.com/', $result['base'], 'Non-vault values must pass through unchanged');
+        self::assertSame(self::EXAMPLE_BASE_URL, $result['base'], 'Non-vault values must pass through unchanged');
 
         // Cleanup
-        $vaultService->delete($identifier, 'test cleanup');
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
     }
 
     #[Test]
@@ -70,7 +76,7 @@ final class SiteConfigurationVaultListenerTest extends AbstractVaultFunctionalTe
         $configuration = [
             'settings' => [
                 'payment' => [
-                    'apiKey' => \sprintf('%%vault(%s)%%', $identifier),
+                    'apiKey' => \sprintf(self::VAULT_REFERENCE_TEMPLATE, $identifier),
                 ],
             ],
         ];
@@ -82,7 +88,7 @@ final class SiteConfigurationVaultListenerTest extends AbstractVaultFunctionalTe
         self::assertSame('nested-secret-value', $result['settings']['payment']['apiKey']);
 
         // Cleanup
-        $vaultService->delete($identifier, 'test cleanup');
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
     }
 
     #[Test]
@@ -90,7 +96,7 @@ final class SiteConfigurationVaultListenerTest extends AbstractVaultFunctionalTe
     {
         $listener = $this->get(SiteConfigurationVaultListener::class);
         $configuration = [
-            'base' => 'https://example.com/',
+            'base' => self::EXAMPLE_BASE_URL,
             'settings' => ['debug' => false],
         ];
 
@@ -106,7 +112,7 @@ final class SiteConfigurationVaultListenerTest extends AbstractVaultFunctionalTe
         $listener = $this->get(SiteConfigurationVaultListener::class);
         $vaultRef = '%vault(nonexistent/secret/identifier)%';
         $configuration = [
-            'base' => 'https://example.com/',
+            'base' => self::EXAMPLE_BASE_URL,
             'unknownRef' => $vaultRef,
         ];
 
@@ -138,8 +144,8 @@ final class SiteConfigurationVaultListenerTest extends AbstractVaultFunctionalTe
 
         $processor = $this->get(SiteConfigurationVaultProcessorInterface::class);
         $configuration = [
-            'firstKey' => \sprintf('%%vault(%s)%%', $id1),
-            'secondKey' => \sprintf('%%vault(%s)%%', $id2),
+            'firstKey' => \sprintf(self::VAULT_REFERENCE_TEMPLATE, $id1),
+            'secondKey' => \sprintf(self::VAULT_REFERENCE_TEMPLATE, $id2),
             'unchanged' => 'plain-value',
         ];
 
@@ -150,7 +156,7 @@ final class SiteConfigurationVaultListenerTest extends AbstractVaultFunctionalTe
         self::assertSame('plain-value', $result['unchanged']);
 
         // Cleanup
-        $vaultService->delete($id1, 'test cleanup');
-        $vaultService->delete($id2, 'test cleanup');
+        $vaultService->delete($id1, self::REASON_TEST_CLEANUP);
+        $vaultService->delete($id2, self::REASON_TEST_CLEANUP);
     }
 }

@@ -26,6 +26,8 @@ use PHPUnit\Framework\Attributes\Test;
 #[CoversClass(SecretsController::class)]
 final class SecretsControllerTest extends AbstractVaultFunctionalTestCase
 {
+    private const REASON_TEST_CLEANUP = 'Test cleanup';
+
     protected ?string $backendUserFixture = __DIR__ . '/../Hook/Fixtures/be_users.csv';
 
     #[Test]
@@ -49,7 +51,7 @@ final class SecretsControllerTest extends AbstractVaultFunctionalTestCase
         self::assertSame($secretValue, $retrieved);
 
         // Cleanup
-        $vaultService->delete($identifier, 'Test cleanup');
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
     }
 
     #[Test]
@@ -68,8 +70,8 @@ final class SecretsControllerTest extends AbstractVaultFunctionalTestCase
         self::assertGreaterThanOrEqual(2, \count($list));
 
         // Cleanup
-        $vaultService->delete($identifier1, 'Test cleanup');
-        $vaultService->delete($identifier2, 'Test cleanup');
+        $vaultService->delete($identifier1, self::REASON_TEST_CLEANUP);
+        $vaultService->delete($identifier2, self::REASON_TEST_CLEANUP);
     }
 
     #[Test]
@@ -98,7 +100,7 @@ final class SecretsControllerTest extends AbstractVaultFunctionalTestCase
         self::assertSame('rotated-secret', $retrieved);
 
         // Cleanup
-        $vaultService->delete($identifier, 'Test cleanup');
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
     }
 
     #[Test]
@@ -116,6 +118,6 @@ final class SecretsControllerTest extends AbstractVaultFunctionalTestCase
         self::assertSame(1, $metadata->version);
 
         // Cleanup
-        $vaultService->delete($identifier, 'Test cleanup');
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
     }
 }

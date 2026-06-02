@@ -36,6 +36,8 @@ use TYPO3\CMS\Scheduler\Scheduler;
 #[AllowMockObjectsWithoutExpectations]
 final class OrphanCleanupTaskTest extends TestCase
 {
+    private const CLEANUP_REASON = 'Scheduler orphan cleanup';
+
     protected bool $resetSingletonInstances = true;
 
     private VaultServiceInterface&MockObject $vaultService;
@@ -155,7 +157,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->vaultService
             ->expects($this->once())
             ->method('delete')
-            ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
+            ->with('tx_myext__api_key__1', self::CLEANUP_REASON);
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 7]);
@@ -208,7 +210,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->vaultService
             ->expects($this->once())
             ->method('delete')
-            ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
+            ->with('tx_myext__api_key__1', self::CLEANUP_REASON);
 
         $task = $this->createTask();
         $task->setTaskParameters([
@@ -260,7 +262,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->vaultService
             ->expects($this->once())
             ->method('delete')
-            ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
+            ->with('tx_myext__api_key__1', self::CLEANUP_REASON);
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
@@ -361,7 +363,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->vaultService
             ->expects($this->once())
             ->method('delete')
-            ->with('uuid_flex_secret', 'Scheduler orphan cleanup');
+            ->with('uuid_flex_secret', self::CLEANUP_REASON);
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
@@ -519,7 +521,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->vaultService
             ->expects($this->once())
             ->method('delete')
-            ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
+            ->with('tx_myext__api_key__1', self::CLEANUP_REASON);
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
@@ -554,7 +556,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->vaultService
             ->expects($this->once())
             ->method('delete')
-            ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
+            ->with('tx_myext__api_key__1', self::CLEANUP_REASON);
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
@@ -589,7 +591,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->vaultService
             ->expects($this->once())
             ->method('delete')
-            ->with('tx_myext__api_key__1', 'Scheduler orphan cleanup');
+            ->with('tx_myext__api_key__1', self::CLEANUP_REASON);
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0, 'nr_vault_table_filter' => 'tx_myext']);
@@ -701,7 +703,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->vaultService
             ->expects($this->once())
             ->method('delete')
-            ->with('uuid_flex', 'Scheduler orphan cleanup');
+            ->with('uuid_flex', self::CLEANUP_REASON);
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);

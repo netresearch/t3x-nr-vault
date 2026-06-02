@@ -40,6 +40,8 @@ use PHPUnit\Framework\Attributes\Test;
 #[CoversClass(Secret::class)]
 final class SecretTest extends TestCase
 {
+    private const PAYMENT_GATEWAY_DESCRIPTION = 'Payment gateway API key';
+
     // ---------------------------------------------------------------
     // Constructor defaults.
     // ---------------------------------------------------------------
@@ -377,7 +379,7 @@ final class SecretTest extends TestCase
             'uid' => 42,
             'scope_pid' => 1,
             'identifier' => 'api-key',
-            'description' => 'Payment gateway API key',
+            'description' => self::PAYMENT_GATEWAY_DESCRIPTION,
             'encrypted_value' => 'base64_encrypted_data',
             'encrypted_dek' => 'base64_encrypted_dek',
             'dek_nonce' => 'base64_nonce',
@@ -407,7 +409,7 @@ final class SecretTest extends TestCase
         self::assertSame(42, $secret->getUid());
         self::assertSame(1, $secret->getScopePid());
         self::assertSame('api-key', $secret->getIdentifier());
-        self::assertSame('Payment gateway API key', $secret->getDescription());
+        self::assertSame(self::PAYMENT_GATEWAY_DESCRIPTION, $secret->getDescription());
         self::assertSame('base64_encrypted_data', $secret->getEncryptedValue());
         self::assertSame(5, $secret->getOwnerUid());
         self::assertSame([1, 2, 3], $secret->getAllowedGroups());
@@ -662,7 +664,7 @@ final class SecretTest extends TestCase
             'uid' => 42,
             'scope_pid' => 1,
             'identifier' => 'api-key',
-            'description' => 'Payment gateway API key',
+            'description' => self::PAYMENT_GATEWAY_DESCRIPTION,
             'encrypted_value' => 'enc_data',
             'encrypted_dek' => 'dek',
             'dek_nonce' => 'dn',
@@ -693,7 +695,7 @@ final class SecretTest extends TestCase
         self::assertSame(42, $secret->getUid());
         self::assertSame(1, $secret->getScopePid());
         self::assertSame('api-key', $secret->getIdentifier());
-        self::assertSame('Payment gateway API key', $secret->getDescription());
+        self::assertSame(self::PAYMENT_GATEWAY_DESCRIPTION, $secret->getDescription());
         self::assertSame('enc_data', $secret->getEncryptedValue());
         self::assertSame('dek', $secret->getEncryptedDek());
         self::assertSame('dn', $secret->getDekNonce());

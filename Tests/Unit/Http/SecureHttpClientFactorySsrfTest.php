@@ -21,6 +21,8 @@ use PHPUnit\Framework\Attributes\Test;
 #[CoversClass(SecureHttpClientFactory::class)]
 final class SecureHttpClientFactorySsrfTest extends TestCase
 {
+    private const PRIVATE_IP = '10.0.0.42';
+
     private SecureHttpClientFactory $subject;
 
     private mixed $originalGlobals;
@@ -118,10 +120,10 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
         // On-prem use case: vault server on RFC1918 must be reachable via
         // an explicit filesystem-only allowlist entry.
         $GLOBALS['TYPO3_CONF_VARS'] = [
-            'HTTP' => ['allowed_hosts' => ['10.0.0.42']],
+            'HTTP' => ['allowed_hosts' => [self::PRIVATE_IP]],
         ];
 
-        self::assertTrue($this->subject->isHostAllowed('10.0.0.42'));
+        self::assertTrue($this->subject->isHostAllowed(self::PRIVATE_IP));
     }
 
     #[Test]
@@ -133,7 +135,7 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
             'HTTP' => ['allowed_hosts' => ['*.internal']],
         ];
 
-        self::assertFalse($this->subject->isHostAllowed('10.0.0.42'));
+        self::assertFalse($this->subject->isHostAllowed(self::PRIVATE_IP));
     }
 
     #[Test]
@@ -141,7 +143,7 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
     {
         // Listing 10.0.0.42 must NOT implicitly allow 10.0.0.43.
         $GLOBALS['TYPO3_CONF_VARS'] = [
-            'HTTP' => ['allowed_hosts' => ['10.0.0.42']],
+            'HTTP' => ['allowed_hosts' => [self::PRIVATE_IP]],
         ];
 
         self::assertFalse($this->subject->isHostAllowed('10.0.0.43'));

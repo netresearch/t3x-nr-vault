@@ -18,6 +18,8 @@ use PHPUnit\Framework\Attributes\Test;
 #[CoversClass(AuditLogFilter::class)]
 final class AuditLogFilterTest extends TestCase
 {
+    private const SINCE_DATE = '2024-01-01';
+
     #[Test]
     public function constructorWithNoArgumentsCreatesEmptyFilter(): void
     {
@@ -71,7 +73,7 @@ final class AuditLogFilterTest extends TestCase
     #[Test]
     public function dateRangeCreatesFilterWithDates(): void
     {
-        $since = new DateTimeImmutable('2024-01-01');
+        $since = new DateTimeImmutable(self::SINCE_DATE);
         $until = new DateTimeImmutable('2024-01-31');
 
         $filter = AuditLogFilter::dateRange($since, $until);
@@ -128,7 +130,7 @@ final class AuditLogFilterTest extends TestCase
     #[Test]
     public function withDateRangeReturnsNewFilterWithDates(): void
     {
-        $since = new DateTimeImmutable('2024-01-01');
+        $since = new DateTimeImmutable(self::SINCE_DATE);
         $until = new DateTimeImmutable('2024-01-31');
 
         $original = AuditLogFilter::forSecret('api-key');
@@ -161,7 +163,7 @@ final class AuditLogFilterTest extends TestCase
     #[Test]
     public function chainingMethodsBuildsComplexFilter(): void
     {
-        $since = new DateTimeImmutable('2024-01-01');
+        $since = new DateTimeImmutable(self::SINCE_DATE);
 
         $filter = AuditLogFilter::forSecret('api-key')
             ->withAction('read')

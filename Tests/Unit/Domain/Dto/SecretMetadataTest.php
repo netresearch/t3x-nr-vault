@@ -17,6 +17,8 @@ use PHPUnit\Framework\Attributes\Test;
 #[CoversClass(SecretMetadata::class)]
 final class SecretMetadataTest extends TestCase
 {
+    private const TEST_SECRET_DESCRIPTION = 'Test secret';
+
     #[Test]
     public function constructorSetsAllProperties(): void
     {
@@ -70,7 +72,7 @@ final class SecretMetadataTest extends TestCase
             'tstamp' => 1704153600,
             'read_count' => 10,
             'last_read_at' => 1704150000,
-            'description' => 'Test secret',
+            'description' => self::TEST_SECRET_DESCRIPTION,
             'version' => 2,
             'metadata' => ['key' => 'value'],
         ];
@@ -83,7 +85,7 @@ final class SecretMetadataTest extends TestCase
         self::assertEquals(1704153600, $metadata->updatedAt);
         self::assertEquals(10, $metadata->readCount);
         self::assertEquals(1704150000, $metadata->lastReadAt);
-        self::assertEquals('Test secret', $metadata->description);
+        self::assertEquals(self::TEST_SECRET_DESCRIPTION, $metadata->description);
         self::assertEquals(2, $metadata->version);
         self::assertEquals(['key' => 'value'], $metadata->metadata);
     }
@@ -116,7 +118,7 @@ final class SecretMetadataTest extends TestCase
             updatedAt: 1704153600,
             readCount: 10,
             lastReadAt: 1704150000,
-            description: 'Test secret',
+            description: self::TEST_SECRET_DESCRIPTION,
             version: 2,
             metadata: ['key' => 'value'],
         );
@@ -130,7 +132,7 @@ final class SecretMetadataTest extends TestCase
             'tstamp' => 1704153600,
             'read_count' => 10,
             'last_read_at' => 1704150000,
-            'description' => 'Test secret',
+            'description' => self::TEST_SECRET_DESCRIPTION,
             'version' => 2,
             'metadata' => ['key' => 'value'],
         ], $array);

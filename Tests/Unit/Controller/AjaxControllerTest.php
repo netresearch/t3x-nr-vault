@@ -30,6 +30,10 @@ use RuntimeException;
 #[AllowMockObjectsWithoutExpectations]
 final class AjaxControllerTest extends TestCase
 {
+    private const MSG_NO_IDENTIFIER = 'No identifier provided';
+
+    private const MSG_ACCESS_DENIED = 'Access denied';
+
     private AjaxController $subject;
 
     private VaultServiceInterface&MockObject $vaultService;
@@ -58,7 +62,7 @@ final class AjaxControllerTest extends TestCase
         self::assertSame(400, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
-        self::assertSame('No identifier provided', $body['error']);
+        self::assertSame(self::MSG_NO_IDENTIFIER, $body['error']);
     }
 
     #[Test]
@@ -109,14 +113,14 @@ final class AjaxControllerTest extends TestCase
 
         $this->vaultService
             ->method('retrieve')
-            ->willThrowException(new AccessDeniedException('Access denied', 1234567890));
+            ->willThrowException(new AccessDeniedException(self::MSG_ACCESS_DENIED, 1234567890));
 
         $response = $this->subject->revealAction($request);
 
         self::assertSame(403, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
-        self::assertSame('Access denied', $body['error']);
+        self::assertSame(self::MSG_ACCESS_DENIED, $body['error']);
     }
 
     #[Test]
@@ -223,7 +227,7 @@ final class AjaxControllerTest extends TestCase
         self::assertSame(403, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
-        self::assertSame('Access denied', $body['error']);
+        self::assertSame(self::MSG_ACCESS_DENIED, $body['error']);
     }
 
     #[Test]
@@ -255,7 +259,7 @@ final class AjaxControllerTest extends TestCase
         self::assertSame(403, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
-        self::assertSame('Access denied', $body['error']);
+        self::assertSame(self::MSG_ACCESS_DENIED, $body['error']);
     }
 
     #[Test]
@@ -268,7 +272,7 @@ final class AjaxControllerTest extends TestCase
         self::assertSame(400, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
-        self::assertSame('No identifier provided', $body['error']);
+        self::assertSame(self::MSG_NO_IDENTIFIER, $body['error']);
     }
 
     #[Test]
@@ -345,14 +349,14 @@ final class AjaxControllerTest extends TestCase
 
         $this->vaultService
             ->method('rotate')
-            ->willThrowException(new AccessDeniedException('Access denied', 1234567890));
+            ->willThrowException(new AccessDeniedException(self::MSG_ACCESS_DENIED, 1234567890));
 
         $response = $this->subject->rotateAction($request);
 
         self::assertSame(403, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
-        self::assertSame('Access denied', $body['error']);
+        self::assertSame(self::MSG_ACCESS_DENIED, $body['error']);
     }
 
     #[Test]
@@ -463,7 +467,7 @@ final class AjaxControllerTest extends TestCase
 
         self::assertSame(400, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true);
-        self::assertSame('No identifier provided', $body['error']);
+        self::assertSame(self::MSG_NO_IDENTIFIER, $body['error']);
     }
 
     #[Test]

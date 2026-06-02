@@ -40,6 +40,8 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
     private const SKIP_MESSAGE = 'DataHandler integration tests require full TYPO3 v14 environment. '
         . 'The TCA hooks work in production; these tests need additional setup for isolated testing.';
 
+    private const DELETE_REASON_CLEANUP = 'Test cleanup';
+
     protected ?string $backendUserFixture = __DIR__ . '/Fixtures/be_users.csv';
 
     protected function setUp(): void
@@ -110,7 +112,7 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
         self::assertSame('Resolver Test', $resolved['title']);
 
         // Cleanup
-        $vaultService->delete($identifier, 'Test cleanup');
+        $vaultService->delete($identifier, self::DELETE_REASON_CLEANUP);
     }
 
     #[Test]
@@ -140,8 +142,8 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
         self::assertSame('my-secret', $resolved['api_secret']);
 
         // Cleanup
-        $vaultService->delete($identifier1, 'Test cleanup');
-        $vaultService->delete($identifier2, 'Test cleanup');
+        $vaultService->delete($identifier1, self::DELETE_REASON_CLEANUP);
+        $vaultService->delete($identifier2, self::DELETE_REASON_CLEANUP);
     }
 
     private function registerTestTable(): void

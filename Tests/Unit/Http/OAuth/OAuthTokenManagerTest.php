@@ -41,6 +41,14 @@ use RuntimeException;
 #[AllowMockObjectsWithoutExpectations]
 final class OAuthTokenManagerTest extends TestCase
 {
+    private const TOKEN_ENDPOINT = 'https://auth.example.com/token';
+
+    private const CLIENT_ID_SECRET = 'oauth/client-id';
+
+    private const CLIENT_SECRET_SECRET = 'oauth/client-secret';
+
+    private const REFRESH_TOKEN_SECRET = 'oauth/refresh-token';
+
     private OAuthTokenManager $subject;
 
     private VaultServiceInterface&MockObject $vaultService;
@@ -80,16 +88,16 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenFetchesNewToken(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -113,16 +121,16 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenReturnsCachedToken(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -157,20 +165,20 @@ final class OAuthTokenManagerTest extends TestCase
     public function cacheKeyFragmentsOnClientSecretSecret(): void
     {
         $configA = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
             clientSecretSecret: 'oauth/client-secret-v1',
         );
         $configB = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
             clientSecretSecret: 'oauth/client-secret-v2',
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'same-client-id',
+                self::CLIENT_ID_SECRET => 'same-client-id',
                 'oauth/client-secret-v1' => 'old-secret',
                 'oauth/client-secret-v2' => 'rotated-secret',
                 default => null,
@@ -208,9 +216,9 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenRefreshesExpiredToken(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
         $config = new OAuthConfig(
             tokenEndpoint: $config->tokenEndpoint,
@@ -222,8 +230,8 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -259,14 +267,14 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenThrowsForMissingClientId(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
-            ->with('oauth/client-id')
+            ->with(self::CLIENT_ID_SECRET)
             ->willReturn(null);
 
         $this->expectException(SecretNotFoundException::class);
@@ -278,15 +286,15 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenThrowsForMissingClientSecret(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
+                self::CLIENT_ID_SECRET => 'my-client-id',
                 default => null,
             });
 
@@ -299,16 +307,16 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenThrowsForFailedRequest(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -329,16 +337,16 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenThrowsForMissingAccessToken(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -361,16 +369,16 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenHandlesHttpException(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -401,16 +409,16 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenDropsUnredactedPreviousOnClientException(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -454,17 +462,17 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenIncludesScopes(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
             scopes: ['read', 'write'],
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -537,16 +545,16 @@ final class OAuthTokenManagerTest extends TestCase
     public function clearCacheClearsAllConfigs(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -573,16 +581,16 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenThrowsForInvalidJsonResponse(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -608,19 +616,19 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenUsesRefreshTokenGrant(): void
     {
         $config = new OAuthConfig(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
             grantType: 'refresh_token',
-            refreshTokenSecret: 'oauth/refresh-token',
+            refreshTokenSecret: self::REFRESH_TOKEN_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
-                'oauth/refresh-token' => 'my-refresh-token',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
+                self::REFRESH_TOKEN_SECRET => 'my-refresh-token',
                 default => null,
             });
 
@@ -644,18 +652,18 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenThrowsForMissingRefreshToken(): void
     {
         $config = new OAuthConfig(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
             grantType: 'refresh_token',
-            refreshTokenSecret: 'oauth/refresh-token',
+            refreshTokenSecret: self::REFRESH_TOKEN_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 // refresh token returns null
                 default => null,
             });
@@ -669,17 +677,17 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenStoresNewRefreshToken(): void
     {
         $config = new OAuthConfig(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
-            refreshTokenSecret: 'oauth/refresh-token',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            refreshTokenSecret: self::REFRESH_TOKEN_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -688,7 +696,7 @@ final class OAuthTokenManagerTest extends TestCase
             ->expects(self::once())
             ->method('store')
             ->with(
-                'oauth/refresh-token',
+                self::REFRESH_TOKEN_SECRET,
                 'new-refresh-token',
                 self::callback(fn (array $meta): bool => $meta['source'] === 'oauth_refresh'),
             );
@@ -713,16 +721,16 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenUsesDefaultExpiresIn(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -746,16 +754,16 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenUsesDefaultTokenType(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -783,17 +791,17 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenIncludesAdditionalParams(): void
     {
         $config = new OAuthConfig(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
             additionalParams: ['audience' => 'https://api.example.com'],
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -818,17 +826,17 @@ final class OAuthTokenManagerTest extends TestCase
     {
         // Token expiry = now (or slightly in the past), buffer = 0 → should be refreshed
         $config = new OAuthConfig(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
             tokenExpiryBuffer: 0,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -861,16 +869,16 @@ final class OAuthTokenManagerTest extends TestCase
     public function clearTokenClearsAllCachedTokens(): void
     {
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -897,18 +905,18 @@ final class OAuthTokenManagerTest extends TestCase
     public function getAccessTokenWithRefreshTokenGrantStoresNewRefreshTokenWhenProvided(): void
     {
         $config = OAuthConfig::refreshToken(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
-            refreshTokenSecret: 'oauth/refresh-token',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            refreshTokenSecret: self::REFRESH_TOKEN_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
-                'oauth/refresh-token' => 'old-refresh-token',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
+                self::REFRESH_TOKEN_SECRET => 'old-refresh-token',
                 default => null,
             });
 
@@ -916,7 +924,7 @@ final class OAuthTokenManagerTest extends TestCase
             ->expects(self::once())
             ->method('store')
             ->with(
-                'oauth/refresh-token',
+                self::REFRESH_TOKEN_SECRET,
                 'new-refresh-token',
                 self::callback(fn (array $meta): bool => $meta['source'] === 'oauth_refresh'),
             );
@@ -949,18 +957,18 @@ final class OAuthTokenManagerTest extends TestCase
         // just obtained. The caller's current request succeeds; the next
         // refresh attempt will fall back to client_credentials.
         $config = OAuthConfig::refreshToken(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
-            refreshTokenSecret: 'oauth/refresh-token',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            refreshTokenSecret: self::REFRESH_TOKEN_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
-                'oauth/refresh-token' => 'old-refresh-token',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
+                self::REFRESH_TOKEN_SECRET => 'old-refresh-token',
                 default => null,
             });
 
@@ -1017,18 +1025,18 @@ final class OAuthTokenManagerTest extends TestCase
         );
 
         $config = OAuthConfig::refreshToken(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
-            refreshTokenSecret: 'oauth/refresh-token',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            refreshTokenSecret: self::REFRESH_TOKEN_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
-                'oauth/refresh-token' => 'old-refresh-token',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
+                self::REFRESH_TOKEN_SECRET => 'old-refresh-token',
                 default => null,
             });
         $this->vaultService
@@ -1059,17 +1067,17 @@ final class OAuthTokenManagerTest extends TestCase
         // it reveals which secrets the system uses. Log it as a short hash, not
         // the raw path.
         $config = OAuthConfig::refreshToken(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
             refreshTokenSecret: 'oauth/refresh-token-sensitive-path',
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 'oauth/refresh-token-sensitive-path' => 'old-refresh-token',
                 default => null,
             });
@@ -1112,16 +1120,16 @@ final class OAuthTokenManagerTest extends TestCase
     {
         // refreshTokenSecret = null → even if response contains refresh_token, do not store
         $config = OAuthConfig::clientCredentials(
-            tokenEndpoint: 'https://auth.example.com/token',
-            clientIdSecret: 'oauth/client-id',
-            clientSecretSecret: 'oauth/client-secret',
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
         );
 
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth/client-id' => 'my-client-id',
-                'oauth/client-secret' => 'my-client-secret',
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 default => null,
             });
 
@@ -1191,15 +1199,15 @@ final class OAuthTokenManagerTest extends TestCase
         try {
             $config = OAuthConfig::clientCredentials(
                 tokenEndpoint: 'https://elsewhere.example/token',
-                clientIdSecret: 'oauth/client-id',
-                clientSecretSecret: 'oauth/client-secret',
+                clientIdSecret: self::CLIENT_ID_SECRET,
+                clientSecretSecret: self::CLIENT_SECRET_SECRET,
             );
 
             $this->vaultService
                 ->method('retrieve')
                 ->willReturnCallback(fn (string $id): string => match ($id) {
-                    'oauth/client-id' => 'cid',
-                    'oauth/client-secret' => 'csec',
+                    self::CLIENT_ID_SECRET => 'cid',
+                    self::CLIENT_SECRET_SECRET => 'csec',
                     default => '',
                 });
 

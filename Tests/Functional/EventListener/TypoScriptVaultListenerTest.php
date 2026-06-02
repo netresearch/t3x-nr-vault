@@ -26,6 +26,8 @@ use TYPO3\CMS\Frontend\ContentObject\Event\AfterStdWrapFunctionsExecutedEvent;
 #[CoversClass(TypoScriptVaultListener::class)]
 final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
 {
+    private const REASON_TEST_CLEANUP = 'test cleanup';
+
     /** @var list<string> */
     protected array $coreExtensionsToLoad = [
         'backend',
@@ -54,7 +56,7 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
         self::assertSame('resolved-typoscript-secret', $event->getContent());
 
         // Cleanup
-        $vaultService->delete($identifier, 'test cleanup');
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
     }
 
     #[Test]
@@ -73,7 +75,7 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
         self::assertSame('Bearer my-api-key', $event->getContent());
 
         // Cleanup
-        $vaultService->delete($identifier, 'test cleanup');
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
     }
 
     #[Test]
@@ -120,8 +122,8 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
         self::assertSame('first-value:second-value', $event->getContent());
 
         // Cleanup
-        $vaultService->delete($id1, 'test cleanup');
-        $vaultService->delete($id2, 'test cleanup');
+        $vaultService->delete($id1, self::REASON_TEST_CLEANUP);
+        $vaultService->delete($id2, self::REASON_TEST_CLEANUP);
     }
 
     #[Test]

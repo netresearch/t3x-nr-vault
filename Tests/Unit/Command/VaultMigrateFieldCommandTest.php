@@ -41,6 +41,8 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 #[CoversClass(VaultMigrateFieldCommand::class)]
 final class VaultMigrateFieldCommandTest extends TestCase
 {
+    private const MSG_SUCCESSFULLY_MIGRATED = 'Successfully migrated';
+
     private VaultServiceInterface $vaultService;
 
     private ConnectionPool $connectionPool;
@@ -183,7 +185,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('Successfully migrated', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::MSG_SUCCESSFULLY_MIGRATED, $this->commandTester->getDisplay());
         // Use the canonical validator instead of an ad-hoc regex so the test
         // stays aligned with production's definition of "valid UUID v7".
         self::assertIsString($capturedIdentifier);
@@ -284,7 +286,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('Successfully migrated', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::MSG_SUCCESSFULLY_MIGRATED, $this->commandTester->getDisplay());
     }
 
     #[Test]
@@ -410,7 +412,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('Successfully migrated', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::MSG_SUCCESSFULLY_MIGRATED, $this->commandTester->getDisplay());
     }
 
     #[Test]
@@ -432,7 +434,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('Successfully migrated', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::MSG_SUCCESSFULLY_MIGRATED, $this->commandTester->getDisplay());
     }
 
     #[Test]

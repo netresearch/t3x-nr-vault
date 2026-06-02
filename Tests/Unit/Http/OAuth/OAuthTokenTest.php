@@ -22,10 +22,12 @@ use ReflectionClass;
 #[CoversClass(OAuthToken::class)]
 final class OAuthTokenTest extends TestCase
 {
+    private const EXPIRY_OFFSET = '+1 hour';
+
     #[Test]
     public function constructorSetsAllProperties(): void
     {
-        $expiresAt = new DateTimeImmutable('+1 hour');
+        $expiresAt = new DateTimeImmutable(self::EXPIRY_OFFSET);
 
         $token = new OAuthToken(
             accessToken: 'test-access-token',
@@ -46,7 +48,7 @@ final class OAuthTokenTest extends TestCase
         $token = new OAuthToken(
             accessToken: 'test-token',
             tokenType: 'Bearer',
-            expiresAt: new DateTimeImmutable('+1 hour'),
+            expiresAt: new DateTimeImmutable(self::EXPIRY_OFFSET),
         );
 
         self::assertNull($token->scope);
@@ -58,7 +60,7 @@ final class OAuthTokenTest extends TestCase
         $token = new OAuthToken(
             accessToken: 'test-token',
             tokenType: 'Bearer',
-            expiresAt: new DateTimeImmutable('+1 hour'),
+            expiresAt: new DateTimeImmutable(self::EXPIRY_OFFSET),
         );
 
         self::assertFalse($token->isExpired());
@@ -99,7 +101,7 @@ final class OAuthTokenTest extends TestCase
         $token = new OAuthToken(
             accessToken: 'my-access-token',
             tokenType: 'Bearer',
-            expiresAt: new DateTimeImmutable('+1 hour'),
+            expiresAt: new DateTimeImmutable(self::EXPIRY_OFFSET),
         );
 
         self::assertSame('Bearer my-access-token', $token->getAuthorizationHeader());
@@ -111,7 +113,7 @@ final class OAuthTokenTest extends TestCase
         $token = new OAuthToken(
             accessToken: 'my-token',
             tokenType: 'MAC',
-            expiresAt: new DateTimeImmutable('+1 hour'),
+            expiresAt: new DateTimeImmutable(self::EXPIRY_OFFSET),
         );
 
         self::assertSame('MAC my-token', $token->getAuthorizationHeader());
