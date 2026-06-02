@@ -68,8 +68,6 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
     private const CLIENT_CRED_TOKEN_URL = 'https://auth.example.com/token';
 
-    private const CONTENT_TYPE_JSON = 'application/json';
-
     private const DELETE_REASON_CLEANUP = 'test cleanup';
 
     protected array $testExtensionsToLoad = [
@@ -397,7 +395,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                 if ($grantType === 'refresh_token') {
                     return new Response(
                         401,
-                        ['Content-Type' => self::CONTENT_TYPE_JSON],
+                        ['Content-Type' => 'application/json'],
                         '{"error":"invalid_grant","error_description":"refresh token revoked"}',
                     );
                 }
@@ -405,7 +403,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                 // Successful client_credentials response.
                 return new Response(
                     200,
-                    ['Content-Type' => self::CONTENT_TYPE_JSON],
+                    ['Content-Type' => 'application/json'],
                     json_encode([
                         'access_token' => 'fallback-access-token',
                         'token_type' => 'Bearer',
@@ -523,7 +521,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                 // Both grant types fail.
                 return new Response(
                     401,
-                    ['Content-Type' => self::CONTENT_TYPE_JSON],
+                    ['Content-Type' => 'application/json'],
                     '{"error":"invalid_client"}',
                 );
             }
