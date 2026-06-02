@@ -15,7 +15,7 @@ import AjaxRequest from '@typo3/core/ajax/ajax-request.js';
  * @returns {string}
  */
 function lang(key, fallback, ...args) {
-    let text = (typeof TYPO3 !== 'undefined' && TYPO3.lang && TYPO3.lang[key]) || fallback;
+    let text = (typeof TYPO3 !== 'undefined' && TYPO3.lang?.[key]) || fallback;
     args.forEach((value, index) => {
         // Use a replacer function so `$`-sequences (e.g. $&, $1) in the value
         // are inserted literally rather than interpreted by String.replace().

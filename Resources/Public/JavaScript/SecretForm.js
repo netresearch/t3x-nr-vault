@@ -8,8 +8,9 @@ import Modal from '@typo3/backend/modal.js';
 import Severity from '@typo3/backend/severity.js';
 
 class SecretForm {
+    pidInput = null;
+
     constructor() {
-        this.pidInput = null;
         this.init();
     }
 

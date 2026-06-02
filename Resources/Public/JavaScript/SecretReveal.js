@@ -18,7 +18,7 @@ import Severity from '@typo3/backend/severity.js';
  * @returns {string}
  */
 function lang(key, fallback, ...args) {
-    let text = (typeof TYPO3 !== 'undefined' && TYPO3.lang && TYPO3.lang[key]) || fallback;
+    let text = (typeof TYPO3 !== 'undefined' && TYPO3.lang?.[key]) || fallback;
     args.forEach((value, index) => {
         // Use a replacer function so `$`-sequences (e.g. $&, $1) in the value
         // are inserted literally rather than interpreted by String.replace().
@@ -59,10 +59,10 @@ class SecretView {
     handleReveal() {
         if (this.isRevealed) {
             this.hideSecret();
-        } else if (this.secretValue !== null) {
-            this.showSecret();
-        } else {
+        } else if (this.secretValue === null) {
             this.fetchAndReveal();
+        } else {
+            this.showSecret();
         }
     }
 

@@ -18,7 +18,7 @@ import Severity from '@typo3/backend/severity.js';
  * @returns {string}
  */
 function lang(key, fallback, ...args) {
-    let text = (typeof TYPO3 !== 'undefined' && TYPO3.lang && TYPO3.lang[key]) || fallback;
+    let text = (typeof TYPO3 !== 'undefined' && TYPO3.lang?.[key]) || fallback;
     args.forEach((value, index) => {
         // Use a replacer function so `$`-sequences (e.g. $&, $1) in the value
         // are inserted literally rather than interpreted by String.replace().
@@ -46,7 +46,7 @@ class SecretsList {
         // Delete confirmation with TYPO3 Modal
         document.querySelectorAll('.btn-danger[type="submit"]').forEach(button => {
             const form = button.closest('form');
-            if (form && form.action.includes('delete')) {
+            if (form?.action.includes('delete')) {
                 button.addEventListener('click', this.handleDelete.bind(this));
             }
         });
@@ -100,7 +100,6 @@ class SecretsList {
         event.preventDefault();
         const button = event.currentTarget;
         const form = button.closest('form');
-        const identifier = form.querySelector('input[name="identifier"]').value;
         const row = button.closest('tr');
         const url = form.action;
 
@@ -287,7 +286,7 @@ class SecretsList {
                     try {
                         await navigator.clipboard.writeText(secret);
                         Notification.success(lang('nrvault.copied', 'Copied'), lang('nrvault.copy.success', 'Secret copied to clipboard'), 2);
-                    } catch (e) {
+                    } catch {
                         Notification.error(lang('nrvault.error', 'Error'), lang('nrvault.copy.failed', 'Failed to copy to clipboard'), 5);
                     }
                 });
