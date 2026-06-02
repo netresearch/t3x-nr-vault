@@ -18,7 +18,7 @@
  * @returns {string}
  */
 function lang(key, fallback, ...args) {
-    let text = (typeof TYPO3 !== 'undefined' && TYPO3.lang && TYPO3.lang[key]) || fallback;
+    let text = (typeof TYPO3 !== 'undefined' && TYPO3.lang?.[key]) || fallback;
     args.forEach((value, index) => {
         // Use a replacer function so `$`-sequences (e.g. $&, $1) in the value
         // are inserted literally rather than interpreted by String.replace().
@@ -208,7 +208,7 @@ class VaultSecretInput {
         // Source of truth = the visible DOM input. When revealed, its value
         // holds the plaintext; when hidden (input.type === 'password'), it
         // holds the placeholder dots.
-        const secret = (displayInput && displayInput.type === 'text')
+        const secret = (displayInput?.type === 'text')
             ? displayInput.value
             : '';
         if (!secret) {
