@@ -1,9 +1,19 @@
 ARG BASE_IMAGE
 FROM $BASE_IMAGE
 
-# Upgrade PHP to latest patch version (get PHP 8.5.1 before DDEV updates)
-RUN apt-get update && \
-    apt-get dist-upgrade -y && \
+# Upgrade PHP to the latest patch version (newer than the DDEV base image ships).
+# During an image build there is no service manager, so the php*-fpm postinst's
+# attempt to (re)start the FPM service makes dpkg fail (exit 100) and aborts the
+# whole dist-upgrade. A policy-rc.d returning 101 tells the package scripts to
+# skip service (re)starts during the build; DDEV starts php-fpm itself at runtime.
+# Preserve any policy-rc.d shipped by the base image: back it up first and restore
+# it afterwards, only removing our own injected copy when there was none.
+RUN if [ -f /usr/sbin/policy-rc.d ]; then cp -a /usr/sbin/policy-rc.d /usr/sbin/policy-rc.d.orig; fi && \
+    printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod 0755 /usr/sbin/policy-rc.d && \
+    DEBIAN_FRONTEND=noninteractive apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y \
+        -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" && \
+    if [ -f /usr/sbin/policy-rc.d.orig ]; then mv /usr/sbin/policy-rc.d.orig /usr/sbin/policy-rc.d; else rm -f /usr/sbin/policy-rc.d; fi && \
     rm -rf /var/lib/apt/lists/*
 
 ENV EXTENSION_KEY "nr_vault"
