@@ -263,6 +263,9 @@
       <trans-unit id="overview.secrets.description">
         <source>Manage encrypted secrets stored in the vault.</source>
       </trans-unit>
+      <trans-unit id="overview.analytics.description">
+        <source>Surface stale, expired, and unused secrets that may be safe to remove.</source>
+      </trans-unit>
       <trans-unit id="overview.audit.description">
         <source>View access logs and verify audit chain integrity.</source>
       </trans-unit>

@@ -70,10 +70,12 @@ test.describe('Overview Module User Pathways', () => {
       await expect(navSection).toBeVisible();
 
       const secretsLink = navSection.locator('a[href*="vault/secrets"]');
+      const analyticsLink = navSection.locator('a[href*="vault/analytics"]');
       const auditLink = navSection.locator('a[href*="vault/audit"]');
       const migrationLink = navSection.locator('a[href*="vault/migration"]');
 
       await expect(secretsLink).toBeVisible();
+      await expect(analyticsLink).toBeVisible();
       await expect(auditLink).toBeVisible();
       await expect(migrationLink).toBeVisible();
     });

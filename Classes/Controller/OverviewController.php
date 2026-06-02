@@ -74,6 +74,12 @@ final readonly class OverviewController
                     'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.secrets.description'),
                 ],
                 [
+                    'route' => 'admin_vault_analytics',
+                    'icon' => 'content-widget-chart-bar',
+                    'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.title'),
+                    'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.analytics.description'),
+                ],
+                [
                     'route' => 'admin_vault_audit',
                     'icon' => 'actions-document-history-open',
                     'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.title'),
