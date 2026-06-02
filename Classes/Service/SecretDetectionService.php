@@ -349,31 +349,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
                     ->executeQuery()
                     ->fetchAllAssociative();
 
-                $plaintextCount = 0;
-                $patterns = [];
-
-                foreach ($samples as $row) {
-                    $rawValue = $row[$columnName] ?? '';
-                    $value = \is_string($rawValue) || is_numeric($rawValue) ? (string) $rawValue : '';
-
-                    // Skip if it looks like a vault identifier
-                    if (IdentifierValidator::looksLikeVaultIdentifier($value)) {
-                        continue;
-                    }
-
-                    // Skip if it looks already encrypted
-                    if ($this->looksEncrypted($value)) {
-                        continue;
-                    }
-
-                    // Check for known patterns
-                    $detectedPattern = $this->detectValuePattern($value);
-                    if ($detectedPattern !== null) {
-                        $patterns[$detectedPattern] = true;
-                    }
-
-                    ++$plaintextCount;
-                }
+                [$plaintextCount, $patterns] = $this->matchPattern($samples, $columnName);
 
                 if ($plaintextCount > 0) {
                     $recordCount = is_numeric($count) ? (int) $count : 0;
@@ -395,6 +371,44 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Inspect sampled column values, skipping vault identifiers and encrypted blobs.
+     *
+     * @param array<int, array<string, mixed>> $samples
+     *
+     * @return array{int, array<string, true>} Plaintext count and detected patterns keyed by name
+     */
+    private function matchPattern(array $samples, string $columnName): array
+    {
+        $plaintextCount = 0;
+        $patterns = [];
+
+        foreach ($samples as $row) {
+            $rawValue = $row[$columnName] ?? '';
+            $value = \is_string($rawValue) || is_numeric($rawValue) ? (string) $rawValue : '';
+
+            // Skip if it looks like a vault identifier
+            if (IdentifierValidator::looksLikeVaultIdentifier($value)) {
+                continue;
+            }
+
+            // Skip if it looks already encrypted
+            if ($this->looksEncrypted($value)) {
+                continue;
+            }
+
+            // Check for known patterns
+            $detectedPattern = $this->detectValuePattern($value);
+            if ($detectedPattern !== null) {
+                $patterns[$detectedPattern] = true;
+            }
+
+            ++$plaintextCount;
+        }
+
+        return [$plaintextCount, $patterns];
     }
 
     /**

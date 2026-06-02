@@ -244,80 +244,14 @@ final readonly class SecretsController
         $lang = $this->getLanguageService();
 
         if ($identifier === '') {
-            if ($isAjax) {
-                /** @phpstan-ignore new.internalClass, method.internalClass */
-                return new JsonResponse(['success' => false, 'error' => 'No secret identifier provided'], 400);
-            }
-            $this->addFlashMessage(
-                $lang->sL(self::LL_NO_IDENTIFIER),
-                ContextualFeedbackSeverity::ERROR,
-            );
-
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new RedirectResponse(
-                (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME),
-            );
+            return $this->toggleMissingIdentifierResponse($isAjax, $lang);
         }
 
         try {
-            // Get current state - remove restrictions to find hidden records
-            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('tx_nrvault_secret');
-            $queryBuilder->getRestrictions()->removeAll();
-            $current = $queryBuilder
-                ->select('hidden')
-                ->from('tx_nrvault_secret')
-                ->where(
-                    $queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier)),
-                    $queryBuilder->expr()->eq('deleted', 0),
-                )
-                ->executeQuery()
-                ->fetchAssociative();
-
-            if ($current === false) {
-                throw new SecretNotFoundException('Secret not found: ' . $identifier, 7409034110);
+            $response = $this->performToggle($identifier, $isAjax);
+            if ($response instanceof ResponseInterface) {
+                return $response;
             }
-
-            // Toggle the hidden state
-            $newState = $current['hidden'] ? 0 : 1;
-            $action = $newState !== 0 ? 'disable' : 'enable';
-            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('tx_nrvault_secret');
-            $queryBuilder->getRestrictions()->removeAll();
-            $queryBuilder
-                ->update('tx_nrvault_secret')
-                ->set('hidden', $newState)
-                ->set('tstamp', time())
-                ->where(
-                    $queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier)),
-                    $queryBuilder->expr()->eq('deleted', 0),
-                )
-                ->executeStatement();
-
-            // Log the enable/disable action to audit log
-            $this->auditLogService->log(
-                $identifier,
-                'update',
-                true,
-                null,
-                $action === 'disable' ? 'Secret disabled' : 'Secret enabled',
-                null,
-                null,
-                new GenericContext(['action' => $action, 'hidden' => $newState]),
-            );
-
-            $message = $newState !== 0
-                ? $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.disabled.success')
-                : $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.enabled.success');
-
-            if ($isAjax) {
-                /** @phpstan-ignore new.internalClass, method.internalClass */
-                return new JsonResponse([
-                    'success' => true,
-                    'hidden' => (bool) $newState,
-                    'message' => $message,
-                ]);
-            }
-
-            $this->addFlashMessage($message, ContextualFeedbackSeverity::OK);
         } catch (SecretNotFoundException) {
             $this->auditLogService->log($identifier, 'update', false, 'Secret not found');
             if ($isAjax) {
@@ -400,6 +334,96 @@ final readonly class SecretsController
         return new RedirectResponse(
             (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME),
         );
+    }
+
+    /**
+     * Build the response for a toggle request that lacks a secret identifier.
+     */
+    private function toggleMissingIdentifierResponse(bool $isAjax, LanguageService $lang): ResponseInterface
+    {
+        if ($isAjax) {
+            /** @phpstan-ignore new.internalClass, method.internalClass */
+            return new JsonResponse(['success' => false, 'error' => 'No secret identifier provided'], 400);
+        }
+        $this->addFlashMessage(
+            $lang->sL(self::LL_NO_IDENTIFIER),
+            ContextualFeedbackSeverity::ERROR,
+        );
+
+        /** @phpstan-ignore new.internalClass, method.internalClass */
+        return new RedirectResponse(
+            (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME),
+        );
+    }
+
+    /**
+     * Toggle the hidden state of a secret and audit the change.
+     *
+     * Returns a JSON response for AJAX requests; for regular requests it adds a
+     * success flash message and returns null so the caller performs the shared redirect.
+     */
+    private function performToggle(string $identifier, bool $isAjax): ?ResponseInterface
+    {
+        // Get current state - remove restrictions to find hidden records
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('tx_nrvault_secret');
+        $queryBuilder->getRestrictions()->removeAll();
+        $current = $queryBuilder
+            ->select('hidden')
+            ->from('tx_nrvault_secret')
+            ->where(
+                $queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier)),
+                $queryBuilder->expr()->eq('deleted', 0),
+            )
+            ->executeQuery()
+            ->fetchAssociative();
+
+        if ($current === false) {
+            throw new SecretNotFoundException('Secret not found: ' . $identifier, 7409034110);
+        }
+
+        // Toggle the hidden state
+        $newState = $current['hidden'] ? 0 : 1;
+        $action = $newState !== 0 ? 'disable' : 'enable';
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('tx_nrvault_secret');
+        $queryBuilder->getRestrictions()->removeAll();
+        $queryBuilder
+            ->update('tx_nrvault_secret')
+            ->set('hidden', $newState)
+            ->set('tstamp', time())
+            ->where(
+                $queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier)),
+                $queryBuilder->expr()->eq('deleted', 0),
+            )
+            ->executeStatement();
+
+        // Log the enable/disable action to audit log
+        $this->auditLogService->log(
+            $identifier,
+            'update',
+            true,
+            null,
+            $action === 'disable' ? 'Secret disabled' : 'Secret enabled',
+            null,
+            null,
+            new GenericContext(['action' => $action, 'hidden' => $newState]),
+        );
+
+        $message = $newState !== 0
+            ? $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.disabled.success')
+            : $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.enabled.success');
+
+        if ($isAjax) {
+            /** @phpstan-ignore new.internalClass, method.internalClass */
+            return new JsonResponse([
+                'success' => true,
+                'hidden' => (bool) $newState,
+                'message' => $message,
+            ]);
+        }
+
+        $this->addFlashMessage($message, ContextualFeedbackSeverity::OK);
+
+        return null;
     }
 
     /**

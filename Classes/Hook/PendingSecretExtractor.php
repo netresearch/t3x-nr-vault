@@ -37,18 +37,7 @@ final class PendingSecretExtractor
      */
     public function extract(mixed $value): ?PendingSecret
     {
-        if (\is_array($value)) {
-            $rawSecretValue = $value['value'] ?? $value[0] ?? '';
-            $rawIdentifier = $value['_vault_identifier'] ?? '';
-            $rawChecksum = $value['_vault_checksum'] ?? '';
-            $secretValue = \is_string($rawSecretValue) || \is_int($rawSecretValue) ? (string) $rawSecretValue : '';
-            $existingIdentifier = \is_string($rawIdentifier) ? $rawIdentifier : '';
-            $originalChecksum = \is_string($rawChecksum) ? $rawChecksum : '';
-        } else {
-            $secretValue = \is_string($value) || \is_int($value) ? (string) $value : '';
-            $existingIdentifier = '';
-            $originalChecksum = '';
-        }
+        ['value' => $secretValue, 'identifier' => $existingIdentifier, 'checksum' => $originalChecksum] = $this->classifyValue($value);
 
         // Nothing to do: empty value and no prior secret.
         if ($secretValue === '' && $originalChecksum === '') {
@@ -61,5 +50,35 @@ final class PendingSecretExtractor
         return $isNewSecret
             ? PendingSecret::createNew($secretValue, $vaultIdentifier)
             : PendingSecret::createUpdate($secretValue, $vaultIdentifier, $originalChecksum);
+    }
+
+    /**
+     * Normalize the raw field value (array shape vs. scalar) into the three
+     * string components used by the extraction pipeline.
+     *
+     * @param mixed $value The raw field value (string, int, or the array shape
+     *                     emitted by the vault FormEngine element)
+     *
+     * @return array{value: string, identifier: string, checksum: string}
+     */
+    private function classifyValue(mixed $value): array
+    {
+        if (\is_array($value)) {
+            $rawSecretValue = $value['value'] ?? $value[0] ?? '';
+            $rawIdentifier = $value['_vault_identifier'] ?? '';
+            $rawChecksum = $value['_vault_checksum'] ?? '';
+
+            return [
+                'value' => \is_string($rawSecretValue) || \is_int($rawSecretValue) ? (string) $rawSecretValue : '',
+                'identifier' => \is_string($rawIdentifier) ? $rawIdentifier : '',
+                'checksum' => \is_string($rawChecksum) ? $rawChecksum : '',
+            ];
+        }
+
+        return [
+            'value' => \is_string($value) || \is_int($value) ? (string) $value : '',
+            'identifier' => '',
+            'checksum' => '',
+        ];
     }
 }
