@@ -541,15 +541,17 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
     private function createTestSecret(string $identifier): Secret
     {
-        // The ctor enforces the tri-state crypto invariant: encryptedDek,
-        // dekNonce, and valueNonce must all be set or all be empty. The
-        // master-key rotation only re-encrypts the DEK envelope, but the
-        // entity still requires the value-side fields to be consistent.
+        // The ctor enforces the full-envelope crypto invariant: encryptedValue,
+        // encryptedDek, dekNonce, valueNonce, and valueChecksum must all be
+        // set or all be empty. The master-key rotation only re-encrypts the
+        // DEK envelope, but the entity still requires a consistent envelope.
         return new Secret(
             identifier: $identifier,
+            encryptedValue: 'encrypted-value',
             encryptedDek: 'encrypted-dek',
             dekNonce: 'dek-nonce',
             valueNonce: 'value-nonce',
+            valueChecksum: 'value-checksum',
         );
     }
 

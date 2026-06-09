@@ -60,16 +60,20 @@ final readonly class Secret
         public int $readCount = 0,
         public int $lastReadAt = 0,
     ) {
-        // Envelope-encryption fields must be consistently set or unset —
-        // a partial set indicates a programming error that would produce
-        // an undecryptable secret.
-        $setCount = (int) ($this->encryptedDek !== '')
+        // Envelope-encryption fields must be consistently set or unset — a
+        // partial set indicates a programming error that would produce an
+        // undecryptable secret. The check covers the FULL envelope: omitting
+        // encryptedValue/valueChecksum let an undecryptable secret (DEK +
+        // nonces present, ciphertext absent) be constructed.
+        $setCount = (int) ($this->encryptedValue !== null && $this->encryptedValue !== '')
+            + (int) ($this->encryptedDek !== '')
             + (int) ($this->dekNonce !== '')
-            + (int) ($this->valueNonce !== '');
-        if ($setCount !== 0 && $setCount !== 3) {
+            + (int) ($this->valueNonce !== '')
+            + (int) ($this->valueChecksum !== '');
+        if ($setCount !== 0 && $setCount !== 5) {
             throw ValidationException::invalidOption(
                 'cryptographic fields',
-                'encryptedDek, dekNonce, and valueNonce must all be set or all be empty',
+                'encryptedValue, encryptedDek, dekNonce, valueNonce, and valueChecksum must all be set or all be empty',
             );
         }
     }

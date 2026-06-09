@@ -1061,6 +1061,7 @@ final class SecretRepositoryTest extends TestCase
             dekNonce: 'deknonce',
             valueNonce: 'valuenonce',
             encryptionVersion: 1,
+            valueChecksum: str_repeat('c', 64),
             allowedGroups: $allowedGroups,
         );
     }
@@ -1075,7 +1076,10 @@ final class SecretRepositoryTest extends TestCase
             'pid' => 0,
             'identifier' => $identifier,
             'encrypted_value' => base64_encode('encrypted'),
-            'nonce' => base64_encode('nonce123456789012'),
+            'encrypted_dek' => base64_encode('dek'),
+            'dek_nonce' => base64_encode('deknonce'),
+            'value_nonce' => base64_encode('valuenonce'),
+            'value_checksum' => str_repeat('c', 64),
             'encryption_version' => 1,
             'context' => '',
             'label' => 'Test Secret',

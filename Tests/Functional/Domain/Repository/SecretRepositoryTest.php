@@ -139,6 +139,7 @@ final class SecretRepositoryTest extends FunctionalTestCase
             encryptedDek: 'dek',
             dekNonce: 'n1',
             valueNonce: 'n2',
+            valueChecksum: str_repeat('c', 64),
             version: 2,
             cruserId: 1,
         );
@@ -202,6 +203,7 @@ final class SecretRepositoryTest extends FunctionalTestCase
             encryptedDek: 'dek',
             dekNonce: 'n1',
             valueNonce: 'n2',
+            valueChecksum: str_repeat('c', 64),
             context: $context,
             version: $version,
             cruserId: 1,

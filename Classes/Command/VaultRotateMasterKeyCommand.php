@@ -414,21 +414,28 @@ final class VaultRotateMasterKeyCommand extends Command
             throw MasterKeyException::notFound($path);
         }
 
-        // Handle base64-encoded keys
-        if (\strlen($key) !== self::KEY_LENGTH) {
-            $decoded = base64_decode($key, true);
-            if ($decoded !== false && \strlen($decoded) === self::KEY_LENGTH) {
-                $key = $decoded;
-            }
+        // Resolve the key, mirroring FileMasterKeyProvider::loadRawKey() ordering.
+        // Order matters: never trim() a value that is already binary key material,
+        // or a valid 32-byte raw key whose first/last byte happens to be a trim
+        // char (\t \n \r space \0 \x0B) is silently corrupted to 30/31 bytes.
+        $trimmed = trim($key);
+
+        // 1) Trimmed value as raw binary key.
+        if (\strlen($trimmed) === self::KEY_LENGTH) {
+            return $trimmed;
         }
 
-        // Trim whitespace (e.g., trailing newline)
-        $key = trim($key);
-
-        if (\strlen($key) !== self::KEY_LENGTH) {
-            throw MasterKeyException::invalidLength(self::KEY_LENGTH, \strlen($key));
+        // 2) base64 decode of the trimmed text.
+        $decoded = base64_decode($trimmed, true);
+        if ($decoded !== false && \strlen($decoded) === self::KEY_LENGTH) {
+            return $decoded;
         }
 
-        return $key;
+        // 3) Raw file contents as binary (no trimming of binary data).
+        if (\strlen($key) === self::KEY_LENGTH) {
+            return $key;
+        }
+
+        throw MasterKeyException::invalidLength(self::KEY_LENGTH, \strlen($trimmed));
     }
 }

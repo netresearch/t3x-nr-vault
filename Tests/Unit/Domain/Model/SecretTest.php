@@ -145,20 +145,18 @@ final class SecretTest extends TestCase
     #[Test]
     public function constructorAllowsAllCryptoFieldsEmpty(): void
     {
-        $secret = new Secret(
-            identifier: 'external-ref',
-            encryptedValue: 'enc_value',
-            valueChecksum: 'checksum',
-        );
+        $secret = new Secret(identifier: 'external-ref');
 
+        self::assertNull($secret->getEncryptedValue());
         self::assertSame('', $secret->getEncryptedDek());
         self::assertSame('', $secret->getDekNonce());
         self::assertSame('', $secret->getValueNonce());
+        self::assertSame('', $secret->getValueChecksum());
     }
 
     // ---------------------------------------------------------------
-    // Crypto-field tri-state invariant: encryptedDek/dekNonce/valueNonce
-    // must all be set or all be empty.
+    // Crypto-field envelope invariant: encryptedValue/encryptedDek/
+    // dekNonce/valueNonce/valueChecksum must all be set or all be empty.
     // ---------------------------------------------------------------
 
     /**
@@ -182,7 +180,7 @@ final class SecretTest extends TestCase
         string $valueNonce,
     ): void {
         $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('encryptedDek, dekNonce, and valueNonce must all be set or all be empty');
+        $this->expectExceptionMessage('encryptedValue, encryptedDek, dekNonce, valueNonce, and valueChecksum must all be set or all be empty');
 
         // The constructor MUST throw before returning; assertInstanceOf
         // is unreachable but uses the constructed value so Sonar's S1848
@@ -194,6 +192,22 @@ final class SecretTest extends TestCase
             dekNonce: $dekNonce,
             valueNonce: $valueNonce,
             valueChecksum: 'checksum',
+        ));
+    }
+
+    #[Test]
+    public function constructorThrowsOnEnvelopeWithoutCiphertext(): void
+    {
+        // The exact shape the full-envelope invariant exists for: DEK +
+        // nonces present, ciphertext + checksum absent → an undecryptable
+        // secret that the previous three-field check still accepted.
+        $this->expectException(ValidationException::class);
+
+        self::assertInstanceOf(Secret::class, new Secret(
+            identifier: 'broken',
+            encryptedDek: 'dek',
+            dekNonce: 'dn',
+            valueNonce: 'vn',
         ));
     }
 

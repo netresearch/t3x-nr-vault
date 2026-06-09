@@ -82,12 +82,21 @@ final readonly class EncryptionService implements EncryptionServiceInterface
             throw EncryptionException::encryptionFailed('Encryption operation failed');
         } finally {
             // Wipe key material on every path, including the SodiumException
-            // error path that bypasses the in-try wipes above.
+            // error path that bypasses the in-try wipes above. sodium_memzero()
+            // sets the wiped variable to null, so isset() distinguishes
+            // already-wiped buffers (skip) from un-wiped ones (wipe now);
+            // calling it again on a wiped (null) variable would throw.
             if (isset($dek)) {
                 sodium_memzero($dek);
             }
             if (isset($macKey)) {
                 sodium_memzero($macKey);
+            }
+            if (isset($plaintext)) {
+                sodium_memzero($plaintext);
+            }
+            if (isset($masterKey)) {
+                sodium_memzero($masterKey);
             }
         }
     }
