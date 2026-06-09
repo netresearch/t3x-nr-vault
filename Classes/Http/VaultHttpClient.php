@@ -83,6 +83,8 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
      * @param SecretPlacement|null $placement Configured placement type
      * @param OAuthConfig|null $oauthConfig Configured OAuth config
      * @param string|null $headerName Custom header name for Header placement
+     * @param string|null $authPrefix Optional scheme/prefix prepended to the secret for
+     *                                Header placement (e.g. "Key " → "Authorization: Key <secret>")
      * @param string|null $queryParam Custom query param for QueryParam placement
      * @param string|null $bodyField Custom body field for BodyField placement
      * @param string|null $usernameSecretIdentifier Username secret for BasicAuth
@@ -115,6 +117,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
         private string $reason = 'HTTP API call',
         ?OAuthTokenManager $oauthManager = null,
         ?SecureHttpClientFactory $secureHttpClientFactory = null,
+        private ?string $authPrefix = null,
     ) {
         // Resolve the factory once: it builds the inner client (when missing)
         // AND backs the OAuth manager's `isHostAllowed()` gate. VaultHttpClient
@@ -157,6 +160,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             reason: $options['reason'] ?? $this->reason,
             oauthManager: $this->oauthManager,
             secureHttpClientFactory: $this->secureHttpClientFactory,
+            authPrefix: $options['prefix'] ?? null,
         );
     }
 
@@ -195,6 +199,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             reason: $reason,
             oauthManager: $this->oauthManager,
             secureHttpClientFactory: $this->secureHttpClientFactory,
+            authPrefix: $this->authPrefix,
         );
     }
 
@@ -316,11 +321,15 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
         \assert($this->secretIdentifier !== null);
         $secret = $this->retrieveSecret($this->secretIdentifier);
         $headerName = $this->headerName ?? 'X-API-Key';
+        // Optional auth scheme/prefix (e.g. "Key " for FAL, "DeepL-Auth-Key " for DeepL)
+        // so non-Bearer "Authorization: <scheme> <secret>" schemes use audited injection.
+        $value = ($this->authPrefix ?? '') . $secret;
 
         try {
-            return $request->withHeader($headerName, $secret);
+            return $request->withHeader($headerName, $value);
         } finally {
             sodium_memzero($secret);
+            sodium_memzero($value);
         }
     }
 

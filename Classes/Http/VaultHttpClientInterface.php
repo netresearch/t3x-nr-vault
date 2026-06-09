@@ -38,12 +38,15 @@ interface VaultHttpClientInterface extends ClientInterface
      * @param SecretPlacement $placement How to inject the secret
      * @param array{
      *     headerName?: string,
+     *     prefix?: string,
      *     queryParam?: string,
      *     bodyField?: string,
      *     usernameSecret?: string,
      *     reason?: string
      * } $options Additional options:
      *     - headerName: Custom header name (for SecretPlacement::Header)
+     *     - prefix: Auth scheme/prefix prepended to the secret (for SecretPlacement::Header),
+     *       e.g. 'Key ' → "Authorization: Key <secret>" or 'DeepL-Auth-Key ' for DeepL
      *     - queryParam: Custom query param name (for SecretPlacement::QueryParam)
      *     - bodyField: Custom body field name (for SecretPlacement::BodyField)
      *     - usernameSecret: Username secret identifier (for SecretPlacement::BasicAuth)

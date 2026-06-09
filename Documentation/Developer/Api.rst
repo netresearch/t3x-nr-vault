@@ -298,7 +298,7 @@ Via VaultService
 
       :param string $secretIdentifier: Vault identifier for the secret.
       :param SecretPlacement $placement: How to inject the secret.
-      :param array $options: Additional options (headerName, queryParam, usernameSecret, reason).
+      :param array $options: Additional options (headerName, prefix, queryParam, usernameSecret, reason).
       :returns: New client instance with authentication configured.
 
    .. php:method:: withOAuth(OAuthConfig $config, string $reason = 'OAuth2 API call'): static
@@ -333,6 +333,11 @@ The :php:`withAuthentication()` method accepts these options:
 
 headerName
    Custom header name (for :php:`SecretPlacement::Header`, default: ``X-API-Key``).
+
+prefix
+   Auth scheme/prefix prepended to the secret (for :php:`SecretPlacement::Header`).
+   Use for non-Bearer ``Authorization: <scheme> <secret>`` schemes — e.g. ``'Key '``
+   for the TYPO3 FAL providers or ``'DeepL-Auth-Key '`` for DeepL.
 
 queryParam
    Query parameter name (for :php:`SecretPlacement::QueryParam`, default: ``api_key``).
@@ -384,6 +389,16 @@ placement
        ]);
    $response = $client->sendRequest(
        new Request('GET', 'https://api.example.com/data')
+   );
+
+   // Custom Authorization scheme (e.g. DeepL "Authorization: DeepL-Auth-Key <key>")
+   $client = $this->vault->http()
+       ->withAuthentication('deepl_api_key', SecretPlacement::Header, [
+           'headerName' => 'Authorization',
+           'prefix' => 'DeepL-Auth-Key ',
+       ]);
+   $response = $client->sendRequest(
+       new Request('POST', 'https://api-free.deepl.com/v2/translate', [], $body)
    );
 
    // Basic authentication with separate credentials
