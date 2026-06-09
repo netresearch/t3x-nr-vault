@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-09
+
+### Added
+- **`prefix` option for `withAuthentication()` Header placement** — prepends an
+  auth scheme/prefix to the secret before injection, so non-Bearer
+  `Authorization: <scheme> <secret>` schemes can use the audited, memory-scrubbed
+  secure HTTP client instead of building the header manually with a plaintext key.
+  TYPO3 FAL providers use `Key `, DeepL uses `DeepL-Auth-Key `. The combined
+  prefixed value is zeroed alongside the raw secret; the no-prefix path keeps a
+  single secret buffer (no extra allocation). The option is threaded through
+  `withReason()`; the OAuth builder leaves it unset.
+
+### Documentation
+- `Api.rst`: documented the `prefix` option and added a custom-`Authorization`-scheme
+  example; corrected the DeepL usage example, which previously documented `Bearer`
+  (a scheme DeepL never used).
+
 ## [0.7.0] - 2026-06-02
 
 ### Changed
@@ -422,7 +439,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/netresearch/t3x-nr-vault/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.5.0...v0.6.0
