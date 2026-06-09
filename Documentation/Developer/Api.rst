@@ -298,7 +298,7 @@ Via VaultService
 
       :param string $secretIdentifier: Vault identifier for the secret.
       :param SecretPlacement $placement: How to inject the secret.
-      :param array $options: Additional options (headerName, prefix, queryParam, usernameSecret, reason).
+      :param array $options: Additional options (headerName, prefix, queryParam, bodyField, usernameSecret, reason).
       :returns: New client instance with authentication configured.
 
    .. php:method:: withOAuth(OAuthConfig $config, string $reason = 'OAuth2 API call'): static

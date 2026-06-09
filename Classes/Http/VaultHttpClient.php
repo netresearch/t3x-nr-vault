@@ -83,8 +83,6 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
      * @param SecretPlacement|null $placement Configured placement type
      * @param OAuthConfig|null $oauthConfig Configured OAuth config
      * @param string|null $headerName Custom header name for Header placement
-     * @param string|null $authPrefix Optional scheme/prefix prepended to the secret for
-     *                                Header placement (e.g. "Key " → "Authorization: Key <secret>")
      * @param string|null $queryParam Custom query param for QueryParam placement
      * @param string|null $bodyField Custom body field for BodyField placement
      * @param string|null $usernameSecretIdentifier Username secret for BasicAuth
@@ -102,6 +100,10 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
      *                                                              (b) the `isHostAllowed()` gate the OAuth manager applies to its
      *                                                              token endpoint. When null, `GeneralUtility::makeInstance()` resolves
      *                                                              it from the DI container. Trailing position preserves positional BC.
+     * @param string|null $authPrefix Optional scheme/prefix prepended to the secret for Header
+     *                                placement (e.g. "Key " → "Authorization: Key <secret>").
+     *                                Logically a Header-placement option, but placed last in the
+     *                                signature to preserve positional BC for pre-PR callers.
      */
     public function __construct(
         private VaultServiceInterface $vaultService,
@@ -321,15 +323,21 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
         \assert($this->secretIdentifier !== null);
         $secret = $this->retrieveSecret($this->secretIdentifier);
         $headerName = $this->headerName ?? 'X-API-Key';
-        // Optional auth scheme/prefix (e.g. "Key " for FAL, "DeepL-Auth-Key " for DeepL)
-        // so non-Bearer "Authorization: <scheme> <secret>" schemes use audited injection.
-        $value = ($this->authPrefix ?? '') . $secret;
+        // Optional auth scheme/prefix ("Key " for FAL, "DeepL-Auth-Key " for DeepL) so
+        // non-Bearer "Authorization: <scheme> <secret>" schemes use audited injection.
+        // Only concatenate when a prefix is set: for the common no-prefix case this avoids
+        // copying the secret into a second buffer (extra allocation + wider exposure window).
+        $value = $this->authPrefix !== null ? $this->authPrefix . $secret : $secret;
 
         try {
             return $request->withHeader($headerName, $value);
         } finally {
             sodium_memzero($secret);
-            sodium_memzero($value);
+            // $value is a distinct buffer only when a prefix was prepended; otherwise it
+            // aliases $secret (already zeroed above), so a second memzero would be redundant.
+            if ($this->authPrefix !== null) {
+                sodium_memzero($value);
+            }
         }
     }
 
