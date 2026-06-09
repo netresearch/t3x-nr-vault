@@ -49,9 +49,15 @@ final class DeepLService
                 'target_lang' => $targetLang,
             ])));
 
-        // Secret resolved at use time, not config load time
+        // Secret resolved at use time, not config load time.
+        // DeepL uses the "Authorization: DeepL-Auth-Key <key>" scheme (not Bearer),
+        // expressed via the Header placement + prefix option.
         $response = $this->vault->http()
-            ->withAuthentication($this->apiKeyRef->identifier, SecretPlacement::Bearer)
+            ->withAuthentication(
+                $this->apiKeyRef->identifier,
+                SecretPlacement::Header,
+                ['headerName' => 'Authorization', 'prefix' => 'DeepL-Auth-Key '],
+            )
             ->withReason('DeepL translation request')
             ->sendRequest($request);
 

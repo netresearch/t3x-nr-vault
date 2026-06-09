@@ -209,6 +209,40 @@ final class VaultHttpClientTest extends TestCase
     }
 
     #[Test]
+    public function withAuthenticationAppliesSchemePrefixToHeader(): void
+    {
+        // FAL/DeepL-style "Authorization: <scheme> <secret>" schemes that Bearer can't express.
+        $this->vaultService
+            ->method('retrieve')
+            ->with('my_api_key')
+            ->willReturn('fal-secret');
+
+        $this->innerClient
+            ->expects(self::once())
+            ->method('sendRequest')
+            ->willReturnCallback(function (RequestInterface $request): Response {
+                self::assertSame('Key fal-secret', $request->getHeaderLine('Authorization'));
+
+                return new Response(200);
+            });
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $authenticatedClient = $client->withAuthentication(
+            'my_api_key',
+            SecretPlacement::Header,
+            ['headerName' => 'Authorization', 'prefix' => 'Key '],
+        );
+
+        $request = new Request('GET', self::API_URL);
+        $authenticatedClient->sendRequest($request);
+    }
+
+    #[Test]
     public function withAuthenticationInjectsBasicAuthFromCombinedSecret(): void
     {
         $this->vaultService

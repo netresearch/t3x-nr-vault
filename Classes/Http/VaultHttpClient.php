@@ -100,6 +100,10 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
      *                                                              (b) the `isHostAllowed()` gate the OAuth manager applies to its
      *                                                              token endpoint. When null, `GeneralUtility::makeInstance()` resolves
      *                                                              it from the DI container. Trailing position preserves positional BC.
+     * @param string|null $authPrefix Optional scheme/prefix prepended to the secret for Header
+     *                                placement (e.g. "Key " → "Authorization: Key <secret>").
+     *                                Logically a Header-placement option, but placed last in the
+     *                                signature to preserve positional BC for pre-PR callers.
      */
     public function __construct(
         private VaultServiceInterface $vaultService,
@@ -115,6 +119,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
         private string $reason = 'HTTP API call',
         ?OAuthTokenManager $oauthManager = null,
         ?SecureHttpClientFactory $secureHttpClientFactory = null,
+        private ?string $authPrefix = null,
     ) {
         // Resolve the factory once: it builds the inner client (when missing)
         // AND backs the OAuth manager's `isHostAllowed()` gate. VaultHttpClient
@@ -157,6 +162,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             reason: $options['reason'] ?? $this->reason,
             oauthManager: $this->oauthManager,
             secureHttpClientFactory: $this->secureHttpClientFactory,
+            authPrefix: $options['prefix'] ?? null,
         );
     }
 
@@ -195,6 +201,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             reason: $reason,
             oauthManager: $this->oauthManager,
             secureHttpClientFactory: $this->secureHttpClientFactory,
+            authPrefix: $this->authPrefix,
         );
     }
 
@@ -316,11 +323,21 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
         \assert($this->secretIdentifier !== null);
         $secret = $this->retrieveSecret($this->secretIdentifier);
         $headerName = $this->headerName ?? 'X-API-Key';
+        // Optional auth scheme/prefix ("Key " for FAL, "DeepL-Auth-Key " for DeepL) so
+        // non-Bearer "Authorization: <scheme> <secret>" schemes use audited injection.
+        // Only concatenate when a prefix is set: for the common no-prefix case this avoids
+        // copying the secret into a second buffer (extra allocation + wider exposure window).
+        $value = $this->authPrefix !== null ? $this->authPrefix . $secret : $secret;
 
         try {
-            return $request->withHeader($headerName, $secret);
+            return $request->withHeader($headerName, $value);
         } finally {
             sodium_memzero($secret);
+            // $value is a distinct buffer only when a prefix was prepended; otherwise it
+            // aliases $secret (already zeroed above), so a second memzero would be redundant.
+            if ($this->authPrefix !== null) {
+                sodium_memzero($value);
+            }
         }
     }
 
