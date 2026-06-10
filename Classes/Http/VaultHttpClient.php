@@ -382,8 +382,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             $body = (string) $request->getBody();
 
             if (str_contains($contentType, 'application/json')) {
-                /** @var array<string, mixed> $data */
-                $data = json_decode($body, true) ?: [];
+                $data = $this->decodeJsonObjectBody($body);
                 $data[$fieldName] = $secret;
                 $newBody = json_encode($data, JSON_THROW_ON_ERROR);
             } else {
@@ -399,6 +398,39 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
         } finally {
             sodium_memzero($secret);
         }
+    }
+
+    /**
+     * Decode a JSON request body into a string-keyed array suitable for adding
+     * the secret field.
+     *
+     * An empty (or whitespace-only) body is treated as "no fields yet" and
+     * yields `[]`. Anything else MUST decode to a JSON object — a scalar
+     * (`"x"`, `42`, `true`) would make the subsequent `$data[$field] = ...`
+     * fatal, and a JSON array/list would silently reshape into a mixed-key
+     * structure. Both indicate the caller paired a non-object body with
+     * body-field secret injection, so we fail loudly instead of corrupting it.
+     *
+     * @throws VaultException If the body is non-empty but not a JSON object
+     *
+     * @return array<string, mixed>
+     */
+    private function decodeJsonObjectBody(string $body): array
+    {
+        if (trim($body) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($body, true);
+        if (!\is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
+            throw new VaultException(
+                'Cannot inject body-field secret: request body must be a JSON object',
+                1735858524,
+            );
+        }
+
+        /** @var array<string, mixed> $decoded */
+        return $decoded;
     }
 
     private function injectOAuth(RequestInterface $request): RequestInterface
