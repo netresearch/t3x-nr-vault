@@ -188,7 +188,10 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             );
         }
 
-        $rows = $queryBuilder->executeQuery()->fetchAllAssociative();
+        // Stream the rows (single forward pass, read-only): the audit log can
+        // be arbitrarily large, and master-key rotation verifies the full chain
+        // up front — materialising it wholesale would OOM the rotation command.
+        $rows = $queryBuilder->executeQuery()->iterateAssociative();
         $errors = [];
         $warnings = [];
         /** @var list<int> $missingUids */
@@ -495,10 +498,23 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         $masterKey = $masterKeyProvider->getMasterKey();
 
         try {
-            return hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+            return self::deriveHmacKeyFromMasterKey($masterKey);
         } finally {
             sodium_memzero($masterKey);
         }
+    }
+
+    /**
+     * Derive the audit-chain HMAC key from an explicit master key.
+     *
+     * Single home of the HKDF parameters (info string + length) so callers
+     * that hold a master key directly — e.g. the master-key rotation, which
+     * must derive the NEW chain key before the provider is reconfigured —
+     * cannot drift from the runtime derivation above.
+     */
+    public static function deriveHmacKeyFromMasterKey(#[SensitiveParameter] string $masterKey): string
+    {
+        return hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
     }
 
     /**

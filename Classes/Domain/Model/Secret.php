@@ -10,6 +10,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Domain\Model;
 
 use Netresearch\NrVault\Crypto\EncryptedData;
+use Netresearch\NrVault\Crypto\EncryptionAlgorithm;
+use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Exception\ValidationException;
 
 /**
@@ -39,7 +41,8 @@ final readonly class Secret
         public string $encryptedDek = '',
         public string $dekNonce = '',
         public string $valueNonce = '',
-        public int $encryptionVersion = 1,
+        public int $encryptionVersion = EncryptionServiceInterface::ENCRYPTION_VERSION_LEGACY,
+        public string $encryptionAlgorithm = '',
         public string $valueChecksum = '',
         public int $ownerUid = 0,
         public array $allowedGroups = [],
@@ -60,16 +63,48 @@ final readonly class Secret
         public int $readCount = 0,
         public int $lastReadAt = 0,
     ) {
-        // Envelope-encryption fields must be consistently set or unset —
-        // a partial set indicates a programming error that would produce
-        // an undecryptable secret.
-        $setCount = (int) ($this->encryptedDek !== '')
+        // Envelope-encryption fields must be consistently set or unset — a
+        // partial set indicates a programming error that would produce an
+        // undecryptable secret. The check covers the FULL envelope: omitting
+        // encryptedValue/valueChecksum let an undecryptable secret (DEK +
+        // nonces present, ciphertext absent) be constructed.
+        $setCount = (int) ($this->encryptedValue !== null && $this->encryptedValue !== '')
+            + (int) ($this->encryptedDek !== '')
             + (int) ($this->dekNonce !== '')
-            + (int) ($this->valueNonce !== '');
-        if ($setCount !== 0 && $setCount !== 3) {
+            + (int) ($this->valueNonce !== '')
+            + (int) ($this->valueChecksum !== '');
+        if ($setCount !== 0 && $setCount !== 5) {
             throw ValidationException::invalidOption(
                 'cryptographic fields',
-                'encryptedDek, dekNonce, and valueNonce must all be set or all be empty',
+                'encryptedValue, encryptedDek, dekNonce, valueNonce, and valueChecksum must all be set or all be empty',
+            );
+        }
+
+        // The version/algorithm marker is part of the same invariant:
+        //  - version 2+ means "algorithm recorded explicitly", so it requires
+        //    a full envelope AND a KNOWN algorithm marker — anything else
+        //    would be undecryptable (decrypt refuses to guess for v2 rows);
+        //  - version 1 (legacy) rows predate the marker and must not carry
+        //    one, or decrypt-time behaviour would silently diverge from what
+        //    the marker claims.
+        if ($this->encryptionVersion >= EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT) {
+            if ($setCount !== 5) {
+                throw ValidationException::invalidOption(
+                    'cryptographic fields',
+                    'encryption version 2+ requires the full encryption envelope to be set',
+                );
+            }
+
+            if (!EncryptionAlgorithm::tryFrom($this->encryptionAlgorithm) instanceof EncryptionAlgorithm) {
+                throw ValidationException::invalidOption(
+                    'cryptographic fields',
+                    'encryption version 2+ requires a known encryptionAlgorithm marker',
+                );
+            }
+        } elseif ($this->encryptionAlgorithm !== '') {
+            throw ValidationException::invalidOption(
+                'cryptographic fields',
+                'legacy encryption version 1 must not carry an encryptionAlgorithm marker',
             );
         }
     }
@@ -89,10 +124,12 @@ final readonly class Secret
     }
 
     /**
-     * Apply a value rotation: bundles the seven crypto/version/timestamp
-     * fields that change together during `VaultService::rotate()`. Returns
-     * a new Secret with `version + 1`, `lastRotatedAt = $rotatedAt`, and
-     * the new envelope-encryption envelope.
+     * Apply a value rotation: bundles the crypto/version/timestamp fields
+     * that change together during `VaultService::rotate()`. Returns a new
+     * Secret with `version + 1`, `lastRotatedAt = $rotatedAt`, the new
+     * encryption envelope, and the envelope's version/algorithm marker
+     * (a rotation re-encrypts the value, so a legacy v1 secret is upgraded
+     * to the marker the new envelope was produced with).
      */
     public function withValueRotation(EncryptedData $encrypted, int $rotatedAt): self
     {
@@ -102,6 +139,8 @@ final readonly class Secret
             'dekNonce' => $encrypted->dekNonce,
             'valueNonce' => $encrypted->valueNonce,
             'valueChecksum' => $encrypted->valueChecksum,
+            'encryptionVersion' => $encrypted->encryptionVersion,
+            'encryptionAlgorithm' => $encrypted->encryptionAlgorithm->value,
             'version' => $this->version + 1,
             'lastRotatedAt' => $rotatedAt,
         ]);
@@ -217,6 +256,11 @@ final readonly class Secret
     public function getEncryptionVersion(): int
     {
         return $this->encryptionVersion;
+    }
+
+    public function getEncryptionAlgorithm(): string
+    {
+        return $this->encryptionAlgorithm;
     }
 
     public function getValueChecksum(): string
@@ -373,7 +417,8 @@ final readonly class Secret
             encryptedDek: (string) ($row['encrypted_dek'] ?? ''),
             dekNonce: (string) ($row['dek_nonce'] ?? ''),
             valueNonce: (string) ($row['value_nonce'] ?? ''),
-            encryptionVersion: (int) ($row['encryption_version'] ?? 1),
+            encryptionVersion: (int) ($row['encryption_version'] ?? EncryptionServiceInterface::ENCRYPTION_VERSION_LEGACY),
+            encryptionAlgorithm: (string) ($row['encryption_algorithm'] ?? ''),
             valueChecksum: (string) ($row['value_checksum'] ?? ''),
             ownerUid: (int) ($row['owner_uid'] ?? 0),
             allowedGroups: array_map(\intval(...), $allowedGroups),
@@ -423,6 +468,7 @@ final readonly class Secret
             'dek_nonce' => $this->dekNonce,
             'value_nonce' => $this->valueNonce,
             'encryption_version' => $this->encryptionVersion,
+            'encryption_algorithm' => $this->encryptionAlgorithm,
             'value_checksum' => $this->valueChecksum,
             'owner_uid' => $this->ownerUid,
             'allowed_groups' => implode(',', $this->allowedGroups),

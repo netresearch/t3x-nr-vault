@@ -15,7 +15,8 @@ namespace Netresearch\NrVault\Crypto;
 /**
  * Value object representing encrypted data from envelope encryption.
  *
- * Contains the encrypted value, encrypted DEK, nonces, and checksum.
+ * Contains the encrypted value, encrypted DEK, nonces, checksum, and the
+ * encryption version/algorithm marker recorded at encrypt time.
  * The value/DEK/nonce fields are base64-encoded for safe storage/transport;
  * the checksum is a hex-encoded keyed HMAC-SHA-256 over the ciphertext.
  */
@@ -32,6 +33,14 @@ final readonly class EncryptedData
         public string $valueNonce,
         /** Hex-encoded keyed HMAC-SHA-256 over the ciphertext (per-secret MAC key derived from the DEK) for change detection */
         public string $valueChecksum,
+        /**
+         * Encryption version marker. The defaults describe what the current
+         * `EncryptionService::encrypt()` produces; legacy (version-1)
+         * envelopes must pass their marker explicitly.
+         */
+        public int $encryptionVersion = EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT,
+        /** AEAD algorithm both envelope layers (DEK wrap + value) were encrypted with */
+        public EncryptionAlgorithm $encryptionAlgorithm = EncryptionAlgorithm::XChaCha20Poly1305,
     ) {}
 
     /**
@@ -42,6 +51,8 @@ final readonly class EncryptedData
      * @param string $dekNonce Raw DEK nonce bytes
      * @param string $valueNonce Raw value nonce bytes
      * @param string $valueChecksum Hex-encoded keyed HMAC-SHA-256 over the ciphertext
+     * @param int $encryptionVersion Encryption version marker
+     * @param EncryptionAlgorithm $encryptionAlgorithm AEAD algorithm used for both envelope layers
      */
     public static function fromRaw(
         string $encryptedValue,
@@ -49,6 +60,8 @@ final readonly class EncryptedData
         string $dekNonce,
         string $valueNonce,
         string $valueChecksum,
+        int $encryptionVersion = EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT,
+        EncryptionAlgorithm $encryptionAlgorithm = EncryptionAlgorithm::XChaCha20Poly1305,
     ): self {
         return new self(
             encryptedValue: base64_encode($encryptedValue),
@@ -56,6 +69,8 @@ final readonly class EncryptedData
             dekNonce: base64_encode($dekNonce),
             valueNonce: base64_encode($valueNonce),
             valueChecksum: $valueChecksum,
+            encryptionVersion: $encryptionVersion,
+            encryptionAlgorithm: $encryptionAlgorithm,
         );
     }
 
@@ -68,6 +83,8 @@ final readonly class EncryptedData
      *     dek_nonce: string,
      *     value_nonce: string,
      *     value_checksum: string,
+     *     encryption_version: int,
+     *     encryption_algorithm: string,
      * }
      */
     public function toArray(): array
@@ -78,6 +95,8 @@ final readonly class EncryptedData
             'dek_nonce' => $this->dekNonce,
             'value_nonce' => $this->valueNonce,
             'value_checksum' => $this->valueChecksum,
+            'encryption_version' => $this->encryptionVersion,
+            'encryption_algorithm' => $this->encryptionAlgorithm->value,
         ];
     }
 }

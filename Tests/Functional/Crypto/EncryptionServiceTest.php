@@ -87,6 +87,8 @@ final class EncryptionServiceTest extends FunctionalTestCase
             $encrypted->dekNonce,
             $encrypted->valueNonce,
             $identifier,
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
 
         self::assertSame($plaintext, $decrypted);
@@ -130,6 +132,8 @@ final class EncryptionServiceTest extends FunctionalTestCase
             $encrypted->dekNonce,
             $encrypted->valueNonce,
             'wrong/identifier',
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
     }
 
@@ -254,18 +258,18 @@ final class EncryptionServiceTest extends FunctionalTestCase
             $encrypted->dekNonce,
             $encrypted->valueNonce,
             $identifier,
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
 
         self::assertSame($largeValue, $decrypted, 'Large values must round-trip correctly');
     }
 
     /**
-     * Explicit round-trip on the XChaCha20-Poly1305 cipher branch.
-     *
-     * The service selects AES-256-GCM or XChaCha20-Poly1305 based on
-     * `preferXChaCha20()` + sodium availability. On CI runners with AES-NI,
-     * the default round-trip covers only AES-GCM; force the XChaCha20 path
-     * here so both cipher modes are exercised.
+     * Explicit round-trip on the XChaCha20-Poly1305 cipher branch through the
+     * LEGACY (version-1, marker-less) decrypt path: with `preferXChaCha20`
+     * enabled the host-derived selection resolves to XChaCha20, matching the
+     * algorithm new envelopes record, so the marker-less decrypt succeeds.
      */
     #[Test]
     public function xchacha20RoundTripProducesOriginalPlaintext(): void
@@ -292,9 +296,9 @@ final class EncryptionServiceTest extends FunctionalTestCase
     }
 
     /**
-     * Explicit round-trip on the AES-256-GCM cipher branch.
-     *
-     * Only runs when AES-256-GCM hardware support is available (sodium check).
+     * Explicit round-trip on the AES-256-GCM cipher branch via the
+     * `encryptionAlgorithm` extension setting and the stored version-2
+     * marker. Only runs when AES-256-GCM hardware support is available.
      */
     #[Test]
     public function aes256GcmRoundTripProducesOriginalPlaintext(): void
@@ -304,24 +308,32 @@ final class EncryptionServiceTest extends FunctionalTestCase
         }
 
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['preferXChaCha20'] = false;
+        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['encryptionAlgorithm'] = 'aes256gcm';
         FileMasterKeyProvider::clearCachedKey();
 
-        $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $identifier = 'test_aes_gcm_' . bin2hex(random_bytes(4));
-        $plaintext = 'aes-256-gcm-only-path-value';
+        try {
+            $encryptionService = $this->get(EncryptionServiceInterface::class);
+            $identifier = 'test_aes_gcm_' . bin2hex(random_bytes(4));
+            $plaintext = 'aes-256-gcm-only-path-value';
 
-        $encrypted = $encryptionService->encrypt($plaintext, $identifier);
+            $encrypted = $encryptionService->encrypt($plaintext, $identifier);
+            self::assertSame('aes256gcm', $encrypted->encryptionAlgorithm->value);
 
-        FileMasterKeyProvider::clearCachedKey();
-        $decrypted = $encryptionService->decrypt(
-            $encrypted->encryptedValue,
-            $encrypted->encryptedDek,
-            $encrypted->dekNonce,
-            $encrypted->valueNonce,
-            $identifier,
-        );
+            FileMasterKeyProvider::clearCachedKey();
+            $decrypted = $encryptionService->decrypt(
+                $encrypted->encryptedValue,
+                $encrypted->encryptedDek,
+                $encrypted->dekNonce,
+                $encrypted->valueNonce,
+                $identifier,
+                $encrypted->encryptionVersion,
+                $encrypted->encryptionAlgorithm->value,
+            );
 
-        self::assertSame($plaintext, $decrypted);
+            self::assertSame($plaintext, $decrypted);
+        } finally {
+            unset($GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['encryptionAlgorithm']);
+        }
     }
 
     /**

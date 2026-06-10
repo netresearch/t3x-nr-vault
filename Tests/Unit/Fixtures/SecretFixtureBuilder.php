@@ -270,10 +270,12 @@ final class SecretFixtureBuilder
     /**
      * Build a real `Secret` domain entity (no mocking).
      *
-     * Uses placeholder ciphertext so the builder stays usable in tests that
-     * only need the entity shell — production code that decrypts the result
-     * will throw, which is desirable: a test that reaches that branch should
-     * wire real crypto instead.
+     * Uses a placeholder envelope (ciphertext, DEK, nonces, checksum — the
+     * Secret constructor enforces all-or-nothing on these five fields) so the
+     * builder stays usable in tests that only need the entity shell —
+     * production code that decrypts the result will throw, which is
+     * desirable: a test that reaches that branch should wire real crypto
+     * instead.
      */
     public function buildSecret(): Secret
     {
@@ -283,6 +285,9 @@ final class SecretFixtureBuilder
             scopePid: $this->scopePid,
             description: $this->description,
             encryptedValue: 'test-ciphertext',
+            encryptedDek: 'test-encrypted-dek',
+            dekNonce: 'test-dek-nonce',
+            valueNonce: 'test-value-nonce',
             valueChecksum: 'test-checksum',
             ownerUid: $this->ownerUid,
             allowedGroups: $this->groups,

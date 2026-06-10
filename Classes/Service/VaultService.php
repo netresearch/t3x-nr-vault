@@ -169,6 +169,8 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
                 $secret->getDekNonce(),
                 $secret->getValueNonce(),
                 $identifier,
+                $secret->getEncryptionVersion(),
+                $secret->getEncryptionAlgorithm(),
             );
         } catch (EncryptionException $e) {
             $this->auditLogService->log($identifier, AuditAction::Read->value, false, 'Decryption failed: ' . $e->getMessage());
@@ -496,6 +498,8 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             encryptedDek: $encrypted->encryptedDek,
             dekNonce: $encrypted->dekNonce,
             valueNonce: $encrypted->valueNonce,
+            encryptionVersion: $encrypted->encryptionVersion,
+            encryptionAlgorithm: $encrypted->encryptionAlgorithm->value,
             valueChecksum: $encrypted->valueChecksum,
             ownerUid: $this->resolveOwnerUid($options, $existing),
             allowedGroups: $optional['allowedGroups'],

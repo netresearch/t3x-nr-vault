@@ -48,13 +48,19 @@ final class CryptoFuzzTest extends TestCase
         $provider = $this->createStub(MasterKeyProviderInterface::class);
         $provider->method('getMasterKey')->willReturnCallback(fn (): string => $this->masterKey);
 
+        // Each subject pins its algorithm for NEW encrypts (encryptionAlgorithm)
+        // and aligns the legacy/version-1 derivation (preferXChaCha20) with it,
+        // so the marker-less decrypt calls below keep exercising the legacy
+        // path against matching ciphertext.
         /** @var ExtensionConfigurationInterface&MockObject $xchachaConfig */
         $xchachaConfig = $this->createStub(ExtensionConfigurationInterface::class);
         $xchachaConfig->method('preferXChaCha20')->willReturn(true);
+        $xchachaConfig->method('getEncryptionAlgorithm')->willReturn('xchacha20poly1305');
 
         /** @var ExtensionConfigurationInterface&MockObject $aesConfig */
         $aesConfig = $this->createStub(ExtensionConfigurationInterface::class);
         $aesConfig->method('preferXChaCha20')->willReturn(false);
+        $aesConfig->method('getEncryptionAlgorithm')->willReturn('aes256gcm');
 
         $this->xchacha = new EncryptionService($provider, $xchachaConfig);
         $this->aes = new EncryptionService($provider, $aesConfig);

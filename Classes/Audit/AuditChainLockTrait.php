@@ -33,6 +33,18 @@ use TYPO3\CMS\Core\Database\Connection;
  *    abort on anything other than 1 so we never silently write unprotected
  *    audit entries.
  *
+ * Nesting inside a caller-managed Doctrine transaction (master-key rotation
+ * runs audit writes + the chain re-key inside ONE transaction with the DEK
+ * re-encryption):
+ *  - MySQL/MariaDB: `GET_LOCK` is re-acquirable per session (counted), and
+ *    Doctrine DBAL 4 maps the nested begin/commit/rollback onto savepoints.
+ *  - SQLite: a raw `BEGIN EXCLUSIVE` cannot nest. When a Doctrine-managed
+ *    transaction is already active, acquire/commit/rollback fall back to
+ *    Doctrine savepoints; write-serialisation is then provided by the outer
+ *    transaction's database-file write lock. `Connection::isTransactionActive()`
+ *    discriminates the two modes — a raw `BEGIN EXCLUSIVE` is invisible to
+ *    Doctrine's nesting counter (false), a savepoint acquire is not (true).
+ *
  * Lock failures surface as {@see AuditWriteException}. Callers that want a
  * context-specific exception type can catch and re-throw.
  */
@@ -44,6 +56,12 @@ trait AuditChainLockTrait
     private function acquireAuditLock(Connection $connection, bool $isSQLite): void
     {
         if ($isSQLite) {
+            if ($connection->isTransactionActive()) {
+                // Nested mode: savepoint via Doctrine (see trait docblock).
+                $connection->beginTransaction();
+
+                return;
+            }
             $connection->executeStatement('BEGIN EXCLUSIVE');
 
             return;
@@ -73,6 +91,13 @@ trait AuditChainLockTrait
     private function commitAuditLock(Connection $connection, bool $isSQLite): void
     {
         if ($isSQLite) {
+            if ($connection->isTransactionActive()) {
+                // Nested mode: release the savepoint; durability comes from
+                // the caller's outer commit.
+                $connection->commit();
+
+                return;
+            }
             $connection->executeStatement('COMMIT');
 
             return;
@@ -83,6 +108,13 @@ trait AuditChainLockTrait
     private function rollbackAuditLock(Connection $connection, bool $isSQLite): void
     {
         if ($isSQLite) {
+            if ($connection->isTransactionActive()) {
+                // Nested mode: roll back to the savepoint; the caller's outer
+                // transaction decides the final fate.
+                $connection->rollBack();
+
+                return;
+            }
             $connection->executeStatement('ROLLBACK');
 
             return;

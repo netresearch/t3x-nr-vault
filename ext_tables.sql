@@ -11,11 +11,16 @@ CREATE TABLE tx_nrvault_secret (
     description text,
 
     -- Encrypted data (local adapter only)
+    -- Nonces are stored base64-encoded: a 24-byte XChaCha20-Poly1305 nonce
+    -- encodes to 32 characters (AES-256-GCM: 12 bytes -> 16 characters).
     encrypted_value mediumblob,
     encrypted_dek text,
-    dek_nonce varchar(24) DEFAULT '' NOT NULL,
-    value_nonce varchar(24) DEFAULT '' NOT NULL,
+    dek_nonce varchar(32) DEFAULT '' NOT NULL,
+    value_nonce varchar(32) DEFAULT '' NOT NULL,
+    -- 1 = legacy (algorithm host-derived at decrypt time),
+    -- 2 = algorithm recorded explicitly in encryption_algorithm
     encryption_version int(11) unsigned DEFAULT 1 NOT NULL,
+    encryption_algorithm varchar(32) DEFAULT '' NOT NULL,
 
     -- Change detection (without decrypting)
     value_checksum char(64) DEFAULT '' NOT NULL,
