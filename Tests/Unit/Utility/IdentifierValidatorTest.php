@@ -211,6 +211,34 @@ final class IdentifierValidatorTest extends TestCase
         self::assertContains($uuid[19], ['8', '9', 'a', 'b']);
     }
 
+    /**
+     * The variant nibble (position 19) must draw bits 12-13 from randomness
+     * (RFC 9562: 10xx). A regression that hard-codes those bits to zero leaves
+     * the nibble pinned to '8' and loses ~2 bits of entropy. A single sample
+     * can't catch that — collect the nibble over many generations and assert
+     * the full {8, 9, a, b} set appears.
+     */
+    #[Test]
+    public function generateUuidVariantNibbleCoversAllRfc9562Values(): void
+    {
+        // Collect nibble characters into a list (not array keys — numeric-string
+        // keys like '8'/'9' would silently cast to int and break the compare).
+        $variants = [];
+        for ($i = 0; $i < 500; $i++) {
+            $variants[] = IdentifierValidator::generateUuid()[19];
+        }
+        $variants = array_values(array_unique($variants));
+        sort($variants);
+
+        self::assertSame(
+            ['8', '9', 'a', 'b'],
+            $variants,
+            'Variant nibble must vary across {8, 9, a, b}; a pinned value means '
+            . 'the random variant bits (12-13) were lost.',
+        );
+        self::assertCount(4, $variants);
+    }
+
     #[Test]
     public function looksLikeVaultIdentifierRecognisesUuidV7(): void
     {
