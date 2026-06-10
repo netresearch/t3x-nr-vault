@@ -16,6 +16,7 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Throwable;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Authentication\CommandLineUserAuthentication;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
@@ -115,18 +116,30 @@ final class AccessControlService implements AccessControlServiceInterface
 
     public function getCurrentActorType(): string
     {
-        $backendUser = $this->getBackendUser();
-        if ($backendUser instanceof BackendUserAuthentication) {
-            return 'backend';
-        }
-
+        // CLI detection must run BEFORE the backend-user check: the TYPO3 CLI
+        // bootstrap (console commands, messenger workers) sets
+        // $GLOBALS['BE_USER'] to a CommandLineUserAuthentication instance —
+        // which extends BackendUserAuthentication — so a backend-user-first
+        // order misclassified every CLI/worker access as 'backend'.
         if ($this->isRealCliContext()) {
             return 'cli';
         }
 
-        /** @phpstan-ignore constant.notFound */
-        if (\defined('TYPO3_cliMode') && \TYPO3_CLIMODE) {
+        if (\defined('TYPO3_cliMode') && \constant('TYPO3_cliMode') === true) {
             return 'cli';
+        }
+
+        $backendUser = $this->getBackendUser();
+
+        // A CommandLineUserAuthentication BE user only ever exists in CLI
+        // context — classify it as 'cli' even when SAPI detection is
+        // suppressed (e.g. under PHPUnit, where isRealCliContext() is guarded).
+        if ($backendUser instanceof CommandLineUserAuthentication) {
+            return 'cli';
+        }
+
+        if ($backendUser instanceof BackendUserAuthentication) {
+            return 'backend';
         }
 
         return 'api';
