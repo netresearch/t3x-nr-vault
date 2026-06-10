@@ -252,7 +252,7 @@ final readonly class MigrationController
                     'key' => $key,
                     'table' => $table,
                     'column' => $column,
-                    'identifierPattern' => "{$table}__{$column}__{{uid}}",
+                    'identifierPattern' => "{$table}__{$column}__{uid}",
                 ];
             }
         }
