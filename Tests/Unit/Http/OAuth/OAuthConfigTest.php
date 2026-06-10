@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Http\OAuth;
 
+use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -104,6 +105,59 @@ final class OAuthConfigTest extends TestCase
         self::assertSame('refresh_token', $config->grantType);
         self::assertSame(self::REFRESH_TOKEN_SECRET, $config->refreshTokenSecret);
         self::assertSame(['offline_access'], $config->scopes);
+    }
+
+    /**
+     * Illegal-state guard: a `refresh_token` grant with no refresh-token secret
+     * identifier must be rejected at construction time. Otherwise the token
+     * manager silently downgrades to client_credentials, hiding a config error.
+     */
+    #[Test]
+    public function constructorRejectsRefreshTokenGrantWithNullSecret(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessageMatches('/refreshTokenSecret.*required for the refresh_token grant/i');
+
+        new OAuthConfig(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            grantType: 'refresh_token',
+            // refreshTokenSecret omitted → null
+        );
+    }
+
+    #[Test]
+    public function constructorRejectsRefreshTokenGrantWithEmptySecret(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessageMatches('/refreshTokenSecret.*required for the refresh_token grant/i');
+
+        new OAuthConfig(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            grantType: 'refresh_token',
+            refreshTokenSecret: '',
+        );
+    }
+
+    /**
+     * Unknown grant types must fail fast rather than reaching the token manager
+     * (which only branches on `client_credentials` / `refresh_token`).
+     */
+    #[Test]
+    public function constructorRejectsUnsupportedGrantType(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessageMatches('/grantType.*must be one of/i');
+
+        new OAuthConfig(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            grantType: 'password',
+        );
     }
 
     #[Test]
