@@ -612,7 +612,13 @@ final class OAuthTokenManager
         return (string) preg_replace(
             [
                 // JSON: "client_secret":"...", "refresh_token":"...", "access_token":"..."
-                '/("(?:client_secret|refresh_token|access_token)"\s*:\s*")[^"]*(")/i',
+                // The value part handles JSON escape sequences (`\"`, `\\`, …)
+                // via the unrolled-loop idiom `[^"\x5c]*(?:\x5c.[^"\x5c]*)*`
+                // (\x5c = backslash): a credential containing an escaped quote
+                // would otherwise end the match early and leak its remainder.
+                // The idiom is linear — each position is matched by exactly one
+                // branch, so no catastrophic backtracking.
+                '/("(?:client_secret|refresh_token|access_token)"\s*:\s*")[^"\x5c]*(?:\x5c.[^"\x5c]*)*(")/i',
                 // Quoted echo: client_secret '...' or client_secret "..."
                 '/((?:client_secret|refresh_token|access_token)\s+["\'])[^"\']*(["\'])/i',
             ],

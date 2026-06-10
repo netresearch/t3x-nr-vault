@@ -1354,6 +1354,16 @@ final class OAuthTokenManagerTest extends TestCase
             '{ "access_token" : "leaked-bearer" }',
             '{ "access_token" : "[REDACTED]" }',
         ];
+        yield 'client_secret with escaped quote in JSON error body' => [
+            // JSON-escaped quote inside the secret (`top\"Secr3t`): a naive
+            // `[^"]*` value match stops at the escape and leaks `Secr3t"`.
+            '{"error":"invalid_client","client_secret":"top\"Secr3t"}',
+            '{"error":"invalid_client","client_secret":"[REDACTED]"}',
+        ];
+        yield 'client_secret with escaped backslashes in JSON error body' => [
+            '{"error":"invalid_client","client_secret":"a\\\\b\"c\\\\"}',
+            '{"error":"invalid_client","client_secret":"[REDACTED]"}',
+        ];
         yield 'client_secret echoed in single-quoted prose' => [
             "Invalid client_secret 'topSecr3t' supplied",
             "Invalid client_secret '[REDACTED]' supplied",
