@@ -188,7 +188,10 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             );
         }
 
-        $rows = $queryBuilder->executeQuery()->fetchAllAssociative();
+        // Stream the rows (single forward pass, read-only): the audit log can
+        // be arbitrarily large, and master-key rotation verifies the full chain
+        // up front — materialising it wholesale would OOM the rotation command.
+        $rows = $queryBuilder->executeQuery()->iterateAssociative();
         $errors = [];
         $warnings = [];
         /** @var list<int> $missingUids */

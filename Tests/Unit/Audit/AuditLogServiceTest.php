@@ -9,8 +9,10 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Audit;
 
+use ArrayIterator;
 use DateTimeImmutable;
 use Doctrine\DBAL\Result;
+use Iterator;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogService;
@@ -522,6 +524,7 @@ final class AuditLogServiceTest extends TestCase
     {
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn([]);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool
             ->method('getConnectionForTable')
@@ -562,6 +565,7 @@ final class AuditLogServiceTest extends TestCase
 
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn([]);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool
             ->method('getConnectionForTable')
@@ -852,6 +856,7 @@ final class AuditLogServiceTest extends TestCase
                 'hmac_key_epoch' => 0,
             ],
         ]);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool
             ->method('getConnectionForTable')
@@ -922,6 +927,7 @@ final class AuditLogServiceTest extends TestCase
                 'hmac_key_epoch' => 1,
             ],
         ]);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool
             ->method('getConnectionForTable')
@@ -1003,6 +1009,7 @@ final class AuditLogServiceTest extends TestCase
                 'hmac_key_epoch' => 1,
             ],
         ]);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool
             ->method('getConnectionForTable')
@@ -1109,6 +1116,7 @@ final class AuditLogServiceTest extends TestCase
 
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn([$tamperedRow]);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool
             ->method('getConnectionForTable')
@@ -1951,6 +1959,7 @@ final class AuditLogServiceTest extends TestCase
                 'hmac_key_epoch' => 0,
             ],
         ]);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool->method('getConnectionForTable')->willReturn($this->connection);
         $this->connection->method('createQueryBuilder')->willReturn($this->queryBuilder);
@@ -1998,6 +2007,7 @@ final class AuditLogServiceTest extends TestCase
 
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn($rows);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool->method('getConnectionForTable')->willReturn($this->connection);
         $this->connection->method('createQueryBuilder')->willReturn($this->queryBuilder);
@@ -2039,6 +2049,7 @@ final class AuditLogServiceTest extends TestCase
 
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn($rows);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool->method('getConnectionForTable')->willReturn($this->connection);
         $this->connection->method('createQueryBuilder')->willReturn($this->queryBuilder);
@@ -2084,6 +2095,7 @@ final class AuditLogServiceTest extends TestCase
 
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn($rows);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool->method('getConnectionForTable')->willReturn($this->connection);
         $this->connection->method('createQueryBuilder')->willReturn($this->queryBuilder);
@@ -2244,6 +2256,7 @@ final class AuditLogServiceTest extends TestCase
     {
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn($rows);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool
             ->method('getConnectionForTable')
@@ -2285,6 +2298,7 @@ final class AuditLogServiceTest extends TestCase
     {
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn($rows);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
 
         $this->connectionPool
             ->method('getConnectionForTable')

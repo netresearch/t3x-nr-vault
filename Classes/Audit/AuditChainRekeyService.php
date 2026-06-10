@@ -28,6 +28,13 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
 {
     private const TABLE_NAME = 'tx_nrvault_audit_log';
 
+    /**
+     * Rows fetched per keyset-paginated batch. The chain walk is sequential by
+     * design (each hash links to its predecessor), but the audit log can be
+     * arbitrarily large — fetching it wholesale would OOM the rotation command.
+     */
+    private const BATCH_SIZE = 1000;
+
     public function rekeyChain(Connection $connection, #[SensitiveParameter] string $newMasterKey): int
     {
         $hmacKey = AuditLogService::deriveHmacKeyFromMasterKey($newMasterKey);
@@ -46,68 +53,104 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
      */
     private function rewriteChain(Connection $connection, #[SensitiveParameter] string $hmacKey): int
     {
-        $result = $connection->createQueryBuilder()
-            ->select('*')
-            ->from(self::TABLE_NAME)
-            ->orderBy('uid', 'ASC')
-            ->executeQuery();
-
         $previousHash = '';
         $rewrittenCount = 0;
+        $lastUid = 0;
 
-        while (($row = $result->fetchAssociative()) !== false) {
-            $entry = AuditLogService::extractHashRow($row);
+        // Keyset pagination (uid > last seen, LIMIT n): bounded memory on
+        // arbitrarily large logs, and each batch is fully materialised before
+        // its UPDATEs run, so reads never interleave with writes on an open
+        // cursor. $previousHash carries the chain linkage across batches.
+        do {
+            $queryBuilder = $connection->createQueryBuilder();
+            $rows = $queryBuilder
+                ->select('*')
+                ->from(self::TABLE_NAME)
+                ->where($queryBuilder->expr()->gt(
+                    'uid',
+                    $queryBuilder->createNamedParameter($lastUid, Connection::PARAM_INT),
+                ))
+                ->orderBy('uid', 'ASC')
+                ->setMaxResults(self::BATCH_SIZE)
+                ->executeQuery()
+                ->fetchAllAssociative();
 
-            // Epoch-aware dispatch, mirroring verifyHashChain():
-            //   0  → legacy keyless SHA-256 (identity fields only)
-            //   1  → HMAC-SHA256 (identity fields only)
-            //   2+ → HMAC-SHA256 (extended forensic payload)
-            $expectedHash = match (true) {
-                $entry['epoch'] === 0 => AuditLogService::calculateHash(
-                    $entry['uid'],
-                    $entry['secretId'],
-                    $entry['action'],
-                    $entry['actorUid'],
-                    $entry['crdate'],
-                    $previousHash,
-                ),
-                $entry['epoch'] === 1 => AuditLogService::calculateHash(
-                    $entry['uid'],
-                    $entry['secretId'],
-                    $entry['action'],
-                    $entry['actorUid'],
-                    $entry['crdate'],
-                    $previousHash,
-                    $hmacKey,
-                ),
-                default => AuditLogService::calculateHashV2(
-                    AuditLogService::extractV2HashRow($row),
-                    $previousHash,
-                    $hmacKey,
-                ),
-            };
-
-            $rowEntryHash = \is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '';
-            $rowPreviousHash = \is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '';
-
-            // Constant-time comparisons per project mandate (AGENTS.md
-            // Security Requirement #2), although this check only decides
-            // whether an UPDATE is needed.
-            if (!hash_equals($expectedHash, $rowEntryHash) || !hash_equals($previousHash, $rowPreviousHash)) {
-                $connection->update(
-                    self::TABLE_NAME,
-                    [
-                        'entry_hash' => $expectedHash,
-                        'previous_hash' => $previousHash,
-                    ],
-                    ['uid' => $entry['uid']],
-                );
-                ++$rewrittenCount;
+            foreach ($rows as $row) {
+                $rewrittenCount += $this->rekeyRow($connection, $row, $hmacKey, $previousHash);
+                $uid = $row['uid'] ?? 0;
+                $lastUid = max($lastUid, is_numeric($uid) ? (int) $uid : 0);
             }
-
-            $previousHash = $expectedHash;
-        }
+        } while (\count($rows) === self::BATCH_SIZE);
 
         return $rewrittenCount;
+    }
+
+    /**
+     * Recompute one row's entry hash with its OWN stored epoch under the new
+     * HMAC key, re-linking previous_hash. Returns 1 when the row was updated.
+     * $previousHash is advanced to this row's expected hash for the next link.
+     *
+     * @param array<string, mixed> $row
+     */
+    private function rekeyRow(
+        Connection $connection,
+        array $row,
+        #[SensitiveParameter]
+        string $hmacKey,
+        string &$previousHash,
+    ): int {
+        $entry = AuditLogService::extractHashRow($row);
+
+        // Epoch-aware dispatch, mirroring verifyHashChain():
+        //   0  → legacy keyless SHA-256 (identity fields only)
+        //   1  → HMAC-SHA256 (identity fields only)
+        //   2+ → HMAC-SHA256 (extended forensic payload)
+        $expectedHash = match (true) {
+            $entry['epoch'] === 0 => AuditLogService::calculateHash(
+                $entry['uid'],
+                $entry['secretId'],
+                $entry['action'],
+                $entry['actorUid'],
+                $entry['crdate'],
+                $previousHash,
+            ),
+            $entry['epoch'] === 1 => AuditLogService::calculateHash(
+                $entry['uid'],
+                $entry['secretId'],
+                $entry['action'],
+                $entry['actorUid'],
+                $entry['crdate'],
+                $previousHash,
+                $hmacKey,
+            ),
+            default => AuditLogService::calculateHashV2(
+                AuditLogService::extractV2HashRow($row),
+                $previousHash,
+                $hmacKey,
+            ),
+        };
+
+        $rowEntryHash = \is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '';
+        $rowPreviousHash = \is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '';
+
+        // Constant-time comparisons per project mandate (AGENTS.md
+        // Security Requirement #2), although this check only decides
+        // whether an UPDATE is needed.
+        $updated = 0;
+        if (!hash_equals($expectedHash, $rowEntryHash) || !hash_equals($previousHash, $rowPreviousHash)) {
+            $connection->update(
+                self::TABLE_NAME,
+                [
+                    'entry_hash' => $expectedHash,
+                    'previous_hash' => $previousHash,
+                ],
+                ['uid' => $entry['uid']],
+            );
+            $updated = 1;
+        }
+
+        $previousHash = $expectedHash;
+
+        return $updated;
     }
 }

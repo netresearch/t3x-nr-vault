@@ -272,6 +272,15 @@ final class VaultRotateMasterKeyCommand extends Command
                 'tx_nrvault_secret and tx_nrvault_audit_log are mapped to different database '
                 . 'connections; atomic master-key rotation (secrets + audit chain) is not possible.',
             );
+            // "Leave a trail" contract: even a refused rotation attempt must be
+            // visible in the audit chain. The audit log writes on its own
+            // connection, so logging works precisely in this configuration.
+            $this->auditLogService->log(
+                self::AUDIT_PSEUDO_IDENTIFIER,
+                AuditAction::MasterKeyRotateEnd->value,
+                false,
+                'Rotation refused: secret and audit tables on different connections; nothing changed',
+            );
 
             return Command::FAILURE;
         }

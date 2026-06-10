@@ -102,9 +102,9 @@ final readonly class EncryptionService implements EncryptionServiceInterface
             if (isset($plaintext)) {
                 sodium_memzero($plaintext);
             }
-            if (isset($masterKey)) {
-                sodium_memzero($masterKey);
-            }
+            // The master key is deliberately NOT wiped: it is the provider's
+            // shared request-lifetime cache entry (see decrypt()); the provider
+            // owns its lifecycle and wipes it on destruction.
         }
     }
 
@@ -144,9 +144,13 @@ final readonly class EncryptionService implements EncryptionServiceInterface
             // Decrypt the value with DEK
             $plaintext = $this->decryptWithKey($encryptedValueBytes, $dek, $valueNonceBytes, $identifier, $algorithm);
 
-            // Securely wipe sensitive data
+            // Securely wipe the per-secret DEK. The master key is deliberately
+            // NOT wiped here: getMasterKey() returns the provider's shared
+            // request-lifetime cache entry, so wiping the local reference would
+            // either be a no-op (PHP's sodium_memzero skips refcount>1 strings)
+            // or corrupt the cached key for every later vault operation in the
+            // request. The provider wipes its cache on destruction.
             sodium_memzero($dek);
-            sodium_memzero($masterKey);
 
             return $plaintext;
         } catch (SodiumException) {
