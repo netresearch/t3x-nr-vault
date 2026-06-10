@@ -20,8 +20,11 @@ masterKeySource = NR_VAULT_MASTER_KEY
 ### ENCRYPTION ###
 ###################
 
-# cat=Encryption; type=boolean; label=Prefer XChaCha20-Poly1305: Use XChaCha20-Poly1305 instead of AES-256-GCM for encryption. XChaCha20 provides larger nonce and is misuse-resistant.
+# cat=Encryption; type=boolean; label=Prefer XChaCha20-Poly1305 (legacy secrets only): Algorithm selection for secrets stored before the per-secret algorithm marker existed (encryption version 1). New secrets record their algorithm explicitly; see encryptionAlgorithm.
 preferXChaCha20 = 0
+
+# cat=Encryption; type=string; label=Encryption Algorithm for new secrets: AEAD algorithm recorded per secret at encrypt time. Empty = XChaCha20-Poly1305 (recommended; available on every host, 24-byte nonce). Set to "aes256gcm" only on hosts with hardware AES support. Unknown or unavailable values make encryption fail loudly.
+encryptionAlgorithm =
 
 #################
 ### SECURITY ###

@@ -10,6 +10,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Crypto;
 
 use Netresearch\NrVault\Crypto\EncryptedData;
+use Netresearch\NrVault\Crypto\EncryptionAlgorithm;
+use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -33,6 +35,26 @@ final class EncryptedDataTest extends TestCase
         self::assertSame('base64deknonce==', $subject->dekNonce);
         self::assertSame('base64valuenonce==', $subject->valueNonce);
         self::assertSame('abc123checksum', $subject->valueChecksum);
+        // Marker defaults describe what encrypt() currently produces.
+        self::assertSame(EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT, $subject->encryptionVersion);
+        self::assertSame(EncryptionAlgorithm::XChaCha20Poly1305, $subject->encryptionAlgorithm);
+    }
+
+    #[Test]
+    public function constructorAcceptsExplicitMarker(): void
+    {
+        $subject = new EncryptedData(
+            encryptedValue: 'v',
+            encryptedDek: 'd',
+            dekNonce: 'dn',
+            valueNonce: 'vn',
+            valueChecksum: 'cs',
+            encryptionVersion: EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT,
+            encryptionAlgorithm: EncryptionAlgorithm::Aes256Gcm,
+        );
+
+        self::assertSame(EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT, $subject->encryptionVersion);
+        self::assertSame(EncryptionAlgorithm::Aes256Gcm, $subject->encryptionAlgorithm);
     }
 
     #[Test]
@@ -152,15 +174,17 @@ final class EncryptedDataTest extends TestCase
             'dek_nonce' => 'dn',
             'value_nonce' => 'vn',
             'value_checksum' => 'chk',
+            'encryption_version' => EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT,
+            'encryption_algorithm' => 'xchacha20poly1305',
         ], $subject->toArray());
     }
 
     #[Test]
-    public function toArrayContainsExactlyFiveKeys(): void
+    public function toArrayContainsExactlySevenKeys(): void
     {
         $subject = new EncryptedData('a', 'b', 'c', 'd', 'e');
 
-        self::assertCount(5, $subject->toArray());
+        self::assertCount(7, $subject->toArray());
     }
 
     #[Test]
@@ -180,5 +204,23 @@ final class EncryptedDataTest extends TestCase
         self::assertSame(base64_encode($rawDekNonce), $array['dek_nonce']);
         self::assertSame(base64_encode($rawValueNonce), $array['value_nonce']);
         self::assertSame($checksum, $array['value_checksum']);
+    }
+
+    #[Test]
+    public function fromRawPassesMarkerThroughUnencoded(): void
+    {
+        $subject = EncryptedData::fromRaw(
+            encryptedValue: 'raw',
+            encryptedDek: 'raw',
+            dekNonce: 'raw',
+            valueNonce: 'raw',
+            valueChecksum: 'cs',
+            encryptionVersion: EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT,
+            encryptionAlgorithm: EncryptionAlgorithm::Aes256Gcm,
+        );
+
+        self::assertSame(EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT, $subject->encryptionVersion);
+        self::assertSame(EncryptionAlgorithm::Aes256Gcm, $subject->encryptionAlgorithm);
+        self::assertSame('aes256gcm', $subject->toArray()['encryption_algorithm']);
     }
 }

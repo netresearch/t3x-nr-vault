@@ -243,6 +243,17 @@ return [
                 'readOnly' => true,
             ],
         ],
+
+        // Written exclusively by the crypto layer (EncryptionService);
+        // surfaced read-only so operators can see which AEAD algorithm a
+        // secret's envelope uses (empty = legacy, host-derived at decrypt).
+        'encryption_algorithm' => [
+            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.encryption_algorithm',
+            'config' => [
+                'type' => 'input',
+                'readOnly' => true,
+            ],
+        ],
     ],
 
     'types' => [
@@ -268,6 +279,7 @@ return [
                     read_count,
                     last_read_at,
                     adapter,
+                    encryption_algorithm,
                 --div--;core.form.tabs:access,
                     hidden,
             ',

@@ -101,6 +101,10 @@
         <source>Storage Adapter</source>
       </trans-unit>
 
+      <trans-unit id="tx_nrvault_secret.encryption_algorithm">
+        <source>Encryption Algorithm</source>
+      </trans-unit>
+
       <!-- Secret input field -->
       <trans-unit id="tx_nrvault_secret.secret_input">
         <source>Secret Value</source>

@@ -60,6 +60,7 @@ final class SecretTest extends TestCase
         self::assertSame('', $secret->getDekNonce());
         self::assertSame('', $secret->getValueNonce());
         self::assertSame(1, $secret->getEncryptionVersion());
+        self::assertSame('', $secret->getEncryptionAlgorithm());
         self::assertSame('', $secret->getValueChecksum());
         self::assertSame(0, $secret->getOwnerUid());
         self::assertSame([], $secret->getAllowedGroups());
@@ -93,6 +94,7 @@ final class SecretTest extends TestCase
             dekNonce: 'dek_nonce',
             valueNonce: 'value_nonce',
             encryptionVersion: 2,
+            encryptionAlgorithm: 'xchacha20poly1305',
             valueChecksum: 'checksum123',
             ownerUid: 5,
             allowedGroups: [1, 2, 3],
@@ -122,6 +124,7 @@ final class SecretTest extends TestCase
         self::assertSame('dek_nonce', $secret->getDekNonce());
         self::assertSame('value_nonce', $secret->getValueNonce());
         self::assertSame(2, $secret->getEncryptionVersion());
+        self::assertSame('xchacha20poly1305', $secret->getEncryptionAlgorithm());
         self::assertSame('checksum123', $secret->getValueChecksum());
         self::assertSame(5, $secret->getOwnerUid());
         self::assertSame([1, 2, 3], $secret->getAllowedGroups());
@@ -193,6 +196,95 @@ final class SecretTest extends TestCase
             valueNonce: $valueNonce,
             valueChecksum: 'checksum',
         ));
+    }
+
+    #[Test]
+    public function constructorThrowsOnVersionTwoWithoutAlgorithmMarker(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('known encryptionAlgorithm marker');
+
+        self::assertInstanceOf(Secret::class, new Secret(
+            identifier: 'v2-no-marker',
+            encryptedValue: 'v',
+            encryptedDek: 'dek',
+            dekNonce: 'dn',
+            valueNonce: 'vn',
+            encryptionVersion: 2,
+            valueChecksum: 'cs',
+        ));
+    }
+
+    #[Test]
+    public function constructorThrowsOnVersionTwoWithUnknownAlgorithmMarker(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('known encryptionAlgorithm marker');
+
+        self::assertInstanceOf(Secret::class, new Secret(
+            identifier: 'v2-bad-marker',
+            encryptedValue: 'v',
+            encryptedDek: 'dek',
+            dekNonce: 'dn',
+            valueNonce: 'vn',
+            encryptionVersion: 2,
+            encryptionAlgorithm: 'rot13',
+            valueChecksum: 'cs',
+        ));
+    }
+
+    #[Test]
+    public function constructorThrowsOnVersionTwoWithoutEnvelope(): void
+    {
+        // Version 2 means "explicitly marked envelope" — without an envelope
+        // the marker is meaningless and indicates a programming error.
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('full encryption envelope');
+
+        self::assertInstanceOf(Secret::class, new Secret(
+            identifier: 'v2-no-envelope',
+            encryptionVersion: 2,
+            encryptionAlgorithm: 'xchacha20poly1305',
+        ));
+    }
+
+    #[Test]
+    public function constructorThrowsOnLegacyVersionWithAlgorithmMarker(): void
+    {
+        // A v1 row carrying a marker is inconsistent: decrypt would ignore
+        // the marker (host-derived resolution) and silently diverge from
+        // what the stored marker claims.
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('must not carry an encryptionAlgorithm marker');
+
+        self::assertInstanceOf(Secret::class, new Secret(
+            identifier: 'v1-with-marker',
+            encryptedValue: 'v',
+            encryptedDek: 'dek',
+            dekNonce: 'dn',
+            valueNonce: 'vn',
+            encryptionVersion: 1,
+            encryptionAlgorithm: 'xchacha20poly1305',
+            valueChecksum: 'cs',
+        ));
+    }
+
+    #[Test]
+    public function constructorAcceptsVersionTwoWithKnownAlgorithmAndFullEnvelope(): void
+    {
+        $secret = new Secret(
+            identifier: 'v2-ok',
+            encryptedValue: 'v',
+            encryptedDek: 'dek',
+            dekNonce: 'dn',
+            valueNonce: 'vn',
+            encryptionVersion: 2,
+            encryptionAlgorithm: 'aes256gcm',
+            valueChecksum: 'cs',
+        );
+
+        self::assertSame(2, $secret->getEncryptionVersion());
+        self::assertSame('aes256gcm', $secret->getEncryptionAlgorithm());
     }
 
     #[Test]
@@ -290,6 +382,10 @@ final class SecretTest extends TestCase
         self::assertSame('new_dn', $rotated->getDekNonce());
         self::assertSame('new_vn', $rotated->getValueNonce());
         self::assertSame('new_cs', $rotated->getValueChecksum());
+        // The envelope's version/algorithm marker follows the new envelope:
+        // a legacy (v1) secret is upgraded on value rotation.
+        self::assertSame(2, $rotated->getEncryptionVersion());
+        self::assertSame('xchacha20poly1305', $rotated->getEncryptionAlgorithm());
         // Untouched fields propagate.
         self::assertSame(1, $rotated->getUid());
         self::assertSame(9, $rotated->getReadCount());
@@ -434,6 +530,29 @@ final class SecretTest extends TestCase
     }
 
     #[Test]
+    public function fromDatabaseRowHydratesVersionTwoAlgorithmMarker(): void
+    {
+        $secret = Secret::fromDatabaseRow([
+            'uid' => 7,
+            'identifier' => 'v2-row',
+            'encrypted_value' => 'v',
+            'encrypted_dek' => 'dek',
+            'dek_nonce' => 'dn',
+            'value_nonce' => 'vn',
+            'encryption_version' => 2,
+            'encryption_algorithm' => 'xchacha20poly1305',
+            'value_checksum' => 'cs',
+        ]);
+
+        self::assertSame(2, $secret->getEncryptionVersion());
+        self::assertSame('xchacha20poly1305', $secret->getEncryptionAlgorithm());
+        // And the marker survives serialisation back to a row.
+        $row = $secret->toDatabaseRow();
+        self::assertSame(2, $row['encryption_version']);
+        self::assertSame('xchacha20poly1305', $row['encryption_algorithm']);
+    }
+
+    #[Test]
     public function fromDatabaseRowHandlesEmptyMetadata(): void
     {
         $secret = Secret::fromDatabaseRow([
@@ -524,10 +643,21 @@ final class SecretTest extends TestCase
      */
     public static function encryptionVersionCoalesceProvider(): iterable
     {
+        // Version 2+ rows must satisfy the marker invariant (full envelope
+        // plus a known algorithm marker), so those provider rows carry one.
+        $envelope = [
+            'encrypted_value' => 'v',
+            'encrypted_dek' => 'dek',
+            'dek_nonce' => 'dn',
+            'value_nonce' => 'vn',
+            'value_checksum' => 'cs',
+            'encryption_algorithm' => 'xchacha20poly1305',
+        ];
+
         yield 'missing key defaults to 1' => [['uid' => 1, 'identifier' => 't'], 1];
         yield 'explicit 1' => [['uid' => 1, 'identifier' => 't', 'encryption_version' => 1], 1];
-        yield 'explicit 2' => [['uid' => 1, 'identifier' => 't', 'encryption_version' => 2], 2];
-        yield 'explicit 10' => [['uid' => 1, 'identifier' => 't', 'encryption_version' => 10], 10];
+        yield 'explicit 2' => [['uid' => 1, 'identifier' => 't', 'encryption_version' => 2] + $envelope, 2];
+        yield 'explicit 10' => [['uid' => 1, 'identifier' => 't', 'encryption_version' => 10] + $envelope, 10];
     }
 
     /**
@@ -684,6 +814,7 @@ final class SecretTest extends TestCase
             'dek_nonce' => 'dn',
             'value_nonce' => 'vn',
             'encryption_version' => 2,
+            'encryption_algorithm' => 'xchacha20poly1305',
             'value_checksum' => 'cs',
             'owner_uid' => 5,
             'allowed_groups' => '7,8,9',
@@ -743,7 +874,17 @@ final class SecretTest extends TestCase
     #[Test]
     public function fromDatabaseRowEncryptionVersionCastsStringToInt(): void
     {
-        $secret = Secret::fromDatabaseRow(['uid' => 1, 'identifier' => 't', 'encryption_version' => '3']);
+        $secret = Secret::fromDatabaseRow([
+            'uid' => 1,
+            'identifier' => 't',
+            'encrypted_value' => 'v',
+            'encrypted_dek' => 'dek',
+            'dek_nonce' => 'dn',
+            'value_nonce' => 'vn',
+            'value_checksum' => 'cs',
+            'encryption_version' => '3',
+            'encryption_algorithm' => 'xchacha20poly1305',
+        ]);
 
         self::assertSame(3, $secret->getEncryptionVersion());
         self::assertIsInt($secret->getEncryptionVersion());
@@ -1005,6 +1146,7 @@ final class SecretTest extends TestCase
             'description',
             'encrypted_dek',
             'encrypted_value',
+            'encryption_algorithm',
             'encryption_version',
             'expires_at',
             'external_reference',

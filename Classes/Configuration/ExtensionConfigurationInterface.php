@@ -61,8 +61,19 @@ interface ExtensionConfigurationInterface
 
     /**
      * Check if XChaCha20-Poly1305 should be preferred over AES-256-GCM.
+     *
+     * Only consulted for legacy (encryption version 1) envelopes without a
+     * per-secret algorithm marker.
      */
     public function preferXChaCha20(): bool;
+
+    /**
+     * AEAD algorithm marker recorded for newly encrypted secrets.
+     *
+     * @return string An EncryptionAlgorithm backing value, or '' for the
+     *                built-in default (XChaCha20-Poly1305)
+     */
+    public function getEncryptionAlgorithm(): string;
 
     /**
      * Get HashiCorp Vault configuration.

@@ -38,6 +38,12 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     public const DEFAULT_PREFER_XCHACHA20 = false;
 
     /**
+     * '' = use the built-in default (XChaCha20-Poly1305) for new secrets;
+     * see EncryptionAlgorithm::forNewSecrets().
+     */
+    public const DEFAULT_ENCRYPTION_ALGORITHM = '';
+
+    /**
      * Audit-chain hash epoch.
      *  - 0: legacy SHA-256 over identity fields only (no HMAC key).
      *  - 1: HMAC-SHA256 over identity fields only.
@@ -184,10 +190,28 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
 
     /**
      * Check if XChaCha20-Poly1305 should be preferred over AES-256-GCM.
+     *
+     * Only consulted for LEGACY (encryption version 1) envelopes, which carry
+     * no per-secret algorithm marker. New envelopes record their algorithm
+     * explicitly; see {@see self::getEncryptionAlgorithm()}.
      */
     public function preferXChaCha20(): bool
     {
         return (bool) ($this->configuration['preferXChaCha20'] ?? self::DEFAULT_PREFER_XCHACHA20);
+    }
+
+    /**
+     * AEAD algorithm recorded for newly encrypted secrets.
+     *
+     * '' (default) = XChaCha20-Poly1305. Validation happens at the crypto
+     * boundary (`EncryptionService::algorithmForNewSecrets()`), which fails
+     * loudly on unknown or host-unavailable values.
+     */
+    public function getEncryptionAlgorithm(): string
+    {
+        $val = $this->configuration['encryptionAlgorithm'] ?? self::DEFAULT_ENCRYPTION_ALGORITHM;
+
+        return \is_string($val) ? $val : self::DEFAULT_ENCRYPTION_ALGORITHM;
     }
 
     /**

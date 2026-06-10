@@ -214,6 +214,8 @@ final class VaultRotateMasterKeyCommand extends Command
                 $firstSecret->getIdentifier(),
                 $oldKey,
                 $newKey,
+                $firstSecret->getEncryptionVersion(),
+                $firstSecret->getEncryptionAlgorithm(),
             );
             $io->text('<info>Old master key verified successfully.</info>');
 
@@ -347,6 +349,8 @@ final class VaultRotateMasterKeyCommand extends Command
                 $secret->getIdentifier(),
                 $oldKey,
                 $newKey,
+                $secret->getEncryptionVersion(),
+                $secret->getEncryptionAlgorithm(),
             );
 
             $this->secretRepository->save(

@@ -132,6 +132,8 @@ final class MasterKeyRotationTest extends FunctionalTestCase
                 $secret->getIdentifier(),
                 $oldKeyFromFile,
                 $newKeyFromFile,
+                $secret->getEncryptionVersion(),
+                $secret->getEncryptionAlgorithm(),
             );
 
             $secretRepository->save(
@@ -194,6 +196,8 @@ final class MasterKeyRotationTest extends FunctionalTestCase
             $secret1->getIdentifier(),
             $oldKeyFromFile,
             $newKeyFromFile,
+            $secret1->getEncryptionVersion(),
+            $secret1->getEncryptionAlgorithm(),
         );
 
         // Do NOT save the re-encrypted DEK (simulating rollback after failure)
@@ -261,6 +265,8 @@ final class MasterKeyRotationTest extends FunctionalTestCase
                 $secret->getIdentifier(),
                 $oldKeyFromFile,
                 $newKeyFromFile,
+                $secret->getEncryptionVersion(),
+                $secret->getEncryptionAlgorithm(),
             );
 
             $secretRepository->save(
@@ -367,6 +373,8 @@ final class MasterKeyRotationTest extends FunctionalTestCase
                     $secret->getIdentifier(),
                     $oldKeyForThisIter,
                     $newKeyFromFile,
+                    $secret->getEncryptionVersion(),
+                    $secret->getEncryptionAlgorithm(),
                 );
 
                 // reEncryptDek zeroes its key params; re-read from file for

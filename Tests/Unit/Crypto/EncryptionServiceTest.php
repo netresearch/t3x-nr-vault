@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Unit\Crypto;
 
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\EncryptedData;
+use Netresearch\NrVault\Crypto\EncryptionAlgorithm;
 use Netresearch\NrVault\Crypto\EncryptionService;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Exception\EncryptionException;
@@ -119,6 +120,8 @@ final class EncryptionServiceTest extends TestCase
             $encrypted->dekNonce,
             $encrypted->valueNonce,
             $identifier,
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
 
         self::assertEquals($plaintext, $decrypted);
@@ -140,6 +143,8 @@ final class EncryptionServiceTest extends TestCase
             $encrypted->dekNonce,
             $encrypted->valueNonce,
             'wrong-identifier', // Different AAD
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
     }
 
@@ -171,6 +176,8 @@ final class EncryptionServiceTest extends TestCase
             $encrypted->dekNonce,
             $encrypted->valueNonce,
             $identifier,
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
     }
 
@@ -291,6 +298,8 @@ final class EncryptionServiceTest extends TestCase
                 $encrypted->dekNonce,
                 $encrypted->valueNonce,
                 $identifier,
+                $encrypted->encryptionVersion,
+                $encrypted->encryptionAlgorithm->value,
             );
         } catch (EncryptionException) {
             $threw = true;
@@ -304,6 +313,8 @@ final class EncryptionServiceTest extends TestCase
             $encrypted->dekNonce,
             $encrypted->valueNonce,
             $identifier,
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
         self::assertSame($plaintext, $decrypted);
     }
@@ -319,13 +330,15 @@ final class EncryptionServiceTest extends TestCase
         // First encrypt with old master key
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
 
-        // Re-encrypt DEK with new master key
+        // Re-encrypt DEK with new master key, honouring the stored marker
         $reEncrypted = $this->subject->reEncryptDek(
             $encrypted->encryptedDek,
             $encrypted->dekNonce,
             $identifier,
             $oldMasterKey,
             $newMasterKey,
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
 
         self::assertNotEmpty($reEncrypted->encryptedDek);
@@ -351,6 +364,8 @@ final class EncryptionServiceTest extends TestCase
             $encrypted->dekNonce,
             $encrypted->valueNonce,
             $identifier,
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
 
         self::assertEquals('', $decrypted);
@@ -371,6 +386,8 @@ final class EncryptionServiceTest extends TestCase
             $encrypted->dekNonce,
             $encrypted->valueNonce,
             $identifier,
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
 
         self::assertEquals($plaintext, $decrypted);
@@ -390,6 +407,8 @@ final class EncryptionServiceTest extends TestCase
             $encrypted->dekNonce,
             $encrypted->valueNonce,
             $identifier,
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
 
         self::assertEquals($plaintext, $decrypted);
@@ -422,7 +441,9 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function encryptAndDecryptRoundtripWithXChaCha20(): void
     {
-        // Configure to prefer XChaCha20
+        // Configure to prefer XChaCha20. The marker-less decrypt below
+        // deliberately exercises the LEGACY (version-1) resolution path,
+        // which resolves to XChaCha20 here and matches the new envelope.
         $xchachaConfig = $this->createMock(ExtensionConfigurationInterface::class);
         $xchachaConfig
             ->method('preferXChaCha20')
@@ -512,6 +533,139 @@ final class EncryptionServiceTest extends TestCase
             'test',
             $this->testMasterKey,
             random_bytes(32),
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Encryption version / algorithm marker (encryption version 2).
+    // ---------------------------------------------------------------
+
+    #[Test]
+    public function encryptRecordsVersionTwoWithXChaChaDefaultAlgorithm(): void
+    {
+        // The default subject's config prefers AES for LEGACY decrypts
+        // (preferXChaCha20=false) — new envelopes must nonetheless default
+        // to the host-independent XChaCha20-Poly1305 and record it.
+        $encrypted = $this->subject->encrypt('marker-test', 'marker-id');
+
+        self::assertSame(EncryptionService::ENCRYPTION_VERSION_CURRENT, $encrypted->encryptionVersion);
+        self::assertSame(EncryptionAlgorithm::XChaCha20Poly1305, $encrypted->encryptionAlgorithm);
+    }
+
+    #[Test]
+    public function encryptRecordsConfiguredAesAlgorithm(): void
+    {
+        if (!sodium_crypto_aead_aes256gcm_is_available()) {
+            self::markTestSkipped('AES-256-GCM not available on this platform');
+        }
+
+        $aesConfig = $this->createMock(ExtensionConfigurationInterface::class);
+        $aesConfig->method('getEncryptionAlgorithm')->willReturn('aes256gcm');
+
+        $subject = new EncryptionService($this->masterKeyProvider, $aesConfig);
+
+        $encrypted = $subject->encrypt('aes-marker-test', 'aes-marker-id');
+
+        self::assertSame(EncryptionAlgorithm::Aes256Gcm, $encrypted->encryptionAlgorithm);
+
+        $decrypted = $subject->decrypt(
+            $encrypted->encryptedValue,
+            $encrypted->encryptedDek,
+            $encrypted->dekNonce,
+            $encrypted->valueNonce,
+            'aes-marker-id',
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
+        );
+        self::assertSame('aes-marker-test', $decrypted);
+    }
+
+    #[Test]
+    public function encryptThrowsOnUnknownConfiguredAlgorithm(): void
+    {
+        $brokenConfig = $this->createMock(ExtensionConfigurationInterface::class);
+        $brokenConfig->method('getEncryptionAlgorithm')->willReturn('rot13');
+
+        $subject = new EncryptionService($this->masterKeyProvider, $brokenConfig);
+
+        $this->expectException(EncryptionException::class);
+        $this->expectExceptionMessage('Unknown encryptionAlgorithm');
+
+        $subject->encrypt('value', 'id');
+    }
+
+    #[Test]
+    public function decryptSelectsAlgorithmFromStoredMarkerNotHostPreference(): void
+    {
+        // The envelope is XChaCha20 (version 2 marker); the subject's legacy
+        // host-derivation would pick AES on AES-capable hosts. Passing the
+        // stored marker must decrypt correctly regardless of host preference.
+        $encrypted = $this->subject->encrypt('marker-dispatch', 'marker-dispatch-id');
+
+        $decrypted = $this->subject->decrypt(
+            $encrypted->encryptedValue,
+            $encrypted->encryptedDek,
+            $encrypted->dekNonce,
+            $encrypted->valueNonce,
+            'marker-dispatch-id',
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
+        );
+
+        self::assertSame('marker-dispatch', $decrypted);
+
+        // Counter-check: OMITTING the marker (legacy version-1 resolution)
+        // must NOT silently decrypt this XChaCha envelope on hosts whose
+        // legacy derivation resolves to AES — the implicitness the marker
+        // removes. Only assertable where AES is actually available.
+        if (sodium_crypto_aead_aes256gcm_is_available()) {
+            $this->expectException(EncryptionException::class);
+
+            $this->subject->decrypt(
+                $encrypted->encryptedValue,
+                $encrypted->encryptedDek,
+                $encrypted->dekNonce,
+                $encrypted->valueNonce,
+                'marker-dispatch-id',
+            );
+        }
+    }
+
+    #[Test]
+    public function decryptVersionTwoWithEmptyAlgorithmMarkerThrows(): void
+    {
+        $encrypted = $this->subject->encrypt('v2-no-marker', 'v2-no-marker-id');
+
+        $this->expectException(EncryptionException::class);
+        $this->expectExceptionMessage('Unknown encryption algorithm marker');
+
+        $this->subject->decrypt(
+            $encrypted->encryptedValue,
+            $encrypted->encryptedDek,
+            $encrypted->dekNonce,
+            $encrypted->valueNonce,
+            'v2-no-marker-id',
+            EncryptionService::ENCRYPTION_VERSION_CURRENT,
+            '',
+        );
+    }
+
+    #[Test]
+    public function decryptVersionTwoWithUnknownAlgorithmMarkerThrows(): void
+    {
+        $encrypted = $this->subject->encrypt('v2-bad-marker', 'v2-bad-marker-id');
+
+        $this->expectException(EncryptionException::class);
+        $this->expectExceptionMessage('Unknown encryption algorithm marker');
+
+        $this->subject->decrypt(
+            $encrypted->encryptedValue,
+            $encrypted->encryptedDek,
+            $encrypted->dekNonce,
+            $encrypted->valueNonce,
+            'v2-bad-marker-id',
+            EncryptionService::ENCRYPTION_VERSION_CURRENT,
+            'rot13',
         );
     }
 }
