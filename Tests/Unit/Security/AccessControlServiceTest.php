@@ -19,6 +19,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Authentication\CommandLineUserAuthentication;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -513,6 +514,40 @@ final class AccessControlServiceTest extends TestCase
     }
 
     #[Test]
+    public function getCurrentActorTypeReturnsCliForCommandLineUser(): void
+    {
+        // Regression test for the CLI misclassification bug: the TYPO3 CLI
+        // bootstrap (vendor/bin/typo3, messenger workers) sets BE_USER to a
+        // CommandLineUserAuthentication instance, which EXTENDS
+        // BackendUserAuthentication. The backend-user check must not win —
+        // CLI/worker reads are 'cli', not 'backend' (otherwise the analytics
+        // module counts every automated read as a manual reveal).
+        $this->setCommandLineUser();
+
+        self::assertSame('cli', $this->subject->getCurrentActorType());
+    }
+
+    #[Test]
+    public function getCurrentActorTypeReturnsBackendForRegularUserDespiteCliFirstOrdering(): void
+    {
+        // Counter-check for the CLI-first ordering: a regular (web) backend
+        // user is still classified as 'backend'.
+        $this->setBackendUser(uid: 1, isAdmin: false);
+
+        self::assertSame('backend', $this->subject->getCurrentActorType());
+    }
+
+    #[Test]
+    public function getCurrentActorUsernameReturnsCliUsernameForCommandLineUser(): void
+    {
+        // Audit rows for CLI/worker reads keep the informative `_cli_`
+        // username from the authenticated CLI backend user record.
+        $this->setCommandLineUser();
+
+        self::assertSame('_cli_', $this->subject->getCurrentActorUsername());
+    }
+
+    #[Test]
     public function canReadReturnsFalseForDisabledUser(): void
     {
         // BUG FIX verification: AccessControlService::hasBackendUserAccess() now
@@ -661,6 +696,23 @@ final class AccessControlServiceTest extends TestCase
             ->willReturn($isSystemMaintainer);
 
         $GLOBALS['BE_USER'] = $backendUser;
+    }
+
+    /**
+     * Set up a mock CLI backend user in GLOBALS, as created by the TYPO3 CLI
+     * bootstrap (`vendor/bin/typo3`, messenger workers).
+     */
+    private function setCommandLineUser(): void
+    {
+        $commandLineUser = $this->createMock(CommandLineUserAuthentication::class);
+        $commandLineUser->user = [
+            'uid' => 1,
+            'username' => '_cli_',
+            'disable' => 0,
+        ];
+        $commandLineUser->userGroupsUID = [];
+
+        $GLOBALS['BE_USER'] = $commandLineUser;
     }
 
     /**

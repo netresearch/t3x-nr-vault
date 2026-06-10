@@ -141,8 +141,10 @@ Automation-stale
 
    The automated-versus-manual split is derived from the audit log
    (``actor_type``), so it reflects only reads recorded while audit logging was
-   active. The day thresholds are configurable - see
-   :ref:`usage-extension-settings`.
+   active. Reads in TYPO3 CLI context (console commands, scheduled jobs, queue
+   workers) are recorded with actor type ``cli`` and count as automated, even
+   though the CLI bootstrap authenticates the ``_cli_`` backend user. The day
+   thresholds are configurable - see :ref:`usage-extension-settings`.
 
 .. tip::
 
