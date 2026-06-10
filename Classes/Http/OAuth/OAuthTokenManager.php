@@ -570,8 +570,9 @@ final class OAuthTokenManager
      * body, not the request — so a well-behaved server doesn't leak the
      * `client_secret` we sent. But:
      *
-     *  - OAuth servers sometimes echo the offending input back ("Invalid
-     *    client_secret 'xyz'"). RFC 6749 doesn't forbid it.
+     *  - OAuth servers sometimes echo the offending input back, either in a
+     *    JSON error body (`{"error":"...","client_secret":"xyz"}`) or quoted
+     *    in prose (`Invalid client_secret 'xyz'`). RFC 6749 doesn't forbid it.
      *  - A future refactor could land HTTP Basic auth (`Authorization: Basic
      *    base64(client_id:client_secret)`) which DOES appear in
      *    `RequestException::getMessage()` when verbose error formatting kicks
@@ -581,11 +582,16 @@ final class OAuthTokenManager
      *
      * Defence in depth: never trust upstream error messages to be free of
      * credentials. Cheap to apply, eliminates an entire class of accidental
-     * leaks through logs/audit/exception chains.
+     * leaks through logs/audit/exception chains. All patterns are BOUNDED
+     * (delimiter-anchored character classes, no `.*?`/nested quantifiers) so
+     * they cannot trigger catastrophic regex backtracking.
      */
     private function redactCredentials(string $message): string
     {
-        return (string) preg_replace(
+        // Pass 1: prefix-anchored forms whose value runs to a delimiter. The
+        // shared replacement keeps capture group 1 (the key/prefix) and drops
+        // the value.
+        $message = (string) preg_replace(
             [
                 // form-encoded `client_secret=...` (request bodies, query strings)
                 '/(client_secret=)[^&\s"\'<>]+/i',
@@ -596,6 +602,21 @@ final class OAuthTokenManager
                 '/(Authorization:\s*Basic\s+)\S+/i',
             ],
             self::REDACT_REPLACEMENT,
+            $message,
+        );
+
+        // Pass 2: quoted-value forms where the credential is wrapped in matching
+        // quotes — a JSON error body (`"client_secret":"xyz"`) or a prose echo
+        // (`client_secret 'xyz'`). Group 1 keeps the key + opening quote,
+        // group 2 keeps the closing quote; the value between is dropped.
+        return (string) preg_replace(
+            [
+                // JSON: "client_secret":"...", "refresh_token":"...", "access_token":"..."
+                '/("(?:client_secret|refresh_token|access_token)"\s*:\s*")[^"]*(")/i',
+                // Quoted echo: client_secret '...' or client_secret "..."
+                '/((?:client_secret|refresh_token|access_token)\s+["\'])[^"\']*(["\'])/i',
+            ],
+            '$1[REDACTED]$2',
             $message,
         );
     }

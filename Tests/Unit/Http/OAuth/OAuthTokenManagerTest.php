@@ -1340,6 +1340,26 @@ final class OAuthTokenManagerTest extends TestCase
             'Connection refused (timeout after 10s)',
             'Connection refused (timeout after 10s)',
         ];
+        yield 'client_secret in JSON error body' => [
+            '{"error":"invalid_client","client_secret":"topSecr3t"}',
+            '{"error":"invalid_client","client_secret":"[REDACTED]"}',
+        ];
+        yield 'refresh_token in JSON error body' => [
+            '{"error":"invalid_grant","refresh_token":"eyJabc.def.ghi"}',
+            '{"error":"invalid_grant","refresh_token":"[REDACTED]"}',
+        ];
+        yield 'access_token in JSON error body with spaces' => [
+            '{ "access_token" : "leaked-bearer" }',
+            '{ "access_token" : "[REDACTED]" }',
+        ];
+        yield 'client_secret echoed in single-quoted prose' => [
+            "Invalid client_secret 'topSecr3t' supplied",
+            "Invalid client_secret '[REDACTED]' supplied",
+        ];
+        yield 'client_secret echoed in double-quoted prose' => [
+            'rejected client_secret "topSecr3t"',
+            'rejected client_secret "[REDACTED]"',
+        ];
     }
 
     /**
