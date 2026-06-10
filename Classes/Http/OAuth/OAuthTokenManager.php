@@ -523,21 +523,42 @@ final class OAuthTokenManager
      * Sonar flags them across the board, and avoid sha256 because the extra
      * cost is wasted for a non-security use.
      *
-     * `clientSecretSecret` is included so two configs that share the same
-     * client_id-secret identifier but reference different client_secret-secret
-     * identifiers don't collide on the cache (e.g. a key rotation that swaps
-     * the secret identifier without changing the client_id). The cache holds
-     * the access token, NOT the client_secret value — the identifier is
-     * non-sensitive enough to feed into a cache key.
+     * The key folds in every input that changes WHICH token the endpoint
+     * returns:
+     *  - `clientSecretSecret` so a credential rotation that swaps the
+     *    client_secret vault handle (without changing the client_id) gets a
+     *    fresh slot rather than serving the pre-rotation token;
+     *  - `refreshTokenSecret` so a config pointing at a different refresh-token
+     *    source is a distinct identity;
+     *  - `additionalParams` (audience / resource / tenant / …) so two configs
+     *    that differ only in audience don't collide — otherwise a token minted
+     *    for audience A leaks to a request asking for audience B.
+     *
+     * The cache holds the access token, NOT the secret VALUES — only the vault
+     * identifiers and request params, which are non-sensitive enough to key on.
      */
     private function getCacheKey(OAuthConfig $config): string
     {
+        // `additionalParams` (audience, resource, tenant, …) materially change
+        // which token the endpoint returns. Two configs identical except for
+        // these params MUST get distinct cache slots, otherwise a token minted
+        // for audience A would be served to a request that asked for audience B
+        // (cross-audience token confusion). Serialize deterministically (ksort)
+        // so key order never affects the hash.
+        $params = $config->additionalParams;
+        ksort($params);
+
         return hash('xxh128', implode(':', [
             $config->tokenEndpoint,
             $config->clientIdSecret,
             $config->clientSecretSecret,
             $config->grantType,
+            // For the refresh_token grant the refresh-token vault handle is part
+            // of the identity — a config pointing at a different refresh-token
+            // secret is a different token source.
+            $config->refreshTokenSecret ?? '',
             $config->getScopesString(),
+            hash('xxh128', json_encode($params, JSON_THROW_ON_ERROR)),
         ]));
     }
 

@@ -212,6 +212,63 @@ final class OAuthTokenManagerTest extends TestCase
         );
     }
 
+    /**
+     * Cross-audience token confusion guard: two configs identical except for
+     * `additionalParams` (e.g. a different `audience`/`resource`) MUST produce
+     * distinct cache keys. Otherwise a token minted for audience A would be
+     * served from cache to a request that asked for audience B.
+     */
+    #[Test]
+    public function cacheKeyFragmentsOnAdditionalParams(): void
+    {
+        $configA = new OAuthConfig(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            additionalParams: ['audience' => 'https://api-a.example.com'],
+        );
+        $configB = new OAuthConfig(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            additionalParams: ['audience' => 'https://api-b.example.com'],
+        );
+
+        self::assertNotSame(
+            $this->cacheKeyFor($configA),
+            $this->cacheKeyFor($configB),
+            'Configs differing only in additionalParams (audience) must not share a cache slot',
+        );
+    }
+
+    /**
+     * Deterministic-key guard: the cache key must NOT depend on the array order
+     * of `additionalParams` — `ksort` normalises it. Two configs with the same
+     * params in different order are the same identity and must share a slot.
+     */
+    #[Test]
+    public function cacheKeyIsStableAcrossAdditionalParamsOrder(): void
+    {
+        $configA = new OAuthConfig(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            additionalParams: ['audience' => 'https://api.example.com', 'resource' => 'r1'],
+        );
+        $configB = new OAuthConfig(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            additionalParams: ['resource' => 'r1', 'audience' => 'https://api.example.com'],
+        );
+
+        self::assertSame(
+            $this->cacheKeyFor($configA),
+            $this->cacheKeyFor($configB),
+            'additionalParams order must not change the cache key (ksort normalises it)',
+        );
+    }
+
     #[Test]
     public function getAccessTokenRefreshesExpiredToken(): void
     {
@@ -1283,6 +1340,18 @@ final class OAuthTokenManagerTest extends TestCase
             'Connection refused (timeout after 10s)',
             'Connection refused (timeout after 10s)',
         ];
+    }
+
+    /**
+     * Invoke the private `getCacheKey()` via reflection. Handles static and
+     * instance forms so cgl / rector can flip the method freely.
+     */
+    private function cacheKeyFor(OAuthConfig $config): string
+    {
+        $method = (new ReflectionClass(OAuthTokenManager::class))->getMethod('getCacheKey');
+        $target = $method->isStatic() ? null : $this->subject;
+
+        return (string) $method->invoke($target, $config);
     }
 
     private function setupRequestFactory(): void
