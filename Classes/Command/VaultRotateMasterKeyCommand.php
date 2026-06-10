@@ -300,7 +300,21 @@ final class VaultRotateMasterKeyCommand extends Command
         // The chain must verify under the CURRENT key before it is re-sealed
         // under the new one: re-keying a tampered chain would launder the
         // tampering into a freshly valid chain and destroy the evidence.
-        $verification = $this->auditLogService->verifyHashChain();
+        // Verification does DB I/O — an unexpected failure (DBAL error, …)
+        // must still leave a rotate_end trail before the command aborts.
+        try {
+            $verification = $this->auditLogService->verifyHashChain();
+        } catch (Throwable $exception) {
+            $io->error('Audit hash chain verification errored: ' . $exception->getMessage());
+            $this->auditLogService->log(
+                self::AUDIT_PSEUDO_IDENTIFIER,
+                AuditAction::MasterKeyRotateEnd->value,
+                false,
+                'Audit chain verification errored before rotation; nothing changed',
+            );
+
+            return Command::FAILURE;
+        }
         if (!$verification->isValid()) {
             $io->error([
                 'Audit hash chain verification FAILED — re-keying refused.',

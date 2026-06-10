@@ -70,10 +70,11 @@ final readonly class EncryptionService implements EncryptionServiceInterface
             $macKey = hash_hkdf('sha256', $dek, self::CHECKSUM_MAC_KEY_LENGTH, self::CHECKSUM_HKDF_INFO);
             $checksum = hash_hmac('sha256', $encryptedValue, $macKey);
 
-            // Securely wipe sensitive data
+            // Securely wipe sensitive data. The master key is deliberately NOT
+            // wiped here (or in the finally block): it is the provider's shared
+            // request-lifetime cache entry — see the equivalent note in decrypt().
             sodium_memzero($dek);
             sodium_memzero($macKey);
-            sodium_memzero($masterKey);
             sodium_memzero($plaintext);
 
             return EncryptedData::fromRaw(
