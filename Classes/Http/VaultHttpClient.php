@@ -13,6 +13,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Http;
 
 use GuzzleHttp\Psr7\Utils;
+use JsonException;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\HttpCallContext;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
@@ -405,11 +406,18 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
      * the secret field.
      *
      * An empty (or whitespace-only) body is treated as "no fields yet" and
-     * yields `[]`. Anything else MUST decode to a JSON object — a scalar
-     * (`"x"`, `42`, `true`) would make the subsequent `$data[$field] = ...`
-     * fatal, and a JSON array/list would silently reshape into a mixed-key
-     * structure. Both indicate the caller paired a non-object body with
-     * body-field secret injection, so we fail loudly instead of corrupting it.
+     * yields `[]`. Anything else MUST be a JSON object — a scalar (`"x"`,
+     * `42`, `true`) would make the subsequent `$data[$field] = ...` fatal,
+     * and a JSON array/list (including the empty list `[]`) would silently
+     * reshape into a mixed-key structure. Both indicate the caller paired a
+     * non-object body with body-field secret injection, so we fail loudly
+     * instead of corrupting it. Malformed JSON is rejected explicitly for the
+     * same reason — the old `?: []` coercion silently dropped the payload.
+     *
+     * Because `json_decode(..., true)` maps both `{}` and `[]` to the same
+     * PHP value (`[]`), the decoded value alone cannot distinguish an empty
+     * object from an empty list; the first non-whitespace character is the
+     * deterministic discriminator (a JSON object always starts with `{`).
      *
      * @throws VaultException If the body is non-empty but not a JSON object
      *
@@ -417,11 +425,31 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
      */
     private function decodeJsonObjectBody(string $body): array
     {
-        if (trim($body) === '') {
+        $trimmed = trim($body);
+        if ($trimmed === '') {
             return [];
         }
 
-        $decoded = json_decode($body, true);
+        if (!str_starts_with($trimmed, '{')) {
+            throw new VaultException(
+                'Cannot inject body-field secret: request body must be a JSON object',
+                1735858524,
+            );
+        }
+
+        try {
+            $decoded = json_decode($trimmed, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new VaultException(
+                'Cannot inject body-field secret: request body is not valid JSON',
+                1781076764,
+                $exception,
+            );
+        }
+
+        // Type guard for static analysis plus rejection of JSON objects whose
+        // numeric string keys decode to a PHP list ({"0":"a"} → [0 => 'a']) —
+        // injecting a named field there would re-encode a reshaped structure.
         if (!\is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
             throw new VaultException(
                 'Cannot inject body-field secret: request body must be a JSON object',

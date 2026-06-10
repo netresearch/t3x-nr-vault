@@ -750,10 +750,47 @@ final class VaultHttpClientTest extends TestCase
     }
 
     /**
+     * An empty JSON array body (`[]`) decodes to the same PHP value as `{}`,
+     * so it used to slip through the list guard and get silently reshaped
+     * into an object once the secret field was assigned. The leading-token
+     * check (`{`) must reject it deterministically before any HTTP call.
+     */
+    #[Test]
+    public function injectBodyFieldRejectsEmptyJsonArrayBody(): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->with('my_api_key')
+            ->willReturn('secret-value');
+
+        $this->innerClient
+            ->expects(self::never())
+            ->method('sendRequest');
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
+
+        $request = new Request('POST', self::API_URL, [
+            'Content-Type' => self::CONTENT_TYPE_JSON,
+        ], '[]');
+
+        $this->expectException(VaultException::class);
+        $this->expectExceptionMessage(self::NON_OBJECT_BODY_MESSAGE);
+
+        $authenticatedClient->sendRequest($request);
+    }
+
+    /**
      * Behavioural change guard: a syntactically INVALID JSON body used to be
      * silently coerced to `[]` (`json_decode(...) ?: []`), so the request went
      * out as `{"field":"secret"}` and the caller's original payload was
-     * dropped. Now it must be rejected before any HTTP call.
+     * dropped. Now it must be rejected before any HTTP call — with the
+     * explicit malformed-JSON message, not the generic non-object one.
      */
     #[Test]
     public function injectBodyFieldRejectsMalformedJsonBody(): void
@@ -780,7 +817,7 @@ final class VaultHttpClientTest extends TestCase
         ], '{"broken": ');
 
         $this->expectException(VaultException::class);
-        $this->expectExceptionMessage(self::NON_OBJECT_BODY_MESSAGE);
+        $this->expectExceptionMessage('request body is not valid JSON');
 
         $authenticatedClient->sendRequest($request);
     }
