@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Crypto;
 
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
 use Netresearch\NrVault\Crypto\EncryptionService;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Crypto\FileMasterKeyProvider;
@@ -18,6 +20,7 @@ use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Console\Tester\CommandTester;
 use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -439,6 +442,123 @@ final class MasterKeyRotationTest extends FunctionalTestCase
             unlink($newKeyPath);
         }
         sodium_memzero($bogusOldKey);
+    }
+
+    /**
+     * Epoch-2 property: a SECOND master-key rotation (K0 → K1 → K2) through
+     * the REAL `vault:rotate-master-key` command must keep every secret
+     * decryptable and the audit hash chain verifiable after EACH rotation.
+     *
+     * This exercises the full integration: per-secret algorithm markers
+     * survive repeated DEK re-wrapping, and the chain re-key runs inside the
+     * rotation transaction each time, so verification under the
+     * currently-configured key passes at every observable point.
+     */
+    #[Test]
+    public function secondRotationKeepsSecretsDecryptableAndAuditChainValid(): void
+    {
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $auditLogService = $this->get(AuditLogServiceInterface::class);
+        $commandTester = new CommandTester($this->get(VaultRotateMasterKeyCommand::class));
+
+        // Store secrets under the original key (K0).
+        $secrets = [];
+        for ($i = 0; $i < 3; ++$i) {
+            $identifier = $this->generateUuidV7();
+            $value = 'epoch2-value-' . $i;
+            $vaultService->store($identifier, $value);
+            $secrets[$identifier] = $value;
+        }
+
+        self::assertTrue(
+            $auditLogService->verifyHashChain()->isValid(),
+            'Audit chain must be valid before any rotation (K0)',
+        );
+
+        // === Rotation 1: K0 -> K1 ===
+        $key1Path = $this->instancePath . '/master-epoch1.key';
+        file_put_contents($key1Path, sodium_crypto_secretbox_keygen());
+
+        $this->runRotationCommand($commandTester, $key1Path);
+        $this->switchMasterKeyFile($key1Path, $vaultService);
+
+        foreach ($secrets as $identifier => $expectedValue) {
+            self::assertSame(
+                $expectedValue,
+                $vaultService->retrieve($identifier),
+                'Secret must decrypt after the FIRST rotation: ' . $identifier,
+            );
+        }
+
+        self::assertTrue(
+            $auditLogService->verifyHashChain()->isValid(),
+            'Audit chain must verify under K1 after the first rotation',
+        );
+
+        // === Rotation 2 (epoch 2): K1 -> K2 ===
+        $key2Path = $this->instancePath . '/master-epoch2.key';
+        file_put_contents($key2Path, sodium_crypto_secretbox_keygen());
+
+        $this->runRotationCommand($commandTester, $key2Path);
+        $this->switchMasterKeyFile($key2Path, $vaultService);
+
+        foreach ($secrets as $identifier => $expectedValue) {
+            self::assertSame(
+                $expectedValue,
+                $vaultService->retrieve($identifier),
+                'Secret must decrypt after the SECOND rotation: ' . $identifier,
+            );
+        }
+
+        self::assertTrue(
+            $auditLogService->verifyHashChain()->isValid(),
+            'Audit chain must verify under K2 after the second rotation',
+        );
+
+        // Cleanup
+        foreach (array_keys($secrets) as $identifier) {
+            $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
+        }
+        foreach ([$key1Path, $key2Path] as $path) {
+            if (file_exists($path)) {
+                // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
+                unlink($path);
+            }
+        }
+    }
+
+    /**
+     * Run `vault:rotate-master-key --confirm` from the currently configured
+     * key file to `$newKeyPath`, asserting a SUCCESS exit code.
+     */
+    private function runRotationCommand(CommandTester $commandTester, string $newKeyPath): void
+    {
+        self::assertIsString($this->masterKeyPath);
+
+        $exitCode = $commandTester->execute([
+            '--old-key' => $this->masterKeyPath,
+            '--new-key' => $newKeyPath,
+            '--confirm' => true,
+        ]);
+
+        self::assertSame(
+            0,
+            $exitCode,
+            'vault:rotate-master-key must succeed. Output: ' . $commandTester->getDisplay(),
+        );
+        self::assertStringContainsString('Audit chain re-keyed', $commandTester->getDisplay());
+    }
+
+    /**
+     * Make the rotated key the configured one, as the operator does after
+     * the command: replace the key file and drop all caches.
+     */
+    private function switchMasterKeyFile(string $newKeyPath, VaultServiceInterface $vaultService): void
+    {
+        self::assertIsString($this->masterKeyPath);
+        copy($newKeyPath, $this->masterKeyPath);
+        FileMasterKeyProvider::clearCachedKey();
+        $vaultService->clearCache();
     }
 
     /**
