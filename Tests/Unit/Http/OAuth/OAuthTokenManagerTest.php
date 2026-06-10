@@ -49,6 +49,8 @@ final class OAuthTokenManagerTest extends TestCase
 
     private const REFRESH_TOKEN_SECRET = 'oauth/refresh-token';
 
+    private const AUDIENCE = 'https://api.example.com';
+
     private OAuthTokenManager $subject;
 
     private VaultServiceInterface&MockObject $vaultService;
@@ -253,13 +255,13 @@ final class OAuthTokenManagerTest extends TestCase
             tokenEndpoint: self::TOKEN_ENDPOINT,
             clientIdSecret: self::CLIENT_ID_SECRET,
             clientSecretSecret: self::CLIENT_SECRET_SECRET,
-            additionalParams: ['audience' => 'https://api.example.com', 'resource' => 'r1'],
+            additionalParams: ['audience' => self::AUDIENCE, 'resource' => 'r1'],
         );
         $configB = new OAuthConfig(
             tokenEndpoint: self::TOKEN_ENDPOINT,
             clientIdSecret: self::CLIENT_ID_SECRET,
             clientSecretSecret: self::CLIENT_SECRET_SECRET,
-            additionalParams: ['resource' => 'r1', 'audience' => 'https://api.example.com'],
+            additionalParams: ['resource' => 'r1', 'audience' => self::AUDIENCE],
         );
 
         self::assertSame(
@@ -851,7 +853,7 @@ final class OAuthTokenManagerTest extends TestCase
             tokenEndpoint: self::TOKEN_ENDPOINT,
             clientIdSecret: self::CLIENT_ID_SECRET,
             clientSecretSecret: self::CLIENT_SECRET_SECRET,
-            additionalParams: ['audience' => 'https://api.example.com'],
+            additionalParams: ['audience' => self::AUDIENCE],
         );
 
         $this->vaultService

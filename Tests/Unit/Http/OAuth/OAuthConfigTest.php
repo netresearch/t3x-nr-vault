@@ -118,13 +118,16 @@ final class OAuthConfigTest extends TestCase
         $this->expectException(ValidationException::class);
         $this->expectExceptionMessageMatches('/refreshTokenSecret.*required for the refresh_token grant/i');
 
-        new OAuthConfig(
+        // The assertion is unreachable when the guard works — it exists so the
+        // construction result is consumed (Sonar S1848) and to fail loudly if not.
+        $config = new OAuthConfig(
             tokenEndpoint: self::TOKEN_ENDPOINT,
             clientIdSecret: self::CLIENT_ID_SECRET,
             clientSecretSecret: self::CLIENT_SECRET_SECRET,
             grantType: 'refresh_token',
             // refreshTokenSecret omitted → null
         );
+        self::assertInstanceOf(OAuthConfig::class, $config);
     }
 
     #[Test]
@@ -133,13 +136,14 @@ final class OAuthConfigTest extends TestCase
         $this->expectException(ValidationException::class);
         $this->expectExceptionMessageMatches('/refreshTokenSecret.*required for the refresh_token grant/i');
 
-        new OAuthConfig(
+        $config = new OAuthConfig(
             tokenEndpoint: self::TOKEN_ENDPOINT,
             clientIdSecret: self::CLIENT_ID_SECRET,
             clientSecretSecret: self::CLIENT_SECRET_SECRET,
             grantType: 'refresh_token',
             refreshTokenSecret: '',
         );
+        self::assertInstanceOf(OAuthConfig::class, $config);
     }
 
     /**
@@ -152,12 +156,13 @@ final class OAuthConfigTest extends TestCase
         $this->expectException(ValidationException::class);
         $this->expectExceptionMessageMatches('/grantType.*must be one of/i');
 
-        new OAuthConfig(
+        $config = new OAuthConfig(
             tokenEndpoint: self::TOKEN_ENDPOINT,
             clientIdSecret: self::CLIENT_ID_SECRET,
             clientSecretSecret: self::CLIENT_SECRET_SECRET,
             grantType: 'password',
         );
+        self::assertInstanceOf(OAuthConfig::class, $config);
     }
 
     #[Test]

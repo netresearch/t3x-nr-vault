@@ -42,6 +42,8 @@ final class VaultHttpClientTest extends TestCase
 
     private const CONTENT_TYPE_JSON = 'application/json';
 
+    private const NON_OBJECT_BODY_MESSAGE = 'request body must be a JSON object';
+
     /** @phpstan-ignore property.uninitialized */
     private VaultServiceInterface&MockObject $vaultService;
 
@@ -707,7 +709,7 @@ final class VaultHttpClientTest extends TestCase
         ], json_encode([1, 2, 3]));
 
         $this->expectException(VaultException::class);
-        $this->expectExceptionMessage('request body must be a JSON object');
+        $this->expectExceptionMessage(self::NON_OBJECT_BODY_MESSAGE);
 
         $authenticatedClient->sendRequest($request);
     }
@@ -742,7 +744,7 @@ final class VaultHttpClientTest extends TestCase
         ], json_encode('just-a-string'));
 
         $this->expectException(VaultException::class);
-        $this->expectExceptionMessage('request body must be a JSON object');
+        $this->expectExceptionMessage(self::NON_OBJECT_BODY_MESSAGE);
 
         $authenticatedClient->sendRequest($request);
     }
@@ -778,7 +780,7 @@ final class VaultHttpClientTest extends TestCase
         ], '{"broken": ');
 
         $this->expectException(VaultException::class);
-        $this->expectExceptionMessage('request body must be a JSON object');
+        $this->expectExceptionMessage(self::NON_OBJECT_BODY_MESSAGE);
 
         $authenticatedClient->sendRequest($request);
     }
