@@ -49,6 +49,8 @@ final class OAuthTokenManagerTest extends TestCase
 
     private const REFRESH_TOKEN_SECRET = 'oauth/refresh-token';
 
+    private const AUDIENCE = 'https://api.example.com';
+
     private OAuthTokenManager $subject;
 
     private VaultServiceInterface&MockObject $vaultService;
@@ -209,6 +211,63 @@ final class OAuthTokenManagerTest extends TestCase
             $tokenB,
             'configB must NOT reuse configA\'s cached token — cache key collision means a '
             . 'credential rotation never takes effect at runtime',
+        );
+    }
+
+    /**
+     * Cross-audience token confusion guard: two configs identical except for
+     * `additionalParams` (e.g. a different `audience`/`resource`) MUST produce
+     * distinct cache keys. Otherwise a token minted for audience A would be
+     * served from cache to a request that asked for audience B.
+     */
+    #[Test]
+    public function cacheKeyFragmentsOnAdditionalParams(): void
+    {
+        $configA = new OAuthConfig(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            additionalParams: ['audience' => 'https://api-a.example.com'],
+        );
+        $configB = new OAuthConfig(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            additionalParams: ['audience' => 'https://api-b.example.com'],
+        );
+
+        self::assertNotSame(
+            $this->cacheKeyFor($configA),
+            $this->cacheKeyFor($configB),
+            'Configs differing only in additionalParams (audience) must not share a cache slot',
+        );
+    }
+
+    /**
+     * Deterministic-key guard: the cache key must NOT depend on the array order
+     * of `additionalParams` — `ksort` normalises it. Two configs with the same
+     * params in different order are the same identity and must share a slot.
+     */
+    #[Test]
+    public function cacheKeyIsStableAcrossAdditionalParamsOrder(): void
+    {
+        $configA = new OAuthConfig(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            additionalParams: ['audience' => self::AUDIENCE, 'resource' => 'r1'],
+        );
+        $configB = new OAuthConfig(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            additionalParams: ['resource' => 'r1', 'audience' => self::AUDIENCE],
+        );
+
+        self::assertSame(
+            $this->cacheKeyFor($configA),
+            $this->cacheKeyFor($configB),
+            'additionalParams order must not change the cache key (ksort normalises it)',
         );
     }
 
@@ -794,7 +853,7 @@ final class OAuthTokenManagerTest extends TestCase
             tokenEndpoint: self::TOKEN_ENDPOINT,
             clientIdSecret: self::CLIENT_ID_SECRET,
             clientSecretSecret: self::CLIENT_SECRET_SECRET,
-            additionalParams: ['audience' => 'https://api.example.com'],
+            additionalParams: ['audience' => self::AUDIENCE],
         );
 
         $this->vaultService
@@ -1283,6 +1342,48 @@ final class OAuthTokenManagerTest extends TestCase
             'Connection refused (timeout after 10s)',
             'Connection refused (timeout after 10s)',
         ];
+        yield 'client_secret in JSON error body' => [
+            '{"error":"invalid_client","client_secret":"topSecr3t"}',
+            '{"error":"invalid_client","client_secret":"[REDACTED]"}',
+        ];
+        yield 'refresh_token in JSON error body' => [
+            '{"error":"invalid_grant","refresh_token":"eyJabc.def.ghi"}',
+            '{"error":"invalid_grant","refresh_token":"[REDACTED]"}',
+        ];
+        yield 'access_token in JSON error body with spaces' => [
+            '{ "access_token" : "leaked-bearer" }',
+            '{ "access_token" : "[REDACTED]" }',
+        ];
+        yield 'client_secret with escaped quote in JSON error body' => [
+            // JSON-escaped quote inside the secret (`top\"Secr3t`): a naive
+            // `[^"]*` value match stops at the escape and leaks `Secr3t"`.
+            '{"error":"invalid_client","client_secret":"top\"Secr3t"}',
+            '{"error":"invalid_client","client_secret":"[REDACTED]"}',
+        ];
+        yield 'client_secret with escaped backslashes in JSON error body' => [
+            '{"error":"invalid_client","client_secret":"a\\\\b\"c\\\\"}',
+            '{"error":"invalid_client","client_secret":"[REDACTED]"}',
+        ];
+        yield 'client_secret echoed in single-quoted prose' => [
+            "Invalid client_secret 'topSecr3t' supplied",
+            "Invalid client_secret '[REDACTED]' supplied",
+        ];
+        yield 'client_secret echoed in double-quoted prose' => [
+            'rejected client_secret "topSecr3t"',
+            'rejected client_secret "[REDACTED]"',
+        ];
+    }
+
+    /**
+     * Invoke the private `getCacheKey()` via reflection. Handles static and
+     * instance forms so cgl / rector can flip the method freely.
+     */
+    private function cacheKeyFor(OAuthConfig $config): string
+    {
+        $method = (new ReflectionClass(OAuthTokenManager::class))->getMethod('getCacheKey');
+        $target = $method->isStatic() ? null : $this->subject;
+
+        return (string) $method->invoke($target, $config);
     }
 
     private function setupRequestFactory(): void

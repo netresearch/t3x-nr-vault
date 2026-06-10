@@ -70,6 +70,19 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
         yield 'ipv6 link-local fe80::/10' => ['fe80::1'];
         yield 'ipv6 multicast ff00::/8' => ['ff02::1'];
 
+        // IPv6 transition forms — each embeds a dangerous IPv4 that a naive
+        // range check would let through (CVE-2026-48736 class). The deny logic
+        // decodes the embedded IPv4 and recurses into the v4 check.
+        yield 'ipv4-mapped metadata ::ffff:169.254.169.254' => ['::ffff:169.254.169.254'];
+        yield 'ipv4-mapped loopback ::ffff:127.0.0.1' => ['::ffff:127.0.0.1'];
+        yield '6to4 metadata 2002:a9fe:a9fe::' => ['2002:a9fe:a9fe::'];
+        yield 'nat64 metadata 64:ff9b::169.254.169.254' => ['64:ff9b::169.254.169.254'];
+        yield 'ipv4-compatible loopback ::127.0.0.1' => ['::127.0.0.1'];
+        // Teredo (2001:0::/32): server 8.8.8.8 (public), client 127.0.0.1
+        // stored obfuscated (XOR 0xffffffff). The client IPv4 alone is enough
+        // to deny: 127.0.0.1 ^ 0xffffffff packed back → 2001:0:808:808::80ff:fffe.
+        yield 'teredo internal client 127.0.0.1' => ['2001:0:808:808::80ff:fffe'];
+
         // host:port / [ipv6]:port — port-stripping must not bypass the guard
         yield 'ipv4 with port' => ['127.0.0.1:8080'];
         yield 'aws metadata with port' => ['169.254.169.254:80'];
@@ -112,6 +125,17 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
         // 8.8.8.8 is a public IPv4 — once IP guards pass and no allowlist is set,
         // the method must return true (default-allow gated by IP/DNS checks).
         self::assertTrue($this->subject->isHostAllowed('8.8.8.8'));
+    }
+
+    #[Test]
+    public function isHostAllowedAllowsPublicIpv6WithNoAllowlist(): void
+    {
+        // 2606:4700:4700::1111 (Cloudflare) is a public IPv6 literal — it is
+        // NOT a transition form and embeds no dangerous IPv4, so once the IPv6
+        // guards pass and no allowlist is set it must be allowed. This is the
+        // control that proves the transition-form deny rows aren't over-blocking
+        // all IPv6.
+        self::assertTrue($this->subject->isHostAllowed('2606:4700:4700::1111'));
     }
 
     #[Test]

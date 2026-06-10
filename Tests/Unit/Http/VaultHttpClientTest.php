@@ -42,6 +42,8 @@ final class VaultHttpClientTest extends TestCase
 
     private const CONTENT_TYPE_JSON = 'application/json';
 
+    private const NON_OBJECT_BODY_MESSAGE = 'request body must be a JSON object';
+
     /** @phpstan-ignore property.uninitialized */
     private VaultServiceInterface&MockObject $vaultService;
 
@@ -672,6 +674,150 @@ final class VaultHttpClientTest extends TestCase
         $request = new Request('POST', self::API_URL, [
             'Content-Type' => self::CONTENT_TYPE_JSON,
         ], '{}');
+
+        $authenticatedClient->sendRequest($request);
+    }
+
+    /**
+     * A JSON request body that decodes to a list (not an object) cannot carry a
+     * named secret field. The old code did `$data[$field] = ...` on the list,
+     * silently reshaping it into a mixed-key structure. Reject it deterministically.
+     */
+    #[Test]
+    public function injectBodyFieldRejectsJsonArrayBody(): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->with('my_api_key')
+            ->willReturn('secret-value');
+
+        // The malformed body must be rejected BEFORE any HTTP call is made.
+        $this->innerClient
+            ->expects(self::never())
+            ->method('sendRequest');
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
+
+        $request = new Request('POST', self::API_URL, [
+            'Content-Type' => self::CONTENT_TYPE_JSON,
+        ], json_encode([1, 2, 3]));
+
+        $this->expectException(VaultException::class);
+        $this->expectExceptionMessage(self::NON_OBJECT_BODY_MESSAGE);
+
+        $authenticatedClient->sendRequest($request);
+    }
+
+    /**
+     * A scalar JSON body (`"value"`, `42`, `true`) is even worse — the old
+     * `$data[$field] = ...` on a string/int would fatally error after the
+     * secret was already retrieved. Reject it with a clear exception instead.
+     */
+    #[Test]
+    public function injectBodyFieldRejectsJsonScalarBody(): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->with('my_api_key')
+            ->willReturn('secret-value');
+
+        $this->innerClient
+            ->expects(self::never())
+            ->method('sendRequest');
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
+
+        $request = new Request('POST', self::API_URL, [
+            'Content-Type' => self::CONTENT_TYPE_JSON,
+        ], json_encode('just-a-string'));
+
+        $this->expectException(VaultException::class);
+        $this->expectExceptionMessage(self::NON_OBJECT_BODY_MESSAGE);
+
+        $authenticatedClient->sendRequest($request);
+    }
+
+    /**
+     * An empty JSON array body (`[]`) decodes to the same PHP value as `{}`,
+     * so it used to slip through the list guard and get silently reshaped
+     * into an object once the secret field was assigned. The leading-token
+     * check (`{`) must reject it deterministically before any HTTP call.
+     */
+    #[Test]
+    public function injectBodyFieldRejectsEmptyJsonArrayBody(): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->with('my_api_key')
+            ->willReturn('secret-value');
+
+        $this->innerClient
+            ->expects(self::never())
+            ->method('sendRequest');
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
+
+        $request = new Request('POST', self::API_URL, [
+            'Content-Type' => self::CONTENT_TYPE_JSON,
+        ], '[]');
+
+        $this->expectException(VaultException::class);
+        $this->expectExceptionMessage(self::NON_OBJECT_BODY_MESSAGE);
+
+        $authenticatedClient->sendRequest($request);
+    }
+
+    /**
+     * Behavioural change guard: a syntactically INVALID JSON body used to be
+     * silently coerced to `[]` (`json_decode(...) ?: []`), so the request went
+     * out as `{"field":"secret"}` and the caller's original payload was
+     * dropped. Now it must be rejected before any HTTP call — with the
+     * explicit malformed-JSON message, not the generic non-object one.
+     */
+    #[Test]
+    public function injectBodyFieldRejectsMalformedJsonBody(): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->with('my_api_key')
+            ->willReturn('secret-value');
+
+        $this->innerClient
+            ->expects(self::never())
+            ->method('sendRequest');
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
+
+        $request = new Request('POST', self::API_URL, [
+            'Content-Type' => self::CONTENT_TYPE_JSON,
+        ], '{"broken": ');
+
+        $this->expectException(VaultException::class);
+        $this->expectExceptionMessage('request body is not valid JSON');
 
         $authenticatedClient->sendRequest($request);
     }

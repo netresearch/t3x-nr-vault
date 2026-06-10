@@ -109,7 +109,7 @@ final class IdentifierValidator
             ($time >> 16) & 0xFFFFFFFF,           // timestamp high 32 bits
             $time & 0xFFFF,                        // timestamp low 16 bits
             \ord($random[0]) << 4 | \ord($random[1]) >> 4 & 0x0FFF, // version 7 + 12 random bits
-            (\ord($random[1]) & 0x0F) << 8 | \ord($random[2]) & 0x3FFF | 0x8000, // variant 10 + 14 random bits
+            ((\ord($random[1]) << 8 | \ord($random[2])) & 0x3FFF) | 0x8000, // variant 10 + 14 random bits
             (\ord($random[3]) << 40) | (\ord($random[4]) << 32) | (\ord($random[5]) << 24)
                 | (\ord($random[6]) << 16) | (\ord($random[7]) << 8) | \ord($random[8]), // 48 random bits
         );

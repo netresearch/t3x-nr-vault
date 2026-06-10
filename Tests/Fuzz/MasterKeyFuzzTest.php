@@ -111,7 +111,13 @@ final class MasterKeyFuzzTest extends TestCase
             if ($len === 32) {
                 $len = 31;
             }
-            $bytes = random_bytes($len);
+            do {
+                $bytes = random_bytes($len);
+                // FileMasterKeyProvider trim()s file content before the length
+                // check, so a blob with whitespace-class lead/trail bytes can
+                // shrink to a VALID 32-byte key (e.g. 33 bytes ending in \n).
+                // Regenerate until the trimmed form stays invalid.
+            } while (\strlen(trim($bytes)) === 32);
             $cases["random_bytes_{$i}_len{$len}"] = [$bytes];
         }
 

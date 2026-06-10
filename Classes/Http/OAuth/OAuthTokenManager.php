@@ -523,21 +523,42 @@ final class OAuthTokenManager
      * Sonar flags them across the board, and avoid sha256 because the extra
      * cost is wasted for a non-security use.
      *
-     * `clientSecretSecret` is included so two configs that share the same
-     * client_id-secret identifier but reference different client_secret-secret
-     * identifiers don't collide on the cache (e.g. a key rotation that swaps
-     * the secret identifier without changing the client_id). The cache holds
-     * the access token, NOT the client_secret value — the identifier is
-     * non-sensitive enough to feed into a cache key.
+     * The key folds in every input that changes WHICH token the endpoint
+     * returns:
+     *  - `clientSecretSecret` so a credential rotation that swaps the
+     *    client_secret vault handle (without changing the client_id) gets a
+     *    fresh slot rather than serving the pre-rotation token;
+     *  - `refreshTokenSecret` so a config pointing at a different refresh-token
+     *    source is a distinct identity;
+     *  - `additionalParams` (audience / resource / tenant / …) so two configs
+     *    that differ only in audience don't collide — otherwise a token minted
+     *    for audience A leaks to a request asking for audience B.
+     *
+     * The cache holds the access token, NOT the secret VALUES — only the vault
+     * identifiers and request params, which are non-sensitive enough to key on.
      */
     private function getCacheKey(OAuthConfig $config): string
     {
+        // `additionalParams` (audience, resource, tenant, …) materially change
+        // which token the endpoint returns. Two configs identical except for
+        // these params MUST get distinct cache slots, otherwise a token minted
+        // for audience A would be served to a request that asked for audience B
+        // (cross-audience token confusion). Serialize deterministically (ksort)
+        // so key order never affects the hash.
+        $params = $config->additionalParams;
+        ksort($params);
+
         return hash('xxh128', implode(':', [
             $config->tokenEndpoint,
             $config->clientIdSecret,
             $config->clientSecretSecret,
             $config->grantType,
+            // For the refresh_token grant the refresh-token vault handle is part
+            // of the identity — a config pointing at a different refresh-token
+            // secret is a different token source.
+            $config->refreshTokenSecret ?? '',
             $config->getScopesString(),
+            hash('xxh128', json_encode($params, JSON_THROW_ON_ERROR)),
         ]));
     }
 
@@ -549,8 +570,9 @@ final class OAuthTokenManager
      * body, not the request — so a well-behaved server doesn't leak the
      * `client_secret` we sent. But:
      *
-     *  - OAuth servers sometimes echo the offending input back ("Invalid
-     *    client_secret 'xyz'"). RFC 6749 doesn't forbid it.
+     *  - OAuth servers sometimes echo the offending input back, either in a
+     *    JSON error body (`{"error":"...","client_secret":"xyz"}`) or quoted
+     *    in prose (`Invalid client_secret 'xyz'`). RFC 6749 doesn't forbid it.
      *  - A future refactor could land HTTP Basic auth (`Authorization: Basic
      *    base64(client_id:client_secret)`) which DOES appear in
      *    `RequestException::getMessage()` when verbose error formatting kicks
@@ -560,11 +582,16 @@ final class OAuthTokenManager
      *
      * Defence in depth: never trust upstream error messages to be free of
      * credentials. Cheap to apply, eliminates an entire class of accidental
-     * leaks through logs/audit/exception chains.
+     * leaks through logs/audit/exception chains. All patterns are BOUNDED
+     * (delimiter-anchored character classes, no `.*?`/nested quantifiers) so
+     * they cannot trigger catastrophic regex backtracking.
      */
     private function redactCredentials(string $message): string
     {
-        return (string) preg_replace(
+        // Pass 1: prefix-anchored forms whose value runs to a delimiter. The
+        // shared replacement keeps capture group 1 (the key/prefix) and drops
+        // the value.
+        $message = (string) preg_replace(
             [
                 // form-encoded `client_secret=...` (request bodies, query strings)
                 '/(client_secret=)[^&\s"\'<>]+/i',
@@ -575,6 +602,27 @@ final class OAuthTokenManager
                 '/(Authorization:\s*Basic\s+)\S+/i',
             ],
             self::REDACT_REPLACEMENT,
+            $message,
+        );
+
+        // Pass 2: quoted-value forms where the credential is wrapped in matching
+        // quotes — a JSON error body (`"client_secret":"xyz"`) or a prose echo
+        // (`client_secret 'xyz'`). Group 1 keeps the key + opening quote,
+        // group 2 keeps the closing quote; the value between is dropped.
+        return (string) preg_replace(
+            [
+                // JSON: "client_secret":"...", "refresh_token":"...", "access_token":"..."
+                // The value part handles JSON escape sequences (`\"`, `\\`, …)
+                // via the unrolled-loop idiom `[^"\x5c]*(?:\x5c.[^"\x5c]*)*`
+                // (\x5c = backslash): a credential containing an escaped quote
+                // would otherwise end the match early and leak its remainder.
+                // The idiom is linear — each position is matched by exactly one
+                // branch, so no catastrophic backtracking.
+                '/("(?:client_secret|refresh_token|access_token)"\s*:\s*")[^"\x5c]*(?:\x5c.[^"\x5c]*)*(")/i',
+                // Quoted echo: client_secret '...' or client_secret "..."
+                '/((?:client_secret|refresh_token|access_token)\s+["\'])[^"\']*(["\'])/i',
+            ],
+            '$1[REDACTED]$2',
             $message,
         );
     }
