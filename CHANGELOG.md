@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-10
+
+### Added
+
+- **Per-secret encryption-algorithm marker.** Each secret now records how it
+  was encrypted (`encryption_version` 2 + explicit algorithm in the new
+  `tx_nrvault_secret.encryption_algorithm` column). Decryption dispatches on
+  the stored marker instead of re-deriving the algorithm from the decrypting
+  host's CPU capabilities, so the same data decrypts identically on any PHP
+  host and future algorithm migrations become possible. Legacy rows (version 1,
+  no marker) keep decrypting byte-identically via the old host-derived path;
+  value rotation upgrades them to version 2. New secrets default to
+  XChaCha20-Poly1305; `aes256gcm` can be pinned via the new
+  `encryptionAlgorithm` extension setting (invalid or host-unavailable values
+  fail loudly).
+- **Audit-chain re-keying during master-key rotation.** The tamper-evident
+  audit chain is HMAC-keyed from the master key; `vault:rotate-master-key` now
+  re-keys the whole chain inside the same transaction as the DEK
+  re-encryption (new `AuditChainRekeyService`, keyset-paginated for bounded
+  memory), preserving per-row epochs and refusing to re-key a chain that does
+  not verify under the current key. A second-rotation (epoch 2) functional
+  test covers consecutive rotations end to end.
+
+### Changed
+
+- `verifyHashChain()` streams rows instead of materialising the whole audit
+  log; rotation pre-flight on large installs no longer risks OOM.
+- `dek_nonce`/`value_nonce` columns widened varchar(24) → varchar(32): the
+  base64 form of a 24-byte XChaCha20 nonce is 32 characters (latent truncation
+  bug on the XChaCha20 path).
+- `encrypt()`/`decrypt()` no longer `sodium_memzero()` the master key — it is
+  the provider's shared request-lifetime cache entry; the provider owns its
+  lifecycle. Per-secret key material (DEK, MAC key, plaintext) is still wiped
+  on every path, including exception paths.
+
+### Fixed
+
+- Backend column migration built `table__column__{{uid}}` identifiers whose
+  literal braces failed validation — every backend-module column migration was
+  rejected.
+- OAuth token cache key now includes the refresh-token secret identifier and
+  the (order-normalised) additional parameters, preventing cross-audience
+  token confusion between configurations that differ only in
+  audience/resource/tenant.
+- OAuth error messages additionally redact JSON-body and quoted-prose echoes
+  of `client_secret`, `refresh_token`, and `access_token`.
+- `OAuthConfig` rejects unknown grant types and a `refresh_token` grant
+  without a refresh-token secret at construction time.
+- Secure HTTP client rejects non-object JSON request bodies up front instead
+  of silently dropping the payload (or fataling on scalars).
+- UUID v7 generation now sets all 14 random bits of the variant field.
+
 ## [0.8.0] - 2026-06-09
 
 ### Added
@@ -439,7 +491,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/netresearch/t3x-nr-vault/compare/v0.6.0...v0.6.1
