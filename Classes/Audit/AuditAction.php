@@ -33,6 +33,7 @@ enum AuditAction: string
     case HttpCall = 'http_call';
     case MasterKeyRotateStart = 'master_key_rotate_start';
     case MasterKeyRotateEnd = 'master_key_rotate_end';
+    case AuditChainRekey = 'audit_chain_rekey';
     case OAuthRefreshFailed = 'oauth_refresh_failed';
     case OAuthFallbackClientCredentials = 'oauth_fallback_client_credentials';
     case OAuthRefreshStoreFailed = 'oauth_refresh_store_failed';

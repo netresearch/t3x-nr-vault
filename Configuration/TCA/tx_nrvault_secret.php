@@ -252,6 +252,7 @@ return [
             'config' => [
                 'type' => 'input',
                 'readOnly' => true,
+                'searchable' => false,
             ],
         ],
     ],

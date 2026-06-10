@@ -9,7 +9,10 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
+use Doctrine\DBAL\Result;
+use Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface;
@@ -44,6 +47,8 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
     private AuditLogServiceInterface&MockObject $auditLogService;
 
+    private AuditChainRekeyServiceInterface&MockObject $auditChainRekeyService;
+
     private CommandTester $commandTester;
 
     protected function setUp(): void
@@ -63,6 +68,12 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $this->masterKeyProviderFactory = $this->createMock(MasterKeyProviderFactoryInterface::class);
         $this->connectionPool = $this->createMock(ConnectionPool::class);
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        // `HashChainVerificationResult` is final and cannot be auto-mocked;
+        // default to a valid chain so the pre-rotation verification passes.
+        $this->auditLogService
+            ->method('verifyHashChain')
+            ->willReturn(HashChainVerificationResult::valid());
+        $this->auditChainRekeyService = $this->createMock(AuditChainRekeyServiceInterface::class);
 
         $command = new VaultRotateMasterKeyCommand(
             $this->secretRepository,
@@ -70,6 +81,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             $this->masterKeyProviderFactory,
             $this->connectionPool,
             $this->auditLogService,
+            $this->auditChainRekeyService,
         );
 
         $application = new Application();
@@ -87,6 +99,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             $this->masterKeyProviderFactory,
             $this->connectionPool,
             $this->auditLogService,
+            $this->auditChainRekeyService,
         );
 
         self::assertSame('vault:rotate-master-key', $command->getName());
@@ -324,14 +337,29 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->method('reEncryptDek')
             ->willReturn(new ReEncryptedDek('new-encrypted-dek', 'new-nonce'));
 
+        // Success path: outer transaction + the audit-lock savepoint around
+        // the chain re-key → two begins, two commits, no rollback. The
+        // (non-SQLite) advisory lock acquire issues `SELECT GET_LOCK(...)`
+        // which must yield 1.
+        $lockResult = $this->createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
         $connection = $this->createMock(Connection::class);
-        $connection->expects(self::once())->method('beginTransaction');
-        $connection->expects(self::once())->method('commit');
+        $connection->expects(self::exactly(2))->method('beginTransaction');
+        $connection->expects(self::exactly(2))->method('commit');
         $connection->expects(self::never())->method('rollBack');
+        $connection->method('executeQuery')->willReturn($lockResult);
 
         $this->connectionPool
             ->method('getConnectionForTable')
             ->willReturn($connection);
+
+        // The audit chain MUST be re-keyed in the same operation.
+        $this->auditChainRekeyService
+            ->expects(self::once())
+            ->method('rekeyChain')
+            ->with($connection, self::isString())
+            ->willReturn(3);
 
         // `withReEncryptedDek()` returns a NEW Secret instance, so the
         // saved entity is a different object from `$secret`. Match on the
@@ -352,6 +380,62 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         self::assertSame(0, $exitCode);
         self::assertStringContainsString('Successfully rotated', $this->commandTester->getDisplay());
+        self::assertStringContainsString('Audit chain re-keyed', $this->commandTester->getDisplay());
+    }
+
+    #[Test]
+    public function refusesRotationWhenAuditChainVerificationFails(): void
+    {
+        $secret = $this->createTestSecret('test-secret');
+
+        $this->secretRepository
+            ->method('findIdentifiers')
+            ->willReturn(['test-secret']);
+
+        $this->secretRepository
+            ->method('findByIdentifier')
+            ->willReturn($secret);
+
+        $this->encryptionService
+            ->method('reEncryptDek')
+            ->willReturn(new ReEncryptedDek('new', 'n'));
+
+        // Re-build the command with an INVALID chain verification result:
+        // re-keying a tampered chain would launder the tampering, so the
+        // rotation must refuse before any state change.
+        $auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        $auditLogService
+            ->method('verifyHashChain')
+            ->willReturn(HashChainVerificationResult::invalid([5 => 'Entry hash mismatch - possible tampering']));
+
+        $connection = $this->createMock(Connection::class);
+        $connection->expects(self::never())->method('beginTransaction');
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($connection);
+
+        $this->auditChainRekeyService
+            ->expects(self::never())
+            ->method('rekeyChain');
+
+        $command = new VaultRotateMasterKeyCommand(
+            $this->secretRepository,
+            $this->encryptionService,
+            $this->masterKeyProviderFactory,
+            $this->connectionPool,
+            $auditLogService,
+            $this->auditChainRekeyService,
+        );
+        $commandTester = new CommandTester($command);
+
+        $exitCode = $commandTester->execute([
+            '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
+            '--new-key' => $this->createKeyFile('new', str_repeat('b', 32)),
+            '--confirm' => true,
+        ]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('verification FAILED', $commandTester->getDisplay());
     }
 
     #[Test]

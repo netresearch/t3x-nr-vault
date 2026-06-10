@@ -9,6 +9,10 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
+use Doctrine\DBAL\Platforms\SQLitePlatform;
+use Netresearch\NrVault\Audit\AuditAction;
+use Netresearch\NrVault\Audit\AuditChainLockTrait;
+use Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface;
@@ -16,6 +20,7 @@ use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Exception\MasterKeyException;
+use SensitiveParameter;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -23,6 +28,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Throwable;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 /**
@@ -30,6 +36,12 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
  *
  * Re-encrypts all DEKs with a new master key. Either old or new key
  * can be provided; the missing one defaults to the currently configured key.
+ *
+ * The tamper-evident audit chain is keyed via HKDF from the master key, so
+ * the chain is re-keyed under the new key INSIDE the same transaction as the
+ * DEK re-encryption: either both commit or both roll back, and
+ * `AuditLogServiceInterface::verifyHashChain()` stays valid before (old key)
+ * and after (new key, once the provider configuration is switched).
  */
 #[AsCommand(
     name: 'vault:rotate-master-key',
@@ -37,6 +49,8 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 )]
 final class VaultRotateMasterKeyCommand extends Command
 {
+    use AuditChainLockTrait;
+
     private const KEY_LENGTH = 32;
 
     /**
@@ -52,6 +66,7 @@ final class VaultRotateMasterKeyCommand extends Command
         private readonly MasterKeyProviderFactoryInterface $masterKeyProviderFactory,
         private readonly ConnectionPool $connectionPool,
         private readonly AuditLogServiceInterface $auditLogService,
+        private readonly AuditChainRekeyServiceInterface $auditChainRekeyService,
     ) {
         parent::__construct();
     }
@@ -235,6 +250,10 @@ final class VaultRotateMasterKeyCommand extends Command
      * Main rotation loop wrapped in a transaction. Per-secret failures are
      * collected; ANY failure rolls back the whole batch (atomic rotation).
      *
+     * The audit chain is re-keyed under the new master key inside the SAME
+     * transaction (see {@see self::rekeyAuditChain()}), so chain and secrets
+     * commit or roll back together.
+     *
      * @param list<string> $identifiers
      */
     private function rotateAllSecrets(
@@ -245,21 +264,55 @@ final class VaultRotateMasterKeyCommand extends Command
         int $totalSecrets,
     ): int {
         $connection = $this->connectionPool->getConnectionForTable('tx_nrvault_secret');
-        $connection->beginTransaction();
 
-        // Audit the start of the rotation lifecycle. We log BEFORE any state
-        // change so that even a catastrophic crash mid-loop leaves a trail.
+        // Cross-table atomicity precondition: the chain re-key must share the
+        // secrets transaction, which requires both tables on ONE connection.
+        if ($this->connectionPool->getConnectionForTable('tx_nrvault_audit_log') !== $connection) {
+            $io->error(
+                'tx_nrvault_secret and tx_nrvault_audit_log are mapped to different database '
+                . 'connections; atomic master-key rotation (secrets + audit chain) is not possible.',
+            );
+
+            return Command::FAILURE;
+        }
+
+        $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
+
+        // Audit the start of the rotation lifecycle BEFORE the transaction so
+        // the attempt leaves a trail even if everything below rolls back.
         $this->auditLogService->log(
             self::AUDIT_PSEUDO_IDENTIFIER,
-            'master_key_rotate_start',
+            AuditAction::MasterKeyRotateStart->value,
             true,
             null,
             \sprintf('Rotating master key for %d secret(s)', $totalSecrets),
         );
 
+        // The chain must verify under the CURRENT key before it is re-sealed
+        // under the new one: re-keying a tampered chain would launder the
+        // tampering into a freshly valid chain and destroy the evidence.
+        $verification = $this->auditLogService->verifyHashChain();
+        if (!$verification->isValid()) {
+            $io->error([
+                'Audit hash chain verification FAILED — re-keying refused.',
+                'Investigate the chain (vault:audit --verify) before rotating the master key.',
+            ]);
+            $this->auditLogService->log(
+                self::AUDIT_PSEUDO_IDENTIFIER,
+                AuditAction::MasterKeyRotateEnd->value,
+                false,
+                'Audit chain verification failed before rotation; nothing changed',
+            );
+
+            return Command::FAILURE;
+        }
+
+        $connection->beginTransaction();
+
         $io->progressStart($totalSecrets);
         $failedSecrets = [];
         $successCount = 0;
+        $rekeyedRows = 0;
 
         try {
             foreach ($identifiers as $identifier) {
@@ -275,13 +328,15 @@ final class VaultRotateMasterKeyCommand extends Command
                 $this->reportFailures($io, $failedSecrets);
                 $this->auditLogService->log(
                     self::AUDIT_PSEUDO_IDENTIFIER,
-                    'master_key_rotate_end',
+                    AuditAction::MasterKeyRotateEnd->value,
                     false,
                     \sprintf('Rotation failed for %d secret(s); transaction rolled back', \count($failedSecrets)),
                 );
 
                 return Command::FAILURE;
             }
+
+            $rekeyedRows = $this->rekeyAuditChain($connection, $isSQLite, $newKey, $successCount);
 
             $connection->commit();
         } catch (Throwable $e) {
@@ -291,7 +346,7 @@ final class VaultRotateMasterKeyCommand extends Command
             // leaking libsodium/internal detail (CLAUDE.md security rule 1).
             $this->auditLogService->log(
                 self::AUDIT_PSEUDO_IDENTIFIER,
-                'master_key_rotate_end',
+                AuditAction::MasterKeyRotateEnd->value,
                 false,
                 'Unexpected error during rotation; transaction rolled back',
             );
@@ -299,27 +354,86 @@ final class VaultRotateMasterKeyCommand extends Command
             return Command::FAILURE;
         }
 
-        $this->auditLogService->log(
-            self::AUDIT_PSEUDO_IDENTIFIER,
-            'master_key_rotate_end',
-            true,
-            null,
-            \sprintf('Successfully rotated master key for %d secret(s)', $successCount),
-        );
-
         $io->success(\sprintf(
             'Successfully rotated master key for %d secret(s).',
             $successCount,
         ));
+        $io->text(\sprintf(
+            'Audit chain re-keyed under the new master key (%d row(s) rewritten).',
+            $rekeyedRows,
+        ));
 
         $io->note([
             'Next steps:',
-            '1. Update your configuration to use the new master key',
+            '1. Update your configuration to use the new master key NOW — until then,',
+            '   secrets cannot be decrypted and audit-chain verification uses the old key.',
             '2. Securely archive or destroy the old master key',
-            '3. Test secret retrieval to verify the rotation',
+            '3. Test secret retrieval and run vault:audit to verify chain integrity',
+            '4. If any audit entries were written between this rotation and the',
+            '   configuration switch, re-seal them with vault:audit-migrate-hmac',
         ]);
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Re-key the tamper-evident audit chain under the new master key, inside
+     * the caller's open transaction. Returns the number of rewritten rows.
+     *
+     * Ordering is deliberate:
+     *  1. take the audit advisory lock for the remainder of the transaction
+     *     so no concurrent writer can chain onto a tip hash this method is
+     *     about to rewrite;
+     *  2. append the 'audit_chain_rekey' and successful
+     *     'master_key_rotate_end' events — at this point they are sealed
+     *     with the OLD (provider-derived) HMAC key;
+     *  3. rewrite every row's entry/previous hash under the NEW key —
+     *     including the two events just appended — so the committed chain
+     *     verifies under the new master key from first to last row, with no
+     *     old-keyed tail entry behind the re-key point.
+     *
+     * Writing the success events before the final step is sound because the
+     * whole sequence is atomic: a failure in any step propagates to the
+     * caller, which rolls back secrets, events, and chain rewrite together.
+     *
+     * @throws Throwable Propagates lock/re-key failures for the caller's rollback
+     */
+    private function rekeyAuditChain(
+        Connection $connection,
+        bool $isSQLite,
+        #[SensitiveParameter]
+        string $newKey,
+        int $successCount,
+    ): int {
+        $this->acquireAuditLock($connection, $isSQLite);
+
+        try {
+            $this->auditLogService->log(
+                self::AUDIT_PSEUDO_IDENTIFIER,
+                AuditAction::AuditChainRekey->value,
+                true,
+                null,
+                'Re-keyed audit chain HMACs under the new master key',
+            );
+            $this->auditLogService->log(
+                self::AUDIT_PSEUDO_IDENTIFIER,
+                AuditAction::MasterKeyRotateEnd->value,
+                true,
+                null,
+                \sprintf('Successfully rotated master key for %d secret(s)', $successCount),
+            );
+
+            $rewritten = $this->auditChainRekeyService->rekeyChain($connection, $newKey);
+            $this->commitAuditLock($connection, $isSQLite);
+
+            return $rewritten;
+        } catch (Throwable $e) {
+            $this->rollbackAuditLock($connection, $isSQLite);
+
+            throw $e;
+        } finally {
+            $this->releaseAuditLock($connection, $isSQLite);
+        }
     }
 
     /**
