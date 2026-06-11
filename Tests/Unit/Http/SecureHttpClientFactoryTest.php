@@ -12,12 +12,15 @@ namespace Netresearch\NrVault\Tests\Unit\Http;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Client\ClientInterface;
 
 #[CoversClass(SecureHttpClientFactory::class)]
 final class SecureHttpClientFactoryTest extends TestCase
 {
+    use GuzzleClientConfigTrait;
+
     protected bool $resetSingletonInstances = true;
 
     private SecureHttpClientFactory $factory;
@@ -178,6 +181,45 @@ final class SecureHttpClientFactoryTest extends TestCase
 
         // Should not throw and use defaults
         self::assertInstanceOf(ClientInterface::class, $client);
+    }
+
+    #[Test]
+    public function createAppliesPositiveTimeoutOverride(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
+            'timeout' => 60,
+            'connect_timeout' => 5,
+        ];
+
+        $config = $this->getGuzzleConfig($this->factory->create(300));
+
+        self::assertSame(300, $config['timeout']);
+        // connect_timeout stays platform-managed: the override bounds the
+        // whole transfer, not connection establishment.
+        self::assertSame(5, $config['connect_timeout']);
+    }
+
+    #[Test]
+    #[DataProvider('noTimeoutOverrideProvider')]
+    public function createKeepsPlatformTimeoutWithoutPositiveOverride(?int $timeoutSeconds): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
+            'timeout' => 60,
+        ];
+
+        $config = $this->getGuzzleConfig($this->factory->create($timeoutSeconds));
+
+        self::assertSame(60, $config['timeout']);
+    }
+
+    /**
+     * @return iterable<string, array{int|null}>
+     */
+    public static function noTimeoutOverrideProvider(): iterable
+    {
+        yield 'null (no override requested)' => [null];
+        yield 'zero' => [0];
+        yield 'negative' => [-10];
     }
 
     #[Test]

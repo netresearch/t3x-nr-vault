@@ -38,6 +38,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * - proxy: Corporate proxy settings from TYPO3 or environment (HTTP_PROXY, HTTPS_PROXY)
  * - verify, cert, ssl_key: SSL/TLS certificate configuration
  * - timeout, connect_timeout: Connection timeouts
+ *   (the total-duration `timeout` can be overridden per instance via withTimeout())
  * - allow_redirects: Redirect behavior
  *
  * Security Hardening:
@@ -200,6 +201,37 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface
             bodyField: $this->bodyField,
             usernameSecretIdentifier: $this->usernameSecretIdentifier,
             reason: $reason,
+            oauthManager: $this->oauthManager,
+            secureHttpClientFactory: $this->secureHttpClientFactory,
+            authPrefix: $this->authPrefix,
+        );
+    }
+
+    public function withTimeout(int $seconds): static
+    {
+        // PSR-18 sendRequest() carries no per-request options, so the override
+        // must be baked into the inner Guzzle client's configuration. The
+        // shared SecureHttpClientFactory rebuilds the inner client with the
+        // full security hardening (SSRF DNS pinning, debug off, redirects off)
+        // plus the `timeout` override, so EVERY send path through the returned
+        // instance — plain and authenticated alike — honours it. Non-positive
+        // values rebuild with the platform default (no override). A custom
+        // inner client injected at construction time is replaced by the
+        // factory-built one. The forwarded OAuth token manager keeps its own
+        // platform-default client: the override governs the API call, not the
+        // token-endpoint round trip, and forwarding preserves the token cache.
+        return new self(
+            vaultService: $this->vaultService,
+            auditLogService: $this->auditLogService,
+            innerClient: $this->secureHttpClientFactory->create($seconds > 0 ? $seconds : null),
+            secretIdentifier: $this->secretIdentifier,
+            placement: $this->placement,
+            oauthConfig: $this->oauthConfig,
+            headerName: $this->headerName,
+            queryParam: $this->queryParam,
+            bodyField: $this->bodyField,
+            usernameSecretIdentifier: $this->usernameSecretIdentifier,
+            reason: $this->reason,
             oauthManager: $this->oauthManager,
             secureHttpClientFactory: $this->secureHttpClientFactory,
             authPrefix: $this->authPrefix,

@@ -49,8 +49,18 @@ final class SecureHttpClientFactory
 
     /**
      * Create a PSR-18 HTTP client with TYPO3 settings and security hardening.
+     *
+     * @param int|null $timeoutSeconds Optional override for Guzzle's `timeout`
+     *                                 option (total request duration in seconds)
+     *                                 used by `VaultHttpClient::withTimeout()`.
+     *                                 Null or non-positive values keep the
+     *                                 platform default from
+     *                                 $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout'].
+     *                                 `connect_timeout` deliberately stays
+     *                                 platform-managed: the override bounds the
+     *                                 whole transfer, not the TCP/TLS handshake.
      */
-    public function create(): ClientInterface
+    public function create(?int $timeoutSeconds = null): ClientInterface
     {
         /** @var array<string, array<string, mixed>> $confVars */
         $confVars = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
@@ -72,6 +82,15 @@ final class SecureHttpClientFactory
             // Respect TYPO3's HTTP version preference
             'version' => \is_string($typo3Config['version'] ?? null) ? $typo3Config['version'] : '1.1',
         ];
+
+        // Per-client timeout override: long-running API calls (LLM generation,
+        // large exports) may legitimately exceed the instance-wide TYPO3
+        // timeout. Only `timeout` is overridden — `connect_timeout` keeps the
+        // platform value because a slow RESPONSE never justifies waiting
+        // longer for the connection to be established.
+        if ($timeoutSeconds !== null && $timeoutSeconds > 0) {
+            $options['timeout'] = $timeoutSeconds;
+        }
 
         // Proxy settings (critical for corporate networks)
         if (!empty($typo3Config['proxy'])) {

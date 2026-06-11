@@ -80,4 +80,21 @@ interface VaultHttpClientInterface extends ClientInterface
      * @return static New client instance with reason configured
      */
     public function withReason(string $reason): static;
+
+    /**
+     * Create a new client instance with a request timeout override.
+     *
+     * Returns a new immutable instance - the original is unchanged. The
+     * override applies Guzzle's `timeout` option (total request duration in
+     * seconds) to every request sent through the returned instance,
+     * authenticated or not. Connection establishment (`connect_timeout`)
+     * stays platform-managed.
+     *
+     * @param int $seconds Timeout in seconds; non-positive values mean
+     *                     "no override" and fall back to the platform default
+     *                     ($GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout'])
+     *
+     * @return static New client instance with the timeout configured
+     */
+    public function withTimeout(int $seconds): static;
 }

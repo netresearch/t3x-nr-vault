@@ -316,6 +316,18 @@ Via VaultService
       :param string $reason: Audit log reason for requests.
       :returns: New client instance with reason configured.
 
+   .. php:method:: withTimeout(int $seconds): static
+
+      Create a new client instance with a request timeout override.
+      Applies Guzzle's ``timeout`` option (total request duration) to every
+      request sent through the returned instance, authenticated or not — use
+      it for long-running API calls that exceed the instance-wide
+      :php:`$GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout']`. Connection
+      establishment (``connect_timeout``) stays platform-managed.
+
+      :param int $seconds: Timeout in seconds; non-positive values mean "no override" and fall back to the platform default.
+      :returns: New client instance with the timeout configured.
+
    .. php:method:: sendRequest(RequestInterface $request): ResponseInterface
 
       Send an HTTP request (PSR-18 method).
