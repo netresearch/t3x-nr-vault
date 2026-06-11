@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-11
+
+### Added
+
+- **Per-instance request timeout on the secure HTTP client.**
+  `VaultHttpClientInterface::withTimeout(int $seconds)` is a new immutable
+  wither (like `withReason()`): the override is baked into the hardened inner
+  Guzzle client via the shared factory, so it applies to every send path —
+  plain and authenticated — while `connect_timeout` stays platform-managed.
+  Non-positive values keep the platform default. Long-running upstream calls
+  (large image generations) no longer die at the instance-wide HTTP timeout.
+
+### Fixed
+
+- **CLI and worker reads are classified as automated again.** The TYPO3 CLI
+  bootstrap installs a `CommandLineUserAuthentication` (a
+  `BackendUserAuthentication` subclass), so the backend-user-first check in
+  `AccessControlService::getCurrentActorType()` stamped every CLI/worker
+  access as `backend`. Analytics then counted 0 automated reads and flagged
+  busy automation secrets "Automation-stale". CLI detection now runs first,
+  and a latent constant-case fatal in the legacy CLI check was removed.
+
+### Changed
+
+- `runTests.sh` defaults to the upper supported PHP bound (8.5) instead of
+  8.2; CI pins its matrix explicitly and is unaffected.
+
 ## [0.9.0] - 2026-06-10
 
 ### Added
