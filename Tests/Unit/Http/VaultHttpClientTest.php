@@ -20,11 +20,13 @@ use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
 use Netresearch\NrVault\Http\OAuth\OAuthTokenManager;
 use Netresearch\NrVault\Http\SecretPlacement;
+use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Http\VaultHttpClient;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Client\ClientExceptionInterface;
@@ -36,6 +38,8 @@ use ReflectionClass;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultHttpClientTest extends TestCase
 {
+    use GuzzleClientConfigTrait;
+
     private const API_URL = 'https://api.example.com/data';
 
     private const TOKEN_ENDPOINT = 'https://auth.example.com/token';
@@ -461,6 +465,106 @@ final class VaultHttpClientTest extends TestCase
 
         $request = new Request('GET', self::API_URL);
         $authenticatedClient->sendRequest($request);
+    }
+
+    #[Test]
+    public function withTimeoutReturnsNewInstanceAndLeavesOriginalUntouched(): void
+    {
+        $this->innerClient
+            ->expects(self::once())
+            ->method('sendRequest')
+            ->willReturn(new Response(200));
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $timeoutClient = $client->withTimeout(300);
+
+        self::assertNotSame($client, $timeoutClient);
+        self::assertInstanceOf(VaultHttpClient::class, $timeoutClient);
+
+        // The original instance still sends through the injected inner client.
+        $response = $client->sendRequest(new Request('GET', self::API_URL));
+        self::assertSame(200, $response->getStatusCode());
+    }
+
+    #[Test]
+    public function withTimeoutAppliesOverrideToInnerClientOptions(): void
+    {
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $config = $this->getInnerGuzzleConfig($client->withTimeout(300));
+
+        self::assertSame(300, $config['timeout']);
+    }
+
+    #[Test]
+    #[DataProvider('nonPositiveTimeoutProvider')]
+    public function withTimeoutNonPositiveFallsBackToPlatformDefault(int $seconds): void
+    {
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $platformConfig = $this->getGuzzleConfig((new SecureHttpClientFactory())->create());
+        $config = $this->getInnerGuzzleConfig($client->withTimeout($seconds));
+
+        self::assertSame($platformConfig['timeout'], $config['timeout']);
+    }
+
+    /**
+     * @return iterable<string, array{int}>
+     */
+    public static function nonPositiveTimeoutProvider(): iterable
+    {
+        yield 'zero' => [0];
+        yield 'negative' => [-300];
+    }
+
+    #[Test]
+    public function withTimeoutSurvivesSubsequentWitherCalls(): void
+    {
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $chained = $client
+            ->withTimeout(300)
+            ->withAuthentication('my_key', SecretPlacement::Bearer)
+            ->withReason('Long-running generation');
+
+        $config = $this->getInnerGuzzleConfig($chained);
+
+        self::assertSame(300, $config['timeout']);
+    }
+
+    #[Test]
+    public function withTimeoutPreservesAuthenticationConfiguration(): void
+    {
+        $client = (new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        ))
+            ->withAuthentication('my_key', SecretPlacement::Bearer, ['reason' => 'API call'])
+            ->withTimeout(300);
+
+        $reflection = new ReflectionClass(VaultHttpClient::class);
+
+        self::assertSame('my_key', $reflection->getProperty('secretIdentifier')->getValue($client));
+        self::assertSame(SecretPlacement::Bearer, $reflection->getProperty('placement')->getValue($client));
+        self::assertSame('API call', $reflection->getProperty('reason')->getValue($client));
     }
 
     #[Test]
@@ -1235,6 +1339,23 @@ final class VaultHttpClientTest extends TestCase
             $this->extractOAuthManager($afterChain),
             'withReason() (after withOAuth) must forward the same OAuthTokenManager — token cache is dead if this fails',
         );
+    }
+
+    /**
+     * Read the request-option configuration of the inner Guzzle client that
+     * withTimeout() bakes into a VaultHttpClient instance.
+     *
+     * @return array<string, mixed>
+     */
+    private function getInnerGuzzleConfig(VaultHttpClient $client): array
+    {
+        $inner = (new ReflectionClass(VaultHttpClient::class))
+            ->getProperty('innerClient')
+            ->getValue($client);
+
+        self::assertInstanceOf(ClientInterface::class, $inner);
+
+        return $this->getGuzzleConfig($inner);
     }
 
     private function extractOAuthManager(VaultHttpClient $client): OAuthTokenManager
