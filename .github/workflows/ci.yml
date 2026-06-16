@@ -8,105 +8,21 @@ on:
   schedule:
     - cron: '0 6 * * 1'
 
-permissions: {}
+permissions:
+  contents: read
 
-# Cancel in-progress runs on new PR pushes; never cancel on main/merge_group.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
+# Per-extension test matrix (intentional-drift). Security/quality jobs are in checks.yml.
 jobs:
   ci:
     uses: netresearch/typo3-ci-workflows/.github/workflows/ci.yml@main
     permissions:
       contents: read
     with:
-        php-versions: '["8.2","8.3","8.4","8.5"]'
-        typo3-versions: '["^13.4","^14.3"]'
-        run-functional-tests: true
-        upload-coverage: true
-        # Coverage driver trade-off:
-        # - xdebug: path + branch coverage (accurate but ~3-5x slower than PCOV)
-        # - pcov:   line-only coverage (fast, but no branch/path metrics)
-        # We accept the xdebug runtime cost because Infection mutation testing and
-        # audit-log coverage require branch-level data.
-        # TODO: upstream (netresearch/typo3-ci-workflows) does not yet expose a
-        # `coverage-matrix-cell` input to restrict Codecov uploads to a single
-        # cell — every matrix cell currently uploads (8 uploads per run).
-        coverage-tool: xdebug
-        php-extensions: intl, mbstring, xml, sodium, json
+      php-versions: '["8.2","8.3","8.4","8.5"]'
+      typo3-versions: '["^13.4","^14.3"]'
+      run-functional-tests: true
+      upload-coverage: true
+      coverage-tool: 'xdebug'
+      php-extensions: 'intl, mbstring, xml, sodium, json'
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-  security:
-    uses: netresearch/typo3-ci-workflows/.github/workflows/security.yml@main
-    permissions:
-      contents: read
-      security-events: write
-
-  fuzz:
-    uses: netresearch/typo3-ci-workflows/.github/workflows/fuzz.yml@main
-    permissions:
-      contents: read
-    with:
-      run-fuzz-tests: true
-      # Mutation tests run on schedule OR when PR has the `run-mutation` label
-      # (apply label to trigger an on-demand mutation run without waiting for cron)
-      run-mutation-tests: ${{ github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-mutation') }}
-      php-extensions: intl, mbstring, xml, sodium, json
-      # TODO: Reusable fuzz.yml does NOT currently upload .Build/infection/* artifacts
-      # (infection.json, infection.html, summary.log, per-mutator.md). Once mutation
-      # tests are unblocked (pre-existing test failures fixed), propose an upstream
-      # patch to add `actions/upload-artifact` after the `Run Mutation Tests` step in
-      # netresearch/typo3-ci-workflows/.github/workflows/fuzz.yml. The `github: true`
-      # logger in infection.json5 already surfaces escaped mutants as PR annotations,
-      # but full HTML/JSON reports are only available locally today.
-
-  license-check:
-    uses: netresearch/typo3-ci-workflows/.github/workflows/license-check.yml@main
-    permissions:
-      contents: read
-
-  docs:
-    # Renders the documentation and (once the upstream version-check step lands)
-    # asserts Documentation/guides.xml == ext_emconf.php so version drift fails CI.
-    uses: netresearch/typo3-ci-workflows/.github/workflows/docs.yml@main
-    permissions:
-      contents: read
-
-  codeql:
-    uses: netresearch/.github/.github/workflows/codeql.yml@main
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
-
-  scorecard:
-    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch)
-    uses: netresearch/.github/.github/workflows/scorecard.yml@main
-    permissions:
-      contents: read
-      security-events: write
-      id-token: write
-      actions: read
-
-  dependency-review:
-    if: github.event_name == 'pull_request'
-    uses: netresearch/.github/.github/workflows/dependency-review.yml@main
-    permissions:
-      contents: read
-      pull-requests: write
-
-  pr-quality:
-    if: github.event_name == 'pull_request'
-    uses: netresearch/.github/.github/workflows/pr-quality.yml@main
-    permissions:
-      contents: read
-      pull-requests: write
-
-  labeler:
-    if: github.event_name == 'pull_request'
-    uses: netresearch/.github/.github/workflows/labeler.yml@main
-    permissions:
-      contents: read
-      pull-requests: write

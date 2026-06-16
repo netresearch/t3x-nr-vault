@@ -1,59 +1,17 @@
+# Label configuration for PR Labeler
+# https://github.com/actions/labeler
 documentation:
   - changed-files:
-      - any-glob-to-any-file:
-          - 'Documentation/**'
-          - 'README.md'
-          - 'CONTRIBUTING.md'
-          - 'CHANGELOG.md'
-          - 'SECURITY.md'
-
+      - any-glob-to-any-file: ['Documentation/**/*', '**/*.md']
 tests:
   - changed-files:
-      - any-glob-to-any-file:
-          - 'Tests/**'
-          - 'Build/phpunit.xml'
-          - 'Build/FunctionalTests.xml'
-          - 'infection.json5'
-          - 'phpat.neon'
-
-security:
-  - changed-files:
-      - any-glob-to-any-file:
-          - 'Classes/Crypto/**'
-          - 'Classes/Security/**'
-          - 'Classes/Audit/**'
-          - '.gitleaks.toml'
-
-configuration:
-  - changed-files:
-      - any-glob-to-any-file:
-          - 'Configuration/**'
-          - 'ext_localconf.php'
-          - 'ext_emconf.php'
-          - 'ext_conf_template.txt'
-          - 'composer.json'
-
+      - any-glob-to-any-file: ['Tests/**/*', 'Build/phpunit/**/*']
 ci:
   - changed-files:
-      - any-glob-to-any-file:
-          - '.github/**'
-          - 'Makefile'
-          - 'phpstan.neon'
-          - 'rector.php'
-          - 'fractor.php'
-          - '.php-cs-fixer.dist.php'
-          - 'codecov.yml'
-
-frontend:
+      - any-glob-to-any-file: ['.github/**/*', 'Build/**/*']
+dependencies:
   - changed-files:
-      - any-glob-to-any-file:
-          - 'Resources/Public/**'
-          - 'Resources/Private/Templates/**'
-          - 'Resources/Private/Language/**'
-
-domain:
+      - any-glob-to-any-file: ['composer.json', 'composer.lock', 'package.json', 'package-lock.json', 'yarn.lock']
+configuration:
   - changed-files:
-      - any-glob-to-any-file:
-          - 'Classes/Domain/**'
-          - 'Classes/Service/**'
-          - 'ext_tables.sql'
+      - any-glob-to-any-file: ['Configuration/**/*', 'ext_*.php', 'composer.json']
