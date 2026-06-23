@@ -426,7 +426,6 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             vaultService: $vaultService,
             httpClient: $httpClient,
             secureHttpClientFactory: new SecureHttpClientFactory(),
-            logger: null,
             auditLogService: $auditService,
         );
 
