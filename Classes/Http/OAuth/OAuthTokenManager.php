@@ -211,7 +211,6 @@ final class OAuthTokenManager
                 clientIdSecret: $config->clientIdSecret,
                 clientSecretSecret: $config->clientSecretSecret,
                 grantType: 'client_credentials',
-                refreshTokenSecret: null,
                 scopes: $config->scopes,
                 tokenExpiryBuffer: $config->tokenExpiryBuffer,
                 additionalParams: $config->additionalParams,
