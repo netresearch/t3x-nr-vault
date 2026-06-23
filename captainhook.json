@@ -10,13 +10,10 @@
             {
                 "action": "\\CaptainHook\\App\\Hook\\Message\\Action\\Rules",
                 "options": [
-                    [
-                        "\\CaptainHook\\App\\Hook\\Message\\Rule\\CapitalizeSubject",
-                        "\\CaptainHook\\App\\Hook\\Message\\Rule\\LimitSubjectLength",
-                        "\\CaptainHook\\App\\Hook\\Message\\Rule\\MsgNotEmpty",
-                        "\\CaptainHook\\App\\Hook\\Message\\Rule\\NoPeriodOnSubjectEnd",
-                        "\\Ergebnis\\CaptainHook\\Rules\\Rule\\SubjectMustUseImperativeMood"
-                    ]
+                    "\\CaptainHook\\App\\Hook\\Message\\Rule\\CapitalizeSubject",
+                    "\\CaptainHook\\App\\Hook\\Message\\Rule\\LimitSubjectLength",
+                    "\\CaptainHook\\App\\Hook\\Message\\Rule\\MsgNotEmpty",
+                    "\\CaptainHook\\App\\Hook\\Message\\Rule\\NoPeriodOnSubjectEnd"
                 ]
             }
         ]
