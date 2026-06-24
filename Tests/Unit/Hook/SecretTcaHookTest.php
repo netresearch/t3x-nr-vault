@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Unit\Hook;
 
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Hook\SecretTcaHook;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -28,6 +29,8 @@ final class SecretTcaHookTest extends TestCase
 
     private AuditLogServiceInterface&MockObject $auditService;
 
+    private AccessControlServiceInterface&MockObject $accessControlService;
+
     private SecretTcaHook $hook;
 
     protected function setUp(): void
@@ -36,10 +39,17 @@ final class SecretTcaHookTest extends TestCase
 
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
         $this->auditService = $this->createMock(AuditLogServiceInterface::class);
+        $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
+
+        // Default to an admin actor so the pre-existing field-normalisation
+        // tests (NEW records, owner/scope extraction) are not coerced by the
+        // privileged-column policy. Policy-specific tests override this.
+        $this->accessControlService->method('isCurrentActorAdmin')->willReturn(true);
 
         $this->hook = new SecretTcaHook(
             $this->vaultService,
             $this->auditService,
+            $this->accessControlService,
         );
     }
 
@@ -281,6 +291,91 @@ final class SecretTcaHookTest extends TestCase
         // Test non-numeric string
         self::assertSame(0, $method->invoke($this->hook, 'not_a_number'));
         self::assertSame(0, $method->invoke($this->hook, ''));
+    }
+
+    #[Test]
+    public function nonAdminCreatingNewRecordCannotAssignForeignOwnerUid(): void
+    {
+        // Fresh hook with a NON-admin actor (uid 7); setUp() defaults to admin.
+        $accessControl = $this->createMock(AccessControlServiceInterface::class);
+        $accessControl->method('isCurrentActorAdmin')->willReturn(false);
+        $accessControl->method('getCurrentActorUid')->willReturn(7);
+
+        $hook = new SecretTcaHook(
+            $this->vaultService,
+            $this->auditService,
+            $accessControl,
+        );
+
+        $fieldArray = [
+            'identifier' => 'test-secret',
+            // Attempt to plant the secret as owned by user 42.
+            'owner_uid' => 'be_users_42',
+        ];
+        $dataHandler = $this->createMock(DataHandler::class);
+
+        $hook->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            'tx_nrvault_secret',
+            'NEW123',
+            $dataHandler,
+        );
+
+        // owner_uid must be forced to the current backend user (7), not 42.
+        self::assertSame(7, $fieldArray['owner_uid']);
+    }
+
+    #[Test]
+    public function nonAdminCreatingNewRecordWithoutOwnerUidStillGetsForcedOwnership(): void
+    {
+        // Regression: owner_uid is an excludefield, so a non-admin creator who
+        // lacks that grant submits no owner_uid at all. The hook must STILL
+        // force ownership to the current user — otherwise the column defaults
+        // to 0 (ownerless) and the creator cannot manage their own secret.
+        $accessControl = $this->createMock(AccessControlServiceInterface::class);
+        $accessControl->method('isCurrentActorAdmin')->willReturn(false);
+        $accessControl->method('getCurrentActorUid')->willReturn(7);
+
+        $hook = new SecretTcaHook(
+            $this->vaultService,
+            $this->auditService,
+            $accessControl,
+        );
+
+        $fieldArray = [
+            'identifier' => 'test-secret',
+            // No owner_uid submitted (excludefield absent for this user).
+        ];
+        $dataHandler = $this->createMock(DataHandler::class);
+
+        $hook->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            'tx_nrvault_secret',
+            'NEW123',
+            $dataHandler,
+        );
+
+        self::assertSame(7, $fieldArray['owner_uid']);
+    }
+
+    #[Test]
+    public function adminCreatingNewRecordKeepsSubmittedOwnerUid(): void
+    {
+        // setUp() default actor is admin → no coercion.
+        $fieldArray = [
+            'identifier' => 'test-secret',
+            'owner_uid' => 'be_users_42',
+        ];
+        $dataHandler = $this->createMock(DataHandler::class);
+
+        $this->hook->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            'tx_nrvault_secret',
+            'NEW123',
+            $dataHandler,
+        );
+
+        self::assertSame(42, $fieldArray['owner_uid']);
     }
 
     #[Test]

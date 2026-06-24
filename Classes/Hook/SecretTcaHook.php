@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Hook;
 
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Throwable;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
@@ -29,6 +30,32 @@ final class SecretTcaHook
     private const TABLE = 'tx_nrvault_secret';
 
     /**
+     * Scalar ACL columns whose submitted value is reverted to the stored
+     * value for a non-owner, non-admin editor (CWE-639/CWE-269). These are
+     * plain row columns, so the prior value can be read back and re-written.
+     *
+     * @var list<string>
+     */
+    private const PRIVILEGED_SCALAR_COLUMNS = [
+        'owner_uid',
+        'frontend_accessible',
+        'scope_pid',
+    ];
+
+    /**
+     * Privileged ACL columns backed by MM relation tables. The row column
+     * only holds the relation COUNT, so it cannot be reverted by writing a
+     * value back — the submitted change is instead dropped from $fieldArray
+     * entirely, leaving DataHandler to keep the existing MM relations.
+     *
+     * @var list<string>
+     */
+    private const PRIVILEGED_MM_COLUMNS = [
+        'allowed_groups',
+        'write_groups',
+    ];
+
+    /**
      * Pending secrets to store after database operations.
      *
      * @var array<string, mixed> Map of temporary ID => secret value
@@ -38,6 +65,7 @@ final class SecretTcaHook
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
         private readonly AuditLogServiceInterface $auditService,
+        private readonly AccessControlServiceInterface $accessControlService,
     ) {}
 
     /**
@@ -55,6 +83,12 @@ final class SecretTcaHook
         if ($table !== self::TABLE) {
             return;
         }
+
+        // Authorize privileged ACL columns BEFORE DataHandler persists them.
+        // The VaultService coercion (resolveOwnerUid/resolveFrontendAccessible)
+        // only runs on the programmatic store($options) path; the FormEngine
+        // path writes the raw columns directly, so the gate must live here.
+        $this->enforcePrivilegedColumnPolicy($fieldArray, $id, $dataHandler);
 
         // For existing records, prevent identifier changes
         if (!str_starts_with((string) $id, 'NEW') && isset($fieldArray['identifier'])) {
@@ -135,6 +169,11 @@ final class SecretTcaHook
         // Handle pending secret encryption
         if (isset($this->pendingSecrets[$originalId])) {
             $secretValue = $this->pendingSecrets[$originalId];
+            // Drop the property's copy; $secretValue keeps the only remaining
+            // reference and is wiped with sodium_memzero() in the finally block
+            // below, once it has been consumed. Wiping the property here would,
+            // via copy-on-write, also zero $secretValue before it is stored —
+            // so the cleartext is scrubbed (CWE-316) without corrupting it.
             unset($this->pendingSecrets[$originalId]);
 
             // Ensure secretValue is a string
@@ -169,6 +208,11 @@ final class SecretTcaHook
                         1,
                         'Failed to store secret: ' . $e->getMessage(),
                     );
+                } finally {
+                    // Scrub the local plaintext copy (success or failure).
+                    // $secretValue is a guaranteed non-empty string in this
+                    // branch, so no emptiness guard is needed.
+                    sodium_memzero($secretValue);
                 }
             }
         }
@@ -243,6 +287,123 @@ final class SecretTcaHook
             );
         } catch (Throwable) {
             // Don't fail the delete if audit logging fails
+        }
+    }
+
+    /**
+     * Enforce that only the secret's owner (or an admin/system maintainer)
+     * may set or change the privileged ACL columns: owner_uid,
+     * frontend_accessible, scope_pid (scalar) and allowed_groups, write_groups
+     * (MM relations). This is the write-path authorization layer for
+     * CWE-639/CWE-269 — the TCA `exclude` flag is the complementary
+     * form-permission layer.
+     *
+     * Policy (default-DENY for the ambiguous delegation case):
+     *  - Admin / system maintainer: unrestricted (no coercion).
+     *  - NEW record by a non-admin: owner_uid is forced to the current backend
+     *    user (the submitted value is not trusted); the other privileged
+     *    columns are left as submitted (a creator legitimately scopes the
+     *    secret they own).
+     *  - EXISTING record edited by the owner: unrestricted.
+     *  - EXISTING record edited by a non-owner non-admin: every privileged
+     *    column change is reverted (scalar columns) or dropped (MM columns),
+     *    and the attempt is logged.
+     *
+     * @param array<string, mixed> $fieldArray
+     */
+    private function enforcePrivilegedColumnPolicy(
+        array &$fieldArray,
+        string|int $id,
+        DataHandler $dataHandler,
+    ): void {
+        // Admins and system maintainers are trusted on this path. Non-backend
+        // actors (CLI/scheduler/api) do not reach DataHandler form edits with a
+        // BE user, so they are treated as non-privileged here and fall through
+        // to the owner check (which yields actor UID 0 => not owner).
+        if ($this->accessControlService->isCurrentActorAdmin()) {
+            return;
+        }
+
+        $isNew = str_starts_with((string) $id, 'NEW');
+
+        if ($isNew) {
+            // A non-admin creator owns what they create: force owner_uid to the
+            // current backend user. Set it unconditionally — owner_uid is an
+            // excludefield, so a creator lacking that grant submits no value at
+            // all, and a conditional set would leave the column 0 (ownerless),
+            // locking the creator out of managing their own new secret.
+            $fieldArray['owner_uid'] = $this->accessControlService->getCurrentActorUid();
+
+            return;
+        }
+
+        $uid = is_numeric($id) ? (int) $id : 0;
+        $original = BackendUtility::getRecord(
+            self::TABLE,
+            $uid,
+            'owner_uid,frontend_accessible,scope_pid',
+        );
+        if ($original === null) {
+            return;
+        }
+
+        $storedOwner = is_numeric($original['owner_uid'] ?? null) ? (int) $original['owner_uid'] : 0;
+        $actorUid = $this->accessControlService->getCurrentActorUid();
+
+        // The owner may freely manage their own secret's ACL.
+        if ($actorUid !== 0 && $actorUid === $storedOwner) {
+            return;
+        }
+
+        // Non-owner, non-admin: revert any privileged change. Scalar columns
+        // are restored to their stored value; MM columns are dropped so
+        // DataHandler leaves the existing relation rows untouched.
+        $reverted = false;
+
+        foreach (self::PRIVILEGED_SCALAR_COLUMNS as $column) {
+            if (!\array_key_exists($column, $fieldArray)) {
+                continue;
+            }
+            // Group fields (owner_uid, scope_pid) arrive as "be_users_12" /
+            // "pages_100" strings while the stored value is an int; normalise
+            // before comparing so an unchanged ACL on an ordinary save by a
+            // non-owner is not treated as tampering (which would revert it and
+            // log a spurious warning). frontend_accessible is already 0/1.
+            $submitted = $fieldArray[$column];
+            $submittedStr = \is_scalar($submitted) ? (string) $submitted : '';
+            $submittedUid = ($column === 'owner_uid' || $column === 'scope_pid')
+                ? $this->extractUidFromGroupValue($submittedStr)
+                : (int) $submittedStr;
+            $storedUid = is_numeric($original[$column] ?? null) ? (int) $original[$column] : 0;
+            if ($submittedUid === $storedUid) {
+                continue;
+            }
+            $fieldArray[$column] = $original[$column] ?? null;
+            $reverted = true;
+        }
+
+        foreach (self::PRIVILEGED_MM_COLUMNS as $column) {
+            if (!\array_key_exists($column, $fieldArray)) {
+                continue;
+            }
+            // MM-backed group field: the row column holds only the relation
+            // count, so it cannot be reverted by writing a value back. Drop the
+            // submitted value entirely — DataHandler then preserves the
+            // existing MM relations instead of replacing them.
+            unset($fieldArray[$column]);
+            $reverted = true;
+        }
+
+        if ($reverted) {
+            /** @phpstan-ignore method.internal */
+            $dataHandler->log(
+                self::TABLE,
+                $uid,
+                2,
+                null,
+                1,
+                'Vault secret ACL columns can only be changed by the secret owner or an administrator',
+            );
         }
     }
 

@@ -94,6 +94,11 @@ return [
         'owner_uid' => [
             'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.owner_uid',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.owner_uid.description',
+            // Privileged ACL column: editable only by BE groups explicitly
+            // granted this excludefield (and admins). SecretTcaHook enforces a
+            // second, write-path layer (owner/admin-only) so a stray grant
+            // still cannot widen another user's ACL.
+            'exclude' => true,
             'config' => [
                 'type' => 'group',
                 'allowed' => 'be_users',
@@ -112,6 +117,8 @@ return [
         'allowed_groups' => [
             'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.allowed_groups',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.allowed_groups.description',
+            // Privileged ACL column (read tier). See owner_uid note.
+            'exclude' => true,
             'config' => [
                 'type' => 'group',
                 'allowed' => 'be_groups',
@@ -130,6 +137,8 @@ return [
         'write_groups' => [
             'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.write_groups',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.write_groups.description',
+            // Privileged ACL column (write tier). See owner_uid note.
+            'exclude' => true,
             'config' => [
                 'type' => 'group',
                 'allowed' => 'be_groups',
@@ -160,6 +169,9 @@ return [
         'frontend_accessible' => [
             'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.frontend_accessible',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.frontend_accessible.description',
+            // Privileged column: flips a secret from ACL-gated to world-readable
+            // by the frontend. See owner_uid note.
+            'exclude' => true,
             'config' => [
                 'type' => 'check',
                 'renderType' => 'checkboxToggle',
@@ -191,6 +203,9 @@ return [
         'scope_pid' => [
             'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.scope_pid',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.scope_pid.description',
+            // Privileged column: constrains which page scope a secret resolves
+            // under. See owner_uid note.
+            'exclude' => true,
             'config' => [
                 'type' => 'group',
                 'allowed' => 'pages',

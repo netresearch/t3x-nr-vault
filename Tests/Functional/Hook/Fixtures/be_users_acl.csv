@@ -1,0 +1,4 @@
+"be_users"
+,"uid","username","password","admin","disable","starttime","endtime"
+,1,"admin","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",1,0,0,0
+,2,"editor","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0
