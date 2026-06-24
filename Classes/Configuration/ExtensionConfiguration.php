@@ -50,14 +50,19 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
      *  - 2: HMAC-SHA256 over identity + forensic fields (success,
      *       error_message, reason, ip_address, user_agent, hash_before,
      *       hash_after, context).
+     *  - 3: HMAC-SHA256 over the epoch-2 payload PLUS the algorithm selector
+     *       (hmac_key_epoch) and the attribution fields (actor_type,
+     *       actor_username, actor_role, request_id).
      *
-     * Default 2 binds the forensic surface into the chain — an attacker
-     * with DB-write privileges can no longer flip `success: false → true`
-     * or rewrite `error_message`/`reason`/etc. without breaking the chain.
-     * Existing epoch-0/epoch-1 entries continue to verify under their
-     * stored epoch until `AuditHmacMigrationWizard` rehashes them.
+     * Default 3 additionally binds the epoch selector into the chain — so a
+     * DB-write attacker can no longer downgrade a row's hmac_key_epoch to the
+     * keyless SHA-256 path and re-sign it without the HMAC key — and the
+     * human-readable attribution columns, so blame can no longer be reassigned
+     * on a row without breaking the chain. Existing epoch-0/1/2 entries
+     * continue to verify under their stored epoch until
+     * `AuditHmacMigrationWizard` rehashes them.
      */
-    public const DEFAULT_AUDIT_HMAC_EPOCH = 2;
+    public const DEFAULT_AUDIT_HMAC_EPOCH = 3;
 
     public const DEFAULT_STALE_NEVER_READ_DAYS = 30;
 

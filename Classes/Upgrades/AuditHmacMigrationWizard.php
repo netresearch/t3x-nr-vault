@@ -69,7 +69,10 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
             . 'resistance against DB-privileged attackers). Epoch 2 extends '
             . 'the HMAC payload to cover forensic fields (success, '
             . 'error_message, reason, ip_address, user_agent, context) so '
-            . 'they too become tamper-evident. '
+            . 'they too become tamper-evident. Epoch 3 additionally binds the '
+            . 'epoch selector (hmac_key_epoch) — closing the algorithm-downgrade '
+            . 'forgery — and the attribution fields (actor_type, actor_username, '
+            . 'actor_role, request_id). '
             . 'The migration re-hashes all entries while maintaining chain integrity. '
             . 'Runs under an advisory lock and a single transaction — concurrent '
             . 'audit writes are serialised and partial failure rolls back.';
@@ -179,14 +182,27 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
 
             // Dispatch by target epoch: v1 covers identity fields only, v2
             // adds the forensic fields (success / error_message / reason /
-            // ip_address / user_agent / hash_before / hash_after / context).
-            $newHash = $targetEpoch >= 2
-                ? AuditLogService::calculateHashV2(
+            // ip_address / user_agent / hash_before / hash_after / context),
+            // v3 also binds the epoch selector (hmac_key_epoch) and the
+            // attribution fields (actor_type / actor_username / actor_role /
+            // request_id). extractV3HashRow() reads hmac_key_epoch from the
+            // row, so seed it with the target epoch the row is being rehashed
+            // to before extraction.
+            if ($targetEpoch >= 3) {
+                $row['hmac_key_epoch'] = $targetEpoch;
+                $newHash = AuditLogService::calculateHashV3(
+                    AuditLogService::extractV3HashRow($row),
+                    $previousHash,
+                    $hmacKey,
+                );
+            } elseif ($targetEpoch >= 2) {
+                $newHash = AuditLogService::calculateHashV2(
                     AuditLogService::extractV2HashRow($row),
                     $previousHash,
                     $hmacKey,
-                )
-                : AuditLogService::calculateHash(
+                );
+            } else {
+                $newHash = AuditLogService::calculateHash(
                     $entry['uid'],
                     $entry['secretId'],
                     $entry['action'],
@@ -195,6 +211,7 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
                     $previousHash,
                     $hmacKey,
                 );
+            }
 
             $connection->update(
                 self::TABLE_NAME,

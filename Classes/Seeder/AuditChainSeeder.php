@@ -24,7 +24,7 @@ final readonly class AuditChainSeeder
 {
     private const TABLE = 'tx_nrvault_audit_log';
 
-    private const SUPPORTED_EPOCHS = [0, 1, 2];
+    private const SUPPORTED_EPOCHS = [0, 1, 2, 3];
 
     public function __construct(
         private ConnectionPool $connectionPool,
@@ -41,7 +41,7 @@ final readonly class AuditChainSeeder
         $epoch = $this->extensionConfiguration->getAuditHmacEpoch();
         if (!\in_array($epoch, self::SUPPORTED_EPOCHS, true)) {
             throw new ConfigurationException(
-                \sprintf('Demo seeder supports audit epoch 0/1/2; configured epoch is %d.', $epoch),
+                \sprintf('Demo seeder supports audit epoch 0/1/2/3; configured epoch is %d.', $epoch),
                 1_748_736_000,
             );
         }
@@ -129,6 +129,10 @@ final readonly class AuditChainSeeder
             return AuditLogService::calculateHash($v1['uid'], $v1['secretId'], $v1['action'], $v1['actorUid'], $v1['crdate'], $previousHash, $hmacKey);
         }
 
-        return AuditLogService::calculateHashV2(AuditLogService::extractV2HashRow($row), $previousHash, $hmacKey);
+        if ($epoch === 2) {
+            return AuditLogService::calculateHashV2(AuditLogService::extractV2HashRow($row), $previousHash, $hmacKey);
+        }
+
+        return AuditLogService::calculateHashV3(AuditLogService::extractV3HashRow($row), $previousHash, $hmacKey);
     }
 }

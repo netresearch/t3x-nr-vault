@@ -17,6 +17,7 @@ use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\GenericContext;
+use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Exception\AuditWriteException;
@@ -1137,6 +1138,178 @@ final class AuditLogServiceTest extends TestCase
         );
     }
 
+    // =========================================================================
+    // Epoch 3 — also binds the algorithm selector (hmac_key_epoch) and the
+    // human-readable attribution fields (actor_type / actor_username /
+    // actor_role / request_id).
+    //
+    // Finding audit-integrity-1 (epoch-downgrade forgery): the per-row
+    // hmac_key_epoch selects the verifying algorithm but was itself
+    // unauthenticated, so a DB-write attacker could downgrade the tail row to
+    // keyless epoch-0 SHA-256 and re-sign it without the HMAC key.
+    // Finding audit-integrity-2 (attribution forgery): actor_username/role/
+    // type and request_id were excluded from the v2 HMAC payload.
+    // =========================================================================
+
+    #[Test]
+    public function verifyHashChainRejectsTailRowDowngradedToEpochZeroAndKeylessResigned(): void
+    {
+        // A two-row chain: row 1 stays epoch-3 HMAC-protected; the attacker
+        // takes the tail row, sets hmac_key_epoch=0, rewrites identity fields,
+        // and recomputes a VALID keyless SHA-256 entry_hash WITHOUT the HMAC
+        // key. The downgrade (3 -> 0) MUST be reported as invalid, not merely
+        // warned — otherwise the keyless tail-row forgery succeeds silently.
+        $masterKey = str_repeat("\x01", 32);
+        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+
+        $row1 = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
+        $hash1 = AuditLogService::calculateHashV3($row1, '', $hmacKey);
+
+        // Attacker's forged tail row: downgraded to epoch 0, keyless re-sign.
+        $forgedPrevHash = $hash1;
+        $forgedEntryHash = AuditLogService::calculateHash(
+            2,
+            'attacker-rewritten',
+            'read',
+            999,
+            1704153600,
+            $forgedPrevHash,
+        );
+
+        $rows = [
+            array_merge($row1, [
+                'previous_hash' => '',
+                'entry_hash' => $hash1,
+                'hmac_key_epoch' => 3,
+            ]),
+            [
+                'uid' => 2,
+                'secret_identifier' => 'attacker-rewritten',
+                'action' => 'read',
+                'actor_uid' => 999,
+                'crdate' => 1704153600,
+                'previous_hash' => $forgedPrevHash,
+                'entry_hash' => $forgedEntryHash,
+                'hmac_key_epoch' => 0,
+            ],
+        ];
+
+        $verification = $this->runVerifyOverRows($rows);
+
+        self::assertFalse(
+            $verification->isValid(),
+            'A tail row downgraded to epoch 0 and keyless-resigned MUST be reported INVALID, not just warned',
+        );
+        self::assertArrayHasKey(2, $verification->errors, 'The downgrade error must be recorded against the forged tail row');
+        self::assertStringContainsString('downgrade', $verification->errors[2]);
+    }
+
+    #[Test]
+    public function verifyHashChainEpoch3DetectsActorUsernameTampering(): void
+    {
+        // The entry_hash binds the original actor_username; the attacker
+        // rewrites the stored column to reassign blame but cannot recompute the
+        // HMAC. verifyHashChain() MUST flag the entry hash mismatch.
+        $masterKey = str_repeat("\x01", 32);
+        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+
+        $row = $this->makeV3Row(actorUsername: 'alice');
+        $validHash = AuditLogService::calculateHashV3($row, '', $hmacKey);
+
+        $tamperedRow = array_merge($row, [
+            'actor_username' => 'bob',
+            'previous_hash' => '',
+            'entry_hash' => $validHash,
+            'hmac_key_epoch' => 3,
+        ]);
+
+        $verification = $this->runVerifyOverRows([$tamperedRow]);
+
+        self::assertFalse(
+            $verification->isValid(),
+            'verifyHashChain MUST detect actor_username tampering when epoch=3',
+        );
+    }
+
+    #[Test]
+    public function calculateHashV2AndV3ProduceStableGoldenHashes(): void
+    {
+        // Golden-hash guard: pins the exact byte serialisation of the v2 and v3
+        // HMAC payloads. If a future refactor (e.g. of the shared
+        // forensicPayloadV2 builder) changes key order or casting, the hash of
+        // every already-stored audit row would change and the chain would fail
+        // to verify after deployment. Captured from the pre-refactor code.
+        $key = str_repeat("\x02", 32);
+        $row = [
+            'uid' => 1, 'secret_identifier' => 'göld/en', 'action' => 'read',
+            'success' => 1, 'actor_uid' => 7, 'crdate' => 1704067200,
+            'error_message' => 'e', 'reason' => 'r', 'ip_address' => 'ip-test',
+            'user_agent' => 'ua', 'hash_before' => 'hb', 'hash_after' => 'ha',
+            'context' => '{"k":"v"}', 'hmac_key_epoch' => 3, 'actor_type' => 'backend',
+            'actor_username' => 'alice', 'actor_role' => 'groups:1', 'request_id' => 'req-1',
+        ];
+
+        self::assertSame(
+            'fca84c88f4120f3b3cc534913d61afe33ce2ecce84993b52c5f5969ec65f05a4',
+            AuditLogService::calculateHashV2(AuditLogService::extractV2HashRow($row), 'PREVHASH', $key),
+            'v2 payload serialisation changed - existing epoch-2 rows would no longer verify',
+        );
+        self::assertSame(
+            'a6d2b90cfcedcb39d46bef63401b96257319988b0540fc66982f114c66a8a569',
+            AuditLogService::calculateHashV3(AuditLogService::extractV3HashRow($row), 'PREVHASH', $key),
+            'v3 payload serialisation changed',
+        );
+    }
+
+    #[Test]
+    public function verifyHashChainEpoch3RoundTripIsValid(): void
+    {
+        // Backward-compat/forward-compat sanity: an untampered epoch-3 chain
+        // verifies valid.
+        $masterKey = str_repeat("\x01", 32);
+        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+
+        $row1 = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
+        $hash1 = AuditLogService::calculateHashV3($row1, '', $hmacKey);
+        $row2 = $this->makeV3Row(uid: 2, secretIdentifier: 'secret-b', action: 'read', crdate: 1704153600);
+        $hash2 = AuditLogService::calculateHashV3($row2, $hash1, $hmacKey);
+
+        $rows = [
+            array_merge($row1, ['previous_hash' => '', 'entry_hash' => $hash1, 'hmac_key_epoch' => 3]),
+            array_merge($row2, ['previous_hash' => $hash1, 'entry_hash' => $hash2, 'hmac_key_epoch' => 3]),
+        ];
+
+        $verification = $this->runVerifyOverRows($rows);
+
+        self::assertTrue($verification->isValid(), 'An untampered epoch-3 chain must verify valid');
+        self::assertSame([], $verification->errors);
+    }
+
+    #[Test]
+    public function verifyHashChainAllowsMonotonicEpochIncrease(): void
+    {
+        // A partially-migrated chain (epoch 2 row followed by an epoch 3 row)
+        // is a legitimate INCREASE and must stay valid — only the increase
+        // warning is recorded, never an error.
+        $masterKey = str_repeat("\x01", 32);
+        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+
+        $row1 = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
+        $hash1 = AuditLogService::calculateHashV2(AuditLogService::extractV2HashRow($row1), '', $hmacKey);
+        $row2 = $this->makeV3Row(uid: 2, secretIdentifier: 'secret-b', action: 'read', crdate: 1704153600);
+        $hash2 = AuditLogService::calculateHashV3($row2, $hash1, $hmacKey);
+
+        $rows = [
+            array_merge($row1, ['previous_hash' => '', 'entry_hash' => $hash1, 'hmac_key_epoch' => 2]),
+            array_merge($row2, ['previous_hash' => $hash1, 'entry_hash' => $hash2, 'hmac_key_epoch' => 3]),
+        ];
+
+        $verification = $this->runVerifyOverRows($rows);
+
+        self::assertTrue($verification->isValid(), 'A monotonically increasing epoch chain (2 -> 3) must stay valid');
+        self::assertArrayHasKey(2, $verification->warnings, 'The increase must still be reported as a (non-fatal) warning');
+    }
+
     #[Test]
     public function extractV2HashRowAcceptsBooleanSuccess(): void
     {
@@ -2186,6 +2359,61 @@ final class AuditLogServiceTest extends TestCase
             'hash_after' => $hashAfter,
             'context' => $context,
         ];
+    }
+
+    /**
+     * Build a v3 hash row (v2 fields plus the epoch selector and the four
+     * attribution fields) with sensible defaults; override individual fields
+     * via named parameters.
+     *
+     * @return array{
+     *     uid: int, secret_identifier: string, action: string, success: int,
+     *     actor_uid: int, crdate: int, error_message: string, reason: string,
+     *     ip_address: string, user_agent: string, hash_before: string,
+     *     hash_after: string, context: string, hmac_key_epoch: int,
+     *     actor_type: string, actor_username: string, actor_role: string,
+     *     request_id: string,
+     * }
+     */
+    private function makeV3Row(
+        int $uid = 1,
+        string $secretIdentifier = 'sek',
+        string $action = 'read',
+        int $success = 1,
+        int $actorUid = 1,
+        int $crdate = 1704067200,
+        string $actorType = 'backend',
+        string $actorUsername = 'admin',
+        string $actorRole = 'groups:1',
+        string $requestId = 'req-0001',
+    ): array {
+        return $this->makeV2Row(
+            uid: $uid,
+            secretIdentifier: $secretIdentifier,
+            action: $action,
+            success: $success,
+            actorUid: $actorUid,
+            crdate: $crdate,
+        ) + [
+            'hmac_key_epoch' => 3,
+            'actor_type' => $actorType,
+            'actor_username' => $actorUsername,
+            'actor_role' => $actorRole,
+            'request_id' => $requestId,
+        ];
+    }
+
+    /**
+     * Wire the verify-path query mocks over the given rows and run
+     * verifyHashChain() on the default subject.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     */
+    private function runVerifyOverRows(array $rows): HashChainVerificationResult
+    {
+        $this->setupQueryMocks($rows);
+
+        return $this->getSubject()->verifyHashChain();
     }
 
     private function getSubject(): AuditLogService

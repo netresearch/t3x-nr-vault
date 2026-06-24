@@ -104,7 +104,8 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
         // Epoch-aware dispatch, mirroring verifyHashChain():
         //   0  → legacy keyless SHA-256 (identity fields only)
         //   1  → HMAC-SHA256 (identity fields only)
-        //   2+ → HMAC-SHA256 (extended forensic payload)
+        //   2  → HMAC-SHA256 (extended forensic payload)
+        //   3+ → HMAC-SHA256 (forensic payload + epoch selector + attribution)
         $expectedHash = match (true) {
             $entry['epoch'] === 0 => AuditLogService::calculateHash(
                 $entry['uid'],
@@ -123,8 +124,13 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
                 $previousHash,
                 $hmacKey,
             ),
-            default => AuditLogService::calculateHashV2(
+            $entry['epoch'] === 2 => AuditLogService::calculateHashV2(
                 AuditLogService::extractV2HashRow($row),
+                $previousHash,
+                $hmacKey,
+            ),
+            default => AuditLogService::calculateHashV3(
+                AuditLogService::extractV3HashRow($row),
                 $previousHash,
                 $hmacKey,
             ),
