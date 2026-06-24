@@ -257,8 +257,26 @@ final readonly class AuditLogService implements AuditLogServiceInterface
 
                 $previousUid = $uid;
 
-                // Detect epoch boundary and report warning
-                if ($previousEpoch >= 0 && $epoch !== $previousEpoch) {
+                // Detect epoch transitions.
+                //
+                // The per-row hmac_key_epoch selects which algorithm verifies
+                // the row, including the keyless epoch-0 SHA-256. A DB-write
+                // attacker who downgrades a row (e.g. tail row 2 -> 0) could
+                // otherwise re-sign it without the HMAC key and have the chain
+                // still report valid. A legitimate chain only ever INCREASES
+                // the epoch (a partial migration leaves older rows at a lower
+                // epoch ahead of newer rows): a DECREASE between consecutive
+                // rows is therefore a tamper signal, recorded as an ERROR so
+                // `valid` (errors === []) flips to false. Increases stay a
+                // non-fatal warning, preserving backward compatibility for
+                // mid-migration chains.
+                if ($previousEpoch >= 0 && $epoch < $previousEpoch) {
+                    $errors[$uid] = \sprintf(
+                        'HMAC key epoch downgrade detected: %d -> %d (possible algorithm-downgrade forgery)',
+                        $previousEpoch,
+                        $epoch,
+                    );
+                } elseif ($previousEpoch >= 0 && $epoch !== $previousEpoch) {
                     $warnings[$uid] = \sprintf(
                         'HMAC key epoch boundary: %d -> %d',
                         $previousEpoch,
@@ -271,11 +289,14 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 // Epoch-aware hash dispatch:
                 //   0 → legacy SHA-256 (identity fields only)
                 //   1 → HMAC-SHA256 (identity fields only)
-                //   2+ → HMAC-SHA256 (extended forensic payload)
+                //   2 → HMAC-SHA256 (extended forensic payload)
+                //   3+ → HMAC-SHA256 (forensic payload + epoch selector +
+                //        human-readable attribution fields)
                 $expectedHash = match (true) {
                     $epoch === 0 => self::calculateHash($uid, $secretId, $actionStr, $actorUid, $crdate, $previousHash),
                     $epoch === 1 => self::calculateHash($uid, $secretId, $actionStr, $actorUid, $crdate, $previousHash, $hmacKey),
-                    default => self::calculateHashV2(self::extractV2HashRow($row), $previousHash, $hmacKey),
+                    $epoch === 2 => self::calculateHashV2(self::extractV2HashRow($row), $previousHash, $hmacKey),
+                    default => self::calculateHashV3(self::extractV3HashRow($row), $previousHash, $hmacKey),
                 };
 
                 // Verify previous_hash matches. Use hash_equals() for the
@@ -393,22 +414,72 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         #[SensitiveParameter]
         string $hmacKey,
     ): string {
-        $payload = json_encode([
-            'uid' => (int) $row['uid'],
-            'secret_identifier' => (string) $row['secret_identifier'],
-            'action' => (string) $row['action'],
-            'success' => (int) (bool) $row['success'],
-            'actor_uid' => (int) $row['actor_uid'],
-            'crdate' => (int) $row['crdate'],
-            'previous_hash' => $previousHash,
-            'error_message' => (string) $row['error_message'],
-            'reason' => (string) $row['reason'],
-            'ip_address' => (string) $row['ip_address'],
-            'user_agent' => (string) $row['user_agent'],
-            'hash_before' => (string) $row['hash_before'],
-            'hash_after' => (string) $row['hash_after'],
-            'context' => (string) $row['context'],
-        ], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $payload = json_encode(
+            self::forensicPayloadV2($row, $previousHash),
+            JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+        );
+
+        return hash_hmac('sha256', $payload, $hmacKey);
+    }
+
+    /**
+     * Calculate an audit log entry hash with the v3 payload.
+     *
+     * Extends the v2 forensic payload with two integrity-critical additions:
+     *
+     *  1. `hmac_key_epoch` — the algorithm selector itself. At epoch 0-2 the
+     *     epoch was read from the row but never bound into any hash, so a
+     *     DB-write attacker could downgrade the (keyless-verifiable) algorithm
+     *     by flipping the column and re-signing without the HMAC key. Binding
+     *     the epoch makes any such re-sign mismatch the stored entry_hash.
+     *  2. The human-readable attribution fields `actor_type`,
+     *     `actor_username`, `actor_role` and the `request_id` — surfaced in the
+     *     backend audit list and CSV export but excluded from the v2 payload,
+     *     so blame could previously be reassigned on any row without breaking
+     *     the chain.
+     *
+     * Payload keys (ordered for deterministic JSON): the v2 keys, then
+     * hmac_key_epoch, actor_type, actor_username, actor_role, request_id.
+     *
+     * @param array{
+     *     uid: int,
+     *     secret_identifier: string,
+     *     action: string,
+     *     success: bool|int,
+     *     actor_uid: int,
+     *     crdate: int,
+     *     error_message: string,
+     *     reason: string,
+     *     ip_address: string,
+     *     user_agent: string,
+     *     hash_before: string,
+     *     hash_after: string,
+     *     context: string,
+     *     hmac_key_epoch: int,
+     *     actor_type: string,
+     *     actor_username: string,
+     *     actor_role: string,
+     *     request_id: string,
+     * } $row
+     */
+    public static function calculateHashV3(
+        array $row,
+        string $previousHash,
+        #[SensitiveParameter]
+        string $hmacKey,
+    ): string {
+        $payload = json_encode(
+            self::forensicPayloadV2($row, $previousHash) + [
+                // v3 additions — authenticate the algorithm selector and the
+                // human-facing attribution surface.
+                'hmac_key_epoch' => (int) $row['hmac_key_epoch'],
+                'actor_type' => (string) $row['actor_type'],
+                'actor_username' => (string) $row['actor_username'],
+                'actor_role' => (string) $row['actor_role'],
+                'request_id' => (string) $row['request_id'],
+            ],
+            JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+        );
 
         return hash_hmac('sha256', $payload, $hmacKey);
     }
@@ -484,6 +555,47 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
+     * Type-safe extraction of the audit-row fields for the v3 hash payload
+     * (`calculateHashV3()`). Adds, on top of the v2 fields, the algorithm
+     * selector `hmac_key_epoch` and the four human-readable attribution
+     * fields (actor_type, actor_username, actor_role, request_id) that v2
+     * does not bind into the chain.
+     *
+     * @param array<string, mixed> $row
+     *
+     * @return array{
+     *     uid: int,
+     *     secret_identifier: string,
+     *     action: string,
+     *     success: int,
+     *     actor_uid: int,
+     *     crdate: int,
+     *     error_message: string,
+     *     reason: string,
+     *     ip_address: string,
+     *     user_agent: string,
+     *     hash_before: string,
+     *     hash_after: string,
+     *     context: string,
+     *     hmac_key_epoch: int,
+     *     actor_type: string,
+     *     actor_username: string,
+     *     actor_role: string,
+     *     request_id: string,
+     * }
+     */
+    public static function extractV3HashRow(array $row): array
+    {
+        return self::extractV2HashRow($row) + [
+            'hmac_key_epoch' => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
+            'actor_type' => \is_string($row['actor_type'] ?? null) ? $row['actor_type'] : '',
+            'actor_username' => \is_string($row['actor_username'] ?? null) ? $row['actor_username'] : '',
+            'actor_role' => \is_string($row['actor_role'] ?? null) ? $row['actor_role'] : '',
+            'request_id' => \is_string($row['request_id'] ?? null) ? $row['request_id'] : '',
+        ];
+    }
+
+    /**
      * Derive the HMAC key from the master key via HKDF.
      *
      * Uses a distinct info string to ensure the HMAC key is separate from the encryption key.
@@ -515,6 +627,50 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     public static function deriveHmacKeyFromMasterKey(#[SensitiveParameter] string $masterKey): string
     {
         return hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+    }
+
+    /**
+     * Build the ordered v2 forensic payload shared by calculateHashV2() and
+     * calculateHashV3(), so the v3 payload does not duplicate the v2 key set.
+     * The key order is load-bearing for hash stability — do not reorder.
+     *
+     * @param array{
+     *     uid: int,
+     *     secret_identifier: string,
+     *     action: string,
+     *     success: bool|int,
+     *     actor_uid: int,
+     *     crdate: int,
+     *     error_message: string,
+     *     reason: string,
+     *     ip_address: string,
+     *     user_agent: string,
+     *     hash_before: string,
+     *     hash_after: string,
+     *     context: string,
+     *     ...
+     * } $row
+     *
+     * @return array<string, int|string>
+     */
+    private static function forensicPayloadV2(array $row, string $previousHash): array
+    {
+        return [
+            'uid' => (int) $row['uid'],
+            'secret_identifier' => (string) $row['secret_identifier'],
+            'action' => (string) $row['action'],
+            'success' => (int) (bool) $row['success'],
+            'actor_uid' => (int) $row['actor_uid'],
+            'crdate' => (int) $row['crdate'],
+            'previous_hash' => $previousHash,
+            'error_message' => (string) $row['error_message'],
+            'reason' => (string) $row['reason'],
+            'ip_address' => (string) $row['ip_address'],
+            'user_agent' => (string) $row['user_agent'],
+            'hash_before' => (string) $row['hash_before'],
+            'hash_after' => (string) $row['hash_after'],
+            'context' => (string) $row['context'],
+        ];
     }
 
     /**
@@ -639,10 +795,14 @@ final readonly class AuditLogService implements AuditLogServiceInterface
      *   - epoch 2 → HMAC-SHA256 over identity + forensic fields (success,
      *               error_message, reason, ip_address, user_agent,
      *               hash_before, hash_after, context)
+     *   - epoch 3 → HMAC-SHA256 over the epoch-2 payload plus the algorithm
+     *               selector (hmac_key_epoch) and the attribution fields
+     *               (actor_type, actor_username, actor_role, request_id)
      *
      * @param array<string, mixed> $row Must contain `hmac_key_epoch`; epoch
      *                                  2 also requires the forensic fields
-     *                                  (see `extractV2HashRow()`).
+     *                                  (see `extractV2HashRow()`), epoch 3 the
+     *                                  attribution fields (see `extractV3HashRow()`).
      */
     private function calculateEntryHashFromRow(array $row, string $previousHash): string
     {
@@ -675,8 +835,13 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 );
             }
 
-            // Epoch 2+: extended payload that covers forensic fields too.
-            return self::calculateHashV2(self::extractV2HashRow($row), $previousHash, $hmacKey);
+            if ($epoch === 2) {
+                // Extended payload that covers forensic fields too.
+                return self::calculateHashV2(self::extractV2HashRow($row), $previousHash, $hmacKey);
+            }
+
+            // Epoch 3+: also binds the epoch selector and attribution fields.
+            return self::calculateHashV3(self::extractV3HashRow($row), $previousHash, $hmacKey);
         } finally {
             sodium_memzero($hmacKey);
         }

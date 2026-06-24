@@ -42,8 +42,8 @@ auditLogRetention = 365
 # cat=Security; type=boolean; label=Audit Read Operations: Log every secret read to the audit log. Disable for high-throughput scenarios where read logging is not required.
 auditReads = 1
 
-# cat=Security; type=int+; label=Audit HMAC Epoch: Hash algorithm version marker for the audit log hash chain (0 = legacy SHA-256 without HMAC, 1 = HMAC-SHA256 over identity fields only, 2 = HMAC-SHA256 over identity + forensic fields including success/error_message/reason/ip_address/user_agent/context). Default 2 binds the forensic surface into the chain so a DB-write attacker cannot flip success or rewrite error_message without breaking the chain. Run the install-tool "Migrate audit hash chain" wizard after bumping.
-auditHmacEpoch = 2
+# cat=Security; type=int+; label=Audit HMAC Epoch: Hash algorithm version marker for the audit log hash chain (0 = legacy SHA-256 without HMAC, 1 = HMAC-SHA256 over identity fields only, 2 = HMAC-SHA256 over identity + forensic fields including success/error_message/reason/ip_address/user_agent/context, 3 = additionally binds the epoch selector hmac_key_epoch plus the attribution fields actor_type/actor_username/actor_role/request_id). Default 3 closes the algorithm-downgrade forgery (a DB-write attacker can no longer downgrade a row to keyless SHA-256 and re-sign it) and makes actor attribution tamper-evident. Run the install-tool "Migrate audit hash chain" wizard after bumping.
+auditHmacEpoch = 3
 
 ##################
 ### PERFORMANCE ###
