@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The `vaultSecret` field description no longer renders twice on v14** (#189).
+  TYPO3 v14's `AbstractFormElement::renderLabel()` emits the TCA `description`
+  itself (via `renderDescription()`), so `VaultSecretElement`'s own copy became
+  a duplicate. The element now renders its own description only on v13, where
+  the label does not — so it appears exactly once on both v13 and v14.
+
 - **The SSRF middleware no longer fatals without ext-curl** (#192). It
   referenced the curl-only `CURLOPT_RESOLVE` constant unconditionally, so the
   first pinned request on a curl-less install raised `Error: Undefined

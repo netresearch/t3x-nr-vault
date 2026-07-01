@@ -16,6 +16,7 @@ use Throwable;
 use TYPO3\CMS\Backend\Form\Element\AbstractFormElement;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
+use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Page\JavaScriptModuleInstruction;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
@@ -59,9 +60,15 @@ final class VaultSecretElement extends AbstractFormElement
         /** @var array<string, mixed> $resultArray */
         $resultArray = $this->mergeChildReturnIntoExistingResult($resultArray, $fieldInformationResult, false);
 
-        $descriptionHtml = $this->renderVaultDescription($context['fieldConf']);
-        if ($descriptionHtml !== '') {
-            $html[] = $descriptionHtml;
+        // TYPO3 v14's AbstractFormElement::renderLabel() already emits the TCA
+        // `description` (via renderDescription()); v13's does not. Render our own
+        // copy only on v13 — otherwise the description appears twice on v14, or
+        // not at all on v13.
+        if ((new Typo3Version())->getMajorVersion() < 14) {
+            $descriptionHtml = $this->renderVaultDescription($context['fieldConf']);
+            if ($descriptionHtml !== '') {
+                $html[] = $descriptionHtml;
+            }
         }
 
         $html[] = '<div class="form-wizards-wrap">';
@@ -244,6 +251,9 @@ final class VaultSecretElement extends AbstractFormElement
 
     /**
      * Optional field description from TCA — empty string if none.
+     *
+     * Only used on TYPO3 versions whose AbstractFormElement::renderLabel() does
+     * not already render the description (v13); on v14+ the label renders it.
      *
      * @param array<string, mixed> $fieldConf
      */

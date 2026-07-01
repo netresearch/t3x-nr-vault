@@ -150,8 +150,14 @@ final class VaultSecretElementTest extends TestCase
     }
 
     #[Test]
-    public function renderOutputContainsDescriptionWhenPresent(): void
+    public function renderOutputContainsDescriptionExactlyOnce(): void
     {
+        // On TYPO3 v14 AbstractFormElement::renderLabel() emits the TCA
+        // `description` (via renderDescription()); the element must NOT render a
+        // second copy, or it appears twice. On v13 renderLabel() emits nothing,
+        // so the element renders it itself. Either way the description must
+        // appear exactly once — this is the discriminator the CI matrix
+        // (^13.4 + ^14.3) exercises.
         $langService = $this->createMock(LanguageService::class);
         $langService->method('sL')->willReturnCallback(
             static fn (string $key): string => $key === self::FIELD_DESCRIPTION ? self::FIELD_DESCRIPTION : '',
@@ -173,8 +179,9 @@ final class VaultSecretElementTest extends TestCase
         $result = $this->subject->render();
 
         self::assertIsString($result['html']);
-        self::assertStringContainsString('form-description', $result['html']);
         self::assertStringContainsString(self::FIELD_DESCRIPTION, $result['html']);
+        // Exactly one description block — not the pre-fix duplicate.
+        self::assertSame(1, substr_count($result['html'], 'form-description'));
     }
 
     #[Test]
