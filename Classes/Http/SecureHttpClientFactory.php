@@ -327,7 +327,7 @@ final class SecureHttpClientFactory
             return [];
         }
 
-        $entries = [];
+        $formattedIps = [];
         foreach ($records as $record) {
             $ip = $record['ip'] ?? $record['ipv6'] ?? null;
             if (!\is_string($ip)) {
@@ -345,11 +345,25 @@ final class SecureHttpClientFactory
             // libcurl's CURLOPT_RESOLVE format is `host:port:address`. IPv6
             // addresses contain colons, so they MUST be bracketed or curl
             // misparses the entry (see curl docs / CVE-2025-* class of bugs).
-            $formattedIp = str_contains($ip, ':') ? '[' . $ip . ']' : $ip;
-            $entries[] = \sprintf('%s:%d:%s', $host, $port, $formattedIp);
+            $formattedIps[] = str_contains($ip, ':') ? '[' . $ip . ']' : $ip;
         }
 
-        return $entries;
+        if ($formattedIps === []) {
+            return [];
+        }
+
+        // Pin ALL validated addresses in a SINGLE comma-separated
+        // CURLOPT_RESOLVE entry (`host:port:ip1,ip2,[ipv6],…`) rather than one
+        // entry per IP. curl performs Happy-Eyeballs fall-back across the
+        // addresses of a single entry, so a host that resolves to an
+        // unreachable address family (e.g. an AAAA record on an IPv4-only
+        // network, or an A record on an IPv6-only one) still connects via a
+        // reachable pinned address. Separate per-IP entries defeat that
+        // fall-back and fail with "could not connect".
+        //
+        // This remains rebinding-proof: curl may still only connect to these
+        // pinned, already-validated addresses — it cannot re-resolve.
+        return [\sprintf('%s:%d:%s', $host, $port, implode(',', $formattedIps))];
     }
 
     /**

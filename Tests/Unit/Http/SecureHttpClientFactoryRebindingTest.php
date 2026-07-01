@@ -113,6 +113,26 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     }
 
     #[Test]
+    public function buildResolveEntriesPinsAllAddressesInOneEntry(): void
+    {
+        // A host resolving to several addresses (here IPv4 + IPv6) must be
+        // pinned as ONE comma-separated CURLOPT_RESOLVE entry, not one entry
+        // per IP: curl only performs Happy-Eyeballs fall-back across the
+        // addresses of a single entry. With separate entries, a host whose DNS
+        // returns an unreachable address family (e.g. an AAAA record on an
+        // IPv4-only network) fails with "could not connect" instead of falling
+        // back to a reachable pinned address. The IPv6 address stays bracketed.
+        $this->dnsResolver->program('dual.example.com', [
+            ['ip' => self::PUBLIC_IP],
+            ['ipv6' => '2001:db8::1'],
+        ]);
+
+        $entries = $this->callBuildResolveEntries('dual.example.com', 443);
+
+        self::assertSame(['dual.example.com:443:93.184.216.34,[2001:db8::1]'], $entries);
+    }
+
+    #[Test]
     public function buildResolveEntriesReturnsNullWhenAnyRecordIsDangerous(): void
     {
         // Split-horizon: resolver returns one public + one internal IP. ANY
