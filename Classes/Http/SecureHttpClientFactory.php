@@ -292,17 +292,31 @@ final class SecureHttpClientFactory
     }
 
     /**
-     * Resolve `$host` to one or more IP addresses and convert each safe entry
-     * into the `host:port:ip` form curl expects for `CURLOPT_RESOLVE`.
+     * Resolve `$host` to one or more IP addresses and convert ALL safe
+     * addresses into a SINGLE `host:port:addr1[,addr2,...]` entry for curl's
+     * `CURLOPT_RESOLVE` (the multi-address form, curl >= 7.59.0).
+     *
+     * ONE entry, not one per address: for duplicate `host:port` resolve
+     * entries curl keeps only the LAST one (each entry replaces the previous
+     * cache slot). Emitting one entry per record therefore pinned only the
+     * final DNS record — on a dual-stack host that is typically the AAAA, so
+     * a host without IPv6 connectivity failed with cURL error 7 and never
+     * fell back to the (discarded) IPv4 pin, and even all-IPv4 multi-record
+     * hosts lost every fallback address (issue #190). With the comma-joined
+     * form curl has the full vetted address list in its cache slot and does
+     * its normal cross-family/cross-address connect fallback — the rebind pin
+     * is unchanged, since every usable address is still one we resolved and
+     * checked here.
      *
      * Returns:
      *  - `null` if the host resolved to AT LEAST ONE dangerous IP and is NOT
      *    explicitly allowlisted (the entire request must be rejected — even if
      *    some A records look safe, the presence of a dangerous answer signals
      *    an active rebinding attempt).
-     *  - `[]` if the host is an IP literal (no pin needed) OR if resolution
-     *    failed entirely (let curl handle the error path).
-     *  - `list<string>` of pin entries to add to `CURLOPT_RESOLVE` for safe
+     *  - `[]` if the host is an IP literal (no pin needed), if resolution
+     *    failed entirely, or if it yielded no usable A/AAAA address (let curl
+     *    handle the error path).
+     *  - a single-element `list<string>` carrying the pin entry for safe
      *    multi-record hosts.
      *
      * @param bool $allowlisted When the host carries a literal `allowed_hosts`
@@ -327,10 +341,15 @@ final class SecureHttpClientFactory
             return [];
         }
 
-        $entries = [];
+        $addresses = [];
         foreach ($records as $record) {
             $ip = $record['ip'] ?? $record['ipv6'] ?? null;
-            if (!\is_string($ip)) {
+            // Only well-formed IPs may enter the pin: curl discards the ENTIRE
+            // comma-joined entry when any one token is unparseable (fail-open
+            // to re-resolution). DefaultDnsResolver always yields canonical
+            // IPs, but DnsResolverInterface is a public seam — keep the entry
+            // valid by construction.
+            if (!\is_string($ip) || filter_var($ip, FILTER_VALIDATE_IP) === false) {
                 continue;
             }
             if (!$allowlisted && $this->isDangerousIpLiteral($ip)) {
@@ -342,14 +361,20 @@ final class SecureHttpClientFactory
                 // remains blocked.
                 return null;
             }
-            // libcurl's CURLOPT_RESOLVE format is `host:port:address`. IPv6
-            // addresses contain colons, so they MUST be bracketed or curl
-            // misparses the entry (see curl docs / CVE-2025-* class of bugs).
-            $formattedIp = str_contains($ip, ':') ? '[' . $ip . ']' : $ip;
-            $entries[] = \sprintf('%s:%d:%s', $host, $port, $formattedIp);
+            // IPv6 addresses contain colons, so they MUST be bracketed inside
+            // the resolve entry or curl misparses it (brackets supported since
+            // curl 7.57.0; see curl docs / CVE-2025-* class of bugs).
+            $addresses[] = str_contains($ip, ':') ? '[' . $ip . ']' : $ip;
         }
 
-        return $entries;
+        if ($addresses === []) {
+            return [];
+        }
+
+        // One entry with every safe address (see the method docblock): a later
+        // entry for the same host:port would REPLACE this one in curl's cache,
+        // so all fallback addresses must travel in a single entry.
+        return [\sprintf('%s:%d:%s', $host, $port, implode(',', array_unique($addresses)))];
     }
 
     /**

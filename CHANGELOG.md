@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dual-stack hosts are reachable again from IPv6-less environments** (#190).
+  The DNS-rebinding defence pinned each resolved address as a separate
+  `CURLOPT_RESOLVE` entry, but curl keeps only the last entry per `host:port`
+  — so effectively only the final DNS record (typically the AAAA) was pinned.
+  On hosts without IPv6 connectivity every request to a dual-stack host
+  (e.g. `api.github.com`) failed with `cURL error 7` and no IPv4 fallback;
+  all-IPv4 multi-record hosts silently lost their fallback addresses too.
+  All safe resolved addresses now travel comma-joined in a single resolve
+  entry (curl's multi-address form, curl ≥ 7.59), restoring curl's native
+  cross-family/cross-address connect fallback while keeping the pin: every
+  usable address is still one the defence resolved and vetted.
+
 ## [0.10.0] - 2026-06-11
 
 ### Added

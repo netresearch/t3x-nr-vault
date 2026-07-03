@@ -46,6 +46,8 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
 
     private const PUBLIC_IP = '93.184.216.34';
 
+    private const PUBLIC_IP_SECONDARY = '93.184.216.35';
+
     private SecureHttpClientFactory $subject;
 
     private InMemoryDnsResolver $dnsResolver;
@@ -110,6 +112,56 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         $entries = $this->callBuildResolveEntries('v6.example.com', 443);
 
         self::assertSame(['v6.example.com:443:[2001:db8::1]'], $entries);
+    }
+
+    #[Test]
+    public function buildResolveEntriesJoinsDualStackRecordsIntoOneEntry(): void
+    {
+        // Regression for #190: curl keeps only the LAST resolve entry for a
+        // given host:port (later entries replace earlier ones in its cache).
+        // One entry per record therefore pinned only the final DNS record —
+        // typically the AAAA — so a host without IPv6 connectivity failed
+        // with cURL error 7 and never fell back to the discarded IPv4 pin.
+        // All safe addresses must travel comma-joined in a SINGLE entry
+        // (curl's multi-address form) so curl can fall back across families.
+        $this->dnsResolver->program('dual.example.com', [
+            ['ip' => self::PUBLIC_IP],
+            ['ipv6' => '2001:db8::1'],
+        ]);
+
+        $entries = $this->callBuildResolveEntries('dual.example.com', 443);
+
+        self::assertSame(['dual.example.com:443:93.184.216.34,[2001:db8::1]'], $entries);
+    }
+
+    #[Test]
+    public function buildResolveEntriesJoinsMultipleARecordsIntoOneEntry(): void
+    {
+        // Same last-entry-wins rationale for an all-IPv4 multi-record host:
+        // separate entries would silently discard every fallback address.
+        $this->dnsResolver->program('multi.example.com', [
+            ['ip' => self::PUBLIC_IP],
+            ['ip' => self::PUBLIC_IP_SECONDARY],
+        ]);
+
+        $entries = $this->callBuildResolveEntries('multi.example.com', 443);
+
+        self::assertSame(['multi.example.com:443:93.184.216.34,93.184.216.35'], $entries);
+    }
+
+    #[Test]
+    public function buildResolveEntriesDeduplicatesRepeatedAddresses(): void
+    {
+        // Some resolvers return the same address more than once; the pin
+        // entry must not repeat it.
+        $this->dnsResolver->program('dup.example.com', [
+            ['ip' => self::PUBLIC_IP],
+            ['ip' => self::PUBLIC_IP],
+        ]);
+
+        $entries = $this->callBuildResolveEntries('dup.example.com', 443);
+
+        self::assertSame(['dup.example.com:443:93.184.216.34'], $entries);
     }
 
     #[Test]
@@ -237,6 +289,30 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         self::assertIsArray($curlOpts);
         self::assertArrayHasKey(\CURLOPT_RESOLVE, $curlOpts);
         self::assertSame(['safe.example:443:93.184.216.34'], $curlOpts[\CURLOPT_RESOLVE]);
+    }
+
+    #[Test]
+    public function middlewarePinsDualStackHostAsSingleJoinedEntry(): void
+    {
+        // Regression for #190 at the layer curl actually sees: the option
+        // array must carry ONE entry with both addresses — two entries for
+        // the same host:port would make curl keep only the last (typically
+        // the AAAA), breaking IPv4 fallback on IPv6-less hosts.
+        $this->dnsResolver->program('dualstack.example', [
+            ['ip' => self::PUBLIC_IP],
+            ['ipv6' => '2001:db8::1'],
+        ]);
+        $client = $this->buildCapturingClient($capturedOptions);
+
+        $client->get('https://dualstack.example/api');
+
+        $curlOpts = $capturedOptions['curl'] ?? null;
+        self::assertIsArray($curlOpts);
+        self::assertArrayHasKey(\CURLOPT_RESOLVE, $curlOpts);
+        self::assertSame(
+            ['dualstack.example:443:93.184.216.34,[2001:db8::1]'],
+            $curlOpts[\CURLOPT_RESOLVE],
+        );
     }
 
     #[Test]
