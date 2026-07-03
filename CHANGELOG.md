@@ -559,7 +559,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.0...v0.10.1
+[0.10.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.6.1...v0.7.0
