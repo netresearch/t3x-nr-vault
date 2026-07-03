@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unaffected.
 
 - **Privileged secret ACL columns are now authorization-gated** (#186). On the
-  secret FormEngine write path the `owner_uid`, `allowed_groups`,
+  secret FormEngine write path, the `owner_uid`, `allowed_groups`,
   `write_groups`, `frontend_accessible` and `scope_pid` columns of
   `tx_nrvault_secret` carried no `exclude` flag and no admin gate, so a
   non-admin editor could widen a secret's ACL or reassign ownership
@@ -33,9 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Audit hash-chain tamper-evidence hardened** (#185). Two forgery paths
   reachable by the documented in-scope database attacker (a principal with
   `UPDATE`/`DELETE` on `tx_nrvault_audit_log`) are closed: an epoch-downgrade
-  that let the tail row be rewritten under a keyless SHA-256 epoch because the
-  `hmac_key_epoch` was bound into no payload (CWE-345 / CWE-757), and an
-  attribution forgery. Both are now detected by `verifyHashChain()`.
+  that allowed the tail row to be rewritten under a keyless SHA-256 epoch
+  because the `hmac_key_epoch` was not bound into any hashed payload
+  (CWE-345 / CWE-757), and an attribution forgery. Both are now detected by
+  `verifyHashChain()`.
 
 ### Fixed
 
