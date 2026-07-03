@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Legacy numeric IP-literal SSRF bypass closed** (#192). curl's resolver
+  accepts `inet_aton()` forms — dword (`2130706433`), octal (`0177.0.0.1`),
+  hex (`0x7f.0.0.1`) and partial-dot (`127.1`) — that all reach `127.0.0.1`,
+  but PHP's `inet_pton()` / `FILTER_VALIDATE_IP` reject them, so they slipped
+  through the dangerous-IP guard as pseudo-hostnames (no DNS record, no pin)
+  and curl derived the internal IP itself. Such forms are now rejected both in
+  `isHostAllowed()` and in the request-time SSRF middleware unless the operator
+  allowlists the exact literal; the canonical dotted-quad / IPv6 form is
+  unaffected.
+
 ### Fixed
+
+- **The SSRF middleware no longer fatals without ext-curl** (#192). It
+  referenced the curl-only `CURLOPT_RESOLVE` constant unconditionally, so the
+  first pinned request on a curl-less install raised `Error: Undefined
+  constant "CURLOPT_RESOLVE"` — contradicting `create()`'s documented
+  StreamHandler-fallback warning. The pin is now attached only when
+  `curl_init()` exists; the dangerous-IP rejections still run.
 
 - **Dual-stack hosts are reachable again from IPv6-less environments** (#190).
   The DNS-rebinding defence pinned each resolved address as a separate
