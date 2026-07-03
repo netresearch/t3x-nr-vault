@@ -61,6 +61,8 @@ final class OAuthIntegrationTest extends FunctionalTestCase
      */
     private const MOCK_OAUTH_INTERNAL_URL = 'http://mock-oauth:8080'; // NOSONAR
 
+    private const CONTENT_TYPE_JSON = 'application/json';
+
     /** Mock OAuth server URL (external access). NOSONAR — test-only, see above. */
     private const MOCK_OAUTH_EXTERNAL_URL = 'http://localhost:8080'; // NOSONAR
 
@@ -395,7 +397,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                 if ($grantType === 'refresh_token') {
                     return new Response(
                         401,
-                        ['Content-Type' => 'application/json'],
+                        ['Content-Type' => self::CONTENT_TYPE_JSON],
                         '{"error":"invalid_grant","error_description":"refresh token revoked"}',
                     );
                 }
@@ -403,7 +405,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                 // Successful client_credentials response.
                 return new Response(
                     200,
-                    ['Content-Type' => 'application/json'],
+                    ['Content-Type' => self::CONTENT_TYPE_JSON],
                     json_encode([
                         'access_token' => 'fallback-access-token',
                         'token_type' => 'Bearer',
@@ -520,7 +522,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                 // Both grant types fail.
                 return new Response(
                     401,
-                    ['Content-Type' => 'application/json'],
+                    ['Content-Type' => self::CONTENT_TYPE_JSON],
                     '{"error":"invalid_client"}',
                 );
             }

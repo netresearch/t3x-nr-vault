@@ -74,7 +74,7 @@ final class SecretTcaHook
      *
      * @param array<string, mixed> $fieldArray
      */
-    public function processDatamap_preProcessFieldArray(
+    public function processDatamap_preProcessFieldArray(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         array &$fieldArray,
         string $table,
         string|int $id,
@@ -138,7 +138,7 @@ final class SecretTcaHook
      *
      * @param array<string, mixed> $fieldArray
      */
-    public function processDatamap_afterDatabaseOperations(
+    public function processDatamap_afterDatabaseOperations(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $status,
         string $table,
         string|int $id,
@@ -258,7 +258,7 @@ final class SecretTcaHook
      * Called before record deletion.
      * Logs deletion to audit log.
      */
-    public function processCmdmap_preProcess(
+    public function processCmdmap_preProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
         string $table,
         string|int $id,

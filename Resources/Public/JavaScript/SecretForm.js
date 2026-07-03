@@ -146,7 +146,7 @@ class SecretForm {
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => new SecretForm());
 } else {
-    new SecretForm();
+    new SecretForm(); // NOSONAR: side-effect entry module — instantiation wires up page event handlers on load
 }
 
 export default SecretForm;

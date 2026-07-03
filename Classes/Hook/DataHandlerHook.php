@@ -56,7 +56,7 @@ final class DataHandlerHook
      *
      * @param array<string, mixed> $fieldArray
      */
-    public function processDatamap_preProcessFieldArray(
+    public function processDatamap_preProcessFieldArray(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         array &$fieldArray,
         string $table,
         string|int $id,
@@ -91,7 +91,7 @@ final class DataHandlerHook
      *
      * @param array<string, mixed> $fieldArray
      */
-    public function processDatamap_afterDatabaseOperations(
+    public function processDatamap_afterDatabaseOperations(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $status,
         string $table,
         string|int $id,
@@ -161,7 +161,7 @@ final class DataHandlerHook
      * Called before record deletion.
      * Removes associated vault secrets.
      */
-    public function processCmdmap_preProcess(
+    public function processCmdmap_preProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
         string $table,
         string|int $id,
@@ -221,7 +221,7 @@ final class DataHandlerHook
      * Called after record copy.
      * Copies vault secrets to the new record with new UUIDs.
      */
-    public function processCmdmap_postProcess(
+    public function processCmdmap_postProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
         string $table,
         string|int $id,

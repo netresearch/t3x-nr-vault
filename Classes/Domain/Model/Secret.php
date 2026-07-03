@@ -25,6 +25,8 @@ use Netresearch\NrVault\Exception\ValidationException;
  */
 final readonly class Secret
 {
+    private const CRYPTO_FIELDS_LABEL = 'cryptographic fields';
+
     /**
      * @param int[] $allowedGroups Backend group UIDs with READ access (read-only tier)
      * @param int[] $writeGroups Backend group UIDs with WRITE access (read + write tier)
@@ -75,7 +77,7 @@ final readonly class Secret
             + (int) ($this->valueChecksum !== '');
         if ($setCount !== 0 && $setCount !== 5) {
             throw ValidationException::invalidOption(
-                'cryptographic fields',
+                self::CRYPTO_FIELDS_LABEL,
                 'encryptedValue, encryptedDek, dekNonce, valueNonce, and valueChecksum must all be set or all be empty',
             );
         }
@@ -90,20 +92,20 @@ final readonly class Secret
         if ($this->encryptionVersion >= EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT) {
             if ($setCount !== 5) {
                 throw ValidationException::invalidOption(
-                    'cryptographic fields',
+                    self::CRYPTO_FIELDS_LABEL,
                     'encryption version 2+ requires the full encryption envelope to be set',
                 );
             }
 
             if (!EncryptionAlgorithm::tryFrom($this->encryptionAlgorithm) instanceof EncryptionAlgorithm) {
                 throw ValidationException::invalidOption(
-                    'cryptographic fields',
+                    self::CRYPTO_FIELDS_LABEL,
                     'encryption version 2+ requires a known encryptionAlgorithm marker',
                 );
             }
         } elseif ($this->encryptionAlgorithm !== '') {
             throw ValidationException::invalidOption(
-                'cryptographic fields',
+                self::CRYPTO_FIELDS_LABEL,
                 'legacy encryption version 1 must not carry an encryptionAlgorithm marker',
             );
         }

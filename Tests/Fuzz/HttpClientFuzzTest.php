@@ -283,12 +283,14 @@ final class HttpClientFuzzTest extends TestCase
             $client->sendRequest(new Request('GET', 'https://api.example.com/data'));
             // Reached inner client without throw — header-value CR/LF check
             // above must have passed. PSR-7 sanitization is acceptable.
+        } catch (VaultException $e) {
+            // Vault wrapped the PSR-7 rejection — also safe. VaultException
+            // extends RuntimeException, so this more-specific catch must come
+            // before the RuntimeException one below (else it is unreachable).
+            self::assertTrue(true, 'VaultException wrapping PSR-7 rejection: ' . $e->getMessage());
         } catch (InvalidArgumentException|RuntimeException $e) {
             // PSR-7 rejected the CRLF at header-set time — expected and safe.
             self::assertTrue(true, 'PSR-7 rejected CRLF: ' . $e->getMessage());
-        } catch (VaultException $e) {
-            // Vault wrapped the PSR-7 rejection — also safe.
-            self::assertTrue(true, 'VaultException wrapping PSR-7 rejection: ' . $e->getMessage());
         }
     }
 
@@ -401,7 +403,7 @@ final class HttpClientFuzzTest extends TestCase
                 $client = $this->buildClient(SecretPlacement::Header, ['headerName' => $headerName]);
                 $client->sendRequest(new Request('GET', 'https://api.example.com/test'));
                 // Some empty header names may just send no header at all — acceptable
-            } catch (InvalidArgumentException|RuntimeException|VaultException) {
+            } catch (InvalidArgumentException|RuntimeException) {
                 // Expected: PSR-7 or Vault layer rejected invalid header name
                 self::assertTrue(true);
             }

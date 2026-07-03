@@ -30,6 +30,9 @@ use Netresearch\NrVault\Controller\SecretsController;
  * v13 (which redirects to the first submodule) shows the overview page.
  * v14 uses 'showSubmoduleOverview' on the parent module for the same effect.
  */
+$indexAction = '::indexAction';
+$helpAction = '::helpAction';
+
 return [
     // Parent module - custom overview with usage information
     // dependsOnSubmodules: true enables the submodule dropdown in DocHeader
@@ -49,10 +52,10 @@ return [
         'showSubmoduleOverview' => true,
         'routes' => [
             '_default' => [
-                'target' => OverviewController::class . '::indexAction',
+                'target' => OverviewController::class . $indexAction,
             ],
             'help' => [
-                'target' => OverviewController::class . '::helpAction',
+                'target' => OverviewController::class . $helpAction,
             ],
         ],
     ],
@@ -71,10 +74,10 @@ return [
         'iconIdentifier' => 'module-vault',
         'routes' => [
             '_default' => [
-                'target' => OverviewController::class . '::indexAction',
+                'target' => OverviewController::class . $indexAction,
             ],
             'help' => [
-                'target' => OverviewController::class . '::helpAction',
+                'target' => OverviewController::class . $helpAction,
             ],
         ],
     ],
@@ -116,7 +119,7 @@ return [
         'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/analytics.xlf',
         'routes' => [
             '_default' => [
-                'target' => AnalyticsController::class . '::indexAction',
+                'target' => AnalyticsController::class . $indexAction,
             ],
         ],
     ],
