@@ -44,6 +44,44 @@ final class VaultSecretInputElement extends AbstractFormElement
         /** @var array<string, mixed> $resultArray */
         $resultArray = $this->initializeResultArray();
 
+        $context = $this->extractRenderContext();
+
+        // Build HTML based on record state
+        if ($context['isNewRecord']) {
+            $html = $this->renderNewRecordInput($context['fieldId'], $context['itemName'], $context['config'], $context['width']);
+        } else {
+            $html = $this->renderExistingRecordInput($context['fieldId'], $context['itemName'], $context['config'], $context['width'], $context['identifier'], $context['hasSecret']);
+        }
+
+        $resultArray['html'] = $html;
+
+        // Add JavaScript module
+        /** @var list<JavaScriptModuleInstruction> $javaScriptModules */
+        $javaScriptModules = \is_array($resultArray['javaScriptModules'] ?? null) ? $resultArray['javaScriptModules'] : [];
+        $javaScriptModules[] = JavaScriptModuleInstruction::create(
+            '@netresearch/nr-vault/vault-secret-input.js',
+        );
+        $resultArray['javaScriptModules'] = $javaScriptModules;
+
+        return $resultArray;
+    }
+
+    /**
+     * Resolve the FormEngine `$data` shape into a typed render context, keeping
+     * render() free of the nested `is_array(...) ? ... : []` guards.
+     *
+     * @return array{
+     *     fieldId: string,
+     *     itemName: string,
+     *     config: array<string, mixed>,
+     *     width: int,
+     *     identifier: string,
+     *     isNewRecord: bool,
+     *     hasSecret: bool,
+     * }
+     */
+    private function extractRenderContext(): array
+    {
         /** @var array<string, mixed> $formData */
         $formData = $this->data;
         /** @var array<string, mixed> $parameterArray */
@@ -54,7 +92,6 @@ final class VaultSecretInputElement extends AbstractFormElement
         $config = \is_array($fieldConf['config'] ?? null) ? $fieldConf['config'] : [];
         $itemName = \is_string($parameterArray['itemFormElName'] ?? null) ? $parameterArray['itemFormElName'] : '';
 
-        $fieldId = StringUtility::getUniqueId('formengine-vault-input-');
         $sizeValue = $config['size'] ?? 50;
         $width = $this->formMaxWidth(is_numeric($sizeValue) ? (int) $sizeValue : 50);
 
@@ -79,24 +116,15 @@ final class VaultSecretInputElement extends AbstractFormElement
             $hasSecret = $this->secretExists($identifier);
         }
 
-        // Build HTML based on record state
-        if ($isNewRecord) {
-            $html = $this->renderNewRecordInput($fieldId, $itemName, $config, $width);
-        } else {
-            $html = $this->renderExistingRecordInput($fieldId, $itemName, $config, $width, $identifier, $hasSecret);
-        }
-
-        $resultArray['html'] = $html;
-
-        // Add JavaScript module
-        /** @var list<JavaScriptModuleInstruction> $javaScriptModules */
-        $javaScriptModules = \is_array($resultArray['javaScriptModules'] ?? null) ? $resultArray['javaScriptModules'] : [];
-        $javaScriptModules[] = JavaScriptModuleInstruction::create(
-            '@netresearch/nr-vault/vault-secret-input.js',
-        );
-        $resultArray['javaScriptModules'] = $javaScriptModules;
-
-        return $resultArray;
+        return [
+            'fieldId' => StringUtility::getUniqueId('formengine-vault-input-'),
+            'itemName' => $itemName,
+            'config' => $config,
+            'width' => $width,
+            'identifier' => $identifier,
+            'isNewRecord' => $isNewRecord,
+            'hasSecret' => $hasSecret,
+        ];
     }
 
     /**
