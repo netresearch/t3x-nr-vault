@@ -278,6 +278,20 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     }
 
     #[Test]
+    public function middlewareRejectsLegacyNumericIpFormHost(): void
+    {
+        // "2130706433" is 127.0.0.1 to curl but a pseudo-hostname to PHP —
+        // the middleware must reject it BEFORE the socket opens (#192), not
+        // hand it to curl to resolve internally.
+        $client = $this->buildCapturingClient($capturedOptions);
+
+        $this->expectException(RequestException::class);
+        $this->expectExceptionMessageMatches('/non-canonical numeric IP form/i');
+
+        $client->get('http://2130706433/');
+    }
+
+    #[Test]
     public function middlewareAddsCurlResolvePinForResolvedHost(): void
     {
         $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);

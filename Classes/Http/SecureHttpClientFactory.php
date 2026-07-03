@@ -261,6 +261,24 @@ final class SecureHttpClientFactory
                     $this->resolveAllowedHostsList(),
                 );
 
+                // Legacy inet_aton() forms ("2130706433", "0177.0.0.1",
+                // "0x7f.0.0.1", "127.1") are IPs to curl but pseudo-hostnames
+                // to PHP's strict parsers: no DNS record, no pin, and curl
+                // then derives the (possibly loopback/internal) IP itself.
+                // Reject the ambiguous form outright unless the operator
+                // explicitly allowlisted that exact literal.
+                if (!$allowlisted && $this->isLegacyNumericIpForm($host)) {
+                    throw new RequestException(
+                        \sprintf(
+                            'Refused to send request: host "%s" is a non-canonical numeric IP form '
+                            . '(curl would interpret it as an IP address, bypassing the IP range '
+                            . 'checks). Use the canonical dotted-quad or IPv6 form.',
+                            $host,
+                        ),
+                        $request,
+                    );
+                }
+
                 $resolveEntries = $this->buildResolveEntries($host, $port, $allowlisted);
 
                 if ($resolveEntries === null) {
@@ -274,7 +292,13 @@ final class SecureHttpClientFactory
                     );
                 }
 
-                if ($resolveEntries !== []) {
+                // Attach the pin only when ext-curl exists: without it the
+                // `\CURLOPT_RESOLVE` constant is undefined (referencing it
+                // fatals) and the StreamHandler ignores/deprecates the `curl`
+                // option anyway. The dangerous-IP rejections above still ran —
+                // this is exactly the degraded-but-working posture create()'s
+                // missing-ext-curl warning documents.
+                if ($resolveEntries !== [] && \function_exists('curl_init')) {
                     $curlOptions = \is_array($options['curl'] ?? null) ? $options['curl'] : [];
                     /** @var list<string> $existing */
                     $existing = \is_array($curlOptions[\CURLOPT_RESOLVE] ?? null)
@@ -462,6 +486,41 @@ final class SecureHttpClientFactory
     }
 
     /**
+     * Detect a legacy `inet_aton()` numeric address form that curl accepts but
+     * PHP's strict IP parsers do not — so it would otherwise slip through the
+     * dangerous-IP guard as a pseudo-hostname.
+     *
+     * `inet_aton()` (and therefore curl's getaddrinfo path) parses 1–4
+     * dot-separated parts where each part is decimal, octal (leading `0`) or
+     * hex (`0x`). All of these reach 127.0.0.1:
+     *   2130706433, 0x7f000001, 0177.0.0.1, 0x7f.0.0.1, 127.1
+     * while `filter_var(FILTER_VALIDATE_IP)` / `inet_pton()` reject them.
+     *
+     * A canonical dotted-quad or IPv6 literal returns false here (those go
+     * through the normal `inet_pton()` path). Anything containing a non-numeric
+     * label (a real hostname like `example.com` or `163.com`) fails the grammar
+     * and returns false too. Only the genuinely ambiguous numeric forms match.
+     */
+    private function isLegacyNumericIpForm(string $host): bool
+    {
+        if ($host === '') {
+            return false;
+        }
+
+        // A canonical IP is unambiguous — leave it to the inet_pton() path.
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return false;
+        }
+
+        // 1–4 dot-separated parts, each decimal/octal (a digit run) or hex
+        // (`0x…`). Value-range overflow (e.g. an out-of-range part) is left to
+        // fail closed: over-matching only refuses an already-suspect request.
+        $part = '(?:0[xX][0-9a-fA-F]+|[0-9]+)';
+
+        return preg_match('/^' . $part . '(?:\.' . $part . '){0,3}$/', $host) === 1;
+    }
+
+    /**
      * Reject IP literals in private/link-local/loopback/multicast/metadata ranges.
      *
      * The check combines:
@@ -486,6 +545,19 @@ final class SecureHttpClientFactory
      */
     private function isDangerousIpLiteral(string $host): bool
     {
+        // curl's resolver accepts legacy inet_aton() forms that PHP's strict
+        // parsers reject — dword ("2130706433"), octal ("0177.0.0.1"), hex
+        // ("0x7f.0.0.1") and partial-dot ("127.1") all connect to 127.0.0.1
+        // while inet_pton()/FILTER_VALIDATE_IP call them "not an IP". Left
+        // unchecked they sail past this guard as pseudo-hostnames (no DNS
+        // record, no pin) and curl then derives the IP itself → SSRF into
+        // loopback/internal ranges. Treat every such ambiguous form as
+        // dangerous; the request-time middleware rejects it outright, and the
+        // canonical dotted-quad remains available to operators.
+        if ($this->isLegacyNumericIpForm($host)) {
+            return true;
+        }
+
         $packed = inet_pton($host);
         if ($packed === false) {
             return false;

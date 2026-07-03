@@ -106,6 +106,47 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
     }
 
     #[Test]
+    #[DataProvider('legacyNumericIpFormProvider')]
+    public function isHostAllowedRejectsLegacyNumericIpForms(string $host): void
+    {
+        // curl's resolver accepts these inet_aton() forms and derives an IP
+        // from them (most map to 127.0.0.1; 010.010.010.010 is octal → 8.8.8.8),
+        // but inet_pton()/FILTER_VALIDATE_IP reject them. The danger is the
+        // ambiguity: without the guard they slip through as pseudo-hostnames,
+        // dodge the IP-range checks entirely, and curl connects to whatever IP
+        // it decodes. They must be blocked (#192).
+        self::assertFalse(
+            $this->subject->isHostAllowed($host),
+            \sprintf('Expected legacy numeric IP form %s to be blocked, but it was allowed.', $host),
+        );
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function legacyNumericIpFormProvider(): array
+    {
+        return [
+            'dword loopback' => ['2130706433'],       // -> 127.0.0.1
+            'hex dword loopback' => ['0x7f000001'],   // -> 127.0.0.1
+            'octal dotted loopback' => ['0177.0.0.1'],
+            'hex dotted loopback' => ['0x7f.0.0.1'],
+            'partial-dot loopback' => ['127.1'],      // -> 127.0.0.1
+            'octal dotted public-looking' => ['010.010.010.010'], // -> 8.8.8.8
+        ];
+    }
+
+    #[Test]
+    public function explicitAllowlistEntryOverridesLegacyNumericForm(): void
+    {
+        // An operator who deliberately allowlists the exact literal opts back in
+        // (the guard is fail-closed, not a hard ban).
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['2130706433'];
+
+        self::assertTrue($this->subject->isHostAllowed('2130706433'));
+    }
+
+    #[Test]
     public function isHostAllowedReturnsFalseForEmptyHost(): void
     {
         self::assertFalse($this->subject->isHostAllowed(''));
