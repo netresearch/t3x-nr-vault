@@ -71,6 +71,10 @@ test.describe('MIG-EXT-002: Wizard does not leak plaintext into HTML', () => {
     await waitForModuleContent(page);
 
     const frame = getModuleFrame(page);
+    // The scan page must render cleanly for the plaintext-leak check below to
+    // be meaningful (an errored page proves nothing about DOM leakage).
+    await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
+
     const html = await frame.locator('body').innerHTML().catch(() => '');
 
     // Heuristic: scan HTML for long hex strings that should NEVER

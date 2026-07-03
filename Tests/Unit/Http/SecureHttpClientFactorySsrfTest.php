@@ -23,6 +23,8 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
 {
     private const PRIVATE_IP = '10.0.0.42';
 
+    private const DWORD_LOOPBACK = '2130706433';
+
     private SecureHttpClientFactory $subject;
 
     private mixed $originalGlobals;
@@ -127,7 +129,7 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
     public static function legacyNumericIpFormProvider(): array
     {
         return [
-            'dword loopback' => ['2130706433'],       // -> 127.0.0.1
+            'dword loopback' => [self::DWORD_LOOPBACK],       // -> 127.0.0.1
             'hex dword loopback' => ['0x7f000001'],   // -> 127.0.0.1
             'octal dotted loopback' => ['0177.0.0.1'],
             'hex dotted loopback' => ['0x7f.0.0.1'],
@@ -141,9 +143,9 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
     {
         // An operator who deliberately allowlists the exact literal opts back in
         // (the guard is fail-closed, not a hard ban).
-        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['2130706433'];
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = [self::DWORD_LOOPBACK];
 
-        self::assertTrue($this->subject->isHostAllowed('2130706433'));
+        self::assertTrue($this->subject->isHostAllowed(self::DWORD_LOOPBACK));
     }
 
     #[Test]

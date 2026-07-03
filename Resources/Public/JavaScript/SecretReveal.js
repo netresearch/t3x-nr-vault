@@ -199,7 +199,7 @@ class SecretView {
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => new SecretView());
 } else {
-    new SecretView();
+    new SecretView(); // NOSONAR: side-effect entry module — instantiation wires up page event handlers on load
 }
 
 export default SecretView;

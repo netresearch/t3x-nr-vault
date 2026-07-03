@@ -78,7 +78,7 @@ class VaultBackend {
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => new VaultBackend());
 } else {
-    new VaultBackend();
+    new VaultBackend(); // NOSONAR: side-effect entry module — instantiation wires up page event handlers on load
 }
 
 export default VaultBackend;

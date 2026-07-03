@@ -24,6 +24,10 @@ use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultFieldResolverTest extends TestCase
 {
+    private const UUID_V7 = '01937b6e-4b6c-7abc-8def-0123456789ab';
+
+    private const DECRYPTION_FAILED = 'Decryption failed';
+
     protected TcaSchemaFactory&MockObject $tcaSchemaFactory;
 
     private VaultServiceInterface&MockObject $vaultService;
@@ -51,7 +55,7 @@ final class VaultFieldResolverTest extends TestCase
     public function isVaultIdentifierReturnsTrueForValidUuid(): void
     {
         // Valid UUID v7 identifiers
-        self::assertTrue($this->subject->isVaultIdentifier('01937b6e-4b6c-7abc-8def-0123456789ab'));
+        self::assertTrue($this->subject->isVaultIdentifier(self::UUID_V7));
         self::assertTrue($this->subject->isVaultIdentifier('01937b6f-0000-7000-8000-000000000000'));
         self::assertTrue($this->subject->isVaultIdentifier('01937b6f-ffff-7fff-bfff-ffffffffffff'));
     }
@@ -133,7 +137,7 @@ final class VaultFieldResolverTest extends TestCase
     public static function identifierProvider(): array
     {
         return [
-            'valid uuid v7 lowercase' => ['01937b6e-4b6c-7abc-8def-0123456789ab', true],
+            'valid uuid v7 lowercase' => [self::UUID_V7, true],
             'valid uuid v7 uppercase' => ['01937B6E-4B6C-7ABC-8DEF-0123456789AB', true],
             'valid uuid v7 mixed case' => ['01937b6e-4B6C-7abc-8DEF-0123456789ab', true],
             'empty string' => ['', false],
@@ -193,7 +197,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveSingleReturnsSecretValue(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::UUID_V7;
         $secretValue = 'my-secret-value';
 
         $this->vaultService
@@ -209,7 +213,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveSingleReturnsNullForSecretNotFound(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::UUID_V7;
 
         $this->vaultService
             ->method('retrieve')
@@ -223,7 +227,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveFieldsResolvesVaultIdentifiers(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::UUID_V7;
         $secretValue = 'my-api-key';
 
         $this->vaultService
@@ -246,7 +250,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveFieldsReturnsNullForSecretNotFound(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::UUID_V7;
 
         $this->vaultService
             ->method('retrieve')
@@ -264,18 +268,18 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveFieldsLogsErrorForVaultException(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::UUID_V7;
 
         $this->vaultService
             ->method('retrieve')
-            ->willThrowException(new VaultException('Decryption failed', 1234567890));
+            ->willThrowException(new VaultException(self::DECRYPTION_FAILED, 1234567890));
 
         $this->logger
             ->expects(self::once())
             ->method('error')
             ->with('Failed to resolve vault field', self::callback(fn (array $context): bool => $context['field'] === 'api_key'
                 && $context['identifier'] === $identifier
-                && str_contains((string) $context['error'], 'Decryption failed')));
+                && str_contains((string) $context['error'], self::DECRYPTION_FAILED)));
 
         $data = [
             'api_key' => $identifier,
@@ -289,11 +293,11 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveFieldsThrowsWhenThrowOnErrorIsTrue(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::UUID_V7;
 
         $this->vaultService
             ->method('retrieve')
-            ->willThrowException(new VaultException('Decryption failed', 1234567890));
+            ->willThrowException(new VaultException(self::DECRYPTION_FAILED, 1234567890));
 
         $data = [
             'api_key' => $identifier,
@@ -306,7 +310,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveRecordResolvesVaultFields(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::UUID_V7;
         $secretValue = 'resolved-secret';
 
         $this->mockTcaSchemaForTable('tx_test', [
@@ -352,7 +356,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveFieldsContinuesToLaterFieldsWhenEarlierOnesAreMissing(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::UUID_V7;
         $resolved = 'resolved-value';
 
         $this->vaultService
@@ -380,7 +384,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveFieldsContinuesToLaterFieldsWhenEarlierOnesAreNotVaultIdentifiers(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::UUID_V7;
         $resolved = 'real-secret';
 
         $this->vaultService
@@ -447,7 +451,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveFieldsHandlesMixedFieldsRobustly(): void
     {
-        $identifier = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $identifier = self::UUID_V7;
 
         $this->vaultService
             ->expects(self::once())

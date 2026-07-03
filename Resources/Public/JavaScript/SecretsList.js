@@ -496,7 +496,7 @@ class SecretsList {
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => new SecretsList());
 } else {
-    new SecretsList();
+    new SecretsList(); // NOSONAR: side-effect entry module — instantiation wires up page event handlers on load
 }
 
 export default SecretsList;

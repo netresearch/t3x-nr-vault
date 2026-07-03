@@ -49,7 +49,7 @@ final class FlexFormVaultHook
      *
      * @param array<string, mixed> $fieldArray
      */
-    public function processDatamap_preProcessFieldArray(
+    public function processDatamap_preProcessFieldArray(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         array &$fieldArray,
         string $table,
         string|int $id,
@@ -102,7 +102,7 @@ final class FlexFormVaultHook
      *
      * @param array<string, mixed> $fieldArray
      */
-    public function processDatamap_afterDatabaseOperations(
+    public function processDatamap_afterDatabaseOperations(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $status,
         string $table,
         string|int $id,
@@ -134,7 +134,7 @@ final class FlexFormVaultHook
      *
      * @param array<string, mixed> $recordToDelete
      */
-    public function processCmdmap_deleteAction(
+    public function processCmdmap_deleteAction(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $table,
         int $id,
         array $recordToDelete,
@@ -183,7 +183,7 @@ final class FlexFormVaultHook
      * Called after record copy.
      * Copies FlexForm vault secrets to the new record with fresh UUIDs.
      */
-    public function processCmdmap_postProcess(
+    public function processCmdmap_postProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
         string $table,
         string|int $id,

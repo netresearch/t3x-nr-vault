@@ -48,6 +48,8 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
 
     private const PUBLIC_IP_SECONDARY = '93.184.216.35';
 
+    private const IPV6_EXAMPLE = '2001:db8::1';
+
     private SecureHttpClientFactory $subject;
 
     private InMemoryDnsResolver $dnsResolver;
@@ -107,7 +109,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     {
         // libcurl requires IPv6 addresses in CURLOPT_RESOLVE to be bracketed
         // (`host:port:[ip]`); without brackets curl misparses the colons.
-        $this->dnsResolver->program('v6.example.com', [['ipv6' => '2001:db8::1']]);
+        $this->dnsResolver->program('v6.example.com', [['ipv6' => self::IPV6_EXAMPLE]]);
 
         $entries = $this->callBuildResolveEntries('v6.example.com', 443);
 
@@ -126,7 +128,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // (curl's multi-address form) so curl can fall back across families.
         $this->dnsResolver->program('dual.example.com', [
             ['ip' => self::PUBLIC_IP],
-            ['ipv6' => '2001:db8::1'],
+            ['ipv6' => self::IPV6_EXAMPLE],
         ]);
 
         $entries = $this->callBuildResolveEntries('dual.example.com', 443);
@@ -288,7 +290,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         $this->expectException(RequestException::class);
         $this->expectExceptionMessageMatches('/non-canonical numeric IP form/i');
 
-        $client->get('http://2130706433/');
+        $client->get('http://2130706433/'); // NOSONAR: rejection test — the request is refused before any socket opens; scheme is irrelevant
     }
 
     #[Test]
@@ -314,7 +316,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // the AAAA), breaking IPv4 fallback on IPv6-less hosts.
         $this->dnsResolver->program('dualstack.example', [
             ['ip' => self::PUBLIC_IP],
-            ['ipv6' => '2001:db8::1'],
+            ['ipv6' => self::IPV6_EXAMPLE],
         ]);
         $client = $this->buildCapturingClient($capturedOptions);
 

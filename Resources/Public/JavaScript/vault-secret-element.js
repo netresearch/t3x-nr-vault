@@ -278,7 +278,7 @@ class VaultSecretElement {
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => new VaultSecretElement());
 } else {
-    new VaultSecretElement();
+    new VaultSecretElement(); // NOSONAR: side-effect entry module — instantiation wires up page event handlers on load
 }
 
 export default VaultSecretElement;
