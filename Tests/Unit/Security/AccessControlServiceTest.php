@@ -647,6 +647,146 @@ final class AccessControlServiceTest extends TestCase
         );
     }
 
+    #[Test]
+    public function unauthenticatedCliUserFollowsCliAccessRulesWhenAllowed(): void
+    {
+        // BUG FIX verification (messenger-worker CLI access): the TYPO3 CLI
+        // bootstrap (CommandApplication::run() — console commands, Symfony
+        // Messenger workers, scheduler runs) sets BE_USER to a
+        // CommandLineUserAuthentication "not logged in yet" (user record
+        // null). That placeholder used to take the backend-user precedence
+        // branch in hasAccess(), where every check fails on the empty user
+        // record — shadowing the configured CLI access rules entirely.
+        // With CLI access allowed and no group restrictions, the trusted
+        // CLI operator gets every tier.
+        $this->configuration->method('isCliAccessAllowed')->willReturn(true);
+        $this->configuration->method('getCliAccessGroups')->willReturn([]);
+        $this->setUnauthenticatedCommandLineUser();
+        $secret = $this->createSecret(ownerUid: 42);
+
+        self::assertTrue($this->subject->canRead($secret), 'CLI access allowed: read granted');
+        self::assertTrue($this->subject->canWrite($secret), 'CLI access allowed: write granted');
+        self::assertTrue($this->subject->canDelete($secret), 'CLI access allowed: delete granted');
+    }
+
+    #[Test]
+    public function unauthenticatedCliUserIsDeniedWhenCliAccessDisabled(): void
+    {
+        $this->configuration->method('isCliAccessAllowed')->willReturn(false);
+        $this->setUnauthenticatedCommandLineUser();
+        $secret = $this->createSecret(ownerUid: 42);
+
+        self::assertFalse($this->subject->canRead($secret), 'CLI access off: read denied');
+        self::assertFalse($this->subject->canWrite($secret), 'CLI access off: write denied');
+        self::assertFalse($this->subject->canDelete($secret), 'CLI access off: delete denied');
+    }
+
+    #[Test]
+    public function unauthenticatedCliUserIsScopedToConfiguredCliAccessGroups(): void
+    {
+        // Group-scoped CLI access: read may match read- OR write-tier groups,
+        // write only write-tier groups, delete has no group tier at all.
+        $this->configuration->method('isCliAccessAllowed')->willReturn(true);
+        $this->configuration->method('getCliAccessGroups')->willReturn([5]);
+        $this->setUnauthenticatedCommandLineUser();
+
+        $inScope = $this->createSecret(ownerUid: 42, allowedGroups: [5]);
+        $outOfScope = $this->createSecret(ownerUid: 42, allowedGroups: [7]);
+        $writable = $this->createSecret(ownerUid: 42, writeGroups: [5]);
+
+        self::assertTrue($this->subject->canRead($inScope), 'read-tier group in CLI scope: read granted');
+        self::assertFalse($this->subject->canWrite($inScope), 'read-tier group only: write denied');
+        self::assertFalse($this->subject->canRead($outOfScope), 'group outside CLI scope: read denied');
+        self::assertTrue($this->subject->canWrite($writable), 'write-tier group in CLI scope: write granted');
+        self::assertFalse($this->subject->canDelete($writable), 'group-scoped CLI cannot delete');
+    }
+
+    #[Test]
+    public function unauthenticatedCliUserDoesNotOwnOwnerUidZeroSecrets(): void
+    {
+        // BUG FIX verification: the placeholder's missing user record used to
+        // default to uid 0 in the backend-user branch and MATCH ownerUid=0
+        // secrets via the owner check — granting full access (including
+        // delete) even with CLI access disabled. CLI rules apply instead.
+        $this->configuration->method('isCliAccessAllowed')->willReturn(false);
+        $this->setUnauthenticatedCommandLineUser();
+        $secret = $this->createSecret(ownerUid: 0);
+
+        self::assertFalse($this->subject->canRead($secret), 'ownerUid=0 must not grant read to placeholder');
+        self::assertFalse($this->subject->canWrite($secret), 'ownerUid=0 must not grant write to placeholder');
+        self::assertFalse($this->subject->canDelete($secret), 'ownerUid=0 must not grant delete to placeholder');
+    }
+
+    #[Test]
+    public function unauthenticatedCliUserCanCreateFollowsCliAccessConfig(): void
+    {
+        // BUG FIX verification: canCreate() used to treat the placeholder as
+        // an enabled backend user and returned true regardless of the CLI
+        // access configuration.
+        $this->configuration->method('isCliAccessAllowed')->willReturn(false);
+        $this->setUnauthenticatedCommandLineUser();
+
+        self::assertFalse($this->subject->canCreate(), 'CLI access off: create denied');
+    }
+
+    #[Test]
+    public function unauthenticatedCliUserCanCreateWhenCliAccessAllowed(): void
+    {
+        $this->configuration->method('isCliAccessAllowed')->willReturn(true);
+        $this->setUnauthenticatedCommandLineUser();
+
+        self::assertTrue($this->subject->canCreate(), 'CLI access on: create granted');
+    }
+
+    #[Test]
+    public function authenticatedCliUserKeepsUserBasedAccessSemantics(): void
+    {
+        // An AUTHENTICATED CLI user (after Bootstrap::initializeBackendAuthentication()
+        // loaded the `_cli_` record — an admin in TYPO3) keeps the user-based
+        // precedence: user semantics decide, the CLI access config does not
+        // apply. isCliAccessAllowed() must not even be consulted.
+        $this->configuration->expects(self::never())->method('isCliAccessAllowed');
+
+        $commandLineUser = $this->createMock(CommandLineUserAuthentication::class);
+        $commandLineUser->user = [
+            'uid' => 1,
+            'username' => '_cli_',
+            'disable' => 0,
+        ];
+        $commandLineUser->userGroupsUID = [];
+        $commandLineUser->method('isAdmin')->willReturn(true);
+        $GLOBALS['BE_USER'] = $commandLineUser;
+
+        $secret = $this->createSecret(ownerUid: 42);
+
+        self::assertTrue($this->subject->canRead($secret), 'authenticated _cli_ admin: read via user semantics');
+        self::assertTrue($this->subject->canDelete($secret), 'authenticated _cli_ admin: delete via user semantics');
+        self::assertTrue($this->subject->canCreate(), 'authenticated _cli_ admin: create via user semantics');
+    }
+
+    #[Test]
+    public function unauthenticatedCliUserIsClassifiedAsCliActor(): void
+    {
+        // Audit classification for the messenger-worker placeholder stays 'cli'.
+        $this->setUnauthenticatedCommandLineUser();
+
+        self::assertSame('cli', $this->subject->getCurrentActorType());
+    }
+
+    /**
+     * Set up a mock CLI backend user WITHOUT an authenticated user record, as
+     * present in Symfony Messenger workers and scheduler CLI runs: the TYPO3
+     * CLI bootstrap (CommandApplication::run() -> Bootstrap::initializeBackendUser())
+     * creates the BE_USER "not logged in yet" — `user` stays null unless a
+     * command calls Bootstrap::initializeBackendAuthentication().
+     */
+    private function setUnauthenticatedCommandLineUser(): void
+    {
+        $commandLineUser = $this->createMock(CommandLineUserAuthentication::class);
+        // Deliberately NO $commandLineUser->user assignment: stays null.
+        $GLOBALS['BE_USER'] = $commandLineUser;
+    }
+
     /**
      * Create a test Secret with specified properties.
      *
