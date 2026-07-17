@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-07-17
+
+### Security
+
+- **CLI access control reachable from queue workers and scheduler** (#201). The
+  TYPO3 CLI bootstrap places an unauthenticated `CommandLineUserAuthentication`
+  in `$GLOBALS['BE_USER']`; `AccessControlService` treated it as a backend user,
+  which shadowed the configured CLI access rules — making them unreachable from
+  Symfony Messenger workers and scheduler runs — and let its default uid 0 match
+  `ownerUid=0` secrets, granting read and delete even with CLI access disabled.
+  The unauthenticated placeholder is now routed to the CLI access rules;
+  authenticated `_cli_` users keep their user-based semantics and web requests
+  are unaffected.
+
 ## [0.10.1] - 2026-07-03
 
 ### Security
@@ -576,7 +590,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.2...HEAD
+[0.10.2]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.8.0...v0.9.0
