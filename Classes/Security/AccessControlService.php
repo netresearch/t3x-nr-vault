@@ -69,6 +69,13 @@ final class AccessControlService implements AccessControlServiceInterface
     {
         $backendUser = $this->getBackendUser();
 
+        // An unauthenticated CommandLineUserAuthentication (messenger worker,
+        // scheduler CLI run) must not pass as a backend user — the CLI access
+        // configuration decides. See hasAccess() for the full rationale.
+        if ($this->isUnauthenticatedCommandLineUser($backendUser)) {
+            return $this->configuration->isCliAccessAllowed();
+        }
+
         // Backend user takes precedence
         if ($backendUser instanceof BackendUserAuthentication) {
             // Defence-in-depth: disabled users must not create secrets,
@@ -243,6 +250,23 @@ final class AccessControlService implements AccessControlServiceInterface
     {
         $backendUser = $this->getBackendUser();
 
+        // An UNAUTHENTICATED CommandLineUserAuthentication must not take the
+        // backend-user precedence branch: the TYPO3 CLI bootstrap
+        // (CommandApplication::run() — console commands, Symfony Messenger
+        // workers, scheduler runs) places one in $GLOBALS['BE_USER'] "not
+        // logged in yet", i.e. without a user record. Treating it as a
+        // backend user both shadows the configured CLI access rules (every
+        // group/admin/maintainer check fails on the empty record) AND lets
+        // its default uid 0 match ownerUid=0 secrets via the owner check.
+        // A CommandLineUserAuthentication only ever exists in CLI context
+        // (its constructor throws otherwise — see also getCurrentActorType()),
+        // so the CLI access rules apply directly. An AUTHENTICATED CLI user
+        // (after Bootstrap::initializeBackendAuthentication()) keeps its
+        // user-based access semantics below.
+        if ($this->isUnauthenticatedCommandLineUser($backendUser)) {
+            return $this->hasCliAccess($secret, $permission);
+        }
+
         // Backend user takes precedence
         if ($backendUser instanceof BackendUserAuthentication) {
             return $this->hasBackendUserAccess($backendUser, $secret, $permission);
@@ -250,27 +274,7 @@ final class AccessControlService implements AccessControlServiceInterface
 
         // CLI access control (only when no backend user)
         if ($this->isRealCliContext()) {
-            if (!$this->configuration->isCliAccessAllowed()) {
-                return false;
-            }
-
-            // Check CLI access groups if configured
-            $cliAccessGroups = $this->configuration->getCliAccessGroups();
-            if ($cliAccessGroups !== []) {
-                // The trusted CLI operator is scoped to the configured
-                // groups. The applicable secret-group set widens with the
-                // permission tier: read may match read- OR write-tier
-                // groups, write only write-tier groups, delete has no group
-                // tier at all (owner/admin/maintainer-only — none of which a
-                // CLI actor is — so group-restricted CLI cannot delete).
-                $secretGroups = $this->secretGroupsForPermission($secret, $permission);
-
-                return array_intersect($secretGroups, $cliAccessGroups) !== [];
-            }
-
-            // CLI allowed and no group restrictions: trusted operator gets
-            // the requested tier.
-            return true;
+            return $this->hasCliAccess($secret, $permission);
         }
 
         // Frontend access for secrets explicitly marked as frontend_accessible.
@@ -282,6 +286,71 @@ final class AccessControlService implements AccessControlServiceInterface
         }
 
         return $secret->isFrontendAccessible();
+    }
+
+    /**
+     * Check access for the trusted CLI operator (no authenticated backend
+     * user) against the CLI access configuration.
+     *
+     * @param self::PERMISSION_* $permission
+     */
+    private function hasCliAccess(Secret $secret, string $permission): bool
+    {
+        if (!$this->configuration->isCliAccessAllowed()) {
+            return false;
+        }
+
+        // Check CLI access groups if configured
+        $cliAccessGroups = $this->configuration->getCliAccessGroups();
+        if ($cliAccessGroups !== []) {
+            // The trusted CLI operator is scoped to the configured
+            // groups. The applicable secret-group set widens with the
+            // permission tier: read may match read- OR write-tier
+            // groups, write only write-tier groups, delete has no group
+            // tier at all (owner/admin/maintainer-only — none of which a
+            // CLI actor is — so group-restricted CLI cannot delete).
+            $secretGroups = $this->secretGroupsForPermission($secret, $permission);
+
+            return array_intersect($secretGroups, $cliAccessGroups) !== [];
+        }
+
+        // CLI allowed and no group restrictions: trusted operator gets
+        // the requested tier.
+        return true;
+    }
+
+    /**
+     * Detect the unauthenticated CommandLineUserAuthentication placeholder
+     * that the TYPO3 CLI bootstrap puts into $GLOBALS['BE_USER'] before any
+     * authentication happens (console commands, Symfony Messenger workers,
+     * scheduler runs). It carries no user record (uid), so no user-based
+     * access semantics can apply — CLI access rules must be used instead.
+     * Once authenticate() / Bootstrap::initializeBackendAuthentication() has
+     * loaded the `_cli_` user record, this returns false and the user-based
+     * semantics take over.
+     */
+    private function isUnauthenticatedCommandLineUser(?BackendUserAuthentication $backendUser): bool
+    {
+        if (!$backendUser instanceof CommandLineUserAuthentication) {
+            return false;
+        }
+
+        /** @phpstan-ignore property.internal */
+        $userRecord = $backendUser->user;
+        /** @var array<string, mixed> $userRecordTyped */
+        $userRecordTyped = \is_array($userRecord) ? $userRecord : [];
+        $uid = $userRecordTyped['uid'] ?? null;
+
+        if (\is_int($uid)) {
+            return $uid <= 0;
+        }
+
+        if (is_numeric($uid)) {
+            return (int) $uid <= 0;
+        }
+
+        // No usable uid at all: not authenticated.
+        return true;
     }
 
     /**
