@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-17
+
+### Added
+
+- **`TechnicalActorContext::runAs()`** (#202, #205). Headless consumers
+  (Symfony Messenger workers, scheduler tasks) can evaluate vault access as a
+  named technical backend user without mutating `$GLOBALS['BE_USER']`: the
+  scoped context is consulted directly by `AccessControlService` with the same
+  user semantics an authenticated backend login gets (owner, admin, group ACLs
+  with subgroup expansion). Actor validation is fail-closed (deleted, disabled,
+  time-restricted and non-rootLevel users are rejected before the scope
+  starts), nesting stacks innermost-wins, the identity is always restored on
+  scope exit, and audit rows record the actor as `technical`. Ambient behavior
+  without an active scope is unchanged.
+
 ## [0.10.2] - 2026-07-17
 
 ### Security
@@ -590,7 +605,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.2...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.9.0...v0.10.0
