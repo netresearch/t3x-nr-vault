@@ -49,4 +49,12 @@ final class TechnicalActorException extends VaultException
             1784000004,
         );
     }
+
+    public static function userNotAtRootLevel(int $beUserUid): self
+    {
+        return new self(
+            \sprintf('Technical actor uid %d refers to a be_users record outside the root level (pid != 0)', $beUserUid),
+            1784000005,
+        );
+    }
 }

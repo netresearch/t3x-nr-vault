@@ -60,6 +60,7 @@ Code         Refusal
 1784000002   no non-deleted ``be_users`` record with that uid
 1784000003   the user record is disabled
 1784000004   the user is outside its start/end time window
+1784000005   the user record is not at root level (``pid`` != 0)
 ===========  ==================================================
 
 The identity is **always** restored on scope exit — including when the

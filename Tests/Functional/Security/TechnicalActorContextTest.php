@@ -27,7 +27,8 @@ use PHPUnit\Framework\Attributes\Test;
  * uses core semantics including subgroup expansion.
  *
  * Fixture: be_users 10 `tech_indexer` (usergroup 6), 11 `tech_disabled`
- * (disabled); be_groups 6 `indexers` with subgroup 5 `vault-readers`.
+ * (disabled), 12 `tech_offroot` (pid 5); be_groups 6 `indexers` with
+ * subgroup 5 `vault-readers`.
  */
 #[CoversClass(TechnicalActorContext::class)]
 final class TechnicalActorContextTest extends AbstractVaultFunctionalTestCase
@@ -83,6 +84,17 @@ final class TechnicalActorContextTest extends AbstractVaultFunctionalTestCase
         $this->expectExceptionCode(1784000003);
 
         $context->runAs(11, static fn (): bool => true);
+    }
+
+    #[Test]
+    public function runAsRefusesUserOutsideRootLevel(): void
+    {
+        $context = $this->get(TechnicalActorContextInterface::class);
+
+        $this->expectException(TechnicalActorException::class);
+        $this->expectExceptionCode(1784000005);
+
+        $context->runAs(12, static fn (): bool => true);
     }
 
     #[Test]

@@ -59,10 +59,11 @@ final class TechnicalActorContext implements TechnicalActorContextInterface
      * Load and validate the be_users record for the requested actor.
      *
      * Mirrors the enable-column semantics of a real backend login
-     * (`deleted`, `disable`, `starttime`, `endtime`): a user who could not
-     * authenticate interactively must not be usable as a technical actor
-     * either. Fail-closed — every rejection throws before the caller's
-     * callable runs.
+     * (`deleted`, `disable`, `starttime`, `endtime`) plus its rootLevel
+     * restriction (`pid` = 0): a user who could not authenticate
+     * interactively must not be usable as a technical actor either.
+     * Fail-closed — every rejection throws before the caller's callable
+     * runs.
      *
      * @param positive-int $beUserUid
      *
@@ -77,6 +78,10 @@ final class TechnicalActorContext implements TechnicalActorContextInterface
         $record = $this->loadUserRecord($beUserUid);
         if ($record === null) {
             throw TechnicalActorException::userNotFound($beUserUid);
+        }
+
+        if ($this->toInt($record['pid'] ?? 0) !== 0) {
+            throw TechnicalActorException::userNotAtRootLevel($beUserUid);
         }
 
         if ($this->toInt($record['disable'] ?? 0) !== 0) {

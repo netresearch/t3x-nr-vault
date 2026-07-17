@@ -25,8 +25,9 @@ use Netresearch\NrVault\Exception\TechnicalActorException;
  * with access to this service can act as any enabled backend user — the
  * same power `$GLOBALS['BE_USER']` mutation already grants every
  * extension. The value of the API is scoping (identity always restored,
- * even on exceptions), validation (deleted/disabled/time-restricted users
- * are refused), and audit attribution (`actor_type` = `technical`).
+ * even on exceptions), validation (deleted/disabled/time-restricted/
+ * off-root users are refused), and audit attribution
+ * (`actor_type` = `technical`).
  */
 interface TechnicalActorContextInterface
 {
@@ -44,8 +45,9 @@ interface TechnicalActorContextInterface
      * @param callable(): T $fn
      *
      * @throws TechnicalActorException if `$beUserUid` is not positive, or the
-     *                                 record is missing/deleted, disabled, or
-     *                                 outside its start/end time window
+     *                                 record is missing/deleted, disabled,
+     *                                 outside its start/end time window, or
+     *                                 not at root level (`pid` != 0)
      *
      * @return T
      */

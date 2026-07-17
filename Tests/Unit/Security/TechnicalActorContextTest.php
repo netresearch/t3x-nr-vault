@@ -119,6 +119,17 @@ final class TechnicalActorContextTest extends TestCase
     }
 
     #[Test]
+    public function runAsRejectsUserOutsideRootLevel(): void
+    {
+        $subject = $this->createSubject([$this->userRow(uid: 42, pid: 5)]);
+
+        $this->expectException(TechnicalActorException::class);
+        $this->expectExceptionCode(1784000005);
+
+        $subject->runAs(42, static fn (): bool => true);
+    }
+
+    #[Test]
     public function runAsReturnsTheCallableResult(): void
     {
         $subject = $this->createSubject([$this->userRow(uid: 42)]);
@@ -292,6 +303,7 @@ final class TechnicalActorContextTest extends TestCase
      */
     private function userRow(
         int $uid,
+        int $pid = 0,
         string $username = 'technical_user',
         int $admin = 0,
         int $disable = 0,
@@ -301,6 +313,7 @@ final class TechnicalActorContextTest extends TestCase
     ): array {
         return [
             'uid' => $uid,
+            'pid' => $pid,
             'username' => $username,
             'admin' => $admin,
             'disable' => $disable,
