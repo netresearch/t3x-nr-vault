@@ -28,7 +28,7 @@ final class VaultAnalyticsService implements VaultAnalyticsServiceInterface
     private const AUDIT_TABLE = 'tx_nrvault_audit_log';
 
     /** actor_type values that count as automated (machine) reads. */
-    private const AUTOMATED_ACTORS = ['cli', 'api', 'scheduler'];
+    private const AUTOMATED_ACTORS = ['cli', 'api', 'scheduler', 'technical'];
 
     /**
      * Request-scoped memo of the audit read-split, keyed by windowStart, so the

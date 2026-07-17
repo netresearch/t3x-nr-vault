@@ -1,0 +1,9 @@
+"be_users",,,,,,,,
+,"uid","pid","tstamp","username","password","admin","disable","usergroup"
+,10,0,1700000000,"tech_indexer","",0,0,"6"
+,11,0,1700000000,"tech_disabled","",0,1,""
+,12,5,1700000000,"tech_offroot","",0,0,""
+"be_groups",,,,,
+,"uid","pid","tstamp","title","subgroup"
+,5,0,1700000000,"vault-readers",""
+,6,0,1700000000,"indexers","5"

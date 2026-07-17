@@ -48,6 +48,7 @@ final class AccessControlService implements AccessControlServiceInterface
     public function __construct(
         private readonly ExtensionConfigurationInterface $configuration,
         private readonly ?ConnectionPool $connectionPool = null,
+        private readonly ?TechnicalActorContextInterface $technicalActorContext = null,
     ) {}
 
     public function canRead(Secret $secret): bool
@@ -67,6 +68,13 @@ final class AccessControlService implements AccessControlServiceInterface
 
     public function canCreate(): bool
     {
+        // An active technical actor was validated as a real, enabled backend
+        // user when its runAs() scope was established — same outcome as the
+        // authenticated-BE-user branch below (any enabled user can create).
+        if ($this->getTechnicalActor() instanceof TechnicalActor) {
+            return true;
+        }
+
         $backendUser = $this->getBackendUser();
 
         // An unauthenticated CommandLineUserAuthentication (messenger worker,
@@ -95,6 +103,11 @@ final class AccessControlService implements AccessControlServiceInterface
 
     public function isCurrentActorAdmin(): bool
     {
+        $technicalActor = $this->getTechnicalActor();
+        if ($technicalActor instanceof TechnicalActor) {
+            return $technicalActor->admin;
+        }
+
         $backendUser = $this->getBackendUser();
         if (!$backendUser instanceof BackendUserAuthentication) {
             return false;
@@ -108,6 +121,11 @@ final class AccessControlService implements AccessControlServiceInterface
 
     public function getCurrentActorUid(): int
     {
+        $technicalActor = $this->getTechnicalActor();
+        if ($technicalActor instanceof TechnicalActor) {
+            return $technicalActor->uid;
+        }
+
         $backendUser = $this->getBackendUser();
         if (!$backendUser instanceof BackendUserAuthentication) {
             return 0;
@@ -123,6 +141,13 @@ final class AccessControlService implements AccessControlServiceInterface
 
     public function getCurrentActorType(): string
     {
+        // The technical actor supersedes even CLI detection: a runAs() scope
+        // typically runs INSIDE a CLI worker, and the audit log must record
+        // the named technical identity — not the anonymous CLI operator.
+        if ($this->getTechnicalActor() instanceof TechnicalActor) {
+            return 'technical';
+        }
+
         // CLI detection must run BEFORE the backend-user check: the TYPO3 CLI
         // bootstrap (console commands, messenger workers) sets
         // $GLOBALS['BE_USER'] to a CommandLineUserAuthentication instance —
@@ -154,6 +179,11 @@ final class AccessControlService implements AccessControlServiceInterface
 
     public function getCurrentActorUsername(): string
     {
+        $technicalActor = $this->getTechnicalActor();
+        if ($technicalActor instanceof TechnicalActor) {
+            return $technicalActor->username;
+        }
+
         $backendUser = $this->getBackendUser();
         if ($backendUser instanceof BackendUserAuthentication) {
             /** @phpstan-ignore property.internal */
@@ -174,6 +204,11 @@ final class AccessControlService implements AccessControlServiceInterface
 
     public function getCurrentUserGroups(): array
     {
+        $technicalActor = $this->getTechnicalActor();
+        if ($technicalActor instanceof TechnicalActor) {
+            return $technicalActor->groupIds;
+        }
+
         $backendUser = $this->getBackendUser();
         if (!$backendUser instanceof BackendUserAuthentication) {
             return [];
@@ -248,6 +283,17 @@ final class AccessControlService implements AccessControlServiceInterface
      */
     private function hasAccess(Secret $secret, string $permission): bool
     {
+        // An active TechnicalActorContext::runAs() scope supersedes every
+        // ambient branch below (the unauthenticated CLI placeholder, a
+        // hypothetical $GLOBALS['BE_USER'], the frontend fallback): the
+        // caller explicitly asked to be evaluated as that named backend
+        // user. Without an active scope this is a no-op and the ambient
+        // behaviour is unchanged.
+        $technicalActor = $this->getTechnicalActor();
+        if ($technicalActor instanceof TechnicalActor) {
+            return $this->hasTechnicalActorAccess($technicalActor, $secret, $permission);
+        }
+
         $backendUser = $this->getBackendUser();
 
         // An UNAUTHENTICATED CommandLineUserAuthentication must not take the
@@ -351,6 +397,51 @@ final class AccessControlService implements AccessControlServiceInterface
 
         // No usable uid at all: not authenticated.
         return true;
+    }
+
+    /**
+     * Check access for a validated technical actor — the SAME user-based
+     * semantics an authenticated backend user gets in
+     * `hasBackendUserAccess()`, evaluated against the actor's snapshot:
+     *
+     * - admin → full access to every tier (this also covers the system
+     *   maintainer, because `isSystemMaintainer()` implies the admin flag);
+     * - owner → full access to every tier;
+     * - group tier per ADR-005, with the same stale-group filtering.
+     *
+     * No disabled-user re-check: `TechnicalActorContext::runAs()` refuses
+     * deleted/disabled/time-restricted users before the scope starts.
+     *
+     * @param self::PERMISSION_* $permission
+     */
+    private function hasTechnicalActorAccess(
+        TechnicalActor $actor,
+        Secret $secret,
+        string $permission,
+    ): bool {
+        if ($actor->admin) {
+            return true;
+        }
+
+        if ($secret->getOwnerUid() === $actor->uid) {
+            return true;
+        }
+
+        $secretGroups = $this->secretGroupsForPermission($secret, $permission);
+        if ($secretGroups !== []) {
+            $userGroups = $this->filterExistingGroupIds($actor->groupIds);
+
+            if (array_intersect($secretGroups, $userGroups) !== []) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function getTechnicalActor(): ?TechnicalActor
+    {
+        return $this->technicalActorContext?->getCurrentActor();
     }
 
     /**

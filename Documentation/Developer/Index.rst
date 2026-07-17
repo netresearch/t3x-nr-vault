@@ -13,6 +13,7 @@ Developer
    Commands
    TcaIntegration
    SecureOutbound
+   TechnicalActorContext
    Adr/Index
 
 .. _developer-architecture:

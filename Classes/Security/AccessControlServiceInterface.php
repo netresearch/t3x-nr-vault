@@ -69,7 +69,11 @@ interface AccessControlServiceInterface
     /**
      * Get the current actor type.
      *
-     * @return string One of: 'backend', 'cli', 'api', 'scheduler'
+     * 'technical' marks an active `TechnicalActorContext::runAs()` scope
+     * and supersedes all ambient detection — the audit log records the
+     * named technical identity, not the CLI operator it runs under.
+     *
+     * @return string One of: 'backend', 'cli', 'api', 'scheduler', 'technical'
      */
     public function getCurrentActorType(): string;
 

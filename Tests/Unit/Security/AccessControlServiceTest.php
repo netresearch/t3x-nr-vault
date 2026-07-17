@@ -13,6 +13,8 @@ use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Security\AccessControlService;
+use Netresearch\NrVault\Security\TechnicalActor;
+use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -773,6 +775,215 @@ final class AccessControlServiceTest extends TestCase
         self::assertSame('cli', $this->subject->getCurrentActorType());
     }
 
+    // ----- TechnicalActorContext (scoped runAs identity) ---------------------
+
+    #[Test]
+    public function technicalActorAdminHasFullAccessToAnySecret(): void
+    {
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: true, groupIds: []),
+        );
+        $secret = $this->createSecret(ownerUid: 999);
+
+        self::assertTrue($subject->canRead($secret));
+        self::assertTrue($subject->canWrite($secret));
+        self::assertTrue($subject->canDelete($secret));
+    }
+
+    #[Test]
+    public function technicalActorOwnerHasFullAccessToOwnSecret(): void
+    {
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: false, groupIds: []),
+        );
+        $secret = $this->createSecret(ownerUid: 42);
+
+        self::assertTrue($subject->canRead($secret));
+        self::assertTrue($subject->canWrite($secret));
+        self::assertTrue($subject->canDelete($secret));
+    }
+
+    #[Test]
+    public function technicalActorIsDeniedOnUnrelatedSecret(): void
+    {
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: false, groupIds: []),
+        );
+        $secret = $this->createSecret(ownerUid: 999, allowedGroups: [7]);
+
+        self::assertFalse($subject->canRead($secret));
+        self::assertFalse($subject->canWrite($secret));
+        self::assertFalse($subject->canDelete($secret));
+    }
+
+    #[Test]
+    public function technicalActorReadTierGroupGrantsReadButNotWriteOrDelete(): void
+    {
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: false, groupIds: [5]),
+            existingGroupUids: [5],
+        );
+        $secret = $this->createSecret(ownerUid: 999, allowedGroups: [5]);
+
+        self::assertTrue($subject->canRead($secret));
+        self::assertFalse($subject->canWrite($secret));
+        self::assertFalse($subject->canDelete($secret));
+    }
+
+    #[Test]
+    public function technicalActorWriteTierGroupGrantsReadAndWriteButNotDelete(): void
+    {
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: false, groupIds: [5]),
+            existingGroupUids: [5],
+        );
+        $secret = $this->createSecret(ownerUid: 999, writeGroups: [5]);
+
+        self::assertTrue($subject->canRead($secret));
+        self::assertTrue($subject->canWrite($secret));
+        self::assertFalse($subject->canDelete($secret));
+    }
+
+    #[Test]
+    public function technicalActorStaleGroupDoesNotGrantAccess(): void
+    {
+        // Group 5 is in the actor's snapshot but no longer exists in
+        // be_groups — the same stale-group defence as for real BE users.
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: false, groupIds: [5]),
+            existingGroupUids: [],
+        );
+        $secret = $this->createSecret(ownerUid: 999, allowedGroups: [5]);
+
+        self::assertFalse($subject->canRead($secret));
+    }
+
+    #[Test]
+    public function technicalActorSupersedesUnauthenticatedCliPlaceholder(): void
+    {
+        // Messenger-worker reality: $GLOBALS['BE_USER'] holds the CLI
+        // placeholder and CLI access is disabled — the runAs() actor still
+        // gets its user-based semantics.
+        $this->setUnauthenticatedCommandLineUser();
+        $this->configuration->method('isCliAccessAllowed')->willReturn(false);
+
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: false, groupIds: []),
+        );
+        $secret = $this->createSecret(ownerUid: 42);
+
+        self::assertTrue($subject->canRead($secret));
+    }
+
+    #[Test]
+    public function technicalActorSupersedesAmbientBackendUser(): void
+    {
+        // The ambient admin session must NOT leak into a runAs() scope: the
+        // non-admin technical actor is denied on a foreign secret even while
+        // $GLOBALS['BE_USER'] is an admin.
+        $this->setBackendUser(uid: 1, isAdmin: true);
+
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: false, groupIds: []),
+        );
+        $secret = $this->createSecret(ownerUid: 999);
+
+        self::assertFalse($subject->canRead($secret));
+    }
+
+    #[Test]
+    public function technicalActorCanCreate(): void
+    {
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: false, groupIds: []),
+        );
+
+        self::assertTrue($subject->canCreate());
+    }
+
+    #[Test]
+    public function technicalActorIsReportedForAuditAttribution(): void
+    {
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech_indexer', admin: false, groupIds: [5, 7]),
+        );
+
+        self::assertSame('technical', $subject->getCurrentActorType());
+        self::assertSame(42, $subject->getCurrentActorUid());
+        self::assertSame('tech_indexer', $subject->getCurrentActorUsername());
+        self::assertSame([5, 7], $subject->getCurrentUserGroups());
+    }
+
+    #[Test]
+    public function technicalActorTypeSupersedesCliClassification(): void
+    {
+        $this->setUnauthenticatedCommandLineUser();
+
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: false, groupIds: []),
+        );
+
+        self::assertSame('technical', $subject->getCurrentActorType());
+    }
+
+    #[Test]
+    public function isCurrentActorAdminReflectsTheTechnicalActor(): void
+    {
+        $admin = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: true, groupIds: []),
+        );
+        $nonAdmin = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: false, groupIds: []),
+        );
+
+        self::assertTrue($admin->isCurrentActorAdmin());
+        self::assertFalse($nonAdmin->isCurrentActorAdmin());
+    }
+
+    // ----- Characterization: behaviour without an active runAs() scope ------
+
+    #[Test]
+    public function inactiveTechnicalActorContextKeepsWebBehaviourIdentical(): void
+    {
+        // A wired-but-inactive context (no runAs() scope) must not change a
+        // single ambient decision. Mirrors the pre-existing expectations of
+        // canReadReturnsFalseWithoutBackendUser / canReadReturnsTrueForAdmin /
+        // canReadReturnsTrueForOwner.
+        $subject = $this->createSubjectWithTechnicalActor(null);
+
+        $foreign = $this->createSecret(ownerUid: 1);
+        self::assertFalse($subject->canRead($foreign), 'no BE user: denied');
+        self::assertFalse($subject->canCreate(), 'no BE user: cannot create');
+        self::assertSame(0, $subject->getCurrentActorUid());
+
+        $this->setBackendUser(uid: 5, isAdmin: false);
+        $own = $this->createSecret(ownerUid: 5);
+        self::assertTrue($subject->canRead($own), 'owner: allowed');
+        self::assertFalse($subject->canRead($foreign), 'non-owner: denied');
+        self::assertSame('backend', $subject->getCurrentActorType());
+        self::assertSame(5, $subject->getCurrentActorUid());
+
+        $this->setBackendUser(uid: 1, isAdmin: true);
+        self::assertTrue($subject->canRead($foreign), 'admin: allowed');
+        self::assertTrue($subject->canDelete($foreign), 'admin: delete allowed');
+    }
+
+    #[Test]
+    public function inactiveTechnicalActorContextKeepsCliBehaviourIdentical(): void
+    {
+        // Mirrors unauthenticatedCliUserIsClassifiedAsCliActor and the CLI
+        // access-config routing with a wired-but-inactive context.
+        $this->setUnauthenticatedCommandLineUser();
+        $this->configuration->method('isCliAccessAllowed')->willReturn(false);
+
+        $subject = $this->createSubjectWithTechnicalActor(null);
+        $secret = $this->createSecret(ownerUid: 0);
+
+        self::assertSame('cli', $subject->getCurrentActorType());
+        self::assertFalse($subject->canRead($secret), 'CLI disabled: denied');
+        self::assertFalse($subject->canCreate(), 'CLI disabled: cannot create');
+    }
+
     /**
      * Set up a mock CLI backend user WITHOUT an authenticated user record, as
      * present in Symfony Messenger workers and scheduler CLI runs: the TYPO3
@@ -891,5 +1102,49 @@ final class AccessControlServiceTest extends TestCase
             ->willReturn($queryBuilder);
 
         return new AccessControlService($this->configuration, $connectionPool);
+    }
+
+    /**
+     * Build an AccessControlService wired to a TechnicalActorContext whose
+     * current actor is `$actor` (null = wired but no active runAs() scope).
+     *
+     * @param list<int>|null $existingGroupUids be_groups uids the ConnectionPool
+     *                                          reports as existing; null = no
+     *                                          ConnectionPool (group checks fail closed)
+     */
+    private function createSubjectWithTechnicalActor(
+        ?TechnicalActor $actor,
+        ?array $existingGroupUids = null,
+    ): AccessControlService {
+        $technicalActorContext = $this->createMock(TechnicalActorContextInterface::class);
+        $technicalActorContext->method('getCurrentActor')->willReturn($actor);
+
+        $connectionPool = null;
+        if ($existingGroupUids !== null) {
+            $rows = array_map(static fn (int $uid): array => ['uid' => $uid], $existingGroupUids);
+
+            $result = $this->createMock(Result::class);
+            $result->method('fetchAllAssociative')->willReturn($rows);
+
+            $expressionBuilder = $this->createMock(ExpressionBuilder::class);
+            $expressionBuilder->method('eq')->willReturn('deleted = 0');
+
+            $queryBuilder = $this->createMock(QueryBuilder::class);
+            $queryBuilder->method('getRestrictions')->willReturn($this->createMock(DefaultRestrictionContainer::class));
+            $queryBuilder->method('select')->willReturnSelf();
+            $queryBuilder->method('from')->willReturnSelf();
+            $queryBuilder->method('where')->willReturnSelf();
+            $queryBuilder->method('expr')->willReturn($expressionBuilder);
+            $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
+            $queryBuilder->method('executeQuery')->willReturn($result);
+
+            $connectionPool = $this->createMock(ConnectionPool::class);
+            $connectionPool
+                ->method('getQueryBuilderForTable')
+                ->with('be_groups')
+                ->willReturn($queryBuilder);
+        }
+
+        return new AccessControlService($this->configuration, $connectionPool, $technicalActorContext);
     }
 }
