@@ -53,6 +53,7 @@ ADR      Title                                       Status
 026      :ref:`adr-026-dns-rebinding-defence`        Accepted
 027      :ref:`adr-027-oauth-client-unification`     Accepted
 028      :ref:`adr-028-phpat-http-client-lock`       Accepted
+029      :ref:`adr-029-technical-actor-context`      Accepted
 =======  ==========================================  ========
 
 .. toctree::
@@ -87,3 +88,4 @@ ADR      Title                                       Status
    ADR-026-DnsRebindingDefence
    ADR-027-OAuthClientUnification
    ADR-028-PhpatHttpClientLock
+   ADR-029-TechnicalActorContext

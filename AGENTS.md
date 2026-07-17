@@ -126,6 +126,10 @@ EncryptionServiceInterface::calculateChecksum(string $plaintext): string
 // Master key — Classes/Crypto/MasterKeyProviderInterface.php
 MasterKeyProviderInterface::getMasterKey(): string
 
+// Technical actor (headless runAs) — Classes/Security/TechnicalActorContextInterface.php
+TechnicalActorContextInterface::runAs(int $beUserUid, callable $fn): mixed
+TechnicalActorContextInterface::getCurrentActor(): ?TechnicalActor
+
 // Audit logging — Classes/Audit/AuditLogServiceInterface.php
 AuditLogServiceInterface::log(
     string $secretIdentifier, string $action, bool $success,

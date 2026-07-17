@@ -10,6 +10,7 @@ services:
       - '../Classes/Domain/Model/*'
       - '../Classes/Exception/*'
       - '../Classes/Http/OAuth/OAuthConfig.php'
+      - '../Classes/Security/TechnicalActor.php'
 
   # ----- Interface aliases -------------------------------------------------
   # Symfony's `autoconfigure` auto-aliases an interface to its single
@@ -45,6 +46,9 @@ services:
 
   Netresearch\NrVault\Security\AccessControlServiceInterface:
     alias: Netresearch\NrVault\Security\AccessControlService
+
+  Netresearch\NrVault\Security\TechnicalActorContextInterface:
+    alias: Netresearch\NrVault\Security\TechnicalActorContext
 
   Netresearch\NrVault\Audit\AuditLogServiceInterface:
     alias: Netresearch\NrVault\Audit\AuditLogService

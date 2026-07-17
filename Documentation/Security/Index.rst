@@ -196,6 +196,33 @@ Secret access is controlled at multiple levels:
    CLI access requires explicit configuration and can be restricted
    to specific groups.
 
+Technical actors
+----------------
+
+Headless code (messenger workers, scheduler runs) can act as a named
+technical backend user through the scoped
+:ref:`TechnicalActorContext::runAs() API
+<developer-technical-actor-context>` instead of the global CLI switch.
+
+Threat-model notes:
+
+-  ``runAs()`` is **not** an authentication boundary: any PHP code with
+   DI access can act as any enabled backend user — the same power that
+   ``$GLOBALS['BE_USER']`` mutation already grants every installed
+   extension.
+   Its security value is validation (deleted/disabled/time-restricted
+   users are refused), guaranteed scope restoration (also on
+   exceptions), and honest audit attribution.
+-  ``$GLOBALS['BE_USER']`` is never mutated, so a technical identity
+   cannot leak into other code sharing the PHP process.
+-  Audit entries written inside a scope carry ``actor_type =
+   'technical'`` plus the actor's uid and username, sealed into the
+   HMAC hash chain — impersonation is always attributable and
+   tamper-evident.
+-  Restrict the technical user like any backend account: no admin flag
+   unless required, minimal group membership, and monitor its
+   ``access_denied`` events.
+
 .. _security-best-practices:
 
 Security best practices

@@ -122,6 +122,45 @@ final class AuditLogServiceTest extends TestCase
     }
 
     #[Test]
+    public function logRecordsTechnicalActorAttributionAsReportedByAccessControl(): void
+    {
+        // Inside a TechnicalActorContext::runAs() scope AccessControlService
+        // reports the named technical identity; the audit row must seal it
+        // (actor_type 'technical' marks the scope) instead of the ambient
+        // CLI/backend attribution.
+        $this->setupDatabaseMocks();
+
+        $accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $accessControlService->method('getCurrentActorUid')->willReturn(42);
+        $accessControlService->method('getCurrentActorType')->willReturn('technical');
+        $accessControlService->method('getCurrentActorUsername')->willReturn('tech_indexer');
+        $accessControlService->method('getCurrentUserGroups')->willReturn([5]);
+
+        self::assertNotNull($this->connectionPool);
+        self::assertNotNull($this->masterKeyProvider);
+        self::assertNotNull($this->extensionConfiguration);
+        $subject = new AuditLogService(
+            $this->connectionPool,
+            $accessControlService,
+            $this->masterKeyProvider,
+            $this->extensionConfiguration,
+        );
+
+        $this->connection
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                'tx_nrvault_audit_log',
+                self::callback(static fn (array $data): bool => $data['actor_uid'] === 42
+                    && $data['actor_type'] === 'technical'
+                    && $data['actor_username'] === 'tech_indexer'
+                    && $data['actor_role'] === 'groups:5'),
+            );
+
+        $subject->log('test_secret', 'read', true);
+    }
+
+    #[Test]
     public function logCreatesAuditEntryForReadAction(): void
     {
         $this->setupDatabaseMocks();
