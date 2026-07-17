@@ -19,17 +19,27 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use ReflectionClass;
 use RuntimeException;
 use TYPO3\CMS\Core\Authentication\GroupResolver;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\DefaultRestrictionContainer;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 #[CoversClass(TechnicalActorContext::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class TechnicalActorContextTest extends TestCase
 {
+    protected function tearDown(): void
+    {
+        // Remove ConnectionPool instances queued for v13's GroupResolver
+        // (see createGroupResolver()) that the test path did not consume.
+        GeneralUtility::purgeInstances();
+        parent::tearDown();
+    }
+
     #[Test]
     public function runAsRejectsZeroUidWithoutTouchingTheDatabase(): void
     {
@@ -277,7 +287,22 @@ final class TechnicalActorContextTest extends TestCase
         $eventDispatcher->method('dispatch')->willReturnArgument(0);
 
         // @internal core class; see TechnicalActorContext::resolveGroupIds().
-        return new GroupResolver($eventDispatcher, $connectionPool);
+        // v14 takes the ConnectionPool as a constructor argument, v13 fetches
+        // it via GeneralUtility::makeInstance() on every be_groups lookup.
+        $reflection = new ReflectionClass(GroupResolver::class);
+        if (($reflection->getConstructor()?->getNumberOfParameters() ?? 1) >= 2) {
+            return new GroupResolver($eventDispatcher, $connectionPool);
+        }
+
+        // One makeInstance() call per fetchRowsFromDatabase(): the initial
+        // lookup plus at most one recursion per group row with subgroups.
+        // Instances not consumed by the test path are purged in tearDown().
+        $poolLookups = \count($groupRows) + 1;
+        for ($i = 0; $i < $poolLookups; ++$i) {
+            GeneralUtility::addInstance(ConnectionPool::class, $connectionPool);
+        }
+
+        return $reflection->newInstance($eventDispatcher);
     }
 
     private function createQueryBuilderMock(Result&MockObject $result): QueryBuilder&MockObject
