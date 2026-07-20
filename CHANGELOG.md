@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-21
+
+### Fixed
+
+- **`DataHandlerHook` TypeError when translating content in copy mode** (#207,
+  #208). TYPO3 core reassigns the `$pasteUpdate` hook argument from its `false`
+  default to an array on the localize / copy-to-language path, so the `bool`
+  type on `processCmdmap_preProcess()` and `processCmdmap_postProcess()` raised
+  a `TypeError` before the command guard ran, breaking content-element
+  translation via the `records/localize` AJAX endpoint. The parameter now
+  accepts `bool|array`, matching core's runtime contract.
+
 ## [0.11.0] - 2026-07-17
 
 ### Added
