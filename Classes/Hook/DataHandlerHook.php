@@ -160,6 +160,13 @@ final class DataHandlerHook
     /**
      * Called before record deletion.
      * Removes associated vault secrets.
+     *
+     * @param bool|array<string, mixed> $pasteUpdate TYPO3 core defaults this to `false`
+     *                                               but reassigns it to `$value['update']`
+     *                                               (an array) on the localize / copy-to-
+     *                                               language path, so the type must accept
+     *                                               both to avoid a TypeError before the
+     *                                               command guard below runs.
      */
     public function processCmdmap_preProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
@@ -167,7 +174,7 @@ final class DataHandlerHook
         string|int $id,
         mixed $value,
         DataHandler $dataHandler,
-        bool $pasteUpdate,
+        bool|array $pasteUpdate,
     ): void {
         if ($command !== 'delete') {
             return;
@@ -220,6 +227,13 @@ final class DataHandlerHook
     /**
      * Called after record copy.
      * Copies vault secrets to the new record with new UUIDs.
+     *
+     * @param bool|array<string, mixed> $pasteUpdate TYPO3 core defaults this to `false`
+     *                                               but reassigns it to `$value['update']`
+     *                                               (an array) on the localize / copy-to-
+     *                                               language path, so the type must accept
+     *                                               both to avoid a TypeError before the
+     *                                               command guard below runs.
      */
     public function processCmdmap_postProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
@@ -227,7 +241,7 @@ final class DataHandlerHook
         string|int $id,
         mixed $value,
         DataHandler $dataHandler,
-        bool $pasteUpdate,
+        bool|array $pasteUpdate,
     ): void {
         if ($command !== 'copy') {
             return;
