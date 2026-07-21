@@ -33,6 +33,11 @@ parameters:
             # UpgradeWizardInterface moved from cms-install to cms-core in v14.
             # The wizard only runs in v14+ where the interface exists.
             - Classes/Upgrades/AuditHmacMigrationWizard.php
+            # AdminOnlyWidgetInterface was added in TYPO3 v14 (absent in v13.4).
+            # These empty marker subclasses are only registered in the DI
+            # container when the interface exists (Services.Dashboard.php).
+            - Classes/Widgets/AdminOnlyNumberWithIconWidget.php
+            - Classes/Widgets/AdminOnlyBarChartWidget.php
     reportUnmatchedIgnoredErrors: false
 
     ignoreErrors:

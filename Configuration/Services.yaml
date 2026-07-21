@@ -11,6 +11,10 @@ services:
       - '../Classes/Exception/*'
       - '../Classes/Http/OAuth/OAuthConfig.php'
       - '../Classes/Security/TechnicalActor.php'
+      # Widgets depend on typo3/cms-dashboard classes (a "suggest", not a
+      # requirement) — they are registered by Services.Dashboard.php, imported
+      # from Services.php only when EXT:dashboard is installed.
+      - '../Classes/Widgets/*'
 
   # ----- Interface aliases -------------------------------------------------
   # Symfony's `autoconfigure` auto-aliases an interface to its single
