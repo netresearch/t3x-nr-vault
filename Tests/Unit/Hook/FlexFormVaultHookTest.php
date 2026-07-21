@@ -677,6 +677,27 @@ final class FlexFormVaultHookTest extends TestCase
     }
 
     #[Test]
+    public function postProcessAcceptsArrayPasteUpdate(): void
+    {
+        // Regression for #207: on the localize / copy-to-language path TYPO3 core
+        // reassigns $pasteUpdate from its `false` default to `$value['update']` (an
+        // array) before invoking the hook. A `bool`-typed parameter threw a
+        // TypeError at the signature, before the command guard could run.
+        $this->dataHandler->copyMappingArray = [];
+
+        $this->vaultService->expects(self::never())->method('retrieve');
+
+        $this->subject->processCmdmap_postProcess(
+            'copy',
+            'tt_content',
+            42,
+            null,
+            $this->dataHandler,
+            ['colPos' => 0, 'sys_language_uid' => 1],
+        );
+    }
+
+    #[Test]
     public function postProcessSkipsCopyForTableWithoutFlexFields(): void
     {
         $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
