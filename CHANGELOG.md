@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-07-21
+
+### Fixed
+
+- **Copy-mode translation TypeError also fixed for FlexForm vault fields**
+  (#207, #210). The 0.11.1 fix covered only `DataHandlerHook`; the same
+  `bool`-typed `$pasteUpdate` parameter remained on
+  `FlexFormVaultHook::processCmdmap_postProcess` and threw the identical
+  `TypeError` when translating records with FlexForm vault fields in copy
+  mode. The parameter now accepts `bool|array` — the last remaining
+  `bool`-typed `$pasteUpdate` in the extension.
+
 ## [0.11.1] - 2026-07-21
 
 ### Fixed
