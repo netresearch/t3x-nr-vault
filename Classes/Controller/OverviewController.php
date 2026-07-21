@@ -56,6 +56,7 @@ final readonly class OverviewController
         // Expose JS UI labels to TYPO3.lang for any vault ESM module that may
         // run on the overview surface (graceful: modules fall back to English).
         $this->pageRenderer->addInlineLanguageLabelFile('EXT:nr_vault/Resources/Private/Language/locallang_js.xlf');
+        $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
         // Get statistics for the overview
         $stats = $this->getVaultStatistics();
@@ -69,25 +70,25 @@ final readonly class OverviewController
             'submodules' => [
                 [
                     'route' => 'admin_vault_secrets',
-                    'icon' => 'content-elements-login',
+                    'icon' => 'module-vault-secrets',
                     'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.title'),
                     'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.secrets.description'),
                 ],
                 [
                     'route' => 'admin_vault_analytics',
-                    'icon' => 'content-widget-chart-bar',
+                    'icon' => 'module-vault-analytics',
                     'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.title'),
                     'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.analytics.description'),
                 ],
                 [
                     'route' => 'admin_vault_audit',
-                    'icon' => 'actions-document-history-open',
+                    'icon' => 'module-vault-audit',
                     'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.title'),
                     'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.audit.description'),
                 ],
                 [
                     'route' => 'admin_vault_migration',
-                    'icon' => 'actions-database-import',
+                    'icon' => 'module-vault-migration',
                     'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.title'),
                     'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.migration.description'),
                 ],
@@ -105,6 +106,7 @@ final readonly class OverviewController
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
         $this->buildDocHeaderTabMenu($moduleTemplate, 'help');
+        $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
         $moduleTemplate->assignMultiple([
             'dashboardUrl' => (string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME),

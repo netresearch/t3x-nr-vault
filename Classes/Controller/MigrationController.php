@@ -31,6 +31,7 @@ use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 
 /**
@@ -67,6 +68,7 @@ final readonly class MigrationController
         private UriBuilder $uriBuilder,
         private FlashMessageService $flashMessageService,
         private IconFactory $iconFactory,
+        private PageRenderer $pageRenderer,
     ) {}
 
     /**
@@ -74,6 +76,8 @@ final readonly class MigrationController
      */
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
     {
+        $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
+
         $queryParams = $request->getQueryParams();
         $action = $queryParams['action'] ?? 'index';
 

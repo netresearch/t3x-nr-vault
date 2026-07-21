@@ -1,174 +1,39 @@
 /**
  * Backend module styles for nr_vault.
  *
- * Brand colors (Netresearch):
- * - Primary: #2F99A4 (Turquoise)
- * - Accent: #FF4D00 (Orange)
- * - Text: #585961 (Dark Gray)
- * - Light Gray: #CCCDCC
+ * Color rules:
+ * - No hardcoded text/background colors: surfaces use TYPO3 v14 design
+ *   tokens (var(--typo3-*)) with Bootstrap 5.3 fallbacks (var(--bs-*)) so
+ *   they adapt to the light and dark backend color schemes.
+ * - The Netresearch brand teal (#2f99a4) appears only as an accent. Core
+ *   forces black text on .text-bg-* badges, which keeps sufficient contrast
+ *   on the teal background in both color schemes.
  */
 
-:root {
-    --nr-primary: #2F99A4;
-    --nr-primary-dark: #267d86;
-    --nr-accent: #FF4D00;
-    --nr-text: #585961;
-    --nr-gray: #CCCDCC;
-    --nr-white: #ffffff;
-}
-
-.vault-module {
-    padding: 1rem;
-    color: var(--nr-text);
-}
-
-.vault-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--bs-border-color);
-}
-
-.vault-header h1 {
-    margin: 0;
-    font-size: 1.5rem;
-}
-
-.vault-actions {
-    display: flex;
-    gap: 0.5rem;
-}
-
-/* Filter bar - TYPO3 backend style (form-row / form-group) */
-.vault-module .form-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    align-items: flex-end;
-    margin-bottom: 1rem;
-}
-
-.vault-module .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.vault-module .form-label {
-    font-size: 0.875rem;
-    font-weight: 500;
-}
-
-.vault-module .form-control,
-.vault-module .form-select {
-    font-size: 0.875rem;
-}
-
-.vault-stats {
-    margin-bottom: 1rem;
-}
-
-.vault-stats .badge {
-    margin-right: 0.5rem;
-}
-
-/* Table adjustments */
-.vault-module .table code {
-    background: transparent;
-    padding: 0;
-    font-size: 0.85em;
-}
-
-.vault-module .table-sm td,
-.vault-module .table-sm th {
-    padding: 0.5rem;
-}
-
-/* Badge override for Netresearch primary color */
+/* Brand accent: teal count/info badges. !important is required to win over
+ * the core utility (.text-bg-info { background-color: ... !important }). */
 .badge.text-bg-info,
 .badge.text-bg-primary {
-    background-color: var(--nr-primary) !important;
+    background-color: #2f99a4 !important;
 }
 
-/* Table action buttons - remove visible styling for icon-only buttons */
-.vault-module .col-control .btn-group {
-    gap: 0;
+/* Code examples (Overview module).
+ * TYPO3 v14 forces the magenta inline-code color on every <code> element
+ * (core: `code { color: var(--typo3-text-color-code) !important }`), which
+ * is hard to read for multi-line examples, especially in dark mode. Render
+ * code blocks on an adaptive surface with the base text color instead. */
+.vault-codeblock {
+    background-color: var(--typo3-surface-container-low, var(--bs-tertiary-bg, #f5f5f5));
+    border: 1px solid var(--typo3-component-border-color, var(--bs-border-color, #d7d7d7));
+    color: var(--typo3-text-color-base, var(--bs-body-color, #333333));
 }
 
-.vault-module .col-control .btn-group .btn {
-    background: transparent;
-    border: none;
-    padding: 0.25rem 0.375rem;
-    line-height: 1;
+.vault-codeblock code {
+    /* !important needed to win over the core rule cited above. */
+    color: inherit !important;
 }
 
-.vault-module .col-control .btn-group .btn:hover,
-.vault-module .col-control .btn-group .btn:focus {
-    background: var(--bs-secondary-bg);
-}
-
-.vault-module .col-control .btn-group .btn:focus-visible {
-    outline: 2px solid var(--nr-primary);
-    outline-offset: 1px;
-}
-
-.vault-module .col-control .btn-group .d-inline {
-    display: inline-flex !important;
-}
-
-/* Netresearch branded buttons */
-.vault-module .btn-primary {
-    background-color: var(--nr-primary);
-    border-color: var(--nr-primary);
-}
-
-.vault-module .btn-primary:hover,
-.vault-module .btn-primary:focus {
-    background-color: var(--nr-primary-dark);
-    border-color: var(--nr-primary-dark);
-}
-
-.vault-module .btn-accent {
-    background-color: var(--nr-accent);
-    border-color: var(--nr-accent);
-    color: var(--nr-white);
-}
-
-.vault-module .btn-accent:hover,
-.vault-module .btn-accent:focus {
-    background-color: #e04400;
-    border-color: #e04400;
-    color: var(--nr-white);
-}
-
-/* Netresearch footer attribution */
-.vault-footer {
-    margin-top: 2rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--nr-gray);
-    font-size: 0.85rem;
-    color: var(--nr-text);
-    text-align: center;
-}
-
-.vault-footer a {
-    color: var(--nr-primary);
-    text-decoration: none;
-}
-
-.vault-footer a:hover {
-    color: var(--nr-primary-dark);
-    text-decoration: underline;
-}
-
-/* Pagination */
-.vault-module .pagination {
-    margin-top: 1rem;
-}
-
-/* Audit log table column widths (moved off inline styles for CSP style-src) */
+/* Audit log table column widths (kept off inline styles for CSP style-src). */
 .vault-col-time {
     width: 100px;
 }
@@ -183,66 +48,4 @@
 
 .vault-col-ip {
     width: 130px;
-}
-
-/* Audit log styling */
-
-.vault-date-header {
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--nr-text);
-    margin: 1.5rem 0 0.5rem 0;
-    padding-bottom: 0.25rem;
-    border-bottom: 2px solid var(--nr-primary);
-}
-
-.vault-date-header:first-of-type {
-    margin-top: 0;
-}
-
-.vault-actor {
-    display: inline-flex;
-    align-items: center;
-}
-
-.vault-hash {
-    font-family: monospace;
-    font-size: 0.75rem;
-}
-
-/* Hash chain verification result */
-.vault-chain-result {
-    margin-top: 1rem;
-    padding: 1rem;
-    border-radius: 0.25rem;
-}
-
-.vault-chain-result.valid {
-    background: var(--bs-success-bg-subtle, #d4edda);
-    border: 1px solid var(--bs-success-border-subtle, #c3e6cb);
-    color: var(--bs-success-text-emphasis, inherit);
-}
-
-.vault-chain-result.invalid {
-    background: var(--bs-danger-bg-subtle, #f8d7da);
-    border: 1px solid var(--bs-danger-border-subtle, #f5c6cb);
-    color: var(--bs-danger-text-emphasis, inherit);
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-    .vault-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 1rem;
-    }
-
-    .vault-filters .form-inline {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .vault-filters .form-group {
-        width: 100%;
-    }
 }
