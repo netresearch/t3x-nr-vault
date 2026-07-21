@@ -17,6 +17,7 @@ use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\UriBuilder as BackendUriBuilder;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Page\PageRenderer;
 
 /**
  * Backend module controller for the vault usage-analytics submodule.
@@ -35,12 +36,14 @@ final readonly class AnalyticsController
         private ModuleTemplateFactory $moduleTemplateFactory,
         private VaultAnalyticsServiceInterface $analyticsService,
         private BackendUriBuilder $backendUriBuilder,
+        private PageRenderer $pageRenderer,
     ) {}
 
     public function indexAction(ServerRequestInterface $request): ResponseInterface
     {
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
+        $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
         $window = $this->resolveWindow($request);
         $stats = $this->analyticsService->getUsageStats($window);

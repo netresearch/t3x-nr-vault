@@ -113,7 +113,7 @@
                 <div class="card-body">
                     <h3 class="card-title h5">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.quickstart.use.title')}</h3>
                     <p class="card-text">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.quickstart.use.description')}</p>
-                    <pre class="bg-body-tertiary p-2 rounded mb-0"><code class="text-body">%vault(stripe_api_key)%</code></pre>
+                    <pre class="vault-codeblock p-2 rounded mb-0"><code>%vault(stripe_api_key)%</code></pre>
                 </div>
             </div>
         </div>
@@ -130,7 +130,7 @@
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.site_keys.title')}
                     </h3>
                     <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.site_keys.description')}</p>
-                    <pre class="bg-body-tertiary p-3 rounded mb-0"><code class="text-body">settings:
+                    <pre class="vault-codeblock p-3 rounded mb-0"><code>settings:
   stripeKey: '%vault(stripe_api_key)%'
   mailchimpKey: '%vault(mailchimp_key)%'</code></pre>
                 </div>
@@ -144,7 +144,7 @@
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.per_record.title')}
                     </h3>
                     <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.per_record.description')}</p>
-                    <pre class="bg-body-tertiary p-3 rounded mb-0"><code class="text-body">'api_key' => [
+                    <pre class="vault-codeblock p-3 rounded mb-0"><code>'api_key' => [
     'label' => 'Client API Key',
     'config' => [
         'type' => 'input',
@@ -162,7 +162,7 @@
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.extension.title')}
                     </h3>
                     <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.extension.description')}</p>
-                    <pre class="bg-body-tertiary p-3 rounded mb-0"><code class="text-body">public function __construct(
+                    <pre class="vault-codeblock p-3 rounded mb-0"><code>public function __construct(
     private readonly VaultServiceInterface $vault,
 ) {}
 
@@ -182,7 +182,7 @@ public function callExternalApi(): Response
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.http_client.title')}
                     </h3>
                     <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.http_client.description')}</p>
-                    <pre class="bg-body-tertiary p-3 rounded mb-0"><code class="text-body">public function __construct(
+                    <pre class="vault-codeblock p-3 rounded mb-0"><code>public function __construct(
     private readonly VaultHttpClientInterface $http,
 ) {}
 
@@ -207,7 +207,7 @@ public function fetchData(): array
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.deployment.title')}
                     </h3>
                     <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.deployment.description')}</p>
-                    <pre class="bg-body-tertiary p-3 rounded mb-0"><code class="text-body"># In deployment script
+                    <pre class="vault-codeblock p-3 rounded mb-0"><code># In deployment script
 bin/typo3 vault:store smtp_password "$SMTP_PASS"
 bin/typo3 vault:store api_key "$API_KEY"
 
@@ -224,7 +224,7 @@ bin/typo3 vault:rotate api_key "$NEW_KEY"</code></pre>
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.frontend.title')} <small class="text-warning">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.frontend.sparingly')}</small>
                     </h3>
                     <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.frontend.description')}</p>
-                    <pre class="bg-body-tertiary p-3 rounded mb-0"><code class="text-body">lib.mapsKey = TEXT
+                    <pre class="vault-codeblock p-3 rounded mb-0"><code>lib.mapsKey = TEXT
 lib.mapsKey.value = %vault(google_maps_key)%
 lib.mapsKey.stdWrap.cache.disable = 1</code></pre>
                 </div>
@@ -238,7 +238,7 @@ lib.mapsKey.stdWrap.cache.disable = 1</code></pre>
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.tca_helper.title')}
                     </h3>
                     <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.tca_helper.description')}</p>
-                    <pre class="bg-body-tertiary p-3 rounded mb-0"><code class="text-body">use Netresearch\NrVault\TCA\VaultFieldHelper;
+                    <pre class="vault-codeblock p-3 rounded mb-0"><code>use Netresearch\NrVault\TCA\VaultFieldHelper;
 
 'api_key' => VaultFieldHelper::getSecureFieldConfig(
     'API Key',

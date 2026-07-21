@@ -43,7 +43,7 @@
             <p>
                 {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.getting_started.step3.text')}
             </p>
-            <pre class="bg-body-tertiary p-3 rounded"><code>%vault(stripe_api_key)%</code></pre>
+            <pre class="vault-codeblock p-3 rounded"><code>%vault(stripe_api_key)%</code></pre>
             <p>
                 {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.getting_started.step3.text2')}
             </p>
@@ -224,7 +224,7 @@
                             <p>
                                 {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.cicd.answer.intro')}
                             </p>
-                            <pre class="bg-body-tertiary p-2 rounded"><code>bin/typo3 vault:store api_key "$NEW_API_KEY"
+                            <pre class="vault-codeblock p-2 rounded"><code>bin/typo3 vault:store api_key "$NEW_API_KEY"
 bin/typo3 vault:rotate smtp_password "$NEW_SMTP_PASS"</code></pre>
                             <p>
                                 {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.cicd.answer.outro')}
