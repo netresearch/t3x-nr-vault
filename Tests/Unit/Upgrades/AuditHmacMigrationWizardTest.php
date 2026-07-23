@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Unit\Upgrades;
 
 use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Result;
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
@@ -46,11 +47,14 @@ final class AuditHmacMigrationWizardTest extends TestCase
         $this->connectionPool = $this->createStub(ConnectionPool::class);
         $this->masterKeyProvider = $this->createStub(MasterKeyProviderInterface::class);
         $this->configuration = $this->createStub(ExtensionConfigurationInterface::class);
+        // Default: chain is safe to re-seal (verifyChainForReseal() returns null).
+        $auditLogService = $this->createStub(AuditLogServiceInterface::class);
 
         $this->subject = new AuditHmacMigrationWizard(
             $this->connectionPool,
             $this->masterKeyProvider,
             $this->configuration,
+            $auditLogService,
         );
     }
 

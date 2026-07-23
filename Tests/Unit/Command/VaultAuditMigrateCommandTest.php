@@ -10,6 +10,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
 use Doctrine\DBAL\Result;
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Command\VaultAuditMigrateCommand;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
@@ -33,6 +35,8 @@ final class VaultAuditMigrateCommandTest extends TestCase
 
     private ExtensionConfigurationInterface $extensionConfiguration;
 
+    private AuditLogServiceInterface $auditLogService;
+
     private QueryBuilder $queryBuilder;
 
     private CommandTester $commandTester;
@@ -44,6 +48,8 @@ final class VaultAuditMigrateCommandTest extends TestCase
         $this->connectionPool = $this->createStub(ConnectionPool::class);
         $this->masterKeyProvider = $this->createStub(MasterKeyProviderInterface::class);
         $this->extensionConfiguration = $this->createStub(ExtensionConfigurationInterface::class);
+        // Default: chain is safe to re-seal (verifyChainForReseal() returns null).
+        $this->auditLogService = $this->createStub(AuditLogServiceInterface::class);
         $this->queryBuilder = $this->createStub(QueryBuilder::class);
 
         $this->masterKeyProvider
@@ -62,6 +68,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
             $this->connectionPool,
             $this->masterKeyProvider,
             $this->extensionConfiguration,
+            $this->auditLogService,
         );
 
         $application = new Application();
@@ -77,6 +84,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
             $this->connectionPool,
             $this->masterKeyProvider,
             $this->extensionConfiguration,
+            $this->auditLogService,
         );
 
         self::assertSame('vault:audit-migrate-hmac', $command->getName());
@@ -222,6 +230,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
             $this->connectionPool,
             $this->masterKeyProvider,
             $extensionConfig,
+            $this->auditLogService,
         );
 
         $application = new Application();
@@ -232,6 +241,44 @@ final class VaultAuditMigrateCommandTest extends TestCase
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('Cannot migrate to epoch 0', $tester->getDisplay());
+    }
+
+    #[Test]
+    public function migrationAbortsWhenExistingChainFailsVerification(): void
+    {
+        // One outdated row so the command reaches the pre-reseal verification.
+        $countResult = $this->createStub(Result::class);
+        $countResult->method('fetchOne')->willReturn(1);
+
+        $this->queryBuilder->method('count')->willReturnSelf();
+        $this->queryBuilder->method('from')->willReturnSelf();
+        $this->queryBuilder->method('where')->willReturnSelf();
+        $this->queryBuilder->method('createNamedParameter')->willReturn('0');
+        $this->queryBuilder->method('executeQuery')->willReturn($countResult);
+
+        // The existing chain is reported unsafe to re-seal.
+        $auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        $auditLogService->method('verifyChainForReseal')
+            ->willReturn(HashChainVerificationResult::invalid([0 => 'HMAC key epoch downgrade detected']));
+
+        $command = new VaultAuditMigrateCommand(
+            $this->connectionPool,
+            $this->masterKeyProvider,
+            $this->extensionConfiguration,
+            $auditLogService,
+        );
+
+        // update() must never be called — nothing is re-sealed.
+        $connection = $this->wireConnectionMock();
+        $connection->expects(self::never())->method('update');
+
+        $application = new Application();
+        $application->addCommand($command);
+        $tester = new CommandTester($command);
+        $exitCode = $tester->execute([]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('verification FAILED', $tester->getDisplay());
     }
 
     /**

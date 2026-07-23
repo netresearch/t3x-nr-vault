@@ -69,8 +69,30 @@ interface AuditLogServiceInterface
 
     /**
      * Verify hash chain integrity.
+     *
+     * @param int|null $minEpoch Lowest acceptable per-row `hmac_key_epoch`. When null
+     *                           (the default for all production callers) the configured
+     *                           audit HMAC epoch is used as the floor, so a chain whose
+     *                           highest epoch was downgraded below the configured level
+     *                           (e.g. relabelled to keyless epoch-0 SHA-256) fails
+     *                           verification. Pass 0 to verify a chain under its own
+     *                           stored epochs without the configured-epoch floor (used by
+     *                           the HMAC migration to check a not-yet-migrated chain).
      */
-    public function verifyHashChain(?int $fromUid = null, ?int $toUid = null): HashChainVerificationResult;
+    public function verifyHashChain(?int $fromUid = null, ?int $toUid = null, ?int $minEpoch = null): HashChainVerificationResult;
+
+    /**
+     * Verify that the existing chain is safe to re-seal before the HMAC migration
+     * rewrites every entry hash.
+     *
+     * Returns null when it is safe to proceed — either the chain verifies under its
+     * own stored epochs, or it is a genuinely-legacy keyless epoch-0 chain that
+     * carries no tamper evidence to check (re-sealing is how it GAINS protection).
+     * Returns the failed {@see HashChainVerificationResult} when the chain is
+     * HMAC-protected and fails verification, so callers can refuse to re-seal a
+     * tampered chain (which would launder the tampering into a fresh valid chain).
+     */
+    public function verifyChainForReseal(): ?HashChainVerificationResult;
 
     /**
      * Get the hash of the most recent audit log entry.

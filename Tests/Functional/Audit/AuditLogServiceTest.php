@@ -477,4 +477,53 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
             }
         }
     }
+
+    #[Test]
+    public function verifyHashChainRejectsFullEpochZeroRelabelOfHmacChain(): void
+    {
+        $auditService = $this->get(AuditLogServiceInterface::class);
+        $vaultService = $this->get(VaultServiceInterface::class);
+
+        $identifier = $this->generateUuidV7();
+        $vaultService->store($identifier, 'relabel-test-value');
+        $vaultService->retrieve($identifier);
+        $vaultService->delete($identifier, 'cleanup');
+
+        self::assertTrue($auditService->verifyHashChain()->isValid(), 'Precondition: chain valid before relabel');
+
+        // Attacker relabels EVERY row to keyless epoch-0 and recomputes a valid
+        // keyless SHA-256 chain (identity fields only) in UID order.
+        $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
+        $rows = $connection->createQueryBuilder()
+            ->select('uid', 'secret_identifier', 'action', 'actor_uid', 'crdate')
+            ->from('tx_nrvault_audit_log')
+            ->orderBy('uid', 'ASC')
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        $previousHash = '';
+        foreach ($rows as $row) {
+            $entryHash = AuditLogService::calculateHash(
+                (int) $row['uid'],
+                (string) $row['secret_identifier'],
+                (string) $row['action'],
+                (int) $row['actor_uid'],
+                (int) $row['crdate'],
+                $previousHash,
+            );
+            $connection->update(
+                'tx_nrvault_audit_log',
+                ['previous_hash' => $previousHash, 'entry_hash' => $entryHash, 'hmac_key_epoch' => 0],
+                ['uid' => (int) $row['uid']],
+            );
+            $previousHash = $entryHash;
+        }
+
+        $result = $auditService->verifyHashChain();
+
+        self::assertFalse(
+            $result->isValid(),
+            'A uniform relabel to keyless epoch-0 on an HMAC-configured install must be rejected',
+        );
+    }
 }

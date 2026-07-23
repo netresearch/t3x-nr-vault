@@ -168,8 +168,16 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         } while (\count($chunk) === $chunkSize);
     }
 
-    public function verifyHashChain(?int $fromUid = null, ?int $toUid = null): HashChainVerificationResult
+    public function verifyHashChain(?int $fromUid = null, ?int $toUid = null, ?int $minEpoch = null): HashChainVerificationResult
     {
+        // Epoch floor: the lowest per-row epoch the chain may legitimately carry.
+        // Defaults to the configured audit HMAC epoch so a DB-write attacker cannot
+        // relabel an HMAC-migrated chain down to keyless epoch-0 (which needs no HMAC
+        // key to re-sign) and have the recomputed keyless chain still report valid.
+        // Callers that must verify a not-yet-migrated chain under its own stored
+        // epochs (the HMAC migration) pass 0 to disable the configured floor.
+        $epochFloor = $minEpoch ?? $this->getCurrentEpoch();
+
         $queryBuilder = $this->getConnection()->createQueryBuilder();
         $queryBuilder
             ->select('*')
@@ -199,6 +207,9 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         $missingUidCount = 0;
         $previousHash = '';
         $previousEpoch = -1;
+        // Highest epoch observed across the chain (the "high-water mark"). Stays
+        // -1 for an empty chain so the epoch-floor check below is skipped.
+        $maxEpoch = -1;
         // When the caller specified $fromUid, treat $fromUid-1 as the
         // previous UID so a leading gap (first row > $fromUid) is still
         // detected. Otherwise start at -1 meaning "no prior row yet".
@@ -285,6 +296,9 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 }
 
                 $previousEpoch = $epoch;
+                if ($epoch > $maxEpoch) {
+                    $maxEpoch = $epoch;
+                }
 
                 // Epoch-aware hash dispatch:
                 //   0 → legacy SHA-256 (identity fields only)
@@ -319,9 +333,51 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             sodium_memzero($hmacKey);
         }
 
+        // Chain-level epoch-floor check (finding audit-chain-integrity, F3).
+        //
+        // The per-row consecutive-epoch check above catches a PARTIAL downgrade
+        // (a DECREASE between adjacent rows), but a DB-write attacker can relabel
+        // EVERY row uniformly to keyless epoch-0 and recompute a fully self-
+        // consistent SHA-256 chain — no decrease, every previous_hash links, every
+        // entry_hash matches. The only tell is external: the installation is
+        // configured for HMAC, so the chain's highest epoch must reach the floor.
+        // A high-water mark below the floor means the algorithm selector was
+        // downgraded below the configured protection level. Applied only to a
+        // full-chain pass ($fromUid/$toUid null) — a bounded sub-range may
+        // legitimately exclude the higher-epoch rows. $maxEpoch === -1 means an
+        // empty chain, which has nothing to downgrade.
+        if ($fromUid === null && $toUid === null && $maxEpoch !== -1 && $maxEpoch < $epochFloor) {
+            $errors[0] = \sprintf(
+                'HMAC key epoch downgrade detected: chain high-water epoch %d is below the configured floor %d (possible algorithm-downgrade forgery)',
+                $maxEpoch,
+                $epochFloor,
+            );
+        }
+
         return $errors === []
             ? HashChainVerificationResult::valid($warnings, $missingUids, $missingUidCount)
             : HashChainVerificationResult::invalid($errors, $warnings, $missingUids, $missingUidCount);
+    }
+
+    public function verifyChainForReseal(): ?HashChainVerificationResult
+    {
+        // Genuinely-legacy keyless epoch-0 chains carry no tamper evidence to
+        // check — re-sealing them is exactly how they FIRST gain HMAC protection,
+        // so there is nothing to launder and nothing to verify. Proceed.
+        if (!$this->chainHasHmacRows()) {
+            return null;
+        }
+
+        // The chain is (at least partly) HMAC-protected. Verify it under its OWN
+        // stored epochs (floor 0 — the chain may legitimately sit below the
+        // migration target, e.g. an epoch-1 chain migrating to epoch 2). A
+        // DB-write attacker cannot forge a valid HMAC without the key, so any
+        // tampering of an HMAC row surfaces here. Re-sealing a tampered chain
+        // would rewrite every hash under the current key and launder the
+        // tampering into a freshly valid chain — so report it for refusal.
+        $result = $this->verifyHashChain(minEpoch: 0);
+
+        return $result->isValid() ? null : $result;
     }
 
     public function getLatestHash(): ?string
@@ -627,6 +683,29 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     public static function deriveHmacKeyFromMasterKey(#[SensitiveParameter] string $masterKey): string
     {
         return hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+    }
+
+    /**
+     * Whether any row is already HMAC-protected (epoch >= 1). Distinguishes a
+     * genuinely-legacy keyless chain (nothing to authenticate) from one that
+     * carries HMAC tamper evidence worth verifying before a re-seal.
+     */
+    private function chainHasHmacRows(): bool
+    {
+        $queryBuilder = $this->getConnection()->createQueryBuilder();
+        $count = $queryBuilder
+            ->count('uid')
+            ->from(self::TABLE_NAME)
+            ->where(
+                $queryBuilder->expr()->gte(
+                    'hmac_key_epoch',
+                    $queryBuilder->createNamedParameter(1, Connection::PARAM_INT),
+                ),
+            )
+            ->executeQuery()
+            ->fetchOne();
+
+        return is_numeric($count) && (int) $count > 0;
     }
 
     /**

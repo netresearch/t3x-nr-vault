@@ -216,9 +216,14 @@ final class VaultServiceAtomicityTest extends AbstractVaultFunctionalTestCase
                 return [];
             }
 
-            public function verifyHashChain(?int $fromUid = null, ?int $toUid = null): HashChainVerificationResult
+            public function verifyHashChain(?int $fromUid = null, ?int $toUid = null, ?int $minEpoch = null): HashChainVerificationResult
             {
                 return new HashChainVerificationResult(true);
+            }
+
+            public function verifyChainForReseal(): ?HashChainVerificationResult
+            {
+                return null;
             }
 
             public function getLatestHash(): ?string
