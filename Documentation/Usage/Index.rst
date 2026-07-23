@@ -172,15 +172,34 @@ Reference secrets in your site configuration files using the
        mailchimpApiKey: '%vault(mailchimp_api_key)%'
        sendgridToken: '%vault(sendgrid_token)%'
 
-Secrets are resolved at runtime when the site configuration is loaded.
+References are **not** resolved automatically when TYPO3 loads the site
+configuration. Resolve them explicitly, at the point of use, with
+:php:`SiteConfigurationVaultProcessor`:
+
+.. code-block:: php
+   :caption: Resolve site-configuration secrets at read time
+
+   use Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessor;
+   use TYPO3\CMS\Core\Utility\GeneralUtility;
+
+   $site = $request->getAttribute('site');
+   $processor = GeneralUtility::makeInstance(SiteConfigurationVaultProcessor::class);
+   $config = $processor->processConfiguration($site->getConfiguration(), $site);
+   $stripeSecret = $config['settings']['payment']['stripeSecretKey'];
+
 This keeps sensitive values out of your version control while still
 allowing you to configure them through the familiar site settings.
 
 .. important::
 
-   Site configuration secrets are resolved on every request. Ensure
-   your vault storage is performant (the default local adapter caches
-   lookups).
+   Resolution is caller-driven, not automatic. TYPO3 persists the loaded
+   site configuration into its shared, on-disk ``core`` cache; resolving
+   :yaml:`%vault(identifier)%` references eagerly at load time would write the
+   decrypted secrets into that cache file in cleartext and would run the
+   per-principal access check only once, when the cache is warmed. Resolving
+   at read time keeps the plaintext within the current request and re-checks
+   access for every reader. Passing the :php:`$site` object also enables
+   site-scoped identifiers (``site:<siteIdentifier>:<secret>``).
 
 .. _usage-typoscript:
 

@@ -23,7 +23,14 @@ use TYPO3\CMS\Core\Site\Entity\Site;
  *     settings:
  *         secret: '%vault(site_payment_secret)%'
  *
- * The vault identifier is resolved at runtime when the configuration is accessed.
+ * Resolution is caller-driven and happens at read time. There is deliberately
+ * NO event listener that resolves references when TYPO3 loads the site
+ * configuration: TYPO3 persists the loaded configuration array into the shared,
+ * on-disk `core` cache, so eager resolution would write decrypted secrets to
+ * that cache file in cleartext (defeating encryption-at-rest) and would evaluate
+ * the per-principal access check exactly once, at cache-warm time, instead of
+ * for each reader. Callers therefore resolve explicitly, in their own request
+ * context, and the resolved plaintext lives only for that request.
  *
  * Usage in site configuration (config/sites/<identifier>/config.yaml):
  *
@@ -34,7 +41,7 @@ use TYPO3\CMS\Core\Site\Entity\Site;
  *             apiKey: '%vault(payment_api_key)%'
  *             secret: '%vault(payment_secret)%'
  *
- * Then retrieve in code:
+ * Then resolve in code, at the point of use:
  *
  *     $site = $request->getAttribute('site');
  *     $processor = GeneralUtility::makeInstance(SiteConfigurationVaultProcessor::class);

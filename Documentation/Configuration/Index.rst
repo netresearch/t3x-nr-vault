@@ -277,9 +277,32 @@ Use the :yaml:`%vault(identifier)%` syntax in site configuration files:
      email:
        mailchimpKey: '%vault(mailchimp_key)%'
 
-Secrets are resolved when the site configuration is loaded. This keeps
-sensitive values out of version control while allowing configuration
+References are resolved on demand, in the reading context, via
+:php:`SiteConfigurationVaultProcessor` — not automatically when the site
+configuration is loaded:
+
+.. code-block:: php
+   :caption: Resolve at read time
+
+   use Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessor;
+   use TYPO3\CMS\Core\Utility\GeneralUtility;
+
+   $site = $request->getAttribute('site');
+   $processor = GeneralUtility::makeInstance(SiteConfigurationVaultProcessor::class);
+   $config = $processor->processConfiguration($site->getConfiguration(), $site);
+   $stripeKey = $config['settings']['payment']['stripeSecretKey'];
+
+This keeps sensitive values out of version control while allowing configuration
 through the standard TYPO3 site settings.
+
+.. note::
+
+   Resolution is deliberately caller-driven. TYPO3 caches the loaded site
+   configuration to an on-disk file; resolving :yaml:`%vault()%` references
+   eagerly at load time would persist the decrypted secrets there in cleartext
+   and would enforce access control only once, at cache-warm time. Read-time
+   resolution avoids both. See :ref:`Site configuration <usage-site-configuration>`
+   in the Usage chapter for the full example.
 
 .. _configuration-frontend:
 
