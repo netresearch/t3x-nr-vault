@@ -9,7 +9,10 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Hook;
 
+use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Throwable;
@@ -62,10 +65,21 @@ final class SecretTcaHook
      */
     private array $pendingSecrets = [];
 
+    /**
+     * Record UIDs whose delete command failed the vault ACL in
+     * processCmdmap_preProcess(), to be cancelled in processCmdmap(). Entries
+     * are consumed (unset) when the cancel is applied so a DI-shared hook
+     * instance cannot leak a stale denial across DataHandler runs.
+     *
+     * @var array<int, true>
+     */
+    private array $deniedDeletions = [];
+
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
         private readonly AuditLogServiceInterface $auditService,
         private readonly AccessControlServiceInterface $accessControlService,
+        private readonly SecretRepositoryInterface $secretRepository,
     ) {}
 
     /**
@@ -255,38 +269,111 @@ final class SecretTcaHook
     }
 
     /**
-     * Called before record deletion.
-     * Logs deletion to audit log.
+     * Called before a command (here: delete) is processed. Enforces the vault
+     * delete ACL (F5 / CWE-862) and records the audit entry.
+     *
+     * DataHandler's own table permissions are NOT the vault ACL, so the gate
+     * lives here — mirroring VaultService::delete()'s canDelete() check (the
+     * most restrictive tier: owner / admin / system maintainer only, ADR-005).
+     * A denied delete is flagged for cancellation in processCmdmap() and logged
+     * as access_denied; only an authorized delete records a delete success.
+     *
+     * The extra $value/$dataHandler parameters are supplied by core
+     * (DataHandler passes six positional args); they are optional so the
+     * pre-existing three-argument unit-test calls still bind.
      */
     public function processCmdmap_preProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
         string $table,
         string|int $id,
+        mixed $value = null,
+        ?DataHandler $dataHandler = null,
     ): void {
         if ($table !== self::TABLE || $command !== 'delete') {
             return;
         }
 
-        $record = BackendUtility::getRecord(self::TABLE, (int) $id, 'identifier');
-        if ($record === null) {
+        $uid = is_numeric($id) ? (int) $id : 0;
+        $secret = $this->secretRepository->findByUid($uid);
+        if (!$secret instanceof Secret) {
             return;
         }
 
-        $recordIdentifier = \is_string($record['identifier'] ?? null) ? $record['identifier'] : '';
-        if ($recordIdentifier === '') {
+        $identifier = $secret->getIdentifier();
+
+        // Write-path authorization (CWE-862): only the owner, an admin or a
+        // system maintainer may delete a secret. A non-owner non-admin editor
+        // with generic table-modify rights must be stopped here.
+        if (!$this->accessControlService->canDelete($secret)) {
+            $this->deniedDeletions[$uid] = true;
+
+            try {
+                $this->auditService->log(
+                    $identifier,
+                    AuditAction::AccessDenied->value,
+                    false,
+                    'Delete access denied',
+                    'FormEngine delete denied',
+                );
+            } catch (Throwable) {
+                // A failed audit write must not mask the denial.
+            }
+
+            /** @phpstan-ignore method.internal */
+            $dataHandler?->log(
+                self::TABLE,
+                $uid,
+                2,
+                null,
+                1,
+                'Vault secret can only be deleted by its owner or an administrator',
+            );
+
             return;
         }
 
+        // Authorized delete: record the audit entry now, while the identifier
+        // is still resolvable (core removes the row afterwards).
         try {
             $this->auditService->log(
-                $recordIdentifier,
-                'delete',
+                $identifier,
+                AuditAction::Delete->value,
                 true,
                 null,
                 'Deleted via FormEngine',
             );
         } catch (Throwable) {
             // Don't fail the delete if audit logging fails
+        }
+    }
+
+    /**
+     * Cancels a delete command that failed the vault ACL in
+     * processCmdmap_preProcess(). Setting $commandIsProcessed = true makes core
+     * skip its own deleteAction() (DataHandler runs this hook before the
+     * command switch), so the record is preserved.
+     *
+     * The denial flag is consumed so a DI-shared hook instance cannot leak a
+     * stale denial into a later DataHandler run (same discipline as
+     * $pendingSecrets).
+     */
+    public function processCmdmap(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
+        string $command,
+        string $table,
+        string|int $id,
+        mixed $value,
+        bool &$commandIsProcessed,
+        DataHandler $dataHandler,
+        mixed $pasteUpdate,
+    ): void {
+        if ($table !== self::TABLE || $command !== 'delete') {
+            return;
+        }
+
+        $uid = is_numeric($id) ? (int) $id : 0;
+        if (($this->deniedDeletions[$uid] ?? false) === true) {
+            unset($this->deniedDeletions[$uid]);
+            $commandIsProcessed = true;
         }
     }
 
