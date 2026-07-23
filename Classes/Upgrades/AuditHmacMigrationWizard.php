@@ -12,6 +12,8 @@ namespace Netresearch\NrVault\Upgrades;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\AuditChainLockTrait;
 use Netresearch\NrVault\Audit\AuditLogService;
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Psr\Log\LoggerAwareInterface;
@@ -53,6 +55,7 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
         private readonly ConnectionPool $connectionPool,
         private readonly MasterKeyProviderInterface $masterKeyProvider,
         private readonly ExtensionConfigurationInterface $extensionConfiguration,
+        private readonly AuditLogServiceInterface $auditLogService,
     ) {
         $this->logger = new NullLogger();
     }
@@ -96,6 +99,21 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
         }
 
         $connection = $this->connectionPool->getConnectionForTable(self::TABLE_NAME);
+
+        // Verify the existing chain before re-sealing it (finding
+        // audit-chain-integrity, F6): re-hashing a tampered HMAC chain would
+        // launder the tampering into a freshly valid chain. Legacy keyless
+        // epoch-0 chains carry no tamper evidence and are allowed through.
+        $failedVerification = $this->auditLogService->verifyChainForReseal();
+        if ($failedVerification instanceof HashChainVerificationResult) {
+            $this->logger->error(
+                'AuditHmacMigrationWizard: existing audit chain failed verification; refusing to re-seal',
+                ['errorCount' => $failedVerification->getErrorCount()],
+            );
+
+            return false;
+        }
+
         $hmacKey = AuditLogService::deriveHmacKey($this->masterKeyProvider);
 
         try {

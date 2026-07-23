@@ -2378,6 +2378,33 @@ final class AuditLogServiceTest extends TestCase
         );
     }
 
+    #[Test]
+    public function verifyHashChainRejectsUniformEpochZeroRelabelOnHmacInstall(): void
+    {
+        // F3 (audit-chain-integrity): a DB-write attacker relabels EVERY row of an
+        // HMAC-migrated chain down to keyless epoch-0 and recomputes a fully valid
+        // keyless SHA-256 chain. Per-row hash checks, previous_hash links and the
+        // consecutive-epoch check all pass (every row is epoch 0, no DECREASE);
+        // only the configured-epoch high-water floor exposes the downgrade. The
+        // setUp() subject is configured for HMAC (epoch 1).
+        $hash1 = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '');
+        $hash2 = AuditLogService::calculateHash(2, 'b', 'read', 1, 200, $hash1);
+
+        $rows = [
+            ['uid' => 1, 'secret_identifier' => 'a', 'action' => 'create', 'actor_uid' => 1, 'crdate' => 100, 'previous_hash' => '', 'entry_hash' => $hash1, 'hmac_key_epoch' => 0],
+            ['uid' => 2, 'secret_identifier' => 'b', 'action' => 'read', 'actor_uid' => 1, 'crdate' => 200, 'previous_hash' => $hash1, 'entry_hash' => $hash2, 'hmac_key_epoch' => 0],
+        ];
+
+        $verification = $this->runVerifyOverRows($rows);
+
+        self::assertFalse(
+            $verification->isValid(),
+            'A chain relabelled entirely to keyless epoch 0 on an HMAC-configured install MUST be rejected',
+        );
+        self::assertArrayHasKey(0, $verification->errors, 'The chain-level epoch-floor error must be recorded');
+        self::assertStringContainsString('floor', $verification->errors[0]);
+    }
+
     /**
      * Build a raw DB row (snake_case keys, mixed types) suitable for
      * extractV2HashRow() input. Used by tests that exercise the extractor

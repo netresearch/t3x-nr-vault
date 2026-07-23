@@ -12,6 +12,8 @@ namespace Netresearch\NrVault\Command;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\AuditChainLockTrait;
 use Netresearch\NrVault\Audit\AuditLogService;
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -42,6 +44,7 @@ final class VaultAuditMigrateCommand extends Command
         private readonly ConnectionPool $connectionPool,
         private readonly MasterKeyProviderInterface $masterKeyProvider,
         private readonly ExtensionConfigurationInterface $extensionConfiguration,
+        private readonly AuditLogServiceInterface $auditLogService,
     ) {
         parent::__construct();
     }
@@ -102,6 +105,23 @@ final class VaultAuditMigrateCommand extends Command
             ));
 
             return Command::SUCCESS;
+        }
+
+        // Before re-sealing every row under the current key, verify the existing
+        // chain (finding audit-chain-integrity, F6). Re-hashing a tampered
+        // HMAC-protected chain would launder the tampering into a freshly valid
+        // chain and destroy the evidence. A genuinely-legacy keyless epoch-0 chain
+        // has no tamper evidence to check and is allowed through — this is exactly
+        // the migration that first adds protection.
+        $failedVerification = $this->auditLogService->verifyChainForReseal();
+        if ($failedVerification instanceof HashChainVerificationResult) {
+            $io->error([
+                'Audit hash chain verification FAILED — migration refused.',
+                'Re-sealing a tampered chain would launder the tampering into a valid chain.',
+                'Investigate with vault:audit --verify before migrating.',
+            ]);
+
+            return Command::FAILURE;
         }
 
         // Count total entries (we must re-hash ALL to maintain chain integrity)

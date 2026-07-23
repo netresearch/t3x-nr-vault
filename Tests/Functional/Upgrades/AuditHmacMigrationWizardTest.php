@@ -143,6 +143,7 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
             $this->get(ConnectionPool::class),
             $this->get(MasterKeyProviderInterface::class),
             new ExtensionConfiguration(new Typo3ExtensionConfiguration()),
+            $this->get(AuditLogServiceInterface::class),
         );
 
         self::assertTrue(
@@ -303,6 +304,7 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
             $this->get(ConnectionPool::class),
             $this->get(MasterKeyProviderInterface::class),
             $this->get(ExtensionConfigurationInterface::class),
+            $this->get(AuditLogServiceInterface::class),
         );
     }
 
