@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Hook;
 
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Hook\SecretTcaHook;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -31,6 +32,8 @@ final class SecretTcaHookTest extends TestCase
 
     private AccessControlServiceInterface&MockObject $accessControlService;
 
+    private SecretRepositoryInterface&MockObject $secretRepository;
+
     private SecretTcaHook $hook;
 
     protected function setUp(): void
@@ -40,6 +43,7 @@ final class SecretTcaHookTest extends TestCase
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
         $this->auditService = $this->createMock(AuditLogServiceInterface::class);
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $this->secretRepository = $this->createMock(SecretRepositoryInterface::class);
 
         // Default to an admin actor so the pre-existing field-normalisation
         // tests (NEW records, owner/scope extraction) are not coerced by the
@@ -50,6 +54,7 @@ final class SecretTcaHookTest extends TestCase
             $this->vaultService,
             $this->auditService,
             $this->accessControlService,
+            $this->secretRepository,
         );
     }
 
@@ -305,6 +310,7 @@ final class SecretTcaHookTest extends TestCase
             $this->vaultService,
             $this->auditService,
             $accessControl,
+            $this->secretRepository,
         );
 
         $fieldArray = [
@@ -340,6 +346,7 @@ final class SecretTcaHookTest extends TestCase
             $this->vaultService,
             $this->auditService,
             $accessControl,
+            $this->secretRepository,
         );
 
         $fieldArray = [
