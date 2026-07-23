@@ -54,6 +54,7 @@ ADR      Title                                       Status
 027      :ref:`adr-027-oauth-client-unification`     Accepted
 028      :ref:`adr-028-phpat-http-client-lock`       Accepted
 029      :ref:`adr-029-technical-actor-context`      Accepted
+030      :ref:`adr-030-site-config-vault-read-time-resolution`                       Accepted
 =======  ==========================================  ========
 
 .. toctree::
@@ -89,3 +90,4 @@ ADR      Title                                       Status
    ADR-027-OAuthClientUnification
    ADR-028-PhpatHttpClientLock
    ADR-029-TechnicalActorContext
+   ADR-030-SiteConfigVaultReadTimeResolution

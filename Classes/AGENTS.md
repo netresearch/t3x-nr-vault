@@ -53,7 +53,7 @@ Classes/
 ├── Domain/
 │   ├── Model/      # Secret
 │   └── Repository/ # SecretRepository
-├── EventListener/ # SiteConfigurationVaultListener
+├── EventListener/ # TypoScriptVaultListener
 ├── Exception/     # OAuthException + domain exceptions
 ├── Hook/          # FlexFormVaultHook, DataHandlerHook
 ├── Http/          # VaultHttpClient, OAuth token manager
