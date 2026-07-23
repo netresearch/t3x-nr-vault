@@ -540,4 +540,79 @@ final class VaultAuditCommandTest extends TestCase
         $content = file_get_contents($exportFile);
         self::assertStringContainsString('csv-export', $content);
     }
+
+    #[Test]
+    public function csvConsoleOutputNeutralizesFormulaInjection(): void
+    {
+        $entry = AuditLogEntry::fromDatabaseRow([
+            'uid' => 1,
+            'crdate' => 1704067200,
+            'secret_identifier' => '=1+1',
+            'action' => 'read',
+            'success' => 1,
+            'actor_uid' => 1,
+            'actor_username' => '@SUM(A1)',
+            'actor_type' => 'be_user',
+            'ip_address' => '10.0.0.1',
+            'entry_hash' => 'csvhash',
+            'previous_hash' => '',
+            'context' => '{}',
+        ]);
+
+        $this->auditLogService
+            ->method('query')
+            ->willReturn([$entry]);
+
+        $exitCode = $this->commandTester->execute([
+            '--format' => 'csv',
+        ]);
+
+        self::assertSame(0, $exitCode);
+        $display = $this->commandTester->getDisplay();
+        self::assertStringContainsString("'=1+1", $display);
+        self::assertStringContainsString("'@SUM(A1)", $display);
+        self::assertStringNotContainsString(',=1+1', $display);
+        self::assertStringNotContainsString(',@SUM(A1)', $display);
+    }
+
+    #[Test]
+    public function csvExportFileNeutralizesFormulaInUserAgentAndRequestId(): void
+    {
+        vfsStream::setup('exports');
+
+        $entry = AuditLogEntry::fromDatabaseRow([
+            'uid' => 1,
+            'crdate' => 1704067200,
+            'secret_identifier' => 'benign_id',
+            'action' => 'read',
+            'success' => 1,
+            'actor_uid' => 1,
+            'actor_username' => 'admin',
+            'actor_type' => 'be_user',
+            'ip_address' => '10.0.0.1',
+            'user_agent' => "=cmd|'/c calc'!A1",
+            'request_id' => '@SUM(1+1)',
+            'entry_hash' => 'hash',
+            'previous_hash' => '',
+            'context' => '{}',
+        ]);
+
+        $this->auditLogService
+            ->method('query')
+            ->willReturn([$entry]);
+
+        $exportFile = vfsStream::url('exports/audit.csv');
+
+        $exitCode = $this->commandTester->execute([
+            '--export' => $exportFile,
+            '--format' => 'csv',
+        ]);
+
+        self::assertSame(0, $exitCode);
+        $content = (string) file_get_contents($exportFile);
+        self::assertStringContainsString("'=cmd|'/c calc'!A1", $content);
+        self::assertStringContainsString("'@SUM(1+1)", $content);
+        self::assertStringContainsString('benign_id', $content);
+        self::assertStringNotContainsString("'benign_id", $content);
+    }
 }

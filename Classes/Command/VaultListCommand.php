@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Command;
 use Netresearch\NrVault\Domain\Dto\SecretMetadata;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Utility\CsvFormulaSanitizer;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -148,7 +149,7 @@ final class VaultListCommand extends Command
         foreach ($secrets as $secret) {
             $output->writeln(\sprintf(
                 '%s,%d,%s,%s,%d,%s',
-                $this->escapeCsv($secret->identifier),
+                CsvFormulaSanitizer::escapeField($secret->identifier),
                 $secret->ownerUid,
                 date(self::DATE_FORMAT_LONG, $secret->createdAt),
                 date(self::DATE_FORMAT_LONG, $secret->updatedAt),
@@ -156,14 +157,5 @@ final class VaultListCommand extends Command
                 $secret->lastReadAt !== null ? date(self::DATE_FORMAT_LONG, $secret->lastReadAt) : '',
             ));
         }
-    }
-
-    private function escapeCsv(string $value): string
-    {
-        if (str_contains($value, ',') || str_contains($value, '"') || str_contains($value, "\n")) {
-            return '"' . str_replace('"', '""', $value) . '"';
-        }
-
-        return $value;
     }
 }
