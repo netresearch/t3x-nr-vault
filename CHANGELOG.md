@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-23
+
+Security release. Six findings from a full security review, one HIGH and five
+MEDIUM. Two carry behaviour changes — read **Changed** and **Removed** before
+upgrading.
+
+### Security
+
+- **Vault secrets no longer persisted in cleartext in the site-configuration
+  cache** (#216, HIGH). `%vault(id)%` references in `config/sites/*/config.yaml`
+  were resolved eagerly when TYPO3 loaded the site configuration, and TYPO3
+  writes that resolved array into its on-disk `core` cache — so decrypted
+  secrets landed in `var/cache` in cleartext, and the per-principal access check
+  ran only once, at cache-warm time. Resolution is now caller-driven at read
+  time (see **Removed**).
+- **CSV formula injection in audit-log exports** (#218). Attacker-controlled
+  audit fields (`User-Agent`, request id, identifiers) were written to CSV
+  exports without neutralizing spreadsheet formula leaders (`= + - @`, tab, CR).
+  All four export sinks now route cells through a shared neutralizer.
+- **Secret leaked into the audit log via transport errors** (#217). A
+  query-parameter-placed secret surfaced in the outbound-request exception
+  message and was logged verbatim; the URL query is now stripped before the
+  message is sealed into the tamper-evident row.
+- **Audit hash chain hardened against downgrade forgery** (#221). Chain
+  verification accepted a uniform relabel to keyless epoch-0 SHA-256, and the
+  HMAC migration re-sealed the chain without verifying it first (laundering
+  prior tampering). Verification now enforces a configured-epoch floor, and the
+  migration refuses to re-seal a chain that fails verification.
+- **Delete access control on `tx_nrvault_secret`** (#220). Deleting a secret
+  via DataHandler (FormEngine, list module) enforced no vault ACL; it now
+  requires owner / admin / system-maintainer, mirroring `VaultService::delete()`.
+- **Secret and master-key files created with `0600` from the start** (#219).
+  `vault:retrieve --output` and `vault:init` wrote the file with the process
+  umask and only `chmod`-ed afterward, leaving a world/group-readable window.
+
+### Changed
+
+- **Site-configuration `%vault()%` references resolve at read time, not
+  automatically on load** (#216). Consumers that relied on transparent
+  resolution — reading `$site->getConfiguration()[…]` and receiving a decrypted
+  value — must now call
+  `SiteConfigurationVaultProcessor::processConfiguration($config, $site)` at the
+  point of use. See ADR-030.
+- **`AuditLogServiceInterface`**: `verifyHashChain()` gains an optional
+  `?int $minEpoch = null` parameter and a new `verifyChainForReseal()` method
+  (#221). External implementers of the interface must implement the new method.
+- **`vault:retrieve` / `vault:init` abort on a failed `chmod`** (#219) instead
+  of silently continuing.
+- **A vault-ACL-denied delete preserves the record** (#220) and records an
+  `access_denied` audit entry, instead of being soft-deleted.
+
+### Removed
+
+- **`SiteConfigurationVaultListener`** — the event listener that eagerly
+  resolved site-configuration vault references on load (#216). See **Security**
+  above for why, and **Changed** for the read-time replacement.
+
 ## [0.11.2] - 2026-07-21
 
 ### Fixed
