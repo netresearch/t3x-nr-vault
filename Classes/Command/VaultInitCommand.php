@@ -144,16 +144,33 @@ final class VaultInitCommand extends Command
             return Command::FAILURE;
         }
 
-        // Write key to file with restrictive permissions
-        $result = file_put_contents($outputFilePath, $masterKey);
+        // Eliminate the umask race: tighten umask before the write so the file
+        // is created 0600, then chmod to enforce it even when the file already
+        // existed. The previous order (file_put_contents -> chmod) left a brief
+        // window where a freshly created key file was world-readable on hosts
+        // with permissive umasks, and a permanent 0644 file if the process was
+        // interrupted before the chmod. Mirrors
+        // FileMasterKeyProvider::storeMasterKey().
+        $previousUmask = umask(0o077);
+
+        try {
+            $result = file_put_contents($outputFilePath, $masterKey);
+        } finally {
+            umask($previousUmask);
+        }
         if ($result === false) {
             $io->error(\sprintf('Failed to write master key to: %s', $outputFilePath));
 
             return Command::FAILURE;
         }
 
-        // Set restrictive permissions (owner read/write only)
-        chmod($outputFilePath, 0o600);
+        // Enforce restrictive permissions (owner read/write only), also on a
+        // pre-existing file, and fail loudly if it cannot be secured
+        if (!chmod($outputFilePath, 0o600)) {
+            $io->error(\sprintf('Failed to set permissions on master key file: %s', $outputFilePath));
+
+            return Command::FAILURE;
+        }
 
         $io->success(\sprintf('Master key generated and saved to: %s', $outputFilePath));
         $io->table(

@@ -88,8 +88,21 @@ final class VaultRetrieveCommand extends Command
                     return Command::FAILURE;
                 }
 
-                // Write to file with restricted permissions
-                $result = file_put_contents($outputFile, $value);
+                // Eliminate the umask race: tighten umask before the write so
+                // the file is created 0600, then chmod to enforce it even when
+                // the file already existed. The previous order
+                // (file_put_contents -> chmod) left a brief window where a
+                // freshly created file was world-readable on hosts with
+                // permissive umasks, and a permanent 0644 file if the process
+                // was interrupted before the chmod. Mirrors
+                // FileMasterKeyProvider::storeMasterKey().
+                $previousUmask = umask(0o077);
+
+                try {
+                    $result = file_put_contents($outputFile, $value);
+                } finally {
+                    umask($previousUmask);
+                }
                 if ($result === false) {
                     $io->error(\sprintf('Failed to write to file: %s', $outputFile));
                     sodium_memzero($value);
@@ -97,8 +110,14 @@ final class VaultRetrieveCommand extends Command
                     return Command::FAILURE;
                 }
 
-                // Set restrictive permissions
-                chmod($outputFile, 0o600);
+                // Enforce restrictive permissions (also tightens a pre-existing
+                // file, which umask cannot) and fail loudly if it cannot be set
+                if (!chmod($outputFile, 0o600)) {
+                    $io->error(\sprintf('Failed to set permissions on file: %s', $outputFile));
+                    sodium_memzero($value);
+
+                    return Command::FAILURE;
+                }
 
                 $io->success(\sprintf('Secret written to: %s', $outputFile));
             } else {
