@@ -21,6 +21,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 #[CoversClass(VaultRetrieveCommand::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -29,6 +30,9 @@ final class VaultRetrieveCommandTest extends TestCase
     private VaultServiceInterface&MockObject $vaultService;
 
     private CommandTester $commandTester;
+
+    /** @var list<string> */
+    private array $tempPaths = [];
 
     protected function setUp(): void
     {
@@ -42,6 +46,16 @@ final class VaultRetrieveCommandTest extends TestCase
         $application->addCommand($command);
 
         $this->commandTester = new CommandTester($command);
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->tempPaths as $path) {
+            GeneralUtility::rmdir($path, true);
+        }
+        $this->tempPaths = [];
+
+        parent::tearDown();
     }
 
     #[Test]
@@ -202,5 +216,61 @@ final class VaultRetrieveCommandTest extends TestCase
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('Failed to write to file', $this->commandTester->getDisplay());
+    }
+
+    #[Test]
+    public function writesSecretToFileWithRestrictivePermissions(): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturn('file-content-123');
+
+        $outputFile = $this->createTempDir() . '/secret.txt';
+
+        $previousUmask = umask(0o000);
+
+        try {
+            $exitCode = $this->commandTester->execute([
+                'identifier' => 'file-secret',
+                '--output' => $outputFile,
+            ]);
+        } finally {
+            umask($previousUmask);
+        }
+
+        self::assertSame(0, $exitCode);
+        self::assertFileExists($outputFile);
+        self::assertSame('file-content-123', file_get_contents($outputFile));
+        self::assertSame(0o600, fileperms($outputFile) & 0o777);
+    }
+
+    #[Test]
+    public function overwritesExistingFileAndTightensPermissions(): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturn('new-content');
+
+        $outputFile = $this->createTempDir() . '/existing.txt';
+        file_put_contents($outputFile, 'stale');
+        chmod($outputFile, 0o644);
+
+        $exitCode = $this->commandTester->execute([
+            'identifier' => 'file-secret',
+            '--output' => $outputFile,
+        ]);
+
+        self::assertSame(0, $exitCode);
+        self::assertSame('new-content', file_get_contents($outputFile));
+        self::assertSame(0o600, fileperms($outputFile) & 0o777);
+    }
+
+    private function createTempDir(): string
+    {
+        $dir = sys_get_temp_dir() . '/nr-vault-retrieve-' . bin2hex(random_bytes(6));
+        mkdir($dir, 0o700);
+        $this->tempPaths[] = $dir;
+
+        return $dir;
     }
 }

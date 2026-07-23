@@ -19,6 +19,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 #[CoversClass(VaultInitCommand::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -29,6 +30,9 @@ final class VaultInitCommandTest extends TestCase
     private ExtensionConfigurationInterface&MockObject $configuration;
 
     private CommandTester $commandTester;
+
+    /** @var list<string> */
+    private array $tempPaths = [];
 
     protected function setUp(): void
     {
@@ -42,6 +46,16 @@ final class VaultInitCommandTest extends TestCase
         $application->addCommand($command);
 
         $this->commandTester = new CommandTester($command);
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->tempPaths as $path) {
+            GeneralUtility::rmdir($path, true);
+        }
+        $this->tempPaths = [];
+
+        parent::tearDown();
     }
 
     #[Test]
@@ -214,5 +228,53 @@ final class VaultInitCommandTest extends TestCase
         self::assertStringContainsString('IMPORTANT SECURITY NOTES', $display);
         self::assertStringContainsString('Back up this key', $display);
         self::assertStringContainsString('XSalsa20-Poly1305', $display);
+    }
+
+    #[Test]
+    public function generatesKeyToFileWithRestrictivePermissions(): void
+    {
+        $this->configuration->method('getMasterKeyProvider')->willReturn('file');
+        $this->configuration->method('getMasterKeySource')->willReturn('');
+
+        $outputFile = $this->createTempDir() . '/master.key';
+
+        $previousUmask = umask(0o000);
+
+        try {
+            $exitCode = $this->commandTester->execute(['--output' => $outputFile]);
+        } finally {
+            umask($previousUmask);
+        }
+
+        self::assertSame(0, $exitCode);
+        self::assertFileExists($outputFile);
+        self::assertSame(0o600, fileperms($outputFile) & 0o777);
+    }
+
+    #[Test]
+    public function overwritesExistingKeyFileAndTightensPermissions(): void
+    {
+        $this->configuration->method('getMasterKeyProvider')->willReturn('file');
+
+        $outputFile = $this->createTempDir() . '/master.key';
+        file_put_contents($outputFile, str_repeat('x', 32));
+        chmod($outputFile, 0o644);
+
+        $exitCode = $this->commandTester->execute([
+            '--output' => $outputFile,
+            '--force' => true,
+        ]);
+
+        self::assertSame(0, $exitCode);
+        self::assertSame(0o600, fileperms($outputFile) & 0o777);
+    }
+
+    private function createTempDir(): string
+    {
+        $dir = sys_get_temp_dir() . '/nr-vault-init-' . bin2hex(random_bytes(6));
+        mkdir($dir, 0o700);
+        $this->tempPaths[] = $dir;
+
+        return $dir;
     }
 }
