@@ -750,6 +750,22 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // Collapse any control characters / newlines to single spaces so a
         // multi-line stack fragment cannot bloat or break the forensic row.
         $clean = (string) preg_replace('/[\x00-\x1F\x7F]+/', ' ', $errorMessage);
+
+        // Strip URL query strings before the message is sealed into the
+        // tamper-evident row (F4 / CWE-532). A transport error from an
+        // outbound HTTP call surfaces the effective request URI in the
+        // driver's exception message; for SecretPlacement::QueryParam that
+        // URI carries the injected secret as `?<param>=<secret>`. The secret's
+        // parameter name is caller-configurable, so we drop the ENTIRE query
+        // component of every embedded http(s) URL and keep only scheme/host/
+        // path. Bounded, delimiter-anchored classes (no `.*?`, no nested
+        // quantifiers) — linear time, no catastrophic backtracking.
+        $clean = (string) preg_replace(
+            '~(https?://[^\s?#"\'<>]+)\?[^\s"\'<>]*~i',
+            '${1}?[REDACTED]',
+            $clean,
+        );
+
         $clean = trim($clean);
 
         // Bound the length: forensic value is in the category of failure, not

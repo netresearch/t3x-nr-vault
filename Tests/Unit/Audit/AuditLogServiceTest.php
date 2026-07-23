@@ -2332,6 +2332,52 @@ final class AuditLogServiceTest extends TestCase
         self::assertSame([2, 3, 4], $verification->missingUids);
     }
 
+    #[Test]
+    public function logStripsUrlQueryStringFromTransportErrorMessage(): void
+    {
+        // F4 / CWE-532: a SecretPlacement::QueryParam request whose transport
+        // throws surfaces the effective URI — including `?api_key=<secret>` —
+        // in the ClientExceptionInterface message. VaultHttpClient forwards
+        // that message verbatim to log(); the sanitizer MUST strip the query
+        // string so the live secret is never sealed into the audit row.
+        $this->setupDatabaseMocks();
+
+        $secret = 'SUPERSECRET123';
+        $message = 'cURL error 6: Could not resolve host: api.example.com '
+            . 'for https://api.example.com/data?api_key=' . $secret;
+
+        $captured = null;
+        $this->connection
+            ->method('insert')
+            ->with(
+                'tx_nrvault_audit_log',
+                self::callback(static function (array $data) use (&$captured): bool {
+                    $captured = $data['error_message'];
+
+                    return true;
+                }),
+            );
+
+        $this->getSubject()->log('api_creds', 'http_call', false, $message);
+
+        self::assertIsString($captured);
+        self::assertStringNotContainsString(
+            $secret,
+            $captured,
+            'The live secret must NOT be persisted in the audit row',
+        );
+        self::assertStringContainsString(
+            '[REDACTED]',
+            $captured,
+            'The stripped query must be marked [REDACTED]',
+        );
+        self::assertStringContainsString(
+            'https://api.example.com/data',
+            $captured,
+            'Scheme/host/path forensics are retained',
+        );
+    }
+
     /**
      * Build a raw DB row (snake_case keys, mixed types) suitable for
      * extractV2HashRow() input. Used by tests that exercise the extractor
