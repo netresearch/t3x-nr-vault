@@ -15,6 +15,7 @@ use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Utility\CsvFormulaSanitizer;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -279,13 +280,13 @@ final class VaultAuditCommand extends Command
             $output->writeln(\sprintf(
                 '%s,%s,%s,%d,%s,%s,%s,%s',
                 date('Y-m-d H:i:s', $entry->crdate),
-                $this->escapeCsv($entry->secretIdentifier),
-                $entry->action,
+                CsvFormulaSanitizer::escapeField($entry->secretIdentifier),
+                CsvFormulaSanitizer::escapeField($entry->action),
                 $entry->success ? 1 : 0,
-                $this->escapeCsv($entry->actorUsername),
-                $entry->actorType,
-                $entry->ipAddress,
-                $entry->entryHash,
+                CsvFormulaSanitizer::escapeField($entry->actorUsername),
+                CsvFormulaSanitizer::escapeField($entry->actorType),
+                CsvFormulaSanitizer::escapeField($entry->ipAddress),
+                CsvFormulaSanitizer::escapeField($entry->entryHash),
             ));
         }
     }
@@ -338,7 +339,7 @@ final class VaultAuditCommand extends Command
                 static fn (mixed $v): bool|float|int|string|null => \is_scalar($v) || $v === null ? $v : json_encode($v),
                 $row,
             );
-            fputcsv($output, $csvRow, escape: '\\');
+            fputcsv($output, CsvFormulaSanitizer::neutralizeRow($csvRow), escape: '\\');
         }
 
         rewind($output);
@@ -346,14 +347,5 @@ final class VaultAuditCommand extends Command
         fclose($output);
 
         return $csv;
-    }
-
-    private function escapeCsv(string $value): string
-    {
-        if (str_contains($value, ',') || str_contains($value, '"') || str_contains($value, "\n")) {
-            return '"' . str_replace('"', '""', $value) . '"';
-        }
-
-        return $value;
     }
 }

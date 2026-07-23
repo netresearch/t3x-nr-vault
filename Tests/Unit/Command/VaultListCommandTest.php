@@ -412,4 +412,34 @@ final class VaultListCommandTest extends TestCase
         // Last read shows "-" when never read
         self::assertStringContainsString('-', $display);
     }
+
+    #[Test]
+    public function outputCsvNeutralizesFormulaInIdentifier(): void
+    {
+        $secrets = [
+            new SecretMetadata(
+                identifier: '=cmd',
+                ownerUid: 1,
+                createdAt: 1704067200,
+                updatedAt: 1704153600,
+                readCount: 0,
+                lastReadAt: null,
+                description: '',
+                version: 1,
+            ),
+        ];
+
+        $this->vaultService
+            ->method('list')
+            ->willReturn($secrets);
+
+        $exitCode = $this->commandTester->execute([
+            '--format' => 'csv',
+        ]);
+
+        self::assertSame(0, $exitCode);
+        $display = $this->commandTester->getDisplay();
+        self::assertStringContainsString("'=cmd", $display);
+        self::assertStringNotContainsString("\n=cmd", $display);
+    }
 }

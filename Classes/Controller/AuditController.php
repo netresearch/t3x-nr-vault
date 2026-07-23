@@ -15,6 +15,7 @@ use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Utility\CsvFormulaSanitizer;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
@@ -352,7 +353,7 @@ final readonly class AuditController
                 }
                 /** @var array<int, bool|float|int|string|null> $values */
                 $values = array_values($row);
-                fputcsv($output, $values, escape: '\\');
+                fputcsv($output, CsvFormulaSanitizer::neutralizeRow($values), escape: '\\');
             }
         }
 
