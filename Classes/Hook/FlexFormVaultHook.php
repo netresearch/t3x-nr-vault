@@ -376,31 +376,60 @@ final class FlexFormVaultHook
             $originalChecksum = '';
         }
 
-        if ($secretValue === '' && $originalChecksum === '') {
+        // A new plaintext value was entered: store it as a new secret or rotate
+        // the existing one. See PendingSecretExtractor::extract() for the full
+        // empty-value rationale — this mirrors it for FlexForm-embedded fields.
+        if ($secretValue !== '') {
+            $isNewSecret = $existingIdentifier === '' || $originalChecksum === '';
+            $vaultIdentifier = $isNewSecret ? IdentifierValidator::generateUuid() : $existingIdentifier;
+
+            $this->pendingFlexSecrets[$table][$id][] = $isNewSecret
+                ? FlexFormPendingSecret::createNew(
+                    $flexFieldName,
+                    $sheetName,
+                    $fieldPath,
+                    $secretValue,
+                    $vaultIdentifier,
+                )
+                : FlexFormPendingSecret::createUpdate(
+                    $flexFieldName,
+                    $sheetName,
+                    $fieldPath,
+                    $secretValue,
+                    $vaultIdentifier,
+                    $originalChecksum,
+                );
+
+            $fieldData['vDEF'] = $vaultIdentifier;
+
             return;
         }
 
-        $isNewSecret = $existingIdentifier === '' || $originalChecksum === '';
-        $vaultIdentifier = $isNewSecret ? IdentifierValidator::generateUuid() : $existingIdentifier;
+        // Empty value with the checksum still present: the field was left
+        // untouched (the plaintext is never rendered into the form), so keep the
+        // stored secret and collapse the submitted array back to its identifier
+        // (issue #223 — a plain re-save must not wipe the key).
+        if ($originalChecksum !== '') {
+            $fieldData['vDEF'] = $existingIdentifier;
 
-        $this->pendingFlexSecrets[$table][$id][] = $isNewSecret
-            ? FlexFormPendingSecret::createNew(
+            return;
+        }
+
+        // Empty value and no checksum: the clear control blanked the checksum. An
+        // identifier still present means the user explicitly cleared the field,
+        // so delete the stored secret.
+        if ($existingIdentifier !== '') {
+            $this->pendingFlexSecrets[$table][$id][] = FlexFormPendingSecret::createUpdate(
                 $flexFieldName,
                 $sheetName,
                 $fieldPath,
-                $secretValue,
-                $vaultIdentifier,
-            )
-            : FlexFormPendingSecret::createUpdate(
-                $flexFieldName,
-                $sheetName,
-                $fieldPath,
-                $secretValue,
-                $vaultIdentifier,
-                $originalChecksum,
+                '',
+                $existingIdentifier,
+                '',
             );
 
-        $fieldData['vDEF'] = $secretValue !== '' ? $vaultIdentifier : '';
+            $fieldData['vDEF'] = '';
+        }
     }
 
     /**
@@ -480,7 +509,9 @@ final class FlexFormVaultHook
     ): void {
         try {
             if ($pending->value === '') {
-                if ($pending->originalChecksum !== '') {
+                // The identifier — not the checksum, which the clear control
+                // blanks — is the reliable "a secret existed" signal (issue #223).
+                if ($pending->identifier !== '') {
                     $this->vaultService->delete($pending->identifier, 'FlexForm field cleared');
                 }
             } elseif ($pending->isNew) {

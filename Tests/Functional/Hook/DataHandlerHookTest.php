@@ -114,6 +114,46 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         }
     }
 
+    /**
+     * Regression for issue #223: re-saving a record without retyping the masked
+     * secret (empty value, checksum still present) must preserve the stored
+     * secret in the vault — not delete it.
+     */
+    #[Test]
+    public function hookKeepsExistingSecretWhenFieldLeftUntouched(): void
+    {
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $hook = $this->createHookWithVaultFields('tx_test', ['secret_field']);
+
+        $vaultIdentifier = $this->generateUuidV7();
+        $originalValue = 'keep-me-secret';
+        $vaultService->store($vaultIdentifier, $originalValue);
+
+        try {
+            // Untouched re-save: empty value but the checksum the element renders
+            // for an existing secret is still present.
+            $fieldArray = [
+                'secret_field' => [
+                    'value' => '',
+                    '_vault_identifier' => $vaultIdentifier,
+                    '_vault_checksum' => hash('sha256', $vaultIdentifier),
+                ],
+            ];
+
+            $hook->processDatamap_preProcessFieldArray($fieldArray, 'tx_test', 99);
+            // An untouched field is dropped from the datamap, so the DB keeps it.
+            self::assertArrayNotHasKey('secret_field', $fieldArray, 'Untouched secret must not be rewritten');
+
+            $hook->processDatamap_afterDatabaseOperations('update', 'tx_test', 99, $fieldArray, $this->createDataHandler());
+
+            $vaultService->clearCache();
+            $retrieved = $vaultService->retrieve($vaultIdentifier);
+            self::assertSame($originalValue, $retrieved, 'Vault secret must survive an untouched save (issue #223)');
+        } finally {
+            $this->safeDelete($vaultService, $vaultIdentifier);
+        }
+    }
+
     #[Test]
     public function hookClearsFieldWhenEmptyValueProvided(): void
     {

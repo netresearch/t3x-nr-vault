@@ -59,8 +59,12 @@ final readonly class PendingSecretPersister
     ): ?Throwable {
         try {
             if ($pending->value === '') {
-                // Empty value means delete the secret (only if one existed).
-                if ($pending->originalChecksum !== '') {
+                // Empty value means delete the secret — but only when one existed.
+                // The extractor only emits an empty-value pending for an explicit
+                // clear, which always carries the existing identifier; the
+                // identifier (not the checksum, which the clear control blanks)
+                // is the reliable "a secret existed" signal (issue #223).
+                if ($pending->identifier !== '') {
                     $this->vaultService->delete($pending->identifier, $deleteReason);
                 }
             } elseif ($pending->isNew) {
