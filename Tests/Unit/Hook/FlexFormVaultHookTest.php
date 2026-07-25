@@ -919,7 +919,7 @@ final class FlexFormVaultHookTest extends TestCase
     }
 
     #[Test]
-    public function afterDatabaseOperationsDeletesSecretWhenValueCleared(): void
+    public function afterDatabaseOperationsDeletesSecretWhenExplicitlyCleared(): void
     {
         $this->dataHandler->substNEWwithIDs = [];
 
@@ -931,10 +931,10 @@ final class FlexFormVaultHookTest extends TestCase
             'sheets' => ['sDEF' => ['ROOT' => ['el' => ['settings.token' => ['config' => ['type' => 'input', 'renderType' => 'vaultSecret']]]]]],
         ]);
 
-        // Empty value with existing checksum → delete
+        // Empty value with a blanked checksum (the clear control) → delete.
         $fieldArray = [
             'pi_flexform' => [
-                'data' => ['sDEF' => ['lDEF' => ['settings.token' => ['vDEF' => ['value' => '', '_vault_identifier' => $existingUuid, '_vault_checksum' => 'abc123']]]]],
+                'data' => ['sDEF' => ['lDEF' => ['settings.token' => ['vDEF' => ['value' => '', '_vault_identifier' => $existingUuid, '_vault_checksum' => '']]]]],
             ],
         ];
 
@@ -944,6 +944,42 @@ final class FlexFormVaultHookTest extends TestCase
             ->expects(self::once())
             ->method('delete')
             ->with($existingUuid, 'FlexForm field cleared');
+
+        $this->subject->processDatamap_afterDatabaseOperations('update', 'tt_content', 15, [], $this->dataHandler);
+    }
+
+    /**
+     * Regression for issue #223 (FlexForm-embedded vault field): an untouched
+     * re-save submits an empty value but keeps the checksum. The stored secret
+     * must be preserved, not deleted.
+     */
+    #[Test]
+    public function afterDatabaseOperationsKeepsSecretWhenFieldLeftUntouched(): void
+    {
+        $this->dataHandler->substNEWwithIDs = [];
+
+        $existingUuid = self::EXISTING_UUID;
+
+        $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
+        $this->flexFormTools->method('getDataStructureIdentifier')->willReturn('test-ds');
+        $this->flexFormTools->method('parseDataStructureByIdentifier')->willReturn([
+            'sheets' => ['sDEF' => ['ROOT' => ['el' => ['settings.token' => ['config' => ['type' => 'input', 'renderType' => 'vaultSecret']]]]]],
+        ]);
+
+        // Empty value but the checksum is still present → left untouched.
+        $fieldArray = [
+            'pi_flexform' => [
+                'data' => ['sDEF' => ['lDEF' => ['settings.token' => ['vDEF' => ['value' => '', '_vault_identifier' => $existingUuid, '_vault_checksum' => 'abc123']]]]],
+            ],
+        ];
+
+        $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tt_content', 15);
+
+        // The submitted array collapses back to the existing identifier, and the
+        // vault is left untouched.
+        self::assertSame($existingUuid, $fieldArray['pi_flexform']['data']['sDEF']['lDEF']['settings.token']['vDEF']);
+        $this->vaultService->expects(self::never())->method('delete');
+        $this->vaultService->expects(self::never())->method('rotate');
 
         $this->subject->processDatamap_afterDatabaseOperations('update', 'tt_content', 15, [], $this->dataHandler);
     }
@@ -1527,7 +1563,7 @@ final class FlexFormVaultHookTest extends TestCase
 
         $fieldArray = [
             'pi_flexform' => [
-                'data' => ['sDEF' => ['lDEF' => ['k' => ['vDEF' => ['value' => '', '_vault_identifier' => $uuid, '_vault_checksum' => 'cs']]]]],
+                'data' => ['sDEF' => ['lDEF' => ['k' => ['vDEF' => ['value' => '', '_vault_identifier' => $uuid, '_vault_checksum' => '']]]]],
             ],
         ];
 

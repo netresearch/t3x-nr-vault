@@ -291,7 +291,53 @@ final class DataHandlerHookTest extends TestCase
     }
 
     #[Test]
-    public function afterDatabaseOperationsDeletesSecretWhenCleared(): void
+    public function afterDatabaseOperationsDeletesSecretWhenExplicitlyCleared(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $existingUuid = self::EXISTING_UUID;
+        // The clear control blanks the checksum while keeping the identifier —
+        // that is what distinguishes an explicit clear from an untouched re-save.
+        $fieldArray = [
+            'api_key' => [
+                'value' => '',
+                '_vault_identifier' => $existingUuid,
+                '_vault_checksum' => '',
+            ],
+        ];
+
+        $this->subject->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            'tx_test',
+            42,
+        );
+
+        $this->vaultService
+            ->expects(self::once())
+            ->method('delete')
+            ->with(
+                $existingUuid,
+                'TCA field cleared',
+            );
+
+        $this->subject->processDatamap_afterDatabaseOperations(
+            'update',
+            'tx_test',
+            42,
+            $fieldArray,
+            $this->dataHandler,
+        );
+    }
+
+    /**
+     * Regression for issue #223: re-saving a record without retyping the masked
+     * secret submits an empty value but the checksum is still present. The stored
+     * secret must be kept, not wiped from the record or the vault.
+     */
+    #[Test]
+    public function afterDatabaseOperationsKeepsSecretWhenFieldLeftUntouched(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
@@ -312,13 +358,13 @@ final class DataHandlerHookTest extends TestCase
             42,
         );
 
+        // The untouched field is dropped from the datamap, so the database keeps
+        // its existing identifier untouched.
+        self::assertArrayNotHasKey('api_key', $fieldArray, 'Untouched secret field must be left unchanged');
+
         $this->vaultService
-            ->expects(self::once())
-            ->method('delete')
-            ->with(
-                $existingUuid,
-                'TCA field cleared',
-            );
+            ->expects(self::never())
+            ->method('delete');
 
         $this->subject->processDatamap_afterDatabaseOperations(
             'update',
@@ -741,11 +787,12 @@ final class DataHandlerHookTest extends TestCase
         ]);
 
         $existingUuid = self::EXISTING_UUID;
+        // Explicit clear: the clear control blanks the checksum.
         $fieldArray = [
             'api_key' => [
                 'value' => '',
                 '_vault_identifier' => $existingUuid,
-                '_vault_checksum' => 'existing-checksum',
+                '_vault_checksum' => '',
             ],
         ];
 
@@ -755,7 +802,7 @@ final class DataHandlerHookTest extends TestCase
             42,
         );
 
-        // Should be empty string when clearing
+        // Should be empty string when explicitly cleared
         self::assertSame('', $fieldArray['api_key']);
     }
 
