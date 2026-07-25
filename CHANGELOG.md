@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-07-25
+
+### Fixed
+
+- A vault secret (for example a provider API key) is no longer wiped when its
+  record is saved without re-entering the secret. Because the stored secret is
+  never rendered back into the edit form, an untouched re-save submitted an
+  empty value, which the DataHandler hooks treated as "delete" — removing the
+  secret from both the record and the vault. Empty saves now keep the existing
+  secret; deletion requires an explicit clear (which also repairs the
+  previously no-op clear control). Applies to both regular TCA fields and
+  FlexForm-embedded vault fields (#223).
+
 ## [0.12.0] - 2026-07-23
 
 Security release. Six findings from a full security review, one HIGH and five
@@ -686,7 +699,9 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.0...v0.12.1
+[0.12.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.11.4...v0.12.0
 [0.11.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.0...v0.10.1
