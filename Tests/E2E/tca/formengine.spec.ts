@@ -165,5 +165,53 @@ test.describe('TYPO3 FormEngine/TCA Integration', () => {
       await expect(frame.locator('text=str_starts_with')).not.toBeVisible();
       await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
+
+    test('re-saving an existing record does not raise an audit logging error', async ({ authenticatedPage: page }) => {
+      // Regression test for https://github.com/netresearch/t3x-nr-vault/issues/227:
+      // a metadata-only re-save (secret untouched) logged the unknown audit
+      // action "metadata_update" and surfaced "Audit logging failed" to the editor.
+      const testIdentifier = generateTestId();
+
+      // Create a secret via the module's create form (FormEngine)
+      await page.goto('/typo3/module/admin/vault/secrets/create');
+      await waitForModuleContent(page);
+
+      let frame = getModuleFrame(page);
+      await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
+      await frame.locator('input[data-vault-is-new="1"]').first().fill('resave-test-secret');
+      await frame.locator('button[name="_savedok"], button:has-text("Save")').first().click();
+      await page.waitForLoadState('networkidle');
+
+      // Re-open the record via the filtered list
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      frame = getModuleFrame(page);
+      await frame.getByRole('textbox', { name: 'Identifier' }).fill(testIdentifier);
+      const filterResp = page.waitForResponse(
+        (resp) => resp.url().includes('admin_vault_secrets') && resp.status() === 200,
+        { timeout: 10000 },
+      );
+      await frame.locator('button:has-text("Filter")').click();
+      await filterResp.catch(() => undefined);
+
+      frame = getModuleFrame(page);
+      await frame.locator('table tbody tr button[title*="Edit"], table tbody tr a[title*="Edit"]').first().click();
+      await waitForModuleContent(page);
+
+      // Hit save without touching anything — the issue #227 reproduction
+      frame = getModuleFrame(page);
+      await frame.locator('button[name="_savedok"], button:has-text("Save")').first().click();
+      await page.waitForLoadState('networkidle');
+
+      // The form must still render (save succeeded) …
+      frame = getModuleFrame(page);
+      const tabs = frame.locator('[role="tablist"], .nav-tabs');
+      await expect(tabs.first()).toBeVisible();
+
+      // … and no audit logging error may surface to the editor
+      await expect(frame.locator('text=Audit logging failed')).not.toBeVisible();
+      await expect(page.locator('text=Audit logging failed')).not.toBeVisible();
+      await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
+    });
   });
 });

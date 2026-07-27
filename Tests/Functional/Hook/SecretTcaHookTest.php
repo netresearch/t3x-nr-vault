@@ -9,6 +9,9 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Hook;
 
+use Netresearch\NrVault\Audit\AuditLogEntry;
+use Netresearch\NrVault\Audit\AuditLogFilter;
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Hook\SecretTcaHook;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
@@ -255,6 +258,63 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
 
         // Cleanup
         $vaultService->delete($identifier, self::DELETE_REASON_CLEANUP);
+    }
+
+    #[Test]
+    public function metadataOnlyUpdateLogsMetadataUpdateAuditEntry(): void
+    {
+        $identifier = 'test_metadata_update_' . bin2hex(random_bytes(4));
+
+        // Create the record with a secret
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start(
+            [
+                'tx_nrvault_secret' => [
+                    'NEW1' => [
+                        'pid' => 0,
+                        'identifier' => $identifier,
+                        'description' => 'Before metadata update',
+                        'secret_input' => 'metadata-update-secret',
+                    ],
+                ],
+            ],
+            [],
+        );
+        $dataHandler->process_datamap();
+
+        $recordUid = $dataHandler->substNEWwithIDs['NEW1'] ?? 0;
+        self::assertGreaterThan(0, $recordUid);
+
+        // Re-save with a metadata-only change (no secret_input submitted) —
+        // the untouched re-save from the backend edit form (issue #227).
+        $updateHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $updateHandler->start(
+            [
+                'tx_nrvault_secret' => [
+                    $recordUid => [
+                        'description' => 'After metadata update',
+                    ],
+                ],
+            ],
+            [],
+        );
+        $updateHandler->process_datamap();
+
+        self::assertEmpty(
+            $updateHandler->errorLog,
+            'Metadata-only update must not produce DataHandler errors: ' . implode(', ', $updateHandler->errorLog),
+        );
+
+        // The metadata change must be sealed into the audit chain
+        $auditService = $this->get(AuditLogServiceInterface::class);
+        $actions = array_map(
+            static fn (AuditLogEntry $entry): string => $entry->action,
+            $auditService->query(AuditLogFilter::forSecret($identifier)),
+        );
+        self::assertContains('metadata_update', $actions);
+
+        // Cleanup
+        $this->get(VaultServiceInterface::class)->delete($identifier, self::DELETE_REASON_CLEANUP);
     }
 
     #[Test]

@@ -29,6 +29,7 @@ enum AuditAction: string
     case Update = 'update';
     case Delete = 'delete';
     case Rotate = 'rotate';
+    case MetadataUpdate = 'metadata_update';
     case AccessDenied = 'access_denied';
     case HttpCall = 'http_call';
     case MasterKeyRotateStart = 'master_key_rotate_start';
