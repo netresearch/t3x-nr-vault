@@ -239,11 +239,11 @@ final class SecretTcaHook
 
         try {
             // Determine action type
-            $action = 'metadata_update';
+            $action = AuditAction::MetadataUpdate->value;
             if ($status === 'new') {
-                $action = 'create';
+                $action = AuditAction::Create->value;
             } elseif ($secretStored) {
-                $action = 'rotate';
+                $action = AuditAction::Rotate->value;
             }
 
             // Log the operation
