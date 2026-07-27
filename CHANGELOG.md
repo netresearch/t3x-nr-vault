@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-07-27
+
+### Fixed
+
+- Saving an existing secret record without re-entering the secret no longer
+  shows "Audit logging failed: Unknown audit action \"metadata_update\"". The
+  DataHandler hook classified such metadata-only saves as `metadata_update`,
+  but the `AuditAction` enum had no such case, so the audit write was rejected
+  — the save succeeded, yet the audit entry for the metadata change was
+  silently never written. The action is now a valid enum case and the change
+  is sealed into the tamper-evident audit chain; it also appears as
+  "Metadata Update" in the audit-module action filter (#227).
+
 ## [0.12.1] - 2026-07-25
 
 ### Fixed
