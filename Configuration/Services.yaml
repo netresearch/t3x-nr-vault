@@ -35,6 +35,13 @@ services:
   Netresearch\NrVault\Crypto\EncryptionServiceInterface:
     alias: Netresearch\NrVault\Crypto\EncryptionService
 
+
+  # public: consuming extensions redact secrets from log lines and outbound
+  # payloads in contexts without constructor injection (ADR-031).
+  Netresearch\NrVault\Secret\SecretRedactorInterface:
+    alias: Netresearch\NrVault\Secret\SecretRedactor
+    public: true
+
   Netresearch\NrVault\Http\VaultHttpClientFactoryInterface:
     alias: Netresearch\NrVault\Http\VaultHttpClientFactory
 

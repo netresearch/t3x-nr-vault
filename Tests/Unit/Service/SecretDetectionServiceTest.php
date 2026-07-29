@@ -17,6 +17,7 @@ use Doctrine\DBAL\Types\IntegerType;
 use Doctrine\DBAL\Types\StringType;
 use Doctrine\DBAL\Types\TextType;
 use Exception;
+use Netresearch\NrVault\Secret\SecretRedactor;
 use Netresearch\NrVault\Service\Detection\Severity;
 use Netresearch\NrVault\Service\SecretDetectionService;
 use Netresearch\NrVault\Tests\Unit\TestCase;
@@ -63,6 +64,7 @@ final class SecretDetectionServiceTest extends TestCase
             $this->packageManager,
             $this->extensionConfiguration,
             new NullLogger(),
+            new SecretRedactor(),
         );
     }
 
@@ -1142,6 +1144,7 @@ final class SecretDetectionServiceTest extends TestCase
             $this->packageManager,
             $this->extensionConfiguration,
             new NullLogger(),
+            new SecretRedactor(),
         );
 
         // Scan again with no findings

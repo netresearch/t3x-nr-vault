@@ -55,6 +55,7 @@ ADR      Title                                       Status
 028      :ref:`adr-028-phpat-http-client-lock`       Accepted
 029      :ref:`adr-029-technical-actor-context`      Accepted
 030      :ref:`adr-030-site-config-vault-read-time-resolution`                       Accepted
+031      :ref:`adr-031-shared-secret-pattern-catalogue`                              Accepted
 =======  ==========================================  ========
 
 .. toctree::
@@ -91,3 +92,4 @@ ADR      Title                                       Status
    ADR-028-PhpatHttpClientLock
    ADR-029-TechnicalActorContext
    ADR-030-SiteConfigVaultReadTimeResolution
+   ADR-031-SharedSecretPatternCatalogue
