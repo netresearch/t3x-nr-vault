@@ -112,6 +112,32 @@ opposite things: a privacy redactor writing to storage should mask it, while a
 guardrail rewriting a prompt should not — silently removing an address from a
 prompt changes what the user asked.
 
+Query-parameter and userinfo patterns are bounded
+-------------------------------------------------
+
+The URL patterns inherited from nr-llm bounded their value only at ``&`` or
+whitespace, which let them run off the end of the URL. Masking
+``{"url":"…?token=abc","next":"keepme"}`` swallowed the closing quote, the brace
+and the following key; the userinfo pattern turned
+``{"url":"https://example.com:8080","contact":"support@example.org"}`` into
+``{"url":"https://example.com:***@example.org"}`` — deleting the port and the
+contact field, and fabricating a credentialled URL to a host that was never
+contacted. Both classes now stop at structural characters, the technique
+:php:`OAuthTokenManager` already used.
+
+The parameter-name alternation also accepts an optional vendor prefix, because
+without it ``client_secret`` — the name RFC 6749 §2.3.1 defines — matched
+nothing, and an OAuth client secret in a query string survived redaction
+untouched. ``password`` and the hyphenated ``api-key`` were missing for the same
+reason.
+
+Bearer runs first
+-----------------
+
+The ``Bearer …`` pattern is applied before the prefix-specific shapes. Run after
+them, the OpenAI rule rewrote the key to ``sk-***`` and the Bearer rule then
+matched the leftover ``Bearer sk-``, producing ``Bearer ******``.
+
 Failure is not a wipe
 ---------------------
 
@@ -126,6 +152,10 @@ Consequences
 
 -  Four catalogues become one. A new shape is added once, and both the scanner
    and every redactor gain it.
+-  One deliberate exception: :php:`OAuthTokenManager` keeps its own patterns,
+   because it must also reach credentials inside quoted and JSON-escaped forms
+   (``"client_secret":"…"``), which this catalogue does not model. Its
+   value-bounding technique was adopted here.
 -  The scanner's constructor gains a :php:`SecretRedactorInterface`. Its
    behaviour on the frozen patterns is unchanged; it additionally classifies the
    three added shapes.

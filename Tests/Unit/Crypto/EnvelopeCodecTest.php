@@ -340,6 +340,71 @@ final class EnvelopeCodecTest extends TestCase
         self::assertSame('payload', $codecThree->open($afterSecond, self::IDENTIFIER));
     }
 
+    /**
+     * The read path tolerates unknown fields, so the rotation path must preserve
+     * them. Rebuilding the body from the fields this version knows made rotation
+     * lossy in exactly the case the tolerance exists for: a body written by a
+     * newer vault opened fine until an operator rotated, then came back stripped
+     * — irreversibly, once the old key was destroyed.
+     */
+    #[Test]
+    public function rewrappingPreservesFieldsThisVersionDoesNotKnow(): void
+    {
+        $newMasterKey = random_bytes(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES);
+
+        $sealed = $this->rewriteEnvelope(
+            $this->subject->seal('payload', self::IDENTIFIER),
+            static function (array $envelope): array {
+                $envelope['a_field_from_the_future'] = 'must survive';
+                $envelope['another_one'] = 42;
+
+                return $envelope;
+            },
+        );
+
+        $rewrapped = $this->subject->rewrap($sealed, self::IDENTIFIER, $this->masterKey, $newMasterKey);
+
+        self::assertSame('must survive', $this->envelopeField($rewrapped, 'a_field_from_the_future'));
+
+        $body = base64_decode(substr($rewrapped, \strlen(EnvelopeCodecInterface::MARKER)), true);
+        self::assertIsString($body);
+        $decoded = json_decode($body, true, 8, JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        self::assertArrayHasKey('another_one', $decoded);
+        self::assertSame(42, $decoded['another_one']);
+
+        // And it still opens under the new key.
+        $newCodec = new EnvelopeCodec($this->encryptionServiceFor($newMasterKey));
+        self::assertSame('payload', $newCodec->open($rewrapped, self::IDENTIFIER));
+    }
+
+    /**
+     * An envelope that legitimately carried no checksum must not come back with an
+     * invented empty one.
+     */
+    #[Test]
+    public function rewrappingDoesNotInventAnAbsentOptionalField(): void
+    {
+        $newMasterKey = random_bytes(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES);
+
+        $sealed = $this->rewriteEnvelope(
+            $this->subject->seal('payload', self::IDENTIFIER),
+            static function (array $envelope): array {
+                unset($envelope['value_checksum']);
+
+                return $envelope;
+            },
+        );
+
+        $rewrapped = $this->subject->rewrap($sealed, self::IDENTIFIER, $this->masterKey, $newMasterKey);
+
+        $body = base64_decode(substr($rewrapped, \strlen(EnvelopeCodecInterface::MARKER)), true);
+        self::assertIsString($body);
+        $decoded = json_decode($body, true, 8, JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        self::assertArrayNotHasKey('value_checksum', $decoded);
+    }
+
     private function encryptionServiceFor(string $masterKey): EncryptionService
     {
         $provider = $this->createMock(MasterKeyProviderInterface::class);

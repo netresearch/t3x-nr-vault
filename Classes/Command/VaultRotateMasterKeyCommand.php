@@ -212,7 +212,7 @@ final class VaultRotateMasterKeyCommand extends Command
             return Command::SUCCESS;
         }
 
-        return $this->rotateAllSecrets($io, $identifiers, $oldKey, $newKey, $totalSecrets);
+        return $this->rotateAllSecrets($io, $identifiers, $oldKey, $newKey, $totalSecrets, $totalForeign);
     }
 
     /**
@@ -411,6 +411,7 @@ final class VaultRotateMasterKeyCommand extends Command
         string $oldKey,
         string $newKey,
         int $totalSecrets,
+        int $expectedForeign,
     ): int {
         $connection = $this->connectionPool->getConnectionForTable('tx_nrvault_secret');
 
@@ -519,6 +520,37 @@ final class VaultRotateMasterKeyCommand extends Command
             // write must have written by then.
             $foreignCount = $this->rewrapForeignEnvelopes($io, $oldKey, $newKey);
 
+            // Reconcile against the inventory. A rotator that re-wraps FEWER
+            // envelopes than it reported — a batching off-by-one, a WHERE clause
+            // that misses rows — would otherwise commit, report success, and send
+            // the operator to step 2 below: "securely archive or destroy the old
+            // master key". Destroying it then makes the missed envelopes
+            // permanently unreadable, which is the silent loss this seam exists to
+            // prevent. A benign shrink (rows deleted between the inventory and the
+            // transaction) is indistinguishable from a buggy rotator here, so this
+            // fails closed and asks for a re-run rather than guessing.
+            if ($foreignCount < $expectedForeign) {
+                $connection->rollBack();
+                $io->error([
+                    \sprintf(
+                        'Consumer-owned envelopes: inventoried %d, re-wrapped only %d.',
+                        $expectedForeign,
+                        $foreignCount,
+                    ),
+                    'Rotation rolled back; nothing was changed.',
+                    'Re-run the command. If the shortfall repeats, the consumer\'s rotator is missing rows'
+                    . ' and committing would leave them unreadable once the old key is gone.',
+                ]);
+                $this->auditLogService->log(
+                    self::AUDIT_PSEUDO_IDENTIFIER,
+                    AuditAction::MasterKeyRotateEnd->value,
+                    false,
+                    'Consumer envelope count mismatch; transaction rolled back',
+                );
+
+                return Command::FAILURE;
+            }
+
             $rekeyedRows = $this->rekeyAuditChain($connection, $isSQLite, $newKey, $successCount);
 
             $connection->commit();
@@ -547,15 +579,6 @@ final class VaultRotateMasterKeyCommand extends Command
             $rekeyedRows,
         ));
 
-        // Announce the completed rotation only after the commit, so a listener
-        // never observes a rotation that was rolled back (ADR-003).
-        $this->eventDispatcher->dispatch(new MasterKeyRotatedEvent(
-            secretsReEncrypted: $successCount,
-            actorUid: $this->accessControlService->getCurrentActorUid(),
-            rotatedAt: new DateTimeImmutable(),
-            foreignEnvelopesReEncrypted: $foreignCount,
-        ));
-
         $io->note([
             'Next steps:',
             '1. Update your configuration to use the new master key NOW — until then,',
@@ -565,6 +588,18 @@ final class VaultRotateMasterKeyCommand extends Command
             '4. If any audit entries were written between this rotation and the',
             '   configuration switch, re-seal them with vault:audit-migrate-hmac',
         ]);
+
+        // Dispatched last, and deliberately after the instructions above: the
+        // rotation has already committed, so a listener that throws must not be
+        // able to suppress "update your configuration to use the new master key
+        // NOW". The exception still propagates — a broken listener should be
+        // visible — but by then the operator has read what they have to do.
+        $this->eventDispatcher->dispatch(new MasterKeyRotatedEvent(
+            secretsReEncrypted: $successCount,
+            actorUid: $this->accessControlService->getCurrentActorUid(),
+            rotatedAt: new DateTimeImmutable(),
+            foreignEnvelopesReEncrypted: $foreignCount,
+        ));
 
         return Command::SUCCESS;
     }

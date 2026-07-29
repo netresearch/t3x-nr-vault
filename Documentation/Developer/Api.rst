@@ -331,10 +331,12 @@ substitute for keeping secrets in the vault.
       enough — ``GITHUB_PAT`` says nothing about being secret — so pair it with
       :php:`identifyValue()` or :php:`redact()` on the value.
 
-   .. php:method:: identifyValue(string $value): ?string
+   .. php:method:: identifyValue(string $value)
 
       The shape name when the WHOLE value is a known secret format, else null.
       Leading and trailing whitespace is ignored.
+
+      :returns: ``string|null`` — the matched shape name, or null.
 
 .. php:enum:: SecretIdentifierKind
 
@@ -454,6 +456,8 @@ Via VaultService
    );
 
    $response = $client->sendRequest($request);
+
+.. php:namespace:: Netresearch\NrVault\Http
 
 .. php:interface:: VaultHttpClientInterface
 
@@ -608,6 +612,8 @@ PSR-14 events
 
 The vault dispatches events during secret operations.
 
+.. php:namespace:: Netresearch\NrVault\Event
+
 .. php:class:: SecretCreatedEvent
 
    Dispatched when a new secret is created.
@@ -651,7 +657,18 @@ The vault dispatches events during secret operations.
 
 .. php:class:: MasterKeyRotatedEvent
 
-   Dispatched after master key rotation completes.
+   Dispatched by ``vault:rotate-master-key`` after the rotation transaction has
+   COMMITTED, so a listener never observes a rotation that was rolled back.
+
+   -  :php:`getSecretsReEncrypted()`: Number of this extension's secrets re-encrypted.
+   -  :php:`getForeignEnvelopesReEncrypted()`: Number of consumer-owned envelopes
+      re-wrapped (:ref:`ADR-033 <adr-033-foreign-envelope-rotation>`).
+   -  :php:`getActorUid()`: The acting backend user, or 0 in a CLI context.
+   -  :php:`getRotatedAt()`: When the rotation completed.
+
+   This is a notification, not a participation hook: a listener cannot re-wrap
+   anything, because both master keys are gone by the time it runs. To have your
+   own envelopes rotated, implement :php:`ForeignEnvelopeRotatorInterface`.
 
    -  :php:`getSecretsReEncrypted()`: Number of secrets re-encrypted.
    -  :php:`getActorUid()`: User ID who performed the rotation.

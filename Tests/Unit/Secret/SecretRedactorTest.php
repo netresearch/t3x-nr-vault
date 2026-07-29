@@ -253,6 +253,107 @@ final class SecretRedactorTest extends TestCase
         self::assertStringNotContainsString('ghp_', $this->redactor->redact($value));
     }
 
+    /**
+     * Credential query parameters that used to survive redaction because the
+     * name alternation had no prefix allowance. ``client_secret`` is the name
+     * RFC 6749 §2.3.1 defines, so an OAuth client secret in a query string was
+     * being written out verbatim.
+     *
+     * @return iterable<string, array{string, string}>
+     */
+    public static function credentialParameterProvider(): iterable
+    {
+        yield 'client_secret' => ['https://idp.example/token?client_secret=s3cr3tvalue&x=1', 's3cr3tvalue'];
+        yield 'password' => ['https://api.example/login?password=hunter2', 'hunter2'];
+        yield 'api-key (hyphenated)' => ['https://api.example/v1?api-key=SUPERSECRET123', 'SUPERSECRET123'];
+        yield 'refresh_token' => ['https://api.example/?refresh_token=rt_abcdef123456', 'rt_abcdef123456'];
+        yield 'access-token' => ['https://api.example/?access-token=at_abcdef123456', 'at_abcdef123456'];
+        yield 'client_id is not a secret name' => ['https://api.example/?client_secret=zz9', 'zz9'];
+        yield 'x_api_key vendor prefix' => ['https://api.example/?x_api_key=abc123def', 'abc123def'];
+        yield 'signature' => ['https://api.example/?signature=deadbeefcafe', 'deadbeefcafe'];
+    }
+
+    #[Test]
+    #[DataProvider('credentialParameterProvider')]
+    public function credentialQueryParametersAreMasked(string $input, string $secret): void
+    {
+        self::assertStringNotContainsString($secret, $this->redactor->redact($input));
+    }
+
+    /**
+     * The URL patterns must stop at structural characters. Left unbounded they
+     * ran past the end of the URL and ate the rest of the line — including, in
+     * the userinfo case, fabricating a credentialled URL to a host that was
+     * never contacted.
+     *
+     * @return iterable<string, array{string, string}>
+     */
+    public static function boundedMaskingProvider(): iterable
+    {
+        yield 'query param inside JSON keeps the tail' => [
+            '{"url":"https://x.example/?token=abc","next":"keepme"}',
+            'keepme',
+        ];
+        yield 'query param keeps the fragment' => [
+            'https://x.example/?token=abc#section-two',
+            '#section-two',
+        ];
+        yield 'query param keeps a following parameter' => [
+            'https://x.example/?token=abc&page=7',
+            'page=7',
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('boundedMaskingProvider')]
+    public function maskingStopsAtStructuralCharacters(string $input, string $mustSurvive): void
+    {
+        $redacted = $this->redactor->redact($input);
+
+        self::assertStringContainsString($mustSurvive, $redacted);
+        self::assertStringNotContainsString('=abc', $redacted, 'The credential itself must still be masked.');
+    }
+
+    /**
+     * A port followed later by an unrelated e-mail address is not a userinfo
+     * component. This turned
+     * '{"url":"https://example.com:8080","contact":"support@example.org"}' into
+     *
+     * '{"url":"https://example.com:***@example.org"}' — deleting the port and the
+     * contact field, and inventing a credential for a host never contacted.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function notUserinfoProvider(): iterable
+    {
+        yield 'JSON url and contact' => ['{"url":"https://example.com:8080","contact":"support@example.org"}'];
+        yield 'port then comma then address' => ['https://host.example:1234,mail@x.com'];
+        yield 'port then space then address' => ['https://host.example:8080 mail@x.com'];
+    }
+
+    #[Test]
+    #[DataProvider('notUserinfoProvider')]
+    public function aPortIsNotMistakenForACredential(string $input): void
+    {
+        self::assertSame($input, $this->redactor->redact($input));
+    }
+
+    /**
+     * Bearer is applied before the prefix-specific shapes, so a bearer-carried
+     * vendor key collapses to ONE mask. Applied after, the OpenAI rule rewrote
+     * the key to 'sk-***' and Bearer then matched the leftover 'Bearer sk-',
+     * yielding 'Bearer ******'.
+     */
+    #[Test]
+    public function aBearerCarriedVendorKeyCollapsesToASingleMask(): void
+    {
+        self::assertSame('Bearer ***', $this->redactor->redact('Bearer sk-abcdefghijklmnopqrst'));
+        self::assertSame(
+            'Authorization: Bearer ***',
+            $this->redactor->redact('Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF'),
+        );
+    }
+
     private static function repeat(string $char, int $times): string
     {
         return str_repeat($char, $times);

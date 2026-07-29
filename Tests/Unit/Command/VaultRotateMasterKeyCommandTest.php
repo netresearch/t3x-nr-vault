@@ -809,6 +809,72 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     }
 
     /**
+     * A rotator that re-wraps FEWER envelopes than it inventoried must not
+     * commit. Committing would print success and then send the operator to
+     * "securely archive or destroy the old master key", which makes the missed
+     * envelopes permanently unreadable — the exact silent loss this seam exists
+     * to prevent.
+     */
+    #[Test]
+    public function aShortfallAgainstTheInventoryRollsTheRotationBack(): void
+    {
+        $this->givenOneRotatableSecret(expectRollback: true);
+
+        $rotator = $this->createRotator(envelopes: 10);
+        $rotator->method('rewrapAll')->willReturn(7);
+
+        $this->auditChainRekeyService->expects(self::never())->method('rekeyChain');
+        $this->eventDispatcher->expects(self::never())->method('dispatch');
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $exitCode = $tester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('inventoried 10', $tester->getDisplay());
+    }
+
+    #[Test]
+    public function moreEnvelopesThanInventoriedIsNotTreatedAsAFailure(): void
+    {
+        // Rows added between the inventory and the transaction are benign.
+        $this->givenOneRotatableSecret();
+
+        $rotator = $this->createRotator(envelopes: 3);
+        $rotator->method('rewrapAll')->willReturn(5);
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+
+        self::assertSame(0, $tester->execute($this->rotationInput()));
+    }
+
+    /**
+     * The rotation has already committed when the event fires, so a listener that
+     * throws must not be able to swallow the operator instructions — without them
+     * the installation sits with every secret wrapped under a key the
+     * configuration does not yet reference.
+     */
+    #[Test]
+    public function aThrowingListenerCannotSuppressThePostRotationInstructions(): void
+    {
+        $this->givenOneRotatableSecret();
+        $this->eventDispatcher
+            ->method('dispatch')
+            ->willThrowException(new RuntimeException('listener exploded'));
+
+        $tester = new CommandTester($this->createCommand());
+
+        try {
+            $tester->execute($this->rotationInput());
+        } catch (RuntimeException) {
+            // The listener failure is deliberately NOT swallowed.
+        }
+
+        $display = $tester->getDisplay();
+        self::assertStringContainsString('Successfully rotated', $display);
+        self::assertStringContainsString('Update your configuration', $display);
+    }
+
+    /**
      * @param iterable<ForeignEnvelopeRotatorInterface> $foreignRotators
      */
     private function createCommand(

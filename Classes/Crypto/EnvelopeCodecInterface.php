@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Crypto;
 
 use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Exception\EnvelopeFormatException;
+use Netresearch\NrVault\Exception\MasterKeyException;
 use SensitiveParameter;
 
 /**
@@ -53,7 +54,11 @@ interface EnvelopeCodecInterface
      *                           not a per-row one, or nothing will decrypt after
      *                           a row moves.
      *
-     * @throws EncryptionException If encryption fails or the master key is unavailable
+     * @throws EncryptionException If encryption fails
+     * @throws MasterKeyException If the master key is missing or malformed. A
+     *                            SIBLING of EncryptionException, not a subclass —
+     *                            catching only EncryptionException lets a plain
+     *                            misconfiguration escape as an uncaught fatal.
      */
     public function seal(#[SensitiveParameter] string $plaintext, string $identifier): string;
 
@@ -66,8 +71,10 @@ interface EnvelopeCodecInterface
      * @param string $identifier The SAME identifier the payload was sealed with
      *
      * @throws EnvelopeFormatException If the string is not a well-formed envelope
-     * @throws EncryptionException If authentication fails, the algorithm marker is
-     *                             unknown on this host, or the master key is unavailable
+     * @throws EncryptionException If authentication fails or the algorithm marker
+     *                             is unknown on this host
+     * @throws MasterKeyException If the master key is missing or malformed (see
+     *                            the note on {@see seal()})
      */
     public function open(string $sealed, string $identifier): string;
 

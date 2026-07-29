@@ -17,7 +17,12 @@ namespace Netresearch\NrVault\Secret;
  * guardrail, a privacy redactor, an environment-listing tool) — and the copies
  * had drifted: the scanner knew Stripe, SendGrid, Twilio and Mailchimp but not
  * OpenAI project keys or fine-grained GitHub PATs, while the redactors knew the
- * latter and not the former. Every consumer now reads from here.
+ * latter and not the former.
+ *
+ * The scanner and the three nr-llm redactors now read from here.
+ * {@see \Netresearch\NrVault\Http\OAuth\OAuthTokenManager} deliberately keeps its
+ * own patterns: it also has to reach credentials inside quoted and JSON-escaped
+ * forms (``"client_secret":"…\"…"``), which this catalogue does not model.
  *
  * Every pattern is linear: bounded character classes separated by literals, with
  * no nested quantifiers, so none is vulnerable to catastrophic backtracking.
@@ -46,6 +51,20 @@ final class SecretPatternLibrary
     public static function valueShapes(): array
     {
         return [
+            // --- Generic bearer credentials ----------------------------------
+            // FIRST on purpose. A 'Bearer <token>' match subsumes whatever the
+            // token happens to be, so running it before the prefix-specific shapes
+            // makes 'Bearer sk-…' collapse to a single mask. The other way round,
+            // the OpenAI rule rewrote the key to 'sk-***' and the Bearer rule then
+            // matched the remaining 'Bearer sk-', yielding 'Bearer ******'.
+            // The character class covers base64-standard characters (+ / =) so a
+            // token's tail is not left behind after the mask.
+            new SecretPattern(
+                name: 'Bearer Token',
+                inlinePattern: '/\b(Bearer\s+)[A-Za-z0-9._~+\/\-]+=*/i',
+                inlineReplacement: '$1' . SecretPattern::MASK,
+            ),
+
             // --- OpenAI ------------------------------------------------------
             // The inline class allows '-' and '_' so modern project keys
             // (sk-proj-…) match, and the mask keeps the 'sk-' prefix so a reader
@@ -181,13 +200,6 @@ final class SecretPatternLibrary
                 anchoredPattern: '/^eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/',
                 inlinePattern: '/\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+/',
             ),
-            // The character class covers base64-standard characters (+ / =) so a
-            // token's tail is not left behind after the mask.
-            new SecretPattern(
-                name: 'Bearer Token',
-                inlinePattern: '/\b(Bearer\s+)[A-Za-z0-9._~+\/\-]+=*/i',
-                inlineReplacement: '$1' . SecretPattern::MASK,
-            ),
         ];
     }
 
@@ -204,16 +216,39 @@ final class SecretPatternLibrary
     public static function urlCredentials(): array
     {
         return [
+            // The parameter NAME accepts an optional vendor prefix, so the OAuth 2.0
+            // standard names match: 'client_secret' (RFC 6749 §2.3.1) is
+            // 'client' + '_' + 'secret'. Without the prefix the alternation missed
+            // it entirely and an OAuth client secret in a query string survived
+            // redaction. A name like 'monkey' cannot match: the prefixed form needs
+            // a '_' or '-' separator, and the bare form must consume the whole name.
+            //
+            // The VALUE class is bounded by structural characters, not just '&' and
+            // whitespace — the technique already used by
+            // {@see \Netresearch\NrVault\Http\OAuth\OAuthTokenManager}. An
+            // unbounded class runs past the end of the URL and eats the rest of the
+            // line: masking '{"url":"…?token=abc","next":"keepme"}' swallowed the
+            // closing quote, the brace and the following key, leaving unparseable
+            // JSON and losing context the reader needed.
             new SecretPattern(
                 name: 'URL Credential Parameter',
-                inlinePattern: '/([?&])(key|api_key|apikey|token|secret|access_token)=[^&\s]+/i',
+                inlinePattern: '/([?&])((?:[a-z0-9]+[_\-])?(?:api[_\-]?key|apikey|access[_\-]?token|refresh[_\-]?token|id[_\-]?token|client[_\-]?secret|auth[_\-]?token|key|secret|token|password|passwd|pwd|credential|signature))=[^&\s"\'<>{}\[\](),;#]+/i',
                 inlineReplacement: '$1$2=' . SecretPattern::MASK,
             ),
             // The username may be empty (e.g. redis://:password@host). A '~'
             // delimiter is used because the pattern itself contains '#'.
+            //
+            // The password class is bounded the same way. Left unbounded it did not
+            // stop at the end of the URL either: in
+            // '{"url":"https://example.com:8080","contact":"support@example.org"}'
+            // it treated everything from the port to the address' '@' as one
+            // password, deleting the port and the whole contact field — and
+            // fabricated 'https://example.com:***@example.org', which reads as if a
+            // credential had been redacted from a request to a host that was never
+            // contacted.
             new SecretPattern(
                 name: 'URL Userinfo Password',
-                inlinePattern: '~(\b[a-z][a-z0-9+.\-]*://[^:/?#\s@]*):[^@/?#\s]+@~i',
+                inlinePattern: '~(\b[a-z][a-z0-9+.\-]*://[^:/?#\s@]*):[^@/?#\s"\'<>{}\[\](),;]+@~i',
                 inlineReplacement: '$1:' . SecretPattern::MASK . '@',
             ),
         ];

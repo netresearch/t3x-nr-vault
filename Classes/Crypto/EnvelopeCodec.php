@@ -44,7 +44,7 @@ final readonly class EnvelopeCodec implements EnvelopeCodecInterface
 
     public function open(string $sealed, string $identifier): string
     {
-        $envelope = $this->parse($sealed);
+        $envelope = $this->validate($this->decodeBody($sealed));
 
         return $this->encryptionService->decrypt(
             $envelope['encrypted_value'],
@@ -70,7 +70,8 @@ final readonly class EnvelopeCodec implements EnvelopeCodecInterface
         #[SensitiveParameter]
         string $newMasterKey,
     ): string {
-        $envelope = $this->parse($sealed);
+        $body = $this->decodeBody($sealed);
+        $envelope = $this->validate($body);
 
         $reEncrypted = $this->encryptionService->reEncryptDek(
             $envelope['encrypted_dek'],
@@ -82,38 +83,32 @@ final readonly class EnvelopeCodec implements EnvelopeCodecInterface
             $envelope['encryption_algorithm'],
         );
 
-        // Only the DEK layer changes: the payload ciphertext, its nonce and the
-        // version/algorithm markers are carried over untouched, so re-wrapping is
-        // not a re-encryption and never materialises the plaintext.
-        $rewrapped = [
-            'encrypted_value' => $envelope['encrypted_value'],
-            'encrypted_dek' => $reEncrypted->encryptedDek,
-            'dek_nonce' => $reEncrypted->nonce,
-            'value_nonce' => $envelope['value_nonce'],
-            'value_checksum' => $envelope['value_checksum'],
-            'encryption_version' => $envelope['encryption_version'],
-            'encryption_algorithm' => $envelope['encryption_algorithm'],
-        ];
+        // Rewrite the DEK layer ON TOP of the body as it was read, rather than
+        // rebuilding the body from the fields this version happens to know. The
+        // read path deliberately tolerates unknown fields, so rebuilding would make
+        // rotation lossy in exactly the case the tolerance exists for: a body
+        // written by a newer vault would open fine until an operator rotated, and
+        // then come back stripped — irreversibly, once the old key is gone. It also
+        // preserves the ABSENCE of an optional field instead of inventing an empty
+        // value for it.
+        //
+        // The payload ciphertext, its nonce and the version/algorithm markers are
+        // untouched, so re-wrapping is not a re-encryption and never materialises
+        // the plaintext.
+        $body['encrypted_dek'] = $reEncrypted->encryptedDek;
+        $body['dek_nonce'] = $reEncrypted->nonce;
 
-        return self::MARKER . base64_encode(json_encode($rewrapped, JSON_THROW_ON_ERROR));
+        return self::MARKER . base64_encode(json_encode($body, JSON_THROW_ON_ERROR));
     }
 
     /**
-     * Split off the marker, decode the body and validate every field's type.
+     * Split off the marker and decode the body, without inspecting its fields.
      *
      * @throws EnvelopeFormatException
      *
-     * @return array{
-     *     encrypted_value: string,
-     *     encrypted_dek: string,
-     *     dek_nonce: string,
-     *     value_nonce: string,
-     *     value_checksum: string,
-     *     encryption_version: int,
-     *     encryption_algorithm: string,
-     * }
+     * @return array<string, mixed>
      */
-    private function parse(string $sealed): array
+    private function decodeBody(string $sealed): array
     {
         if (!$this->isSealed($sealed)) {
             throw EnvelopeFormatException::missingMarker();
@@ -134,6 +129,32 @@ final readonly class EnvelopeCodec implements EnvelopeCodecInterface
             throw EnvelopeFormatException::notJson();
         }
 
+        /** @var array<string, mixed> $decoded */
+        return $decoded;
+    }
+
+    /**
+     * Check that every field the codec needs is present with the right type.
+     *
+     * Unknown fields are deliberately ignored rather than rejected, so a body
+     * written by an older or newer vault still opens.
+     *
+     * @param array<string, mixed> $decoded
+     *
+     * @throws EnvelopeFormatException
+     *
+     * @return array{
+     *     encrypted_value: string,
+     *     encrypted_dek: string,
+     *     dek_nonce: string,
+     *     value_nonce: string,
+     *     value_checksum: string,
+     *     encryption_version: int,
+     *     encryption_algorithm: string,
+     * }
+     */
+    private function validate(array $decoded): array
+    {
         $value = $decoded['encrypted_value'] ?? null;
         $dek = $decoded['encrypted_dek'] ?? null;
         $dekNonce = $decoded['dek_nonce'] ?? null;
