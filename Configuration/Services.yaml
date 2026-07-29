@@ -35,6 +35,12 @@ services:
   Netresearch\NrVault\Crypto\EncryptionServiceInterface:
     alias: Netresearch\NrVault\Crypto\EncryptionService
 
+  # public: consuming extensions resolve the codec via
+  # GeneralUtility::makeInstance(EnvelopeCodecInterface::class) where they
+  # encrypt their own payloads outside a DI-constructed service (ADR-032).
+  Netresearch\NrVault\Crypto\EnvelopeCodecInterface:
+    alias: Netresearch\NrVault\Crypto\EnvelopeCodec
+    public: true
 
   # public: consuming extensions redact secrets from log lines and outbound
   # payloads in contexts without constructor injection (ADR-031).
@@ -142,6 +148,14 @@ services:
     tags:
       - name: upgrade.wizard
         identifier: nrVaultAuditHmacMigration
+
+  # Consuming extensions that store their own sealed envelopes tag a
+  # ForeignEnvelopeRotatorInterface implementation with
+  # 'nrvault.foreign_envelope_rotator' in THEIR Services.yaml; the rotate
+  # command re-wraps them inside its own transaction (ADR-033).
+  Netresearch\NrVault\Command\VaultRotateMasterKeyCommand:
+    arguments:
+      $foreignRotators: !tagged_iterator nrvault.foreign_envelope_rotator
 
   # ----- Notes on removed entries -----------------------------------------
   # - 6 controller entries — covered by #[AsController] + autoconfigure.

@@ -9,17 +9,24 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
+use DateTimeImmutable;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainLockTrait;
 use Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
+use Netresearch\NrVault\Crypto\EnvelopeCodecInterface;
+use Netresearch\NrVault\Crypto\EnvelopeRotationContext;
+use Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
+use Netresearch\NrVault\Event\MasterKeyRotatedEvent;
 use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Exception\MasterKeyException;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use SensitiveParameter;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -60,6 +67,9 @@ final class VaultRotateMasterKeyCommand extends Command
      */
     private const AUDIT_PSEUDO_IDENTIFIER = '__master_key__';
 
+    /**
+     * @param iterable<ForeignEnvelopeRotatorInterface> $foreignRotators
+     */
     public function __construct(
         private readonly SecretRepositoryInterface $secretRepository,
         private readonly EncryptionServiceInterface $encryptionService,
@@ -67,6 +77,10 @@ final class VaultRotateMasterKeyCommand extends Command
         private readonly ConnectionPool $connectionPool,
         private readonly AuditLogServiceInterface $auditLogService,
         private readonly AuditChainRekeyServiceInterface $auditChainRekeyService,
+        private readonly EnvelopeCodecInterface $envelopeCodec,
+        private readonly AccessControlServiceInterface $accessControlService,
+        private readonly EventDispatcherInterface $eventDispatcher,
+        private readonly iterable $foreignRotators = [],
     ) {
         parent::__construct();
     }
@@ -149,24 +163,47 @@ final class VaultRotateMasterKeyCommand extends Command
         $identifiers = $this->secretRepository->findIdentifiers();
         $totalSecrets = \count($identifiers);
 
-        if ($totalSecrets === 0) {
-            $io->warning('No secrets found in the vault.');
+        // Consumer-owned envelopes are part of the rotation, so they are part of
+        // the inventory: a vault with no secrets of its own may still be the key
+        // authority for thousands of foreign envelopes (ADR-033).
+        $foreignCounts = $this->inventoryForeignRotators($io);
+        if ($foreignCounts === null) {
+            return Command::FAILURE;
+        }
+        $totalForeign = array_sum($foreignCounts);
+
+        if ($totalSecrets === 0 && $totalForeign === 0) {
+            $io->warning('No secrets found in the vault, and no consumer-owned envelopes registered.');
 
             return Command::SUCCESS;
         }
 
         $io->title('Master Key Rotation');
         $io->text(\sprintf('Found %d secret(s) to re-encrypt.', $totalSecrets));
+        $this->reportForeignInventory($io, $foreignCounts);
 
         if (!$this->confirmExecution($io, $dryRun, $confirmed)) {
             return Command::FAILURE;
         }
 
-        if (!$this->verifyOldKey($io, $identifiers[0], $oldKey, $newKey)) {
-            return Command::FAILURE;
+        // The smoke test re-encrypts one real secret to prove the old key is the
+        // right one. With no vault secrets there is nothing to test against; the
+        // foreign pass then does the proving, and its failure rolls everything
+        // back — so this is a lost early warning, not a lost safety net.
+        if ($totalSecrets > 0) {
+            if (!$this->verifyOldKey($io, $identifiers[0], $oldKey, $newKey)) {
+                return Command::FAILURE;
+            }
+        } elseif ($totalForeign > 0) {
+            $io->note(
+                'The vault holds no secrets of its own, so the old master key cannot be '
+                . 'smoke-tested up front. A wrong key will surface as a failure of the '
+                . 'consumer-envelope pass, which rolls the rotation back.',
+            );
         }
 
         if ($dryRun) {
+            $io->text(\sprintf('Would re-wrap %d consumer-owned envelope(s).', $totalForeign));
             $io->success(\sprintf(
                 '[DRY RUN] Would re-encrypt %d secret(s). No changes made.',
                 $totalSecrets,
@@ -198,6 +235,118 @@ final class VaultRotateMasterKeyCommand extends Command
             ]);
 
             return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Count the envelopes every registered consumer holds, keyed by its label.
+     *
+     * Returns null when a consumer cannot be inventoried: not knowing what a
+     * rotation is about to touch is a reason to refuse it, not to proceed and
+     * find out.
+     *
+     * @return array<string, int>|null
+     */
+    private function inventoryForeignRotators(SymfonyStyle $io): ?array
+    {
+        $counts = [];
+
+        foreach ($this->foreignRotators as $rotator) {
+            $label = $rotator->getIdentifier();
+
+            try {
+                $counts[$label] = $rotator->countEnvelopes();
+            } catch (Throwable $exception) {
+                $io->error([
+                    \sprintf('Could not inventory consumer-owned envelopes for "%s".', $label),
+                    'Error: ' . $exception->getMessage(),
+                    'Rotation refused; nothing was changed.',
+                ]);
+
+                return null;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @param array<string, int> $foreignCounts
+     */
+    private function reportForeignInventory(SymfonyStyle $io, array $foreignCounts): void
+    {
+        if ($foreignCounts === []) {
+            $io->text('No consumer-owned envelope rotators registered.');
+
+            return;
+        }
+
+        $io->text('Consumer-owned envelopes participating in this rotation:');
+        foreach ($foreignCounts as $label => $count) {
+            $io->text(\sprintf('  - %s: %d envelope(s)', $label, $count));
+        }
+    }
+
+    /**
+     * Re-wrap every registered consumer's envelopes inside the caller's open
+     * transaction, returning the total re-wrapped.
+     *
+     * The keys are handed over as an {@see EnvelopeRotationContext} so a consumer
+     * can move an envelope between keys without ever holding one.
+     *
+     * @throws Throwable Propagates any consumer failure for the caller's rollback
+     */
+    private function rewrapForeignEnvelopes(
+        SymfonyStyle $io,
+        #[SensitiveParameter]
+        string $oldKey,
+        #[SensitiveParameter]
+        string $newKey,
+    ): int {
+        $context = new EnvelopeRotationContext($this->envelopeCodec, $oldKey, $newKey);
+        $total = 0;
+
+        foreach ($this->foreignRotators as $rotator) {
+            $rewrapped = $rotator->rewrapAll($context);
+            $total += $rewrapped;
+            $io->text(\sprintf(
+                '  - %s: re-wrapped %d envelope(s).',
+                $rotator->getIdentifier(),
+                $rewrapped,
+            ));
+        }
+
+        return $total;
+    }
+
+    /**
+     * Refuse the rotation when a consumer's tables live on a different database
+     * connection than the vault's, because then "one transaction" is a fiction
+     * and a partial rotation could commit. Mirrors the audit-table precondition.
+     */
+    private function foreignTablesShareConnection(SymfonyStyle $io, Connection $connection): bool
+    {
+        foreach ($this->foreignRotators as $rotator) {
+            foreach ($rotator->getTables() as $table) {
+                if ($this->connectionPool->getConnectionForTable($table) !== $connection) {
+                    $io->error(\sprintf(
+                        'Table "%s" (owned by %s) is mapped to a different database connection than '
+                        . 'tx_nrvault_secret; atomic master-key rotation across both is not possible.',
+                        $table,
+                        $rotator->getIdentifier(),
+                    ));
+                    $this->auditLogService->log(
+                        self::AUDIT_PSEUDO_IDENTIFIER,
+                        AuditAction::MasterKeyRotateEnd->value,
+                        false,
+                        'Rotation refused: a consumer table is on a different connection; nothing changed',
+                    );
+
+                    return false;
+                }
+            }
         }
 
         return true;
@@ -285,6 +434,10 @@ final class VaultRotateMasterKeyCommand extends Command
             return Command::FAILURE;
         }
 
+        if (!$this->foreignTablesShareConnection($io, $connection)) {
+            return Command::FAILURE;
+        }
+
         $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
 
         // Audit the start of the rotation lifecycle BEFORE the transaction so
@@ -336,6 +489,7 @@ final class VaultRotateMasterKeyCommand extends Command
         $failedSecrets = [];
         $successCount = 0;
         $rekeyedRows = 0;
+        $foreignCount = 0;
 
         try {
             foreach ($identifiers as $identifier) {
@@ -359,6 +513,12 @@ final class VaultRotateMasterKeyCommand extends Command
                 return Command::FAILURE;
             }
 
+            // Consumer-owned envelopes are re-wrapped BEFORE the audit-chain
+            // re-key: the re-key takes the audit advisory lock and holds it for
+            // the remainder of the transaction, so anything that still needs to
+            // write must have written by then.
+            $foreignCount = $this->rewrapForeignEnvelopes($io, $oldKey, $newKey);
+
             $rekeyedRows = $this->rekeyAuditChain($connection, $isSQLite, $newKey, $successCount);
 
             $connection->commit();
@@ -377,6 +537,7 @@ final class VaultRotateMasterKeyCommand extends Command
             return Command::FAILURE;
         }
 
+        $io->text(\sprintf('Consumer-owned envelopes re-wrapped: %d.', $foreignCount));
         $io->success(\sprintf(
             'Successfully rotated master key for %d secret(s).',
             $successCount,
@@ -384,6 +545,15 @@ final class VaultRotateMasterKeyCommand extends Command
         $io->text(\sprintf(
             'Audit chain re-keyed under the new master key (%d row(s) rewritten).',
             $rekeyedRows,
+        ));
+
+        // Announce the completed rotation only after the commit, so a listener
+        // never observes a rotation that was rolled back (ADR-003).
+        $this->eventDispatcher->dispatch(new MasterKeyRotatedEvent(
+            secretsReEncrypted: $successCount,
+            actorUid: $this->accessControlService->getCurrentActorUid(),
+            rotatedAt: new DateTimeImmutable(),
+            foreignEnvelopesReEncrypted: $foreignCount,
         ));
 
         $io->note([

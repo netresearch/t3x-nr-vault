@@ -132,7 +132,7 @@ wrapped by the master key).
       :returns: An ``EncryptedData`` value object (``Netresearch\NrVault\Crypto\EncryptedData``) holding the ciphertext, encrypted DEK, and nonces.
       :throws EncryptionException: If encryption fails.
 
-   .. php:method:: decrypt(string $encryptedValue, string $encryptedDek, string $dekNonce, string $valueNonce, string $identifier): string
+   .. php:method:: decrypt(string $encryptedValue, string $encryptedDek, string $dekNonce, string $valueNonce, string $identifier, int $encryptionVersion = 1, string $encryptionAlgorithm = ''): string
 
       Decrypt a previously encrypted value. ``$encryptedValue`` and
       ``$encryptedDek`` are ``#[\SensitiveParameter]``.
@@ -142,8 +142,10 @@ wrapped by the master key).
       :param string $dekNonce: Base64-encoded DEK nonce.
       :param string $valueNonce: Base64-encoded value nonce.
       :param string $identifier: Secret identifier (used as AAD).
+      :param int $encryptionVersion: Stored per-secret encryption version. Defaults to ``ENCRYPTION_VERSION_LEGACY`` (1), where the algorithm is derived from host capabilities.
+      :param string $encryptionAlgorithm: Stored per-secret algorithm marker. Required for version 2+, must be ``''`` for version 1.
       :returns: The decrypted plaintext.
-      :throws EncryptionException: If decryption fails.
+      :throws EncryptionException: If decryption fails or the marker is unknown on this host.
 
    .. php:method:: generateDek(): string
 
@@ -159,7 +161,7 @@ wrapped by the master key).
       :param string $plaintext: The secret value (``#[\SensitiveParameter]``).
       :returns: SHA-256 hash (64 hex characters).
 
-   .. php:method:: reEncryptDek(string $encryptedDek, string $dekNonce, string $identifier, string $oldMasterKey, string $newMasterKey): ReEncryptedDek
+   .. php:method:: reEncryptDek(string $encryptedDek, string $dekNonce, string $identifier, string $oldMasterKey, string $newMasterKey, int $encryptionVersion = 1, string $encryptionAlgorithm = ''): ReEncryptedDek
 
       Re-encrypt a DEK with a new master key (used during master-key
       rotation). ``$encryptedDek``, ``$oldMasterKey`` and
@@ -170,7 +172,174 @@ wrapped by the master key).
       :param string $identifier: Secret identifier.
       :param string $oldMasterKey: Previous master key (``#[\SensitiveParameter]``).
       :param string $newMasterKey: New master key (``#[\SensitiveParameter]``).
+      :param int $encryptionVersion: Stored per-secret encryption version.
+      :param string $encryptionAlgorithm: Stored per-secret algorithm marker (required for version 2+).
       :returns: A ``ReEncryptedDek`` value object (``Netresearch\NrVault\Crypto\ReEncryptedDek``).
+
+      The DEK is re-wrapped with the SAME algorithm the secret was encrypted
+      with; the version and algorithm markers are unchanged by the operation.
+
+.. _api-envelope-codec:
+
+EnvelopeCodec
+=============
+
+Envelope encryption for a payload you keep in ONE column of your own table
+(:ref:`ADR-032 <adr-032-portable-envelope-codec>`). Use this instead of
+:php:`EncryptionServiceInterface` when you have a blob rather than the vault's
+seven-column layout.
+
+.. php:namespace:: Netresearch\NrVault\Crypto
+
+.. php:interface:: EnvelopeCodecInterface
+
+   .. php:const:: MARKER
+
+      ``'nrv1:'`` — the version marker of the envelopes :php:`seal()` produces.
+      A stored value is self-identifying, so a column can hold sealed and
+      unsealed values during a migration.
+
+   .. php:method:: seal(string $plaintext, string $identifier): string
+
+      Encrypt a payload into a single string. ``$plaintext`` is a
+      ``#[\SensitiveParameter]``.
+
+      :param string $plaintext: The payload to protect (``#[\SensitiveParameter]``).
+      :param string $identifier: Context label bound to the ciphertext as additional authenticated data. Use a stable, per-purpose value (a column or use-case name), never a per-row one.
+      :returns: ``MARKER`` + base64-encoded JSON envelope.
+      :throws EncryptionException: If encryption fails or the master key is unavailable.
+
+   .. php:method:: open(string $sealed, string $identifier): string
+
+      Decrypt a sealed string. The stored change-detection checksum is not
+      verified — integrity comes from the AEAD tag, which is always checked.
+
+      :param string $sealed: A string produced by :php:`seal()`.
+      :param string $identifier: The SAME identifier the payload was sealed with.
+      :returns: The decrypted payload.
+      :throws EnvelopeFormatException: If the string is not a well-formed envelope.
+      :throws EncryptionException: If authentication fails, the algorithm marker is unknown on this host, or the master key is unavailable.
+
+   .. php:method:: isSealed(string $value): bool
+
+      Whether a stored value is an envelope, as opposed to a plain value written
+      before sealing was introduced.
+
+   .. php:method:: rewrap(string $sealed, string $identifier, string $oldMasterKey, string $newMasterKey): string
+
+      Re-wrap the envelope's DEK from one master key to another, leaving the
+      payload ciphertext untouched — nothing is decrypted. This is the primitive
+      behind :php:`ForeignEnvelopeRotatorInterface`; you normally reach it through
+      :php:`EnvelopeRotationContext::rewrap()` rather than calling it directly.
+
+.. warning::
+
+   :php:`seal()` wraps the payload's DEK with the CURRENT master key, and that
+   wrapped DEK lives in YOUR table where ``vault:rotate-master-key`` cannot reach
+   it. If you seal payloads you MUST also register a
+   :php:`ForeignEnvelopeRotatorInterface` (below), or your data becomes
+   permanently undecryptable the first time an operator rotates the master key.
+
+.. _api-foreign-envelope-rotator:
+
+ForeignEnvelopeRotator
+======================
+
+How a consuming extension joins master-key rotation
+(:ref:`ADR-033 <adr-033-foreign-envelope-rotation>`). Tag your implementation:
+
+.. code-block:: yaml
+   :caption: Configuration/Services.yaml (in YOUR extension)
+
+   Vendor\Extension\Crypto\MyEnvelopeRotator:
+     tags: ['nrvault.foreign_envelope_rotator']
+
+.. php:interface:: ForeignEnvelopeRotatorInterface
+
+   .. php:method:: getIdentifier(): string
+
+      Short label naming your extension and the data it owns, for the
+      operator-facing rotation report (e.g. ``nr-llm: agent run state``).
+
+   .. php:method:: getTables(): array
+
+      Every table :php:`rewrapAll()` writes to. The command refuses to rotate when
+      one of them is mapped to a different database connection than
+      ``tx_nrvault_secret``, because atomicity across two connections is a
+      fiction.
+
+   .. php:method:: countEnvelopes(): int
+
+      How many sealed envelopes you hold. Called outside the transaction, for the
+      dry-run report and the operator summary. Throwing aborts the rotation
+      before anything is touched.
+
+   .. php:method:: rewrapAll(EnvelopeRotationContext $context): int
+
+      Re-wrap every envelope you own; return how many. Runs INSIDE the vault's
+      rotation transaction, after the vault's own secrets and before the commit.
+
+      Do not open, commit or roll back a transaction, and do not swallow
+      failures: throwing rolls the ENTIRE rotation back, which is deliberate —
+      a partial rotation leaves data wrapped under a key the operator has been
+      told to destroy. Work in batches; the whole pass is one transaction.
+
+.. php:class:: EnvelopeRotationContext
+
+   Handed to :php:`rewrapAll()`. It closes over the old and new master keys and
+   exposes only the operation, so you move envelopes between keys without ever
+   holding key material.
+
+   .. php:method:: rewrap(string $sealed, string $identifier): string
+
+      Re-wrap one envelope's DEK. The payload is not decrypted.
+
+   .. php:method:: isSealed(string $value): bool
+
+      For skipping rows written before you started sealing.
+
+.. _api-secret-redactor:
+
+SecretRedactor
+==============
+
+The shared catalogue of recognisable secret shapes
+(:ref:`ADR-031 <adr-031-shared-secret-pattern-catalogue>`), used by this
+extension's plaintext scanner and available to any consumer that needs to mask
+secrets in log lines, error messages or outbound payloads.
+
+This is a best-effort net for secrets that have already escaped their proper
+home. It recognises the catalogued shapes and nothing else, and is not a
+substitute for keeping secrets in the vault.
+
+.. php:namespace:: Netresearch\NrVault\Secret
+
+.. php:interface:: SecretRedactorInterface
+
+   .. php:method:: redact(string $text, bool $includeEmails = false): string
+
+      Replace every recognised secret occurrence in free text with a mask.
+
+      :param bool $includeEmails: Also mask e-mail addresses. Off by default: an address is personal data rather than a secret, and masking one inside, say, a model prompt changes what the text says.
+      :returns: The masked text. If the regex engine gives up on a pathological input the text is returned as-is rather than emptied.
+
+   .. php:method:: isSecretIdentifier(string $identifier, SecretIdentifierKind $kind): bool
+
+      Whether a name reads as secret-bearing within its namespace. The kind
+      matters: database columns and configuration keys are suffix-anchored, while
+      environment variables use a broad substring rule. A name check alone is not
+      enough — ``GITHUB_PAT`` says nothing about being secret — so pair it with
+      :php:`identifyValue()` or :php:`redact()` on the value.
+
+   .. php:method:: identifyValue(string $value): ?string
+
+      The shape name when the WHOLE value is a known secret format, else null.
+      Leading and trailing whitespace is ignored.
+
+.. php:enum:: SecretIdentifierKind
+
+   ``DatabaseColumn``, ``ConfigurationKey``, ``EnvironmentVariable`` — the three
+   identifier namespaces, deliberately not merged into one rule set.
 
 .. _api-usage-examples:
 

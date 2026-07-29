@@ -199,7 +199,12 @@ SecretDeletedEvent
    Dispatched when a secret is deleted.
 
 MasterKeyRotatedEvent
-   Dispatched after master key rotation completes.
+   Dispatched after master key rotation commits, carrying the number of secrets
+   and of consumer-owned envelopes re-encrypted. This is a notification, not a
+   participation hook: a listener cannot re-wrap anything, because the master
+   keys are gone by the time it runs. To have your own envelopes rotated,
+   implement :php:`ForeignEnvelopeRotatorInterface`
+   (:ref:`ADR-033 <adr-033-foreign-envelope-rotation>`).
 
 Example listener:
 
