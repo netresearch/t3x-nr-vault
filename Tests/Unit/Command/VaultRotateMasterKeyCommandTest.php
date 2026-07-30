@@ -43,6 +43,11 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultRotateMasterKeyCommandTest extends TestCase
 {
+    /** Operator-facing fragments asserted in more than one test. */
+    private const OUTPUT_NO_SECRETS = 'No secrets found';
+
+    private const OUTPUT_UNEXPECTED_ERROR = 'Unexpected error';
+
     private SecretRepositoryInterface&MockObject $secretRepository;
 
     private EncryptionServiceInterface&MockObject $encryptionService;
@@ -119,7 +124,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('No secrets found', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::OUTPUT_NO_SECRETS, $this->commandTester->getDisplay());
     }
 
     #[Test]
@@ -598,7 +603,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         ]);
 
         self::assertSame(1, $exitCode);
-        self::assertStringContainsString('Unexpected error', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::OUTPUT_UNEXPECTED_ERROR, $this->commandTester->getDisplay());
     }
 
     // ---------------------------------------------------------------------
@@ -648,7 +653,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $exitCode = $tester->execute($this->rotationInput());
 
         self::assertSame(1, $exitCode);
-        self::assertStringContainsString('Unexpected error', $tester->getDisplay());
+        self::assertStringContainsString(self::OUTPUT_UNEXPECTED_ERROR, $tester->getDisplay());
     }
 
     /**
@@ -676,7 +681,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         self::assertSame(0, $exitCode);
         $display = $tester->getDisplay();
-        self::assertStringNotContainsString('No secrets found', $display);
+        self::assertStringNotContainsString(self::OUTPUT_NO_SECRETS, $display);
         // With no vault secret to smoke-test against, the operator is told the
         // old key could not be verified up front rather than being left to guess.
         self::assertStringContainsString('smoke-tested', $display);
@@ -694,7 +699,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $exitCode = $tester->execute($this->rotationInput());
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('No secrets found', $tester->getDisplay());
+        self::assertStringContainsString(self::OUTPUT_NO_SECRETS, $tester->getDisplay());
     }
 
     #[Test]
