@@ -76,8 +76,13 @@ middleware runs per outgoing request:
     option (``host:port:ip`` for IPv4, ``host:port:[ipv6]`` for
     IPv6 — colons in v6 require brackets in CURLOPT_RESOLVE's
     field-delimiter format).
-6.  IP literals (already validated by ``isHostAllowed``) and
-    unresolvable hosts pass through without a pin.
+6.  IP literals need no pin, but are range-checked here as well
+    (``isDangerousIpLiteral()``, honouring an explicit
+    ``allowed_hosts`` entry): the middleware sits below Guzzle's
+    redirect middleware, so it also runs for redirect hops, and
+    those never pass the caller's ``isHostAllowed()`` gate — only
+    the first request URI does. Unresolvable hosts pass through
+    without a pin.
 
 curl then skips its own DNS step and connects to the IP we just
 validated. No second resolution, no rebinding window.
@@ -119,9 +124,10 @@ Negative
 Verified
 ========
 
--  Unit tests cover the four resolution outcomes (safe IPs → pin,
-   any-dangerous → reject, IP literal → no pin, unresolvable → no
-   pin).
+-  Unit tests cover the resolution outcomes (safe IPs → pin,
+   any-dangerous → reject, safe or allowlisted IP literal → no pin,
+   dangerous IP literal → reject, unresolvable → no pin) plus a
+   redirect hop to ``169.254.169.254`` at middleware level.
 -  Integration tests assert the ``ssrf-dns-pin`` middleware is
    registered on every factory-built ``HandlerStack``.
 -  Regression test for the IPv6-bracket normalisation.

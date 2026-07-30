@@ -50,6 +50,8 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
 
     private const IPV6_EXAMPLE = '2001:db8::1';
 
+    private const PUBLIC_IPV6 = '2606:4700:4700::1111';
+
     private SecureHttpClientFactory $subject;
 
     private InMemoryDnsResolver $dnsResolver;
@@ -76,12 +78,30 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     }
 
     #[Test]
-    public function buildResolveEntriesReturnsEmptyForIpLiteral(): void
+    public function buildResolveEntriesReturnsEmptyForSafeIpLiteral(): void
     {
-        // IPv4 and IPv6 literals are validated by isHostAllowed() — the
-        // middleware doesn't need to add a pin entry.
+        // A literal in a public range needs no pin entry — there is no DNS
+        // answer that could be rebound between check and connect.
         self::assertSame([], $this->callBuildResolveEntries(self::PUBLIC_IP, 443));
-        self::assertSame([], $this->callBuildResolveEntries('::1', 443));
+        self::assertSame([], $this->callBuildResolveEntries(self::PUBLIC_IPV6, 443));
+    }
+
+    #[Test]
+    public function buildResolveEntriesRejectsDangerousIpLiteral(): void
+    {
+        // The middleware runs on every hop, including redirects that never
+        // passed the caller-side isHostAllowed() gate, so the literal must be
+        // range-checked here rather than assumed pre-validated.
+        self::assertNull($this->callBuildResolveEntries(self::METADATA_IP, 80));
+        self::assertNull($this->callBuildResolveEntries('::1', 443));
+    }
+
+    #[Test]
+    public function buildResolveEntriesAcceptsDangerousIpLiteralWhenExplicitlyAllowlisted(): void
+    {
+        // The operator opt-in stays intact: a literal `allowed_hosts` entry
+        // (signalled by $allowlisted) keeps the private literal reachable.
+        self::assertSame([], $this->callBuildResolveEntries(self::DOCKER_IP, 11434, true));
     }
 
     #[Test]
@@ -353,6 +373,101 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
             $this->dnsResolver->queriedHosts(),
             'Middleware must call resolver with the bare host (no brackets).',
         );
+    }
+
+    #[Test]
+    public function middlewareRejectsRedirectHopToDangerousIpLiteral(): void
+    {
+        // The ssrf-dns-pin middleware is pushed LAST, so it sits closest to
+        // the transport — below Guzzle's RedirectMiddleware. Every redirect
+        // hop therefore re-enters it, while only the FIRST URI ever passed
+        // VaultHttpClient's isHostAllowed() gate. A `302 Location:
+        // http://169.254.169.254/…` must be refused by the middleware itself,
+        // otherwise the cloud-metadata response is handed back to the caller.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allow_redirects'] = true;
+        $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
+        $client = $this->buildRedirectingClient(
+            'http://' . self::METADATA_IP . '/latest/meta-data/iam/security-credentials/',
+            $reachedHosts,
+        );
+
+        try {
+            $client->get('http://safe.example/');
+            self::fail('Expected the redirect hop to the metadata IP to be refused.');
+        } catch (RequestException $e) {
+            self::assertMatchesRegularExpression('/disallowed IP range/i', $e->getMessage());
+        }
+
+        self::assertSame(
+            ['safe.example'],
+            $reachedHosts,
+            'The metadata host must never reach the transport.',
+        );
+    }
+
+    #[Test]
+    public function middlewareAllowsRedirectHopToSafeIpLiteral(): void
+    {
+        // Control: the per-hop literal check must not block ordinary
+        // redirects to public addresses.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allow_redirects'] = true;
+        $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
+        $client = $this->buildRedirectingClient('http://' . self::PUBLIC_IP . '/next', $reachedHosts);
+
+        $response = $client->get('http://safe.example/');
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(['safe.example', self::PUBLIC_IP], $reachedHosts);
+    }
+
+    #[Test]
+    public function middlewareAllowsRedirectHopToAllowlistedPrivateIpLiteral(): void
+    {
+        // The documented opt-in still wins: an operator who listed the exact
+        // literal in `allowed_hosts` keeps that internal target reachable,
+        // redirect hop included.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allow_redirects'] = true;
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = [self::DOCKER_IP];
+        $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
+        $client = $this->buildRedirectingClient('http://' . self::DOCKER_IP . '/api/tags', $reachedHosts);
+
+        $response = $client->get('http://safe.example/');
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(['safe.example', self::DOCKER_IP], $reachedHosts);
+    }
+
+    /**
+     * Build a Client whose factory-installed middleware stack is intact and
+     * whose BOTTOM handler answers the FIRST request with a 302 to $location
+     * and every later request with a 200. Every host that actually reached
+     * the transport is recorded in $reachedHosts.
+     *
+     * @param-out list<string> $reachedHosts
+     */
+    private function buildRedirectingClient(string $location, ?array &$reachedHosts): Client
+    {
+        $reachedHosts = [];
+
+        $client = $this->subject->create();
+        $handler = $client->getConfig('handler');
+        if (!$handler instanceof HandlerStack) {
+            throw new TypeError('Factory must build a HandlerStack-backed client.', 3059133054);
+        }
+
+        $handler->setHandler(
+            static function (RequestInterface $request, array $options) use ($location, &$reachedHosts): PromiseInterface {
+                $reachedHosts[] = $request->getUri()->getHost();
+
+                return Create::promiseFor(
+                    \count($reachedHosts) === 1
+                        ? new Response(302, ['Location' => $location], '')
+                        : new Response(200, [], 'body-of-the-redirect-target'),
+                );
+            },
+        );
+
+        return $client;
     }
 
     /**

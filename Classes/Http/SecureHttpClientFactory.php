@@ -233,11 +233,11 @@ final class SecureHttpClientFactory
      *  - Host that resolves to a dangerous IP → the request is rejected
      *    with a `RequestException` BEFORE the socket opens.
      *  - Host that cannot be resolved at all → no pin is added; curl handles
-     *    the resolution failure with its usual error path. (The caller's
-     *    earlier `isHostAllowed()` check already rejected IP-literal targets
-     *    in dangerous ranges.)
-     *  - IP-literal hosts (already an IPv4/IPv6 address) → no pin needed;
-     *    `isHostAllowed()` validated the literal directly.
+     *    the resolution failure with its usual error path.
+     *  - IP-literal hosts (already an IPv4/IPv6 address) → no pin needed, but
+     *    the literal is range-checked here as well: this middleware also runs
+     *    for redirect hops, which never pass the caller's `isHostAllowed()`
+     *    gate (only the first request URI does).
      */
     private function buildSsrfDefenceMiddleware(): Closure /** @phpstan-ignore missingType.callable (Guzzle's middleware contract is loosely-typed by design) */
     {
@@ -336,10 +336,11 @@ final class SecureHttpClientFactory
      *  - `null` if the host resolved to AT LEAST ONE dangerous IP and is NOT
      *    explicitly allowlisted (the entire request must be rejected — even if
      *    some A records look safe, the presence of a dangerous answer signals
-     *    an active rebinding attempt).
-     *  - `[]` if the host is an IP literal (no pin needed), if resolution
-     *    failed entirely, or if it yielded no usable A/AAAA address (let curl
-     *    handle the error path).
+     *    an active rebinding attempt), or if the host IS an IP literal in a
+     *    dangerous range and is NOT explicitly allowlisted.
+     *  - `[]` if the host is a safe (or allowlisted) IP literal — no pin
+     *    needed —, if resolution failed entirely, or if it yielded no usable
+     *    A/AAAA address (let curl handle the error path).
      *  - a single-element `list<string>` carrying the pin entry for safe
      *    multi-record hosts.
      *
@@ -354,8 +355,18 @@ final class SecureHttpClientFactory
      */
     private function buildResolveEntries(string $host, int $port, bool $allowlisted = false): ?array
     {
-        // IP literal — `isHostAllowed()` already validated it; no DNS to pin.
+        // IP literal — no DNS to pin, but the literal itself is still
+        // range-checked HERE. The middleware must be self-sufficient: it runs
+        // below Guzzle's RedirectMiddleware, so EVERY redirect hop re-enters
+        // it while only the FIRST URI ever passed the caller-side
+        // `isHostAllowed()` gate. Trusting that pre-check let a
+        // `302 Location: http://169.254.169.254/` hop reach cloud metadata.
+        // A literal `allowed_hosts` entry still opts the host back in.
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            if (!$allowlisted && $this->isDangerousIpLiteral($host)) {
+                return null;
+            }
+
             return [];
         }
 
