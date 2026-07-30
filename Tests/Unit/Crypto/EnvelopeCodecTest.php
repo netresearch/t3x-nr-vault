@@ -29,7 +29,6 @@ use PHPUnit\Framework\Attributes\Test;
  * neither of which a mocked cipher would prove.
  */
 #[CoversClass(EnvelopeCodec::class)]
-#[CoversClass(EnvelopeFormatException::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class EnvelopeCodecTest extends TestCase
 {

@@ -58,6 +58,13 @@
             <file>../Classes/Http/SecretPlacement.php</file>
             <file>../Classes/Service/Detection/Severity.php</file>
             <file>../Classes/Service/VaultFieldPermission.php</file>
+            <!-- Interfaces and enums added with ADR-031/032/033: no executable
+                 code to cover, and declaring CoversClass on an excluded target
+                 raises a warning that failOnWarning turns into a failure. -->
+            <file>../Classes/Secret/SecretRedactorInterface.php</file>
+            <file>../Classes/Secret/SecretIdentifierKind.php</file>
+            <file>../Classes/Crypto/EnvelopeCodecInterface.php</file>
+            <file>../Classes/Crypto/ForeignEnvelopeRotatorInterface.php</file>
         </exclude>
     </source>
 

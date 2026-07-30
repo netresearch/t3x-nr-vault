@@ -19,7 +19,6 @@ use PHPUnit\Framework\Attributes\Test;
 
 #[CoversClass(SecretPatternLibrary::class)]
 #[CoversClass(SecretPattern::class)]
-#[CoversClass(SecretIdentifierKind::class)]
 final class SecretPatternLibraryTest extends TestCase
 {
     /**
