@@ -404,6 +404,70 @@ final class VaultServiceTest extends TestCase
     }
 
     #[Test]
+    public function retrieveForFrontendReturnsFrontendAccessibleSecret(): void
+    {
+        $identifier = 'publicApiKey';
+        $secret = $this->createSecretEntity($identifier, frontendAccessible: true);
+
+        $this->adapter
+            ->method('retrieve')
+            ->with($identifier)
+            ->willReturn($secret);
+
+        $this->accessControlService
+            ->method('canRead')
+            ->willReturn(true);
+
+        $this->encryptionService
+            ->method('decrypt')
+            ->willReturn('decrypted-secret');
+
+        self::assertSame('decrypted-secret', $this->subject->retrieveForFrontend($identifier));
+    }
+
+    #[Test]
+    public function retrieveForFrontendDeniesSecretThatIsNotFrontendAccessible(): void
+    {
+        $identifier = 'smtpPassword';
+        $secret = $this->createSecretEntity($identifier);
+
+        $this->adapter
+            ->method('retrieve')
+            ->with($identifier)
+            ->willReturn($secret);
+
+        // A privileged ambient actor (admin backend user browsing the
+        // frontend) — the frontend gate must deny regardless.
+        $this->accessControlService
+            ->method('canRead')
+            ->willReturn(true);
+
+        $this->encryptionService
+            ->expects(self::never())
+            ->method('decrypt');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with($identifier, 'access_denied', false, self::isString());
+
+        $this->expectException(AccessDeniedException::class);
+
+        $this->subject->retrieveForFrontend($identifier);
+    }
+
+    #[Test]
+    public function retrieveForFrontendReturnsNullForNonExistentSecret(): void
+    {
+        $this->adapter
+            ->method('retrieve')
+            ->with('nonexistent')
+            ->willReturn(null);
+
+        self::assertNull($this->subject->retrieveForFrontend('nonexistent'));
+    }
+
+    #[Test]
     public function deleteRemovesSecretWithPermission(): void
     {
         $identifier = 'toDelete';
@@ -1122,6 +1186,7 @@ final class VaultServiceTest extends TestCase
         string $description = '',
         string $context = '',
         array $metadata = [],
+        bool $frontendAccessible = false,
     ): Secret {
         return new Secret(
             identifier: $identifier,
@@ -1134,6 +1199,7 @@ final class VaultServiceTest extends TestCase
             valueChecksum: 'checksum',
             ownerUid: 1,
             context: $context,
+            frontendAccessible: $frontendAccessible,
             version: $version,
             expiresAt: $expiresAt,
             metadata: $metadata,

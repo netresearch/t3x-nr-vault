@@ -55,6 +55,25 @@ interface VaultServiceInterface
     public function retrieve(string $identifier): ?string;
 
     /**
+     * Retrieve a secret for rendering in the frontend.
+     *
+     * Frontend-scoped counterpart of `retrieve()`: only secrets flagged
+     * `frontend_accessible` are resolvable here, and that requirement holds
+     * for every caller — including a request that happens to carry a backend
+     * session (`$GLOBALS['BE_USER']`), whose ambient privileges would
+     * otherwise widen `retrieve()`'s access decision. Everything else
+     * (expiry, decryption, audit logging, read statistics) behaves as in
+     * `retrieve()`.
+     *
+     * @throws AccessDeniedException If the secret is not frontend-accessible, or the current actor lacks read permission
+     * @throws EncryptionException If decryption fails
+     * @throws SecretExpiredException If secret has expired
+     *
+     * @return string|null The secret value, or null if not found
+     */
+    public function retrieveForFrontend(string $identifier): ?string;
+
+    /**
      * Check if a secret exists.
      */
     public function exists(string $identifier): bool;

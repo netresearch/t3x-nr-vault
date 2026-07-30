@@ -26,8 +26,13 @@ use TYPO3\CMS\Frontend\ContentObject\Event\AfterStdWrapFunctionsExecutedEvent;
  *   page.10.value = %vault(api_key)%
  *
  * Security considerations:
- * - Only secrets marked as `frontend_accessible = 1` can be resolved
- * - Resolved values may be cached - use USER_INT or disable caching for sensitive content
+ * - Only secrets marked as `frontend_accessible = 1` can be resolved. Resolution goes
+ *   through VaultServiceInterface::retrieveForFrontend(), which enforces that flag for
+ *   every caller — a request carrying a backend session resolves no more than an
+ *   anonymous one, so a privileged render cannot put a withheld secret into the page
+ *   cache that is shared with anonymous visitors
+ * - Resolved values are frontend-readable by definition and may be cached - use USER_INT
+ *   or disable caching for content that must not be stored
  * - Unresolved placeholders remain visible in output
  */
 #[AsEventListener(identifier: 'nr-vault/typoscript-vault')]
@@ -68,8 +73,9 @@ final readonly class TypoScriptVaultListener
     /**
      * Resolve a single vault identifier to its secret value.
      *
-     * Returns null if resolution fails (secret not found, access denied, etc.),
-     * which causes the original placeholder to be preserved.
+     * Returns null if resolution fails (secret not found, not frontend
+     * accessible, access denied, etc.), which causes the original placeholder
+     * to be preserved.
      */
     private function resolveIdentifier(string $identifier): ?string
     {
@@ -79,7 +85,7 @@ final readonly class TypoScriptVaultListener
         }
 
         try {
-            return $this->vaultService->retrieve($identifier);
+            return $this->vaultService->retrieveForFrontend($identifier);
         } catch (Throwable $e) {
             $this->logger->warning('Failed to resolve vault reference in TypoScript', [
                 'identifier' => $identifier,

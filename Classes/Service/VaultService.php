@@ -204,6 +204,36 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         return $plaintext;
     }
 
+    public function retrieveForFrontend(string $identifier): ?string
+    {
+        $secret = $this->adapter->retrieve($identifier);
+        if (!$secret instanceof Secret) {
+            return null;
+        }
+
+        // Frontend visibility is a property of the SECRET, never of whoever
+        // happens to render the page. `retrieve()` alone would decide against
+        // the ambient actor — AccessControlService takes its backend-user
+        // branch as soon as $GLOBALS['BE_USER'] is set, which is the case for
+        // a backend user browsing the frontend — and would hand out a secret
+        // that was deliberately withheld from the frontend, into output that
+        // is shared (page cache) with anonymous visitors.
+        if (!$secret->isFrontendAccessible()) {
+            $this->auditLogService->log(
+                $identifier,
+                AuditAction::AccessDenied->value,
+                false,
+                'Frontend read access denied: secret is not frontend accessible',
+            );
+
+            throw AccessDeniedException::forIdentifier($identifier, 'not frontend accessible');
+        }
+
+        // The remaining checks (read permission, expiry), the audit trail and
+        // the decryption stay with the single read path.
+        return $this->retrieve($identifier);
+    }
+
     public function exists(string $identifier): bool
     {
         return $this->adapter->exists($identifier);
