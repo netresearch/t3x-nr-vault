@@ -28,6 +28,9 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
 {
     private const REASON_TEST_CLEANUP = 'test cleanup';
 
+    /** @var array<string, bool> Store options marking a secret resolvable in the frontend. */
+    private const FRONTEND_ACCESSIBLE = ['frontendAccessible' => true];
+
     /** @var list<string> */
     protected array $coreExtensionsToLoad = [
         'backend',
@@ -46,7 +49,7 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
     {
         $vaultService = $this->get(VaultServiceInterface::class);
         $identifier = 'ts_apikey_' . bin2hex(random_bytes(4));
-        $vaultService->store($identifier, 'resolved-typoscript-secret');
+        $vaultService->store($identifier, 'resolved-typoscript-secret', self::FRONTEND_ACCESSIBLE);
 
         $listener = $this->get(TypoScriptVaultListener::class);
         $event = $this->createEvent(\sprintf('%%vault(%s)%%', $identifier));
@@ -64,7 +67,7 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
     {
         $vaultService = $this->get(VaultServiceInterface::class);
         $identifier = 'ts_embedded_' . bin2hex(random_bytes(4));
-        $vaultService->store($identifier, 'my-api-key');
+        $vaultService->store($identifier, 'my-api-key', self::FRONTEND_ACCESSIBLE);
 
         $listener = $this->get(TypoScriptVaultListener::class);
         $content = \sprintf('Bearer %%vault(%s)%%', $identifier);
@@ -73,6 +76,33 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
         $listener($event);
 
         self::assertSame('Bearer my-api-key', $event->getContent());
+
+        // Cleanup
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
+    }
+
+    #[Test]
+    public function listenerDoesNotResolveSecretWithoutFrontendAccess(): void
+    {
+        // The base test case logs in the admin backend user (uid 1), i.e. the
+        // frontend renders with an ambient backend session that grants read
+        // access to every secret. A secret withheld from the frontend must
+        // still not be resolved into the (cacheable) page output.
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $identifier = 'ts_private_' . bin2hex(random_bytes(4));
+        $vaultService->store($identifier, 'smtp-password-never-in-frontend');
+
+        $listener = $this->get(TypoScriptVaultListener::class);
+        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $event = $this->createEvent($placeholder);
+
+        $listener($event);
+
+        self::assertSame(
+            $placeholder,
+            $event->getContent(),
+            'A secret that is not frontend_accessible must stay unresolved even with a backend session',
+        );
 
         // Cleanup
         $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
@@ -110,8 +140,8 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
         $prefix = 'ts_multi_' . bin2hex(random_bytes(4));
         $id1 = $prefix . '_k1';
         $id2 = $prefix . '_k2';
-        $vaultService->store($id1, 'first-value');
-        $vaultService->store($id2, 'second-value');
+        $vaultService->store($id1, 'first-value', self::FRONTEND_ACCESSIBLE);
+        $vaultService->store($id2, 'second-value', self::FRONTEND_ACCESSIBLE);
 
         $listener = $this->get(TypoScriptVaultListener::class);
         $content = \sprintf('%%vault(%s)%%:%%vault(%s)%%', $id1, $id2);

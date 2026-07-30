@@ -7,6 +7,11 @@
                 <source>Secret stored in vault (enter new value to update)</source>
             </trans-unit>
 
+            <!-- DataHandler hooks: vault operation failure -->
+            <trans-unit id="hook.vaultFailure.reference">
+                <source>The vault operation could not be completed. Please ask an administrator to check the vault log for reference %s.</source>
+            </trans-unit>
+
             <!-- Scheduler Task: Orphan Cleanup -->
             <trans-unit id="task.orphanCleanup.title">
                 <source>Vault Orphan Cleanup</source>

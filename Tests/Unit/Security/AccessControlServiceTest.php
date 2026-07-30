@@ -22,10 +22,12 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Authentication\CommandLineUserAuthentication;
+use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\DefaultRestrictionContainer;
+use TYPO3\CMS\Core\Http\ServerRequest;
 
 #[CoversClass(AccessControlService::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -43,12 +45,12 @@ final class AccessControlServiceTest extends TestCase
         $this->subject = new AccessControlService($this->configuration);
 
         // Reset GLOBALS for clean state
-        unset($GLOBALS['BE_USER']);
+        unset($GLOBALS['BE_USER'], $GLOBALS['TYPO3_REQUEST']);
     }
 
     protected function tearDown(): void
     {
-        unset($GLOBALS['BE_USER']);
+        unset($GLOBALS['BE_USER'], $GLOBALS['TYPO3_REQUEST']);
         parent::tearDown();
     }
 
@@ -325,6 +327,79 @@ final class AccessControlServiceTest extends TestCase
         self::assertTrue($this->subject->canRead($secret), 'frontend-accessible secret is readable');
         self::assertFalse($this->subject->canWrite($secret), 'frontend has no write tier');
         self::assertFalse($this->subject->canDelete($secret), 'frontend has no delete tier');
+    }
+
+    #[Test]
+    public function frontendRequestDeniesNonFrontendAccessibleSecretDespiteAmbientBackendUser(): void
+    {
+        // TYPO3's frontend BackendUserAuthenticator middleware sets
+        // $GLOBALS['BE_USER'] for any visitor carrying a backend session.
+        // That ambient identity must NOT unlock a secret which is not
+        // frontend-accessible — the rendered output goes into the shared
+        // page cache and is served to anonymous visitors afterwards.
+        $this->setFrontendRequest();
+        $this->setBackendUser(uid: 1, isAdmin: true);
+        $secret = $this->createSecret(ownerUid: 1, frontendAccessible: false);
+
+        self::assertFalse($this->subject->canRead($secret));
+    }
+
+    #[Test]
+    public function frontendRequestGrantsOnlyTheReadGateDespiteAmbientBackendUser(): void
+    {
+        // Same request shape, but the secret IS frontend-accessible: read is
+        // granted (as for an anonymous visitor), write/delete stay denied
+        // even though the ambient backend user is an admin.
+        $this->setFrontendRequest();
+        $this->setBackendUser(uid: 1, isAdmin: true);
+        $secret = $this->createSecret(ownerUid: 1, frontendAccessible: true);
+
+        self::assertTrue($this->subject->canRead($secret), 'frontend-accessible secret is readable');
+        self::assertFalse($this->subject->canWrite($secret), 'frontend has no write tier');
+        self::assertFalse($this->subject->canDelete($secret), 'frontend has no delete tier');
+    }
+
+    #[Test]
+    public function backendRequestKeepsBackendUserSemantics(): void
+    {
+        // Counterpart: a request positively identified as BACKEND keeps the
+        // full backend-user semantics.
+        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $this->setBackendUser(uid: 1, isAdmin: true);
+        $secret = $this->createSecret(ownerUid: 999, frontendAccessible: false);
+
+        self::assertTrue($this->subject->canRead($secret));
+        self::assertTrue($this->subject->canWrite($secret));
+        self::assertTrue($this->subject->canDelete($secret));
+    }
+
+    #[Test]
+    public function requestWithoutApplicationTypeKeepsBackendUserSemantics(): void
+    {
+        // The application type cannot be established (request not created by
+        // a TYPO3 application) — behaviour stays exactly as before.
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest();
+        $this->setBackendUser(uid: 1, isAdmin: true);
+        $secret = $this->createSecret(ownerUid: 999, frontendAccessible: false);
+
+        self::assertTrue($this->subject->canRead($secret));
+    }
+
+    #[Test]
+    public function technicalActorSupersedesTheFrontendGate(): void
+    {
+        // ADR-029: an explicit runAs() scope is opted into by the caller and
+        // keeps its user-based semantics wherever it is opened — it is not
+        // downgraded to the frontend gate.
+        $this->setFrontendRequest();
+
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 42, username: 'tech', admin: false, groupIds: []),
+        );
+        $secret = $this->createSecret(ownerUid: 42, frontendAccessible: false);
+
+        self::assertTrue($subject->canRead($secret));
     }
 
     #[Test]
@@ -1017,6 +1092,16 @@ final class AccessControlServiceTest extends TestCase
             writeGroups: $writeGroups,
             frontendAccessible: $frontendAccessible,
         );
+    }
+
+    /**
+     * Put a TYPO3 FRONTEND request into $GLOBALS['TYPO3_REQUEST'], as the
+     * frontend application does for every rendered page request.
+     */
+    private function setFrontendRequest(): void
+    {
+        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
     }
 
     /**

@@ -11,10 +11,13 @@ namespace Netresearch\NrVault\Hook;
 
 use Exception;
 use Netresearch\NrVault\Hook\Dto\PendingSecret;
+use Netresearch\NrVault\Service\VaultFieldPermission;
+use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Netresearch\NrVault\Utility\VaultFieldResolver;
 use Throwable;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 
@@ -48,6 +51,8 @@ final class DataHandlerHook
         private readonly VaultFieldResolver $vaultFieldResolver,
         private readonly PendingSecretExtractor $pendingSecretExtractor,
         private readonly PendingSecretPersister $pendingSecretPersister,
+        private readonly VaultFailureReporter $failureReporter,
+        private readonly VaultFieldPermissionService $fieldPermissionService,
     ) {}
 
     /**
@@ -55,11 +60,15 @@ final class DataHandlerHook
      * Extracts vault field values and generates UUIDs for new secrets.
      *
      * @param array<string, mixed> $fieldArray
+     * @param DataHandler|null $dataHandler Passed by DataHandler::process_datamap();
+     *                                      optional so the hook stays callable with
+     *                                      the three documented arguments
      */
     public function processDatamap_preProcessFieldArray(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         array &$fieldArray,
         string $table,
         string|int $id,
+        ?DataHandler $dataHandler = null,
     ): void {
         $vaultFieldNames = $this->getVaultFieldNames($table);
 
@@ -74,6 +83,14 @@ final class DataHandlerHook
             // Skip if empty and no existing value
             if (!$pending instanceof PendingSecret) {
                 unset($fieldArray[$fieldName]);
+                continue;
+            }
+
+            // A value change was submitted for this field - re-check the TSconfig
+            // permission the FormEngine element only enforced in the markup.
+            if (!$this->isFieldWritable($table, $fieldName)) {
+                unset($fieldArray[$fieldName]);
+                $this->logDeniedWrite($table, $id, $fieldName, $dataHandler);
                 continue;
             }
 
@@ -118,6 +135,12 @@ final class DataHandlerHook
                 $rollbackValue = $pending->identifier;
             }
 
+            // Filled by the failure-message factory below when persist() catches.
+            // Captured here so the flash message and the DataHandler log detail —
+            // which core replays to the same user — carry the SAME correlation
+            // reference for one failure, and neither carries the cause.
+            $userMessage = '';
+
             $error = $this->pendingSecretPersister->persist(
                 $pending,
                 [
@@ -128,13 +151,23 @@ final class DataHandlerHook
                 ],
                 'TCA field cleared',
                 'TCA field updated',
-                static fn (Throwable $e): string => \sprintf(
-                    'Vault storage failed for field "%s" on %s:%d: %s. The field value has been rolled back.',
-                    $fieldName,
-                    $table,
-                    $uid,
-                    $e->getMessage(),
-                ),
+                function (Throwable $e) use ($table, $fieldName, $uid, $pending, &$userMessage): string {
+                    $userMessage = $this->failureReporter->report($e, [
+                        'table' => $table,
+                        'field' => $fieldName,
+                        'uid' => $uid,
+                        'identifier' => $pending->identifier,
+                        'operation' => 'tca_field',
+                    ]);
+
+                    return \sprintf(
+                        'Vault storage failed for field "%s" on %s:%d: %s The field value has been rolled back.',
+                        $fieldName,
+                        $table,
+                        $uid,
+                        $userMessage,
+                    );
+                },
                 function () use ($table, $uid, $fieldName, $rollbackValue): void {
                     $this->rollBackField($table, $uid, $fieldName, $rollbackValue);
                 },
@@ -148,7 +181,7 @@ final class DataHandlerHook
                     $status === 'new' ? 1 : 2,
                     null,
                     1,
-                    'Vault error for field "' . $fieldName . '": ' . $error->getMessage(),
+                    'Vault error for field "' . $fieldName . '": ' . $userMessage,
                 );
             }
         }
@@ -211,6 +244,14 @@ final class DataHandlerHook
             try {
                 $this->vaultService->delete($vaultIdentifier, 'Record deleted');
             } catch (Throwable $e) {
+                $userMessage = $this->failureReporter->report($e, [
+                    'table' => $table,
+                    'field' => $fieldName,
+                    'uid' => (int) $id,
+                    'identifier' => $vaultIdentifier,
+                    'operation' => 'delete',
+                ]);
+
                 /** @phpstan-ignore method.internal */
                 $dataHandler->log(
                     $table,
@@ -218,7 +259,7 @@ final class DataHandlerHook
                     3,
                     null,
                     1,
-                    'Vault error during delete for field "' . $fieldName . '": ' . $e->getMessage(),
+                    'Vault error during delete for field "' . $fieldName . '": ' . $userMessage,
                 );
             }
         }
@@ -308,6 +349,14 @@ final class DataHandlerHook
                 // Track update for the copied record
                 $updates[$fieldName] = $newIdentifier;
             } catch (Throwable $e) {
+                $userMessage = $this->failureReporter->report($e, [
+                    'table' => $table,
+                    'field' => $fieldName,
+                    'uid' => $newId,
+                    'identifier' => $sourceIdentifier,
+                    'operation' => 'copy',
+                ]);
+
                 /** @phpstan-ignore method.internal */
                 $dataHandler->log(
                     $table,
@@ -315,7 +364,7 @@ final class DataHandlerHook
                     1,
                     null,
                     1,
-                    'Vault error during copy for field "' . $fieldName . '": ' . $e->getMessage(),
+                    'Vault error during copy for field "' . $fieldName . '": ' . $userMessage,
                 );
             } finally {
                 // Scrub the decrypted plaintext from memory (success or failure).
@@ -329,6 +378,62 @@ final class DataHandlerHook
         if ($updates !== []) {
             $connection->update($table, $updates, ['uid' => $newId]);
         }
+    }
+
+    /**
+     * Decide whether the current backend user may write this vault field.
+     *
+     * Mirrors the FormEngine decision in
+     * {@see \Netresearch\NrVault\Form\Element\VaultSecretElement}: that element
+     * renders the input `readonly` when TSconfig denies `edit` OR sets
+     * `readOnly`, so both settings mean "not writable" here as well. Both paths
+     * ask the same {@see VaultFieldPermissionService}, which resolves
+     * `vault.permissions` from the page-0 TSconfig regardless of the record's
+     * page - so renderer and write path always see the same configuration.
+     *
+     * Without a backend user there is no TSconfig subject at all (CLI imports,
+     * scheduler tasks): those callers keep their previous behaviour, the vault's
+     * own ACL still governs the resulting store/rotate/delete.
+     */
+    private function isFieldWritable(string $table, string $fieldName): bool
+    {
+        $backendUser = $GLOBALS['BE_USER'] ?? null;
+        if (!$backendUser instanceof BackendUserAuthentication) {
+            return true;
+        }
+
+        return $this->fieldPermissionService->isAllowed($table, $fieldName, VaultFieldPermission::Edit)
+            && !$this->fieldPermissionService->isReadOnly($table, $fieldName);
+    }
+
+    /**
+     * Record a discarded vault field value in the DataHandler log.
+     *
+     * The entry is written with an error severity, so the backend surfaces it
+     * as a flash message via `DataHandler::printLogErrorMessages()` - the editor
+     * must not silently lose the value they typed.
+     */
+    private function logDeniedWrite(
+        string $table,
+        string|int $id,
+        string $fieldName,
+        ?DataHandler $dataHandler,
+    ): void {
+        if (!$dataHandler instanceof DataHandler) {
+            return;
+        }
+
+        $uid = is_numeric($id) ? (int) $id : 0;
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            $table,
+            $uid,
+            $uid === 0 ? 1 : 2,
+            null,
+            1,
+            'Vault field "' . $fieldName . '" is not editable for this user (TSconfig vault.permissions): the submitted value was discarded and the stored secret left unchanged.',
+        );
     }
 
     /**

@@ -35,6 +35,15 @@ final readonly class AuditLogService implements AuditLogServiceInterface
 
     private const TABLE_NAME = 'tx_nrvault_audit_log';
 
+    /**
+     * Column widths (in characters, as `varchar(N)` counts them) of the two
+     * audit columns fed straight from attacker-controlled request headers.
+     * See `clipToColumnWidth()` and `buildEntryData()`.
+     */
+    private const MAX_USER_AGENT_LENGTH = 500;
+
+    private const MAX_REQUEST_ID_LENGTH = 100;
+
     public function __construct(
         private ConnectionPool $connectionPool,
         private AccessControlServiceInterface $accessControlService,
@@ -797,8 +806,12 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             'actor_username' => $this->accessControlService->getCurrentActorUsername(),
             'actor_role' => $this->getCurrentUserRole(),
             'ip_address' => $this->getClientIp(),
-            'user_agent' => $this->getUserAgent(),
-            'request_id' => $this->getRequestId(),
+            // Both come straight from a request header the client controls, and
+            // both land in a fixed-width column. Clip HERE, on the single array
+            // that feeds both the INSERT and the entry hash, so the bytes that
+            // are stored are exactly the bytes that are hashed (F8 / CWE-20).
+            'user_agent' => $this->clipToColumnWidth($this->getUserAgent(), self::MAX_USER_AGENT_LENGTH),
+            'request_id' => $this->clipToColumnWidth($this->getRequestId(), self::MAX_REQUEST_ID_LENGTH),
             'previous_hash' => $previousHash,
             'hash_before' => $inputs->hashBefore ?? '',
             'hash_after' => $inputs->hashAfter ?? '',
@@ -806,6 +819,46 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             'hmac_key_epoch' => $this->getCurrentEpoch(),
             'context' => $inputs->context instanceof AuditContextInterface ? json_encode($inputs->context->toArray()) : '{}',
         ];
+    }
+
+    /**
+     * Fit a request-header-derived value into its fixed-width audit column.
+     *
+     * `user_agent` (`varchar(500)`) and `request_id` (`varchar(100)`) are the
+     * only audit columns written verbatim from a header an unauthenticated
+     * client controls, so they are the only ones that can be overflowed at
+     * will. Left unbounded, an oversized header either aborts the INSERT under
+     * strict `sql_mode` (taking the audited operation down with it) or is
+     * silently truncated by the database — and a database-side truncation
+     * desynchronises the row from the `entry_hash`, which is computed over the
+     * untruncated in-memory value, raising a permanent false tamper alarm.
+     * Clipping here, upstream of both writes, keeps stored and hashed bytes
+     * identical.
+     *
+     * Two normalisations, in order:
+     *   1. Scrub invalid UTF-8. Header bytes are arbitrary; a `utf8mb4` column
+     *      rejects an ill-formed sequence outright, so this must happen before
+     *      the value is hashed, not just before it is stored.
+     *   2. Cut to `$maxLength` *characters* on a character boundary. That is
+     *      what `varchar(N)` counts, and cutting on a boundary avoids leaving
+     *      a mangled half-character (which would itself be invalid UTF-8).
+     */
+    private function clipToColumnWidth(string $value, int $maxLength): string
+    {
+        if ($value === '') {
+            return '';
+        }
+
+        if (!mb_check_encoding($value, 'UTF-8')) {
+            $scrubbed = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+            $value = \is_string($scrubbed) ? $scrubbed : '';
+        }
+
+        if (mb_strlen($value, 'UTF-8') <= $maxLength) {
+            return $value;
+        }
+
+        return mb_substr($value, 0, $maxLength, 'UTF-8');
     }
 
     /**
@@ -1045,12 +1098,10 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             return PHP_SAPI === 'cli' ? 'CLI' : '';
         }
 
-        $userAgent = $request->getHeaderLine('User-Agent');
-        if (\strlen($userAgent) > 500) {
-            return substr($userAgent, 0, 500);
-        }
-
-        return $userAgent;
+        // Bounding happens in buildEntryData() via clipToColumnWidth(), on the
+        // same array that is hashed — a byte-wise substr() here could cut a
+        // multi-byte character in half.
+        return $request->getHeaderLine('User-Agent');
     }
 
     private function getRequestId(): string

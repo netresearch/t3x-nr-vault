@@ -326,7 +326,11 @@ final class VaultAuditCommand extends Command
 
         $output = fopen('php://temp', 'r+');
         \assert(\is_resource($output));
-        fputcsv($output, array_keys($data[0]), escape: '\\');
+        // escape: '' disables PHP's proprietary backslash escaping so that only
+        // RFC-4180 quote doubling is emitted; with the default '\\' a value
+        // containing \" closes the quoted cell and turns the remaining bytes
+        // into further cells that CsvFormulaSanitizer never inspected.
+        fputcsv($output, array_keys($data[0]), escape: '');
 
         foreach ($data as $row) {
             // Convert context array to JSON string for CSV
@@ -339,7 +343,7 @@ final class VaultAuditCommand extends Command
                 static fn (mixed $v): bool|float|int|string|null => \is_scalar($v) || $v === null ? $v : json_encode($v),
                 $row,
             );
-            fputcsv($output, CsvFormulaSanitizer::neutralizeRow($csvRow), escape: '\\');
+            fputcsv($output, CsvFormulaSanitizer::neutralizeRow($csvRow), escape: '');
         }
 
         rewind($output);

@@ -14,11 +14,13 @@ namespace Netresearch\NrVault\Security;
 
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
+use Psr\Http\Message\ServerRequestInterface;
 use Throwable;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Authentication\CommandLineUserAuthentication;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Http\ApplicationType;
 
 /**
  * Access control service implementation.
@@ -294,6 +296,19 @@ final class AccessControlService implements AccessControlServiceInterface
             return $this->hasTechnicalActorAccess($technicalActor, $secret, $permission);
         }
 
+        // A FRONTEND request never takes the backend-user branch below, no
+        // matter what $GLOBALS['BE_USER'] happens to hold: TYPO3's frontend
+        // BackendUserAuthenticator middleware populates that global for ANY
+        // visitor who carries a valid backend session, so branching on its
+        // mere presence evaluates an ambient backend identity for a request
+        // whose output is shared (page cache) with anonymous visitors. The
+        // request's application type decides instead — in the frontend only
+        // the explicit `frontend_accessible` READ gate applies, exactly as
+        // for an anonymous visitor.
+        if ($this->isFrontendRequest()) {
+            return $this->hasFrontendAccess($secret, $permission);
+        }
+
         $backendUser = $this->getBackendUser();
 
         // An UNAUTHENTICATED CommandLineUserAuthentication must not take the
@@ -323,15 +338,57 @@ final class AccessControlService implements AccessControlServiceInterface
             return $this->hasCliAccess($secret, $permission);
         }
 
-        // Frontend access for secrets explicitly marked as frontend_accessible.
-        // This allows TypoScript and other frontend contexts to resolve vault
-        // placeholders. Frontend is READ-ONLY — write/delete are never granted
-        // without a backend or CLI actor. No backend user and not CLI.
+        // No backend user and not CLI: fall back to the frontend gate.
+        return $this->hasFrontendAccess($secret, $permission);
+    }
+
+    /**
+     * Frontend access for secrets explicitly marked as frontend_accessible.
+     * This allows TypoScript and other frontend contexts to resolve vault
+     * placeholders. Frontend is READ-ONLY — write/delete are never granted
+     * without a backend, CLI or technical actor.
+     *
+     * @param self::PERMISSION_* $permission
+     */
+    private function hasFrontendAccess(Secret $secret, string $permission): bool
+    {
         if ($permission !== self::PERMISSION_READ) {
             return false;
         }
 
         return $secret->isFrontendAccessible();
+    }
+
+    /**
+     * Is the current request a TYPO3 *frontend* request?
+     *
+     * The request's `applicationType` attribute is core's only authoritative
+     * answer (`ApplicationType::fromRequest()`). It is read from
+     * `$GLOBALS['TYPO3_REQUEST']` — the fallback core documents for library
+     * code that does not receive the PSR-7 request — because this service is
+     * called from hooks, listeners and commands that cannot hand one down.
+     *
+     * Returns false whenever the application type cannot be established:
+     * no request at all (CLI, Symfony Messenger worker, scheduler, install
+     * tool bootstrap, unit tests) or a request that carries no valid
+     * `applicationType` attribute. Those callers keep exactly the behaviour
+     * they have today; only a request positively identified as frontend is
+     * routed to the frontend gate.
+     */
+    private function isFrontendRequest(): bool
+    {
+        $request = $GLOBALS['TYPO3_REQUEST'] ?? null;
+        if (!$request instanceof ServerRequestInterface) {
+            return false;
+        }
+
+        try {
+            return ApplicationType::fromRequest($request)->isFrontend();
+        } catch (Throwable) {
+            // fromRequest() throws when the request was not created by a
+            // TYPO3 frontend / backend / install application.
+            return false;
+        }
     }
 
     /**

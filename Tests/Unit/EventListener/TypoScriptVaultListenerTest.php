@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\EventListener;
 
 use Netresearch\NrVault\EventListener\TypoScriptVaultListener;
+use Netresearch\NrVault\Exception\AccessDeniedException;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -45,7 +46,7 @@ final class TypoScriptVaultListenerTest extends TestCase
     {
         $event = $this->createEvent(null);
 
-        $this->vaultService->expects($this->never())->method('retrieve');
+        $this->vaultService->expects($this->never())->method('retrieveForFrontend');
 
         ($this->listener)($event);
 
@@ -58,7 +59,7 @@ final class TypoScriptVaultListenerTest extends TestCase
         $content = 'Regular content without vault references';
         $event = $this->createEvent($content);
 
-        $this->vaultService->expects($this->never())->method('retrieve');
+        $this->vaultService->expects($this->never())->method('retrieveForFrontend');
 
         ($this->listener)($event);
 
@@ -70,9 +71,13 @@ final class TypoScriptVaultListenerTest extends TestCase
     {
         $event = $this->createEvent('%vault(api_key)%');
 
+        // retrieve() decides against the ambient actor, so a request carrying a
+        // backend session would resolve secrets withheld from the frontend.
+        $this->vaultService->expects($this->never())->method('retrieve');
+
         $this->vaultService
             ->expects($this->once())
-            ->method('retrieve')
+            ->method('retrieveForFrontend')
             ->with('api_key')
             ->willReturn('secret_value');
 
@@ -82,12 +87,26 @@ final class TypoScriptVaultListenerTest extends TestCase
     }
 
     #[Test]
+    public function preservesPlaceholderWhenSecretIsNotFrontendAccessible(): void
+    {
+        $event = $this->createEvent('%vault(smtp_password)%');
+
+        $this->vaultService
+            ->method('retrieveForFrontend')
+            ->willThrowException(AccessDeniedException::forIdentifier('smtp_password', 'not frontend accessible'));
+
+        ($this->listener)($event);
+
+        $this->assertSame('%vault(smtp_password)%', $event->getContent());
+    }
+
+    #[Test]
     public function resolvesMultipleVaultReferences(): void
     {
         $event = $this->createEvent('Key: %vault(key1)%, Token: %vault(key2)%');
 
         $this->vaultService
-            ->method('retrieve')
+            ->method('retrieveForFrontend')
             ->willReturnMap([
                 ['key1', 'value1'],
                 ['key2', 'value2'],
@@ -104,7 +123,7 @@ final class TypoScriptVaultListenerTest extends TestCase
         $event = $this->createEvent('%vault(missing_key)%');
 
         $this->vaultService
-            ->method('retrieve')
+            ->method('retrieveForFrontend')
             ->willThrowException(new RuntimeException('Secret not found'));
 
         $this->logger
@@ -128,7 +147,7 @@ final class TypoScriptVaultListenerTest extends TestCase
         $event = $this->createEvent('Bearer %vault(auth_token)%');
 
         $this->vaultService
-            ->method('retrieve')
+            ->method('retrieveForFrontend')
             ->with('auth_token')
             ->willReturn('eyJhbGciOiJIUzI1NiJ9');
 
@@ -143,7 +162,7 @@ final class TypoScriptVaultListenerTest extends TestCase
         $event = $this->createEvent('%vault(my-api_key.v2)%');
 
         $this->vaultService
-            ->method('retrieve')
+            ->method('retrieveForFrontend')
             ->with('my-api_key.v2')
             ->willReturn('special_secret');
 
@@ -158,7 +177,7 @@ final class TypoScriptVaultListenerTest extends TestCase
         // The event content is always string|null, but we test the type check
         $event = $this->createEvent('');
 
-        $this->vaultService->expects($this->never())->method('retrieve');
+        $this->vaultService->expects($this->never())->method('retrieveForFrontend');
 
         ($this->listener)($event);
 
@@ -171,7 +190,7 @@ final class TypoScriptVaultListenerTest extends TestCase
         $event = $this->createEvent('%vault(good_key)% and %vault(bad_key)%');
 
         $this->vaultService
-            ->method('retrieve')
+            ->method('retrieveForFrontend')
             ->willReturnCallback(static function (string $identifier): string {
                 if ($identifier === 'good_key') {
                     return 'resolved';

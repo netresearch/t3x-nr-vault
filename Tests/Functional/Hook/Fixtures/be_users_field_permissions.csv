@@ -1,0 +1,4 @@
+"be_users"
+,"uid","username","admin","disable","starttime","endtime","TSconfig"
+,2,"vault_field_permission_editor",0,0,0,0,"page.vault.permissions.tx_test.secret_edit_denied.edit = 0
+page.vault.permissions.tx_test.secret_read_only.readOnly = 1"

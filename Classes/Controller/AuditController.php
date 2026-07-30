@@ -344,7 +344,13 @@ final readonly class AuditController
             fwrite($output, "No data\n");
         } else {
             $first = $entries[0]->jsonSerialize();
-            fputcsv($output, array_keys($first), escape: '\\');
+            // escape: '' selects strict RFC-4180 output: enclosures are always
+            // doubled. PHP's legacy escape character ('\\') suppresses that
+            // doubling after a backslash, which lets attacker-controlled audit
+            // data (request id, user agent, reason) terminate its own quoted
+            // cell and synthesize new cells whose first byte
+            // CsvFormulaSanitizer never inspected (CWE-1236).
+            fputcsv($output, array_keys($first), escape: '');
 
             foreach ($entries as $entry) {
                 $row = $entry->jsonSerialize();
@@ -353,7 +359,7 @@ final readonly class AuditController
                 }
                 /** @var array<int, bool|float|int|string|null> $values */
                 $values = array_values($row);
-                fputcsv($output, CsvFormulaSanitizer::neutralizeRow($values), escape: '\\');
+                fputcsv($output, CsvFormulaSanitizer::neutralizeRow($values), escape: '');
             }
         }
 
