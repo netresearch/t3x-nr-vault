@@ -27,6 +27,7 @@ use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use Psr\Http\Message\ServerRequestInterface;
 use RuntimeException;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -2403,6 +2404,213 @@ final class AuditLogServiceTest extends TestCase
         );
         self::assertArrayHasKey(0, $verification->errors, 'The chain-level epoch-floor error must be recorded');
         self::assertStringContainsString('floor', $verification->errors[0]);
+    }
+
+    // =========================================================================
+    // F8 — `user_agent` / `request_id` come verbatim from client-controlled
+    // request headers and land in fixed-width columns. They must be clipped
+    // on the single array that feeds BOTH the INSERT and the entry hash.
+    // =========================================================================
+
+    #[Test]
+    public function oversizedRequestIdHeaderIsClippedToTheColumnWidth(): void
+    {
+        // `request_id` is varchar(100); an unauthenticated caller can send any
+        // length. Unclipped, strict sql_mode aborts the INSERT (taking the
+        // audited operation with it) and non-strict mode truncates behind the
+        // hash's back.
+        $this->stubServerRequest(requestId: str_repeat('A', 200));
+
+        $captured = $this->captureInsertPayload();
+
+        self::assertIsString($captured['request_id']);
+        self::assertSame(str_repeat('A', 100), $captured['request_id']);
+    }
+
+    #[Test]
+    public function oversizedUserAgentHeaderIsClippedToTheColumnWidth(): void
+    {
+        $this->stubServerRequest(userAgent: str_repeat('B', 900));
+
+        $captured = $this->captureInsertPayload();
+
+        self::assertIsString($captured['user_agent']);
+        self::assertSame(str_repeat('B', 500), $captured['user_agent']);
+    }
+
+    #[Test]
+    public function headersShorterThanTheColumnWidthAreStoredUnchanged(): void
+    {
+        $this->stubServerRequest(requestId: 'req-42', userAgent: self::USER_AGENT);
+
+        $captured = $this->captureInsertPayload();
+
+        self::assertSame('req-42', $captured['request_id']);
+        self::assertSame(self::USER_AGENT, $captured['user_agent']);
+    }
+
+    #[Test]
+    public function multiByteHeadersAreClippedOnACharacterBoundary(): void
+    {
+        // 'ä' is two bytes: a byte-wise cut at the column width would land
+        // mid-character and leave an ill-formed sequence that a utf8mb4
+        // column rejects outright.
+        $this->stubServerRequest(requestId: str_repeat('ä', 200), userAgent: str_repeat('€', 900));
+
+        $captured = $this->captureInsertPayload();
+
+        self::assertIsString($captured['request_id']);
+        self::assertIsString($captured['user_agent']);
+        self::assertSame(str_repeat('ä', 100), $captured['request_id']);
+        self::assertSame(str_repeat('€', 500), $captured['user_agent']);
+        self::assertTrue(mb_check_encoding($captured['request_id'], 'UTF-8'));
+        self::assertTrue(mb_check_encoding($captured['user_agent'], 'UTF-8'));
+    }
+
+    #[Test]
+    public function invalidUtf8InHeadersIsScrubbedBeforeStorage(): void
+    {
+        // Header bytes are arbitrary; an ill-formed sequence is rejected by a
+        // utf8mb4 column, so it must be scrubbed before the value is hashed —
+        // not left for the database to reject or mangle.
+        $this->stubServerRequest(
+            requestId: "req \xC3\x28 broken",
+            userAgent: "ua \xC3\x28 broken",
+        );
+
+        $captured = $this->captureInsertPayload();
+
+        self::assertIsString($captured['request_id']);
+        self::assertIsString($captured['user_agent']);
+        self::assertTrue(mb_check_encoding($captured['request_id'], 'UTF-8'));
+        self::assertTrue(mb_check_encoding($captured['user_agent'], 'UTF-8'));
+        self::assertStringStartsWith('req ', $captured['request_id']);
+        self::assertStringStartsWith('ua ', $captured['user_agent']);
+    }
+
+    /**
+     * The heart of the fix: the entry hash must be computed over exactly the
+     * bytes that were inserted. Epoch 3 binds `user_agent` and `request_id`
+     * into the HMAC, so a clip applied anywhere downstream of the hash (or by
+     * the database itself) would make every later verification of this row
+     * report a tamper that never happened.
+     */
+    #[Test]
+    public function clippedHeaderValuesAreTheExactBytesTheEntryHashCovers(): void
+    {
+        $this->stubServerRequest(
+            requestId: str_repeat('ä', 200),
+            userAgent: str_repeat('€', 900),
+        );
+
+        $epoch3Configuration = $this->createMock(ExtensionConfigurationInterface::class);
+        $epoch3Configuration->method('getAuditHmacEpoch')->willReturn(3);
+
+        $subject = new AuditLogService(
+            $this->connectionPool,
+            $this->accessControlService,
+            $this->masterKeyProvider,
+            $epoch3Configuration,
+        );
+
+        $this->setupDatabaseMocks();
+        $this->connection->method('lastInsertId')->willReturn('42');
+
+        $insertedRow = [];
+        $this->connection
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                'tx_nrvault_audit_log',
+                self::callback(static function (array $data) use (&$insertedRow): bool {
+                    $insertedRow = $data;
+
+                    return true;
+                }),
+            );
+
+        $storedHash = null;
+        $this->connection
+            ->expects(self::once())
+            ->method('update')
+            ->with(
+                'tx_nrvault_audit_log',
+                self::callback(static function (array $fields) use (&$storedHash): bool {
+                    $storedHash = $fields['entry_hash'] ?? null;
+
+                    return true;
+                }),
+                self::anything(),
+            );
+
+        $subject->log('s', 'create', true);
+
+        self::assertIsArray($insertedRow);
+        self::assertIsString($storedHash);
+
+        // Recompute the hash from the row as it was INSERTED (clipped values).
+        $expectedHash = AuditLogService::calculateHashV3(
+            AuditLogService::extractV3HashRow(['uid' => 42] + $insertedRow),
+            '',
+            AuditLogService::deriveHmacKey($this->masterKeyProvider),
+        );
+
+        self::assertSame(
+            $expectedHash,
+            $storedHash,
+            'entry_hash must cover the clipped values that were actually stored',
+        );
+    }
+
+    /**
+     * Install a request whose headers the test controls. A mock is used rather
+     * than a real PSR-7 request so that byte sequences a PSR-7 implementation
+     * would reject (invalid UTF-8) can be exercised.
+     */
+    private function stubServerRequest(string $requestId = '', string $userAgent = ''): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request
+            ->method('getHeaderLine')
+            ->willReturnCallback(static fn (string $name): string => match (strtolower($name)) {
+                'x-request-id' => $requestId,
+                'user-agent' => $userAgent,
+                default => '',
+            });
+        $request
+            ->method('getServerParams')
+            ->willReturn(['REMOTE_ADDR' => self::IP_ADDRESS]);
+
+        $GLOBALS['TYPO3_REQUEST'] = $request;
+    }
+
+    /**
+     * Run one `log()` and return the array handed to `Connection::insert()`.
+     *
+     * @return array<string, mixed>
+     */
+    private function captureInsertPayload(): array
+    {
+        $this->setupDatabaseMocks();
+
+        $captured = [];
+        $this->connection
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                'tx_nrvault_audit_log',
+                self::callback(static function (array $data) use (&$captured): bool {
+                    $captured = $data;
+
+                    return true;
+                }),
+            );
+
+        $this->getSubject()->log('s', 'create', true);
+
+        self::assertIsArray($captured);
+
+        return $captured;
     }
 
     /**
