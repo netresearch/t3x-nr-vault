@@ -16,10 +16,12 @@ use Netresearch\NrVault\Hook\DataHandlerHook;
 use Netresearch\NrVault\Hook\PendingSecretExtractor;
 use Netresearch\NrVault\Hook\PendingSecretPersister;
 use Netresearch\NrVault\Hook\VaultFailureReporter;
+use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use Netresearch\NrVault\Utility\VaultFieldResolver;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionProperty;
 use Throwable;
@@ -193,6 +195,107 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         }
     }
 
+    /**
+     * A field the page TSconfig marks as non-editable (`edit = 0`) or read-only
+     * (`readOnly = 1`) must not be writable through a hand-crafted submission:
+     * the FormEngine element only renders such a field `readonly`, which a
+     * client can strip.
+     */
+    #[Test]
+    #[DataProvider('nonEditableFieldProvider')]
+    public function hookKeepsStoredSecretWhenTsConfigForbidsEditing(string $fieldName): void
+    {
+        $this->setUpVaultFieldPermissionUser();
+
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $hook = $this->createHookWithVaultFields('tx_test', [$fieldName]);
+
+        $vaultIdentifier = $this->generateUuidV7();
+        $originalValue = 'protected-value';
+        $vaultService->store($vaultIdentifier, $originalValue);
+
+        try {
+            $fieldArray = [
+                $fieldName => [
+                    'value' => 'value-from-crafted-post',
+                    '_vault_identifier' => $vaultIdentifier,
+                    '_vault_checksum' => hash('sha256', $vaultIdentifier),
+                ],
+            ];
+
+            $dataHandler = $this->createDataHandler();
+            $hook->processDatamap_preProcessFieldArray($fieldArray, 'tx_test', 99, $dataHandler);
+            self::assertArrayNotHasKey($fieldName, $fieldArray, 'Denied field must be dropped from the datamap');
+
+            $hook->processDatamap_afterDatabaseOperations('update', 'tx_test', 99, $fieldArray, $dataHandler);
+
+            $vaultService->clearCache();
+            self::assertSame(
+                $originalValue,
+                $vaultService->retrieve($vaultIdentifier),
+                'Stored secret must survive a submission to a TSconfig-protected field',
+            );
+            self::assertNotEmpty(
+                $dataHandler->errorLog,
+                'The discarded value must be reported to the editor',
+            );
+        } finally {
+            $this->safeDelete($vaultService, $vaultIdentifier);
+        }
+    }
+
+    /**
+     * Control for {@see self::hookKeepsStoredSecretWhenTsConfigForbidsEditing()}:
+     * the same user, the same submission shape and the same vault ACL — only the
+     * TSconfig restriction is missing, and the secret is rotated as before.
+     */
+    #[Test]
+    public function hookRotatesSecretOfFieldWithoutTsConfigRestriction(): void
+    {
+        $this->setUpVaultFieldPermissionUser();
+
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $hook = $this->createHookWithVaultFields('tx_test', ['secret_unrestricted']);
+
+        $vaultIdentifier = $this->generateUuidV7();
+        $vaultService->store($vaultIdentifier, 'original-value');
+
+        try {
+            $newValue = 'value-from-regular-save';
+            $fieldArray = [
+                'secret_unrestricted' => [
+                    'value' => $newValue,
+                    '_vault_identifier' => $vaultIdentifier,
+                    '_vault_checksum' => hash('sha256', $vaultIdentifier),
+                ],
+            ];
+
+            $dataHandler = $this->createDataHandler();
+            $hook->processDatamap_preProcessFieldArray($fieldArray, 'tx_test', 99, $dataHandler);
+            self::assertSame($vaultIdentifier, $fieldArray['secret_unrestricted'], 'Existing identifier must be preserved');
+
+            $hook->processDatamap_afterDatabaseOperations('update', 'tx_test', 99, $fieldArray, $dataHandler);
+
+            $vaultService->clearCache();
+            self::assertSame(
+                $newValue,
+                $vaultService->retrieve($vaultIdentifier),
+                'An unrestricted field must still be writable for the same user',
+            );
+        } finally {
+            $this->safeDelete($vaultService, $vaultIdentifier);
+        }
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function nonEditableFieldProvider(): iterable
+    {
+        yield 'edit denied' => ['secret_edit_denied'];
+        yield 'read-only' => ['secret_read_only'];
+    }
+
     #[Test]
     public function hookDeletesVaultSecretOnRecordDelete(): void
     {
@@ -273,6 +376,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
             $this->get(PendingSecretExtractor::class),
             $this->get(PendingSecretPersister::class),
             $this->get(VaultFailureReporter::class),
+            $this->get(VaultFieldPermissionService::class),
         );
 
         // Pre-seed the field cache via reflection (setAccessible is a no-op since PHP 8.1)
@@ -280,6 +384,18 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         $cacheProperty->setValue($hook, [$table => $vaultFields]);
 
         return $hook;
+    }
+
+    /**
+     * Log in the non-admin editor whose user TSconfig carries the
+     * `vault.permissions` restrictions used by the field-permission tests.
+     * Administrators bypass the TSconfig gate, so the default admin user of
+     * this test case cannot exercise it.
+     */
+    private function setUpVaultFieldPermissionUser(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/be_users_field_permissions.csv');
+        $this->setUpBackendUser(2);
     }
 
     /**

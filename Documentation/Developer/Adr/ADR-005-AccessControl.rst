@@ -292,7 +292,7 @@ Actor context
 Field-level permissions (TSconfig)
 ----------------------------------
 
-Additional UI-level control via TSconfig:
+Additional field-level control via TSconfig:
 
 .. code-block:: typoscript
    :caption: TSconfig for field permissions
@@ -310,6 +310,15 @@ Additional UI-level control via TSconfig:
            copy = 0
        }
    }
+
+``reveal`` and ``copy`` only affect the rendered form element. ``edit`` and
+``readOnly`` are additionally enforced on the DataHandler write path for TCA
+vault fields: a value submitted for a protected field is discarded and reported
+to the editor, so stripping the ``readonly`` attribute in the browser gains
+nothing. Two limits remain: the settings are read from the global (page 0)
+TSconfig rather than from the edited record's page, and vault fields embedded in
+FlexForms — which resolve their permissions under the *FlexForm column* name —
+are not re-checked on write.
 
 Consequences
 ============

@@ -16,6 +16,7 @@ use Netresearch\NrVault\Hook\DataHandlerHook;
 use Netresearch\NrVault\Hook\PendingSecretExtractor;
 use Netresearch\NrVault\Hook\PendingSecretPersister;
 use Netresearch\NrVault\Hook\VaultFailureReporter;
+use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use Netresearch\NrVault\Utility\IdentifierValidator;
@@ -96,6 +97,7 @@ final class DataHandlerHookTest extends TestCase
             $pendingSecretExtractor,
             $pendingSecretPersister,
             new VaultFailureReporter($this->failureLogger),
+            new VaultFieldPermissionService(),
         );
     }
 
