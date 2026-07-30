@@ -10,10 +10,12 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Hook;
 
 use Doctrine\DBAL\Result;
+use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Hook\DataHandlerHook;
 use Netresearch\NrVault\Hook\PendingSecretExtractor;
 use Netresearch\NrVault\Hook\PendingSecretPersister;
+use Netresearch\NrVault\Hook\VaultFailureReporter;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use Netresearch\NrVault\Utility\IdentifierValidator;
@@ -25,6 +27,7 @@ use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
 use ReflectionClass;
 use RuntimeException;
+use Stringable;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
@@ -58,6 +61,8 @@ final class DataHandlerHookTest extends TestCase
 
     private FlashMessageService&MockObject $flashMessageService;
 
+    private LoggerInterface&MockObject $failureLogger;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -82,12 +87,15 @@ final class DataHandlerHookTest extends TestCase
             $this->flashMessageService,
         );
 
+        $this->failureLogger = $this->createMock(LoggerInterface::class);
+
         $this->subject = new DataHandlerHook(
             $this->connectionPool,
             $this->vaultService,
             $vaultFieldResolver,
             $pendingSecretExtractor,
             $pendingSecretPersister,
+            new VaultFailureReporter($this->failureLogger),
         );
     }
 
@@ -421,6 +429,92 @@ final class DataHandlerHookTest extends TestCase
             $fieldArray,
             $this->dataHandler,
         );
+    }
+
+    /**
+     * A submitted `_vault_identifier` reaches
+     * `SecretNotFoundException::forIdentifier()` verbatim on the rotate path —
+     * `PendingSecretExtractor` runs no `IdentifierValidator` there. Neither the
+     * PSR-3 message nor any context value may therefore carry the newlines that
+     * would let an editor append fully-formed records to the vault log,
+     * including one quoting the reference the editor was told to report.
+     */
+    #[Test]
+    public function craftedIdentifierCannotForgeALineInTheEmittedLogRecord(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $connection = $this->createMock(Connection::class);
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+
+        $flashMessageQueue = $this->createMock(FlashMessageQueue::class);
+        $this->flashMessageService->method('getMessageQueueByIdentifier')->willReturn($flashMessageQueue);
+
+        $crafted = self::EXISTING_UUID
+            . "\nMon, 01 Jan 2035 00:00:00 +0000 [ALERT] request=\"0\" component=\"forged\": owned\r\n\x07";
+
+        $fieldArray = [
+            'api_key' => [
+                'value' => 'updated-secret',
+                '_vault_identifier' => $crafted,
+                '_vault_checksum' => 'existing-checksum',
+            ],
+        ];
+
+        $this->subject->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            'tx_test',
+            42,
+        );
+
+        $this->vaultService
+            ->method('rotate')
+            ->willThrowException(SecretNotFoundException::forIdentifier($crafted));
+
+        /** @var list<array{string, array<string, mixed>}> $records */
+        $records = [];
+        $this->failureLogger
+            ->method('error')
+            ->willReturnCallback(
+                static function (string|Stringable $message, array $context = []) use (&$records): void {
+                    $records[] = [(string) $message, $context];
+                },
+            );
+
+        $this->subject->processDatamap_afterDatabaseOperations(
+            'update',
+            'tx_test',
+            42,
+            $fieldArray,
+            $this->dataHandler,
+        );
+
+        self::assertCount(1, $records);
+
+        [$message, $context] = $records[0];
+
+        // Render the record the way TYPO3's FileWriter does before fwrite($message . LF).
+        $encodedContext = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        self::assertIsString($encodedContext, 'The context must survive json_encode()');
+
+        $renderedRecord = \sprintf(
+            '%s [%s] request="%s" component="%s": %s - %s',
+            'Mon, 01 Jan 2035 00:00:00 +0000',
+            'ERROR',
+            'requestid',
+            'Netresearch.NrVault',
+            $message,
+            $encodedContext,
+        );
+
+        self::assertSame(
+            0,
+            substr_count($renderedRecord, "\n") + substr_count($renderedRecord, "\r"),
+            'A crafted identifier must not be able to append a line to the log',
+        );
+        self::assertSame('Vault operation failed', $message);
     }
 
     #[Test]

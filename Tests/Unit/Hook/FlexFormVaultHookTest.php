@@ -13,6 +13,7 @@ use Doctrine\DBAL\Result;
 use InvalidArgumentException;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Hook\FlexFormVaultHook;
+use Netresearch\NrVault\Hook\VaultFailureReporter;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -20,6 +21,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -41,6 +43,12 @@ final class FlexFormVaultHookTest extends TestCase
     private const EXISTING_UUID = '01234567-89ab-7cde-8f01-23456789abcd';
 
     private const RECORD_DELETED = 'Record deleted';
+
+    /**
+     * The correlation reference {@see VaultFailureReporter} puts into the
+     * user-facing message: 8 random bytes, hex-encoded.
+     */
+    private const REFERENCE_PATTERN = '/\b[0-9a-f]{16}\b/';
 
     private ConnectionPool&MockObject $connectionPool;
 
@@ -71,6 +79,7 @@ final class FlexFormVaultHookTest extends TestCase
             $this->vaultService,
             $this->flexFormTools,
             $flashMessageService,
+            new VaultFailureReporter(self::createStub(LoggerInterface::class)),
         );
     }
 
@@ -780,7 +789,13 @@ final class FlexFormVaultHookTest extends TestCase
         $this->dataHandler
             ->expects(self::once())
             ->method('log')
-            ->with('tx_test', 42, 3, 0, 1, self::stringContains('Delete failed'));
+            ->with('tx_test', 42, 3, 0, 1, self::callback(
+                // The DataHandler log detail is replayed to the editor, so it
+                // must carry the correlation reference and NOT the cause
+                // (which distinguishes "not found" from "access denied").
+                static fn (string $message): bool => preg_match(self::REFERENCE_PATTERN, $message) === 1
+                    && !str_contains($message, 'Delete failed'),
+            ));
 
         $recordWasDeleted = false;
 
@@ -969,7 +984,10 @@ final class FlexFormVaultHookTest extends TestCase
         $this->dataHandler
             ->expects(self::once())
             ->method('log')
-            ->with('tt_content', 100, 1, 0, 1, self::stringContains('Retrieve failed'));
+            ->with('tt_content', 100, 1, 0, 1, self::callback(
+                static fn (string $message): bool => preg_match(self::REFERENCE_PATTERN, $message) === 1
+                    && !str_contains($message, 'Retrieve failed'),
+            ));
 
         $this->subject->processCmdmap_postProcess('copy', 'tt_content', 42, null, $this->dataHandler, false);
     }
@@ -1149,7 +1167,10 @@ final class FlexFormVaultHookTest extends TestCase
         $this->dataHandler
             ->expects(self::once())
             ->method('log')
-            ->with('tt_content', 20, 2, 0, 1, self::stringContains('Store failed'));
+            ->with('tt_content', 20, 2, 0, 1, self::callback(
+                static fn (string $message): bool => preg_match(self::REFERENCE_PATTERN, $message) === 1
+                    && !str_contains($message, 'Store failed'),
+            ));
 
         $this->subject->processDatamap_afterDatabaseOperations('update', 'tt_content', 20, [], $this->dataHandler);
     }
@@ -1308,7 +1329,8 @@ final class FlexFormVaultHookTest extends TestCase
 
     /**
      * Kill ConcatOperandRemoval + Concat mutations on the DataHandler log message.
-     * The message must contain BOTH the literal prefix AND the exception text.
+     * The message must contain BOTH the literal prefix AND the generic failure
+     * sentence — never the exception text, which is an existence oracle.
      */
     #[Test]
     public function deleteActionLogMessageHasExactPrefix(): void
@@ -1333,7 +1355,11 @@ final class FlexFormVaultHookTest extends TestCase
                 3,
                 0,
                 1,
-                'Vault error during delete for FlexForm field: Boom',
+                self::callback(
+                    static fn (string $message): bool => str_starts_with($message, 'Vault error during delete for FlexForm field: ')
+                    && preg_match(self::REFERENCE_PATTERN, $message) === 1
+                    && !str_contains($message, 'Boom'),
+                ),
             );
 
         $recordWasDeleted = false;
@@ -1382,7 +1408,8 @@ final class FlexFormVaultHookTest extends TestCase
                 0,
                 1,
                 self::callback(static fn (string $msg): bool => str_contains($msg, 'pi_flexform')
-                    && str_contains($msg, 'CopyBoom')
+                    && preg_match(self::REFERENCE_PATTERN, $msg) === 1
+                    && !str_contains($msg, 'CopyBoom')
                     && str_contains($msg, 'Vault error during copy')),
             );
 
@@ -1425,7 +1452,8 @@ final class FlexFormVaultHookTest extends TestCase
                 0,
                 1,
                 self::callback(static fn (string $msg): bool => str_contains($msg, 'settings.key')
-                    && str_contains($msg, 'StoreExplode')),
+                    && preg_match(self::REFERENCE_PATTERN, $msg) === 1
+                    && !str_contains($msg, 'StoreExplode')),
             );
 
         $this->subject->processDatamap_afterDatabaseOperations('update', 'tt_content', 20, [], $this->dataHandler);
@@ -1919,13 +1947,15 @@ final class FlexFormVaultHookTest extends TestCase
                 0,
                 1,
                 self::callback(
-                    // Kills both Concat and ConcatOperandRemoval on line 259:
-                    // message starts with literal prefix, contains field name
-                    // 'pi_flexform', then ': ', then the exception message.
-                    fn (string $message): bool => str_starts_with($message, 'Vault error during copy for FlexForm field "')
-                    && str_contains($message, '"pi_flexform"')
-                    && str_contains($message, '": Boom')
-                    && str_ends_with($message, 'Boom'),
+                    // Kills both Concat and ConcatOperandRemoval: message starts
+                    // with the literal prefix, contains the field name
+                    // 'pi_flexform', then ': ', then the generic failure
+                    // sentence with its correlation reference — never the
+                    // exception text.
+                    static fn (string $message): bool => str_starts_with($message, 'Vault error during copy for FlexForm field "')
+                    && str_contains($message, '"pi_flexform": ')
+                    && preg_match(self::REFERENCE_PATTERN, $message) === 1
+                    && !str_contains($message, 'Boom'),
                 ),
             );
 

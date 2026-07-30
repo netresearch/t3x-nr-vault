@@ -43,6 +43,7 @@ final class FlexFormVaultHook
         private readonly VaultServiceInterface $vaultService,
         private readonly FlexFormTools $flexFormTools,
         private readonly FlashMessageService $flashMessageService,
+        private readonly VaultFailureReporter $failureReporter,
     ) {}
 
     /**
@@ -175,6 +176,14 @@ final class FlexFormVaultHook
                 try {
                     $this->vaultService->delete($identifier, 'Record deleted');
                 } catch (Throwable $e) {
+                    $userMessage = $this->failureReporter->report($e, [
+                        'table' => $table,
+                        'flexField' => $flexFieldName,
+                        'uid' => $id,
+                        'identifier' => $identifier,
+                        'operation' => 'flexform_delete',
+                    ]);
+
                     /** @phpstan-ignore method.internal */
                     $dataHandler->log(
                         $table,
@@ -182,7 +191,7 @@ final class FlexFormVaultHook
                         3,
                         null,
                         1,
-                        'Vault error during delete for FlexForm field: ' . $e->getMessage(),
+                        'Vault error during delete for FlexForm field: ' . $userMessage,
                     );
                 }
             }
@@ -266,6 +275,14 @@ final class FlexFormVaultHook
 
                     $xml = str_replace($oldIdentifier, $newIdentifier, $xml);
                 } catch (Throwable $e) {
+                    $userMessage = $this->failureReporter->report($e, [
+                        'table' => $table,
+                        'flexField' => $flexFieldName,
+                        'uid' => $newId,
+                        'identifier' => $oldIdentifier,
+                        'operation' => 'flexform_copy',
+                    ]);
+
                     /** @phpstan-ignore method.internal */
                     $dataHandler->log(
                         $table,
@@ -273,7 +290,7 @@ final class FlexFormVaultHook
                         1,
                         null,
                         1,
-                        'Vault error during copy for FlexForm field "' . $flexFieldName . '": ' . $e->getMessage(),
+                        'Vault error during copy for FlexForm field "' . $flexFieldName . '": ' . $userMessage,
                     );
                 }
             }
@@ -551,6 +568,18 @@ final class FlexFormVaultHook
                 $this->vaultService->rotate($pending->identifier, $pending->value, 'FlexForm field updated');
             }
         } catch (Throwable $e) {
+            // One report for both channels: the flash message AND the
+            // DataHandler log detail are replayed to the editor, so both must
+            // carry the same correlation reference and neither the cause.
+            $userMessage = $this->failureReporter->report($e, [
+                'table' => $table,
+                'flexField' => $pending->flexField,
+                'fieldPath' => $pending->fieldPath,
+                'uid' => $uid,
+                'identifier' => $pending->identifier,
+                'operation' => 'flexform_field',
+            ]);
+
             /** @phpstan-ignore method.internal */
             $dataHandler->log(
                 $table,
@@ -558,7 +587,7 @@ final class FlexFormVaultHook
                 2,
                 null,
                 1,
-                'Vault error for FlexForm field "' . $pending->fieldPath . '": ' . $e->getMessage(),
+                'Vault error for FlexForm field "' . $pending->fieldPath . '": ' . $userMessage,
             );
 
             $this->addFlashMessage(
@@ -567,7 +596,7 @@ final class FlexFormVaultHook
                     $pending->fieldPath,
                     $table,
                     $uid,
-                    $e->getMessage(),
+                    $userMessage,
                 ),
                 'Vault Error',
                 ContextualFeedbackSeverity::ERROR,

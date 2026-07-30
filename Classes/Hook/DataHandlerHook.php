@@ -48,6 +48,7 @@ final class DataHandlerHook
         private readonly VaultFieldResolver $vaultFieldResolver,
         private readonly PendingSecretExtractor $pendingSecretExtractor,
         private readonly PendingSecretPersister $pendingSecretPersister,
+        private readonly VaultFailureReporter $failureReporter,
     ) {}
 
     /**
@@ -118,6 +119,12 @@ final class DataHandlerHook
                 $rollbackValue = $pending->identifier;
             }
 
+            // Filled by the failure-message factory below when persist() catches.
+            // Captured here so the flash message and the DataHandler log detail —
+            // which core replays to the same user — carry the SAME correlation
+            // reference for one failure, and neither carries the cause.
+            $userMessage = '';
+
             $error = $this->pendingSecretPersister->persist(
                 $pending,
                 [
@@ -128,13 +135,23 @@ final class DataHandlerHook
                 ],
                 'TCA field cleared',
                 'TCA field updated',
-                static fn (Throwable $e): string => \sprintf(
-                    'Vault storage failed for field "%s" on %s:%d: %s. The field value has been rolled back.',
-                    $fieldName,
-                    $table,
-                    $uid,
-                    $e->getMessage(),
-                ),
+                function (Throwable $e) use ($table, $fieldName, $uid, $pending, &$userMessage): string {
+                    $userMessage = $this->failureReporter->report($e, [
+                        'table' => $table,
+                        'field' => $fieldName,
+                        'uid' => $uid,
+                        'identifier' => $pending->identifier,
+                        'operation' => 'tca_field',
+                    ]);
+
+                    return \sprintf(
+                        'Vault storage failed for field "%s" on %s:%d: %s The field value has been rolled back.',
+                        $fieldName,
+                        $table,
+                        $uid,
+                        $userMessage,
+                    );
+                },
                 function () use ($table, $uid, $fieldName, $rollbackValue): void {
                     $this->rollBackField($table, $uid, $fieldName, $rollbackValue);
                 },
@@ -148,7 +165,7 @@ final class DataHandlerHook
                     $status === 'new' ? 1 : 2,
                     null,
                     1,
-                    'Vault error for field "' . $fieldName . '": ' . $error->getMessage(),
+                    'Vault error for field "' . $fieldName . '": ' . $userMessage,
                 );
             }
         }
@@ -211,6 +228,14 @@ final class DataHandlerHook
             try {
                 $this->vaultService->delete($vaultIdentifier, 'Record deleted');
             } catch (Throwable $e) {
+                $userMessage = $this->failureReporter->report($e, [
+                    'table' => $table,
+                    'field' => $fieldName,
+                    'uid' => (int) $id,
+                    'identifier' => $vaultIdentifier,
+                    'operation' => 'delete',
+                ]);
+
                 /** @phpstan-ignore method.internal */
                 $dataHandler->log(
                     $table,
@@ -218,7 +243,7 @@ final class DataHandlerHook
                     3,
                     null,
                     1,
-                    'Vault error during delete for field "' . $fieldName . '": ' . $e->getMessage(),
+                    'Vault error during delete for field "' . $fieldName . '": ' . $userMessage,
                 );
             }
         }
@@ -308,6 +333,14 @@ final class DataHandlerHook
                 // Track update for the copied record
                 $updates[$fieldName] = $newIdentifier;
             } catch (Throwable $e) {
+                $userMessage = $this->failureReporter->report($e, [
+                    'table' => $table,
+                    'field' => $fieldName,
+                    'uid' => $newId,
+                    'identifier' => $sourceIdentifier,
+                    'operation' => 'copy',
+                ]);
+
                 /** @phpstan-ignore method.internal */
                 $dataHandler->log(
                     $table,
@@ -315,7 +348,7 @@ final class DataHandlerHook
                     1,
                     null,
                     1,
-                    'Vault error during copy for field "' . $fieldName . '": ' . $e->getMessage(),
+                    'Vault error during copy for field "' . $fieldName . '": ' . $userMessage,
                 );
             } finally {
                 // Scrub the decrypted plaintext from memory (success or failure).
