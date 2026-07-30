@@ -27,6 +27,9 @@ use Symfony\Component\Console\Tester\CommandTester;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultAuditCommandTest extends TestCase
 {
+    /** vfs path the CSV export tests write to. */
+    private const EXPORT_PATH = 'exports/audit.csv';
+
     private const IP_ADDRESS = '127.0.0.1';
 
     private AuditLogServiceInterface&MockObject $auditLogService;
@@ -528,7 +531,7 @@ final class VaultAuditCommandTest extends TestCase
             ->method('query')
             ->willReturn([$entry]);
 
-        $exportFile = vfsStream::url('exports/audit.csv');
+        $exportFile = vfsStream::url(self::EXPORT_PATH);
 
         $exitCode = $this->commandTester->execute([
             '--export' => $exportFile,
@@ -601,7 +604,7 @@ final class VaultAuditCommandTest extends TestCase
             ->method('query')
             ->willReturn([$entry]);
 
-        $exportFile = vfsStream::url('exports/audit.csv');
+        $exportFile = vfsStream::url(self::EXPORT_PATH);
 
         $exitCode = $this->commandTester->execute([
             '--export' => $exportFile,
@@ -648,7 +651,7 @@ final class VaultAuditCommandTest extends TestCase
             ->method('query')
             ->willReturn([$entry]);
 
-        $exportFile = vfsStream::url('exports/audit.csv');
+        $exportFile = vfsStream::url(self::EXPORT_PATH);
 
         $exitCode = $this->commandTester->execute([
             '--export' => $exportFile,

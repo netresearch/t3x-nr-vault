@@ -48,6 +48,16 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
 
     private const PUBLIC_IP_SECONDARY = '93.184.216.35';
 
+    /**
+     * The redirect-hop tests deliberately speak plain http:// — the SSRF filter
+     * must refuse the hop regardless of scheme, and forcing https here would
+     * change what is being tested.
+     */
+    private const HTTP_SCHEME = 'http://';
+
+    /** Allow-listed origin the redirect starts from. */
+    private const SAFE_ORIGIN = 'http://safe.example/';
+
     private const IPV6_EXAMPLE = '2001:db8::1';
 
     private const PUBLIC_IPV6 = '2606:4700:4700::1111';
@@ -387,12 +397,12 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allow_redirects'] = true;
         $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
         $client = $this->buildRedirectingClient(
-            'http://' . self::METADATA_IP . '/latest/meta-data/iam/security-credentials/',
+            self::HTTP_SCHEME . self::METADATA_IP . '/latest/meta-data/iam/security-credentials/',
             $reachedHosts,
         );
 
         try {
-            $client->get('http://safe.example/');
+            $client->get(self::SAFE_ORIGIN);
             self::fail('Expected the redirect hop to the metadata IP to be refused.');
         } catch (RequestException $e) {
             self::assertMatchesRegularExpression('/disallowed IP range/i', $e->getMessage());
@@ -412,9 +422,9 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // redirects to public addresses.
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allow_redirects'] = true;
         $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
-        $client = $this->buildRedirectingClient('http://' . self::PUBLIC_IP . '/next', $reachedHosts);
+        $client = $this->buildRedirectingClient(self::HTTP_SCHEME . self::PUBLIC_IP . '/next', $reachedHosts);
 
-        $response = $client->get('http://safe.example/');
+        $response = $client->get(self::SAFE_ORIGIN);
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame(['safe.example', self::PUBLIC_IP], $reachedHosts);
@@ -429,9 +439,9 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allow_redirects'] = true;
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = [self::DOCKER_IP];
         $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
-        $client = $this->buildRedirectingClient('http://' . self::DOCKER_IP . '/api/tags', $reachedHosts);
+        $client = $this->buildRedirectingClient(self::HTTP_SCHEME . self::DOCKER_IP . '/api/tags', $reachedHosts);
 
-        $response = $client->get('http://safe.example/');
+        $response = $client->get(self::SAFE_ORIGIN);
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame(['safe.example', self::DOCKER_IP], $reachedHosts);
