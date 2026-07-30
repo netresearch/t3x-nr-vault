@@ -107,10 +107,21 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
         }
     }
 
+    /**
+     * A submitted vault value whose field the data structure does not describe as
+     * a `vaultSecret` element must be discarded rather than handed to DataHandler,
+     * which would serialise it into the FlexForm XML as cleartext.
+     *
+     * The trigger is the element type rather than an unresolvable data structure
+     * file: TYPO3 v13.4 resolves every FlexForm data structure while building the
+     * TCA schema, so a TCA pointing at a missing file throws in
+     * `TcaSchemaFactory::rebuild()` before the hook is ever reached. Both paths
+     * end in the same fail-closed strip.
+     */
     #[Test]
-    public function hookDiscardsSubmittedSecretWhenDataStructureCannotBeResolved(): void
+    public function hookDiscardsSubmittedSecretWhenFieldIsNotAVaultElement(): void
     {
-        $this->registerDataStructure('FILE:EXT:nr_vault/Tests/Functional/Hook/Fixtures/no-such-data-structure.xml');
+        $this->registerDataStructure('FILE:EXT:nr_vault/Tests/Functional/Hook/Fixtures/non-vault-data-structure.xml');
 
         $hook = $this->get(FlexFormVaultHook::class);
 
@@ -122,7 +133,7 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
         self::assertStringNotContainsString(
             $secretValue,
             (string) json_encode($fieldArray),
-            'An unresolvable data structure must not let the plaintext through to DataHandler',
+            'A field that is not a vault secret element must not let the plaintext through to DataHandler',
         );
         self::assertSame(
             '',
@@ -134,7 +145,7 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function hookKeepsExistingIdentifierWhenDiscardingSubmittedSecret(): void
     {
-        $this->registerDataStructure('FILE:EXT:nr_vault/Tests/Functional/Hook/Fixtures/no-such-data-structure.xml');
+        $this->registerDataStructure('FILE:EXT:nr_vault/Tests/Functional/Hook/Fixtures/non-vault-data-structure.xml');
 
         $hook = $this->get(FlexFormVaultHook::class);
 
@@ -147,7 +158,7 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
         self::assertStringNotContainsString(
             $secretValue,
             (string) json_encode($fieldArray),
-            'An unresolvable data structure must not let the plaintext through to DataHandler',
+            'A field that is not a vault secret element must not let the plaintext through to DataHandler',
         );
         self::assertSame(
             $existingIdentifier,

@@ -1,0 +1,18 @@
+<T3DataStructure>
+    <sheets>
+        <sDEF>
+            <ROOT>
+                <sheetTitle>Vault hook test sheet</sheetTitle>
+                <type>array</type>
+                <el>
+                    <apiKey>
+                        <label>API key rendered as a plain input</label>
+                        <config>
+                            <type>input</type>
+                        </config>
+                    </apiKey>
+                </el>
+            </ROOT>
+        </sDEF>
+    </sheets>
+</T3DataStructure>
