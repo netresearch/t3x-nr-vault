@@ -242,6 +242,145 @@ final class FlexFormVaultHookTest extends TestCase
         self::assertSame('value', $fieldArray['pi_flexform']['data']['sDEF']['lDEF']['field']['vDEF']);
     }
 
+    /**
+     * The data structure of a FlexForm field is selected by the table, the field
+     * name and the record type. Looking it up with empty names and the submitted
+     * FlexForm array as the record row fails on every supported TYPO3 version,
+     * which silently disabled the vault handling entirely.
+     */
+    #[Test]
+    public function processDatamapPreProcessFieldArrayLooksUpDataStructureForTheActualField(): void
+    {
+        $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
+
+        $connection = $this->createMock(Connection::class);
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAssociative')->willReturn(['uid' => 42, 'CType' => 'my_plugin']);
+        $connection->method('select')->willReturn($result);
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+
+        $this->flexFormTools
+            ->expects(self::once())
+            ->method('getDataStructureIdentifier')
+            ->with(
+                ['config' => ['type' => 'flex']],
+                'tt_content',
+                'pi_flexform',
+                self::callback(
+                    static fn (array $row): bool => ($row['CType'] ?? null) === 'my_plugin'
+                        && !isset($row['data']),
+                ),
+            )
+            ->willReturn('test-ds');
+
+        $this->flexFormTools->method('parseDataStructureByIdentifier')->willReturn(['sheets' => []]);
+
+        $fieldArray = [
+            'pi_flexform' => [
+                'data' => [
+                    'sDEF' => [
+                        'lDEF' => [
+                            'field' => ['vDEF' => 'value'],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tt_content', 42);
+    }
+
+    /**
+     * A submitted vault value whose field the data structure does not describe as
+     * a vaultSecret element must not be handed to DataHandler: it would be
+     * serialised into the FlexForm XML as cleartext.
+     */
+    #[Test]
+    public function processDatamapPreProcessFieldArrayDiscardsVaultPlaintextForUnknownField(): void
+    {
+        $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
+
+        $this->flexFormTools->method('getDataStructureIdentifier')->willReturn('test-ds');
+        $this->flexFormTools
+            ->method('parseDataStructureByIdentifier')
+            ->willReturn([
+                'sheets' => [
+                    'sDEF' => [
+                        'ROOT' => [
+                            'el' => [
+                                'someOtherField' => [
+                                    'config' => ['type' => 'input'],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ]);
+
+        $this->vaultService->expects(self::never())->method('store');
+
+        $fieldArray = [
+            'pi_flexform' => [
+                'data' => [
+                    'sDEF' => [
+                        'lDEF' => [
+                            'apiKey' => [
+                                'vDEF' => [
+                                    'value' => 'smuggled-plaintext',
+                                    '_vault_identifier' => '',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tt_content', 'NEW1');
+
+        self::assertSame('', $fieldArray['pi_flexform']['data']['sDEF']['lDEF']['apiKey']['vDEF']);
+        self::assertStringNotContainsString(
+            'smuggled-plaintext',
+            (string) json_encode($fieldArray),
+        );
+    }
+
+    /**
+     * Counterpart to the test above: an untouched empty vault field carries no
+     * plaintext, so it must be left exactly as submitted.
+     */
+    #[Test]
+    public function processDatamapPreProcessFieldArrayKeepsEmptyVaultSubmissionUntouched(): void
+    {
+        $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
+
+        $this->flexFormTools
+            ->method('getDataStructureIdentifier')
+            ->willThrowException(new InvalidArgumentException('No data structure'));
+
+        $submitted = [
+            'pi_flexform' => [
+                'data' => [
+                    'sDEF' => [
+                        'lDEF' => [
+                            'apiKey' => [
+                                'vDEF' => [
+                                    'value' => '',
+                                    '_vault_identifier' => '',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $fieldArray = $submitted;
+
+        $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tt_content', 'NEW1');
+
+        self::assertSame($submitted, $fieldArray);
+    }
+
     #[Test]
     public function processDatamapPreProcessFieldArrayHandlesNonVaultRenderType(): void
     {

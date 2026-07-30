@@ -17,8 +17,10 @@ use Throwable;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
+use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 
@@ -60,6 +62,9 @@ final class FlexFormVaultHook
 
         $schema = $this->tcaSchemaFactory->get($table);
 
+        /** @var array<string, mixed>|null $recordRow */
+        $recordRow = null;
+
         foreach ($schema->getFields() as $field) {
             $fieldConfig = $field->getConfiguration();
 
@@ -84,6 +89,9 @@ final class FlexFormVaultHook
 
             /** @var array<string, mixed> $flexData */
             $flexData = $fieldArray[$fieldName];
+            // Resolved lazily: the record row is only needed once a FlexForm
+            // field is actually part of the current save.
+            $recordRow ??= $this->resolveRecordRow($table, $id, $fieldArray);
             // Process the FlexForm data array
             $this->processFlexFormData(
                 $flexData,
@@ -91,6 +99,8 @@ final class FlexFormVaultHook
                 $id,
                 $fieldName,
                 ['config' => $fieldConfig],
+                $schema,
+                $recordRow,
             );
             $fieldArray[$fieldName] = $flexData;
         }
@@ -280,6 +290,7 @@ final class FlexFormVaultHook
      *
      * @param array<string, mixed> $data
      * @param array<string, mixed> $flexFieldConfig
+     * @param array<string, mixed> $recordRow
      */
     private function processFlexFormData(
         array &$data,
@@ -287,9 +298,19 @@ final class FlexFormVaultHook
         string|int $id,
         string $flexFieldName,
         array $flexFieldConfig,
+        TcaSchema $schema,
+        array $recordRow,
     ): void {
-        $dataStructure = $this->getFlexFormDataStructure($flexFieldConfig, $data);
+        $dataStructure = $this->getFlexFormDataStructure(
+            $flexFieldConfig,
+            $table,
+            $flexFieldName,
+            $recordRow,
+            $schema,
+        );
         if ($dataStructure === null) {
+            $this->discardUnprocessedVaultPlaintext($data, $table, $id, $flexFieldName);
+
             return;
         }
 
@@ -346,6 +367,9 @@ final class FlexFormVaultHook
                 );
             }
         }
+        unset($sheetData, $fieldData);
+
+        $this->discardUnprocessedVaultPlaintext($data, $table, $id, $flexFieldName);
     }
 
     /**
@@ -572,26 +596,188 @@ final class FlexFormVaultHook
     /**
      * Get the FlexForm data structure.
      *
+     * The table and field name identify the TCA column the data structure is
+     * defined on, and the record row supplies the record type (CType /
+     * list_type) that selects the concrete data structure. Passing empty
+     * strings and the submitted FlexForm array instead makes the lookup fail on
+     * every supported TYPO3 version, which used to silently disable the vault
+     * handling below.
+     *
      * @param array<string, mixed> $fieldConfig
-     * @param array<string, mixed> $data
+     * @param array<string, mixed> $recordRow
      *
      * @return array<string, mixed>|null
      */
-    private function getFlexFormDataStructure(array $fieldConfig, array $data): ?array
-    {
+    private function getFlexFormDataStructure(
+        array $fieldConfig,
+        string $table,
+        string $fieldName,
+        array $recordRow,
+        TcaSchema $schema,
+    ): ?array {
+        $schemaArguments = $this->dataStructureSchemaArguments($schema);
+
         try {
             $dataStructureIdentifier = $this->flexFormTools->getDataStructureIdentifier(
                 $fieldConfig,
-                '',
-                '',
-                $data,
+                $table,
+                $fieldName,
+                $recordRow,
+                ...$schemaArguments,
             );
 
             /** @phpstan-ignore return.type */
-            return $this->flexFormTools->parseDataStructureByIdentifier($dataStructureIdentifier);
+            return $this->flexFormTools->parseDataStructureByIdentifier(
+                $dataStructureIdentifier,
+                ...$schemaArguments,
+            );
         } catch (Exception) {
             return null;
         }
+    }
+
+    /**
+     * Build the trailing schema argument for the FlexFormTools API.
+     *
+     * TYPO3 v14 requires a TcaSchema to resolve a data structure and throws
+     * without it; the v13.4 signatures do not accept the argument at all. PHP
+     * ignores surplus positional arguments, so it is only appended when the
+     * running core knows about it.
+     *
+     * @return list<TcaSchema>
+     */
+    private function dataStructureSchemaArguments(TcaSchema $schema): array
+    {
+        return (new Typo3Version())->getMajorVersion() >= 14 ? [$schema] : [];
+    }
+
+    /**
+     * Resolve the record row the FlexForm data structure lookup needs.
+     *
+     * The data structure of a FlexForm field is selected by the record type,
+     * which is not necessarily part of the submitted field array on an update,
+     * so the persisted row is loaded and the submitted values are layered on
+     * top of it.
+     *
+     * @param array<string, mixed> $fieldArray
+     *
+     * @return array<string, mixed>
+     */
+    private function resolveRecordRow(string $table, string|int $id, array $fieldArray): array
+    {
+        $persistedRow = [];
+
+        if (is_numeric($id) && (int) $id > 0) {
+            try {
+                $row = $this->connectionPool
+                    ->getConnectionForTable($table)
+                    ->select(['*'], $table, ['uid' => (int) $id])
+                    ->fetchAssociative();
+
+                if (\is_array($row)) {
+                    $persistedRow = $row;
+                }
+            } catch (Throwable) {
+                // Without the persisted row the data structure lookup may fail;
+                // the fail-closed handling then discards the plaintext.
+            }
+        }
+
+        return array_merge($persistedRow, $fieldArray);
+    }
+
+    /**
+     * Discard vault plaintext the data-structure driven pass did not convert
+     * into a vault identifier.
+     *
+     * Without this, DataHandler serialises the submitted value verbatim into the
+     * stored FlexForm XML — the secret would end up unencrypted in the record,
+     * with no vault entry, no access control and no audit trail.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function discardUnprocessedVaultPlaintext(
+        array &$data,
+        string $table,
+        string|int $id,
+        string $flexFieldName,
+    ): void {
+        if (!$this->stripVaultPlaintext($data)) {
+            return;
+        }
+
+        $this->addFlashMessage(
+            \sprintf(
+                'A vault secret submitted for FlexForm field "%s" on %s:%s was discarded because the'
+                . ' field could not be resolved to a vault secret element. Storing it would have'
+                . ' written the value unencrypted into the record.',
+                $flexFieldName,
+                $table,
+                (string) $id,
+            ),
+            'Vault Error',
+            ContextualFeedbackSeverity::ERROR,
+        );
+    }
+
+    /**
+     * Replace every submitted vault value that still carries plaintext with its
+     * vault identifier, recursively. Values without plaintext are left as they
+     * are.
+     *
+     * @template TKey of array-key
+     *
+     * @param array<TKey, mixed> $node
+     *
+     * @param-out array<TKey, mixed> $node
+     *
+     * @return bool True if at least one plaintext value was removed
+     */
+    private function stripVaultPlaintext(array &$node): bool
+    {
+        $stripped = false;
+
+        foreach ($node as &$value) {
+            if (!\is_array($value)) {
+                continue;
+            }
+
+            if ($this->carriesVaultPlaintext($value)) {
+                /** @var mixed $rawIdentifier */
+                $rawIdentifier = $value['_vault_identifier'] ?? '';
+                $value = \is_string($rawIdentifier) && IdentifierValidator::looksLikeVaultIdentifier($rawIdentifier)
+                    ? $rawIdentifier
+                    : '';
+                $stripped = true;
+
+                continue;
+            }
+
+            if ($this->stripVaultPlaintext($value)) {
+                $stripped = true;
+            }
+        }
+        unset($value);
+
+        return $stripped;
+    }
+
+    /**
+     * Check whether a submitted value is a vault secret element submission that
+     * still contains the plaintext.
+     *
+     * @param array<mixed, mixed> $value
+     */
+    private function carriesVaultPlaintext(array $value): bool
+    {
+        if (!\array_key_exists('_vault_identifier', $value) && !\array_key_exists('_vault_checksum', $value)) {
+            return false;
+        }
+
+        /** @var mixed $rawSecretValue */
+        $rawSecretValue = $value['value'] ?? $value[0] ?? '';
+
+        return (\is_string($rawSecretValue) || \is_int($rawSecretValue)) && (string) $rawSecretValue !== '';
     }
 
     /**
