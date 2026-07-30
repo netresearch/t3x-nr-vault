@@ -15,18 +15,24 @@ use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
+use Netresearch\NrVault\Crypto\EnvelopeCodecInterface;
+use Netresearch\NrVault\Crypto\EnvelopeRotationContext;
+use Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Crypto\ReEncryptedDek;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
+use Netresearch\NrVault\Event\MasterKeyRotatedEvent;
 use Netresearch\NrVault\Exception\EncryptionException;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use org\bovigo\vfs\vfsStream;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use RuntimeException;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -37,6 +43,11 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultRotateMasterKeyCommandTest extends TestCase
 {
+    /** Operator-facing fragments asserted in more than one test. */
+    private const OUTPUT_NO_SECRETS = 'No secrets found';
+
+    private const OUTPUT_UNEXPECTED_ERROR = 'Unexpected error';
+
     private SecretRepositoryInterface&MockObject $secretRepository;
 
     private EncryptionServiceInterface&MockObject $encryptionService;
@@ -48,6 +59,12 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     private AuditLogServiceInterface&MockObject $auditLogService;
 
     private AuditChainRekeyServiceInterface&MockObject $auditChainRekeyService;
+
+    private EnvelopeCodecInterface&MockObject $envelopeCodec;
+
+    private AccessControlServiceInterface&MockObject $accessControlService;
+
+    private EventDispatcherInterface&MockObject $eventDispatcher;
 
     private CommandTester $commandTester;
 
@@ -74,15 +91,11 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->method('verifyHashChain')
             ->willReturn(HashChainVerificationResult::valid());
         $this->auditChainRekeyService = $this->createMock(AuditChainRekeyServiceInterface::class);
+        $this->envelopeCodec = $this->createMock(EnvelopeCodecInterface::class);
+        $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $this->eventDispatcher = $this->createMock(EventDispatcherInterface::class);
 
-        $command = new VaultRotateMasterKeyCommand(
-            $this->secretRepository,
-            $this->encryptionService,
-            $this->masterKeyProviderFactory,
-            $this->connectionPool,
-            $this->auditLogService,
-            $this->auditChainRekeyService,
-        );
+        $command = $this->createCommand();
 
         $application = new Application();
         $application->addCommand($command);
@@ -93,16 +106,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function hasCorrectName(): void
     {
-        $command = new VaultRotateMasterKeyCommand(
-            $this->secretRepository,
-            $this->encryptionService,
-            $this->masterKeyProviderFactory,
-            $this->connectionPool,
-            $this->auditLogService,
-            $this->auditChainRekeyService,
-        );
-
-        self::assertSame('vault:rotate-master-key', $command->getName());
+        self::assertSame('vault:rotate-master-key', $this->createCommand()->getName());
     }
 
     #[Test]
@@ -120,7 +124,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('No secrets found', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::OUTPUT_NO_SECRETS, $this->commandTester->getDisplay());
     }
 
     #[Test]
@@ -418,15 +422,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->expects(self::never())
             ->method('rekeyChain');
 
-        $command = new VaultRotateMasterKeyCommand(
-            $this->secretRepository,
-            $this->encryptionService,
-            $this->masterKeyProviderFactory,
-            $this->connectionPool,
-            $auditLogService,
-            $this->auditChainRekeyService,
-        );
-        $commandTester = new CommandTester($command);
+        $commandTester = new CommandTester($this->createCommand($auditLogService));
 
         $exitCode = $commandTester->execute([
             '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
@@ -607,7 +603,351 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         ]);
 
         self::assertSame(1, $exitCode);
-        self::assertStringContainsString('Unexpected error', $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::OUTPUT_UNEXPECTED_ERROR, $this->commandTester->getDisplay());
+    }
+
+    // ---------------------------------------------------------------------
+    // Consumer-owned envelope rotation (ADR-033)
+    //
+    // Before this, `seal()`-ing a payload in another extension produced data
+    // that silently became undecryptable at the next master-key rotation:
+    // rotation walked tx_nrvault_secret only, and MasterKeyRotatedEvent was
+    // declared and documented but never dispatched.
+    // ---------------------------------------------------------------------
+
+    #[Test]
+    public function aRegisteredConsumerHasItsEnvelopesRewrappedAndReported(): void
+    {
+        $this->givenOneRotatableSecret();
+        $rotator = $this->createRotator(envelopes: 7);
+        $rotator->expects(self::once())->method('rewrapAll')->with(
+            self::isInstanceOf(EnvelopeRotationContext::class),
+        )->willReturn(7);
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $exitCode = $tester->execute($this->rotationInput());
+
+        self::assertSame(0, $exitCode);
+        $display = $tester->getDisplay();
+        self::assertStringContainsString('nr-test: sealed payloads: 7 envelope(s)', $display);
+        self::assertStringContainsString('re-wrapped 7 envelope(s)', $display);
+        self::assertStringContainsString('Consumer-owned envelopes re-wrapped: 7.', $display);
+    }
+
+    /**
+     * A consumer failure must take the vault's own secrets down with it: half a
+     * rotation leaves data wrapped under a key that will not be kept.
+     */
+    #[Test]
+    public function aConsumerFailureRollsTheWholeRotationBack(): void
+    {
+        $this->givenOneRotatableSecret(expectRollback: true);
+
+        $rotator = $this->createRotator(envelopes: 3);
+        $rotator->method('rewrapAll')->willThrowException(new RuntimeException('consumer exploded'));
+
+        $this->auditChainRekeyService->expects(self::never())->method('rekeyChain');
+        $this->eventDispatcher->expects(self::never())->method('dispatch');
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $exitCode = $tester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString(self::OUTPUT_UNEXPECTED_ERROR, $tester->getDisplay());
+    }
+
+    /**
+     * A vault holding no secrets of its own may still be the key authority for a
+     * consumer's envelopes, so it must not shortcut to "nothing to do".
+     */
+    #[Test]
+    public function rotationProceedsWhenOnlyAConsumerHoldsEnvelopes(): void
+    {
+        $this->secretRepository->method('findIdentifiers')->willReturn([]);
+
+        $lockResult = $this->createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+        $connection = $this->createMock(Connection::class);
+        $connection->expects(self::never())->method('rollBack');
+        $connection->method('executeQuery')->willReturn($lockResult);
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+        $this->auditChainRekeyService->method('rekeyChain')->willReturn(0);
+
+        $rotator = $this->createRotator(envelopes: 4);
+        $rotator->expects(self::once())->method('rewrapAll')->willReturn(4);
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $exitCode = $tester->execute($this->rotationInput());
+
+        self::assertSame(0, $exitCode);
+        $display = $tester->getDisplay();
+        self::assertStringNotContainsString(self::OUTPUT_NO_SECRETS, $display);
+        // With no vault secret to smoke-test against, the operator is told the
+        // old key could not be verified up front rather than being left to guess.
+        self::assertStringContainsString('smoke-tested', $display);
+        self::assertStringContainsString('Consumer-owned envelopes re-wrapped: 4.', $display);
+    }
+
+    #[Test]
+    public function nothingAnywhereStillReportsNothingToDo(): void
+    {
+        $this->secretRepository->method('findIdentifiers')->willReturn([]);
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [
+            $this->createRotator(envelopes: 0),
+        ]));
+        $exitCode = $tester->execute($this->rotationInput());
+
+        self::assertSame(0, $exitCode);
+        self::assertStringContainsString(self::OUTPUT_NO_SECRETS, $tester->getDisplay());
+    }
+
+    #[Test]
+    public function dryRunCountsConsumerEnvelopesWithoutRewrappingThem(): void
+    {
+        $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
+        $this->secretRepository->method('findByIdentifier')->willReturn($this->createTestSecret('test-secret'));
+        $this->encryptionService->method('reEncryptDek')->willReturn(new ReEncryptedDek('dek', 'nonce'));
+
+        $rotator = $this->createRotator(envelopes: 12);
+        $rotator->expects(self::never())->method('rewrapAll');
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $exitCode = $tester->execute([
+            '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
+            '--new-key' => $this->createKeyFile('new', str_repeat('b', 32)),
+            '--dry-run' => true,
+        ]);
+
+        self::assertSame(0, $exitCode);
+        self::assertStringContainsString('Would re-wrap 12 consumer-owned envelope(s).', $tester->getDisplay());
+    }
+
+    /**
+     * "One transaction" is a fiction across two database connections, so the
+     * command refuses rather than risk committing half a rotation. Mirrors the
+     * pre-existing precondition on the audit-log table.
+     */
+    #[Test]
+    public function rotationIsRefusedWhenAConsumerTableIsOnAnotherConnection(): void
+    {
+        $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
+        $this->secretRepository->method('findByIdentifier')->willReturn($this->createTestSecret('test-secret'));
+        $this->encryptionService->method('reEncryptDek')->willReturn(new ReEncryptedDek('dek', 'nonce'));
+
+        $vaultConnection = $this->createMock(Connection::class);
+        $vaultConnection->expects(self::never())->method('beginTransaction');
+        $otherConnection = $this->createMock(Connection::class);
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturnCallback(static fn (string $table): Connection => $table === 'tx_nrtest_payload'
+                ? $otherConnection
+                : $vaultConnection);
+
+        $rotator = $this->createRotator(envelopes: 1);
+        $rotator->expects(self::never())->method('rewrapAll');
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $exitCode = $tester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('tx_nrtest_payload', $tester->getDisplay());
+    }
+
+    /**
+     * Not knowing what a rotation is about to touch is a reason to refuse it.
+     */
+    #[Test]
+    public function rotationIsRefusedWhenAConsumerCannotBeInventoried(): void
+    {
+        $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
+
+        $rotator = $this->createMock(ForeignEnvelopeRotatorInterface::class);
+        $rotator->method('getIdentifier')->willReturn('nr-test: sealed payloads');
+        $rotator->method('countEnvelopes')->willThrowException(new RuntimeException('table missing'));
+        $rotator->expects(self::never())->method('rewrapAll');
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $exitCode = $tester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('inventory', $tester->getDisplay());
+    }
+
+    #[Test]
+    public function theRotatedEventIsDispatchedAfterCommitWithBothCounts(): void
+    {
+        $this->givenOneRotatableSecret();
+        $this->accessControlService->method('getCurrentActorUid')->willReturn(42);
+
+        $rotator = $this->createRotator(envelopes: 5, rewrapped: 5);
+
+        $dispatched = null;
+        $this->eventDispatcher
+            ->expects(self::once())
+            ->method('dispatch')
+            ->willReturnCallback(static function (object $event) use (&$dispatched): object {
+                $dispatched = $event;
+
+                return $event;
+            });
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+
+        self::assertSame(0, $tester->execute($this->rotationInput()));
+        self::assertInstanceOf(MasterKeyRotatedEvent::class, $dispatched);
+        self::assertSame(1, $dispatched->getSecretsReEncrypted());
+        self::assertSame(5, $dispatched->getForeignEnvelopesReEncrypted());
+        self::assertSame(42, $dispatched->getActorUid());
+    }
+
+    #[Test]
+    public function withoutAnyRegisteredRotatorTheOperatorIsToldSo(): void
+    {
+        $this->givenOneRotatableSecret();
+
+        $tester = new CommandTester($this->createCommand());
+
+        self::assertSame(0, $tester->execute($this->rotationInput()));
+        self::assertStringContainsString('No consumer-owned envelope rotators registered', $tester->getDisplay());
+    }
+
+    /**
+     * A rotator that re-wraps FEWER envelopes than it inventoried must not
+     * commit. Committing would print success and then send the operator to
+     * "securely archive or destroy the old master key", which makes the missed
+     * envelopes permanently unreadable — the exact silent loss this seam exists
+     * to prevent.
+     */
+    #[Test]
+    public function aShortfallAgainstTheInventoryRollsTheRotationBack(): void
+    {
+        $this->givenOneRotatableSecret(expectRollback: true);
+
+        $rotator = $this->createRotator(envelopes: 10);
+        $rotator->method('rewrapAll')->willReturn(7);
+
+        $this->auditChainRekeyService->expects(self::never())->method('rekeyChain');
+        $this->eventDispatcher->expects(self::never())->method('dispatch');
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $exitCode = $tester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('inventoried 10', $tester->getDisplay());
+    }
+
+    #[Test]
+    public function moreEnvelopesThanInventoriedIsNotTreatedAsAFailure(): void
+    {
+        // Rows added between the inventory and the transaction are benign.
+        $this->givenOneRotatableSecret();
+
+        $rotator = $this->createRotator(envelopes: 3);
+        $rotator->method('rewrapAll')->willReturn(5);
+
+        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+
+        self::assertSame(0, $tester->execute($this->rotationInput()));
+    }
+
+    /**
+     * The rotation has already committed when the event fires, so a listener that
+     * throws must not be able to swallow the operator instructions — without them
+     * the installation sits with every secret wrapped under a key the
+     * configuration does not yet reference.
+     */
+    #[Test]
+    public function aThrowingListenerCannotSuppressThePostRotationInstructions(): void
+    {
+        $this->givenOneRotatableSecret();
+        $this->eventDispatcher
+            ->method('dispatch')
+            ->willThrowException(new RuntimeException('listener exploded'));
+
+        $tester = new CommandTester($this->createCommand());
+
+        try {
+            $tester->execute($this->rotationInput());
+        } catch (RuntimeException) {
+            // The listener failure is deliberately NOT swallowed.
+        }
+
+        $display = $tester->getDisplay();
+        self::assertStringContainsString('Successfully rotated', $display);
+        self::assertStringContainsString('Update your configuration', $display);
+    }
+
+    /**
+     * @param iterable<ForeignEnvelopeRotatorInterface> $foreignRotators
+     */
+    private function createCommand(
+        ?AuditLogServiceInterface $auditLogService = null,
+        iterable $foreignRotators = [],
+    ): VaultRotateMasterKeyCommand {
+        return new VaultRotateMasterKeyCommand(
+            $this->secretRepository,
+            $this->encryptionService,
+            $this->masterKeyProviderFactory,
+            $this->connectionPool,
+            $auditLogService ?? $this->auditLogService,
+            $this->auditChainRekeyService,
+            $this->envelopeCodec,
+            $this->accessControlService,
+            $this->eventDispatcher,
+            $foreignRotators,
+        );
+    }
+
+    /**
+     * Mock setup for a vault holding exactly one re-encryptable secret on a
+     * single connection, mirroring {@see successfulRotationWithConfirm()}.
+     */
+    private function givenOneRotatableSecret(bool $expectRollback = false): void
+    {
+        $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
+        $this->secretRepository->method('findByIdentifier')->willReturn($this->createTestSecret('test-secret'));
+        $this->encryptionService->method('reEncryptDek')->willReturn(new ReEncryptedDek('new-dek', 'new-nonce'));
+
+        $lockResult = $this->createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
+        $connection = $this->createMock(Connection::class);
+        $connection->method('executeQuery')->willReturn($lockResult);
+        if ($expectRollback) {
+            $connection->expects(self::atLeastOnce())->method('rollBack');
+        } else {
+            $connection->expects(self::never())->method('rollBack');
+        }
+
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+        $this->auditChainRekeyService->method('rekeyChain')->willReturn(1);
+    }
+
+    private function createRotator(int $envelopes, ?int $rewrapped = null): ForeignEnvelopeRotatorInterface&MockObject
+    {
+        $rotator = $this->createMock(ForeignEnvelopeRotatorInterface::class);
+        $rotator->method('getIdentifier')->willReturn('nr-test: sealed payloads');
+        $rotator->method('getTables')->willReturn(['tx_nrtest_payload']);
+        $rotator->method('countEnvelopes')->willReturn($envelopes);
+        if ($rewrapped !== null) {
+            $rotator->method('rewrapAll')->willReturn($rewrapped);
+        }
+
+        return $rotator;
+    }
+
+    /**
+     * @return array<string, string|bool>
+     */
+    private function rotationInput(): array
+    {
+        return [
+            '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
+            '--new-key' => $this->createKeyFile('new', str_repeat('b', 32)),
+            '--confirm' => true,
+        ];
     }
 
     private function createKeyFile(string $name, string $content): string

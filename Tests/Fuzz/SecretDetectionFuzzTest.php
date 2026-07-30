@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Fuzz;
 
+use Netresearch\NrVault\Secret\SecretRedactor;
 use Netresearch\NrVault\Service\Detection\ConfigSecretFinding;
 use Netresearch\NrVault\Service\Detection\Severity;
 use Netresearch\NrVault\Service\SecretDetectionService;
@@ -67,6 +68,7 @@ final class SecretDetectionFuzzTest extends TestCase
             $this->packageManager,
             $this->extensionConfiguration,
             new NullLogger(),
+            new SecretRedactor(),
         );
     }
 

@@ -14,6 +14,8 @@ use Doctrine\DBAL\Types\BlobType;
 use Doctrine\DBAL\Types\StringType;
 use Doctrine\DBAL\Types\TextType;
 use Exception;
+use Netresearch\NrVault\Secret\SecretIdentifierKind;
+use Netresearch\NrVault\Secret\SecretRedactorInterface;
 use Netresearch\NrVault\Service\Detection\ConfigSecretFinding;
 use Netresearch\NrVault\Service\Detection\DatabaseSecretFinding;
 use Netresearch\NrVault\Service\Detection\SecretFinding;
@@ -45,73 +47,6 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
         'fe_users.password',    // Contains password hashes (bcrypt/argon2)
     ];
 
-    /**
-     * Column name patterns that typically contain secrets.
-     *
-     * @var array<string>
-     */
-    private const COLUMN_NAME_PATTERNS = [
-        '/password$/i',
-        '/^password/i',
-        '/api[_-]?key$/i',
-        '/api[_-]?secret$/i',
-        '/secret[_-]?key$/i',
-        '/secret$/i',
-        '/token$/i',
-        '/access[_-]?token$/i',
-        '/refresh[_-]?token$/i',
-        '/auth[_-]?token$/i',
-        '/credential/i',
-        '/private[_-]?key$/i',
-        '/encryption[_-]?key$/i',
-        '/smtp[_-]?password$/i',
-        '/db[_-]?password$/i',
-        '/database[_-]?password$/i',
-    ];
-
-    /**
-     * Value patterns that indicate known API key formats.
-     *
-     * @var array<string, string>
-     */
-    private const VALUE_PATTERNS = [
-        'Stripe live key' => '/^sk_live_[a-zA-Z0-9]{24,}$/',
-        'Stripe test key' => '/^sk_test_[a-zA-Z0-9]{24,}$/',
-        'Stripe publishable live' => '/^pk_live_[a-zA-Z0-9]{24,}$/',
-        'Stripe publishable test' => '/^pk_test_[a-zA-Z0-9]{24,}$/',
-        'AWS Access Key' => '/^AKIA[0-9A-Z]{16}$/',
-        'GitHub Personal Access Token' => '/^ghp_[a-zA-Z0-9]{36}$/',
-        'GitHub OAuth Token' => '/^gho_[a-zA-Z0-9]{36}$/',
-        'GitHub App Token' => '/^ghu_[a-zA-Z0-9]{36}$/',
-        'GitHub Refresh Token' => '/^ghr_[a-zA-Z0-9]{36}$/',
-        'Slack Bot Token' => '/^xoxb-\d{10,13}-\d{10,13}-[a-zA-Z0-9]{24}$/',
-        'Slack User Token' => '/^xoxp-\d{10,13}-\d{10,13}-[a-zA-Z0-9]{24}$/',
-        'Slack App Token' => '/^xapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+$/',
-        'Google API Key' => '/^AIza[0-9A-Za-z_-]{35}$/',
-        'Mailchimp API Key' => '/^[a-f0-9]{32}-us\d{1,2}$/',
-        'SendGrid API Key' => '/^SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}$/',
-        'Twilio Auth Token' => '/^[a-f0-9]{32}$/',
-        'PayPal Client Secret' => '/^E[A-Za-z0-9_-]{50,80}$/',
-        'JWT Token' => '/^eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/',
-    ];
-
-    /**
-     * Patterns for extension configuration keys that typically contain secrets.
-     * Uses regex with word boundaries to avoid false positives like "secretPrefix".
-     *
-     * @var array<string>
-     */
-    private const EXT_CONFIG_KEY_PATTERNS = [
-        '/password$/i',           // ends with "password" (smtpPassword, dbPassword)
-        '/^password$/i',          // exactly "password"
-        '/secret$/i',             // ends with "secret" (apiSecret, clientSecret) - NOT "secretPrefix"
-        '/token$/i',              // ends with "token" (accessToken, authToken)
-        '/apiKey$/i',             // ends with "apiKey"
-        '/privateKey$/i',         // ends with "privateKey"
-        '/encryptionKey$/i',      // ends with "encryptionKey"
-        '/credential/i',          // contains "credential"
-    ];
-
     /** @var array<string, SecretFinding> */
     private array $detectedSecrets = [];
 
@@ -120,6 +55,11 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
         private readonly PackageManager $packageManager,
         private readonly ExtensionConfiguration $extensionConfiguration,
         private readonly LoggerInterface $logger,
+        // The column-name, config-key and known-API-key-format patterns this
+        // scanner used to carry as private constants now live in the shared
+        // catalogue (ADR-031), so the scanner and every redactor recognise the
+        // same shapes.
+        private readonly SecretRedactorInterface $secretRedactor,
     ) {}
 
     /**
@@ -459,13 +399,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
      */
     private function isSecretColumn(string $columnName): bool
     {
-        foreach (self::COLUMN_NAME_PATTERNS as $pattern) {
-            if (preg_match($pattern, $columnName) === 1) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->secretRedactor->isSecretIdentifier($columnName, SecretIdentifierKind::DatabaseColumn);
     }
 
     /**
@@ -474,13 +408,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
      */
     private function isSecretConfigKey(string $key): bool
     {
-        foreach (self::EXT_CONFIG_KEY_PATTERNS as $pattern) {
-            if (preg_match($pattern, $key) === 1) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->secretRedactor->isSecretIdentifier($key, SecretIdentifierKind::ConfigurationKey);
     }
 
     /**
@@ -536,14 +464,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
      */
     private function detectValuePattern(string $value): ?string
     {
-        $trimmed = trim($value);
-        foreach (self::VALUE_PATTERNS as $name => $pattern) {
-            if (preg_match($pattern, $trimmed)) {
-                return $name;
-            }
-        }
-
-        return null;
+        return $this->secretRedactor->identifyValue($value);
     }
 
     /**

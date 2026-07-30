@@ -13,6 +13,9 @@ use DateTimeImmutable;
 
 /**
  * Event dispatched after master key rotation completes.
+ *
+ * Dispatched by `vault:rotate-master-key` AFTER the rotation transaction
+ * commits, so a listener never sees a rotation that was rolled back.
  */
 final readonly class MasterKeyRotatedEvent
 {
@@ -20,6 +23,12 @@ final readonly class MasterKeyRotatedEvent
         private int $secretsReEncrypted,
         private int $actorUid,
         private DateTimeImmutable $rotatedAt,
+        /**
+         * Envelopes re-wrapped on behalf of consuming extensions via a
+         * {@see \Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface}
+         * (ADR-033). Defaults to 0 so existing constructor calls keep working.
+         */
+        private int $foreignEnvelopesReEncrypted = 0,
     ) {}
 
     public function getSecretsReEncrypted(): int
@@ -35,5 +44,10 @@ final readonly class MasterKeyRotatedEvent
     public function getRotatedAt(): DateTimeImmutable
     {
         return $this->rotatedAt;
+    }
+
+    public function getForeignEnvelopesReEncrypted(): int
+    {
+        return $this->foreignEnvelopesReEncrypted;
     }
 }

@@ -248,10 +248,23 @@ Key rotation command
 
 The rotation process:
 
-1. Verify old key can decrypt existing secrets
-2. Re-encrypt all DEKs with new master key (transactional)
-3. Dispatch :php:`MasterKeyRotatedEvent`
-4. Update configuration to use new key
+1. Inventory this extension's secrets and every registered consumer's sealed
+   envelopes (:ref:`ADR-033 <adr-033-foreign-envelope-rotation>`)
+2. Verify old key can decrypt existing secrets
+3. Re-encrypt all DEKs with new master key (transactional)
+4. Re-wrap every registered consumer's envelopes, in the same transaction
+5. Re-key the audit chain, then commit
+6. Dispatch :php:`MasterKeyRotatedEvent`
+7. Update configuration to use new key
+
+.. note::
+
+   Steps 1, 4 and 6 landed with
+   :ref:`ADR-033 <adr-033-foreign-envelope-rotation>`. Before that, rotation
+   covered ``tx_nrvault_secret`` only and step 6 was never actually reached —
+   :php:`MasterKeyRotatedEvent` existed and was documented but was not dispatched
+   from anywhere, so consumer-owned envelopes were left wrapped under the retired
+   key.
 
 Consequences
 ============
