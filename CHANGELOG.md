@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-30
+
+### Added
+
+- **Shared secret-shape catalogue** (`Netresearch\\NrVault\\Secret`, ADR-031).
+  The knowledge of what a secret looks like was maintained in four places — this
+  extension's plaintext scanner and three separate redactors in nr-llm — and the
+  copies had drifted apart in both directions. `SecretPatternLibrary` merges
+  them, carrying an anchored form per shape for whole-value classification and an
+  inline form for masking a secret embedded in free text. `SecretRedactor` is the
+  consumer-facing API. Consuming extensions can read the catalogue statically or
+  resolve `SecretRedactorInterface` from the container.
+- **Portable envelope codec** (`EnvelopeCodecInterface`, ADR-032). `seal()` /
+  `open()` / `isSealed()` / `rewrap()` protect a payload a consumer keeps in ONE
+  column, so it no longer has to invent framing around
+  `EncryptionServiceInterface`'s seven-argument, column-per-field shape. The
+  sealed form is `nrv1:` + base64 JSON.
+- **Consumer-owned envelope rotation** (`ForeignEnvelopeRotatorInterface`,
+  ADR-033). A consuming extension tags an implementation
+  `nrvault.foreign_envelope_rotator`; `vault:rotate-master-key` then re-wraps its
+  envelopes inside the same transaction as its own secrets, handing over the keys
+  as an `EnvelopeRotationContext` so the consumer never holds key material.
+
+### Fixed
+
+- **Master-key rotation no longer strands a consumer's envelopes.** Rotation
+  re-wrapped the data keys in `tx_nrvault_secret` only. A consuming extension's
+  wrapped data key lives in its own table, so rotating left those envelopes under
+  a key the operator was told to destroy — silently, because the rotation
+  succeeded at everything it knew about. Any consumer that seals payloads must
+  now register a rotator; the command reports each participant and refuses to run
+  when it cannot inventory one, when a consumer's table sits on a different
+  database connection, or when a rotator re-wraps fewer envelopes than it
+  reported.
+- **`MasterKeyRotatedEvent` is dispatched.** It was declared, documented in
+  `Api.rst`, and listed as step 3 of the rotation procedure in ADR-003, but was
+  never dispatched from anywhere. It now fires after the rotation commits and
+  carries the consumer-envelope count alongside the secret count.
+- **Credential query parameters with a vendor prefix are redacted.** The
+  parameter-name alternation had to match immediately after the `?` or `&`, so
+  `client_secret` — the name RFC 6749 §2.3.1 defines — never matched and passed
+  through untouched. `password` and the hyphenated `api-key` were missing for the
+  same reason.
+- **The URL redaction patterns no longer run past the end of the URL.** Bounded
+  only at `&` and whitespace, a `?token=…` inside a JSON payload swallowed the
+  closing quote and the following key, and a URL carrying a port followed later
+  by an unrelated address was read as one userinfo component — losing the port
+  and the following field, and fabricating a credentialled URL to a host that was
+  never contacted.
+- **The plaintext scanner classifies three more shapes.** OpenAI API keys,
+  `ghs_` tokens and fine-grained GitHub PATs in a scanned column or configuration
+  key are now reported as `Critical` instead of unlabelled.
+- Corrected the documented `decrypt()` and `reEncryptDek()` signatures in
+  `Api.rst`, which had drifted five parameters behind the interface.
+
 ## [0.12.2] - 2026-07-27
 
 ### Fixed
@@ -712,7 +767,9 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.2...v0.13.0
+[0.12.2]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.11.4...v0.12.0
 [0.11.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.10.2...v0.11.0
