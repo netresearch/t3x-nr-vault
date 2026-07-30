@@ -76,14 +76,14 @@ final readonly class VaultFailureReporter
         $logContext = ['reference' => $reference];
 
         foreach ($context as $key => $value) {
-            $logContext[$key] = \is_string($value) ? self::sanitiseForLog($value) : $value;
+            $logContext[$key] = \is_string($value) ? $this->sanitiseForLog($value) : $value;
         }
 
         // Deliberately NOT the 'exception' key: TYPO3's FileWriter folds a
         // Throwable stored there into the unescaped message. Class name and
         // sanitised text only.
         $logContext['exceptionClass'] = $error::class;
-        $logContext['error'] = self::sanitiseForLog($error->getMessage());
+        $logContext['error'] = $this->sanitiseForLog($error->getMessage());
 
         $this->logger->error(self::LOG_MESSAGE, $logContext);
 
@@ -95,7 +95,7 @@ final readonly class VaultFailureReporter
      * length (so repeated failures cannot inflate the log), then force valid
      * UTF-8 so the record survives `json_encode()`.
      */
-    private static function sanitiseForLog(string $value): string
+    private function sanitiseForLog(string $value): string
     {
         // Byte-wise class, deliberately without the /u modifier: it matches C0
         // plus DEL, leaves UTF-8 continuation bytes alone, and cannot fail (and
@@ -114,7 +114,6 @@ final readonly class VaultFailureReporter
 
     private function getMessageTemplate(): string
     {
-        /** @var mixed $languageService */
         $languageService = $GLOBALS['LANG'] ?? null;
 
         if (!$languageService instanceof LanguageService) {
