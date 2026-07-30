@@ -19,12 +19,6 @@ parameters:
 			path: ../Classes/Command/VaultAuditCommand.php
 
 		-
-			rawMessage: 'Only booleans are allowed in an if condition, mixed given.'
-			identifier: if.condNotBoolean
-			count: 1
-			path: ../Classes/Command/VaultCleanupOrphansCommand.php
-
-		-
 			rawMessage: 'Only booleans are allowed in a negated boolean, mixed given.'
 			identifier: booleanNot.exprNotBoolean
 			count: 1
@@ -236,12 +230,6 @@ parameters:
 			path: ../Classes/Form/Element/VaultSecretElement.php
 
 		-
-			rawMessage: Short ternary operator is not allowed. Use null coalesce operator if applicable or consider using long ternary.
-			identifier: ternary.shortNotAllowed
-			count: 1
-			path: ../Classes/Form/Element/VaultSecretElement.php
-
-		-
 			rawMessage: 'Only booleans are allowed in an if condition, mixed given.'
 			identifier: if.condNotBoolean
 			count: 1
@@ -250,7 +238,7 @@ parameters:
 		-
 			rawMessage: Short ternary operator is not allowed. Use null coalesce operator if applicable or consider using long ternary.
 			identifier: ternary.shortNotAllowed
-			count: 11
+			count: 9
 			path: ../Classes/Form/Element/VaultSecretInputElement.php
 
 		-
@@ -276,12 +264,6 @@ parameters:
 			identifier: ternary.shortNotAllowed
 			count: 3
 			path: ../Classes/Http/SecureHttpClientFactory.php
-
-		-
-			rawMessage: Short ternary operator is not allowed. Use null coalesce operator if applicable or consider using long ternary.
-			identifier: ternary.shortNotAllowed
-			count: 1
-			path: ../Classes/Http/VaultHttpClient.php
 
 		-
 			rawMessage: '''
@@ -322,7 +304,7 @@ parameters:
 		-
 			rawMessage: 'Only booleans are allowed in an if condition, int|false given.'
 			identifier: if.condNotBoolean
-			count: 3
+			count: 2
 			path: ../Classes/Service/SecretDetectionService.php
 
 		-
@@ -384,3 +366,2268 @@ parameters:
 			identifier: method.deprecated
 			count: 12
 			path: ../Tests/Architecture/ArchitectureTest.php
+
+		-
+			rawMessage: Cannot access offset 'EXTENSIONS' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: ../Tests/Functional/AbstractVaultFunctionalTestCase.php
+
+		-
+			rawMessage: PHPDoc type list<string> of property Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase::$coreExtensionsToLoad is not the same as PHPDoc type array<non-empty-string> of overridden property TYPO3\TestingFramework\Core\Functional\FunctionalTestCase::$coreExtensionsToLoad.
+			identifier: property.phpDocType
+			count: 1
+			path: ../Tests/Functional/AbstractVaultFunctionalTestCase.php
+
+		-
+			rawMessage: PHPDoc type list<string> of property Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase::$testExtensionsToLoad is not the same as PHPDoc type array<non-empty-string> of overridden property TYPO3\TestingFramework\Core\Functional\FunctionalTestCase::$testExtensionsToLoad.
+			identifier: property.phpDocType
+			count: 1
+			path: ../Tests/Functional/AbstractVaultFunctionalTestCase.php
+
+		-
+			rawMessage: Cannot cast mixed to string.
+			identifier: cast.string
+			count: 1
+			path: ../Tests/Functional/Audit/AuditChainRekeyServiceTest.php
+
+		-
+			rawMessage: Cannot cast mixed to string.
+			identifier: cast.string
+			count: 2
+			path: ../Tests/Functional/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Call to method __construct() of internal class TYPO3\CMS\Core\Http\ServerRequest from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 1
+			path: ../Tests/Functional/Audit/AuditRequestHeaderWidthTest.php
+
+		-
+			rawMessage: 'Call to method withHeader() of internal class TYPO3\CMS\Core\Http\Message from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 2
+			path: ../Tests/Functional/Audit/AuditRequestHeaderWidthTest.php
+
+		-
+			rawMessage: Instantiation of internal class TYPO3\CMS\Core\Http\ServerRequest.
+			identifier: new.internalClass
+			count: 1
+			path: ../Tests/Functional/Audit/AuditRequestHeaderWidthTest.php
+
+		-
+			rawMessage: Cannot access offset 'EXTENSIONS' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Command/VaultSeedDemoCommandTest.php
+
+		-
+			rawMessage: Cannot access offset 'autoKeyPath' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Command/VaultSeedDemoCommandTest.php
+
+		-
+			rawMessage: 'Cannot access offset ''crdate'' on array<string, mixed>|false.'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Command/VaultSeedDemoCommandTest.php
+
+		-
+			rawMessage: Cannot access offset 'masterKeySource' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Command/VaultSeedDemoCommandTest.php
+
+		-
+			rawMessage: Cannot access offset 'nr_vault' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Command/VaultSeedDemoCommandTest.php
+
+		-
+			rawMessage: 'Cannot access offset ''read_count'' on array<string, mixed>|false.'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Command/VaultSeedDemoCommandTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 1
+			path: ../Tests/Functional/Configuration/ExtensionConfigurationTest.php
+
+		-
+			rawMessage: 'Parameter #1 $prefix of static method PHPUnit\Framework\Assert::assertStringStartsWith() expects non-empty-string, string given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Functional/Configuration/ExtensionConfigurationTest.php
+
+		-
+			rawMessage: 'Call to method __construct() of internal class TYPO3\CMS\Core\Http\ServerRequest from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 2
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: 'Call to method __construct() of internal class TYPO3\CMS\Core\Http\Stream from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 1
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: 'Call to method rewind() of internal class TYPO3\CMS\Core\Http\Stream from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 1
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: 'Call to method withBody() of internal class TYPO3\CMS\Core\Http\Message from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 1
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: 'Call to method withHeader() of internal class TYPO3\CMS\Core\Http\Message from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 1
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: 'Call to method write() of internal class TYPO3\CMS\Core\Http\Stream from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 1
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: Cannot access offset 'error' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 4
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: Cannot access offset 'message' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: Cannot access offset 'secret' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: Cannot access offset 'success' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 7
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: Cannot access offset 'version' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: 'Return type of method Netresearch\NrVault\Tests\Functional\Controller\AjaxControllerTest::createJsonPostRequest() has typehint with internal class TYPO3\CMS\Core\Http\ServerRequest.'
+			identifier: return.internalClass
+			count: 1
+			path: ../Tests/Functional/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: '''
+				Call to deprecated method setPrimaryKey() of class Doctrine\DBAL\Schema\Table:
+				Use {@see addPrimaryKeyConstraint()} instead.
+			'''
+			identifier: method.deprecated
+			count: 1
+			path: ../Tests/Functional/Controller/MigrationControllerTest.php
+
+		-
+			rawMessage: Cannot access offset 'EXTENSIONS' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 4
+			path: ../Tests/Functional/Crypto/EncryptionServiceTest.php
+
+		-
+			rawMessage: Cannot access offset 'encryptionAlgorithm' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: ../Tests/Functional/Crypto/EncryptionServiceTest.php
+
+		-
+			rawMessage: Cannot access offset 'nr_vault' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 4
+			path: ../Tests/Functional/Crypto/EncryptionServiceTest.php
+
+		-
+			rawMessage: Cannot access offset 'preferXChaCha20' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: ../Tests/Functional/Crypto/EncryptionServiceTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with arguments ''Netresearch\\NrVault\\Exception\\EncryptionException'', Netresearch\NrVault\Exception\EncryptionException and ''Expected…'' will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Functional/Crypto/MasterKeyRotationTest.php
+
+		-
+			rawMessage: Cannot access offset 'EXTENSIONS' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Crypto/MasterKeyRotationTest.php
+
+		-
+			rawMessage: Cannot access offset 'autoKeyPath' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Crypto/MasterKeyRotationTest.php
+
+		-
+			rawMessage: Cannot access offset 'masterKeySource' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Crypto/MasterKeyRotationTest.php
+
+		-
+			rawMessage: Cannot access offset 'nr_vault' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Crypto/MasterKeyRotationTest.php
+
+		-
+			rawMessage: Foreach overwrites $identifier with its key variable.
+			identifier: foreach.keyOverwrite
+			count: 1
+			path: ../Tests/Functional/Crypto/MasterKeyRotationTest.php
+
+		-
+			rawMessage: Foreach overwrites $identifier with its value variable.
+			identifier: foreach.valueOverwrite
+			count: 1
+			path: ../Tests/Functional/Crypto/MasterKeyRotationTest.php
+
+		-
+			rawMessage: 'Parameter #1 $path of method Netresearch\NrVault\Tests\Functional\Crypto\MasterKeyRotationTest::readKeyFromFile() expects string, string|null given.'
+			identifier: argument.type
+			count: 5
+			path: ../Tests/Functional/Crypto/MasterKeyRotationTest.php
+
+		-
+			rawMessage: 'Parameter #2 $to of function copy expects string, string|null given.'
+			identifier: argument.type
+			count: 2
+			path: ../Tests/Functional/Crypto/MasterKeyRotationTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 1
+			path: ../Tests/Functional/EventListener/TypoScriptVaultListenerTest.php
+
+		-
+			rawMessage: Access to internal property TYPO3\CMS\Core\DataHandling\DataHandler::$errorLog from outside its root namespace TYPO3.
+			identifier: property.internal
+			count: 1
+			path: ../Tests/Functional/Hook/DataHandlerHookTest.php
+
+		-
+			rawMessage: 'Call to internal method TYPO3\CMS\Core\Schema\TcaSchemaFactory::rebuild() from outside its root namespace TYPO3.'
+			identifier: method.internal
+			count: 1
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'apiKey' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 3
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'columns' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'config' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'data' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 3
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'ds' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'ds_pointerField' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'lDEF' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 3
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'pi_flexform' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'sDEF' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 3
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'tt_content' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'vDEF' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 3
+			path: ../Tests/Functional/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: Access to internal property TYPO3\CMS\Core\DataHandling\DataHandler::$errorLog from outside its root namespace TYPO3.
+			identifier: property.internal
+			count: 5
+			path: ../Tests/Functional/Hook/SecretTcaHookTest.php
+
+		-
+			rawMessage: Possibly invalid array key type mixed.
+			identifier: array.invalidKey
+			count: 3
+			path: ../Tests/Functional/Hook/SecretTcaHookTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 5
+			path: ../Tests/Functional/Hook/SecretTcaHookTest.php
+
+		-
+			rawMessage: Cannot access offset 'tx_nrvault_test' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: ../Tests/Functional/Hook/TcaIntegrationTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Domain\\Dto\\SecretDetails'' and Netresearch\NrVault\Domain\Dto\SecretDetails will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 2
+			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Http\\VaultHttpClientInterface'' and Netresearch\NrVault\Http\VaultHttpClientInterface will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 2
+			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
+
+		-
+			rawMessage: Cannot access offset 'EXTENSIONS' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
+
+		-
+			rawMessage: Cannot access offset 'grant_type' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
+
+		-
+			rawMessage: Cannot access offset 'nr_vault' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
+
+		-
+			rawMessage: Error suppression via "@" should not be used.
+			identifier: ergebnis.noErrorSuppression
+			count: 1
+			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
+
+		-
+			rawMessage: 'Method Psr\Http\Client\ClientInterface@anonymous/Tests/Functional/Http/OAuth/OAuthIntegrationTest.php:368::__construct() has parameter $capturedRequests with no value type specified in iterable type array.'
+			identifier: missingType.iterableValue
+			count: 1
+			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
+
+		-
+			rawMessage: 'Missing call to parent::tearDown() method.'
+			identifier: phpunit.callParent
+			count: 1
+			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
+
+		-
+			rawMessage: 'Property Psr\Http\Client\ClientInterface@anonymous/Tests/Functional/Http/OAuth/OAuthIntegrationTest.php:368::$capturedRequests (list<array{grant_type: string, body: string}>) does not accept array.'
+			identifier: assign.propertyType
+			count: 1
+			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
+
+		-
+			rawMessage: Short ternary operator is not allowed. Use null coalesce operator if applicable or consider using long ternary.
+			identifier: ternary.shortNotAllowed
+			count: 1
+			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 9
+			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
+
+		-
+			rawMessage: Cannot access offset 'EXTENSIONS' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Seeder/AuditChainSeederTest.php
+
+		-
+			rawMessage: Cannot access offset 'autoKeyPath' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Seeder/AuditChainSeederTest.php
+
+		-
+			rawMessage: Cannot access offset 'masterKeySource' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Seeder/AuditChainSeederTest.php
+
+		-
+			rawMessage: Cannot access offset 'nr_vault' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Seeder/AuditChainSeederTest.php
+
+		-
+			rawMessage: PHPDoc type list<string> of property Netresearch\NrVault\Tests\Functional\Service\VaultFieldPermissionServiceTest::$coreExtensionsToLoad is not the same as PHPDoc type array<non-empty-string> of overridden property TYPO3\TestingFramework\Core\Functional\FunctionalTestCase::$coreExtensionsToLoad.
+			identifier: property.phpDocType
+			count: 1
+			path: ../Tests/Functional/Service/VaultFieldPermissionServiceTest.php
+
+		-
+			rawMessage: PHPDoc type list<string> of property Netresearch\NrVault\Tests\Functional\Service\VaultFieldPermissionServiceTest::$testExtensionsToLoad is not the same as PHPDoc type array<non-empty-string> of overridden property TYPO3\TestingFramework\Core\Functional\FunctionalTestCase::$testExtensionsToLoad.
+			identifier: property.phpDocType
+			count: 1
+			path: ../Tests/Functional/Service/VaultFieldPermissionServiceTest.php
+
+		-
+			rawMessage: Access to undefined constant Netresearch\NrVault\Tests\Functional\Service\VaultServiceAtomicityTest::FAIL_EXPECTED_AUDIT_EXCEPTION.
+			identifier: classConstant.notFound
+			count: 4
+			path: ../Tests/Functional/Service/VaultServiceAtomicityTest.php
+
+		-
+			rawMessage: Dead catch - Netresearch\NrVault\Exception\AuditWriteException is never thrown in the try block.
+			identifier: catch.neverThrown
+			count: 4
+			path: ../Tests/Functional/Service/VaultServiceAtomicityTest.php
+
+		-
+			rawMessage: Unreachable statement - code above always terminates.
+			identifier: deadCode.unreachable
+			count: 4
+			path: ../Tests/Functional/Service/VaultServiceAtomicityTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertNotNull() with Netresearch\NrVault\Http\VaultHttpClientInterface will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Functional/Service/VaultServiceTest.php
+
+		-
+			rawMessage: Cannot access offset 'EXTENSIONS' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: ../Tests/Functional/Service/VaultServiceTest.php
+
+		-
+			rawMessage: Cannot access offset 'nr_vault' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Functional/Service/VaultServiceTest.php
+
+		-
+			rawMessage: 'Missing call to parent::tearDown() method.'
+			identifier: phpunit.callParent
+			count: 1
+			path: ../Tests/Functional/Service/VaultServiceTest.php
+
+		-
+			rawMessage: PHPDoc type list<string> of property Netresearch\NrVault\Tests\Functional\Service\VaultServiceTest::$coreExtensionsToLoad is not the same as PHPDoc type array<non-empty-string> of overridden property TYPO3\TestingFramework\Core\Functional\FunctionalTestCase::$coreExtensionsToLoad.
+			identifier: property.phpDocType
+			count: 1
+			path: ../Tests/Functional/Service/VaultServiceTest.php
+
+		-
+			rawMessage: PHPDoc type list<string> of property Netresearch\NrVault\Tests\Functional\Service\VaultServiceTest::$testExtensionsToLoad is not the same as PHPDoc type array<non-empty-string> of overridden property TYPO3\TestingFramework\Core\Functional\FunctionalTestCase::$testExtensionsToLoad.
+			identifier: property.phpDocType
+			count: 1
+			path: ../Tests/Functional/Service/VaultServiceTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 14
+			path: ../Tests/Functional/Service/VaultServiceTest.php
+
+		-
+			rawMessage: Cannot access offset 'EXTENSIONS' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 8
+			path: ../Tests/Functional/Upgrades/AuditHmacMigrationWizardTest.php
+
+		-
+			rawMessage: Cannot access offset 'auditHmacEpoch' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 8
+			path: ../Tests/Functional/Upgrades/AuditHmacMigrationWizardTest.php
+
+		-
+			rawMessage: Cannot access offset 'nr_vault' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 8
+			path: ../Tests/Functional/Upgrades/AuditHmacMigrationWizardTest.php
+
+		-
+			rawMessage: Short ternary operator is not allowed. Use null coalesce operator if applicable or consider using long ternary.
+			identifier: ternary.shortNotAllowed
+			count: 2
+			path: ../Tests/Fuzz/AuditChainFuzzTest.php
+
+		-
+			rawMessage: Anonymous function uses $this assigned to variable $test. Use $this directly in the function body.
+			identifier: closure.useThis
+			count: 1
+			path: ../Tests/Fuzz/AuditFilterFuzzTest.php
+
+		-
+			rawMessage: Cannot access offset 0 on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Fuzz/AuditFilterFuzzTest.php
+
+		-
+			rawMessage: Cannot cast mixed to int.
+			identifier: cast.int
+			count: 1
+			path: ../Tests/Fuzz/AuditFilterFuzzTest.php
+
+		-
+			rawMessage: Cannot use array destructuring on mixed.
+			identifier: offsetAccess.nonArray
+			count: 2
+			path: ../Tests/Fuzz/AuditFilterFuzzTest.php
+
+		-
+			rawMessage: 'Parameter #1 $callback of function array_map expects (callable(mixed): mixed)|null, Closure(array): mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Fuzz/AuditFilterFuzzTest.php
+
+		-
+			rawMessage: 'Parameter #2 $callback of function array_filter expects (callable(mixed): bool)|null, Closure(array): bool given.'
+			identifier: argument.type
+			count: 2
+			path: ../Tests/Fuzz/AuditFilterFuzzTest.php
+
+		-
+			rawMessage: Property Netresearch\NrVault\Tests\Fuzz\AuditFilterFuzzTest::$recordedParams type has no value type specified in iterable type array.
+			identifier: missingType.iterableValue
+			count: 1
+			path: ../Tests/Fuzz/AuditFilterFuzzTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertTrue() with true will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Fuzz/CryptoFuzzTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 3
+			path: ../Tests/Fuzz/CryptoFuzzTest.php
+
+		-
+			rawMessage: 'Match expression does not handle remaining value: string'
+			identifier: match.unhandled
+			count: 1
+			path: ../Tests/Fuzz/CryptoFuzzTest.php
+
+		-
+			rawMessage: Short ternary operator is not allowed. Use null coalesce operator if applicable or consider using long ternary.
+			identifier: ternary.shortNotAllowed
+			count: 1
+			path: ../Tests/Fuzz/CryptoFuzzTest.php
+
+		-
+			rawMessage: Cannot access offset 'c' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Fuzz/FlexFormXmlFuzzTest.php
+
+		-
+			rawMessage: Cannot access offset 'd' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: ../Tests/Fuzz/FlexFormXmlFuzzTest.php
+
+		-
+			rawMessage: Cannot access offset 'e' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Fuzz/FlexFormXmlFuzzTest.php
+
+		-
+			rawMessage: Cannot access offset 'f' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Fuzz/FlexFormXmlFuzzTest.php
+
+		-
+			rawMessage: Cannot cast mixed to int.
+			identifier: cast.int
+			count: 1
+			path: ../Tests/Fuzz/FlexFormXmlFuzzTest.php
+
+		-
+			rawMessage: 'Offset 0 on array{list<string>} on left side of ?? always exists and is not nullable.'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: ../Tests/Fuzz/FlexFormXmlFuzzTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertTrue() with true and non-falsy-string will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 2
+			path: ../Tests/Fuzz/HttpClientFuzzTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertTrue() with true will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Fuzz/HttpClientFuzzTest.php
+
+		-
+			rawMessage: Cannot access offset 'HTTP' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Fuzz/HttpClientFuzzTest.php
+
+		-
+			rawMessage: Cannot access offset 'allowed_hosts' on mixed.
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: ../Tests/Fuzz/HttpClientFuzzTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 3
+			path: ../Tests/Fuzz/HttpClientFuzzTest.php
+
+		-
+			rawMessage: 'Property Netresearch\NrVault\Tests\Fuzz\HttpClientFuzzTest::$auditLogService (Netresearch\NrVault\Audit\AuditLogServiceInterface&PHPUnit\Framework\MockObject\MockObject) does not accept Netresearch\NrVault\Audit\AuditLogServiceInterface&PHPUnit\Framework\MockObject\Stub.'
+			identifier: assign.propertyType
+			count: 1
+			path: ../Tests/Fuzz/HttpClientFuzzTest.php
+
+		-
+			rawMessage: Short ternary operator is not allowed. Use null coalesce operator if applicable or consider using long ternary.
+			identifier: ternary.shortNotAllowed
+			count: 1
+			path: ../Tests/Fuzz/HttpClientFuzzTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertTrue() with true and ''All non-32-byte…'' will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Fuzz/MasterKeyFuzzTest.php
+
+		-
+			rawMessage: Cannot cast mixed to int.
+			identifier: cast.int
+			count: 2
+			path: ../Tests/Fuzz/MasterKeyFuzzTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 1
+			path: ../Tests/Fuzz/MasterKeyFuzzTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 3
+			path: ../Tests/Fuzz/NonceUniquenessFuzzTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Throwable'' and Throwable will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Fuzz/OAuthFuzzTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with arguments ''Netresearch\\NrVault\\Exception\\VaultException'', Netresearch\NrVault\Exception\OAuthException and ''OAuthException must…'' will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Fuzz/OAuthFuzzTest.php
+
+		-
+			rawMessage: Cannot cast mixed to int.
+			identifier: cast.int
+			count: 1
+			path: ../Tests/Fuzz/OAuthFuzzTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 2
+			path: ../Tests/Fuzz/OAuthFuzzTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Fuzz\OAuthFuzzTest::errorStatusCodeProvider() should return array<string, array{int}> but returns array{400: array{400}, 401: array{401}, 403: array{403}, 404: array{404}, 500: array{500}, 502: array{502}, 503: array{503}, 504: array{504}, ...}.'
+			identifier: return.type
+			count: 1
+			path: ../Tests/Fuzz/OAuthFuzzTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertTrue() with true will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Fuzz/SecretDetectionFuzzTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 3
+			path: ../Tests/Fuzz/SecretDetectionFuzzTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Fuzz\SecretDetectionFuzzTest::scanLocalConfigurationNeverThrows() has parameter $confVars with no value type specified in iterable type array.'
+			identifier: missingType.iterableValue
+			count: 1
+			path: ../Tests/Fuzz/SecretDetectionFuzzTest.php
+
+		-
+			rawMessage: Short ternary operator is not allowed. Use null coalesce operator if applicable or consider using long ternary.
+			identifier: ternary.shortNotAllowed
+			count: 1
+			path: ../Tests/Fuzz/SecretDetectionFuzzTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 1
+			path: ../Tests/Unit/Adapter/LocalEncryptionAdapterTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Adapter\\VaultAdapterInterface'' and Netresearch\NrVault\Adapter\LocalEncryptionAdapter will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Adapter/LocalEncryptionAdapterTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 1
+			path: ../Tests/Unit/Adapter/LocalEncryptionAdapterTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 7
+			path: ../Tests/Unit/Adapter/LocalEncryptionAdapterTest.php
+
+		-
+			rawMessage: 'Offset ''expiresAt'' might not exist on array<string, mixed>|null.'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: ../Tests/Unit/Adapter/LocalEncryptionAdapterTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 1
+			path: ../Tests/Unit/Adapter/LocalEncryptionAdapterTest.php
+
+		-
+			rawMessage: 'Parameter #2 $haystack of static method PHPUnit\Framework\Assert::assertStringContainsString() expects string, array<string, mixed>|bool|float|int|string|null given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Audit/AuditLogEntryTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 16
+			path: ../Tests/Unit/Audit/AuditLogEntryTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 14
+			path: ../Tests/Unit/Audit/AuditLogFilterTest.php
+
+		-
+			rawMessage: Anonymous function should return PHPUnit\Framework\MockObject\MockObject&TYPO3\CMS\Core\Database\Query\QueryBuilder but returns PHPUnit\Framework\MockObject\MockObject|null.
+			identifier: return.type
+			count: 1
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 4
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Audit\\AuditLogEntry'' and Netresearch\NrVault\Audit\AuditLogEntry will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Cannot call method expects() on PHPUnit\Framework\MockObject\MockObject|null.'
+			identifier: method.nonObject
+			count: 44
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Cannot call method method() on PHPUnit\Framework\MockObject\MockObject|null.'
+			identifier: method.nonObject
+			count: 160
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: Cannot cast mixed to string.
+			identifier: cast.string
+			count: 1
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Audit\AuditLogServiceTest::captureInsertPayload() should return array<string, mixed> but returns array<mixed, mixed>.'
+			identifier: return.type
+			count: 1
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Parameter #1 $connectionPool of class Netresearch\NrVault\Audit\AuditLogService constructor expects TYPO3\CMS\Core\Database\ConnectionPool, PHPUnit\Framework\MockObject\MockObject given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Parameter #1 $connectionPool of class Netresearch\NrVault\Audit\AuditLogService constructor expects TYPO3\CMS\Core\Database\ConnectionPool, PHPUnit\Framework\MockObject\MockObject|null given.'
+			identifier: argument.type
+			count: 8
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Parameter #1 $masterKeyProvider of static method Netresearch\NrVault\Audit\AuditLogService::deriveHmacKey() expects Netresearch\NrVault\Crypto\MasterKeyProviderInterface, PHPUnit\Framework\MockObject\MockObject|null given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Parameter #2 $accessControlService of class Netresearch\NrVault\Audit\AuditLogService constructor expects Netresearch\NrVault\Security\AccessControlServiceInterface, PHPUnit\Framework\MockObject\MockObject|null given.'
+			identifier: argument.type
+			count: 6
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Parameter #2 $string of static method PHPUnit\Framework\Assert::assertMatchesRegularExpression() expects string, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Parameter #3 $masterKeyProvider of class Netresearch\NrVault\Audit\AuditLogService constructor expects Netresearch\NrVault\Crypto\MasterKeyProviderInterface, PHPUnit\Framework\MockObject\MockObject given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Parameter #3 $masterKeyProvider of class Netresearch\NrVault\Audit\AuditLogService constructor expects Netresearch\NrVault\Crypto\MasterKeyProviderInterface, PHPUnit\Framework\MockObject\MockObject|null given.'
+			identifier: argument.type
+			count: 8
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Parameter #4 $extensionConfiguration of class Netresearch\NrVault\Audit\AuditLogService constructor expects Netresearch\NrVault\Configuration\ExtensionConfigurationInterface, PHPUnit\Framework\MockObject\MockObject given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Parameter #4 $extensionConfiguration of class Netresearch\NrVault\Audit\AuditLogService constructor expects Netresearch\NrVault\Configuration\ExtensionConfigurationInterface, PHPUnit\Framework\MockObject\MockObject|null given.'
+			identifier: argument.type
+			count: 2
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Audit\\AuditContextInterface'' and Netresearch\NrVault\Audit\GenericContext will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Audit/GenericContextTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Audit\\AuditContextInterface'' and Netresearch\NrVault\Audit\HttpCallContext will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Audit/HttpCallContextTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 12
+			path: ../Tests/Unit/Audit/HttpCallContextTest.php
+
+		-
+			rawMessage: Cannot access property $action on mixed.
+			identifier: property.nonObject
+			count: 2
+			path: ../Tests/Unit/Command/VaultAuditCommandTest.php
+
+		-
+			rawMessage: Cannot access property $actorUid on mixed.
+			identifier: property.nonObject
+			count: 2
+			path: ../Tests/Unit/Command/VaultAuditCommandTest.php
+
+		-
+			rawMessage: Cannot access property $secretIdentifier on mixed.
+			identifier: property.nonObject
+			count: 2
+			path: ../Tests/Unit/Command/VaultAuditCommandTest.php
+
+		-
+			rawMessage: Cannot access property $since on mixed.
+			identifier: property.nonObject
+			count: 1
+			path: ../Tests/Unit/Command/VaultAuditCommandTest.php
+
+		-
+			rawMessage: Cannot access property $success on mixed.
+			identifier: property.nonObject
+			count: 1
+			path: ../Tests/Unit/Command/VaultAuditCommandTest.php
+
+		-
+			rawMessage: Cannot access property $until on mixed.
+			identifier: property.nonObject
+			count: 1
+			path: ../Tests/Unit/Command/VaultAuditCommandTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\Assert::callback().'
+			identifier: staticMethod.dynamicCall
+			count: 7
+			path: ../Tests/Unit/Command/VaultAuditCommandTest.php
+
+		-
+			rawMessage: 'Parameter #1 $actual of static method PHPUnit\Framework\Assert::assertJson() expects string, string|false given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Command/VaultAuditCommandTest.php
+
+		-
+			rawMessage: 'Parameter #2 $haystack of static method PHPUnit\Framework\Assert::assertCount() expects Countable|iterable, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Command/VaultAuditCommandTest.php
+
+		-
+			rawMessage: 'Parameter #2 $haystack of static method PHPUnit\Framework\Assert::assertStringContainsString() expects string, string|false given.'
+			identifier: argument.type
+			count: 2
+			path: ../Tests/Unit/Command/VaultAuditCommandTest.php
+
+		-
+			rawMessage: 'Call to an undefined method TYPO3\CMS\Core\Database\ConnectionPool::method().'
+			identifier: method.notFound
+			count: 1
+			path: ../Tests/Unit/Command/VaultAuditMigrateCommandTest.php
+
+		-
+			rawMessage: 'Call to an undefined method TYPO3\CMS\Core\Database\Query\QueryBuilder::method().'
+			identifier: method.notFound
+			count: 24
+			path: ../Tests/Unit/Command/VaultAuditMigrateCommandTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 7
+			path: ../Tests/Unit/Command/VaultAuditMigrateCommandTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturnOnConsecutiveCalls() on mixed.'
+			identifier: method.nonObject
+			count: 2
+			path: ../Tests/Unit/Command/VaultAuditMigrateCommandTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturnSelf() on mixed.'
+			identifier: method.nonObject
+			count: 16
+			path: ../Tests/Unit/Command/VaultAuditMigrateCommandTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 15
+			path: ../Tests/Unit/Command/VaultAuditMigrateCommandTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 2
+			path: ../Tests/Unit/Command/VaultDeleteCommandTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 1
+			path: ../Tests/Unit/Command/VaultDeleteCommandTest.php
+
+		-
+			rawMessage: 'Cannot call method willThrowException() on mixed.'
+			identifier: method.nonObject
+			count: 1
+			path: ../Tests/Unit/Command/VaultDeleteCommandTest.php
+
+		-
+			rawMessage: 'Parameter #1 $string of function strlen expects string, string|false given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Command/VaultInitCommandTest.php
+
+		-
+			rawMessage: 'Parameter #2 $haystack of static method PHPUnit\Framework\Assert::assertCount() expects Countable|iterable, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Command/VaultListCommandTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Netresearch\NrVault\Service\VaultServiceInterface::method().'
+			identifier: method.notFound
+			count: 2
+			path: ../Tests/Unit/Command/VaultMigrateFieldCommandTest.php
+
+		-
+			rawMessage: 'Call to an undefined method TYPO3\CMS\Core\Database\ConnectionPool::method().'
+			identifier: method.notFound
+			count: 5
+			path: ../Tests/Unit/Command/VaultMigrateFieldCommandTest.php
+
+		-
+			rawMessage: 'Call to internal method Doctrine\DBAL\Schema\Column::__construct() from outside its root namespace Doctrine.'
+			identifier: method.internal
+			count: 1
+			path: ../Tests/Unit/Command/VaultMigrateFieldCommandTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 4
+			path: ../Tests/Unit/Command/VaultMigrateFieldCommandTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturnOnConsecutiveCalls() on mixed.'
+			identifier: method.nonObject
+			count: 1
+			path: ../Tests/Unit/Command/VaultMigrateFieldCommandTest.php
+
+		-
+			rawMessage: 'Cannot call method willThrowException() on mixed.'
+			identifier: method.nonObject
+			count: 2
+			path: ../Tests/Unit/Command/VaultMigrateFieldCommandTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 15
+			path: ../Tests/Unit/Command/VaultMigrateFieldCommandTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 2
+			path: ../Tests/Unit/Command/VaultRetrieveCommandTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 2
+			path: ../Tests/Unit/Command/VaultRetrieveCommandTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 1
+			path: ../Tests/Unit/Command/VaultRotateCommandTest.php
+
+		-
+			rawMessage: 'Cannot call method willThrowException() on mixed.'
+			identifier: method.nonObject
+			count: 1
+			path: ../Tests/Unit/Command/VaultRotateCommandTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 3
+			path: ../Tests/Unit/Command/VaultRotateMasterKeyCommandTest.php
+
+		-
+			rawMessage: 'Parameter #1 $container of method org\bovigo\vfs\vfsStreamAbstractContent::at() expects org\bovigo\vfs\vfsStreamContainer, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Command/VaultRotateMasterKeyCommandTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertNotEmpty() with non-falsy-string will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Command/VaultScanCommandTest.php
+
+		-
+			rawMessage: 'Offset 1 might not exist on array{}|array{non-falsy-string, non-falsy-string}.'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: ../Tests/Unit/Command/VaultScanCommandTest.php
+
+		-
+			rawMessage: 'Parameter #1 $array of function reset expects array|object, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Command/VaultScanCommandTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\Assert::callback().'
+			identifier: staticMethod.dynamicCall
+			count: 4
+			path: ../Tests/Unit/Command/VaultStoreCommandTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 1
+			path: ../Tests/Unit/Configuration/ExtensionConfigurationAnalyticsTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 1
+			path: ../Tests/Unit/Configuration/ExtensionConfigurationAnalyticsTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 38
+			path: ../Tests/Unit/Configuration/ExtensionConfigurationTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Configuration\\Dto\\AwsSecretsConfig'' and Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 3
+			path: ../Tests/Unit/Configuration/ExtensionConfigurationTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Configuration\\Dto\\VaultServerConfig'' and Netresearch\NrVault\Configuration\Dto\VaultServerConfig will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 3
+			path: ../Tests/Unit/Configuration/ExtensionConfigurationTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 38
+			path: ../Tests/Unit/Configuration/ExtensionConfigurationTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 7
+			path: ../Tests/Unit/Configuration/SiteConfigurationVaultProcessorTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 7
+			path: ../Tests/Unit/Configuration/SiteConfigurationVaultProcessorTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\Assert::anything().'
+			identifier: staticMethod.dynamicCall
+			count: 1
+			path: ../Tests/Unit/Configuration/SiteConfigurationVaultProcessorTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 1
+			path: ../Tests/Unit/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 1
+			path: ../Tests/Unit/Controller/AjaxControllerTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''TYPO3\\CMS\\Core\\Imaging\\IconSize'' and TYPO3\CMS\Core\Imaging\IconSize::SMALL will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Controller/VaultControllerTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Crypto\\EncryptedData'' and Netresearch\NrVault\Crypto\EncryptedData will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Crypto/EncryptionServiceTest.php
+
+		-
+			rawMessage: 'You should use assertNotSame() instead of assertNotEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 5
+			path: ../Tests/Unit/Crypto/EncryptionServiceTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 5
+			path: ../Tests/Unit/Crypto/EncryptionServiceTest.php
+
+		-
+			rawMessage: 'Parameter #1 $string of function base64_decode expects string, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Crypto/EnvelopeCodecTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 2
+			path: ../Tests/Unit/Crypto/EnvironmentMasterKeyProviderTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 4
+			path: ../Tests/Unit/Crypto/FileMasterKeyProviderTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Crypto\\MasterKeyProviderInterface'' and Netresearch\NrVault\Crypto\MasterKeyProviderInterface will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Crypto/MasterKeyProviderFactoryTest.php
+
+		-
+			rawMessage: 'You should use assertNotSame() instead of assertNotEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 1
+			path: ../Tests/Unit/Crypto/Typo3MasterKeyProviderTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 2
+			path: ../Tests/Unit/Crypto/Typo3MasterKeyProviderTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Domain\Dto\SecretDetailsTest::buildSubject() has parameter $overrides with no value type specified in iterable type array.'
+			identifier: missingType.iterableValue
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $context of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects string, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $createdAt of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects int, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $description of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects string, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $expiresAt of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects int|null, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $frontendAccessible of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects bool, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $groups of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects list<int>, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $identifier of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects string, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $lastReadAt of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects int|null, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $lastRotatedAt of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects int|null, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $metadata of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects array<string, mixed>, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $ownerUid of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects int, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $readCount of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects int, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $scopePid of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects int, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $uid of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects int, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $updatedAt of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects int, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'Parameter $version of class Netresearch\NrVault\Domain\Dto\SecretDetails constructor expects int, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Domain/Dto/SecretDetailsTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 23
+			path: ../Tests/Unit/Domain/Dto/SecretMetadataTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Domain\\Model\\Secret'' and Netresearch\NrVault\Domain\Model\Secret will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 6
+			path: ../Tests/Unit/Domain/Model/SecretTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 2
+			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
+
+		-
+			rawMessage: 'Call to an undefined method TYPO3\CMS\Core\Database\Connection::method().'
+			identifier: method.notFound
+			count: 4
+			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
+
+		-
+			rawMessage: 'Call to an undefined method TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder::method().'
+			identifier: method.notFound
+			count: 7
+			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
+
+		-
+			rawMessage: 'Call to an undefined method TYPO3\CMS\Core\Database\Query\QueryBuilder::method().'
+			identifier: method.notFound
+			count: 14
+			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 14
+			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturnOnConsecutiveCalls() on mixed.'
+			identifier: method.nonObject
+			count: 2
+			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturnSelf() on mixed.'
+			identifier: method.nonObject
+			count: 8
+			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
+
+		-
+			rawMessage: 'Cannot call method willThrowException() on mixed.'
+			identifier: method.nonObject
+			count: 1
+			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 64
+			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 2
+			path: ../Tests/Unit/Event/MasterKeyRotatedEventTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 4
+			path: ../Tests/Unit/Event/SecretAccessedEventTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 2
+			path: ../Tests/Unit/Event/SecretCreatedEventTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 4
+			path: ../Tests/Unit/Event/SecretDeletedEventTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 5
+			path: ../Tests/Unit/Event/SecretRotatedEventTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 3
+			path: ../Tests/Unit/Event/SecretUpdatedEventTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 2
+			path: ../Tests/Unit/EventListener/TypoScriptVaultListenerTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 2
+			path: ../Tests/Unit/EventListener/TypoScriptVaultListenerTest.php
+
+		-
+			rawMessage: Cannot cast mixed to string.
+			identifier: cast.string
+			count: 1
+			path: ../Tests/Unit/EventListener/TypoScriptVaultListenerTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\Assert::callback().'
+			identifier: staticMethod.dynamicCall
+			count: 1
+			path: ../Tests/Unit/EventListener/TypoScriptVaultListenerTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Exception\\VaultException'' and Netresearch\NrVault\Exception\AccessDeniedException will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Exception/AccessDeniedExceptionTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 6
+			path: ../Tests/Unit/Exception/AccessDeniedExceptionTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Exception\\VaultException'' and Netresearch\NrVault\Exception\ConfigurationException will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Exception/ConfigurationExceptionTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 6
+			path: ../Tests/Unit/Exception/ConfigurationExceptionTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Exception\\VaultException'' and Netresearch\NrVault\Exception\EncryptionException will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Exception/EncryptionExceptionTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 10
+			path: ../Tests/Unit/Exception/EncryptionExceptionTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Exception\\VaultException'' and Netresearch\NrVault\Exception\MasterKeyException will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Exception/MasterKeyExceptionTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 8
+			path: ../Tests/Unit/Exception/MasterKeyExceptionTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Exception\\VaultException'' and Netresearch\NrVault\Exception\SecretExpiredException will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Exception/SecretExpiredExceptionTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 1
+			path: ../Tests/Unit/Exception/SecretExpiredExceptionTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Exception\\VaultException'' and Netresearch\NrVault\Exception\SecretNotFoundException will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Exception/SecretNotFoundExceptionTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 2
+			path: ../Tests/Unit/Exception/SecretNotFoundExceptionTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Exception\\VaultException'' and Netresearch\NrVault\Exception\ValidationException will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Exception/ValidationExceptionTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 6
+			path: ../Tests/Unit/Exception/ValidationExceptionTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''RuntimeException'' and Netresearch\NrVault\Exception\VaultException will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Exception/VaultExceptionTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 2
+			path: ../Tests/Unit/Exception/VaultExceptionTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 1
+			path: ../Tests/Unit/Form/Element/VaultSecretElementTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 1
+			path: ../Tests/Unit/Form/Element/VaultSecretElementTest.php
+
+		-
+			rawMessage: Access to internal property TYPO3\CMS\Core\DataHandling\DataHandler::$copyMappingArray from outside its root namespace TYPO3.
+			identifier: property.internal
+			count: 9
+			path: ../Tests/Unit/Hook/DataHandlerHookTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 10
+			path: ../Tests/Unit/Hook/DataHandlerHookTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertTrue() with true will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 2
+			path: ../Tests/Unit/Hook/DataHandlerHookTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 10
+			path: ../Tests/Unit/Hook/DataHandlerHookTest.php
+
+		-
+			rawMessage: 'Parameter #2 $haystack of static method PHPUnit\Framework\Assert::assertContains() expects iterable, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Hook/DataHandlerHookTest.php
+
+		-
+			rawMessage: 'Parameter #2 $haystack of static method PHPUnit\Framework\Assert::assertCount() expects Countable|iterable, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Hook/DataHandlerHookTest.php
+
+		-
+			rawMessage: 'Parameter #2 $string of static method PHPUnit\Framework\Assert::assertMatchesRegularExpression() expects string, mixed given.'
+			identifier: argument.type
+			count: 6
+			path: ../Tests/Unit/Hook/DataHandlerHookTest.php
+
+		-
+			rawMessage: 'Parameter #2 $subject of function preg_match expects string, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Hook/DataHandlerHookTest.php
+
+		-
+			rawMessage: Access to internal property TYPO3\CMS\Core\DataHandling\DataHandler::$copyMappingArray from outside its root namespace TYPO3.
+			identifier: property.internal
+			count: 12
+			path: ../Tests/Unit/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 8
+			path: ../Tests/Unit/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertTrue() with true and ''Hook processed XXE…'' will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertTrue() with true will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 3
+			path: ../Tests/Unit/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 8
+			path: ../Tests/Unit/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 1
+			path: ../Tests/Unit/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: 'Parameter #1 $haystack of function str_contains expects string, mixed given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: 'Parameter #2 $string of static method PHPUnit\Framework\Assert::assertMatchesRegularExpression() expects string, mixed given.'
+			identifier: argument.type
+			count: 5
+			path: ../Tests/Unit/Hook/FlexFormVaultHookTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Http\\OAuth\\OAuthConfig'' and Netresearch\NrVault\Http\OAuth\OAuthConfig will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 3
+			path: ../Tests/Unit/Http/OAuth/OAuthConfigTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 1
+			path: ../Tests/Unit/Http/OAuth/OAuthTokenManagerTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Http\\OAuth\\OAuthTokenManager'' and Netresearch\NrVault\Http\OAuth\OAuthTokenManager will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Http/OAuth/OAuthTokenManagerTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 1
+			path: ../Tests/Unit/Http/OAuth/OAuthTokenManagerTest.php
+
+		-
+			rawMessage: Cannot cast mixed to string.
+			identifier: cast.string
+			count: 2
+			path: ../Tests/Unit/Http/OAuth/OAuthTokenManagerTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Http\OAuth\OAuthTokenManagerTest::createSuccessfulTokenResponse() has parameter $data with no value type specified in iterable type array.'
+			identifier: missingType.iterableValue
+			count: 1
+			path: ../Tests/Unit/Http/OAuth/OAuthTokenManagerTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Psr\Http\Client\ClientInterface::getConfig().'
+			identifier: method.notFound
+			count: 3
+			path: ../Tests/Unit/Http/SecureHttpClientFactoryRebindingTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Http\SecureHttpClientFactoryRebindingTest::buildCapturingClient() has parameter $capturedOptions with no value type specified in iterable type array.'
+			identifier: missingType.iterableValue
+			count: 1
+			path: ../Tests/Unit/Http/SecureHttpClientFactoryRebindingTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Http\SecureHttpClientFactoryRebindingTest::buildCapturingClient() should return GuzzleHttp\Client but returns Psr\Http\Client\ClientInterface.'
+			identifier: return.type
+			count: 1
+			path: ../Tests/Unit/Http/SecureHttpClientFactoryRebindingTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Http\SecureHttpClientFactoryRebindingTest::buildRedirectingClient() has parameter $reachedHosts with no value type specified in iterable type array.'
+			identifier: missingType.iterableValue
+			count: 1
+			path: ../Tests/Unit/Http/SecureHttpClientFactoryRebindingTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Http\SecureHttpClientFactoryRebindingTest::buildRedirectingClient() should return GuzzleHttp\Client but returns Psr\Http\Client\ClientInterface.'
+			identifier: return.type
+			count: 1
+			path: ../Tests/Unit/Http/SecureHttpClientFactoryRebindingTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Http\SecureHttpClientFactoryRebindingTest::callBuildResolveEntries() should return list<string>|null but returns mixed.'
+			identifier: return.type
+			count: 1
+			path: ../Tests/Unit/Http/SecureHttpClientFactoryRebindingTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Psr\\Http\\Client\\ClientInterface'' and Psr\Http\Client\ClientInterface will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 10
+			path: ../Tests/Unit/Http/SecureHttpClientFactoryTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 19
+			path: ../Tests/Unit/Http/VaultHttpClientTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Http\\VaultHttpClient'' and Netresearch\NrVault\Http\VaultHttpClient will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 4
+			path: ../Tests/Unit/Http/VaultHttpClientTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Psr\\Http\\Client\\ClientInterface'' and Netresearch\NrVault\Http\VaultHttpClient will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Http/VaultHttpClientTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 19
+			path: ../Tests/Unit/Http/VaultHttpClientTest.php
+
+		-
+			rawMessage: 'Parameter #4 $body of class GuzzleHttp\Psr7\Request constructor expects Psr\Http\Message\StreamInterface|resource|string|null, string|false given.'
+			identifier: argument.type
+			count: 3
+			path: ../Tests/Unit/Http/VaultHttpClientTest.php
+
+		-
+			rawMessage: Access to an undefined property object::$name.
+			identifier: property.notFound
+			count: 1
+			path: ../Tests/Unit/Http/VaultHttpResponseTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 13
+			path: ../Tests/Unit/Http/VaultHttpResponseTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 13
+			path: ../Tests/Unit/Http/VaultHttpResponseTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertTrue() with true and ''No anchored form to…'' will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Secret/SecretPatternLibraryTest.php
+
+		-
+			rawMessage: Access to internal constant TYPO3\CMS\Core\Core\SystemEnvironmentBuilder::REQUESTTYPE_BE from outside its root namespace TYPO3.
+			identifier: classConstant.internal
+			count: 1
+			path: ../Tests/Unit/Security/AccessControlServiceTest.php
+
+		-
+			rawMessage: Access to internal constant TYPO3\CMS\Core\Core\SystemEnvironmentBuilder::REQUESTTYPE_FE from outside its root namespace TYPO3.
+			identifier: classConstant.internal
+			count: 1
+			path: ../Tests/Unit/Security/AccessControlServiceTest.php
+
+		-
+			rawMessage: Access to internal property TYPO3\CMS\Core\Authentication\AbstractUserAuthentication::$user from outside its root namespace TYPO3.
+			identifier: property.internal
+			count: 7
+			path: ../Tests/Unit/Security/AccessControlServiceTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 2
+			path: ../Tests/Unit/Security/AccessControlServiceTest.php
+
+		-
+			rawMessage: 'Call to method __construct() of internal class TYPO3\CMS\Core\Http\ServerRequest from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 3
+			path: ../Tests/Unit/Security/AccessControlServiceTest.php
+
+		-
+			rawMessage: 'Call to method withAttribute() of internal class TYPO3\CMS\Core\Http\ServerRequest from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 2
+			path: ../Tests/Unit/Security/AccessControlServiceTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 2
+			path: ../Tests/Unit/Security/AccessControlServiceTest.php
+
+		-
+			rawMessage: Instantiation of internal class TYPO3\CMS\Core\Http\ServerRequest.
+			identifier: new.internalClass
+			count: 3
+			path: ../Tests/Unit/Security/AccessControlServiceTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Security\AccessControlServiceTest::setBackendUser() has parameter $groups with no value type specified in iterable type array.'
+			identifier: missingType.iterableValue
+			count: 1
+			path: ../Tests/Unit/Security/AccessControlServiceTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 7
+			path: ../Tests/Unit/Security/AccessControlServiceTest.php
+
+		-
+			rawMessage: Access to constant on internal class TYPO3\CMS\Core\Authentication\GroupResolver.
+			identifier: classConstant.internalClass
+			count: 1
+			path: ../Tests/Unit/Security/TechnicalActorContextTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 2
+			path: ../Tests/Unit/Security/TechnicalActorContextTest.php
+
+		-
+			rawMessage: 'Call to method __construct() of internal class TYPO3\CMS\Core\Authentication\GroupResolver from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 1
+			path: ../Tests/Unit/Security/TechnicalActorContextTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 2
+			path: ../Tests/Unit/Security/TechnicalActorContextTest.php
+
+		-
+			rawMessage: Instantiation of internal class TYPO3\CMS\Core\Authentication\GroupResolver.
+			identifier: new.internalClass
+			count: 1
+			path: ../Tests/Unit/Security/TechnicalActorContextTest.php
+
+		-
+			rawMessage: 'Parameter #1 $beUserUid of method Netresearch\NrVault\Security\TechnicalActorContext::runAs() expects int<1, max>, -5 given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Security/TechnicalActorContextTest.php
+
+		-
+			rawMessage: 'Parameter #1 $beUserUid of method Netresearch\NrVault\Security\TechnicalActorContext::runAs() expects int<1, max>, 0 given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Security/TechnicalActorContextTest.php
+
+		-
+			rawMessage: 'Return type of method Netresearch\NrVault\Tests\Unit\Security\TechnicalActorContextTest::createGroupResolver() has typehint with internal class TYPO3\CMS\Core\Authentication\GroupResolver.'
+			identifier: return.internalClass
+			count: 1
+			path: ../Tests/Unit/Security/TechnicalActorContextTest.php
+
+		-
+			rawMessage: Unreachable statement - code above always terminates.
+			identifier: deadCode.unreachable
+			count: 1
+			path: ../Tests/Unit/Security/TechnicalActorContextTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Service\\Detection\\SecretFinding'' and Netresearch\NrVault\Service\Detection\ConfigSecretFinding will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Service/Detection/ConfigSecretFindingTest.php
+
+		-
+			rawMessage: 'Parameter #1 $actual of static method PHPUnit\Framework\Assert::assertJson() expects string, string|false given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Service/Detection/ConfigSecretFindingTest.php
+
+		-
+			rawMessage: 'Parameter #2 $haystack of static method PHPUnit\Framework\Assert::assertStringContainsString() expects string, string|false given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Service/Detection/ConfigSecretFindingTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 13
+			path: ../Tests/Unit/Service/Detection/ConfigSecretFindingTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertInstanceOf() with ''Netresearch\\NrVault\\Service\\Detection\\SecretFinding'' and Netresearch\NrVault\Service\Detection\DatabaseSecretFinding will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Service/Detection/DatabaseSecretFindingTest.php
+
+		-
+			rawMessage: 'Parameter #1 $actual of static method PHPUnit\Framework\Assert::assertJson() expects string, string|false given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Service/Detection/DatabaseSecretFindingTest.php
+
+		-
+			rawMessage: 'Parameter #2 $haystack of static method PHPUnit\Framework\Assert::assertStringContainsString() expects string, string|false given.'
+			identifier: argument.type
+			count: 2
+			path: ../Tests/Unit/Service/Detection/DatabaseSecretFindingTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 7
+			path: ../Tests/Unit/Service/Detection/DatabaseSecretFindingTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 8
+			path: ../Tests/Unit/Service/Detection/SeverityTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 11
+			path: ../Tests/Unit/Service/SecretDetectionServiceTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 10
+			path: ../Tests/Unit/Service/SecretDetectionServiceTest.php
+
+		-
+			rawMessage: 'Cannot call method willThrowException() on mixed.'
+			identifier: method.nonObject
+			count: 1
+			path: ../Tests/Unit/Service/SecretDetectionServiceTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Service\SecretDetectionServiceTest::calculatesSeverityCorrectly() has parameter $patterns with no value type specified in iterable type array.'
+			identifier: missingType.iterableValue
+			count: 1
+			path: ../Tests/Unit/Service/SecretDetectionServiceTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Service\SecretDetectionServiceTest::excludesTablesCorrectly() has parameter $patterns with no value type specified in iterable type array.'
+			identifier: missingType.iterableValue
+			count: 1
+			path: ../Tests/Unit/Service/SecretDetectionServiceTest.php
+
+		-
+			rawMessage: Access to internal property TYPO3\CMS\Core\Authentication\AbstractUserAuthentication::$user from outside its root namespace TYPO3.
+			identifier: property.internal
+			count: 1
+			path: ../Tests/Unit/Service/VaultFieldPermissionServiceTest.php
+
+		-
+			rawMessage: 'Call to static method PHPUnit\Framework\Assert::assertTrue() with true will always evaluate to true.'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: ../Tests/Unit/Service/VaultFieldPermissionServiceTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 4
+			path: ../Tests/Unit/Service/VaultFieldPermissionTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 14
+			path: ../Tests/Unit/Service/VaultServiceTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 14
+			path: ../Tests/Unit/Service/VaultServiceTest.php
+
+		-
+			rawMessage: 'Method Netresearch\NrVault\Tests\Unit\Service\VaultServiceTest::createSecretEntity() has parameter $metadata with no value type specified in iterable type array.'
+			identifier: missingType.iterableValue
+			count: 1
+			path: ../Tests/Unit/Service/VaultServiceTest.php
+
+		-
+			rawMessage: 'Parameter $metadata of class Netresearch\NrVault\Domain\Model\Secret constructor expects array<string, mixed>, array given.'
+			identifier: argument.type
+			count: 1
+			path: ../Tests/Unit/Service/VaultServiceTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 7
+			path: ../Tests/Unit/Service/VaultServiceTest.php
+
+		-
+			rawMessage: 'Call to internal static method TYPO3\CMS\Core\Utility\GeneralUtility::setSingletonInstance() from outside its root namespace TYPO3.'
+			identifier: staticMethod.internal
+			count: 2
+			path: ../Tests/Unit/Task/OrphanCleanupTaskTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\Assert::isInt().'
+			identifier: staticMethod.dynamicCall
+			count: 1
+			path: ../Tests/Unit/Task/OrphanCleanupTaskTest.php
+
+		-
+			rawMessage: Access to an undefined property Netresearch\NrVault\Tests\Unit\TestCase::$tcaSchemaFactory.
+			identifier: property.notFound
+			count: 1
+			path: ../Tests/Unit/TestCase.php
+
+		-
+			rawMessage: Access to internal property TYPO3\CMS\Core\Authentication\AbstractUserAuthentication::$user from outside its root namespace TYPO3.
+			identifier: property.internal
+			count: 1
+			path: ../Tests/Unit/TestCase.php
+
+		-
+			rawMessage: 'Call to an undefined method TYPO3\CMS\Core\Schema\TcaSchemaFactory::method().'
+			identifier: method.notFound
+			count: 2
+			path: ../Tests/Unit/TestCase.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 2
+			path: ../Tests/Unit/TestCase.php
+
+		-
+			rawMessage: 'Cannot call method with() on mixed.'
+			identifier: method.nonObject
+			count: 2
+			path: ../Tests/Unit/TestCase.php
+
+		-
+			rawMessage: 'Call to an undefined method Netresearch\NrVault\Configuration\ExtensionConfigurationInterface::method().'
+			identifier: method.notFound
+			count: 8
+			path: ../Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Netresearch\NrVault\Crypto\MasterKeyProviderInterface::method().'
+			identifier: method.notFound
+			count: 4
+			path: ../Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
+
+		-
+			rawMessage: 'Call to an undefined method TYPO3\CMS\Core\Database\ConnectionPool::method().'
+			identifier: method.notFound
+			count: 5
+			path: ../Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 17
+			path: ../Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 18
+			path: ../Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
+
+		-
+			rawMessage: Cannot cast mixed to string.
+			identifier: cast.string
+			count: 2
+			path: ../Tests/Unit/Utility/FlexFormVaultResolverTest.php
+
+		-
+			rawMessage: 'You should use assertCount($expectedCount, $variable) instead of assertSame($expectedCount, count($variable)).'
+			identifier: phpunit.assertCount
+			count: 1
+			path: ../Tests/Unit/Utility/IdentifierValidatorTest.php
+
+		-
+			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
+			identifier: phpunit.assertEquals
+			count: 2
+			path: ../Tests/Unit/Utility/IdentifierValidatorTest.php
+
+		-
+			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
+			identifier: method.notFound
+			count: 5
+			path: ../Tests/Unit/Utility/VaultFieldResolverTest.php
+
+		-
+			rawMessage: 'Cannot call method willReturn() on mixed.'
+			identifier: method.nonObject
+			count: 5
+			path: ../Tests/Unit/Utility/VaultFieldResolverTest.php
+
+		-
+			rawMessage: Cannot cast mixed to string.
+			identifier: cast.string
+			count: 1
+			path: ../Tests/Unit/Utility/VaultFieldResolverTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 5
+			path: ../Tests/Unit/Widgets/DataProvider/ActiveSecretCountDataProviderTest.php
+
+		-
+			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
+			identifier: staticMethod.dynamicCall
+			count: 3
+			path: ../Tests/Unit/Widgets/DataProvider/AuditActivityDataProviderTest.php
+
+		-
+			rawMessage: 'Offset 0 on array{list<string>} on left side of ?? always exists and is not nullable.'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: ../Tests/scripts/check-cli-docs.php
+
+		-
+			rawMessage: 'Only booleans are allowed in a negated boolean, int|false given.'
+			identifier: booleanNot.exprNotBoolean
+			count: 2
+			path: ../Tests/scripts/check-cli-docs.php
+
+		-
+			rawMessage: 'Only booleans are allowed in an if condition, int<0, max>|false given.'
+			identifier: if.condNotBoolean
+			count: 1
+			path: ../Tests/scripts/check-cli-docs.php
+
+		-
+			rawMessage: 'Only booleans are allowed in an if condition, int|false given.'
+			identifier: if.condNotBoolean
+			count: 1
+			path: ../Tests/scripts/check-cli-docs.php
+
+		-
+			rawMessage: 'Argument of an invalid type list<string>|false supplied for foreach, only iterables are supported.'
+			identifier: foreach.nonIterable
+			count: 1
+			path: ../Tests/scripts/check-test-base-class.php
+
+		-
+			rawMessage: 'Only booleans are allowed in a negated boolean, int|false given.'
+			identifier: booleanNot.exprNotBoolean
+			count: 1
+			path: ../Tests/scripts/check-test-base-class.php
+
+		-
+			rawMessage: 'Only booleans are allowed in an if condition, int|false given.'
+			identifier: if.condNotBoolean
+			count: 1
+			path: ../Tests/scripts/check-test-base-class.php
