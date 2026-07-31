@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
 use Doctrine\DBAL\Result;
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Command\VaultAuditMigrateCommand;
@@ -37,6 +38,8 @@ final class VaultAuditMigrateCommandTest extends TestCase
 
     private AuditLogServiceInterface $auditLogService;
 
+    private AuditChainAnchorStoreInterface $anchorStore;
+
     private QueryBuilder $queryBuilder;
 
     private CommandTester $commandTester;
@@ -51,6 +54,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
         // Default: chain is safe to re-seal (verifyChainForReseal() returns null).
         $this->auditLogService = $this->createStub(AuditLogServiceInterface::class);
         $this->queryBuilder = $this->createStub(QueryBuilder::class);
+        $this->anchorStore = $this->createStub(AuditChainAnchorStoreInterface::class);
 
         $this->masterKeyProvider
             ->method('getMasterKey')
@@ -69,6 +73,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
             $this->masterKeyProvider,
             $this->extensionConfiguration,
             $this->auditLogService,
+            $this->anchorStore,
         );
 
         $application = new Application();
@@ -85,6 +90,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
             $this->masterKeyProvider,
             $this->extensionConfiguration,
             $this->auditLogService,
+            $this->anchorStore,
         );
 
         self::assertSame('vault:audit-migrate-hmac', $command->getName());
@@ -231,6 +237,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
             $this->masterKeyProvider,
             $extensionConfig,
             $this->auditLogService,
+            $this->anchorStore,
         );
 
         $application = new Application();
@@ -266,6 +273,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
             $this->masterKeyProvider,
             $this->extensionConfiguration,
             $auditLogService,
+            $this->anchorStore,
         );
 
         // update() must never be called — nothing is re-sealed.

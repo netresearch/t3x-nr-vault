@@ -73,6 +73,9 @@ services:
   Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface:
     alias: Netresearch\NrVault\Audit\AuditChainRekeyService
 
+  Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface:
+    alias: Netresearch\NrVault\Audit\AuditChainAnchorStore
+
   Netresearch\NrVault\Adapter\VaultAdapterInterface:
     alias: Netresearch\NrVault\Adapter\LocalEncryptionAdapter
 

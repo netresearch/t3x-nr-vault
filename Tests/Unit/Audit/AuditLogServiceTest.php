@@ -13,6 +13,10 @@ use ArrayIterator;
 use DateTimeImmutable;
 use Doctrine\DBAL\Result;
 use Iterator;
+use Netresearch\NrVault\Audit\AuditChainAnchor;
+use Netresearch\NrVault\Audit\AuditChainAnchorLoad;
+use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogService;
@@ -59,6 +63,8 @@ final class AuditLogServiceTest extends TestCase
 
     private ?MockObject $connection = null;
 
+    private ?MockObject $anchorStore = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -69,6 +75,12 @@ final class AuditLogServiceTest extends TestCase
         $this->extensionConfiguration = $this->createMock(ExtensionConfigurationInterface::class);
         $this->queryBuilder = $this->createMock(QueryBuilder::class);
         $this->connection = $this->createMock(Connection::class);
+        // The tip anchor is exercised in its own unit + functional tests; here
+        // it stays inert so the existing write/verify assertions are unchanged.
+        $this->anchorStore = $this->createMock(AuditChainAnchorStoreInterface::class);
+        $this->anchorStore
+            ->method('load')
+            ->willReturn(new AuditChainAnchorLoad(AuditChainAnchorStatus::Disabled));
 
         $this->accessControlService
             ->method('getCurrentActorUid')
@@ -100,6 +112,7 @@ final class AuditLogServiceTest extends TestCase
             $this->accessControlService,
             $this->masterKeyProvider,
             $this->extensionConfiguration,
+            $this->anchorStore,
         );
     }
 
@@ -145,6 +158,7 @@ final class AuditLogServiceTest extends TestCase
             $accessControlService,
             $this->masterKeyProvider,
             $this->extensionConfiguration,
+            $this->anchorStore,
         );
 
         $this->connection
@@ -707,7 +721,13 @@ final class AuditLogServiceTest extends TestCase
         $accessControlService->method('getCurrentActorUsername')->willReturn('admin');
         $accessControlService->method('getCurrentUserGroups')->willReturn([1, 2, 3]);
 
-        $subject = new AuditLogService($this->connectionPool, $accessControlService, $this->masterKeyProvider, $this->extensionConfiguration);
+        $subject = new AuditLogService(
+            $this->connectionPool,
+            $accessControlService,
+            $this->masterKeyProvider,
+            $this->extensionConfiguration,
+            $this->anchorStore,
+        );
 
         $this->setupDatabaseMocks();
 
@@ -870,6 +890,7 @@ final class AuditLogServiceTest extends TestCase
             $this->accessControlService,
             $this->masterKeyProvider,
             $extensionConfig,
+            $this->anchorStore,
         );
 
         // Build a row with epoch 0 and valid SHA-256 hash
@@ -1977,6 +1998,7 @@ final class AuditLogServiceTest extends TestCase
             $accessControlService,
             $this->masterKeyProvider,
             $this->extensionConfiguration,
+            $this->anchorStore,
         );
 
         $this->setupDatabaseMocks();
@@ -2189,6 +2211,7 @@ final class AuditLogServiceTest extends TestCase
             $this->accessControlService,
             $this->masterKeyProvider,
             $extensionConfig,
+            $this->anchorStore,
         );
 
         $verification = $subject->verifyHashChain();
@@ -2237,6 +2260,7 @@ final class AuditLogServiceTest extends TestCase
             $this->accessControlService,
             $this->masterKeyProvider,
             $extensionConfig,
+            $this->anchorStore,
         );
 
         $verification = $subject->verifyHashChain();
@@ -2279,6 +2303,7 @@ final class AuditLogServiceTest extends TestCase
             $this->accessControlService,
             $this->masterKeyProvider,
             $extensionConfig,
+            $this->anchorStore,
         );
 
         $verification = $subject->verifyHashChain();
@@ -2325,6 +2350,7 @@ final class AuditLogServiceTest extends TestCase
             $this->accessControlService,
             $this->masterKeyProvider,
             $extensionConfig,
+            $this->anchorStore,
         );
 
         $verification = $subject->verifyHashChain();
@@ -2511,6 +2537,7 @@ final class AuditLogServiceTest extends TestCase
             $this->accessControlService,
             $this->masterKeyProvider,
             $epoch3Configuration,
+            $this->anchorStore,
         );
 
         $this->setupDatabaseMocks();
@@ -2560,6 +2587,73 @@ final class AuditLogServiceTest extends TestCase
             $storedHash,
             'entry_hash must cover the clipped values that were actually stored',
         );
+    }
+
+    /**
+     * Double-read stability rule: a hash mismatch is only reported when the raw
+     * anchor bytes are IDENTICAL either side of the row read. A re-seal that
+     * commits mid-check must never be reported as tampering.
+     */
+    #[Test]
+    public function anchorMismatchThatKeepsChangingIsAnInFlightWarningNotAnError(): void
+    {
+        $verification = $this->verifyWithAnchorLoads(['raw-1', 'raw-2', 'raw-3', 'raw-4']);
+
+        self::assertTrue($verification->isValid(), 'an in-flight re-seal must never invalidate');
+        self::assertSame(AuditChainAnchorStatus::InFlight, $verification->anchorStatus);
+        self::assertCount(1, $verification->warnings);
+    }
+
+    #[Test]
+    public function anchorMismatchThatStaysStableIsAViolation(): void
+    {
+        $verification = $this->verifyWithAnchorLoads(['raw-1', 'raw-1']);
+
+        self::assertFalse($verification->isValid());
+        self::assertSame(AuditChainAnchorStatus::Violated, $verification->anchorStatus);
+    }
+
+    /**
+     * A retry that stabilises on the second attempt resolves cleanly instead of
+     * degrading to a warning.
+     */
+    #[Test]
+    public function anchorMismatchThatStabilisesOnTheRetryIsAViolation(): void
+    {
+        $verification = $this->verifyWithAnchorLoads(['raw-1', 'raw-2', 'raw-2', 'raw-2']);
+
+        self::assertFalse($verification->isValid());
+        self::assertSame(AuditChainAnchorStatus::Violated, $verification->anchorStatus);
+    }
+
+    /**
+     * `AuditWriteException` is the type `VaultService::compensateAuditFailure()`
+     * keys on, so a failing anchor write must arrive as that type — otherwise
+     * the vault write is not compensated and the secret persists without a
+     * matching audit row.
+     */
+    #[Test]
+    public function anchorWriteFailureSurfacesAsAuditWriteException(): void
+    {
+        $this->setupDatabaseMocks();
+
+        $anchorStore = $this->createMock(AuditChainAnchorStoreInterface::class);
+        $anchorStore->method('advance')->willThrowException(new RuntimeException('registry unavailable'));
+
+        self::assertNotNull($this->connectionPool);
+        self::assertNotNull($this->accessControlService);
+        $subject = new AuditLogService(
+            $this->connectionPool,
+            $this->accessControlService,
+            $this->masterKeyProvider,
+            $this->extensionConfiguration,
+            $anchorStore,
+        );
+
+        $this->expectException(AuditWriteException::class);
+        $this->expectExceptionCode(1753900001);
+
+        $subject->log('secret', 'create', true);
     }
 
     /**
@@ -2795,6 +2889,78 @@ final class AuditLogServiceTest extends TestCase
         $this->queryBuilder
             ->method('executeQuery')
             ->willReturn($result);
+    }
+
+    /**
+     * Drive `verifyHashChain()` over a single-row chain whose anchor asserts a
+     * DIFFERENT hash, handing out the given raw anchor values on successive
+     * `load()` calls.
+     *
+     * @param list<string> $rawSequence raw bytes returned by consecutive loads
+     */
+    private function verifyWithAnchorLoads(array $rawSequence): HashChainVerificationResult
+    {
+        $storedHash = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '');
+        $rows = [[
+            'uid' => 1,
+            'secret_identifier' => 'a',
+            'action' => 'create',
+            'actor_uid' => 1,
+            'crdate' => 100,
+            'previous_hash' => '',
+            'entry_hash' => $storedHash,
+            'hmac_key_epoch' => 0,
+        ]];
+
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAllAssociative')->willReturn($rows);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($rows));
+        // The by-uid lookup returns the row's REAL hash, which differs from the
+        // anchored one below.
+        $result->method('fetchOne')->willReturn($storedHash);
+
+        $expressionBuilder = $this->createMock(ExpressionBuilder::class);
+        $expressionBuilder->method('eq')->willReturn('uid = :p');
+
+        self::assertNotNull($this->connectionPool);
+        self::assertNotNull($this->connection);
+        self::assertNotNull($this->queryBuilder);
+        $this->connectionPool->method('getConnectionForTable')->willReturn($this->connection);
+        $this->connection->method('createQueryBuilder')->willReturn($this->queryBuilder);
+        $this->queryBuilder->method('expr')->willReturn($expressionBuilder);
+        $this->queryBuilder->method('createNamedParameter')->willReturn(':p');
+        $this->queryBuilder->method('select')->willReturnSelf();
+        $this->queryBuilder->method('from')->willReturnSelf();
+        $this->queryBuilder->method('where')->willReturnSelf();
+        $this->queryBuilder->method('orderBy')->willReturnSelf();
+        $this->queryBuilder->method('setMaxResults')->willReturnSelf();
+        $this->queryBuilder->method('executeQuery')->willReturn($result);
+
+        $anchoredHash = str_repeat('c', 64);
+        $loads = array_map(
+            static fn (string $raw): AuditChainAnchorLoad => new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(1, $anchoredHash, 1_700_000_000),
+                $raw,
+            ),
+            $rawSequence,
+        );
+
+        $anchorStore = $this->createMock(AuditChainAnchorStoreInterface::class);
+        $anchorStore->method('load')->willReturn(...$loads);
+
+        $extensionConfig = $this->createMock(ExtensionConfigurationInterface::class);
+        $extensionConfig->method('getAuditHmacEpoch')->willReturn(0);
+
+        self::assertNotNull($this->accessControlService);
+
+        return (new AuditLogService(
+            $this->connectionPool,
+            $this->accessControlService,
+            $this->masterKeyProvider,
+            $extensionConfig,
+            $anchorStore,
+        ))->verifyHashChain();
     }
 
     /**

@@ -91,6 +91,15 @@ interface ExtensionConfigurationInterface
     public function getAuditHmacEpoch(): int;
 
     /**
+     * Whether a missing audit chain tip anchor is an ERROR rather than a warning.
+     *
+     * Off by default: "never anchored" and "anchor deleted" look the same from
+     * database state, so enabling it before the first audit write following the
+     * upgrade would make every install report an invalid chain.
+     */
+    public function isAuditAnchorRequired(): bool;
+
+    /**
      * Days after creation with zero reads before a secret is "dead".
      */
     public function getStaleNeverReadDays(): int;

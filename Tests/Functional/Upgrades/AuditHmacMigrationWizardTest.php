@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Upgrades;
 
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfiguration;
@@ -144,6 +145,7 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
             $this->get(MasterKeyProviderInterface::class),
             new ExtensionConfiguration(new Typo3ExtensionConfiguration()),
             $this->get(AuditLogServiceInterface::class),
+            $this->get(AuditChainAnchorStoreInterface::class),
         );
 
         self::assertTrue(
@@ -305,6 +307,7 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
             $this->get(MasterKeyProviderInterface::class),
             $this->get(ExtensionConfigurationInterface::class),
             $this->get(AuditLogServiceInterface::class),
+            $this->get(AuditChainAnchorStoreInterface::class),
         );
     }
 

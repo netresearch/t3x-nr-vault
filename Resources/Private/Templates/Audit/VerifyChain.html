@@ -46,7 +46,9 @@
                                 <f:for each="{errors}" as="error" key="uid">
                                     <li class="list-group-item list-group-item-danger">
                                         <core:icon identifier="actions-exclamation-circle" size="small" />
-                                        <strong>#{uid}</strong> &mdash; {error}
+                                        <!-- Chain-level findings (tip anchor, epoch floor) use non-positive
+                                             pseudo keys so they cannot collide with a real entry UID. -->
+                                        <strong><f:if condition="{uid} > 0"><f:then>#{uid}</f:then><f:else><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.finding.chain" /></f:else></f:if></strong> &mdash; {error}
                                     </li>
                                 </f:for>
                             </ul>
@@ -55,6 +57,11 @@
                 </f:if>
             </f:else>
         </f:if>
+
+        <p class="mt-4">
+            <strong><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.anchor.label" /></strong>
+            &mdash; <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.anchor.{anchorStatus}" />
+        </p>
 
         <f:if condition="{warnings}">
             <div class="card card-size-medium mt-4">

@@ -155,8 +155,102 @@ Audit log entries form a hash chain where each entry includes a hash of
 the previous entry. This provides:
 
 -  **Tamper detection**: Any modification to log entries breaks the chain.
--  **Completeness**: Deleted entries are detectable.
+-  **Completeness**: An entry deleted from the middle of the log leaves a UID
+   gap, which the verifier reports as an error even if the surrounding
+   ``previous_hash`` values were patched to match.
 -  **Non-repudiation**: Actions cannot be denied after logging.
+
+Removing the *tail* of the log leaves no gap and no broken link, so the chain
+walk alone cannot see it. That case is covered by the tip anchor below.
+
+.. _security-audit-chain-anchor:
+
+Tip anchor (truncation detection)
+---------------------------------
+
+The chain proves that what is stored was not altered. It cannot, on its own,
+prove *how much* should be stored — any counter kept inside
+``tx_nrvault_audit_log`` is deleted along with the rows.
+
+nr_vault therefore records one signed assertion outside that table, in the core
+table ``sys_registry``:
+
+   Audit row ``uid = A`` still exists and its ``entry_hash`` is still ``H``.
+
+The assertion is authenticated with HMAC-SHA256 under a key derived from the
+master key with its own HKDF context string (``"nr-vault-audit-anchor-v1"``),
+which is not stored in the database. It advances on every audit write, inside
+the same transaction as the audit row, and is re-recorded by master-key rotation
+and by both HMAC re-seal paths. See :ref:`adr-034-audit-chain-tip-anchor`.
+
+What this adds: ``DELETE FROM tx_nrvault_audit_log WHERE uid > N``, deletion of
+the last row, ``TRUNCATE``, and a truncate followed by refilling the same UIDs
+with fresh entries are all reported as an invalid chain — by
+``vault:audit --verify``, by the backend verification view, and by the gates
+that guard master-key rotation and the HMAC migration.
+
+What this does not add: an attacker with database write access who deletes the
+``sys_registry`` row *before* truncating returns the installation to
+undetectable truncation. That is reported as a warning (``Tip anchor: NOT
+ARMED``) rather than an error, because an installation that has not yet written
+an audit entry since the upgrade is indistinguishable from one whose anchor was
+deleted.
+
+.. _security-audit-anchor-required:
+
+``auditAnchorRequired``
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Setting ``auditAnchorRequired = 1`` in the extension configuration is the
+operator's assertion that this installation is already anchored. It is off by
+default, and it changes two things:
+
+-  verification reports a missing anchor as an **error** instead of a warning;
+-  an ordinary audit write no longer *creates* an anchor that is not there — at
+   all, whatever the log currently contains.
+
+The second half is what makes the first half worth anything. An attacker with
+database write access can delete the anchor row — or merely blank its value —
+and truncate the log; if the next audit write then armed a fresh anchor on the
+shortened chain, the error would disappear within seconds and the installation
+would report a valid chain permanently, now with a signed attestation that the
+truncated tip is genuine.
+
+The refusal has to be unconditional, and that is a deliberate change of
+behaviour rather than a strictness for its own sake. "The log still holds an
+earlier entry" is not a usable test for "this anchor was never armed": the audit
+write that triggers the check has just inserted the only row the chain has, so a
+log emptied outright looks exactly like a brand-new installation. Anything that
+armed on an apparently-fresh chain would be bypassed by deleting *every* audit
+row, which is easier than deleting some.
+
+So with the setting on, arming is always an explicit operator action:
+``vault:audit --reset-anchor``, which writes the reset into the chain. That
+includes the very first arming — an installation that enables the setting before
+its anchor exists reports ``Tip anchor: NOT ARMED`` as an error until the command
+is run. This is why the setting is off by default and why the documented order
+matters: enable it once, *after* the first audit write following the upgrade.
+The setting is worth having because extension configuration lives in a settings
+*file*: an attacker who only has database write access cannot turn it back off.
+
+Blanking the anchor value (``UPDATE sys_registry SET entry_value = NULL``) is
+not a way around this at any setting: a row that is present but unreadable is an
+``Unreadable`` **error**, and it is never repaired by an audit write.
+
+Restoring a legitimately wiped log
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+After a deliberate purge or wipe, the anchor stays behind and reports a
+violation permanently. Clear it with:
+
+.. code-block:: bash
+
+   vendor/bin/typo3 vault:audit --reset-anchor
+
+The command records the reset as an audit entry in the same transaction, so it
+cannot be performed invisibly, and re-arms the anchor on that entry. It is the
+only path that arms an anchor at all while ``auditAnchorRequired`` is enabled.
+
 
 .. _security-hmac-audit-chain:
 

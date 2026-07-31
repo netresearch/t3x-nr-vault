@@ -64,6 +64,16 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
      */
     public const DEFAULT_AUDIT_HMAC_EPOCH = 3;
 
+    /**
+     * A missing audit chain tip anchor is a WARNING by default.
+     *
+     * It has to be: an installation that has not written an audit entry since
+     * the anchor shipped has no anchor row, and that is indistinguishable from
+     * one whose anchor an attacker deleted. Failing closed by default would
+     * make every such install report an invalid chain.
+     */
+    public const DEFAULT_AUDIT_ANCHOR_REQUIRED = false;
+
     public const DEFAULT_STALE_NEVER_READ_DAYS = 30;
 
     public const DEFAULT_STALE_NOT_READ_DAYS = 90;
@@ -227,6 +237,19 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         $val = $this->configuration['auditHmacEpoch'] ?? self::DEFAULT_AUDIT_HMAC_EPOCH;
 
         return is_numeric($val) ? (int) $val : self::DEFAULT_AUDIT_HMAC_EPOCH;
+    }
+
+    /**
+     * Whether a missing audit chain tip anchor is an ERROR rather than a warning.
+     *
+     * Worth enabling once the anchor is known to be armed: extension
+     * configuration lives in a settings FILE, so a DB-write attacker who
+     * deletes the anchor row to get back to the old silent-truncation behaviour
+     * cannot also flip this flag back off.
+     */
+    public function isAuditAnchorRequired(): bool
+    {
+        return (bool) ($this->configuration['auditAnchorRequired'] ?? self::DEFAULT_AUDIT_ANCHOR_REQUIRED);
     }
 
     /**

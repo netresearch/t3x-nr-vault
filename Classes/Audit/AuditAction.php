@@ -39,6 +39,7 @@ enum AuditAction: string
     case OAuthFallbackClientCredentials = 'oauth_fallback_client_credentials';
     case OAuthRefreshStoreFailed = 'oauth_refresh_store_failed';
     case AuditReadLoggingChanged = 'audit_read_logging_changed';
+    case AuditAnchorReset = 'audit_anchor_reset';
 
     /**
      * Human-readable label for backend filter dropdowns.

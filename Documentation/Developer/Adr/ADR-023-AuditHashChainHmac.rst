@@ -117,6 +117,21 @@ Risks
    subsystem and the master key provider, coupling two previously
    independent components.
 
+Scope of the tamper-evidence claim
+----------------------------------
+
+The HMAC chain authenticates the rows that are present. It says nothing about
+rows that were removed: deleting the tail (or the whole table) leaves a
+self-consistent chain. That gap is closed separately by the tip anchor in
+:ref:`adr-034-audit-chain-tip-anchor`, which pins "row ``uid = A`` still exists
+with ``entry_hash = H``" in ``sys_registry`` under an HKDF-separated MAC key.
+
+With the anchor armed, tail truncation and a full wipe are detectable against a
+database-write attacker without the master key. An attacker who also deletes the
+anchor row degrades the installation to the pre-anchor behaviour, but does so
+*with a warning* rather than silently — and with ``auditAnchorRequired`` enabled,
+with an error.
+
 Why not implemented initially
 =============================
 

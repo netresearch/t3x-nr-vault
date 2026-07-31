@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Seeder;
 
+use Netresearch\NrVault\Audit\AuditChainAnchor;
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
@@ -30,6 +32,7 @@ final readonly class AuditChainSeeder
         private ConnectionPool $connectionPool,
         private MasterKeyProviderInterface $masterKeyProvider,
         private ExtensionConfigurationInterface $extensionConfiguration,
+        private AuditChainAnchorStoreInterface $anchorStore,
     ) {}
 
     /**
@@ -50,6 +53,8 @@ final readonly class AuditChainSeeder
         $previousHash = $this->fetchLatestHash($connection);
         $hmacKey = $epoch >= 1 ? AuditLogService::deriveHmacKey($this->masterKeyProvider) : null;
 
+        $tip = null;
+
         try {
             foreach ($events as $event) {
                 $row = $this->buildRow($event, $previousHash, $epoch);
@@ -60,6 +65,15 @@ final readonly class AuditChainSeeder
                 $entryHash = $this->hashFor($row, $previousHash, $epoch, $hmacKey);
                 $connection->update(self::TABLE, ['entry_hash' => $entryHash], ['uid' => $uid]);
                 $previousHash = $entryHash;
+                $tip = new AuditChainAnchor($uid, $entryHash, time());
+            }
+
+            // Advance the tip anchor once, after the loop. This writer takes no
+            // lock and no transaction, so `advance()`'s forward-only rule is what
+            // keeps a concurrent real audit write from being rolled back to a
+            // seeded uid.
+            if ($tip instanceof AuditChainAnchor) {
+                $this->anchorStore->advance($connection, $tip);
             }
         } finally {
             if ($hmacKey !== null) {

@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Truncating the audit log is no longer invisible** (ADR-034). The hash chain
+  only ever checked rows that were still present, so `DELETE FROM
+  tx_nrvault_audit_log WHERE uid > N` — or a full `TRUNCATE` — left a
+  self-consistent chain that every tamper-evidence control reported as valid.
+  nr_vault now records one signed assertion outside that table, in the core
+  table `sys_registry`: "row `uid = A` still exists and its `entry_hash` is
+  still `H`", authenticated with a key derived from the master key under its own
+  HKDF context. Tail truncation, deletion of the last row, a full wipe, and a
+  wipe followed by refilling the same UIDs are all reported as an invalid chain
+  now. There is no database schema change.
+
+### Added
+
+- `vault:audit --verify` reports the anchor state on a `Tip anchor:` line, and
+  the backend verification view shows it too.
+- `vault:audit --reset-anchor` clears the anchor after a wipe or purge you
+  performed deliberately, writes the reset into the chain so it cannot be done
+  invisibly, and re-arms the anchor on that entry. New audit action
+  `audit_anchor_reset`.
+- `auditAnchorRequired` extension setting (default off). A missing anchor
+  becomes an error, and ordinary audit writes stop arming an anchor that is not
+  there — whatever the log currently contains, an emptied one included — so
+  deleting the anchor and truncating or wiping the log can no longer be
+  laundered back to a valid verdict by ordinary traffic. Enable it after the
+  first audit write following the upgrade; while it is on, `vault:audit
+  --reset-anchor` is the only way to arm the anchor.
+
+### Changed
+
+- **A truncated audit log now verifies as INVALID.** This also blocks
+  `vault:rotate-master-key` and both HMAC re-seal paths, which already refuse to
+  run on any other chain error — re-sealing a truncated chain would launder it.
+  Use `vault:audit --reset-anchor` for a truncation you performed on purpose.
+- Installations upgrade into a populated chain with no anchor row. That is a
+  warning, not an error, and the anchor arms itself on the next audit write.
+
 ## [0.13.0] - 2026-07-30
 
 ### Added

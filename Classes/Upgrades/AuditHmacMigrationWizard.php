@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Upgrades;
 
 use Doctrine\DBAL\Platforms\SQLitePlatform;
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditChainLockTrait;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -56,6 +57,7 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
         private readonly MasterKeyProviderInterface $masterKeyProvider,
         private readonly ExtensionConfigurationInterface $extensionConfiguration,
         private readonly AuditLogServiceInterface $auditLogService,
+        private readonly AuditChainAnchorStoreInterface $anchorStore,
     ) {
         $this->logger = new NullLogger();
     }
@@ -146,6 +148,13 @@ final class AuditHmacMigrationWizard implements UpgradeWizardInterface, LoggerAw
 
         try {
             $migratedCount = $this->rehashAllRows($connection, $hmacKey, $targetEpoch);
+
+            // Every row's entry_hash was just rewritten, so the tip anchor now
+            // asserts a hash that no longer exists. Re-record it inside the same
+            // lock and transaction; without this the next verification reports a
+            // chain violation on a perfectly healthy chain.
+            $this->anchorStore->reseal($connection);
+
             $this->commitAuditLock($connection, $isSQLite);
             $committed = true;
 

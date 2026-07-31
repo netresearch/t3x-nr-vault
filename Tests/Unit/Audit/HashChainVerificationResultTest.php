@@ -126,6 +126,7 @@ final class HashChainVerificationResultTest extends TestCase
             'warnings' => [],
             'missingUids' => [],
             'missingUidCount' => 0,
+            'anchorStatus' => 'notChecked',
         ], $subject->toArray());
     }
 
@@ -141,19 +142,22 @@ final class HashChainVerificationResultTest extends TestCase
             'warnings' => [],
             'missingUids' => [],
             'missingUidCount' => 0,
+            'anchorStatus' => 'notChecked',
         ], $subject->toArray());
     }
 
     #[Test]
-    public function toArrayContainsExactlyFiveKeys(): void
+    public function toArrayContainsExactlySixKeys(): void
     {
         $subject = HashChainVerificationResult::valid();
 
-        // Schema: valid, errors, warnings, missingUids, missingUidCount.
-        // missingUidCount was added alongside the enumeration cap so large
-        // gaps (mass purges) do not explode the missingUids array — callers
-        // can still detect the gap scale without holding N entries.
-        self::assertCount(5, $subject->toArray());
+        // Schema: valid, errors, warnings, missingUids, missingUidCount,
+        // anchorStatus. missingUidCount was added alongside the enumeration cap
+        // so large gaps (mass purges) do not explode the missingUids array —
+        // callers can still detect the gap scale without holding N entries.
+        // anchorStatus reports the tip-anchor check, which is what detects a
+        // tail truncation or a full wipe the row walk cannot see.
+        self::assertCount(6, $subject->toArray());
     }
 
     #[Test]

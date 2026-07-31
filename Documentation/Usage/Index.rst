@@ -359,6 +359,35 @@ View the audit log:
    # Export to JSON
    vendor/bin/typo3 vault:audit --format=json > audit.json
 
+Verify the tamper-evident chain:
+
+.. code-block:: bash
+   :caption: Verify audit chain integrity
+
+   vendor/bin/typo3 vault:audit --verify
+
+The output ends with a ``Tip anchor:`` line. The anchor is what detects removal
+of the *end* of the log — a truncation leaves no gap and no broken link, so the
+chain walk alone cannot see it (see :ref:`security-audit-chain-anchor`).
+
+``ok``
+   The anchored entry is still present and unchanged.
+
+``NOT ARMED``
+   No anchor recorded yet. It arms itself on the next audit log write.
+
+``VIOLATED``
+   The anchored entry is gone or was replaced — the log was truncated or wiped.
+   Snapshot the table before changing anything else.
+
+After a wipe or purge you performed deliberately, clear the anchor so it can
+arm again. The reset is itself written into the chain:
+
+.. code-block:: bash
+   :caption: Re-arm the anchor after a deliberate wipe
+
+   vendor/bin/typo3 vault:audit --reset-anchor
+
 .. figure:: /Images/AuditLog.png
    :alt: Audit log showing secret access history with timestamps, actors, and IP addresses
    :class: with-shadow

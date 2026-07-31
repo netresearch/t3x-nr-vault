@@ -35,15 +35,30 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
      */
     private const BATCH_SIZE = 1000;
 
+    public function __construct(
+        private AuditChainAnchorStoreInterface $anchorStore,
+    ) {}
+
     public function rekeyChain(Connection $connection, #[SensitiveParameter] string $newMasterKey): int
     {
         $hmacKey = AuditLogService::deriveHmacKeyFromMasterKey($newMasterKey);
 
         try {
-            return $this->rewriteChain($connection, $hmacKey);
+            $rewritten = $this->rewriteChain($connection, $hmacKey);
         } finally {
             sodium_memzero($hmacKey);
         }
+
+        // The rewrite invalidated the entry hash the tip anchor asserts, so the
+        // anchor is re-signed here — under the NEW key, because the master-key
+        // provider still holds the old one at this point. This lives inside
+        // rekeyChain() rather than in its caller on purpose: as a caller
+        // obligation it was a docblock that every future caller had to honour,
+        // and skipping it makes an entirely healthy chain report a tip-anchor
+        // violation on every subsequent verification.
+        $this->anchorStore->reseal($connection, $newMasterKey);
+
+        return $rewritten;
     }
 
     /**
