@@ -75,6 +75,7 @@ function selfTestRemove(string $path): void
 {
     if (!is_dir($path)) {
         if (is_file($path)) {
+            // nosemgrep: php.lang.security.unlink-use.unlink-use - self-test-owned temp fixture path built by this script, never user input.
             unlink($path);
         }
 
