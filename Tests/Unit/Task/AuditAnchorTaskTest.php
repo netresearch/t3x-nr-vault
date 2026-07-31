@@ -16,10 +16,26 @@ use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Scheduler\Scheduler;
 
 #[CoversClass(AuditAnchorTask::class)]
 final class AuditAnchorTaskTest extends TestCase
 {
+    protected bool $resetSingletonInstances = true;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // TYPO3 v13's AbstractTask::__construct() resolves the Scheduler via
+        // GeneralUtility::makeInstance(); its 3-argument constructor is not
+        // autowirable in a unit-test context (no DI container), so register a
+        // stand-in. v14's AbstractTask no longer does this, but the mock is
+        // harmless there.
+        GeneralUtility::setSingletonInstance(Scheduler::class, $this->createMock(Scheduler::class));
+    }
+
     #[Test]
     public function successfulAnchoringReportsSuccess(): void
     {
