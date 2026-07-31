@@ -6,6 +6,26 @@
 Security
 ========
 
+This page covers the encryption architecture, the access-control model and
+audit logging. The pages below go deeper on the parts an assessment or a
+hardened deployment needs.
+
+.. toctree::
+   :maxdepth: 2
+
+   ThreatModel
+   SecurityProfiles
+   TrustBoundaries
+   Cryptography
+   AuditEvidence
+   KnownLimitations
+
+..  warning::
+
+    Read :ref:`security-known-limitations` before relying on any control
+    described here. It states, honestly, where each defence stops — including
+    the ones that cannot be fixed inside a TYPO3 extension.
+
 .. _security-encryption-architecture:
 
 Encryption architecture
