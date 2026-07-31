@@ -453,6 +453,7 @@ final class JsonFileAuditSinkTest extends TestCase
             $sandbox . '/public-was-removed',
             $sandbox . '/var',
             $sandbox . '/config',
+            'Testing',
         );
 
         self::assertFalse($this->createSubject()->isEnabled());

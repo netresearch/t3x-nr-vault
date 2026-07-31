@@ -1,5 +1,17 @@
 # Codecov configuration
 # https://docs.codecov.com/docs/codecovyml-reference
+#
+# Coverage is BLOCKING. Every status below sets `informational: false`, so a drop
+# fails the check instead of posting a note nobody reads. Two tiers:
+#
+#   * repo-wide defaults (`coverage.status`) — the floor for ordinary changes;
+#   * per-component statuses (`component_management`) — a stricter floor for the
+#     security-critical directories, where an untested line is a latent
+#     vulnerability rather than a coverage statistic.
+#
+# The project status uses `target: auto` with a 0.5% threshold: a ratchet.
+# Coverage may not fall below the base commit by more than rounding noise, so the
+# number only moves upward over time.
 
 coverage:
   precision: 2
@@ -10,17 +22,56 @@ coverage:
     project:
       default:
         target: auto
-        threshold: 5%
-        informational: true
+        # Ratchet: at most 0.5% below the base commit. Deliberately tight —
+        # anything larger is a real regression, not measurement jitter.
+        threshold: 0.5%
+        informational: false
     patch:
       default:
+        # New and changed lines must be 80% covered repo-wide.
         target: 80%
-        threshold: 5%
-        informational: true
+        threshold: 2%
+        informational: false
 
 # Branch / path coverage for PHP is derived from Clover XML automatically by
 # Codecov — no parser tweaks needed. (The legacy `parsers.gcov.*` block only
 # applies to C/C++ coverage sources and is ignored for PHP uploads.)
+
+# ---------------------------------------------------------------------------
+# Security-critical components.
+#
+# Patch coverage on these paths must be 90%: envelope encryption and master-key
+# handling (Crypto), authorization and technical-actor context (Security), and
+# the tamper-evident audit chain (Audit). The 1% threshold absorbs rounding on
+# small diffs without opening a meaningful gap.
+#
+# Raising a target is always fine. LOWERING one — or dropping a path from a
+# component — needs security-team sign-off recorded in the PR description, the
+# same rule the mutation ratchet in `infection-security.json5` follows.
+# ---------------------------------------------------------------------------
+component_management:
+  default_rules:
+    statuses:
+      - type: patch
+        target: 90%
+        threshold: 1%
+        informational: false
+
+  individual_components:
+    - component_id: crypto
+      name: crypto
+      paths:
+        - Classes/Crypto/**
+
+    - component_id: security
+      name: security
+      paths:
+        - Classes/Security/**
+
+    - component_id: audit
+      name: audit
+      paths:
+        - Classes/Audit/**
 
 flags:
   unit:
@@ -33,7 +84,7 @@ flags:
     carryforward: true
 
 comment:
-  layout: "reach,diff,flags,files"
+  layout: "reach,diff,flags,components,files"
   behavior: default
   require_changes: true
 

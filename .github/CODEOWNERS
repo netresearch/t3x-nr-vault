@@ -4,8 +4,10 @@
 # Default owner for all files
 *                       @CybotTM
 
-# Security-sensitive code (explicit for visibility)
+# Security-sensitive code (explicit for visibility). These paths also require
+# two approvals and a threat-model delta — see CONTRIBUTING.md.
 /Classes/Crypto/        @CybotTM
 /Classes/Security/      @CybotTM
+/Classes/Audit/         @CybotTM
 /SECURITY.md            @CybotTM
 /.github/workflows/     @CybotTM

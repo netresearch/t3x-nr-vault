@@ -23,6 +23,11 @@ includes:
 parameters:
     level: 10
     paths:
+        # Build-time tooling is listed file-by-file: Build/ holds shell scripts
+        # and bootstrap files that were never in scope, so a blanket `Build/`
+        # entry would import a pile of pre-existing findings.
+        - Build/Scripts/collect-evidence.php
+        - Build/Scripts/collect-evidence-selftest.php
         - Classes
         - Tests
     excludePaths:

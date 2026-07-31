@@ -9,12 +9,15 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Crypto;
 
+use GuzzleHttp\Psr7\HttpFactory;
+use Netresearch\NrVault\Configuration\Dto\TransitConfig;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Configuration\SecurityProfile;
 use Netresearch\NrVault\Crypto\EnvironmentMasterKeyProvider;
 use Netresearch\NrVault\Crypto\FileMasterKeyProvider;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactory;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
+use Netresearch\NrVault\Crypto\TransitMasterKeyProvider;
 use Netresearch\NrVault\Crypto\Typo3MasterKeyProvider;
 use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Tests\Unit\TestCase;
@@ -22,6 +25,7 @@ use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use Psr\Http\Client\ClientInterface;
 
 #[CoversClass(MasterKeyProviderFactory::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -76,6 +80,50 @@ final class MasterKeyProviderFactoryTest extends TestCase
         $result = $this->subject->create();
 
         self::assertInstanceOf(Typo3MasterKeyProvider::class, $result);
+    }
+
+    #[Test]
+    public function createReturnsTransitMasterKeyProviderForTransitType(): void
+    {
+        $this->configuration
+            ->method('getMasterKeyProvider')
+            ->willReturn('transit');
+
+        $result = $this->subject->create();
+
+        self::assertInstanceOf(TransitMasterKeyProvider::class, $result);
+    }
+
+    #[Test]
+    public function createAllowsTransitProviderInHardenedProfile(): void
+    {
+        // Transit is external-KMS key custody — exactly what the hardened
+        // profile asks for, so it must NOT be rejected like the typo3 provider.
+        $factory = $this->createHardenedFactory('transit');
+
+        self::assertInstanceOf(TransitMasterKeyProvider::class, $factory->create());
+    }
+
+    #[Test]
+    public function createPassesTheInjectedHttpStackToTheTransitProvider(): void
+    {
+        $this->configuration
+            ->method('getMasterKeyProvider')
+            ->willReturn('transit');
+        $this->configuration
+            ->method('getTransitConfig')
+            ->willReturn(new TransitConfig(address: 'https://vault.example.com', wrappedKeyPath: '/nonexistent/wrapped.key'));
+
+        $httpFactory = new HttpFactory();
+        // Never dispatched: provider construction alone must not touch the network.
+        $client = $this->createMock(ClientInterface::class);
+        $client->expects(self::never())->method('sendRequest');
+
+        $factory = new MasterKeyProviderFactory($this->configuration, $client, $httpFactory, $httpFactory);
+        $provider = $factory->create();
+
+        self::assertInstanceOf(TransitMasterKeyProvider::class, $provider);
+        self::assertFalse($provider->isAvailable());
     }
 
     #[Test]

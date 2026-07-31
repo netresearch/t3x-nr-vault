@@ -45,4 +45,108 @@ final class MasterKeyException extends VaultException
             1703800011,
         );
     }
+
+    /**
+     * Transit provider: server configuration is incomplete.
+     */
+    public static function transitNotConfigured(string $detail): self
+    {
+        return new self(
+            \sprintf('HashiCorp Vault Transit provider is not configured: %s', $detail),
+            1754100001,
+        );
+    }
+
+    /**
+     * Transit provider: no Vault token available.
+     *
+     * Reports only WHERE the token was looked for, never any value.
+     */
+    public static function transitTokenMissing(string $envVarName): self
+    {
+        return new self(
+            \sprintf(
+                'No Vault token available for the Transit provider. Set the "%s" environment '
+                . 'variable (preferred) or the hashicorp.token extension setting. Token value: [REDACTED]',
+                $envVarName,
+            ),
+            1754100002,
+        );
+    }
+
+    /**
+     * Transit provider: an auth method other than `token` was configured.
+     */
+    public static function transitUnsupportedAuthMethod(string $authMethod): self
+    {
+        return new self(
+            \sprintf(
+                'Vault auth method "%s" is not supported by the Transit master-key provider. '
+                . 'Only "token" is implemented; use hashicorp.authMethod = token and provide the '
+                . 'token via environment variable.',
+                $authMethod,
+            ),
+            1754100003,
+        );
+    }
+
+    /**
+     * Transit provider: Vault answered with a non-2xx status.
+     *
+     * The response body is deliberately NOT included — it echoes the submitted
+     * ciphertext on some error paths and may carry Vault internals.
+     */
+    public static function transitRequestRejected(string $operation, int $statusCode): self
+    {
+        return new self(
+            \sprintf(
+                'Vault Transit %s failed with HTTP %d (response body suppressed). '
+                . 'Check the token policy grants %s on the configured transit key.',
+                $operation,
+                $statusCode,
+                $operation,
+            ),
+            1754100004,
+        );
+    }
+
+    /**
+     * Transit provider: transport-level failure (DNS, TLS, timeout).
+     *
+     * Callers must pass an already-redacted reason.
+     */
+    public static function transitTransportFailure(string $operation, string $redactedReason): self
+    {
+        return new self(
+            \sprintf('Vault Transit %s request could not be sent: %s', $operation, $redactedReason),
+            1754100005,
+        );
+    }
+
+    /**
+     * Transit provider: response was 2xx but not the expected shape.
+     */
+    public static function transitMalformedResponse(string $operation, string $detail): self
+    {
+        return new self(
+            \sprintf('Vault Transit %s returned an unusable response: %s', $operation, $detail),
+            1754100006,
+        );
+    }
+
+    /**
+     * Transit provider: mount path or key name contains characters that must
+     * never reach a Vault API URL.
+     */
+    public static function transitInvalidKeyReference(string $field): self
+    {
+        return new self(
+            \sprintf(
+                'HashiCorp Vault Transit %s contains characters that are not allowed in a Vault '
+                . 'API path. Allowed: letters, digits, dot, dash, underscore (and "/" for the mount).',
+                $field,
+            ),
+            1754100007,
+        );
+    }
 }

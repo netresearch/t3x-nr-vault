@@ -151,6 +151,101 @@ composer test:all
 - [ ] Code style is correct
 - [ ] Documentation is updated (if applicable)
 - [ ] CHANGELOG.md is updated
+- [ ] For security-critical paths: two approvals and a threat-model delta (see below)
+
+## Security-Critical Changes
+
+This extension stores other people's credentials. A defect in the paths below
+is not a bug report next week, it is a disclosure. Changes to them carry two
+extra requirements on top of the normal PR process.
+
+### Which paths
+
+| Path | Why |
+|------|-----|
+| `Classes/Crypto/` | Envelope encryption, key wrapping, master-key providers |
+| `Classes/Security/` | Access control, permissions, technical-actor context |
+| `Classes/Audit/` | Tamper-evident audit log and its hash chain |
+| `infection-security.json5`, `.github/workflows/security-gates.yml` | The mutation ratchet that guards the above |
+| `.github/workflows/release-evidence.yml`, `Build/Scripts/collect-evidence.php` | The release evidence bundle |
+| `SECURITY.md` | The published security policy and its SLAs |
+
+A change counts as security-critical if it touches any of these, **or** if it
+changes how a secret, key, or audit record is produced, stored, transported, or
+compared anywhere else in the codebase.
+
+### Rule 1 — two-person review
+
+A security-critical PR needs **two approving reviews**, and the author may not
+be one of them. One approver must be a code owner for the touched path (see
+`.github/CODEOWNERS`). Green CI is not a substitute: the mutation ratchet and
+the invariant tests catch regressions in behaviour we already thought of, and
+the second reviewer is there for the ones we did not.
+
+If a second qualified reviewer genuinely is not available, do not quietly
+self-merge. Say so explicitly in the PR — what you could not get reviewed and
+why — so the deviation is on the record and can be revisited. An undocumented
+single-approval merge on a crypto path is treated as a process incident, not a
+shortcut.
+
+### Rule 2 — threat-model delta
+
+Every security-critical PR must state, in its description, what the change does
+to the threat model. Three lines are enough when the answer is "nothing new":
+
+```markdown
+## Threat-model delta
+
+- New or changed trust boundary: none — the DEK never leaves EncryptionService.
+- New attacker capability required: none.
+- Invariant added/removed: adds "a wrapped DEK is rejected when its identifier
+  does not match" (covered by MasterKeyRotationAbortTest).
+```
+
+Answer these explicitly:
+
+1. **Trust boundaries** — does data cross a new boundary (process, host,
+   network, database, log sink, external provider)?
+2. **Attacker capability** — what would an attacker now need, and did that get
+   cheaper? Call out anything that weakens a constant-time comparison, widens a
+   grant, or lengthens a plaintext's lifetime in memory.
+3. **Invariants** — which security invariant does this add, change, or remove,
+   and which test pins it? A removed invariant needs its own justification.
+
+"No change to the threat model" is a valid answer. Silence is not — a reviewer
+cannot tell the two apart, and the delta is what the release evidence bundle
+and any future audit are read against.
+
+### Release evidence
+
+Tagged releases publish a security evidence bundle — test results per suite,
+coverage overall and for the security directories, the mutation score for the
+whole codebase and for the security-critical scope, the dependency audit, the
+reference `vault:doctor` posture, and pointers to the signed release artifacts.
+It is assembled by `Build/Scripts/collect-evidence.php` and published by
+`.github/workflows/release-evidence.yml`.
+
+Every entry in the bundle carries a status of `pass`, `warn`, `fail` or
+`absent`. `absent` means the producing step did not run in that build; it is
+recorded rather than omitted, precisely so a gap cannot be mistaken for a pass.
+
+Two rules follow from that:
+
+- **Do not describe a release as verified while any bundle entry is `fail`, and
+  do not describe an `absent` entry as verified at all.** Fix the gap, or state
+  plainly in the release notes what was not measured.
+- **A release does not ship with unresolved High or Critical findings** — from
+  the bundle, from CodeQL or Opengrep, or from `composer audit`. See the
+  emergency-release rules in
+  [SECURITY.md](SECURITY.md#emergency-releases) for the one narrow exception
+  (a documented, mitigated finding published in the advisory) and how it is
+  handled.
+
+Build a bundle locally with `composer ci:evidence`; verify the collector itself
+with `composer ci:test:evidence` (also part of `composer ci`). See
+[SECURITY.md](SECURITY.md#release-evidence) for how to fetch and verify a
+published bundle, and `Documentation/Developer/Index.rst` for the manifest
+schema.
 
 ## Reporting Issues
 

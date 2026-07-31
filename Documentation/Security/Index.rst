@@ -506,6 +506,91 @@ Threat-model notes:
    unless required, minimal group membership, and monitor its
    ``access_denied`` events.
 
+.. _security-deployment-gate:
+
+Deployment gate
+===============
+
+Every control described on this page is checkable from a shell.
+:ref:`command-doctor` evaluates them all and reduces the result to a process exit
+code, which makes it usable as the last step of a deployment pipeline rather than
+as a document somebody is supposed to have read.
+
+.. code-block:: bash
+   :caption: Deployment gate — refuse the release on any critical finding
+
+   vendor/bin/typo3 vault:doctor --profile=hardened
+
+Exit-code contract
+------------------
+
+======  ==========================================================
+Code    Meaning
+======  ==========================================================
+``0``   Every control passed — audit-ready for the checked profile.
+``1``   Warnings only. Deployable; fix before an audit.
+``2``   At least one critical finding, an unusable ``--profile``
+        value, or the run could not complete.
+======  ==========================================================
+
+The verdict is the **worst severity present**, never an average, so a long list
+of passing controls cannot offset one critical finding. And ``2`` covers "could
+not check" as well as "checked and found a problem" — a gate that cannot run must
+never be readable as a gate that found nothing.
+
+Two ways to wire it, and they answer different questions:
+
+.. code-block:: bash
+   :caption: Fail the pipeline only on critical findings
+
+   vendor/bin/typo3 vault:doctor
+   test $? -le 1
+
+.. code-block:: bash
+   :caption: Require a fully clean report
+
+   vendor/bin/typo3 vault:doctor
+
+The stricter form is the one to aim for. Accepting exit ``1`` indefinitely means
+a warning nobody ever removes, which is the state in which a *new* warning goes
+unnoticed.
+
+Checking a profile you have not adopted yet
+-------------------------------------------
+
+``--profile=hardened`` evaluates the live configuration against the hardened
+policy **without changing anything**. That is how to plan the migration described
+in :ref:`security-disable-admin-override` — from the actual finding list, rather
+than by switching the profile on production and finding out which service stops
+booting.
+
+The report always states both the profile it checked and the profile in force, so
+a passing dry run cannot be mistaken for hardening already being live.
+
+What the gate does not cover
+----------------------------
+
+``vault:doctor`` bounds its own cost so it can run in a pipeline and on a backend
+page load. Two limits matter, and both are stated in the findings themselves:
+
+*  the hash-chain pass covers the newest 1000 audit entries, not the whole chain;
+*  the anchor comparison detects a chain that has *shrunk*, not one whose
+   anchored row now hashes differently.
+
+:ref:`command-audit-verify` does both in full and is the authoritative integrity
+verifier. Schedule it — the gate is a pre-flight check, not a substitute for
+continuous verification.
+
+Backend surface
+---------------
+
+The vault Overview module shows the same controls: the active profile, an
+"N of M controls passed" ratio, and the open findings with their risk and
+remediation. The detailed finding list requires the ``vault.configure``
+permission — it names this installation's concrete weak points and the files to
+edit. Everyone else sees the profile badge and the ratio, which is enough to
+escalate.
+
 .. _security-best-practices:
 
 Security best practices

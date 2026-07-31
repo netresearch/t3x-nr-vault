@@ -59,12 +59,17 @@
             <file>../Classes/Security/BreakGlassStateInterface.php</file>
             <file>../Classes/Service/SecretDetectionServiceInterface.php</file>
             <file>../Classes/Service/VaultServiceInterface.php</file>
+            <file>../Classes/Service/Doctor/ReadinessCheckInterface.php</file>
+            <file>../Classes/Service/Doctor/VaultDoctorServiceInterface.php</file>
+            <!-- Constant holder for documentation deep links: no executable code. -->
+            <file>../Classes/Service/Doctor/DocsLink.php</file>
             <file>../Classes/Service/Detection/SecretFinding.php</file>
             <!-- Enums: PHPUnit 12 cannot attribute coverage to enum classes -->
             <file>../Classes/Http/SecretPlacement.php</file>
             <file>../Classes/Service/Detection/Severity.php</file>
             <file>../Classes/Service/VaultFieldPermission.php</file>
             <file>../Classes/Security/VaultPermission.php</file>
+            <file>../Classes/Service/Doctor/FindingSeverity.php</file>
             <!-- Interfaces and enums added with ADR-031/032/033: no executable
                  code to cover, and declaring CoversClass on an excluded target
                  raises a warning that failOnWarning turns into a failure. -->

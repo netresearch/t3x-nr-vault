@@ -61,7 +61,7 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    :name: ext-nrvault-masterKeyProvider
    :type: string
    :Default: typo3
-   :Options: typo3, file, env
+   :Options: typo3, file, env, transit
 
    How to retrieve the master encryption key.
 
@@ -75,6 +75,11 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    env
       Read from an environment variable.
 
+   transit
+      Unwrap through HashiCorp Vault's transit secrets engine. Only the
+      Vault-encrypted ciphertext is stored locally — see
+      :ref:`configuration-master-key-transit`.
+
 .. confval:: masterKeySource
    :name: ext-nrvault-masterKeySource
    :type: string
@@ -85,6 +90,66 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    -  **file**: Path to the key file (e.g., :file:`/secure/path/vault.key`).
    -  **env**: Environment variable name (e.g., :samp:`NR_VAULT_MASTER_KEY`).
    -  **typo3**: Not used (key derived from TYPO3's encryption key).
+   -  **transit**: Not used (configured via the ``hashicorp.*`` settings below).
+
+.. confval:: hashicorp.address
+   :name: ext-nrvault-hashicorp-address
+   :type: string
+   :Default: (empty)
+
+   Vault server base address, e.g. :samp:`https://vault.example.com:8200`.
+   Required by the ``transit`` master key provider.
+
+.. confval:: hashicorp.authMethod
+   :name: ext-nrvault-hashicorp-authMethod
+   :type: string
+   :Default: token
+   :Options: token, kubernetes, approle
+
+   Vault authentication method. The ``transit`` master key provider implements
+   ``token`` only and refuses to start on the other values rather than silently
+   downgrading. See :ref:`configuration-master-key-transit`.
+
+.. confval:: hashicorp.tokenEnvVar
+   :name: ext-nrvault-hashicorp-tokenEnvVar
+   :type: string
+   :Default: VAULT_TOKEN
+
+   Name of the environment variable holding the Vault token. Read in preference
+   to :confval:`hashicorp.token <ext-nrvault-hashicorp-token>`.
+
+.. confval:: hashicorp.token
+   :name: ext-nrvault-hashicorp-token
+   :type: string
+   :Default: (empty)
+
+   Vault token stored in the extension configuration. Development fallback only
+   — a token stored here is readable in the Install Tool and ends up in
+   configuration exports. Prefer the environment variable.
+
+.. confval:: hashicorp.transitMount
+   :name: ext-nrvault-hashicorp-transitMount
+   :type: string
+   :Default: transit
+
+   Mount path of the transit secrets engine, without the ``/v1/`` prefix.
+   Nested mounts such as :samp:`platform/transit` are supported.
+
+.. confval:: hashicorp.transitKeyName
+   :name: ext-nrvault-hashicorp-transitKeyName
+   :type: string
+   :Default: nr-vault-master
+
+   Name of the transit key that wraps the vault master key.
+
+.. confval:: hashicorp.transitWrappedKeyPath
+   :name: ext-nrvault-hashicorp-transitWrappedKeyPath
+   :type: string
+   :Default: (empty)
+
+   File holding the Vault-wrapped master key. Empty resolves to
+   :file:`<var-path>/secrets/vault-master.key.transit`. The file contains
+   ciphertext only, never key material.
 
 .. confval:: allowCliAccess
    :name: ext-nrvault-allowCliAccess
@@ -441,6 +506,109 @@ Configure in extension settings:
 
 This is ideal for containerized deployments where secrets are injected
 via environment variables.
+
+.. _configuration-master-key-transit:
+
+HashiCorp Vault Transit provider
+--------------------------------
+
+The master key is generated once, wrapped by Vault's transit secrets engine,
+and only the resulting ciphertext (:samp:`vault:v1:…`) is stored on the local
+filesystem. Every start-up unwraps it through a Vault API call, so no key
+material sits at rest next to the database.
+
+Set up the transit engine and a key:
+
+.. code-block:: bash
+   :caption: Enable transit and create the wrapping key
+
+   vault secrets enable transit
+   vault write -f transit/keys/nr-vault-master
+
+Grant the TYPO3 instance encrypt and decrypt on that one key — nothing else:
+
+.. code-block:: text
+   :caption: Vault policy nr-vault-transit.hcl (HCL)
+
+   path "transit/encrypt/nr-vault-master" {
+     capabilities = ["update"]
+   }
+
+   path "transit/decrypt/nr-vault-master" {
+     capabilities = ["update"]
+   }
+
+.. code-block:: bash
+   :caption: Apply the policy and issue a token
+
+   vault policy write nr-vault-transit nr-vault-transit.hcl
+   vault token create -policy=nr-vault-transit -period=768h
+
+Provide the token through the environment, never in the extension
+configuration:
+
+.. code-block:: bash
+   :caption: Vault token via environment
+
+   export VAULT_TOKEN="hvs...."
+
+Configure in extension settings:
+
+-  :confval:`masterKeyProvider <ext-nrvault-masterKeyProvider>`: transit
+-  :confval:`hashicorp.address <ext-nrvault-hashicorp-address>`: https://vault.example.com:8200
+-  :confval:`hashicorp.authMethod <ext-nrvault-hashicorp-authMethod>`: token
+-  :confval:`hashicorp.tokenEnvVar <ext-nrvault-hashicorp-tokenEnvVar>`: VAULT_TOKEN
+-  :confval:`hashicorp.transitMount <ext-nrvault-hashicorp-transitMount>`: transit
+-  :confval:`hashicorp.transitKeyName <ext-nrvault-hashicorp-transitKeyName>`: nr-vault-master
+
+Then create and wrap the master key:
+
+.. code-block:: bash
+   :caption: Initialize the vault with a Vault-wrapped master key
+
+   vendor/bin/typo3 vault:init
+
+The wrapped key is written to
+:confval:`hashicorp.transitWrappedKeyPath <ext-nrvault-hashicorp-transitWrappedKeyPath>`
+with ``0600`` permissions. Back that file up together with the Vault key: the
+blob is worthless without Vault, and Vault is worthless without the blob.
+
+Rotating the transit key (:samp:`vault write -f transit/keys/nr-vault-master/rotate`)
+re-wraps future ciphertexts without touching any secret in the TYPO3 database.
+Rotating the vault master key itself is unchanged — the new key is wrapped
+through Vault and the local blob replaced:
+
+.. code-block:: bash
+   :caption: Rotate the vault master key
+
+   vendor/bin/typo3 vault:rotate-master-key
+
+.. note::
+
+   Only ``token`` authentication is implemented. ``approle`` and ``kubernetes``
+   are rejected with a clear error instead of being treated as token auth;
+   AppRole login support is a planned follow-up.
+
+.. warning::
+
+   What Transit does and does not protect.
+
+   It protects **key custody**: the master key can be rotated, centrally
+   audited and revoked in Vault, a stolen database plus a stolen webroot is
+   useless without Vault access, and there is no key file on disk to
+   exfiltrate.
+
+   It does **not** protect against a fully compromised PHP process. Such a
+   process holds the same Vault token the extension holds and can simply call
+   ``decrypt`` itself. Transit raises the cost of offline attacks and makes
+   access observable — it is not a sandbox around a live intruder.
+
+.. note::
+
+   The provider talks to Vault through TYPO3's HTTP client, so
+   :php:`$GLOBALS['TYPO3_CONF_VARS']['HTTP']` settings (proxy, TLS verification,
+   timeouts) apply. Use an ``https`` address: the Vault token travels in the
+   ``X-Vault-Token`` request header.
 
 .. _configuration-access-control:
 

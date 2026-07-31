@@ -87,6 +87,30 @@ final class CryptoFuzzTest extends TestCase
             'cr lf' => ["\r\n\t", '01937b6e-4b6c-7abc-8def-000000000008'],
             'all zero bytes 16' => [str_repeat("\x00", 16), '01937b6e-4b6c-7abc-8def-000000000009'],
             'all 0xff bytes 16' => [str_repeat("\xff", 16), '01937b6e-4b6c-7abc-8def-000000000010'],
+            // Every byte value exactly once: catches any accidental
+            // encoding/escaping step that is not binary-transparent.
+            'full binary byte range' => [
+                implode('', array_map(chr(...), range(0, 255))),
+                '01937b6e-4b6c-7abc-8def-000000000011',
+            ],
+            // Astral-plane codepoints, a combining mark and the highest legal
+            // codepoint — multi-byte sequences that a naive substr() would split.
+            'high unicode' => [
+                "\u{1F510}\u{10FFFF}a\u{0301}\u{0928}\u{094D}\u{0937}\u{20AC}",
+                '01937b6e-4b6c-7abc-8def-000000000012',
+            ],
+            // 1 MiB payloads under BOTH algorithms (the dedicated
+            // oneMegabytePlaintextRoundTrips() case covers XChaCha20 only).
+            // All-zero bytes additionally rule out any length/padding shortcut
+            // that happens to work for high-entropy input.
+            'one mebibyte of zero bytes' => [
+                str_repeat("\x00", 1024 * 1024),
+                '01937b6e-4b6c-7abc-8def-000000000013',
+            ],
+            'one mebibyte of random bytes' => [
+                random_bytes(1024 * 1024),
+                '01937b6e-4b6c-7abc-8def-000000000014',
+            ],
         ];
 
         // Add 50 random plaintext cases seeded for reproducibility

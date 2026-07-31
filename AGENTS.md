@@ -154,7 +154,7 @@ AuditLogServiceInterface::verifyHashChain(?int $fromUid = null, ?int $toUid = nu
 ```
 
 ## CLI Commands (TYPO3 `vendor/bin/typo3`)
-> All 16 registered `vault:*` commands. Full options/examples in
+> All 17 registered `vault:*` commands. Full options/examples in
 > `Documentation/Developer/Commands.rst`.
 ```
 vault:init                 # Initialize the vault (generate master key, verify configuration)
@@ -172,6 +172,7 @@ vault:audit-migrate-hmac   # Migrate audit log hash chain from SHA-256 to HMAC-S
 vault:rotate-master-key    # Re-encrypt all secrets with a new master key
 vault:cleanup-orphans      # Clean up orphaned vault entries (scheduled task wrapper)
 vault:break-glass          # Open/close/inspect a time-boxed break-glass window (restores the admin override)
+vault:doctor               # Check the configuration for deployment/audit readiness (exit 0 clean / 1 warnings / 2 critical)
 vault:seed-demo            # Seed demo secrets + audit history (development only)
 ```
 
@@ -192,7 +193,7 @@ vault:seed-demo            # Seed demo secrets + audit history (development only
 - Rotating / regenerating cryptographic keys in fixtures.
 
 ### Never Do
-- Commit secrets, credentials, or real master keys (test fixtures only — allowlisted in `.gitleaks.toml`).
+- Commit secrets, credentials, or real master keys (test fixtures only — synthetic values, reviewed by hand; `.gitleaks.toml` is present but not enforced by any CI job).
 - Commit `composer.lock` (extension, not application).
 - Push directly to `main` — open a PR.
 - Merge a PR before all review threads are resolved.

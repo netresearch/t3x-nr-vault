@@ -23,6 +23,16 @@ Access the vault through the TYPO3 backend:
 
    The vault overview displays key metrics and provides quick-start code examples
 
+The overview also carries a **Security Readiness** panel: the active security
+profile, an "N of M controls passed" ratio, and the open findings with the risk
+each one carries and the command that fixes it. The detailed finding list requires
+the ``vault.configure`` permission, because it names this installation's concrete
+weak points; everyone else sees the profile badge and the ratio.
+
+The panel and :ref:`command-doctor` evaluate the same controls, so the module and
+a CI gate cannot disagree. Use the command for anything scheduled or automated —
+see :ref:`security-deployment-gate`.
+
 .. _usage-creating-secrets:
 
 Creating secrets
