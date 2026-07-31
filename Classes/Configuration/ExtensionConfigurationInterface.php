@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Configuration;
 
 use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
 use Netresearch\NrVault\Configuration\Dto\VaultServerConfig;
+use Netresearch\NrVault\Exception\ConfigurationException;
 
 /**
  * Interface for extension configuration access.
@@ -20,9 +21,9 @@ interface ExtensionConfigurationInterface
     /**
      * Get the configured security profile.
      *
-     * @throws \Netresearch\NrVault\Exception\ConfigurationException if the
-     *                                                               configured value is not a valid profile (fail-closed: an
-     *                                                               unknown profile must never silently degrade to Standard)
+     * @throws ConfigurationException if the
+     *                                configured value is not a valid profile (fail-closed: an
+     *                                unknown profile must never silently degrade to Standard)
      */
     public function getSecurityProfile(): SecurityProfile;
 
@@ -98,6 +99,45 @@ interface ExtensionConfigurationInterface
      * Get the audit HMAC epoch (0 = legacy SHA-256, 1+ = HMAC-SHA256).
      */
     public function getAuditHmacEpoch(): int;
+
+    /**
+     * Whether the syslog audit sink is enabled.
+     */
+    public function isAuditSinkSyslogEnabled(): bool;
+
+    /**
+     * `openlog()` ident for the syslog audit sink (never empty).
+     */
+    public function getAuditSinkSyslogIdent(): string;
+
+    /**
+     * Whether the append-only NDJSON file audit sink is enabled.
+     */
+    public function isAuditSinkFileEnabled(): bool;
+
+    /**
+     * Absolute path of the append-only NDJSON audit file.
+     *
+     * Never empty — an unconfigured value resolves to `<var>/log/`.
+     */
+    public function getAuditSinkFilePath(): string;
+
+    /**
+     * Absolute path of the append-only chain-tip anchor file.
+     *
+     * Never empty — an unconfigured value resolves to `<var>/log/`.
+     */
+    public function getAuditSinkAnchorPath(): string;
+
+    /**
+     * Whether the webhook audit sink is enabled.
+     */
+    public function isAuditSinkWebhookEnabled(): bool;
+
+    /**
+     * Endpoint the webhook audit sink POSTs to ('' = unconfigured).
+     */
+    public function getAuditSinkWebhookUrl(): string;
 
     /**
      * Days after creation with zero reads before a secret is "dead".

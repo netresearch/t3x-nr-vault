@@ -48,6 +48,36 @@ auditReads = 1
 # cat=Security; type=int+; label=Audit HMAC Epoch: Hash algorithm version marker for the audit log hash chain (0 = legacy SHA-256 without HMAC, 1 = HMAC-SHA256 over identity fields only, 2 = HMAC-SHA256 over identity + forensic fields including success/error_message/reason/ip_address/user_agent/context, 3 = additionally binds the epoch selector hmac_key_epoch plus the attribution fields actor_type/actor_username/actor_role/request_id). Default 3 closes the algorithm-downgrade forgery (a DB-write attacker can no longer downgrade a row to keyless SHA-256 and re-sign it) and makes actor attribution tamper-evident. Run the install-tool "Migrate audit hash chain" wizard after bumping.
 auditHmacEpoch = 3
 
+####################
+### AUDIT SINKS ###
+####################
+# External copies of the audit chain. The database table stays the ONE
+# chain-authoritative sink; these are additional, best-effort destinations that
+# put audit evidence beyond the reach of a database-write attacker. A sink that
+# fails NEVER fails the audited vault operation — the failure is logged, counted
+# and surfaced by "vault:audit-verify".
+
+# cat=Audit Sinks; type=boolean; label=Syslog Sink: Mirror every audit entry to the local syslog as an RFC 5424 structured-data message (facility local0). The cheapest way to get audit evidence off the TYPO3 database and into a log shipper.
+auditSinkSyslogEnabled = 0
+
+# cat=Audit Sinks; type=string; label=Syslog Ident: openlog() ident prefixed to every syslog line. Empty falls back to "nr-vault".
+auditSinkSyslogIdent = nr-vault
+
+# cat=Audit Sinks; type=boolean; label=NDJSON File Sink: Append every audit entry as one JSON object per line to an append-only file. Also writes the chain-tip anchors that let "vault:audit-verify" detect a full audit table reset.
+auditSinkFileEnabled = 0
+
+# cat=Audit Sinks; type=string; label=NDJSON File Path: Absolute path of the append-only audit file. Empty uses <var>/log/nr-vault-audit.ndjson. The sink refuses to run (and reports itself as disabled) when the path resolves inside the public web root.
+auditSinkFilePath =
+
+# cat=Audit Sinks; type=string; label=Anchor File Path: Absolute path of the append-only chain-tip anchor file written by "vault:audit-anchor" and read back by "vault:audit-verify". Empty uses <var>/log/nr-vault-audit-anchor.ndjson. Point this at a write-once / off-host location for real tamper evidence.
+auditSinkAnchorPath =
+
+# cat=Audit Sinks; type=boolean; label=Webhook Sink: POST every audit entry (and every integrity alert) as JSON to an HTTP endpoint — e.g. a SIEM collector.
+auditSinkWebhookEnabled = 0
+
+# cat=Audit Sinks; type=string; label=Webhook URL: https:// endpoint receiving the JSON payloads. Outbound calls go through the hardened HTTP client, so a collector on a private/RFC1918 address must be allow-listed literally in $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] (a filesystem-bound setting, deliberately out of reach of the backend Settings module).
+auditSinkWebhookUrl =
+
 ##################
 ### PERFORMANCE ###
 ##################

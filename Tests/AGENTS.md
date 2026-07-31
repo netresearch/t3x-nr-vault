@@ -139,6 +139,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
 | `Tests/Unit/TestCase.php` | Project base composing the two mock traits below |
 | `Tests/Unit/Traits/TcaSchemaMockTrait.php` | `mockTcaSchemaForTable()` (was duplicated 4x) |
 | `Tests/Unit/Traits/BackendUserMockTrait.php` | `createMockBackendUser()` (was duplicated 3x) |
+| `Tests/Unit/Traits/EnvironmentSandboxTrait.php` | Throwaway project layout + initialised `Environment` for tests that resolve paths via `getVarPath()` / check the `getPublicPath()` boundary (audit file sink, extension-config path defaults) |
 | `Tests/Unit/Fixtures/SecretFixtureBuilder.php` | Fluent builder for `SecretDetails` / `SecretMetadata` / `Secret` DTOs (replaces ~6 hand-rolled factory methods) |
 | `Tests/scripts/check-test-base-class.php` | Architecture check enforcing the project base on new unit tests |
 

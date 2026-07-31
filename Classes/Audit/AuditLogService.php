@@ -16,10 +16,12 @@ use DateTimeInterface;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Generator;
 use InvalidArgumentException;
+use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Log\LoggerInterface;
 use SensitiveParameter;
 use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
@@ -33,7 +35,14 @@ final readonly class AuditLogService implements AuditLogServiceInterface
 {
     use AuditChainLockTrait;
 
-    private const TABLE_NAME = 'tx_nrvault_audit_log';
+    /**
+     * Public so the anchoring subsystem
+     * ({@see Anchor\ChainTipAnchorService}) can read
+     * the chain tip and the row at an anchored sequence from the same table
+     * without a second, drift-prone copy of the name. This service remains the
+     * only WRITER.
+     */
+    public const TABLE_NAME = 'tx_nrvault_audit_log';
 
     /**
      * Column widths (in characters, as `varchar(N)` counts them) of the two
@@ -44,11 +53,23 @@ final readonly class AuditLogService implements AuditLogServiceInterface
 
     private const MAX_REQUEST_ID_LENGTH = 100;
 
+    /**
+     * @param AuditSinkRegistryInterface|null $sinkRegistry External audit sinks.
+     *                                                      Optional so the many existing callers that construct this
+     *                                                      service with four arguments (tests, migration tooling) keep
+     *                                                      working; DI autowires it in production. Null simply means no
+     *                                                      fan-out — the database chain is unaffected either way.
+     * @param LoggerInterface|null $logger Used only to report a failure of the
+     *                                     sink fan-out plumbing itself. Chain writes report failures by
+     *                                     throwing, so this service needs no logger for its primary job.
+     */
     public function __construct(
         private ConnectionPool $connectionPool,
         private AccessControlServiceInterface $accessControlService,
         private MasterKeyProviderInterface $masterKeyProvider,
         private ExtensionConfigurationInterface $extensionConfiguration,
+        private ?AuditSinkRegistryInterface $sinkRegistry = null,
+        private ?LoggerInterface $logger = null,
     ) {}
 
     public function log(
@@ -94,7 +115,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 ),
                 $previousHash,
             );
-            $this->insertAndUpdateHash($connection, $data, $previousHash);
+            $persistedRow = $this->insertAndUpdateHash($connection, $data, $previousHash);
             $this->commitAuditLock($connection, $isSQLite);
         } catch (Throwable $e) {
             $this->rollbackAuditLock($connection, $isSQLite);
@@ -103,6 +124,14 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         } finally {
             $this->releaseAuditLock($connection, $isSQLite);
         }
+
+        // Fan out to external sinks only here: the transaction has committed and
+        // the advisory lock is released, so a slow or hanging sink cannot
+        // serialise every other vault operation behind the audit lock. The
+        // database row is already durable, so a sink failure is a delivery
+        // problem, never a reason to fail (or roll back) the audited operation —
+        // the registry contains every error and counts it.
+        $this->publishToSinks($persistedRow);
     }
 
     public function query(?AuditLogFilter $filter = null, int $limit = 100, int $offset = 0): array
@@ -915,12 +944,17 @@ final readonly class AuditLogService implements AuditLogServiceInterface
      * its own row (otherwise the hash would need a placeholder UID).
      *
      * @param array<string, mixed> $data
+     *
+     * @return array<string, mixed> The persisted row, including the assigned
+     *                              `uid` and the computed `entry_hash`, so the
+     *                              caller can fan it out to external sinks
+     *                              without re-reading it from the database
      */
     private function insertAndUpdateHash(
         Connection $connection,
         array $data,
         string $previousHash,
-    ): void {
+    ): array {
         $connection->insert(self::TABLE_NAME, $data);
         $uid = (int) $connection->lastInsertId();
         $data['uid'] = $uid;
@@ -932,6 +966,48 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             ['entry_hash' => $entryHash],
             ['uid' => $uid],
         );
+
+        $data['entry_hash'] = $entryHash;
+
+        return $data;
+    }
+
+    /**
+     * Hand the committed row to the external audit sinks.
+     *
+     * The registry never throws (see {@see AuditSinkRegistryInterface}), so the
+     * only failure mode left is a registry that is itself broken — caught here so
+     * that even a misconfigured DI graph cannot turn audit fan-out into a failed
+     * vault operation.
+     *
+     * @param array<string, mixed> $row Persisted audit row (DB column names)
+     */
+    private function publishToSinks(array $row): void
+    {
+        if (!$this->sinkRegistry instanceof AuditSinkRegistryInterface) {
+            return;
+        }
+
+        try {
+            $entry = AuditLogEntry::fromDatabaseRow($row);
+            // The chain tip after this write IS this entry's hash — the row was
+            // inserted under the advisory lock, so nothing can have appended
+            // since.
+            $this->sinkRegistry->dispatch($entry, $entry->entryHash);
+        } catch (Throwable $e) {
+            // Reaching here means the fan-out plumbing broke, not a single sink —
+            // the registry contains per-sink failures itself. Report it and let
+            // the audited operation complete: the chain-authoritative row is
+            // already committed.
+            $this->logger?->error(
+                'nr-vault audit sink fan-out failed; the database audit entry is committed and intact.',
+                [
+                    'uid' => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
+                    'error' => $e->getMessage(),
+                    'exception' => $e::class,
+                ],
+            );
+        }
     }
 
     /**

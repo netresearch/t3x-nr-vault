@@ -15,8 +15,10 @@ use Netresearch\NrVault\Configuration\ExtensionConfiguration;
 use Netresearch\NrVault\Configuration\SecurityProfile;
 use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Tests\Unit\TestCase;
+use Netresearch\NrVault\Tests\Unit\Traits\EnvironmentSandboxTrait;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration as Typo3ExtensionConfiguration;
@@ -25,12 +27,26 @@ use TYPO3\CMS\Core\Configuration\ExtensionConfiguration as Typo3ExtensionConfigu
 #[AllowMockObjectsWithoutExpectations]
 final class ExtensionConfigurationTest extends TestCase
 {
+    use EnvironmentSandboxTrait;
+
     private Typo3ExtensionConfiguration&MockObject $typo3Config;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->typo3Config = $this->createMock(Typo3ExtensionConfiguration::class);
+
+        // The path getters (auto key path, audit sink paths) resolve their
+        // defaults through Environment, which the unit bootstrap leaves
+        // uninitialised.
+        $this->setUpEnvironmentSandbox();
+    }
+
+    protected function tearDown(): void
+    {
+        $this->tearDownEnvironmentSandbox();
+
+        parent::tearDown();
     }
 
     #[Test]
@@ -605,5 +621,241 @@ final class ExtensionConfigurationTest extends TestCase
         $config = new ExtensionConfiguration($this->typo3Config);
 
         self::assertSame(SecurityProfile::Standard, $config->getSecurityProfile());
+    }
+
+    // ------------------------------------------------------------------
+    // Audit sinks
+    // ------------------------------------------------------------------
+
+    /**
+     * External sinks are opt-in: a default installation must not start writing
+     * audit copies to the filesystem or the network without being asked.
+     */
+    /**
+     * @param callable(ExtensionConfiguration): bool $read
+     */
+    #[Test]
+    #[DataProvider('auditSinkToggleProvider')]
+    public function auditSinkTogglesDefaultToDisabled(callable $read): void
+    {
+        $this->typo3Config->method('get')->willReturn([]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertFalse($read($config));
+    }
+
+    /**
+     * The toggles are passed as closures rather than method-name strings: a
+     * dynamic `$config->{$name}()` call is invisible to static analysis, so a
+     * renamed getter would silently stop being covered.
+     *
+     * @return iterable<string, array{callable(ExtensionConfiguration): bool}>
+     */
+    public static function auditSinkToggleProvider(): iterable
+    {
+        yield 'syslog' => [static fn (ExtensionConfiguration $c): bool => $c->isAuditSinkSyslogEnabled()];
+        yield 'file' => [static fn (ExtensionConfiguration $c): bool => $c->isAuditSinkFileEnabled()];
+        yield 'webhook' => [static fn (ExtensionConfiguration $c): bool => $c->isAuditSinkWebhookEnabled()];
+    }
+
+    /**
+     * @param callable(ExtensionConfiguration): bool $read
+     */
+    #[Test]
+    #[DataProvider('auditSinkToggleConfigurationProvider')]
+    public function auditSinkTogglesReflectConfiguration(string $key, callable $read, mixed $value, bool $expected): void
+    {
+        $this->typo3Config->method('get')->willReturn([$key => $value]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame($expected, $read($config));
+    }
+
+    /**
+     * @return iterable<string, array{string, callable(ExtensionConfiguration): bool, mixed, bool}>
+     */
+    public static function auditSinkToggleConfigurationProvider(): iterable
+    {
+        $syslog = static fn (ExtensionConfiguration $c): bool => $c->isAuditSinkSyslogEnabled();
+        $file = static fn (ExtensionConfiguration $c): bool => $c->isAuditSinkFileEnabled();
+        $webhook = static fn (ExtensionConfiguration $c): bool => $c->isAuditSinkWebhookEnabled();
+
+        // The extension configuration backend stores checkboxes as '1'/'0' strings.
+        yield 'syslog on' => ['auditSinkSyslogEnabled', $syslog, '1', true];
+        yield 'syslog off' => ['auditSinkSyslogEnabled', $syslog, '0', false];
+        yield 'file on' => ['auditSinkFileEnabled', $file, '1', true];
+        yield 'file off' => ['auditSinkFileEnabled', $file, '0', false];
+        yield 'webhook on' => ['auditSinkWebhookEnabled', $webhook, '1', true];
+        yield 'webhook off' => ['auditSinkWebhookEnabled', $webhook, '0', false];
+    }
+
+    #[Test]
+    public function syslogIdentReturnsConfiguredValue(): void
+    {
+        $this->typo3Config->method('get')->willReturn(['auditSinkSyslogIdent' => 'vault-prod']);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame('vault-prod', $config->getAuditSinkSyslogIdent());
+    }
+
+    /**
+     * A blank ident makes every syslog line unattributable, which defeats the
+     * point of the sink — so it falls back rather than passing '' to openlog().
+     */
+    #[Test]
+    #[DataProvider('unusableIdentProvider')]
+    public function unusableSyslogIdentFallsBackToTheDefault(mixed $value): void
+    {
+        $this->typo3Config->method('get')->willReturn(['auditSinkSyslogIdent' => $value]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame(
+            ExtensionConfiguration::DEFAULT_AUDIT_SINK_SYSLOG_IDENT,
+            $config->getAuditSinkSyslogIdent(),
+        );
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function unusableIdentProvider(): iterable
+    {
+        yield 'empty string' => [''];
+        yield 'whitespace only' => ['   '];
+        yield 'null' => [null];
+        yield 'non-string' => [42];
+    }
+
+    #[Test]
+    public function syslogIdentIsTrimmed(): void
+    {
+        $this->typo3Config->method('get')->willReturn(['auditSinkSyslogIdent' => "  vault-prod\n"]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame('vault-prod', $config->getAuditSinkSyslogIdent());
+    }
+
+    #[Test]
+    public function auditSinkFilePathReturnsConfiguredAbsolutePath(): void
+    {
+        $this->typo3Config->method('get')->willReturn(['auditSinkFilePath' => '/srv/audit/vault.ndjson']);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame('/srv/audit/vault.ndjson', $config->getAuditSinkFilePath());
+    }
+
+    /**
+     * The default must land outside the public web root, which `<var>/log/` does
+     * on every Composer-based installation — the sink refuses to run otherwise.
+     */
+    #[Test]
+    public function auditSinkFilePathDefaultsBelowTheVarLogDirectory(): void
+    {
+        $this->typo3Config->method('get')->willReturn([]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertStringEndsWith(
+            '/log/' . ExtensionConfiguration::DEFAULT_AUDIT_SINK_FILE_BASENAME,
+            $config->getAuditSinkFilePath(),
+        );
+    }
+
+    #[Test]
+    #[DataProvider('blankPathProvider')]
+    public function blankAuditSinkFilePathFallsBackToTheDefault(mixed $value): void
+    {
+        $this->typo3Config->method('get')->willReturn(['auditSinkFilePath' => $value]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertStringEndsWith(
+            '/log/' . ExtensionConfiguration::DEFAULT_AUDIT_SINK_FILE_BASENAME,
+            $config->getAuditSinkFilePath(),
+        );
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function blankPathProvider(): iterable
+    {
+        yield 'empty string' => [''];
+        yield 'whitespace only' => ['  '];
+        yield 'null' => [null];
+        yield 'non-string' => [123];
+    }
+
+    #[Test]
+    public function auditSinkAnchorPathReturnsConfiguredAbsolutePath(): void
+    {
+        $this->typo3Config->method('get')->willReturn(['auditSinkAnchorPath' => '/mnt/wormfs/anchor.ndjson']);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame('/mnt/wormfs/anchor.ndjson', $config->getAuditSinkAnchorPath());
+    }
+
+    #[Test]
+    public function auditSinkAnchorPathDefaultsBelowTheVarLogDirectory(): void
+    {
+        $this->typo3Config->method('get')->willReturn([]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertStringEndsWith(
+            '/log/' . ExtensionConfiguration::DEFAULT_AUDIT_SINK_ANCHOR_BASENAME,
+            $config->getAuditSinkAnchorPath(),
+        );
+    }
+
+    /**
+     * The anchor stream is the evidence that survives a table reset, so it must be
+     * separately configurable rather than derived from the entry stream's path.
+     */
+    #[Test]
+    public function entryAndAnchorPathsAreIndependentByDefault(): void
+    {
+        $this->typo3Config->method('get')->willReturn([]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertNotSame($config->getAuditSinkFilePath(), $config->getAuditSinkAnchorPath());
+    }
+
+    #[Test]
+    public function webhookUrlReturnsConfiguredValueTrimmed(): void
+    {
+        $this->typo3Config->method('get')->willReturn(['auditSinkWebhookUrl' => '  https://siem.example.com/ingest  ']);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame('https://siem.example.com/ingest', $config->getAuditSinkWebhookUrl());
+    }
+
+    #[Test]
+    public function webhookUrlDefaultsToEmpty(): void
+    {
+        $this->typo3Config->method('get')->willReturn([]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame('', $config->getAuditSinkWebhookUrl());
+    }
+
+    #[Test]
+    public function nonStringWebhookUrlFallsBackToEmpty(): void
+    {
+        $this->typo3Config->method('get')->willReturn(['auditSinkWebhookUrl' => ['https://x']]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame('', $config->getAuditSinkWebhookUrl());
     }
 }

@@ -321,6 +321,183 @@ Example
    # Export to JSON
    vendor/bin/typo3 vault:audit --format=json > audit.json
 
+.. _command-audit-anchor:
+
+vault:audit-anchor
+==================
+
+Publish the current audit log chain tip to the enabled external audit sinks.
+
+The in-database hash chain proves that no stored row was altered, but it cannot
+prove that the chain is still the *same* chain: an attacker with ``DELETE``
+rights can truncate ``tx_nrvault_audit_log`` and let the service build a fresh,
+internally consistent chain from uid 1. Nothing inside the database
+distinguishes that from a young installation.
+
+Each anchoring run records — outside the database — that the chain had reached a
+given sequence with a given tip hash. :ref:`command-audit-verify` compares the
+live chain against the newest anchor and reports ``TABLE_RESET`` when they
+disagree.
+
+.. important::
+
+   The anchoring interval is the blind window: an attacker who resets the table
+   can only hide entries written since the last anchor. Schedule it hourly for a
+   vault under audit; daily is the loosest defensible setting. Use the
+   *Vault Audit Chain Anchoring* scheduler task for this.
+
+.. code-block:: bash
+   :caption: Command syntax
+
+   vendor/bin/typo3 vault:audit-anchor [options]
+
+.. _command-audit-anchor-options:
+
+Options
+-------
+
+--dry-run
+   Show the anchor that would be published without writing it to any sink.
+
+--format, -f =FORMAT
+   Output format: ``text`` (default) or ``json``.
+
+.. _command-audit-anchor-exit-codes:
+
+Exit codes
+----------
+
+0
+   The anchor was accepted by at least one external sink.
+
+1
+   The chain tip could not be read, or **no sink accepted the anchor**. An
+   anchor that reached nothing outside the database provides no table-reset
+   protection, so this is a failure rather than a no-op — enable at least one of
+   ``auditSinkFileEnabled``, ``auditSinkSyslogEnabled`` or
+   ``auditSinkWebhookEnabled``.
+
+.. _command-audit-anchor-example:
+
+Example
+-------
+
+.. code-block:: bash
+   :caption: vault:audit-anchor examples
+
+   # Publish the current chain tip
+   vendor/bin/typo3 vault:audit-anchor
+
+   # Preview without writing
+   vendor/bin/typo3 vault:audit-anchor --dry-run
+
+   # Machine-readable output for a monitoring wrapper
+   vendor/bin/typo3 vault:audit-anchor --format=json
+
+.. _command-audit-verify:
+
+vault:audit-verify
+==================
+
+Verify audit log integrity against both the hash chain and the external
+chain-tip anchor.
+
+This complements ``vault:audit --verify``, which runs the in-database hash-chain
+pass only. In addition to that pass, this command compares the chain against the
+newest anchor published by :ref:`command-audit-anchor` and classifies every
+finding under a machine-readable reason code.
+
+.. code-block:: bash
+   :caption: Command syntax
+
+   vendor/bin/typo3 vault:audit-verify [options]
+
+.. _command-audit-verify-options:
+
+Options
+-------
+
+--format, -f =FORMAT
+   Output format: ``text`` (default) or ``json``. The JSON form carries the full
+   finding list, the compared anchor, the enabled sinks and their failure counts.
+
+--tamper-only
+   Only fail on tamper evidence; treat configuration and delivery findings
+   (``NO_EXTERNAL_SINK``, ``SINK_FAILURE``) as warnings. Useful while external
+   sinks are still being rolled out, so a pending integration does not keep the
+   check permanently red and train operators to ignore a real alarm.
+
+.. _command-audit-verify-reason-codes:
+
+Reason codes
+------------
+
+HASH_MISMATCH
+   A stored ``entry_hash`` or ``previous_hash`` does not match the recomputed
+   value. Tamper evidence.
+
+UID_GAP
+   The uid sequence is not contiguous — rows were deleted from the chain. Tamper
+   evidence (may also be a retention purge; confirm against your purge log).
+
+TABLE_RESET
+   The chain no longer contains the anchored tip: it is shorter than the anchored
+   sequence, or the row at that sequence hashes differently. The signature of a
+   truncate-and-rebuild. Tamper evidence.
+
+EPOCH_DOWNGRADE
+   The ``hmac_key_epoch`` was relabelled downward, moving rows onto a weaker or
+   keyless verification algorithm. Tamper evidence.
+
+NO_EXTERNAL_SINK
+   The hardened security profile is active but no external audit sink is enabled
+   and usable, or no anchor could be read. Configuration finding, not tamper
+   evidence.
+
+SINK_FAILURE
+   An external sink could not be delivered to during this process. Availability
+   finding, not tamper evidence.
+
+.. _command-audit-verify-alerting:
+
+Alerting
+--------
+
+Every finding is dispatched as
+``\Netresearch\NrVault\Event\AuditIntegrityAlertEvent`` before the command
+returns, so SIEM and notification listeners fire whether or not anyone reads this
+output. When the webhook sink is enabled it receives the alerts by default via
+the built-in ``nr-vault/audit-integrity-alert-sinks`` listener.
+
+.. _command-audit-verify-exit-codes:
+
+Exit codes
+----------
+
+0
+   No findings — or, with ``--tamper-only``, no tamper evidence.
+
+1
+   At least one finding (see ``--tamper-only``), or verification could not run at
+   all. A verifier that cannot run never reports success.
+
+.. _command-audit-verify-example:
+
+Example
+-------
+
+.. code-block:: bash
+   :caption: vault:audit-verify examples
+
+   # Full verification
+   vendor/bin/typo3 vault:audit-verify
+
+   # Machine-readable output for monitoring
+   vendor/bin/typo3 vault:audit-verify --format=json
+
+   # Only alarm on tamper evidence while sinks are being rolled out
+   vendor/bin/typo3 vault:audit-verify --tamper-only
+
 .. _command-rotate-master-key:
 
 vault:rotate-master-key

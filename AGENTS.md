@@ -142,7 +142,7 @@ AuditLogServiceInterface::verifyHashChain(?int $fromUid = null, ?int $toUid = nu
 ```
 
 ## CLI Commands (TYPO3 `vendor/bin/typo3`)
-> All 13 registered `vault:*` commands. Full options/examples in
+> All 15 registered `vault:*` commands. Full options/examples in
 > `Documentation/Developer/Commands.rst`.
 ```
 vault:init                 # Initialize the vault (generate master key, verify configuration)
@@ -154,6 +154,8 @@ vault:delete               # Delete a secret from the vault
 vault:scan                 # Scan database content for exposed secrets
 vault:migrate-field        # Migrate a database field value into the vault
 vault:audit                # View / verify audit log entries
+vault:audit-anchor         # Publish the audit chain tip to the external audit sinks (scheduled task wrapper)
+vault:audit-verify         # Verify the hash chain AND the external chain-tip anchor (scheduled task wrapper)
 vault:audit-migrate-hmac   # Migrate audit log hash chain from SHA-256 to HMAC-SHA256
 vault:rotate-master-key    # Re-encrypt all secrets with a new master key
 vault:cleanup-orphans      # Clean up orphaned vault entries (scheduled task wrapper)

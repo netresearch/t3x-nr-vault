@@ -4,6 +4,14 @@ services:
     autoconfigure: true
     public: false
 
+  # Every AuditSinkInterface implementation discovered by the resource glob below
+  # is tagged automatically, so the registry receives new sinks without another
+  # edit here. A consuming extension adds its own destination by implementing the
+  # interface and applying the same tag in ITS Services.yaml.
+  _instanceof:
+    Netresearch\NrVault\Audit\Sink\AuditSinkInterface:
+      tags: ['nr_vault.audit_sink']
+
   Netresearch\NrVault\:
     resource: '../Classes/*'
     exclude:
@@ -73,6 +81,19 @@ services:
   Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface:
     alias: Netresearch\NrVault\Audit\AuditChainRekeyService
 
+  Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface:
+    alias: Netresearch\NrVault\Audit\Sink\AuditSinkRegistry
+
+  Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface:
+    alias: Netresearch\NrVault\Audit\Anchor\AnchorFileReader
+
+  Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface:
+    alias: Netresearch\NrVault\Audit\Anchor\ChainTipAnchorService
+    # public: AuditAnchorTask / AuditVerifyTask run in the scheduler context,
+    # which unserializes task objects outside the DI container and resolves the
+    # service via GeneralUtility::makeInstance(<Interface>::class).
+    public: true
+
   Netresearch\NrVault\Adapter\VaultAdapterInterface:
     alias: Netresearch\NrVault\Adapter\LocalEncryptionAdapter
 
@@ -101,6 +122,27 @@ services:
 
   Netresearch\NrVault\Crypto\MasterKeyProviderInterface:
     factory: ['@Netresearch\NrVault\Crypto\MasterKeyProviderFactory', 'create']
+
+  # ----- External audit sinks ---------------------------------------------
+
+  Netresearch\NrVault\Audit\Sink\AuditSinkRegistry:
+    arguments:
+      $sinks: !tagged_iterator nr_vault.audit_sink
+
+  # The webhook sink deliberately uses a SHORT-timeout client built by
+  # SecureHttpClientFactory rather than the ambient PSR-18 client: audit fan-out
+  # must inherit the extension-wide SSRF / DNS-rebinding / no-redirect defences
+  # (Tests/Architecture enforces that no other class stands up its own Guzzle
+  # client), and a slow collector must not hold a web request open. 3s total
+  # bounds the whole transfer; connect_timeout stays platform-managed.
+  nr_vault.audit_sink.webhook_client:
+    class: Psr\Http\Client\ClientInterface
+    factory: ['@Netresearch\NrVault\Http\SecureHttpClientFactory', 'create']
+    arguments: [3]
+
+  Netresearch\NrVault\Audit\Sink\WebhookAuditSink:
+    arguments:
+      $httpClient: '@nr_vault.audit_sink.webhook_client'
 
   # ----- Classes that need public visibility ------------------------------
   # TYPO3 DataHandler resolves $TYPO3_CONF_VARS hook references via
