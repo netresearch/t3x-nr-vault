@@ -2476,6 +2476,22 @@ parameters:
 			count: 2
 			path: ../Tests/Unit/Task/OrphanCleanupTaskTest.php
 
+		# TYPO3 v13's AbstractTask::__construct() resolves the Scheduler via
+		# GeneralUtility; a unit test cannot instantiate the task without
+		# registering a Scheduler stand-in. Same framework-imposed pattern as
+		# OrphanCleanupTaskTest above; no public API exists for it.
+		-
+			rawMessage: 'Call to internal static method TYPO3\CMS\Core\Utility\GeneralUtility::setSingletonInstance() from outside its root namespace TYPO3.'
+			identifier: staticMethod.internal
+			count: 1
+			path: ../Tests/Unit/Task/AuditAnchorTaskTest.php
+
+		-
+			rawMessage: 'Call to internal static method TYPO3\CMS\Core\Utility\GeneralUtility::setSingletonInstance() from outside its root namespace TYPO3.'
+			identifier: staticMethod.internal
+			count: 1
+			path: ../Tests/Unit/Task/AuditVerifyTaskTest.php
+
 		-
 			rawMessage: 'Dynamic call to static method PHPUnit\Framework\Assert::isInt().'
 			identifier: staticMethod.dynamicCall
