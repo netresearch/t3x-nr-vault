@@ -103,6 +103,7 @@
         "ci:test:php:functional": "phpunit -c Build/FunctionalTests.xml",
         "ci:test:php:fuzz": "phpunit -c Build/phpunit.xml --testsuite Fuzz",
         "ci:test:php:mutation": "infection --configuration=infection.json5 --threads=4",
+        "ci:test:php:mutation:security": "infection --configuration=infection-security.json5 --threads=max --no-progress",
         "ci:test:php:phpstan": "phpstan analyse",
         "ci:test:php:rector": "rector process --dry-run",
         "ci:test:php:unit": "phpunit -c Build/phpunit.xml --testsuite Unit",

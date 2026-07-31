@@ -259,7 +259,13 @@ final readonly class EncryptionService implements EncryptionServiceInterface
     /**
      * Resolve the algorithm to use for an existing envelope.
      *
-     * Version 2+: the stored marker is authoritative. An unknown or empty
+     * Unknown versions are a hard error: a version this reader does not
+     * implement may change framing, key derivation or the authenticated
+     * data, so opening it under version-2 rules would decrypt with the
+     * wrong recipe rather than refuse. Forward compatibility must be a
+     * deliberate code change, never an accident of a `>=` comparison.
+     *
+     * Version 2: the stored marker is authoritative. An unknown or empty
      * marker is a hard error — guessing an algorithm for a version-2 row
      * could silently decrypt with the wrong primitive on a different host,
      * which is exactly the implicitness the marker exists to remove.
@@ -270,6 +276,18 @@ final readonly class EncryptionService implements EncryptionServiceInterface
      */
     private function resolveAlgorithm(int $encryptionVersion, string $encryptionAlgorithm): EncryptionAlgorithm
     {
+        if (
+            $encryptionVersion < EncryptionServiceInterface::ENCRYPTION_VERSION_LEGACY
+            || $encryptionVersion > EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT
+        ) {
+            throw EncryptionException::decryptionFailed(\sprintf(
+                'Unsupported encryption version %d (this reader implements %d..%d)',
+                $encryptionVersion,
+                EncryptionServiceInterface::ENCRYPTION_VERSION_LEGACY,
+                EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT,
+            ));
+        }
+
         if ($encryptionVersion >= EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT) {
             $algorithm = EncryptionAlgorithm::tryFrom($encryptionAlgorithm);
             if (!$algorithm instanceof EncryptionAlgorithm) {
