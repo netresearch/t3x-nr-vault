@@ -298,6 +298,49 @@ final class WebhookAuditSinkTest extends TestCase
         self::assertIsString($client->decodeBody()['entry']['userAgent']);
     }
 
+    /**
+     * A payload PHP cannot serialise must be reported before any request is
+     * attempted, so the registry counts it as a sink failure instead of the
+     * collector receiving a truncated body. Excessive nesting is the reachable
+     * case: `json_encode()` has a hard depth limit and the audit entry's
+     * `context` is caller-supplied structure.
+     */
+    #[Test]
+    public function unencodablePayloadThrowsBeforeAnyRequestIsSent(): void
+    {
+        $client = new RecordingClient(new Response(200));
+
+        try {
+            $this->createSubject(client: $client)->publish(
+                $this->createEntry(context: $this->deeplyNestedContext()),
+                'tip',
+            );
+            self::fail('an unencodable payload must not be reported as delivered');
+        } catch (AuditSinkException $e) {
+            self::assertStringContainsString('could not encode the record', $e->getMessage());
+        }
+
+        self::assertNull($client->lastRequest, 'nothing may be sent when the body cannot be built');
+    }
+
+    /**
+     * Nested past `json_encode()`'s default depth limit of 512.
+     *
+     * @return array<string, mixed>
+     */
+    private function deeplyNestedContext(): array
+    {
+        $context = [];
+        $cursor = &$context;
+        for ($depth = 0; $depth < 600; $depth++) {
+            $cursor['nested'] = [];
+            $cursor = &$cursor['nested'];
+        }
+        unset($cursor);
+
+        return $context;
+    }
+
     private function createSubject(
         bool $enabled = true,
         string $url = self::ENDPOINT,
@@ -317,7 +360,10 @@ final class WebhookAuditSinkTest extends TestCase
         );
     }
 
-    private function createEntry(int $uid = 1, string $userAgent = 'Mozilla/5.0'): AuditLogEntry
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function createEntry(int $uid = 1, string $userAgent = 'Mozilla/5.0', array $context = []): AuditLogEntry
     {
         return new AuditLogEntry(
             uid: $uid,
@@ -338,7 +384,7 @@ final class WebhookAuditSinkTest extends TestCase
             hashBefore: '',
             hashAfter: '',
             crdate: 1_750_000_000,
-            context: [],
+            context: $context,
         );
     }
 }
