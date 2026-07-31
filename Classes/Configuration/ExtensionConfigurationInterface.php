@@ -21,9 +21,9 @@ interface ExtensionConfigurationInterface
     /**
      * Get the configured security profile.
      *
-     * @throws ConfigurationException if the
-     *                                configured value is not a valid profile (fail-closed: an
-     *                                unknown profile must never silently degrade to Standard)
+     * @throws ConfigurationException if the configured value is not a valid
+     *                                profile (fail-closed: an unknown profile
+     *                                must never silently degrade to Standard)
      */
     public function getSecurityProfile(): SecurityProfile;
 
