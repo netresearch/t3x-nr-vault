@@ -893,24 +893,6 @@ parameters:
 			path: ../Tests/Functional/Service/VaultServiceTest.php
 
 		-
-			rawMessage: Cannot access offset 'EXTENSIONS' on mixed.
-			identifier: offsetAccess.nonOffsetAccessible
-			count: 8
-			path: ../Tests/Functional/Upgrades/AuditHmacMigrationWizardTest.php
-
-		-
-			rawMessage: Cannot access offset 'auditHmacEpoch' on mixed.
-			identifier: offsetAccess.nonOffsetAccessible
-			count: 8
-			path: ../Tests/Functional/Upgrades/AuditHmacMigrationWizardTest.php
-
-		-
-			rawMessage: Cannot access offset 'nr_vault' on mixed.
-			identifier: offsetAccess.nonOffsetAccessible
-			count: 8
-			path: ../Tests/Functional/Upgrades/AuditHmacMigrationWizardTest.php
-
-		-
 			rawMessage: Short ternary operator is not allowed. Use null coalesce operator if applicable or consider using long ternary.
 			identifier: ternary.shortNotAllowed
 			count: 2
@@ -1250,6 +1232,12 @@ parameters:
 			rawMessage: 'Parameter #1 $masterKeyProvider of static method Netresearch\NrVault\Audit\AuditLogService::deriveHmacKey() expects Netresearch\NrVault\Crypto\MasterKeyProviderInterface, PHPUnit\Framework\MockObject\MockObject|null given.'
 			identifier: argument.type
 			count: 1
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Parameter #2 $accessControlService of class Netresearch\NrVault\Audit\AuditLogService constructor expects Netresearch\NrVault\Security\AccessControlServiceInterface, PHPUnit\Framework\MockObject\MockObject given.'
+			identifier: argument.type
+			count: 2
 			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
 
 		-
@@ -2511,36 +2499,6 @@ parameters:
 			identifier: method.nonObject
 			count: 2
 			path: ../Tests/Unit/TestCase.php
-
-		-
-			rawMessage: 'Call to an undefined method Netresearch\NrVault\Configuration\ExtensionConfigurationInterface::method().'
-			identifier: method.notFound
-			count: 8
-			path: ../Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
-
-		-
-			rawMessage: 'Call to an undefined method Netresearch\NrVault\Crypto\MasterKeyProviderInterface::method().'
-			identifier: method.notFound
-			count: 4
-			path: ../Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
-
-		-
-			rawMessage: 'Call to an undefined method TYPO3\CMS\Core\Database\ConnectionPool::method().'
-			identifier: method.notFound
-			count: 5
-			path: ../Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
-
-		-
-			rawMessage: 'Cannot call method willReturn() on mixed.'
-			identifier: method.nonObject
-			count: 17
-			path: ../Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
-
-		-
-			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
-			identifier: staticMethod.dynamicCall
-			count: 18
-			path: ../Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
 
 		-
 			rawMessage: Cannot cast mixed to string.

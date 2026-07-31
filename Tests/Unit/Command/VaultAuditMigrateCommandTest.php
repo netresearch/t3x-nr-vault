@@ -254,7 +254,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
     public function migrationAbortsWhenExistingChainFailsVerification(): void
     {
         // One outdated row so the command reaches the pre-reseal verification.
-        $countResult = $this->createStub(Result::class);
+        $countResult = self::createStub(Result::class);
         $countResult->method('fetchOne')->willReturn(1);
 
         $this->queryBuilder->method('count')->willReturnSelf();

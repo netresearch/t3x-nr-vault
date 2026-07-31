@@ -68,7 +68,7 @@ final class AuditLogServiceTest extends TestCase
      * the interface, and a DNF type lets the analyser see that without an
      * entry in the baseline.
      */
-    private (AuditChainAnchorStoreInterface&MockObject)|null $anchorStore = null;
+    private AuditChainAnchorStoreInterface&MockObject $anchorStore;
 
     protected function setUp(): void
     {
