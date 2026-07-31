@@ -53,6 +53,20 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     /** @var array<string, bool> */
     private const FRONTEND_ACCESSIBLE = ['frontendAccessible' => true];
 
+    /**
+     * TYPO3 marks the request-type constants and `ServerRequest` `@internal`,
+     * but a test about a context rule has to build the contexts it is about —
+     * mocking them would test the mock. The internal use is concentrated here
+     * and in `webRequest()` / `frontendTypoScript()` rather than spread over
+     * every case.
+     *
+     * @phpstan-ignore classConstant.internalClass
+     */
+    private const APPLICATION_FRONTEND = SystemEnvironmentBuilder::REQUESTTYPE_FE;
+
+    /** @phpstan-ignore classConstant.internalClass */
+    private const APPLICATION_BACKEND = SystemEnvironmentBuilder::REQUESTTYPE_BE;
+
     /** @var list<string> */
     protected array $coreExtensionsToLoad = [
         'backend',
@@ -314,9 +328,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
         $auditRowsBefore = $this->countAuditRows($identifier);
 
         unset($GLOBALS['TYPO3_REQUEST']);
-        /** @phpstan-ignore new.internalClass, method.internalClass, classConstant.internalClass */
-        $request = (new ServerRequest('https://example.com/'))
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
+        $request = $this->webRequest('https://example.com/', self::APPLICATION_FRONTEND);
 
         $output = $this->inWebContext(fn (): string => $this->renderText(['value' => $placeholder, 'stdWrap.' => ['noTrimWrap' => '||']], $request));
 
@@ -383,9 +395,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
         $identifier = $this->storeSecret('backend_key_', self::FRONTEND_ACCESSIBLE);
         $placeholder = \sprintf('%%vault(%s)%%', $identifier);
 
-        /** @phpstan-ignore new.internalClass, method.internalClass, classConstant.internalClass */
-        $request = (new ServerRequest('https://example.com/typo3/'))
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = $this->webRequest('https://example.com/typo3/', self::APPLICATION_BACKEND);
 
         $output = $this->inWebContext(fn (): string => $this->renderText(
             ['field' => 'bodytext'],
@@ -518,11 +528,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
         $placeholder = \sprintf('%%vault(%s)%%', $identifier);
 
         // getSetupArray() throws 1666513645 when setSetupArray() was never called.
-        /** @phpstan-ignore new.internalClass */
-        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
-        /** @phpstan-ignore new.internalClass, method.internalClass, classConstant.internalClass */
-        $request = (new ServerRequest('https://example.com/'))
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+        $frontendTypoScript = $this->frontendTypoScript(null);
+        $request = $this->webRequest('https://example.com/', self::APPLICATION_FRONTEND)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         unset($GLOBALS['TYPO3_REQUEST']);
 
@@ -558,16 +565,9 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
      */
     private function frontendRequest(array $setup = []): ServerRequestInterface
     {
-        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
-        $frontendTypoScript->setSetupArray($setup);
-        // stdWrap's `cache.` implementation reads `config.`; without it the
-        // T-A1 snippet cannot run at all.
-        $frontendTypoScript->setConfigArray([]);
-
-        $request = (new ServerRequest('https://example.com/'))
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+        $request = $this->webRequest('https://example.com/', self::APPLICATION_FRONTEND)
             ->withAttribute('frontend.cache.instruction', new CacheInstruction())
-            ->withAttribute('frontend.typoscript', $frontendTypoScript);
+            ->withAttribute('frontend.typoscript', $this->frontendTypoScript($setup));
 
         // The listener must work off the request the cObj carries; make sure a
         // stale global cannot answer for it.
@@ -585,8 +585,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     {
         unset($GLOBALS['TYPO3_REQUEST']);
 
-        return (new ServerRequest('https://example.com/'))
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+        return $this->webRequest('https://example.com/', self::APPLICATION_FRONTEND)
             ->withAttribute('frontend.cache.instruction', new CacheInstruction());
     }
 
@@ -596,8 +595,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
      */
     private function eidShapedRequestKeepingTheGlobal(): ServerRequestInterface
     {
-        return (new ServerRequest('https://example.com/'))
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+        return $this->webRequest('https://example.com/', self::APPLICATION_FRONTEND)
             ->withAttribute('frontend.cache.instruction', new CacheInstruction());
     }
 
@@ -696,5 +694,41 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
             )
             ->executeQuery()
             ->fetchOne();
+    }
+
+    /**
+     * Build a request of the given application type. All construction of the
+     * `@internal` core request lives on the single line below.
+     */
+    private function webRequest(string $url, int $applicationType): ServerRequestInterface
+    {
+        /** @phpstan-ignore new.internalClass, method.internalClass */
+        return (new ServerRequest($url))->withAttribute('applicationType', $applicationType);
+    }
+
+    /**
+     * Build the request's TypoScript. Passing null leaves the setup array
+     * unset, which is what makes `getSetupArray()` throw 1666513645 — the
+     * fully-cached-page shape.
+     *
+     * @param array<mixed>|null $setup
+     */
+    private function frontendTypoScript(?array $setup): FrontendTypoScript
+    {
+        /** @phpstan-ignore new.internalClass, new.internalClass */
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+
+        if ($setup === null) {
+            return $frontendTypoScript;
+        }
+
+        /** @phpstan-ignore method.internalClass */
+        $frontendTypoScript->setSetupArray($setup);
+        // stdWrap's `cache.` implementation reads `config.`; without it the
+        // T-A1 snippet cannot run at all.
+        /** @phpstan-ignore method.internalClass */
+        $frontendTypoScript->setConfigArray([]);
+
+        return $frontendTypoScript;
     }
 }
