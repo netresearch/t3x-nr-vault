@@ -16,11 +16,14 @@ use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\Sink\JsonFileAuditSink;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\AuditSinkException;
+use Netresearch\NrVault\Tests\Unit\Fixtures\FailingStreamWrapper;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use Netresearch\NrVault\Tests\Unit\Traits\EnvironmentSandboxTrait;
+use Netresearch\NrVault\Tests\Unit\Traits\ErrorSuppressionTrait;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use TYPO3\CMS\Core\Core\Environment;
 
@@ -43,6 +46,7 @@ use TYPO3\CMS\Core\Core\Environment;
 final class JsonFileAuditSinkTest extends TestCase
 {
     use EnvironmentSandboxTrait;
+    use ErrorSuppressionTrait;
 
     private string $baseDirectory = '';
 
@@ -311,6 +315,287 @@ final class JsonFileAuditSinkTest extends TestCase
         self::assertIsString($record['entry']['userAgent']);
     }
 
+    /**
+     * A pre-existing stream file the process cannot write to (rotated by root,
+     * restrictive umask on a shared host). Caught before `fopen()` so the
+     * exception names the actual problem instead of "cannot open stream".
+     */
+    #[Test]
+    public function existingButUnwritableStreamFileThrowsWithASpecificReason(): void
+    {
+        mkdir($this->baseDirectory, 0o700, true);
+        touch($this->entryPath);
+        chmod($this->entryPath, 0o400);
+
+        try {
+            $this->createSubject()->publish($this->createEntry(), 'tip');
+            self::fail('an unwritable stream file must not be reported as a successful publish');
+        } catch (AuditSinkException $e) {
+            self::assertStringContainsString('stream file is not writable', $e->getMessage());
+        } finally {
+            chmod($this->entryPath, 0o600);
+        }
+    }
+
+    #[Test]
+    public function unwritableStreamDirectoryThrowsWithASpecificReason(): void
+    {
+        mkdir($this->baseDirectory, 0o500, true);
+
+        try {
+            $this->createSubject()->publish($this->createEntry(), 'tip');
+            self::fail('an unwritable stream directory must not be reported as a successful publish');
+        } catch (AuditSinkException $e) {
+            self::assertStringContainsString('stream directory is not writable', $e->getMessage());
+        } finally {
+            chmod($this->baseDirectory, 0o700);
+        }
+    }
+
+    #[Test]
+    public function uncreatableStreamDirectoryThrowsWithASpecificReason(): void
+    {
+        $blocked = Environment::getVarPath() . '/blocked';
+        mkdir($blocked, 0o500, true);
+
+        try {
+            $subject = $this->createSubject(entryPath: $blocked . '/nested/audit.ndjson');
+            $this->withoutPhpDiagnostics(
+                fn (): null => $subject->publish($this->createEntry(), 'tip'),
+            );
+            self::fail('a directory that cannot be created must not be reported as a successful publish');
+        } catch (AuditSinkException $e) {
+            self::assertStringContainsString('cannot create stream directory', $e->getMessage());
+        } finally {
+            chmod($blocked, 0o700);
+        }
+    }
+
+    /**
+     * A payload PHP cannot serialise must surface as a sink failure the registry
+     * counts, not as a half-written line or a silent drop. Excessive nesting is
+     * the reachable case: `json_encode()` has a hard depth limit, and the audit
+     * entry's `context` column is caller-supplied structure.
+     */
+    #[Test]
+    public function unencodablePayloadThrowsAnEncodingFailure(): void
+    {
+        $this->expectException(AuditSinkException::class);
+        $this->expectExceptionMessage('could not encode the record');
+
+        $this->createSubject()->publish(
+            $this->createEntry(context: $this->deeplyNestedContext()),
+            'tip',
+        );
+    }
+
+    #[Test]
+    public function nothingIsWrittenWhenThePayloadCannotBeEncoded(): void
+    {
+        try {
+            $this->createSubject()->publish(
+                $this->createEntry(context: $this->deeplyNestedContext()),
+                'tip',
+            );
+        } catch (AuditSinkException) {
+            // Asserted separately; here only the absence of a partial line matters.
+        }
+
+        self::assertFileDoesNotExist($this->entryPath);
+    }
+
+    /**
+     * `isEnabled()` runs on every audit write. Re-resolving `realpath()` each
+     * time would add syscalls to the hot path of every vault operation, so the
+     * verdict is memoised — observable in that the refusal is logged once, not
+     * once per write.
+     */
+    #[Test]
+    public function theRefusalToUseAWebExposedPathIsLoggedOnceNotPerCall(): void
+    {
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::once())
+            ->method('error')
+            ->with(self::stringContains('inside the public web root'), self::anything());
+
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
+        $configuration->method('isAuditSinkFileEnabled')->willReturn(true);
+        $configuration->method('getAuditSinkFilePath')
+            ->willReturn(Environment::getPublicPath() . '/fileadmin/audit.ndjson');
+        $configuration->method('getAuditSinkAnchorPath')->willReturn($this->anchorPath);
+
+        $subject = new JsonFileAuditSink($configuration, $logger);
+
+        self::assertFalse($subject->isEnabled());
+        self::assertFalse($subject->isEnabled());
+        self::assertFalse($subject->isEnabled());
+    }
+
+    /**
+     * Without a resolvable document root the sink cannot PROVE the path is
+     * outside it, so it must fail closed rather than assume the best.
+     *
+     * Note on the sibling branch: `resolveAgainstNearestExistingAncestor()` also
+     * refuses when NO ancestor of the configured path exists. That branch is not
+     * reachable from a test on POSIX — the `isAbsolute()` guard only admits paths
+     * whose ancestor walk terminates at `/` (or, for the Windows drive/UNC forms,
+     * at `.`), and `realpath()` resolves both. It would need an `open_basedir`
+     * restriction excluding `/`, which cannot be installed and undone inside a
+     * shared PHPUnit process. Left uncovered rather than reached by weakening the
+     * production guard.
+     */
+    #[Test]
+    public function anUnresolvablePublicWebRootDisablesTheSink(): void
+    {
+        $sandbox = $this->getEnvironmentSandboxPath();
+        $this->initializeEnvironment(
+            $sandbox,
+            $sandbox . '/public-was-removed',
+            $sandbox . '/var',
+            $sandbox . '/config',
+        );
+
+        self::assertFalse($this->createSubject()->isEnabled());
+    }
+
+    // -------------------------------------------------------------------------
+    // Host filesystem failures behind a successful pre-flight check.
+    //
+    // These layers exist for filesystems this code does not own; see
+    // FailingStreamWrapper for why a real file cannot reach them.
+    // -------------------------------------------------------------------------
+
+    #[Test]
+    public function aRefusedOpenThrowsAWriteFailure(): void
+    {
+        FailingStreamWrapper::register(FailingStreamWrapper::MODE_OPEN_REFUSED);
+
+        try {
+            $this->withoutPhpDiagnostics(fn (): null => $this->publishThroughWrapper());
+            self::fail('a stream that cannot be opened must not be reported as a successful publish');
+        } catch (AuditSinkException $e) {
+            self::assertStringContainsString('cannot open stream for appending', $e->getMessage());
+        } finally {
+            FailingStreamWrapper::unregister();
+        }
+    }
+
+    /**
+     * On a host whose error handler promotes warnings to exceptions — TYPO3's
+     * own does — `fopen()` throws instead of returning false. Both must arrive
+     * at the registry as the same failure type.
+     */
+    #[Test]
+    public function aThrowingOpenIsNormalisedIntoTheSameWriteFailure(): void
+    {
+        FailingStreamWrapper::register(FailingStreamWrapper::MODE_OPEN_THROWS);
+
+        try {
+            $this->publishThroughWrapper();
+            self::fail('a throwing fopen() must not be reported as a successful publish');
+        } catch (AuditSinkException $e) {
+            self::assertStringContainsString('cannot open stream for appending', $e->getMessage());
+            self::assertStringContainsString('simulated host failure', $e->getMessage());
+        } finally {
+            FailingStreamWrapper::unregister();
+        }
+    }
+
+    /**
+     * Writing without the exclusive lock would let concurrent workers interleave
+     * half-written lines, breaking the NDJSON contract for every later reader —
+     * so a refused lock aborts rather than writes anyway.
+     */
+    #[Test]
+    public function aRefusedLockAbortsTheWrite(): void
+    {
+        FailingStreamWrapper::register(FailingStreamWrapper::MODE_LOCK_REFUSED);
+
+        try {
+            $this->publishThroughWrapper();
+            self::fail('a refused exclusive lock must not be reported as a successful publish');
+        } catch (AuditSinkException $e) {
+            self::assertStringContainsString('cannot acquire exclusive lock', $e->getMessage());
+        } finally {
+            FailingStreamWrapper::unregister();
+        }
+    }
+
+    /**
+     * A short write (full volume, quota hit) leaves a truncated line that breaks
+     * every later reader of the stream, so it is an error rather than a partial
+     * success.
+     */
+    #[Test]
+    public function aShortWriteIsTreatedAsAFailureNotAPartialSuccess(): void
+    {
+        FailingStreamWrapper::register(FailingStreamWrapper::MODE_SHORT_WRITE);
+
+        try {
+            $this->publishThroughWrapper();
+            self::fail('an incomplete write must not be reported as a successful publish');
+        } catch (AuditSinkException $e) {
+            self::assertStringContainsString('incomplete write', $e->getMessage());
+        } finally {
+            FailingStreamWrapper::unregister();
+        }
+    }
+
+    /**
+     * Baseline for the four tests above: with the wrapper healthy the publish
+     * succeeds, so their failures come from the injected fault and not from the
+     * wrapper failing to model a usable filesystem.
+     */
+    #[Test]
+    public function aHealthyWrapperStreamPublishesWithoutError(): void
+    {
+        FailingStreamWrapper::register(FailingStreamWrapper::MODE_HEALTHY);
+
+        try {
+            $this->publishThroughWrapper();
+
+            $written = FailingStreamWrapper::writtenData();
+            self::assertStringEndsWith("\n", $written, 'the NDJSON line must be terminated');
+            self::assertIsArray(json_decode(trim($written), true, 512, JSON_THROW_ON_ERROR));
+
+            // Append-only by construction: a truncating mode would let one write
+            // erase the evidence of every earlier one.
+            self::assertSame(['ab'], array_column(FailingStreamWrapper::opens(), 'mode'));
+        } finally {
+            FailingStreamWrapper::unregister();
+        }
+    }
+
+    private function publishThroughWrapper(): null
+    {
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
+        $configuration->method('isAuditSinkFileEnabled')->willReturn(true);
+        $configuration->method('getAuditSinkFilePath')->willReturn(FailingStreamWrapper::path('audit.ndjson'));
+        $configuration->method('getAuditSinkAnchorPath')->willReturn(FailingStreamWrapper::path('anchor.ndjson'));
+
+        (new JsonFileAuditSink($configuration, new NullLogger()))->publish($this->createEntry(), 'tip');
+
+        return null;
+    }
+
+    /**
+     * Nested past `json_encode()`'s default depth limit of 512.
+     *
+     * @return array<string, mixed>
+     */
+    private function deeplyNestedContext(): array
+    {
+        $context = [];
+        $cursor = &$context;
+        for ($depth = 0; $depth < 600; $depth++) {
+            $cursor['nested'] = [];
+            $cursor = &$cursor['nested'];
+        }
+        unset($cursor);
+
+        return $context;
+    }
+
     private function createSubject(
         bool $enabled = true,
         ?string $entryPath = null,
@@ -324,7 +609,10 @@ final class JsonFileAuditSinkTest extends TestCase
         return new JsonFileAuditSink($configuration, new NullLogger());
     }
 
-    private function createEntry(int $uid = 1, string $userAgent = 'Mozilla/5.0'): AuditLogEntry
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function createEntry(int $uid = 1, string $userAgent = 'Mozilla/5.0', array $context = []): AuditLogEntry
     {
         return new AuditLogEntry(
             uid: $uid,
@@ -345,7 +633,7 @@ final class JsonFileAuditSinkTest extends TestCase
             hashBefore: '',
             hashAfter: '',
             crdate: 1_750_000_000,
-            context: [],
+            context: $context,
         );
     }
 
