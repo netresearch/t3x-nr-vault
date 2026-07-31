@@ -15,6 +15,12 @@ $finder = Finder::create()
     ->in(__DIR__ . '/Classes')
     ->in(__DIR__ . '/Configuration')
     ->in(__DIR__ . '/Tests')
+    // Build-time tooling, appended file-by-file for the same reason PHPStan
+    // lists it explicitly: Build/ is not wholesale in scope.
+    ->append([
+        __DIR__ . '/Build/Scripts/collect-evidence.php',
+        __DIR__ . '/Build/Scripts/collect-evidence-selftest.php',
+    ])
     ->ignoreDotFiles(false)
     ->ignoreVCSIgnored(true);
 
