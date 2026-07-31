@@ -233,22 +233,6 @@ Permission                          Governs
 ``tx_nrvault:master_key.rotate``    Rotating the master key.
 ``tx_nrvault:vault.configure``      Running the migration wizard.
 =================================== ==============================================================
-``tx_nrvault:secret.use``       Programmatic consumption of a plaintext value
-                                (FormEngine vault widgets, FlexForm/TCA
-                                placeholders, site config, HTTP clients).
-``tx_nrvault:secret.reveal``    Displaying a plaintext to a human (the
-                                ``vault_reveal`` endpoint, ``vault:retrieve``).
-``tx_nrvault:secret.create``    Creating new secrets.
-``tx_nrvault:secret.rotate``    Replacing the value of an existing secret.
-``tx_nrvault:secret.delete``    Deleting secrets.
-``tx_nrvault:secret.manage_policy`` Enabling/disabling secrets and editing
-                                their ``allowed_groups`` / ``write_groups``.
-``tx_nrvault:audit.view``       Reading the audit log, its usage analytics,
-                                and verifying the hash chain.
-``tx_nrvault:audit.export``     Downloading the audit log (JSON / CSV).
-``tx_nrvault:master_key.rotate`` Rotating the master key.
-``tx_nrvault:vault.configure``  Running the migration wizard.
-=============================== ==============================================
 
 Notes on the model:
 
@@ -262,9 +246,10 @@ Notes on the model:
    TypoScript placeholder resolution. Grant it to the groups whose
    editors work with vault-backed fields.
 -  **Admins and system maintainers hold every permission**
-   unconditionally. That override lives in a single seam
-   (``AccessControlService::adminOverrideGrants()``) so a future hardened
-   profile can disable it.
+   unconditionally, and have full per-secret access to every secret.
+   That override lives in a single seam
+   (``AccessControlService::adminBypassActive()``) and can be removed —
+   see :ref:`security-disable-admin-override`.
 -  **The backend modules are registered ``access => 'user'``.** That is
    deliberate: authorization is asserted by each controller action, not
    by the module registration, so granular grants are usable by
@@ -280,6 +265,200 @@ Notes on the model:
    a property of the secret (``frontend_accessible``) alone.
 -  **Non-admin technical actors** (``runAs()`` scopes) hold only
    ``secret.use``; their reach stays bounded by the per-secret tiers.
+
+.. _security-disable-admin-override:
+
+Disabling the admin override
+----------------------------
+
+By default a TYPO3 administrator holds every vault permission and full
+read/write/delete access to every secret. For most installations that is
+the right answer: an admin already controls :file:`settings.php`, the
+master-key provider and the extension configuration, so withholding
+vault permissions from them would be theatre.
+
+It stops being theatre in two situations: an installation where "TYPO3
+administrator" and "may read production credentials" are genuinely
+different roles, and an audit regime that requires every plaintext
+access to be attributable to a *granted* permission rather than to a
+role. For those, set
+
+.. code-block:: none
+   :caption: Extension configuration
+
+   securityProfile = hardened
+   disableAdminOverride = 1
+
+and administrators are treated like every other backend user: they hold
+exactly the operation permissions their groups were granted, and reach
+only the secrets they own or share a group with.
+
+What is removed
+~~~~~~~~~~~~~~~
+
+Both gates, in one place. The override is a single private seam
+(``AccessControlService::adminBypassActive()``) consulted by:
+
+-  ``isGranted()`` — the operation permissions;
+-  ``canRead()`` / ``canWrite()`` / ``canDelete()`` — the per-secret tiers;
+-  ``isCurrentActorAdmin()`` — the privileged-column policy in the TCA
+   hook and the ``secret.use`` / ``owner_uid`` / ``frontend_accessible``
+   exemptions in ``VaultService``;
+-  the technical-actor equivalents of all of the above, so a
+   ``runAs()`` snapshot carrying the admin flag does not keep what the
+   interactive admin lost.
+
+An override that were removed from only some of these would be worse
+than none, because the deployment would believe it is protected.
+
+.. note::
+
+   Ownership still applies. An administrator keeps full access to the
+   secrets they own, exactly like any other user — which is what makes
+   the disabled state workable day to day.
+
+Two deliberate constraints
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**The flag only takes effect in the hardened profile.** In the standard
+profile it is inert. Setting it alone, without the rest of the hardened
+policy (an explicit external master-key provider, no fallback to the
+TYPO3 encryption key), is far more likely to be a misunderstanding than
+a decision — and its failure mode is locking every administrator out of
+the vault. Choosing ``hardened`` is the explicit statement that the
+fail-closed contract has been read. Run
+:ref:`vault:break-glass --status <command-break-glass>` to see whether
+the flag is effective; it reports ``adminOverrideDisabledEffective``
+alongside the raw setting, so a "flag set, profile standard" mismatch is
+visible rather than silent.
+
+**Pin the value outside the backend.** The setting is editable in
+:guilabel:`Admin Tools > Settings`, which means a compromised admin
+could untick it. Pin it in :file:`config/system/additional.php`, where
+only filesystem access can change it:
+
+.. code-block:: php
+
+   $GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['disableAdminOverride'] = true;
+
+The pinned value wins in both directions and is the same mechanism
+:ref:`auditReads <ext-nrvault-auditReads>` uses.
+
+.. _security-break-glass:
+
+Break-glass mode
+----------------
+
+A disabled override needs an escape hatch, or the first genuine incident
+becomes an outage. Break-glass mode is that hatch: a deliberate,
+justified, time-boxed restoration of the admin override.
+
+.. code-block:: bash
+   :caption: The full flow
+
+   # 1. Confirm the state
+   vendor/bin/typo3 vault:break-glass --status
+
+   # 2. Open a window with a justification
+   vendor/bin/typo3 vault:break-glass --activate --reason="INC-4711 rotate leaked deploy key" --minutes=30
+
+   # 3. Do the work in the backend or on the CLI
+
+   # 4. Close it — do not wait for the expiry
+   vendor/bin/typo3 vault:break-glass --deactivate --reason="INC-4711 closed"
+
+Who may open a window
+~~~~~~~~~~~~~~~~~~~~~
+
+Only a real backend administrator or system maintainer — the actual
+TYPO3 ``isAdmin()`` flag, checked independently of the disabled override
+so the escape hatch is reachable in the very state it exists for — or an
+operator in a real CLI context. Break-glass is deliberately **not**
+gated on a ``VaultPermission``: it exists to recover from a state where
+the granular grants are what is missing, so gating it on one would make
+it unreachable exactly when it is needed. CLI is likewise not gated on
+:ref:`allowCliAccess <ext-nrvault-allowCliAccess>` — a shell on the host
+already reaches the master key.
+
+A ``TechnicalActorContext::runAs()`` scope may **never** open a window,
+even for an actor whose snapshot carries the admin flag. ``runAs()`` is
+not an authentication boundary (any code with DI access can open a
+scope), so accepting it would let arbitrary extension code mint its own
+bypass with a synthetic justification.
+
+Mandatory justification
+~~~~~~~~~~~~~~~~~~~~~~~
+
+``--reason`` is required for both activation and deactivation, and an
+empty or whitespace-only value is rejected. The reason is stored
+verbatim in the audit row, carried in the PSR-14 event, and displayed in
+the backend banner. Reference the incident, ticket or change record —
+"testing" tells a later reviewer nothing.
+
+Time boxing
+~~~~~~~~~~~
+
+The window defaults to 15 minutes and is clamped to 1..60. Out-of-range
+values are clamped rather than rejected: a fat-fingered ``--minutes=600``
+during an incident should yield the one-hour ceiling, not an error to
+re-read under pressure.
+
+Expiry is evaluated **at read time**, on every access-control decision.
+There is no scheduled task to close a window, and therefore no stalled
+cron job that can silently extend one. A forgotten window stops granting
+anything the moment it lapses.
+
+Audit evidence
+~~~~~~~~~~~~~~
+
+Activation and deactivation each write one row to the tamper-evident
+audit log under the pseudo-identifier ``__break_glass__`` (the same
+convention ``vault:rotate-master-key`` uses for ``__master_key__``):
+
+===================================== ========================================
+Action                                Written when
+===================================== ========================================
+``break_glass_activated``             A window is opened. Context carries the
+                                      actor, the expiry and the TTL.
+``break_glass_deactivated``           A window is closed early. Context also
+                                      carries the original activation reason.
+===================================== ========================================
+
+Both rows are sealed into the HMAC hash chain like any other entry, so
+the evidence cannot be edited away without breaking verification. The
+activation row is written **before** the window opens: the two stores
+cannot be updated atomically, and only that order makes "window open
+without evidence" impossible.
+
+A window that simply expires writes **no** row — nothing runs at the
+moment it lapses. Reconstruct the closed interval from the activation
+row's ``expiresAt`` context value.
+
+For alerting, listen to
+``Netresearch\NrVault\Event\BreakGlassActivatedEvent`` and
+``BreakGlassDeactivatedEvent``. The audit log proves what happened; a
+listener is what makes someone *look*.
+
+Visible warning
+~~~~~~~~~~~~~~~
+
+While a window is open, the vault Overview and Secrets modules show a
+danger callout naming who opened it, the stated reason, and when it
+expires. Visibility is half the control — a window nobody notices is
+just the admin override with extra steps.
+
+.. warning::
+
+   **Break-glass restores full admin power.** While a window is open, an
+   administrator has exactly what they had before the override was
+   disabled: every operation permission, and read/write/delete on every
+   secret. Break-glass prevents nothing.
+
+   Its value is evidence and time boxing — a named actor, a typed
+   justification, a hash-chained audit row, an event observers can alert
+   on, a banner every operator sees, and an expiry nobody has to
+   remember. Treat an activation as an incident to review, not as
+   routine maintenance.
 
 Technical actors
 ----------------

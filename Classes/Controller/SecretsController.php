@@ -61,6 +61,7 @@ final readonly class SecretsController
         private ConnectionPool $connectionPool,
         private AuditLogServiceInterface $auditLogService,
         private ModuleAccessGuard $accessGuard,
+        private BreakGlassBannerProvider $breakGlassBanner,
     ) {}
 
     /**
@@ -149,6 +150,7 @@ final readonly class SecretsController
             'canRotate' => $this->accessGuard->isGranted(VaultPermission::SecretRotate),
             'canDelete' => $this->accessGuard->isGranted(VaultPermission::SecretDelete),
             'canManagePolicy' => $this->accessGuard->isGranted(VaultPermission::SecretManagePolicy),
+            'breakGlass' => $this->breakGlassBanner->forView(),
         ]);
 
         $moduleTemplate->setTitle(

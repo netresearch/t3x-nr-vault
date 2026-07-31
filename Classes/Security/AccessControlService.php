@@ -21,6 +21,7 @@ use TYPO3\CMS\Core\Authentication\CommandLineUserAuthentication;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Http\ApplicationType;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Access control service implementation.
@@ -58,6 +59,14 @@ final class AccessControlService implements AccessControlServiceInterface
         private readonly ExtensionConfigurationInterface $configuration,
         private readonly ?ConnectionPool $connectionPool = null,
         private readonly ?TechnicalActorContextInterface $technicalActorContext = null,
+        /**
+         * Read-only view of the break-glass window (never the full service —
+         * see {@see BreakGlassStateInterface} for the DI-cycle reason).
+         * Optional so the ~40 unit tests that construct this service with a
+         * configuration mock alone keep working: absent state means "no window
+         * open", which is the fail-closed answer.
+         */
+        private readonly ?BreakGlassStateInterface $breakGlassState = null,
     ) {}
 
     public function canRead(Secret $secret): bool
@@ -148,14 +157,11 @@ final class AccessControlService implements AccessControlServiceInterface
                 return false;
             }
 
-            if ($this->adminOverrideGrants($backendUser)) {
+            if ($this->adminBypassActive($this->isPrivilegedBackendUser($backendUser))) {
                 return true;
             }
 
-            return $backendUser->check(
-                'custom_options',
-                self::PERM_OPTION_GROUP . ':' . $permission->value,
-            );
+            return $this->hasCustomPermissionOption($backendUser, $permission);
         }
 
         // No backend user at all but a real CLI context (no BE_USER global
@@ -172,7 +178,7 @@ final class AccessControlService implements AccessControlServiceInterface
     {
         $technicalActor = $this->getTechnicalActor();
         if ($technicalActor instanceof TechnicalActor) {
-            return $technicalActor->admin;
+            return $this->adminBypassActive($technicalActor->admin);
         }
 
         $backendUser = $this->getBackendUser();
@@ -183,7 +189,14 @@ final class AccessControlService implements AccessControlServiceInterface
             return false;
         }
 
-        return $backendUser->isAdmin();
+        // Every caller of this method uses it as an authorization bypass — the
+        // privileged-column policy in `SecretTcaHook`, the `secret.use`
+        // exemption and the owner_uid / frontend_accessible coercions in
+        // `VaultService`. So it must answer "does the admin bypass apply",
+        // not the raw role: a disabled override that still let admins claim
+        // ownership of any secret and read plaintext without `secret.use`
+        // would be disabled in name only.
+        return $this->adminBypassActive($backendUser->isAdmin());
     }
 
     public function getCurrentActorUid(): int
@@ -541,7 +554,7 @@ final class AccessControlService implements AccessControlServiceInterface
         Secret $secret,
         string $permission,
     ): bool {
-        if ($actor->admin) {
+        if ($this->adminBypassActive($actor->admin)) {
             return true;
         }
 
@@ -579,7 +592,7 @@ final class AccessControlService implements AccessControlServiceInterface
      */
     private function hasTechnicalActorGrant(TechnicalActor $actor, VaultPermission $permission): bool
     {
-        if ($actor->admin) {
+        if ($this->adminBypassActive($actor->admin)) {
             return true;
         }
 
@@ -587,19 +600,98 @@ final class AccessControlService implements AccessControlServiceInterface
     }
 
     /**
-     * The unconditional admin / system-maintainer override for operation
-     * permissions.
+     * THE seam for "admins and system maintainers may do anything".
      *
-     * Isolated in one seam on purpose: the hardened security profile will make
-     * this override disableable in a follow-up (break-glass mode), so that a
-     * TYPO3 admin no longer automatically holds every vault permission. Every
-     * "admins may do anything" decision for operation permissions must flow
-     * through here — never inline `isAdmin()` in a caller.
+     * Every such decision in this class flows through here — the operation
+     * permissions in `isGranted()`, the per-secret tiers in
+     * `hasBackendUserAccess()`, their technical-actor counterparts, and the
+     * privileged-column / interactive-use exemptions callers reach via
+     * `isCurrentActorAdmin()`. Never inline `isAdmin()` in a caller: an
+     * override that is only half-disabled is worse than one that is not
+     * disabled at all, because the deployment believes it is protected.
+     *
+     * Three gates, in the order that keeps the default path cheap and total:
+     *
+     * 1. Not privileged at all → no bypass, nothing else matters.
+     * 2. `disableAdminOverride` off (the default) → bypass, and we never even
+     *    resolve the security profile. This deliberately keeps
+     *    `getSecurityProfile()` — which THROWS on an unknown profile string —
+     *    off the hot path of every existing installation.
+     * 3. Profile is Standard → bypass anyway. The flag is inert outside the
+     *    Hardened profile ON PURPOSE: setting it alone, without the rest of the
+     *    hardened policy (external master-key provider, no TYPO3-key fallback),
+     *    is far more likely to be a misunderstanding than a decision, and its
+     *    failure mode is locking every administrator out of the vault. Hardened
+     *    is the explicit statement "I have read the fail-closed contract".
+     *    A `vault:doctor`-style check can surface the mismatch by pairing
+     *    `isAdminOverrideDisabled()` with `getSecurityProfile()`.
+     * 4. Hardened AND disabled → bypass only inside an open break-glass
+     *    window. No window, or no state seam wired at all → no bypass.
+     */
+    private function adminBypassActive(bool $actorIsPrivileged): bool
+    {
+        if (!$actorIsPrivileged) {
+            return false;
+        }
+
+        if (!$this->configuration->isAdminOverrideDisabled()) {
+            return true;
+        }
+
+        if (!$this->configuration->getSecurityProfile()->isHardened()) {
+            return true;
+        }
+
+        return $this->breakGlassState?->isActive() ?? false;
+    }
+
+    /**
+     * Does one of the user's groups carry this custom permission option?
+     *
+     * Deliberately NOT `BackendUserAuthentication::check()`, even though that is
+     * the documented API for custom permission options. Core's implementation is
+     *
+     *     isset($this->groupData[$type])
+     *         && ($this->isAdmin() || GeneralUtility::inList(...))
+     *
+     * — an unconditional `true` for any admin. Routing the grant lookup through
+     * it would hand the override straight back to the privileged user whose
+     * bypass {@see self::adminBypassActive()} just decided to withhold, leaving
+     * `disableAdminOverride` effective on the per-secret tiers and inert on the
+     * operation permissions: disabled in name only, which is worse than not
+     * disabled, because the deployment believes it is protected.
+     *
+     * What remains is exactly the list core evaluates for a non-admin, minus the
+     * short-circuit — so a non-admin's result is unchanged, and an admin without
+     * the override is treated like any other user: they hold what their groups
+     * were granted, and nothing more.
+     */
+    private function hasCustomPermissionOption(
+        BackendUserAuthentication $backendUser,
+        VaultPermission $permission,
+    ): bool {
+        /** @phpstan-ignore property.internal */
+        $granted = $backendUser->groupData['custom_options'] ?? null;
+
+        if (!\is_string($granted) || $granted === '') {
+            return false;
+        }
+
+        return GeneralUtility::inList(
+            $granted,
+            self::PERM_OPTION_GROUP . ':' . $permission->value,
+        );
+    }
+
+    /**
+     * Does this backend user carry the admin / system-maintainer role?
      *
      * `isSystemMaintainer()` is checked explicitly even though it implies the
-     * admin flag in core, mirroring `hasBackendUserAccess()`.
+     * admin flag in core, mirroring `hasBackendUserAccess()`. This answers the
+     * ROLE question only — whether the role currently grants a bypass is
+     * {@see self::adminBypassActive()}.
      */
-    private function adminOverrideGrants(BackendUserAuthentication $backendUser): bool
+    private function isPrivilegedBackendUser(BackendUserAuthentication $backendUser): bool
     {
         if ($backendUser->isAdmin()) {
             return true;
@@ -631,13 +723,12 @@ final class AccessControlService implements AccessControlServiceInterface
             return false;
         }
 
-        // Admin access — full access to every tier.
-        if ($backendUser->isAdmin()) {
-            return true;
-        }
-
-        // System maintainer access — full access to every tier.
-        if ($backendUser->isSystemMaintainer()) {
+        // Admin / system-maintainer access — full access to every tier, unless
+        // the override is disabled (hardened profile) and no break-glass window
+        // is open. Routed through the shared seam so a disabled override really
+        // removes the global bypass instead of only the operation permissions:
+        // an "admin" who still reads every colleague's secret is not restricted.
+        if ($this->adminBypassActive($this->isPrivilegedBackendUser($backendUser))) {
             return true;
         }
 

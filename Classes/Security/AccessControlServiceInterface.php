@@ -72,16 +72,27 @@ interface AccessControlServiceInterface
      *   everything, anyone else needs the matching custom permission option
      *   (`tx_nrvault:<permission>`) on one of their groups;
      * - disabled user, no user at all → `false`.
+     *
+     * The admin / system-maintainer bypass — here and in every per-secret tier
+     * above — is removable: in the {@see SecurityProfile::Hardened} profile with
+     * `disableAdminOverride` set, privileged users hold only what their groups
+     * grant, unless a {@see BreakGlassServiceInterface} window is open.
      */
     public function isGranted(VaultPermission $permission): bool;
 
     /**
-     * Is the current actor a TYPO3 backend admin?
+     * Does the current actor hold the admin bypass?
      *
      * Returns `true` for BE users where `BackendUserAuthentication::isAdmin()`
      * is true. Non-BE actor types (CLI / scheduler / API) MUST return `false`
      * — callers that legitimately need to bypass admin gates should handle
      * actor type explicitly, not rely on this method.
+     *
+     * This is a bypass question, not a role lookup: in the hardened profile
+     * with `disableAdminOverride` set, a real TYPO3 admin answers `false`
+     * unless a break-glass window is open. Do not use it to label a user in
+     * output or to derive audit attribution — use the role/actor accessors for
+     * that.
      */
     public function isCurrentActorAdmin(): bool;
 
