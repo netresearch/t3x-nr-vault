@@ -51,6 +51,9 @@
         </div>
     </f:if>
 
+    <!-- Security readiness (vault:doctor) -->
+    <f:render partial="SecurityStatus" arguments="{securityStatus: securityStatus}" />
+
     <!-- Statistics Cards -->
     <div class="card-container mb-4" role="group" aria-label="{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.stats.total_secrets')}" data-testid="vault-stats">
         <div class="card card-size-fixed-small" data-testid="stat-card-total">
@@ -274,6 +277,7 @@ lib.mapsKey.stdWrap.cache.disable = 1</code></pre>
                 <tr><td><code>vault:rotate-master-key</code></td><td>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.cli.rotate_master_key')}</td></tr>
                 <tr><td><code>vault:cleanup-orphans</code></td><td>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.cli.cleanup_orphans')}</td></tr>
                 <tr><td><code>vault:break-glass</code></td><td>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.cli.break_glass')}</td></tr>
+                <tr><td><code>vault:doctor</code></td><td>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.cli.doctor')}</td></tr>
             </tbody>
         </table>
         <small class="text-muted">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.cli.help_hint')}</small>

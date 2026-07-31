@@ -26,6 +26,11 @@ use TYPO3\CMS\Core\Core\Environment;
  * cannot resolve a stream-wrapper URL, so a virtual filesystem would force the
  * production code to be loosened to suit the test.
  *
+ * It is also the only place allowed to call the `@internal`
+ * `Environment::initialize()` (see the scoped exemption in `phpstan.neon`), so
+ * anything a unit test needs from that singleton — including a specific
+ * application context — goes through here rather than into the test itself.
+ *
  * Usage: call `setUpEnvironmentSandbox()` from `setUp()` and
  * `tearDownEnvironmentSandbox()` from `tearDown()`.
  */
@@ -35,8 +40,12 @@ trait EnvironmentSandboxTrait
 
     /**
      * Create `<sandbox>/{public,var,config}` and point Environment at it.
+     *
+     * `$applicationContext` exists for the checks that branch on
+     * `Environment::getContext()->isProduction()`; the default keeps every other
+     * consumer on the context a test process should report.
      */
-    private function setUpEnvironmentSandbox(): void
+    private function setUpEnvironmentSandbox(string $applicationContext = 'Testing'): void
     {
         $this->environmentSandbox = sys_get_temp_dir() . '/nr-vault-env-' . bin2hex(random_bytes(6));
 
@@ -49,6 +58,24 @@ trait EnvironmentSandboxTrait
             $this->environmentSandbox . '/public',
             $this->environmentSandbox . '/var',
             $this->environmentSandbox . '/config',
+            $applicationContext,
+        );
+    }
+
+    /**
+     * Switch the application context of an existing sandbox.
+     *
+     * For tests that need to observe both sides of an `isProduction()` branch
+     * without standing up a second sandbox directory.
+     */
+    private function setEnvironmentApplicationContext(string $applicationContext): void
+    {
+        $this->initializeEnvironment(
+            $this->environmentSandbox,
+            $this->environmentSandbox . '/public',
+            $this->environmentSandbox . '/var',
+            $this->environmentSandbox . '/config',
+            $applicationContext,
         );
     }
 
@@ -64,7 +91,7 @@ trait EnvironmentSandboxTrait
         $this->environmentSandbox = '';
 
         $fallback = sys_get_temp_dir();
-        $this->initializeEnvironment($fallback, $fallback, $fallback, $fallback);
+        $this->initializeEnvironment($fallback, $fallback, $fallback, $fallback, 'Testing');
     }
 
     /**
@@ -80,9 +107,10 @@ trait EnvironmentSandboxTrait
         string $publicPath,
         string $varPath,
         string $configPath,
+        string $applicationContext,
     ): void {
         Environment::initialize(
-            new ApplicationContext('Testing'),
+            new ApplicationContext($applicationContext),
             true,
             true,
             $projectPath,

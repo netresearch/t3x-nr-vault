@@ -465,8 +465,45 @@
       <trans-unit id="overview.cli.break_glass">
         <source>Open, close or inspect a time-boxed break-glass window</source>
       </trans-unit>
+      <trans-unit id="overview.cli.doctor">
+        <source>Check the configuration for deployment and audit readiness</source>
+      </trans-unit>
       <trans-unit id="overview.cli.help_hint">
         <source>Run bin/typo3 vault:&lt;command&gt; --help for detailed usage.</source>
+      </trans-unit>
+      <!-- Security readiness panel (vault:doctor) -->
+      <trans-unit id="overview.security.status.title">
+        <source>Security Readiness</source>
+      </trans-unit>
+      <trans-unit id="overview.security.status.profile.standard">
+        <source>Standard profile</source>
+      </trans-unit>
+      <trans-unit id="overview.security.status.profile.hardened">
+        <source>Hardened profile</source>
+      </trans-unit>
+      <trans-unit id="overview.security.status.controlsPassed">
+        <source>%1$s of %2$s controls passed</source>
+      </trans-unit>
+      <trans-unit id="overview.security.status.auditReady">
+        <source>Every readiness control passed. This configuration is audit-ready for the active security profile.</source>
+      </trans-unit>
+      <trans-unit id="overview.security.status.risk">
+        <source>Risk:</source>
+      </trans-unit>
+      <trans-unit id="overview.security.status.fix">
+        <source>Fix:</source>
+      </trans-unit>
+      <trans-unit id="overview.security.status.docs">
+        <source>Read the documentation for this control</source>
+      </trans-unit>
+      <trans-unit id="overview.security.status.cliHint">
+        <source>The same report, with machine-readable output and an exit code for a deployment gate:</source>
+      </trans-unit>
+      <trans-unit id="overview.security.status.restricted">
+        <source>%1$s critical and %2$s advisory readiness finding(s) are open. Details are restricted to users who may configure the vault — ask a vault administrator to review them.</source>
+      </trans-unit>
+      <trans-unit id="overview.security.status.unavailable">
+        <source>The readiness controls could not be evaluated. Treat their result as unknown, not as passed, and run the command-line report for the reason:</source>
       </trans-unit>
       <trans-unit id="overview.security.title">
         <source>Security Features</source>
