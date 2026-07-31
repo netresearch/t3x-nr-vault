@@ -278,24 +278,66 @@ the list below is what is actually declared here.
             :file:`.sonarcloud.properties`
         -   Codecov thresholds; SonarCloud project configuration
 
+    *   -   SBOMs, signatures, checksums
+        -   Shared reusable
+            ``release-typo3-extension.yml``, job ``build-and-sign``
+        -   SPDX + CycloneDX SBOMs, Sigstore bundles and ``checksums.txt``
+            attached to every tagged release — see below
+
     *   -   Vulnerability disclosure policy
         -   :file:`SECURITY.md`
         -   Private reporting through GitHub security advisories
 
-..  note::
+..  important::
 
-    **What is not declared in this repository:** SBOM generation and artefact
-    signing (cosign/sigstore) do not appear in these workflow files. The
-    release job delegates to a shared reusable workflow
-    (``netresearch/typo3-ci-workflows``) and requests attestation permissions;
-    anything beyond build provenance has to be verified **in that reusable
-    workflow**, not inferred from the call site. Record what you verified and
-    where.
+    **Supply-chain controls are one level up — follow the delegation, do not
+    infer from the call site.** This repository's :file:`release.yml` contains
+    no SBOM, signing or checksum steps of its own. They live in the shared
+    reusable ``netresearch/typo3-ci-workflows/.github/workflows/release-typo3-extension.yml``,
+    job ``build-and-sign``, which produces for every tagged release:
 
-    Several jobs also reference reusable workflows at ``@main`` rather than a
-    pinned commit SHA. For organisation-owned reusables that is the deliberate
-    policy — it lets upstream fixes propagate — but an assessment should note
-    it explicitly rather than treat it as an oversight.
+    *   ``<prefix>-<version>.sbom.spdx.json`` and ``.sbom.cdx.json`` —
+        SPDX and CycloneDX, via ``anchore/sbom-action`` (gated on
+        ``include-sbom``, default ``true``);
+    *   ``<file>.sigstore.json`` for **every** file in ``dist/`` — keyless
+        Sigstore signing via ``sigstore/cosign-installer`` and
+        ``cosign sign-blob --bundle`` (gated on ``sign-artifacts``, default
+        ``true``);
+    *   ``checksums.txt`` — ``sha256sum`` over the whole ``dist/`` directory;
+    *   a build-provenance attestation over the ``.zip`` and ``.tar.gz`` via
+        ``actions/attest-build-provenance`` — **ungated**.
+
+    nr-vault's call site passes only ``archive-prefix``, ``package-name`` and
+    ``extension-key``, so it opts out of neither gate and both defaults hold.
+
+    Record **which** source you verified this against and at which revision:
+    the reusable is referenced at ``@main``, so its content can change without
+    any commit in this repository.
+
+..  code-block:: bash
+    :caption: Verifying a published release
+
+    gh release download v<version> -R netresearch/t3x-nr-vault -D release-assets
+    cd release-assets
+
+    # Integrity.
+    sha256sum -c checksums.txt
+
+    # Signature (keyless — identity and issuer must match the release workflow).
+    cosign verify-blob \
+        --bundle nr-vault-<version>.zip.sigstore.json \
+        --certificate-identity-regexp 'https://github\.com/netresearch/.+' \
+        --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+        nr-vault-<version>.zip
+
+    # Build provenance.
+    gh attestation verify nr-vault-<version>.zip -R netresearch/t3x-nr-vault
+
+Third-party actions in that release path are pinned to full commit SHAs.
+Netresearch-owned reusables are deliberately referenced at ``@main`` so
+upstream fixes propagate; an assessment should record that as policy rather
+than flag it as an oversight, and should pin the *observed revision* in its own
+evidence instead.
 
 .. _auditor-evidence-package:
 
@@ -320,8 +362,15 @@ Assembling the evidence package
     ├── secret-scan.txt
     ├── config-snapshot.txt          # settings, pins, allowed_hosts, grants
     ├── file-permissions.txt         # key file, NDJSON files
-    └── ci/                          # workflow run URLs, attestation verification,
-                                     # Scorecard result, coverage report
+    └── ci/
+        ├── workflow-runs.txt        # run URLs for ci.yml / checks.yml / release.yml
+        ├── scorecard.json           # OpenSSF Scorecard result
+        ├── coverage.txt             # Codecov / SonarCloud summary
+        ├── sbom.spdx.json           # SBOM as published with the release
+        ├── sbom.cdx.json
+        ├── checksums-verify.txt     # sha256sum -c output
+        ├── cosign-verify.txt        # cosign verify-blob output
+        └── attestation-verify.txt   # gh attestation verify output
 
 Record for the package as a whole: **when** it was collected, **from which
 environment**, **by whom**, under **which extension, TYPO3 and PHP versions**,

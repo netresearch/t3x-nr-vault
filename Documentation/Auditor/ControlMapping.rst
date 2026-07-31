@@ -370,20 +370,41 @@ v4: chapter 10 (Malicious Code), chapter 14 (Configuration).*
         -   :file:`.github/workflows/ci.yml`
 
     *   -   Release provenance
-        -   Tag-triggered release with ``id-token: write`` and
-            ``attestations: write``
-        -   :file:`.github/workflows/release.yml`;
-            GitHub attestations
+        -   ``actions/attest-build-provenance`` over the ``.zip`` and
+            ``.tar.gz`` — ungated. Requested at the call site with
+            ``id-token: write`` + ``attestations: write``
+        -   :file:`.github/workflows/release.yml`; verify with
+            ``gh attestation verify``
 
-    *   -   Software Bill of Materials and artefact signing
-        -   SPDX and CycloneDX SBOMs plus Cosign keyless signatures and
-            SHA-256 checksums, produced for every tagged release. Delivered
-            by the shared reusable ``release-typo3-extension.yml``
-            (``include-sbom`` and ``sign-artifacts`` both default ``true``);
-            this repository's :file:`release.yml` opts out of neither.
-        -   Release assets (``*.sbom.spdx.json``, ``*.sbom.cdx.json``,
-            ``*.sigstore.json``, ``checksums.txt``); verify with
-            ``cosign verify-blob`` and ``gh attestation verify``
+    *   -   Software bill of materials
+        -   Two SBOMs per tagged release via ``anchore/sbom-action``:
+            ``<prefix>-<version>.sbom.spdx.json`` (SPDX) and
+            ``.sbom.cdx.json`` (CycloneDX). Delivered by the shared reusable;
+            ``include-sbom`` defaults ``true`` and this repository's
+            :file:`release.yml` does not opt out
+        -   Release assets ``*.sbom.spdx.json`` / ``*.sbom.cdx.json``
+
+    *   -   Artefact signing
+        -   Keyless Sigstore signing via ``sigstore/cosign-installer`` and
+            ``cosign sign-blob --bundle``, over **every** file in ``dist/``,
+            producing ``<file>.sigstore.json`` (that extension is chosen so
+            OpenSSF Scorecard recognises the artefacts as signed).
+            ``sign-artifacts`` defaults ``true``; not opted out here
+        -   Release assets ``*.sigstore.json``; verify with
+            ``cosign verify-blob --bundle``
+
+    *   -   Artefact integrity
+        -   ``checksums.txt`` — ``sha256sum`` over the whole ``dist/``
+            directory, including the SBOMs
+        -   Release asset; verify with ``sha256sum -c checksums.txt``
+
+    *   -   Third-party actions pinned by digest
+        -   Every third-party ``uses:`` in the release path is pinned to a full
+            commit SHA (``sbom-action``, ``cosign-installer``,
+            ``attest-build-provenance``, ``upload-artifact``). Netresearch-owned
+            reusables intentionally stay on ``@main`` so upstream fixes
+            propagate
+        -   Reusable workflow source; :ref:`auditor-evidence-ci`
 
     *   -   Continuous security posture measurement
         -   OpenSSF Scorecard on schedule and on default-branch pushes
