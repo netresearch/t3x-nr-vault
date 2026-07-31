@@ -360,6 +360,51 @@ final class AuditSinkRegistryTest extends TestCase
     }
 
     /**
+     * The guard has a second entry point: a sink that re-enters `dispatchAlert()`
+     * from inside its own `publishAlert()` — what happens when a sink implementation
+     * (or a listener it invokes synchronously) reports its own trouble as an alert.
+     * That call must be dropped, not fanned out again, or the first alert delivery
+     * recurses until the stack runs out.
+     */
+    #[Test]
+    public function reEnteringAlertDispatchFromInsideASinkIsDroppedRatherThanRecursed(): void
+    {
+        $holder = new RegistryHolder();
+        $sink = new ReentrantAlertSink('reentrant', $holder);
+
+        $registry = $this->createSubject([$sink]);
+        $holder->registry = $registry;
+
+        $accepted = $registry->dispatchAlert(
+            AuditIntegrityAlert::create(AuditIntegrityReason::TableReset, 'chain shrank'),
+        );
+
+        self::assertSame(1, $accepted, 'the outer delivery still succeeds');
+        self::assertSame(1, $sink->alertCalls, 'the sink must be asked exactly once');
+        self::assertSame([0], $sink->reentrantResults, 'the nested delivery reports zero sinks reached');
+    }
+
+    /**
+     * …and the guard is released afterwards: a one-off re-entry must not leave the
+     * registry permanently unable to deliver alerts.
+     */
+    #[Test]
+    public function theReentrancyGuardIsReleasedAfterTheOuterDeliveryCompletes(): void
+    {
+        $holder = new RegistryHolder();
+        $sink = new ReentrantAlertSink('reentrant', $holder);
+
+        $registry = $this->createSubject([$sink]);
+        $holder->registry = $registry;
+
+        $alert = AuditIntegrityAlert::create(AuditIntegrityReason::SinkFailure, 'first');
+        $registry->dispatchAlert($alert);
+
+        self::assertSame(1, $registry->dispatchAlert($alert), 'a later alert must still be delivered');
+        self::assertSame(2, $sink->alertCalls);
+    }
+
+    /**
      * @param list<AuditSinkInterface> $sinks
      */
     private function createSubject(
@@ -536,4 +581,47 @@ final class ForwardingEventDispatcher implements EventDispatcherInterface
 final class RegistryHolder
 {
     public ?AuditSinkRegistry $registry = null;
+}
+
+/**
+ * A sink that calls `dispatchAlert()` back on the registry currently delivering
+ * to it — the reentrancy the guard in `dispatchAlert()` exists to break.
+ *
+ * @internal test helper
+ */
+final class ReentrantAlertSink implements AuditSinkInterface
+{
+    public int $alertCalls = 0;
+
+    /** @var list<int> Return values of the nested dispatchAlert() calls */
+    public array $reentrantResults = [];
+
+    public function __construct(
+        private readonly string $identifier,
+        private readonly RegistryHolder $holder,
+    ) {}
+
+    public function publish(AuditLogEntry $entry, string $chainTip): void {}
+
+    public function publishAnchor(ChainTipAnchor $anchor): void {}
+
+    public function publishAlert(AuditIntegrityAlert $alert): void
+    {
+        ++$this->alertCalls;
+
+        $registry = $this->holder->registry;
+        if ($registry instanceof AuditSinkRegistry) {
+            $this->reentrantResults[] = $registry->dispatchAlert($alert);
+        }
+    }
+
+    public function getIdentifier(): string
+    {
+        return $this->identifier;
+    }
+
+    public function isEnabled(): bool
+    {
+        return true;
+    }
 }

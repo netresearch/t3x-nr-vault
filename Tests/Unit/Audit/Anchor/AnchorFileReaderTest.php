@@ -12,7 +12,9 @@ namespace Netresearch\NrVault\Tests\Unit\Audit\Anchor;
 use Netresearch\NrVault\Audit\Anchor\AnchorFileReader;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Tests\Unit\Fixtures\FailingStreamWrapper;
 use Netresearch\NrVault\Tests\Unit\TestCase;
+use Netresearch\NrVault\Tests\Unit\Traits\ErrorSuppressionTrait;
 use org\bovigo\vfs\vfsStream;
 use org\bovigo\vfs\vfsStreamDirectory;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -27,6 +29,8 @@ use Psr\Log\NullLogger;
 #[CoversClass(AnchorFileReader::class)]
 final class AnchorFileReaderTest extends TestCase
 {
+    use ErrorSuppressionTrait;
+
     private vfsStreamDirectory $root;
 
     protected function setUp(): void
@@ -189,6 +193,46 @@ final class AnchorFileReaderTest extends TestCase
 
         self::assertInstanceOf(ChainTipAnchor::class, $anchor);
         self::assertSame(4, $anchor->sequence);
+    }
+
+    /**
+     * A file that stats as a readable regular file but cannot actually be opened
+     * (a revoked ACL, an NFS mount that went away between the stat and the open).
+     * Verification then has no external baseline — and must say so by returning
+     * null rather than by dying inside the integrity check.
+     */
+    #[Test]
+    public function anUnopenableAnchorFileYieldsNoAnchorInsteadOfFailing(): void
+    {
+        FailingStreamWrapper::register(FailingStreamWrapper::MODE_OPEN_REFUSED);
+
+        try {
+            $subject = $this->createSubject(FailingStreamWrapper::path('anchor.ndjson'));
+
+            // `isAvailable()` still reports true: the file is there, which is
+            // exactly why the read path needs its own guard.
+            self::assertTrue($subject->isAvailable());
+            self::assertNull($this->withoutPhpDiagnostics(static fn (): ?ChainTipAnchor => $subject->readLatestAnchor()));
+        } finally {
+            FailingStreamWrapper::unregister();
+        }
+    }
+
+    /**
+     * On a host whose error handler promotes warnings to exceptions, the failed
+     * open arrives as a Throwable rather than as `false`. Both must degrade to
+     * "no baseline", never propagate out of the verifier.
+     */
+    #[Test]
+    public function aThrowingOpenAlsoYieldsNoAnchor(): void
+    {
+        FailingStreamWrapper::register(FailingStreamWrapper::MODE_OPEN_THROWS);
+
+        try {
+            self::assertNull($this->createSubject(FailingStreamWrapper::path('anchor.ndjson'))->readLatestAnchor());
+        } finally {
+            FailingStreamWrapper::unregister();
+        }
     }
 
     private function createSubject(string $path): AnchorFileReader
