@@ -53,9 +53,9 @@ final class AuditChainAnchorStoreTest extends TestCase
         parent::setUp();
 
         $this->connection = $this->createMock(Connection::class);
-        $this->connectionPool = $this->createStub(ConnectionPool::class);
+        $this->connectionPool = self::createStub(ConnectionPool::class);
         $this->connectionPool->method('getConnectionForTable')->willReturn($this->connection);
-        $this->extensionConfiguration = $this->createStub(ExtensionConfigurationInterface::class);
+        $this->extensionConfiguration = self::createStub(ExtensionConfigurationInterface::class);
         $this->extensionConfiguration->method('getAuditHmacEpoch')->willReturn(3);
     }
 
@@ -71,7 +71,8 @@ final class AuditChainAnchorStoreTest extends TestCase
                 'sys_registry',
                 self::callback(static fn (array $data): bool => $data['entry_namespace'] === 'tx_nrvault'
                     && $data['entry_key'] === 'auditChainTip'
-                    && str_starts_with((string) $data['entry_value'], 'nrvault-audit-tip.v1|7|' . self::HASH_A . '|')),
+                    && \is_string($data['entry_value'])
+                    && str_starts_with($data['entry_value'], 'nrvault-audit-tip.v1|7|' . self::HASH_A . '|')),
                 ['entry_value' => Connection::PARAM_LOB],
             );
 
@@ -165,7 +166,7 @@ final class AuditChainAnchorStoreTest extends TestCase
     #[Test]
     public function advanceWritesNothingAtEpochZero(): void
     {
-        $configuration = $this->createStub(ExtensionConfigurationInterface::class);
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
         $configuration->method('getAuditHmacEpoch')->willReturn(0);
 
         $this->connection->expects(self::never())->method('update');
@@ -180,8 +181,8 @@ final class AuditChainAnchorStoreTest extends TestCase
     #[Test]
     public function advanceWritesNothingWhenTheRegistryIsOnAnotherConnection(): void
     {
-        $foreignPool = $this->createStub(ConnectionPool::class);
-        $foreignPool->method('getConnectionForTable')->willReturn($this->createStub(Connection::class));
+        $foreignPool = self::createStub(ConnectionPool::class);
+        $foreignPool->method('getConnectionForTable')->willReturn(self::createStub(Connection::class));
 
         $this->connection->expects(self::never())->method('update');
         $this->connection->expects(self::never())->method('insert');
@@ -447,7 +448,7 @@ final class AuditChainAnchorStoreTest extends TestCase
 
     private function subjectWithAnchorRequired(): AuditChainAnchorStore
     {
-        $configuration = $this->createStub(ExtensionConfigurationInterface::class);
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
         $configuration->method('getAuditHmacEpoch')->willReturn(3);
         $configuration->method('isAuditAnchorRequired')->willReturn(true);
 
@@ -465,7 +466,7 @@ final class AuditChainAnchorStoreTest extends TestCase
 
     private function masterKeyProvider(): MasterKeyProviderInterface
     {
-        $provider = $this->createStub(MasterKeyProviderInterface::class);
+        $provider = self::createStub(MasterKeyProviderInterface::class);
         $provider->method('getMasterKey')->willReturn(self::MASTER_KEY);
 
         return $provider;
@@ -512,7 +513,7 @@ final class AuditChainAnchorStoreTest extends TestCase
      */
     private function wireReads(array $fetchAssociativeReturns, array $fetchOneReturns = []): void
     {
-        $result = $this->createStub(Result::class);
+        $result = self::createStub(Result::class);
         if ($fetchOneReturns !== []) {
             $result->method('fetchOne')->willReturn(...$fetchOneReturns);
         }
@@ -520,12 +521,12 @@ final class AuditChainAnchorStoreTest extends TestCase
             $result->method('fetchAssociative')->willReturn(...$fetchAssociativeReturns);
         }
 
-        $expressionBuilder = $this->createStub(ExpressionBuilder::class);
+        $expressionBuilder = self::createStub(ExpressionBuilder::class);
         $expressionBuilder->method('eq')->willReturn('c = :p');
 
-        $restrictions = $this->createStub(QueryRestrictionContainerInterface::class);
+        $restrictions = self::createStub(QueryRestrictionContainerInterface::class);
 
-        $queryBuilder = $this->createStub(QueryBuilder::class);
+        $queryBuilder = self::createStub(QueryBuilder::class);
         $queryBuilder->method('getRestrictions')->willReturn($restrictions);
         $queryBuilder->method('expr')->willReturn($expressionBuilder);
         $queryBuilder->method('createNamedParameter')->willReturn(':p');

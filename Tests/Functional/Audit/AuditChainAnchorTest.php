@@ -427,8 +427,8 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function foreignRegistryConnectionWritesNothingAndOnlyWarns(): void
     {
-        $foreignPool = $this->createStub(ConnectionPool::class);
-        $foreignPool->method('getConnectionForTable')->willReturn($this->createStub(Connection::class));
+        $foreignPool = self::createStub(ConnectionPool::class);
+        $foreignPool->method('getConnectionForTable')->willReturn(self::createStub(Connection::class));
 
         $store = new AuditChainAnchorStore(
             $foreignPool,
@@ -572,6 +572,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         self::assertSame(0, $exitCode, $commandTester->getDisplay());
 
         // The operator's next step: make the new key the configured one.
+        self::assertIsString($this->masterKeyPath, 'the master key path is wired by the base test case');
         copy($newKeyPath, $this->masterKeyPath);
         FileMasterKeyProvider::clearCachedKey();
 
@@ -808,7 +809,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         $queryBuilder = $connection->createQueryBuilder();
 
         return array_map(
-            static fn (mixed $value): string => (string) $value,
+            static fn (mixed $value): string => \is_scalar($value) ? (string) $value : '',
             $queryBuilder
                 ->select('action')
                 ->from(self::AUDIT_TABLE)
@@ -830,7 +831,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
 
     private function configurationStub(int $epoch, bool $anchorRequired): ExtensionConfigurationInterface
     {
-        $stub = $this->createStub(ExtensionConfigurationInterface::class);
+        $stub = self::createStub(ExtensionConfigurationInterface::class);
         $stub->method('getAuditHmacEpoch')->willReturn($epoch);
         $stub->method('isAuditAnchorRequired')->willReturn($anchorRequired);
         $stub->method('isAuditReadsEnabled')->willReturn(true);
