@@ -208,7 +208,12 @@ final readonly class VersionCheck implements ReadinessCheckInterface
             $_EXTKEY = $extensionKey;
             /** @var array<string, mixed> $EM_CONF */
             $EM_CONF = [];
-            include $file;
+            // NOSONAR php:S2003 — must be `include`, not `include_once`: this
+            // reads a data file (ext_emconf.php sets $EM_CONF) into the closure
+            // scope, and include_once would return true without re-populating
+            // $EM_CONF on any second call in the same process, yielding an empty
+            // (wrong) version result.
+            include $file; // NOSONAR
 
             return $EM_CONF[$_EXTKEY] ?? null;
         })($path, self::EXTENSION_KEY);
