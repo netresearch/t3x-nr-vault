@@ -1,0 +1,210 @@
+name: Security Gates
+
+# Mutation ratchet for the security-critical directories (Classes/Crypto,
+# Classes/Security, Classes/Audit) via `infection-security.json5`.
+#
+# WHY A STANDALONE WORKFLOW
+# =========================
+# `checks.yml` is the natural home for a quality job, but it is byte-identical
+# and drift-enforced across every netresearch typo3-extension (see
+# check-template-drift.yml) — adding an extension-specific job there would break
+# that check. `ci.yml` is the extension-specific file, but it is a thin call into
+# the shared `typo3-ci-workflows/ci.yml` matrix and the upstream mutation job in
+# `extended-testing.yml` hardcodes the default `infection.json5` plus testsuite
+# and config paths this repo does not use. So the gate lives here until an
+# upstream reusable accepts a custom Infection configuration.
+#
+# WHY THE THREE-JOB SHAPE
+# =======================
+# The expensive job must only run when the security-critical code changes, but a
+# workflow-level `paths:` filter cannot be combined with a REQUIRED status check:
+# on a PR that touches nothing else, the check would never report and the PR
+# would sit "expected — waiting for status" forever (and `merge_group` does not
+# support `paths` at all). Instead every job is always triggered, `detect`
+# decides whether the mutation run is needed, and `security-gates` always reports
+# — so it can be marked required in branch protection while unrelated PRs still
+# pass immediately. The gate FAILS when mutation fails; it does not "continue on
+# error".
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    name: Detect security-critical changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      security-changed: ${{ steps.filter.outputs.security-changed }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Plain git rather than a third-party paths-filter action: one less
+      # third-party dependency to pin and audit for a ten-line diff check.
+      - name: Check whether security-critical paths changed
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          # Anything outside a pull request (push to main, merge queue) always
+          # runs the gate: there is no meaningful "changed files" base, and
+          # failing closed is the right default for a security check.
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo 'security-changed=true' >> "$GITHUB_OUTPUT"
+            echo "Event '$EVENT_NAME' always runs the security mutation gate."
+            exit 0
+          fi
+
+          git fetch --no-tags origin "$BASE_REF"
+          changed="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
+          echo "Changed files:"
+          echo "$changed"
+
+          # The gate's own inputs count as security-critical: a PR that lowers
+          # the ratchet, rewrites the config or edits the crypto/audit tests must
+          # be measured, not waved through.
+          if echo "$changed" | grep -qE '^(Classes/(Crypto|Security|Audit)/|Tests/(Fuzz|Unit/(Crypto|Security|Audit)|Functional/(Crypto|Security|Audit))/|infection-security\.json5$|infection\.json5$|composer\.json$|Build/phpunit\.xml$|\.github/workflows/security-gates\.yml$)'; then
+            echo 'security-changed=true' >> "$GITHUB_OUTPUT"
+            echo "Security-critical paths changed — running the mutation gate."
+          else
+            echo 'security-changed=false' >> "$GITHUB_OUTPUT"
+            echo "No security-critical paths changed — skipping the mutation run."
+          fi
+
+  mutation:
+    name: Security mutation ratchet
+    needs: detect
+    if: needs.detect.outputs.security-changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.5'
+          # sodium is not optional here — every mutant under test is crypto.
+          extensions: intl, mbstring, xml, sodium, json, pcov
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Install dependencies
+        env:
+          # CaptainHook's post-install hook installer is pointless on a CI
+          # checkout and fails in a detached worktree.
+          CAPTAINHOOK_DISABLE: 'true'
+        run: composer install --prefer-dist --no-progress
+
+      # Coverage over Unit AND Fuzz, matching `testFrameworkOptions` in
+      # infection-security.json5. The crypto boundary is covered by property/fuzz
+      # tests, so measuring the Unit suite alone would understate the real MSI and
+      # make the ratchet meaningless.
+      - name: Generate coverage for Infection
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/logs-security
+          .Build/bin/phpunit -c Build/phpunit.xml \
+            --testsuite Unit,Fuzz \
+            --coverage-xml=.Build/logs-security/coverage-xml \
+            --log-junit=.Build/logs-security/junit.xml
+
+      # Fails the job when MSI drops below the ratchet in
+      # infection-security.json5. Escaped mutants are annotated onto the diff by
+      # the config's `logs.github` logger.
+      - name: Run security mutation ratchet
+        run: |
+          set -euo pipefail
+          .Build/bin/infection \
+            --configuration=infection-security.json5 \
+            --threads=max \
+            --skip-initial-tests \
+            --coverage=.Build/logs-security \
+            --no-progress
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: infection-security-report
+          path: |
+            .Build/infection-security/infection.log
+            .Build/infection-security/infection.html
+            .Build/infection-security/summary.log
+            .Build/infection-security/per-mutator.md
+          if-no-files-found: warn
+          retention-days: 14
+
+  security-gates:
+    name: Security gates
+    needs: [detect, mutation]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      # The stable check to mark required in branch protection. It reports on
+      # every PR — success when the mutation run was legitimately skipped,
+      # failure whenever the run itself failed or was cancelled.
+      - name: Evaluate gate result
+        env:
+          DETECT_RESULT: ${{ needs.detect.result }}
+          MUTATION_RESULT: ${{ needs.mutation.result }}
+          SECURITY_CHANGED: ${{ needs.detect.outputs.security-changed }}
+        run: |
+          set -euo pipefail
+          echo "detect=$DETECT_RESULT security-changed=$SECURITY_CHANGED mutation=$MUTATION_RESULT"
+
+          if [ "$DETECT_RESULT" != "success" ]; then
+            echo "::error::Change detection failed ($DETECT_RESULT) — refusing to pass the security gate."
+            exit 1
+          fi
+
+          if [ "$SECURITY_CHANGED" != "true" ]; then
+            if [ "$MUTATION_RESULT" != "skipped" ]; then
+              echo "::error::Inconsistent state: no security-critical change but mutation result is '$MUTATION_RESULT'."
+              exit 1
+            fi
+            echo "No security-critical changes — gate passes without a mutation run."
+            exit 0
+          fi
+
+          if [ "$MUTATION_RESULT" != "success" ]; then
+            echo "::error::Security mutation ratchet did not pass ($MUTATION_RESULT). The mutation score index for Classes/{Crypto,Security,Audit} dropped below the floor in infection-security.json5, or the run failed. Kill the escaped mutants listed in the job annotations; lowering the ratchet needs security-team sign-off."
+            exit 1
+          fi
+
+          echo "Security mutation ratchet passed."

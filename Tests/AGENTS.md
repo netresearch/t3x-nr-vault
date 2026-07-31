@@ -84,7 +84,7 @@ Tests/
 - Functional fixtures: `Tests/.../Fixtures/*.csv`, loaded via `$this->importCSVDataSet()`.
 
 ## Security
-- **Never commit real secrets** — fixtures use clearly synthetic values. `.gitleaks.toml` allowlists only a narrow set of specific paths (see the `[allowlist] paths` list) for known synthetic tokens; new files are scanned by default.
+- **Never commit real secrets** — fixtures use clearly synthetic values. `.gitleaks.toml` exists at the repository root, but **no CI job runs gitleaks** (or any other secret scanner), so there is no automated scanning: treat every fixture as unscanned and review it by hand before committing.
 - **Master keys in tests** are generated per-test (`sodium_crypto_secretbox_keygen()`), never hard-coded.
 - **Do not** test against production vault backends.
 - **Audit logs** in tests must still verify HMAC chain integrity when the code path produces entries.

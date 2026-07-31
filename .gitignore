@@ -15,6 +15,15 @@ Thumbs.db
 !.env.example
 !.env.dist
 
+# Auto-generated master keys. `masterKeySource` defaults to the bare relative
+# name `NR_VAULT_MASTER_KEY` (ExtensionConfiguration::DEFAULT_MASTER_KEY_SOURCE),
+# so FileMasterKeyProvider's auto-generate path can write a REAL 32-byte master
+# key into whatever the working directory happens to be — the repository root for
+# a CLI or test run. Never committable.
+/NR_VAULT_MASTER_KEY
+*.key
+!Tests/**/Fixtures/*.key
+
 # Build artifacts
 /vendor/
 /var/

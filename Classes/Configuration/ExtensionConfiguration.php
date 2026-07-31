@@ -437,6 +437,23 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
+     * Resolve a configured audit-sink file path, falling back to
+     * `<var>/log/<basename>` when unset or empty.
+     *
+     * Only whitespace is trimmed here; whether the resulting path is *safe*
+     * (outside the public web root, writable) is decided by the sink, which is
+     * the layer that can disable itself and report the reason.
+     */
+    private function resolveLogPath(mixed $configured, string $defaultBasename): string
+    {
+        if (\is_string($configured) && trim($configured) !== '') {
+            return trim($configured);
+        }
+
+        return Environment::getVarPath() . '/log/' . $defaultBasename;
+    }
+
+    /**
      * Read a boolean setting pinned in
      * `$TYPO3_CONF_VARS[SYS][nrVault][<key>]` — typically set in
      * `LocalConfiguration.php` / `additional.php`, where it is NOT reachable
@@ -455,22 +472,5 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         $nrVault = \is_array($sys['nrVault'] ?? null) ? $sys['nrVault'] : [];
 
         return \array_key_exists($key, $nrVault) ? (bool) $nrVault[$key] : null;
-    }
-
-    /**
-     * Resolve a configured audit-sink file path, falling back to
-     * `<var>/log/<basename>` when unset or empty.
-     *
-     * Only whitespace is trimmed here; whether the resulting path is *safe*
-     * (outside the public web root, writable) is decided by the sink, which is
-     * the layer that can disable itself and report the reason.
-     */
-    private function resolveLogPath(mixed $configured, string $defaultBasename): string
-    {
-        if (\is_string($configured) && trim($configured) !== '') {
-            return trim($configured);
-        }
-
-        return Environment::getVarPath() . '/log/' . $defaultBasename;
     }
 }

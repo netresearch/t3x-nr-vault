@@ -193,7 +193,7 @@ vault:seed-demo            # Seed demo secrets + audit history (development only
 - Rotating / regenerating cryptographic keys in fixtures.
 
 ### Never Do
-- Commit secrets, credentials, or real master keys (test fixtures only — allowlisted in `.gitleaks.toml`).
+- Commit secrets, credentials, or real master keys (test fixtures only — synthetic values, reviewed by hand; `.gitleaks.toml` is present but not enforced by any CI job).
 - Commit `composer.lock` (extension, not application).
 - Push directly to `main` — open a PR.
 - Merge a PR before all review threads are resolved.
