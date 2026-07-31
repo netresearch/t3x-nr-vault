@@ -30,6 +30,9 @@ encryptionAlgorithm =
 ### SECURITY ###
 #################
 
+# cat=Security; type=options[standard=Standard (secure defaults),hardened=Hardened (fail-closed, audit-ready)]; label=Security Profile: "standard" keeps zero-configuration defaults. "hardened" enforces a fail-closed policy: an explicit external master key provider (file or env) is required, provider auto-detection and any fallback to the TYPO3 encryption key are disabled, and vault operations refuse to run on a misconfigured or unavailable provider.
+securityProfile = standard
+
 # cat=Security; type=boolean; label=Allow CLI Access: Enable secret access via CLI commands (requires proper authentication)
 allowCliAccess = 0
 

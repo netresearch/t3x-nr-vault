@@ -12,6 +12,8 @@ namespace Netresearch\NrVault\Tests\Unit\Configuration;
 use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
 use Netresearch\NrVault\Configuration\Dto\VaultServerConfig;
 use Netresearch\NrVault\Configuration\ExtensionConfiguration;
+use Netresearch\NrVault\Configuration\SecurityProfile;
+use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -544,5 +546,64 @@ final class ExtensionConfigurationTest extends TestCase
         self::assertContains(1, $result);
         self::assertContains(3, $result);
         self::assertNotContains(0, $result);
+    }
+
+    #[Test]
+    public function getSecurityProfileReturnsStandardWhenNotConfigured(): void
+    {
+        $this->typo3Config->method('get')
+            ->willReturn([]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame(SecurityProfile::Standard, $config->getSecurityProfile());
+    }
+
+    #[Test]
+    public function getSecurityProfileReturnsStandardForEmptyString(): void
+    {
+        $this->typo3Config->method('get')
+            ->willReturn(['securityProfile' => '']);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame(SecurityProfile::Standard, $config->getSecurityProfile());
+    }
+
+    #[Test]
+    public function getSecurityProfileReturnsHardenedWhenConfigured(): void
+    {
+        $this->typo3Config->method('get')
+            ->willReturn(['securityProfile' => 'hardened']);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame(SecurityProfile::Hardened, $config->getSecurityProfile());
+    }
+
+    #[Test]
+    public function getSecurityProfileThrowsForUnknownProfileInsteadOfDegrading(): void
+    {
+        // Fail-closed: a typo like "hardned" must never silently become Standard.
+        $this->typo3Config->method('get')
+            ->willReturn(['securityProfile' => 'hardned']);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionCode(1753900001);
+
+        $config->getSecurityProfile();
+    }
+
+    #[Test]
+    public function getSecurityProfileFallsBackToStandardForNonStringValue(): void
+    {
+        $this->typo3Config->method('get')
+            ->willReturn(['securityProfile' => 1]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame(SecurityProfile::Standard, $config->getSecurityProfile());
     }
 }

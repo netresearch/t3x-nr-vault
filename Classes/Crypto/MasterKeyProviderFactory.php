@@ -25,6 +25,10 @@ final readonly class MasterKeyProviderFactory implements MasterKeyProviderFactor
     {
         $provider = $this->configuration->getMasterKeyProvider();
 
+        if ($provider === 'typo3' && $this->configuration->getSecurityProfile()->isHardened()) {
+            throw ConfigurationException::providerForbiddenInHardenedProfile($provider);
+        }
+
         return match ($provider) {
             'typo3' => new Typo3MasterKeyProvider(),
             'file' => new FileMasterKeyProvider($this->configuration),
@@ -35,9 +39,19 @@ final readonly class MasterKeyProviderFactory implements MasterKeyProviderFactor
 
     /**
      * Get the configured provider, falling back to auto-detection.
+     *
+     * In the hardened profile there is NO auto-detection and NO fallback:
+     * the explicitly configured provider is returned even when it is not
+     * available (its getMasterKey() then fails loudly), and configuration
+     * errors propagate. A misconfigured hardened vault must stop, never
+     * silently continue on the TYPO3 encryption key.
      */
     public function getAvailableProvider(): MasterKeyProviderInterface
     {
+        if ($this->configuration->getSecurityProfile()->isHardened()) {
+            return $this->create();
+        }
+
         // Try configured provider first
         try {
             $provider = $this->create();

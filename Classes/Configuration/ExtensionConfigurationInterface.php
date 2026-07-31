@@ -11,12 +11,22 @@ namespace Netresearch\NrVault\Configuration;
 
 use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
 use Netresearch\NrVault\Configuration\Dto\VaultServerConfig;
+use Netresearch\NrVault\Exception\ConfigurationException;
 
 /**
  * Interface for extension configuration access.
  */
 interface ExtensionConfigurationInterface
 {
+    /**
+     * Get the configured security profile.
+     *
+     * @throws ConfigurationException if the configured value is not a valid
+     *                                profile (fail-closed: an unknown profile
+     *                                must never silently degrade to Standard)
+     */
+    public function getSecurityProfile(): SecurityProfile;
+
     /**
      * Get storage adapter identifier (local, hashicorp, aws).
      */
