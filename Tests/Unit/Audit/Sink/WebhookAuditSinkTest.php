@@ -81,7 +81,12 @@ final class WebhookAuditSinkTest extends TestCase
     #[Test]
     public function plainHttpIsAcceptedForOnPremiseCollectors(): void
     {
-        self::assertTrue($this->createSubject(url: 'http://collector.internal/ingest')->isEnabled());
+        // NOSONAR php:S5332 — this test deliberately asserts that plain HTTP is
+        // accepted for on-premise (RFC1918) collectors on an operator-controlled
+        // network; using https here would negate the behaviour under test. The
+        // sink is SSRF-guarded and the scheme choice is a documented operator
+        // decision, not a fixture that should be silently upgraded.
+        self::assertTrue($this->createSubject(url: 'http://collector.internal/ingest')->isEnabled()); // NOSONAR
     }
 
     #[Test]
