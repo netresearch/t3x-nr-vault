@@ -436,7 +436,6 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         return Environment::getVarPath() . '/secrets/vault-master.key';
     }
 
-
     /**
      * Read a boolean setting pinned in
      * `$TYPO3_CONF_VARS[SYS][nrVault][<key>]` — typically set in
@@ -457,6 +456,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
 
         return \array_key_exists($key, $nrVault) ? (bool) $nrVault[$key] : null;
     }
+
     /**
      * Resolve a configured audit-sink file path, falling back to
      * `<var>/log/<basename>` when unset or empty.
@@ -473,5 +473,4 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
 
         return Environment::getVarPath() . '/log/' . $defaultBasename;
     }
-
 }
