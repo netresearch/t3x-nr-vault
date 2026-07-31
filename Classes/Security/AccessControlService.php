@@ -601,7 +601,11 @@ final class AccessControlService implements AccessControlServiceInterface
      */
     private function adminOverrideGrants(BackendUserAuthentication $backendUser): bool
     {
-        return $backendUser->isAdmin() || $backendUser->isSystemMaintainer();
+        if ($backendUser->isAdmin()) {
+            return true;
+        }
+
+        return $backendUser->isSystemMaintainer();
     }
 
     private function getTechnicalActor(): ?TechnicalActor
