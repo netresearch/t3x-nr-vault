@@ -438,6 +438,26 @@ The ``checks`` array is emitted in a fixed order with stable ids:
    ``Classes/Security`` and ``Classes/Audit``, held to the stricter thresholds
    in :file:`infection-security.json5`.
 
+:vault-doctor:
+   Read from ``highestSeverity`` (``pass``/``warning``/``critical``), falling
+   back to ``exitCode`` (``0``/``1``/``2``). Two subtleties matter, because
+   ``vault:doctor`` overloads exit code ``2``:
+
+   - A run that could not start emits ``{"error": …, "exitCode": …}`` with **no**
+     ``findings`` key — an unusable ``--profile`` value or an internal crash.
+     That is recorded as ``fail``: the gate did not run, and an ungated release
+     is not a clean one.
+   - ``VaultDoctorService`` contains a crashing check by turning it into a
+     ``check.crashed`` **critical** finding, so an unreachable database looks
+     exactly like bad posture. When every critical is a ``check.crashed``, the
+     check is downgraded to ``warn`` and the summary says ``INCOMPLETE``, naming
+     the checks from ``details.check``. A real critical alongside a crash still
+     fails, so a crash can never mask an actual control failure.
+
+   An override is recorded too: ``--profile=hardened`` on a standard install
+   renders as ``profile hardened (configured: standard)``, so the evidence never
+   implies the live profile was the one evaluated.
+
 Artifacts carry either a bundle-relative ``path`` plus ``sha256`` (copied into
 the bundle) or a ``url`` (produced and signed by the release workflow, living on
 the GitHub Release — the manifest references those, it does not reproduce them).

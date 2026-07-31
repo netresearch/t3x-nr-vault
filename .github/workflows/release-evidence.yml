@@ -179,11 +179,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p stage
-          cp .Build/logs/junit.xml            stage/junit-unit.xml       2>/dev/null || true
-          cp .Build/logs/junit-fuzz.xml       stage/junit-fuzz.xml       2>/dev/null || true
-          cp .Build/logs/junit-functional.xml stage/junit-functional.xml 2>/dev/null || true
-          cp .Build/coverage/clover.xml       stage/clover.xml           2>/dev/null || true
-          cp .Build/evidence-inputs/composer-audit.json stage/composer-audit.json 2>/dev/null || true
+          # `-s`: stage only non-empty files. A shell redirect creates the file
+          # before the command runs, so a producer that crashed at startup leaves
+          # a zero-byte artifact — that is an absent producer, and the collector
+          # must see it as absent rather than as a corrupt report.
+          stage_if_present() { [ -s "$1" ] && cp "$1" "stage/$2" || true; }
+          stage_if_present .Build/logs/junit.xml            junit-unit.xml
+          stage_if_present .Build/logs/junit-fuzz.xml       junit-fuzz.xml
+          stage_if_present .Build/logs/junit-functional.xml junit-functional.xml
+          stage_if_present .Build/coverage/clover.xml       clover.xml
+          stage_if_present .Build/evidence-inputs/composer-audit.json composer-audit.json
           find stage -type f | sort
 
       - name: Upload verification artifacts
@@ -305,9 +310,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p stage
-          cp .Build/infection/infection.json stage/infection.json         2>/dev/null || true
-          cp .Build/infection/summary.log    stage/infection-summary.log  2>/dev/null || true
-          cp .Build/infection-security/infection.json stage/infection-security.json 2>/dev/null || true
+          # See the `checks` job: only non-empty artifacts are staged.
+          stage_if_present() { [ -s "$1" ] && cp "$1" "stage/$2" || true; }
+          stage_if_present .Build/infection/infection.json          infection.json
+          stage_if_present .Build/infection/summary.log             infection-summary.log
+          stage_if_present .Build/infection-security/infection.json infection-security.json
           find stage -type f | sort
 
       - name: Upload mutation artifacts
@@ -381,8 +388,23 @@ jobs:
       #
       # The install mirrors .ddev/commands/web/install-v14 — the repo's proven
       # non-interactive recipe — on SQLite instead of MySQL.
+      # Short-circuit on the file, not the CLI: `typo3 list` needs a bootstrapped
+      # instance, which is what this step is about to create. A tag predating
+      # PR6 must skip provisioning entirely rather than boot TYPO3 to find out.
+      - name: Check whether this release ships vault:doctor
+        id: available
+        run: |
+          set -euo pipefail
+          if [ -f Classes/Command/VaultDoctorCommand.php ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::This release predates vault:doctor — skipping the reference installation."
+          fi
+
       - name: Provision a reference installation
         id: provision
+        if: steps.available.outputs.present == 'true'
         continue-on-error: true
         env:
           TYPO3_CONTEXT: Production
@@ -399,18 +421,55 @@ jobs:
             --force
           .Build/bin/typo3 extension:setup
 
+          # Belt-and-braces now that TYPO3 is bootstrapped: confirm the command
+          # is actually registered, not merely present as a file.
+          .Build/bin/typo3 list vault --raw | grep -q '^vault:doctor' \
+            || { echo "::error::VaultDoctorCommand.php exists but vault:doctor is not registered."; exit 1; }
+
+      # Exit code 2 is OVERLOADED, so it cannot be the success signal:
+      #   * `$report->exitCode()` returns 2 when a control is critical,
+      #   * `Command::INVALID` is also 2 (unusable --profile value),
+      #   * the crash path returns 2 as well.
+      # The discriminator is the PAYLOAD SHAPE: a run that never started emits
+      # {"error":…,"exitCode":…} with no `findings` key. So capture the exit code
+      # without failing the step, then branch on the shape. Exit 1 (warnings) and
+      # exit 2 with findings are both successfully collected evidence describing
+      # a degraded posture — recording those as "collection broke" would be the
+      # exact misreporting this bundle exists to prevent.
       - name: Collect vault:doctor report
         id: doctor
         if: steps.provision.outcome == 'success'
-        continue-on-error: true
         env:
           TYPO3_CONTEXT: Production
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p .Build/evidence-inputs
+          set +e
           .Build/bin/typo3 vault:doctor --format=json \
             > .Build/evidence-inputs/doctor.json
+          DOCTOR_EXIT=$?
+          set -e
+          echo "vault:doctor exited ${DOCTOR_EXIT}"
           cat .Build/evidence-inputs/doctor.json
+
+          if jq -e 'has("findings")' .Build/evidence-inputs/doctor.json >/dev/null 2>&1; then
+            SEVERITY="$(jq -r '.highestSeverity // "unknown"' .Build/evidence-inputs/doctor.json)"
+            CRASHED="$(jq -r '[.findings[]? | select(.id == "check.crashed")] | length' \
+              .Build/evidence-inputs/doctor.json)"
+            {
+              echo "collected=true"
+              echo "severity=$SEVERITY"
+              echo "crashed=$CRASHED"
+            } >> "$GITHUB_OUTPUT"
+            echo "::notice::vault:doctor posture collected (highestSeverity=${SEVERITY}, crashed checks=${CRASHED})."
+            exit 0
+          fi
+
+          # No `findings` key: the command could not evaluate anything.
+          echo "collected=false" >> "$GITHUB_OUTPUT"
+          echo "::error::vault:doctor could not run (exit ${DOCTOR_EXIT}): $(jq -r '.error // "no error message"' \
+            .Build/evidence-inputs/doctor.json 2>/dev/null || echo 'unparseable output'). No posture evidence for this release."
+          exit 1
 
       # Flattened into the `--parts` drop-zone layout (see the `checks` job).
       - name: Stage posture artifact
@@ -418,7 +477,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p stage
-          cp .Build/evidence-inputs/doctor.json stage/doctor.json 2>/dev/null || true
+          # See the `checks` job: only non-empty artifacts are staged. A hard
+          # bootstrap failure leaves doctor.json empty; staging it would make the
+          # collector treat a dead producer as a corrupt report.
+          [ -s .Build/evidence-inputs/doctor.json ] \
+            && cp .Build/evidence-inputs/doctor.json stage/doctor.json || true
           find stage -type f | sort
 
       - name: Upload posture artifact
@@ -433,26 +496,44 @@ jobs:
           # missing; it must not fail this upload.
           if-no-files-found: warn
 
+      # This job goes red only when the EVIDENCE is missing, never because the
+      # posture it recorded is degraded. A degraded posture is a finding for the
+      # bundle and the `bundle` job's gate to report, not a collection failure.
       - name: Report posture outcome
         if: always()
         env:
+          PRESENT: ${{ steps.available.outputs.present }}
           PROVISION: ${{ steps.provision.outcome }}
           DOCTOR: ${{ steps.doctor.outcome }}
+          COLLECTED: ${{ steps.doctor.outputs.collected }}
+          SEVERITY: ${{ steps.doctor.outputs.severity }}
+          CRASHED: ${{ steps.doctor.outputs.crashed }}
         run: |
           set -euo pipefail
-          if [ ! -f Classes/Command/VaultDoctorCommand.php ]; then
+          if [ "$PRESENT" != 'true' ]; then
             echo "::notice::This release predates vault:doctor — no reference posture to collect."
             exit 0
           fi
-          echo "provision=$PROVISION doctor=$DOCTOR"
+          echo "provision=$PROVISION doctor=$DOCTOR collected=${COLLECTED:-} severity=${SEVERITY:-} crashed=${CRASHED:-}"
           if [ "$PROVISION" != 'success' ]; then
             echo "::error::Could not provision a reference installation — no posture evidence for this release."
             exit 1
           fi
-          if [ "$DOCTOR" != 'success' ]; then
-            echo "::error::vault:doctor did not complete successfully on a clean installation of this commit."
+          if [ "${COLLECTED:-false}" != 'true' ]; then
+            echo "::error::vault:doctor produced no evaluable report — no posture evidence for this release."
             exit 1
           fi
+
+          # Per-check containment turns an unreachable database into a
+          # `check.crashed` CRITICAL, which is indistinguishable from bad posture
+          # by severity alone. On this job that means the sqlite provisioning did
+          # not fully complete, so it is an evidence problem, not a posture one.
+          if [ "${CRASHED:-0}" != '0' ]; then
+            echo "::error::${CRASHED} readiness check(s) crashed — those controls were never evaluated. The sqlite reference installation is incomplete; fix provisioning rather than reading this as bad posture."
+            exit 1
+          fi
+
+          echo "::notice::Reference posture collected (highestSeverity=${SEVERITY}). A degraded posture is reported by the bundle, not failed here."
 
   bundle:
     name: Publish evidence bundle

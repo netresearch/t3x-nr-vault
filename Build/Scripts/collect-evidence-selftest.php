@@ -181,6 +181,56 @@ function selfTestCloverWeakCrypto(string $dir): string
 }
 
 /**
+ * A `vault:doctor` payload whose `summary` block is internally consistent with
+ * its `findings` list, because the real report carries one finding per evaluated
+ * control — passing ones included — and `totalControls()` is `count($findings)`.
+ *
+ * A crashed check does NOT add a finding: `VaultDoctorService::runContained()`
+ * returns a single-element list on catch, so it REPLACES the N controls that
+ * check would have emitted. The evaluated total therefore drops, which is why a
+ * fixture that keeps the healthy total while adding crash findings is impossible.
+ *
+ * @param list<array<string, mixed>> $problems non-pass findings
+ *
+ * @return array<string, mixed>
+ */
+function selfTestDoctorPayload(int $passCount, array $problems, string $profile = 'hardened'): array
+{
+    $findings = [];
+    for ($i = 0; $i < $passCount; ++$i) {
+        $findings[] = ['id' => 'control.pass_' . $i, 'severity' => 'pass', 'details' => []];
+    }
+    foreach ($problems as $problem) {
+        $findings[] = $problem;
+    }
+
+    $bySeverity = ['pass' => $passCount, 'warning' => 0, 'critical' => 0];
+    foreach ($problems as $problem) {
+        $severity = is_string($problem['severity'] ?? null) ? $problem['severity'] : 'pass';
+        $bySeverity[$severity] = ($bySeverity[$severity] ?? 0) + 1;
+    }
+
+    $highest = $bySeverity['critical'] > 0 ? 'critical' : ($bySeverity['warning'] > 0 ? 'warning' : 'pass');
+    $exit = ['pass' => 0, 'warning' => 1, 'critical' => 2][$highest];
+
+    return [
+        'profile' => $profile,
+        'configuredProfile' => $profile,
+        'profileOverridden' => false,
+        'auditReady' => $highest === 'pass',
+        'highestSeverity' => $highest,
+        'exitCode' => $exit,
+        'summary' => [
+            'total' => count($findings),
+            'pass' => $bySeverity['pass'],
+            'warning' => $bySeverity['warning'],
+            'critical' => $bySeverity['critical'],
+        ],
+        'findings' => $findings,
+    ];
+}
+
+/**
  * @param array<string, string|null> $inputs
  *
  * @return array{
@@ -347,7 +397,14 @@ function selfTest(string $projectRoot): int
             ),
             'infectionSummary' => selfTestWrite($fixtures . '/summary.log', "Mutation Score Indicator (MSI): 80%\n"),
             'audit' => selfTestWrite($fixtures . '/composer-audit.json', '{"advisories":{},"abandoned":{}}'),
-            'doctor' => selfTestWrite($fixtures . '/doctor.json', '{"status":"ok","checks":[1,2,3,4]}'),
+            // Real DoctorReport::toArray() shape, verified against
+            // feature/vault-doctor: highestSeverity + exitCode, no `status` key.
+            // 22 controls is the healthy total for the functional deployment
+            // shape (file provider, CLI access off, standard profile).
+            'doctor' => selfTestWrite(
+                $fixtures . '/doctor.json',
+                json_encode(selfTestDoctorPayload(22, []), JSON_THROW_ON_ERROR),
+            ),
         ];
 
         $output = selfTestTempDir('bundle');
@@ -381,8 +438,8 @@ function selfTest(string $projectRoot): int
             'the security-scoped mutation check names the directories it covers',
         );
         selfTestAssert(
-            str_contains($goodById['vault-doctor']['summary'], '4 probes'),
-            'doctor check counts the probes it found',
+            str_contains($goodById['vault-doctor']['summary'], '22 controls'),
+            'doctor check counts the controls from summary.total',
         );
 
         // All three suites are aggregated, with per-suite counts preserved.
@@ -440,7 +497,14 @@ function selfTest(string $projectRoot): int
                 $bad . '/composer-audit.json',
                 '{"advisories":{"acme/lib":[{"advisoryId":"PKSA-1"}]},"abandoned":{}}',
             ),
-            'doctor' => selfTestWrite($bad . '/doctor.json', '{"status":"critical","checks":[1]}'),
+            'doctor' => selfTestWrite(
+                $bad . '/doctor.json',
+                json_encode(selfTestDoctorPayload(19, [
+                    ['id' => 'environment.backend_lock_ssl', 'severity' => 'warning', 'details' => []],
+                    ['id' => 'profile.admin_override', 'severity' => 'critical', 'details' => []],
+                    ['id' => 'provider.key_permissions', 'severity' => 'critical', 'details' => []],
+                ], 'standard'), JSON_THROW_ON_ERROR),
+            ),
         ];
         $failed = selfTestById(selfTestManifest($doctorRoot, $failing)['checks']);
         foreach (['tests', 'coverage-line', 'coverage-security-dirs', 'mutation-msi', 'mutation-msi-security', 'dependency-audit', 'vault-doctor'] as $id) {
@@ -486,6 +550,140 @@ function selfTest(string $projectRoot): int
             'the ignored-report warning says why it was ignored',
         );
 
+        // --- 3b. The real vault:doctor JSON shapes -------------------------
+        // Contract verified against DoctorReport::toArray() and the command's
+        // renderCrash()/renderInvalidProfile() paths on feature/vault-doctor.
+        $doctorFixtures = selfTestTempDir('doctor');
+        $temporary[] = $doctorFixtures;
+
+        $doctorCase = static function (string $name, string $json) use ($doctorRoot, $emptyInputs, $doctorFixtures): array {
+            $inputs = $emptyInputs;
+            $inputs['doctor'] = selfTestWrite($doctorFixtures . '/' . $name . '.json', $json);
+
+            return selfTestById(selfTestManifest($doctorRoot, $inputs)['checks'])['vault-doctor'];
+        };
+
+        // A crash or an unusable --profile emits {"error":…,"exitCode":…} with no
+        // severity. It must fail, never pass: the check never actually ran.
+        $crashed = $doctorCase('crash', '{"error":"Something exploded","exitCode":2}');
+        selfTestEquals('fail', $crashed['status'], 'a crashed doctor run fails rather than passing');
+        selfTestAssert(
+            str_contains($crashed['summary'], 'did not complete'),
+            'the crashed-doctor summary says the run did not complete',
+        );
+        $invalidProfile = $doctorCase('invalid', '{"error":"Unknown profile \\"nope\\"","exitCode":1}');
+        selfTestEquals('fail', $invalidProfile['status'], 'an unusable --profile value fails');
+
+        // Severity drives the status; worst-wins is the command's own concern.
+        selfTestEquals(
+            'warn',
+            $doctorCase('warning', '{"highestSeverity":"warning","exitCode":1}')['status'],
+            'highestSeverity=warning maps to warn',
+        );
+        selfTestEquals(
+            'fail',
+            $doctorCase('critical', '{"highestSeverity":"critical","exitCode":2}')['status'],
+            'highestSeverity=critical maps to fail',
+        );
+
+        // exitCode alone is enough if the severity key is ever dropped.
+        selfTestEquals(
+            'pass',
+            $doctorCase('exitonly', '{"exitCode":0}')['status'],
+            'exitCode alone is a usable fallback',
+        );
+
+        // An override is recorded, so evidence cannot imply the live profile.
+        $overridden = $doctorCase(
+            'override',
+            '{"profile":"hardened","configuredProfile":"standard","profileOverridden":true,'
+                . '"highestSeverity":"warning","exitCode":1,'
+                . '"summary":{"total":24,"pass":18,"warning":6,"critical":0},"findings":[]}',
+        );
+        selfTestAssert(
+            str_contains($overridden['summary'], 'profile hardened')
+                && str_contains($overridden['summary'], 'configured: standard'),
+            'a --profile override records both the evaluated and configured profile',
+        );
+        selfTestAssert(
+            str_contains($overridden['summary'], '0 critical, 6 warning'),
+            'the doctor summary carries the finding counts',
+        );
+
+        // A shape carrying none of the three signals is inconclusive, not clean.
+        selfTestEquals(
+            'warn',
+            $doctorCase('unknown', '{"profile":"hardened"}')['status'],
+            'an unrecognised doctor shape warns rather than passing',
+        );
+
+        // check.crashed is a CRITICAL finding raised by per-check containment
+        // (e.g. an unreachable database), so exit 2 with crashes is
+        // indistinguishable from bad posture unless the ids are read.
+        // Realistic arithmetic: 22 healthy controls, minus audit's 6 and
+        // secret_hygiene's 3, plus one check.crashed each = 15 evaluated. Plus a
+        // typical standard-profile warning so the warn path is exercised.
+        $crashOnly = $doctorCase('crashonly', json_encode(selfTestDoctorPayload(12, [
+            ['id' => 'environment.backend_lock_ssl', 'severity' => 'warning', 'details' => []],
+            ['id' => 'check.crashed', 'severity' => 'critical', 'details' => ['check' => 'audit']],
+            ['id' => 'check.crashed', 'severity' => 'critical', 'details' => ['check' => 'secret_hygiene']],
+        ]), JSON_THROW_ON_ERROR));
+        selfTestAssert(
+            str_contains($crashOnly['summary'], '15 controls'),
+            'the evaluated control total drops when checks crash, and the bundle reports the drop',
+        );
+        selfTestEquals(
+            'warn',
+            $crashOnly['status'],
+            'criticals that are only crashed checks mean incomplete evidence, not bad posture',
+        );
+        selfTestAssert(
+            str_contains($crashOnly['summary'], 'INCOMPLETE')
+                && str_contains($crashOnly['summary'], 'audit')
+                && str_contains($crashOnly['summary'], 'secret_hygiene'),
+            'the incomplete-evidence summary names the checks that could not run',
+        );
+        selfTestAssert(
+            str_contains($crashOnly['summary'], 'unevaluated, not satisfied'),
+            'the incomplete-evidence summary refuses to imply the controls passed',
+        );
+
+        // A real critical alongside a crash must still FAIL — the crash must
+        // never mask an actual control failure.
+        $crashPlusReal = $doctorCase('crashplusreal', json_encode(selfTestDoctorPayload(14, [
+            ['id' => 'check.crashed', 'severity' => 'critical', 'details' => ['check' => 'audit']],
+            ['id' => 'profile.admin_override', 'severity' => 'critical', 'details' => []],
+        ]), JSON_THROW_ON_ERROR));
+        selfTestEquals(
+            'fail',
+            $crashPlusReal['status'],
+            'a real critical alongside a crashed check still fails',
+        );
+        selfTestAssert(
+            str_contains($crashPlusReal['summary'], 'INCOMPLETE'),
+            'the crash is still disclosed even when a real critical dominates the status',
+        );
+
+        // A crash next to warnings is disclosed without inventing a failure.
+        // A crashed check is itself critical, so highestSeverity is critical even
+        // when every *real* problem is only a warning. The status must still land
+        // on warn — incomplete evidence, not a failed control.
+        $crashWithWarnings = $doctorCase('crashwarn', json_encode(selfTestDoctorPayload(15, [
+            ['id' => 'cli.access', 'severity' => 'warning', 'details' => []],
+            ['id' => 'check.crashed', 'severity' => 'critical', 'details' => ['check' => 'audit']],
+        ]), JSON_THROW_ON_ERROR));
+        selfTestEquals('warn', $crashWithWarnings['status'], 'a crash alongside warnings stays a warning');
+        selfTestAssert(
+            str_contains($crashWithWarnings['summary'], 'INCOMPLETE'),
+            'a crash is disclosed even when severity is only warning',
+        );
+
+        // A clean run must not gain a spurious incompleteness note.
+        selfTestAssert(
+            !str_contains($goodById['vault-doctor']['summary'], 'INCOMPLETE'),
+            'a healthy doctor run carries no incomplete-evidence note',
+        );
+
         // --- 4. Present but malformed is an error --------------------------
         $malformed = selfTestTempDir('malformed');
         $temporary[] = $malformed;
@@ -520,7 +718,7 @@ function selfTest(string $projectRoot): int
                 'junit-unit.xml' => '<?xml version="1.0"?><testsuites tests="7" errors="0" failures="0"/>',
                 'junit-functional.xml' => '<?xml version="1.0"?><testsuites tests="3" errors="0" failures="0"/>',
                 'composer-audit.json' => '{"advisories":{},"abandoned":{}}',
-                'doctor.json' => '{"status":"ok","checks":[1]}',
+                'doctor.json' => '{"highestSeverity":"pass","exitCode":0}',
             ] as $name => $body
         ) {
             selfTestWrite($parts . '/' . $name, $body);
@@ -549,6 +747,75 @@ function selfTest(string $projectRoot): int
             resolveInput(['parts' => $parts, 'junit-unit' => $override], 'junit-unit', '/nonexistent', 'junit-unit.xml'),
             'an explicit --junit-unit outranks the --parts drop-zone',
         );
+
+        // --- 4c. An empty artifact is an absent producer, not a corrupt one --
+        // A shell redirect creates the file before the command runs, so a
+        // producer that crashes at startup leaves a zero-byte file. Aborting the
+        // bundle over that would discard every other piece of evidence.
+        $emptyDir = selfTestTempDir('empty');
+        $temporary[] = $emptyDir;
+        $emptyNames = [
+            'junit-unit.xml', 'junit-fuzz.xml', 'junit-functional.xml', 'clover.xml',
+            'infection.json', 'infection-security.json', 'composer-audit.json', 'doctor.json',
+        ];
+        foreach ($emptyNames as $name) {
+            selfTestWrite($emptyDir . '/' . $name, '');
+        }
+        selfTestWrite($emptyDir . '/whitespace.json', "\n  \n");
+
+        foreach (
+            [
+                'junit-unit' => 'junit-unit.xml',
+                'clover' => 'clover.xml',
+                'infection' => 'infection.json',
+                'infection-security' => 'infection-security.json',
+                'audit' => 'composer-audit.json',
+                'doctor' => 'doctor.json',
+            ] as $option => $name
+        ) {
+            selfTestEquals(
+                null,
+                resolveInput(['parts' => $emptyDir], $option, '/nonexistent', $name),
+                "an empty `{$name}` in --parts resolves to absent, not malformed",
+            );
+        }
+        selfTestEquals(
+            null,
+            resolveInput(['doctor' => $emptyDir . '/whitespace.json'], 'doctor', '/nonexistent', 'doctor.json'),
+            'a whitespace-only artifact resolves to absent',
+        );
+
+        // The whole bundle must still be produced, with the dead producer absent.
+        $emptyBundle = selfTestTempDir('emptybundle');
+        $temporary[] = $emptyBundle;
+        $survivingInputs = $emptyInputs;
+        $survivingInputs['clover'] = $healthy['clover'];
+        $survivingInputs['doctor'] = resolveInput(['parts' => $emptyDir], 'doctor', '/nonexistent', 'doctor.json');
+        $survived = selfTestById(selfTestManifest($doctorRoot, $survivingInputs, 'v9.9.9', $emptyBundle)['checks']);
+        selfTestEquals(
+            'pass',
+            $survived['coverage-line']['status'],
+            'evidence from healthy producers survives a producer that wrote nothing',
+        );
+        selfTestEquals(
+            'warn',
+            $survived['vault-doctor']['status'],
+            'a doctor that wrote nothing is recorded as unrun, not as a corrupt artifact',
+        );
+
+        // A truncated but NON-empty artifact is still malformed — the producer
+        // did write something, so ignoring it would misreport a check that ran.
+        $truncated = selfTestWrite($emptyDir . '/truncated.json', '{"stats":');
+        $threwTruncated = false;
+
+        try {
+            $truncatedInputs = $emptyInputs;
+            $truncatedInputs['infection'] = $truncated;
+            selfTestManifest($doctorRoot, $truncatedInputs);
+        } catch (MalformedArtifactException) {
+            $threwTruncated = true;
+        }
+        selfTestAssert($threwTruncated, 'a truncated non-empty artifact is still an error');
 
         // --- 5. Render mentions every check --------------------------------
         $markdown = renderMarkdown($good);

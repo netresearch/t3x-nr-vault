@@ -718,32 +718,176 @@ function checkDoctor(string $root, ?string $doctorJson): array
     }
 
     $report = decodeJsonArtifact($doctorJson);
-    $raw = $report['status'] ?? $report['overallStatus'] ?? null;
-    $reported = is_string($raw) ? strtolower($raw) : null;
 
-    // vault:doctor exits 0/1/2; its JSON carries the same verdict as a string.
-    $map = [
+    // A crash or an unusable --profile value emits {"error": ..., "exitCode": ...}
+    // and no severity at all. That must never read as a pass: the check did not
+    // run, so its result is unknown, and unknown is not clean.
+    if (isset($report['error'])) {
+        $detail = is_string($report['error']) ? $report['error'] : 'unspecified error';
+
+        return check('vault-doctor', 'fail', "vault:doctor did not complete: {$detail}", $source);
+    }
+
+    // Verified against DoctorReport::toArray() on feature/vault-doctor: the
+    // report carries `highestSeverity` (worst-wins) and `exitCode`, NOT a
+    // `status` key. The string map is kept as a fallback in case the shape
+    // grows one, and `exitCode` as a fallback in case severity is dropped.
+    $severityMap = ['pass' => 'pass', 'warning' => 'warn', 'critical' => 'fail'];
+    $stringMap = [
         'ok' => 'pass', 'pass' => 'pass', 'healthy' => 'pass',
         'warn' => 'warn', 'warning' => 'warn', 'degraded' => 'warn',
         'fail' => 'fail', 'error' => 'fail', 'critical' => 'fail',
     ];
+    $exitMap = [0 => 'pass', 1 => 'warn', 2 => 'fail'];
 
-    if ($reported === null || !isset($map[$reported])) {
+    $severity = $report['highestSeverity'] ?? null;
+    $severity = is_string($severity) ? strtolower($severity) : null;
+
+    $status = null;
+    $reported = null;
+    if ($severity !== null && isset($severityMap[$severity])) {
+        $status = $severityMap[$severity];
+        $reported = $severity;
+    } else {
+        $raw = $report['status'] ?? $report['overallStatus'] ?? null;
+        $raw = is_string($raw) ? strtolower($raw) : null;
+        if ($raw !== null && isset($stringMap[$raw])) {
+            $status = $stringMap[$raw];
+            $reported = $raw;
+        } elseif (isset($report['exitCode']) && is_int($report['exitCode']) && isset($exitMap[$report['exitCode']])) {
+            $status = $exitMap[$report['exitCode']];
+            $reported = 'exit code ' . $report['exitCode'];
+        }
+    }
+
+    if ($status === null) {
         return check(
             'vault-doctor',
             'warn',
-            'doctor report present but carries no recognised status field',
+            'doctor report present but carries no recognised severity, status or exit code',
             $source,
         );
     }
 
     $summary = "doctor reports {$reported}";
-    $checks = $report['checks'] ?? null;
-    if (is_array($checks)) {
-        $summary .= ' across ' . count($checks) . ' probes';
+
+    // `profile` is the profile the run was evaluated against, which may be an
+    // override (--profile=hardened on a standard install answers a hypothetical).
+    // Recording both keeps the evidence unambiguous.
+    $profile = $report['profile'] ?? null;
+    $configured = $report['configuredProfile'] ?? null;
+    if (is_string($profile) && $profile !== '') {
+        $summary .= " for profile {$profile}";
+        if (is_string($configured) && $configured !== '' && $configured !== $profile) {
+            $summary .= " (configured: {$configured})";
+        }
     }
 
-    return check('vault-doctor', $map[$reported], $summary, $source);
+    $counts = $report['summary'] ?? null;
+    if (is_array($counts) && isset($counts['total']) && is_int($counts['total'])) {
+        $summary .= " across {$counts['total']} controls";
+        if (isset($counts['warning'], $counts['critical']) && is_int($counts['warning']) && is_int($counts['critical'])) {
+            $summary .= " ({$counts['critical']} critical, {$counts['warning']} warning)";
+        }
+    } else {
+        $findings = $report['findings'] ?? $report['checks'] ?? null;
+        if (is_array($findings)) {
+            $summary .= ' across ' . count($findings) . ' probes';
+        }
+    }
+
+    // VaultDoctorService contains a crashing check by turning it into a
+    // `check.crashed` CRITICAL finding, so an unreachable database looks
+    // identical to a genuinely bad posture unless the ids are inspected. Those
+    // areas were never evaluated: that is incomplete evidence, not a finding.
+    $crashed = crashedDoctorChecks($report);
+    if ($crashed !== []) {
+        $areas = implode(', ', $crashed);
+        $summary .= ' — INCOMPLETE: ' . count($crashed) . " check(s) could not run ({$areas}); "
+            . 'those controls are unevaluated, not satisfied';
+
+        // Only soften to "inconclusive" when every critical IS a crash. A real
+        // critical alongside a crash must still fail, or the crash would mask it.
+        if ($status === 'fail' && !hasNonCrashCritical($report)) {
+            $status = 'warn';
+        }
+    }
+
+    return check('vault-doctor', $status, $summary, $source);
+}
+
+/**
+ * Names of the readiness checks that crashed, taken from `details.check` on
+ * every `check.crashed` finding.
+ *
+ * @param array<string, mixed> $report
+ *
+ * @return list<string>
+ */
+function crashedDoctorChecks(array $report): array
+{
+    $names = [];
+    foreach (doctorFindings($report) as $finding) {
+        if (($finding['id'] ?? null) !== 'check.crashed') {
+            continue;
+        }
+        $details = $finding['details'] ?? null;
+        $name = is_array($details) && isset($details['check']) && is_string($details['check'])
+            ? $details['check']
+            : 'unnamed check';
+        $names[] = $name;
+    }
+
+    return $names;
+}
+
+/**
+ * True when at least one critical finding is a real control failure rather than
+ * a crashed check.
+ *
+ * @param array<string, mixed> $report
+ */
+function hasNonCrashCritical(array $report): bool
+{
+    foreach (doctorFindings($report) as $finding) {
+        $severity = $finding['severity'] ?? null;
+        if (!is_string($severity)) {
+            continue;
+        }
+        if (strtolower($severity) !== 'critical') {
+            continue;
+        }
+        if (($finding['id'] ?? null) !== 'check.crashed') {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * The report's findings, normalised to a list of arrays.
+ *
+ * @param array<string, mixed> $report
+ *
+ * @return list<array<string, mixed>>
+ */
+function doctorFindings(array $report): array
+{
+    $raw = $report['findings'] ?? null;
+    if (!is_array($raw)) {
+        return [];
+    }
+
+    $findings = [];
+    foreach ($raw as $finding) {
+        if (is_array($finding)) {
+            /** @var array<string, mixed> $finding */
+            $findings[] = $finding;
+        }
+    }
+
+    return $findings;
 }
 
 // ---------------------------------------------------------------------------
@@ -1164,17 +1308,43 @@ function resolveInput(array $options, string $option, string $default, ?string $
             exit(2);
         }
 
-        return $path;
+        return usableArtifact($path) ? $path : null;
     }
 
     if (isset($options['parts']) && $partsName !== null) {
         $candidate = rtrim($options['parts'], '/') . '/' . $partsName;
-        if (is_file($candidate)) {
+        if (is_file($candidate) && usableArtifact($candidate)) {
             return $candidate;
         }
     }
 
-    return is_file($default) ? $default : null;
+    return is_file($default) && usableArtifact($default) ? $default : null;
+}
+
+/**
+ * An empty artifact means the producer died before writing anything — a shell
+ * redirect creates the file before the command runs, so a hard crash leaves a
+ * zero-byte file behind. That is an ABSENT producer, not a corrupt artifact:
+ * treating it as malformed would abort the whole bundle and throw away all the
+ * other evidence over one step that failed to start.
+ *
+ * A truncated but non-empty artifact stays malformed — there the producer did
+ * write something, and silently ignoring it would misreport a check that ran.
+ */
+function usableArtifact(string $path): bool
+{
+    $size = filesize($path);
+    if ($size === false || $size === 0) {
+        return false;
+    }
+    // Cheap whitespace-only guard: a few bytes of newline is still "nothing".
+    if ($size <= 8) {
+        $head = file_get_contents($path, false, null, 0, 8);
+
+        return $head !== false && trim($head) !== '';
+    }
+
+    return true;
 }
 
 function gitOutput(string $root, string $command): ?string
