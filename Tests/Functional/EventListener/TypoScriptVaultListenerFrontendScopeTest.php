@@ -314,6 +314,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
         $auditRowsBefore = $this->countAuditRows($identifier);
 
         unset($GLOBALS['TYPO3_REQUEST']);
+        /** @phpstan-ignore new.internalClass, method.internalClass, classConstant.internalClass */
         $request = (new ServerRequest('https://example.com/'))
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
 
@@ -382,6 +383,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
         $identifier = $this->storeSecret('backend_key_', self::FRONTEND_ACCESSIBLE);
         $placeholder = \sprintf('%%vault(%s)%%', $identifier);
 
+        /** @phpstan-ignore new.internalClass, method.internalClass, classConstant.internalClass */
         $request = (new ServerRequest('https://example.com/typo3/'))
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
 
@@ -516,7 +518,9 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
         $placeholder = \sprintf('%%vault(%s)%%', $identifier);
 
         // getSetupArray() throws 1666513645 when setSetupArray() was never called.
+        /** @phpstan-ignore new.internalClass */
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        /** @phpstan-ignore new.internalClass, method.internalClass, classConstant.internalClass */
         $request = (new ServerRequest('https://example.com/'))
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
