@@ -1,4 +1,7 @@
-"be_users"
-,"uid","username","admin","disable","starttime","endtime","TSconfig"
+"be_users",,,,,,,
+,"uid","username","admin","disable","starttime","endtime","TSconfig","usergroup"
 ,2,"vault_field_permission_editor",0,0,0,0,"page.vault.permissions.tx_test.secret_edit_denied.edit = 0
-page.vault.permissions.tx_test.secret_read_only.readOnly = 1"
+page.vault.permissions.tx_test.secret_read_only.readOnly = 1","20"
+"be_groups",,,,
+,"uid","pid","title","custom_options"
+,20,0,"vault-field-editors","tx_nrvault:secret.use"

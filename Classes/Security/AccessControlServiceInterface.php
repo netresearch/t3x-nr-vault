@@ -50,12 +50,49 @@ interface AccessControlServiceInterface
     public function canCreate(): bool;
 
     /**
-     * Is the current actor a TYPO3 backend admin?
+     * Is the current actor granted an OPERATION permission?
+     *
+     * Orthogonal to the per-secret tiers above: `canRead()` answers "may this
+     * actor touch THIS secret?", `isGranted()` answers "may this actor perform
+     * this KIND of operation at all?". Both gates apply — e.g. revealing a
+     * secret needs `VaultPermission::SecretReveal` *and* `canRead()` for that
+     * identifier.
+     *
+     * Resolution (fail-closed at every step, mirroring the actor resolution of
+     * the per-secret tiers):
+     *
+     * - active `TechnicalActorContext::runAs()` scope → the actor's admin flag
+     *   decides, with `VaultPermission::SecretUse` granted unconditionally so
+     *   headless consumers keep working under their per-secret ACL;
+     * - frontend request → `false`, always (no operation permissions in a
+     *   context whose output is shared with anonymous visitors);
+     * - trusted CLI operator without an authenticated backend user → the
+     *   vault's `allowCliAccess` switch decides (off by default);
+     * - authenticated backend user → admin / system maintainer are granted
+     *   everything, anyone else needs the matching custom permission option
+     *   (`tx_nrvault:<permission>`) on one of their groups;
+     * - disabled user, no user at all → `false`.
+     *
+     * The admin / system-maintainer bypass — here and in every per-secret tier
+     * above — is removable: in the {@see SecurityProfile::Hardened} profile with
+     * `disableAdminOverride` set, privileged users hold only what their groups
+     * grant, unless a {@see BreakGlassServiceInterface} window is open.
+     */
+    public function isGranted(VaultPermission $permission): bool;
+
+    /**
+     * Does the current actor hold the admin bypass?
      *
      * Returns `true` for BE users where `BackendUserAuthentication::isAdmin()`
      * is true. Non-BE actor types (CLI / scheduler / API) MUST return `false`
      * — callers that legitimately need to bypass admin gates should handle
      * actor type explicitly, not rely on this method.
+     *
+     * This is a bypass question, not a role lookup: in the hardened profile
+     * with `disableAdminOverride` set, a real TYPO3 admin answers `false`
+     * unless a break-glass window is open. Do not use it to label a user in
+     * output or to derive audit attribution — use the role/actor accessors for
+     * that.
      */
     public function isCurrentActorAdmin(): bool;
 

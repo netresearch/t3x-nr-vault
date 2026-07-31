@@ -38,6 +38,8 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
 
     public const DEFAULT_AUDIT_READS = true;
 
+    public const DEFAULT_DISABLE_ADMIN_OVERRIDE = false;
+
     public const DEFAULT_PREFER_XCHACHA20 = false;
 
     /**
@@ -221,15 +223,31 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
      */
     public function isAuditReadsEnabled(): bool
     {
-        $sys = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null)
-            && \is_array($GLOBALS['TYPO3_CONF_VARS']['SYS'] ?? null)
-                ? $GLOBALS['TYPO3_CONF_VARS']['SYS'] : [];
-        $nrVault = \is_array($sys['nrVault'] ?? null) ? $sys['nrVault'] : [];
-        if (\array_key_exists('auditReads', $nrVault)) {
-            return (bool) $nrVault['auditReads'];
-        }
+        return $this->pinnedOverride('auditReads')
+            ?? (bool) ($this->configuration['auditReads'] ?? self::DEFAULT_AUDIT_READS);
+    }
 
-        return (bool) ($this->configuration['auditReads'] ?? self::DEFAULT_AUDIT_READS);
+    /**
+     * Is the admin / system-maintainer bypass disabled?
+     *
+     * Resolution order is identical to {@see self::isAuditReadsEnabled()} —
+     * the `$TYPO3_CONF_VARS[SYS][nrVault][disableAdminOverride]` override wins
+     * over the BE-editable extension configuration — and for the same reason,
+     * only sharper here: a compromised admin must not be able to silently
+     * re-enable their own bypass from the backend Settings module. Pin the
+     * value in `config/system/additional.php` and the only way back is
+     * filesystem access (or a time-boxed, audited break-glass session).
+     *
+     * The flag is only EFFECTIVE in the Hardened security profile — see
+     * {@see \Netresearch\NrVault\Security\AccessControlService} for the
+     * footgun-lockout rationale. This getter reports the raw configuration, so
+     * a diagnostic tool can pair it with {@see self::getSecurityProfile()} and
+     * report the "flag set but profile is standard" mismatch.
+     */
+    public function isAdminOverrideDisabled(): bool
+    {
+        return $this->pinnedOverride('disableAdminOverride')
+            ?? (bool) ($this->configuration['disableAdminOverride'] ?? self::DEFAULT_DISABLE_ADMIN_OVERRIDE);
     }
 
     /**
@@ -418,6 +436,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         return Environment::getVarPath() . '/secrets/vault-master.key';
     }
 
+
     /**
      * Resolve a configured audit-sink file path, falling back to
      * `<var>/log/<basename>` when unset or empty.
@@ -433,5 +452,26 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         }
 
         return Environment::getVarPath() . '/log/' . $defaultBasename;
+    }
+
+    /**
+     * Read a boolean setting pinned in
+     * `$TYPO3_CONF_VARS[SYS][nrVault][<key>]` — typically set in
+     * `LocalConfiguration.php` / `additional.php`, where it is NOT reachable
+     * from the BE Settings module. (Other `ext_localconf.php` files can
+     * technically write it too; treat the override as filesystem-bound only
+     * when the rest of the bootstrap is trusted.)
+     *
+     * Returns null when the key is absent, so callers fall through to the
+     * BE-editable extension configuration.
+     */
+    private function pinnedOverride(string $key): ?bool
+    {
+        $sys = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null)
+            && \is_array($GLOBALS['TYPO3_CONF_VARS']['SYS'] ?? null)
+                ? $GLOBALS['TYPO3_CONF_VARS']['SYS'] : [];
+        $nrVault = \is_array($sys['nrVault'] ?? null) ? $sys['nrVault'] : [];
+
+        return \array_key_exists($key, $nrVault) ? (bool) $nrVault[$key] : null;
     }
 }

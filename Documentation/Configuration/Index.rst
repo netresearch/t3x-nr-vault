@@ -32,6 +32,31 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
       is implemented. See :ref:`developer-custom-adapters` for information on
       implementing custom adapters.
 
+.. confval:: securityProfile
+   :name: ext-nrvault-securityProfile
+   :type: string
+   :Default: standard
+   :Options: standard, hardened
+
+   The vault's operating profile — a single, internally consistent policy
+   rather than a bag of independent toggles. Enforcement happens in code
+   (provider selection, access control, audit anchoring), never only in
+   documentation.
+
+   standard
+      Secure defaults with zero-configuration TYPO3 integration.
+
+   hardened
+      Fail-closed and audit-ready. Requires an explicit external
+      master-key provider (``file`` or ``env``), disables provider
+      auto-detection and any fallback to the TYPO3 encryption key, and
+      makes vault operations refuse to run on a misconfigured or
+      unavailable provider. It is also the prerequisite for
+      :ref:`disableAdminOverride <ext-nrvault-disableAdminOverride>`.
+
+   An unrecognised value throws rather than degrading to ``standard`` — a
+   typo in a hardened deployment must never weaken the effective policy.
+
 .. confval:: masterKeyProvider
    :name: ext-nrvault-masterKeyProvider
    :type: string
@@ -104,6 +129,42 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
       .. code-block:: php
 
          $GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['auditReads'] = true;
+
+.. confval:: disableAdminOverride
+   :name: ext-nrvault-disableAdminOverride
+   :type: boolean
+   :Default: false
+
+   Remove the unconditional "administrators and system maintainers may do
+   anything" bypass — both the operation permissions and the per-secret
+   read/write/delete tiers. Administrators then hold exactly what their
+   groups were granted and reach only the secrets they own or share a
+   group with.
+
+   **Only effective when** :ref:`securityProfile
+   <ext-nrvault-securityProfile>` **is** ``hardened``. In the standard
+   profile the flag is inert — a lockout guard, since setting it without
+   the rest of the hardened policy is more likely a misunderstanding than
+   a decision. ``vault:break-glass --status`` reports
+   ``adminOverrideDisabledEffective`` so the mismatch is visible.
+
+   .. warning::
+
+      Removing the override without an escape hatch turns the first
+      genuine incident into an outage. The hatch is
+      :ref:`break-glass mode <security-break-glass>`
+      (:ref:`vault:break-glass <command-break-glass>`) — a justified,
+      audited, time-boxed window that restores full admin power.
+
+      Pin the value out of admin reach in
+      :file:`config/system/additional.php`, or a compromised admin can
+      simply untick it in the backend Settings module:
+
+      .. code-block:: php
+
+         $GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['disableAdminOverride'] = true;
+
+   See :ref:`security-disable-admin-override` for what exactly is removed.
 
 .. confval:: auditHmacEpoch
    :name: ext-nrvault-auditHmacEpoch

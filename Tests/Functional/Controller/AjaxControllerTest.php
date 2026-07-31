@@ -78,6 +78,101 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
         self::assertSame('No identifier provided', $body['error']);
     }
 
+    /**
+     * A NON-admin holding `secret.use` + `secret.reveal` through a backend group
+     * (be_groups.custom_options) can reveal a secret whose read tier admits
+     * their group — end-to-end, through the real `check('custom_options', …)`
+     * path rather than a mocked seam.
+     *
+     * Both permissions are required: the endpoint asserts `secret.reveal`, and
+     * the shared read path in `VaultService::retrieve()` asserts `secret.use`.
+     */
+    #[Test]
+    public function revealActionSucceedsForNonAdminGrantedUseAndReveal(): void
+    {
+        // Store as admin, admitting the revealer's group to the read tier.
+        $this->setUpBackendUser(1);
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $identifier = $this->generateUuidV7();
+        $secretValue = 'group-readable-value';
+        $vaultService->store($identifier, $secretValue, ['groups' => [10]]);
+
+        $this->setUpBackendUser(3);
+
+        $controller = $this->get(AjaxController::class);
+        $response = $controller->revealAction($this->createJsonPostRequest(['identifier' => $identifier]));
+
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($body);
+        self::assertTrue($body['success']);
+        self::assertSame($secretValue, $body['secret']);
+
+        // Cleanup as admin
+        $this->setUpBackendUser(1);
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
+    }
+
+    /**
+     * `audit.view` is not a secret permission: holding it must not open the
+     * reveal endpoint. The secret's read tier admits nobody but the owner here,
+     * but the 403 is produced by the operation gate before any secret lookup.
+     */
+    #[Test]
+    public function revealActionReturns403ForNonAdminWithOnlyAuditViewPermission(): void
+    {
+        $this->setUpBackendUser(1);
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $identifier = $this->generateUuidV7();
+        $vaultService->store($identifier, 'not-for-auditors', ['groups' => [11]]);
+
+        $this->setUpBackendUser(4);
+
+        $controller = $this->get(AjaxController::class);
+        $response = $controller->revealAction($this->createJsonPostRequest(['identifier' => $identifier]));
+
+        self::assertSame(403, $response->getStatusCode());
+        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($body);
+        self::assertFalse($body['success']);
+        self::assertSame('Access denied', $body['error']);
+
+        // Cleanup as admin
+        $this->setUpBackendUser(1);
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
+    }
+
+    /**
+     * The revealer group deliberately does NOT carry `secret.rotate`: reading a
+     * secret and replacing its value are separate grants.
+     */
+    #[Test]
+    public function rotateActionReturns403ForNonAdminWithoutRotatePermission(): void
+    {
+        $this->setUpBackendUser(1);
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $identifier = $this->generateUuidV7();
+        $vaultService->store($identifier, 'original-secret', ['groups' => [10]]);
+
+        $this->setUpBackendUser(3);
+
+        $controller = $this->get(AjaxController::class);
+        $response = $controller->rotateAction($this->createJsonPostRequest([
+            'identifier' => $identifier,
+            'secret' => 'rotated-by-revealer',
+        ]));
+
+        self::assertSame(403, $response->getStatusCode());
+        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($body);
+        self::assertFalse($body['success']);
+
+        // The value is untouched.
+        $this->setUpBackendUser(1);
+        self::assertSame('original-secret', $vaultService->retrieve($identifier));
+        $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
+    }
+
     #[Test]
     public function revealActionAsNonAdminReturns403(): void
     {

@@ -26,6 +26,7 @@ use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Http\VaultHttpClientFactoryInterface;
 use Netresearch\NrVault\Http\VaultHttpClientInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultService;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -383,6 +384,113 @@ final class VaultServiceTest extends TestCase
         $this->expectException(AccessDeniedException::class);
 
         $this->subject->retrieve('restricted');
+    }
+
+    /**
+     * On top of the per-secret `canRead()` tier, an interactively authenticated
+     * NON-admin backend user needs the `secret.use` operation permission for
+     * every plaintext read — the FormEngine widget, FlexForm resolution and the
+     * reveal endpoint alike.
+     */
+    #[Test]
+    public function retrieveDeniesNonAdminBackendUserWithoutSecretUsePermission(): void
+    {
+        $secret = $this->createSecretEntity('usable');
+
+        $access = $this->createMock(AccessControlServiceInterface::class);
+        $access->method('getCurrentActorUid')->willReturn(7);
+        $access->method('getCurrentActorType')->willReturn('backend');
+        $access->method('isCurrentActorAdmin')->willReturn(false);
+        // Per-secret read access granted; the operation permission is not.
+        $access->method('canRead')->willReturn(true);
+        $access->method('isGranted')->willReturn(false);
+
+        $subject = $this->createSubjectWith($access);
+
+        $this->adapter->method('retrieve')->willReturn($secret);
+        $this->encryptionService->expects(self::never())->method('decrypt');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('usable', 'access_denied', false, self::stringContains('secret.use'));
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->retrieve('usable');
+    }
+
+    #[Test]
+    public function retrieveAllowsNonAdminBackendUserHoldingSecretUsePermission(): void
+    {
+        $secret = $this->createSecretEntity('usable');
+
+        $access = $this->createMock(AccessControlServiceInterface::class);
+        $access->method('getCurrentActorUid')->willReturn(7);
+        $access->method('getCurrentActorType')->willReturn('backend');
+        $access->method('isCurrentActorAdmin')->willReturn(false);
+        $access->method('canRead')->willReturn(true);
+        $access
+            ->method('isGranted')
+            ->willReturnCallback(
+                static fn (VaultPermission $permission): bool => $permission === VaultPermission::SecretUse,
+            );
+
+        $subject = $this->createSubjectWith($access);
+
+        $this->adapter->method('retrieve')->willReturn($secret);
+        $this->encryptionService->method('decrypt')->willReturn('plaintext');
+
+        self::assertSame('plaintext', $subject->retrieve('usable'));
+    }
+
+    /**
+     * Admins are exempt from the operation gate — the branch is expressed via
+     * `isCurrentActorAdmin()`, so `isGranted()` is never consulted for them.
+     */
+    #[Test]
+    public function retrieveDoesNotGateAdminBackendUsersOnSecretUse(): void
+    {
+        $secret = $this->createSecretEntity('usable');
+
+        $access = $this->createMock(AccessControlServiceInterface::class);
+        $access->method('getCurrentActorUid')->willReturn(1);
+        $access->method('getCurrentActorType')->willReturn('backend');
+        $access->method('isCurrentActorAdmin')->willReturn(true);
+        $access->method('canRead')->willReturn(true);
+        $access->expects(self::never())->method('isGranted');
+
+        $subject = $this->createSubjectWith($access);
+
+        $this->adapter->method('retrieve')->willReturn($secret);
+        $this->encryptionService->method('decrypt')->willReturn('plaintext');
+
+        self::assertSame('plaintext', $subject->retrieve('usable'));
+    }
+
+    /**
+     * The frontend path must keep its exact previous behaviour: a page render's
+     * output is shared via the page cache, so it may not depend on whichever
+     * backend user happens to hold a session. `frontend_accessible` decides.
+     */
+    #[Test]
+    public function retrieveForFrontendIsNotGatedOnSecretUse(): void
+    {
+        $secret = $this->createSecretEntity('publicKey', frontendAccessible: true);
+
+        $access = $this->createMock(AccessControlServiceInterface::class);
+        $access->method('getCurrentActorUid')->willReturn(7);
+        $access->method('getCurrentActorType')->willReturn('backend');
+        $access->method('isCurrentActorAdmin')->willReturn(false);
+        $access->method('canRead')->willReturn(true);
+        $access->method('isGranted')->willReturn(false);
+
+        $subject = $this->createSubjectWith($access);
+
+        $this->adapter->method('retrieve')->willReturn($secret);
+        $this->encryptionService->method('decrypt')->willReturn('plaintext');
+
+        self::assertSame('plaintext', $subject->retrieveForFrontend('publicKey'));
     }
 
     #[Test]
@@ -1169,6 +1277,26 @@ final class VaultServiceTest extends TestCase
             // The compensating store must be the original pre-rotation secret.
             self::assertSame($secret, $storeArgs[1] ?? null);
         }
+    }
+
+    /**
+     * Build a subject wired to a different access-control seam, reusing the
+     * remaining collaborators from setUp().
+     *
+     * `createMock()` allows a method to be configured only once, so tests that
+     * need other actor semantics than the CLI default must bring their own
+     * access-control mock rather than re-stubbing the shared one.
+     */
+    private function createSubjectWith(AccessControlServiceInterface $accessControlService): VaultService
+    {
+        return new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $accessControlService,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
     }
 
     /**

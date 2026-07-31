@@ -98,6 +98,11 @@ This extension handles sensitive data. Non-negotiable rules:
 5. **Audit every access** — reads/writes/rotations/deletes all create audit log entries.
 6. **Access control** — respect backend user groups & ownership via `AccessControlServiceInterface`.
 7. **Tamper-evident audit log** — HMAC hash chain; verify on schedule (see `VaultAuditCommand`).
+8. **One admin-bypass seam** — every "admins may do anything" decision goes through the private
+   `AccessControlService::adminBypassActive()`. Never inline `isAdmin()`/`isSystemMaintainer()` in a
+   caller, and never route a grant lookup through `BackendUserAuthentication::check()` (core
+   short-circuits it to `true` for admins). The hardened profile can disable the bypass
+   (`disableAdminOverride`); a half-disabled override is worse than none.
 
 ## Key Interfaces
 > Authoritative source: the `*Interface.php` files. This is a cheat-sheet — read the PHP for full docblocks.
@@ -130,6 +135,13 @@ MasterKeyProviderInterface::getMasterKey(): string
 TechnicalActorContextInterface::runAs(int $beUserUid, callable $fn): mixed
 TechnicalActorContextInterface::getCurrentActor(): ?TechnicalActor
 
+// Break-glass (time-boxed restore of the admin override) — Classes/Security/BreakGlassServiceInterface.php
+BreakGlassServiceInterface::activate(string $reason, int $minutes = 15): BreakGlassSession
+BreakGlassServiceInterface::deactivate(string $reason): void
+// Read-only seam consumed by AccessControlService — Classes/Security/BreakGlassStateInterface.php
+BreakGlassStateInterface::getActiveSession(): ?BreakGlassSession
+BreakGlassStateInterface::isActive(): bool
+
 // Audit logging — Classes/Audit/AuditLogServiceInterface.php
 AuditLogServiceInterface::log(
     string $secretIdentifier, string $action, bool $success,
@@ -142,7 +154,7 @@ AuditLogServiceInterface::verifyHashChain(?int $fromUid = null, ?int $toUid = nu
 ```
 
 ## CLI Commands (TYPO3 `vendor/bin/typo3`)
-> All 15 registered `vault:*` commands. Full options/examples in
+> All 16 registered `vault:*` commands. Full options/examples in
 > `Documentation/Developer/Commands.rst`.
 ```
 vault:init                 # Initialize the vault (generate master key, verify configuration)
@@ -159,6 +171,7 @@ vault:audit-verify         # Verify the hash chain AND the external chain-tip an
 vault:audit-migrate-hmac   # Migrate audit log hash chain from SHA-256 to HMAC-SHA256
 vault:rotate-master-key    # Re-encrypt all secrets with a new master key
 vault:cleanup-orphans      # Clean up orphaned vault entries (scheduled task wrapper)
+vault:break-glass          # Open/close/inspect a time-boxed break-glass window (restores the admin override)
 vault:seed-demo            # Seed demo secrets + audit history (development only)
 ```
 

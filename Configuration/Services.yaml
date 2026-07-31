@@ -19,6 +19,7 @@ services:
       - '../Classes/Exception/*'
       - '../Classes/Http/OAuth/OAuthConfig.php'
       - '../Classes/Security/TechnicalActor.php'
+      - '../Classes/Security/BreakGlassSession.php'
       # Widgets depend on typo3/cms-dashboard classes (a "suggest", not a
       # requirement) — they are registered by Services.Dashboard.php, imported
       # from Services.php only when EXT:dashboard is installed.
@@ -74,6 +75,20 @@ services:
 
   Netresearch\NrVault\Security\TechnicalActorContextInterface:
     alias: Netresearch\NrVault\Security\TechnicalActorContext
+
+  # Two implementations exist for the read-only state contract
+  # (BreakGlassState and BreakGlassService, which extends it), so autowiring
+  # cannot pick one — both aliases must be explicit.
+  #
+  # AccessControlService MUST receive the narrow BreakGlassState, not the full
+  # service: the service writes audit rows, AuditLogService depends on
+  # AccessControlService, and injecting the service here would close that DI
+  # cycle. It also means access control cannot open a window, only observe one.
+  Netresearch\NrVault\Security\BreakGlassStateInterface:
+    alias: Netresearch\NrVault\Security\BreakGlassState
+
+  Netresearch\NrVault\Security\BreakGlassServiceInterface:
+    alias: Netresearch\NrVault\Security\BreakGlassService
 
   Netresearch\NrVault\Audit\AuditLogServiceInterface:
     alias: Netresearch\NrVault\Audit\AuditLogService

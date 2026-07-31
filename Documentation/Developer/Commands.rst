@@ -836,3 +836,86 @@ Example
 
    Development only. The command refuses to run in a Production application
    context and creates dummy secrets with obviously-fake values.
+
+.. _command-break-glass:
+
+vault:break-glass
+=================
+
+Open, close or inspect a time-boxed break-glass window that temporarily
+restores the administrator override removed by
+:ref:`disableAdminOverride <ext-nrvault-disableAdminOverride>`.
+
+Only a real backend administrator or system maintainer — or an operator with
+CLI access to the host — may open or close a window. A justification is
+mandatory, both transitions are written to the tamper-evident audit log, and
+the window expires on its own. See :ref:`security-break-glass` for the full
+operational contract.
+
+.. code-block:: bash
+   :caption: Command syntax
+
+   vendor/bin/typo3 vault:break-glass [options]
+
+.. _command-break-glass-options:
+
+Options
+-------
+
+--activate, -a
+   Open a break-glass window. Requires ``--reason``.
+
+--deactivate, -d
+   Close the open window early. Requires ``--reason``. A no-op when no window
+   is open.
+
+--status, -s
+   Show the current state. This is the default when no action is given.
+
+--reason, -r
+   Justification recorded in the audit log and shown in the backend warning
+   banner. Mandatory for ``--activate`` and ``--deactivate``; an empty or
+   whitespace-only value is rejected.
+
+--minutes, -m
+   Window length in minutes (default: 15). Values are clamped to the range
+   1..60 rather than rejected.
+
+.. _command-break-glass-example:
+
+Example
+-------
+
+.. code-block:: bash
+   :caption: vault:break-glass examples
+
+   # Is a window open, and is the override disabled at all?
+   vendor/bin/typo3 vault:break-glass --status
+
+   # Open a 30-minute window for an incident
+   vendor/bin/typo3 vault:break-glass --activate --reason="INC-4711 rotate leaked deploy key" --minutes=30
+
+   # Close it as soon as the work is done
+   vendor/bin/typo3 vault:break-glass --deactivate --reason="INC-4711 closed"
+
+The ``--status`` output is line-oriented for monitoring probes and always
+exits ``0`` — a closed window is a successful answer, not a failure:
+
+.. code-block:: text
+   :caption: --status output while a window is open
+
+   securityProfile                  hardened
+   disableAdminOverride             yes
+   adminOverrideDisabledEffective   yes
+   status: active
+   activatedBy                      admin (uid 1)
+   reason                           INC-4711 rotate leaked deploy key
+   activatedAt                      2026-07-31T09:12:04+00:00
+   expiresAt                        2026-07-31T09:42:04+00:00
+   remainingSeconds                 1738
+
+.. attention::
+
+   While a window is open, administrators hold **every** vault permission and
+   full access to **every** secret. Close it as soon as the work is done
+   rather than waiting for the expiry.

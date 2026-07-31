@@ -276,6 +276,71 @@ final class ExtensionConfigurationTest extends TestCase
     }
 
     #[Test]
+    public function isAdminOverrideDisabledReturnsFalseByDefault(): void
+    {
+        // The admin bypass is on unless a deployment explicitly removes it —
+        // an extension update must never silently lock administrators out.
+        $this->typo3Config->method('get')->willReturn([]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertFalse($config->isAdminOverrideDisabled());
+    }
+
+    #[Test]
+    public function isAdminOverrideDisabledReturnsTrueWhenConfigured(): void
+    {
+        $this->typo3Config->method('get')->willReturn(['disableAdminOverride' => true]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertTrue($config->isAdminOverrideDisabled());
+    }
+
+    #[Test]
+    public function isAdminOverrideDisabledRespectsFilesystemOverrideTrue(): void
+    {
+        // The point of the pin: a compromised admin who unticks the box in the
+        // BE Settings module must not thereby restore their own bypass.
+        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['disableAdminOverride' => true]]];
+
+        $this->typo3Config->method('get')->willReturn(['disableAdminOverride' => false]);
+
+        try {
+            $config = new ExtensionConfiguration($this->typo3Config);
+            self::assertTrue($config->isAdminOverrideDisabled());
+        } finally {
+            if ($original !== null) {
+                $GLOBALS['TYPO3_CONF_VARS'] = $original;
+            } else {
+                unset($GLOBALS['TYPO3_CONF_VARS']);
+            }
+        }
+    }
+
+    #[Test]
+    public function isAdminOverrideDisabledRespectsFilesystemOverrideFalse(): void
+    {
+        // The pin wins in both directions — it is the authority, not a floor.
+        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['disableAdminOverride' => false]]];
+
+        $this->typo3Config->method('get')->willReturn(['disableAdminOverride' => true]);
+
+        try {
+            $config = new ExtensionConfiguration($this->typo3Config);
+            self::assertFalse($config->isAdminOverrideDisabled());
+        } finally {
+            if ($original !== null) {
+                $GLOBALS['TYPO3_CONF_VARS'] = $original;
+            } else {
+                unset($GLOBALS['TYPO3_CONF_VARS']);
+            }
+        }
+    }
+
+    #[Test]
     public function preferXChaCha20ReturnsFalseByDefault(): void
     {
         $this->typo3Config->method('get')

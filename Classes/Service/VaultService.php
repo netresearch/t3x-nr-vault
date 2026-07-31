@@ -37,6 +37,7 @@ use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Http\VaultHttpClientFactoryInterface;
 use Netresearch\NrVault\Http\VaultHttpClientInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
@@ -137,71 +138,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
     public function retrieve(string $identifier): ?string
     {
-        // Check request-scoped cache
-        if ($this->configuration->isCacheEnabled() && isset($this->cache[$identifier])) {
-            return $this->cache[$identifier];
-        }
-
-        $secret = $this->adapter->retrieve($identifier);
-        if (!$secret instanceof Secret) {
-            return null;
-        }
-
-        // Check access
-        if (!$this->accessControlService->canRead($secret)) {
-            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Read access denied');
-
-            throw AccessDeniedException::forIdentifier($identifier, 'insufficient permissions');
-        }
-
-        // Check expiration
-        if ($secret->isExpired()) {
-            $this->auditLogService->log($identifier, AuditAction::Read->value, false, 'Secret has expired');
-
-            throw SecretExpiredException::forIdentifier($identifier, $secret->getExpiresAt());
-        }
-
-        // Decrypt
-        try {
-            $plaintext = $this->encryptionService->decrypt(
-                $secret->getEncryptedValue() ?? '',
-                $secret->getEncryptedDek(),
-                $secret->getDekNonce(),
-                $secret->getValueNonce(),
-                $identifier,
-                $secret->getEncryptionVersion(),
-                $secret->getEncryptionAlgorithm(),
-            );
-        } catch (EncryptionException $e) {
-            $this->auditLogService->log($identifier, AuditAction::Read->value, false, 'Decryption failed: ' . $e->getMessage());
-
-            throw $e;
-        }
-
-        // Update read statistics atomically (avoids full entity save + MM table churn)
-        $uid = $secret->getUid();
-        if ($uid !== null) {
-            $this->adapter->incrementReadCount($uid);
-        }
-
-        // Log success (can be disabled for high-throughput scenarios)
-        if ($this->configuration->isAuditReadsEnabled()) {
-            $this->auditLogService->log($identifier, AuditAction::Read->value, true);
-        }
-
-        // Dispatch PSR-14 event
-        $this->eventDispatcher?->dispatch(new SecretAccessedEvent(
-            $identifier,
-            $this->accessControlService->getCurrentActorUid(),
-            $secret->getContext(),
-        ));
-
-        // Cache for this request
-        if ($this->configuration->isCacheEnabled()) {
-            $this->cache[$identifier] = $plaintext;
-        }
-
-        return $plaintext;
+        return $this->doRetrieve($identifier, enforceSecretUse: true);
     }
 
     public function retrieveForFrontend(string $identifier): ?string
@@ -230,8 +167,9 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         }
 
         // The remaining checks (read permission, expiry), the audit trail and
-        // the decryption stay with the single read path.
-        return $this->retrieve($identifier);
+        // the decryption stay with the single read path — minus the
+        // interactive `secret.use` gate, see doRetrieve().
+        return $this->doRetrieve($identifier, enforceSecretUse: false);
     }
 
     public function exists(string $identifier): bool
@@ -429,6 +367,133 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         }
         unset($value);
         $this->cache = [];
+    }
+
+    /**
+     * The single read path shared by `retrieve()` and `retrieveForFrontend()`.
+     *
+     * `$enforceSecretUse` toggles ONLY the interactive-backend-user operation
+     * gate: the frontend path must not be subjected to it, because a frontend
+     * request's visibility is a property of the secret (`frontend_accessible`),
+     * never of whichever backend user happens to hold a session while
+     * rendering a page whose output is shared via the page cache. Every other
+     * check (per-secret ACL, expiry, audit trail, decryption) is identical for
+     * both entry points.
+     */
+    private function doRetrieve(string $identifier, bool $enforceSecretUse): ?string
+    {
+        // Check request-scoped cache
+        if ($this->configuration->isCacheEnabled() && isset($this->cache[$identifier])) {
+            return $this->cache[$identifier];
+        }
+
+        $secret = $this->adapter->retrieve($identifier);
+        if (!$secret instanceof Secret) {
+            return null;
+        }
+
+        // Check access
+        if (!$this->accessControlService->canRead($secret)) {
+            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Read access denied');
+
+            throw AccessDeniedException::forIdentifier($identifier, 'insufficient permissions');
+        }
+
+        if ($enforceSecretUse) {
+            $this->assertInteractiveUseGranted($identifier);
+        }
+
+        // Check expiration
+        if ($secret->isExpired()) {
+            $this->auditLogService->log($identifier, AuditAction::Read->value, false, 'Secret has expired');
+
+            throw SecretExpiredException::forIdentifier($identifier, $secret->getExpiresAt());
+        }
+
+        // Decrypt
+        try {
+            $plaintext = $this->encryptionService->decrypt(
+                $secret->getEncryptedValue() ?? '',
+                $secret->getEncryptedDek(),
+                $secret->getDekNonce(),
+                $secret->getValueNonce(),
+                $identifier,
+                $secret->getEncryptionVersion(),
+                $secret->getEncryptionAlgorithm(),
+            );
+        } catch (EncryptionException $e) {
+            $this->auditLogService->log($identifier, AuditAction::Read->value, false, 'Decryption failed: ' . $e->getMessage());
+
+            throw $e;
+        }
+
+        // Update read statistics atomically (avoids full entity save + MM table churn)
+        $uid = $secret->getUid();
+        if ($uid !== null) {
+            $this->adapter->incrementReadCount($uid);
+        }
+
+        // Log success (can be disabled for high-throughput scenarios)
+        if ($this->configuration->isAuditReadsEnabled()) {
+            $this->auditLogService->log($identifier, AuditAction::Read->value, true);
+        }
+
+        // Dispatch PSR-14 event
+        $this->eventDispatcher?->dispatch(new SecretAccessedEvent(
+            $identifier,
+            $this->accessControlService->getCurrentActorUid(),
+            $secret->getContext(),
+        ));
+
+        // Cache for this request
+        if ($this->configuration->isCacheEnabled()) {
+            $this->cache[$identifier] = $plaintext;
+        }
+
+        return $plaintext;
+    }
+
+    /**
+     * Assert the `secret.use` operation permission for an interactively
+     * authenticated NON-ADMIN backend user.
+     *
+     * Applies on top of the per-secret `canRead()` tiers and only to actor type
+     * `backend`: CLI, technical actors, the frontend and admins keep exactly
+     * the behaviour they had. Non-admin backend users therefore need
+     * `secret.use` for every plaintext read — the FormEngine vault widget,
+     * FlexForm/TCA placeholder resolution and the reveal endpoint alike.
+     *
+     * The admin exemption is deliberately expressed through
+     * `isCurrentActorAdmin()` (mirroring `resolveOwnerUid()` /
+     * `resolveFrontendAccessible()`) rather than by relying on `isGranted()`
+     * returning true for admins, so this stays readable as "admins are not
+     * gated here".
+     */
+    private function assertInteractiveUseGranted(string $identifier): void
+    {
+        if ($this->accessControlService->getCurrentActorType() !== 'backend') {
+            return;
+        }
+
+        if ($this->accessControlService->isCurrentActorAdmin()) {
+            return;
+        }
+
+        if ($this->accessControlService->isGranted(VaultPermission::SecretUse)) {
+            return;
+        }
+
+        $this->auditLogService->log(
+            $identifier,
+            AuditAction::AccessDenied->value,
+            false,
+            'Read access denied: missing ' . VaultPermission::SecretUse->value . ' permission',
+        );
+
+        throw AccessDeniedException::forIdentifier(
+            $identifier,
+            'missing ' . VaultPermission::SecretUse->value . ' permission',
+        );
     }
 
     /**

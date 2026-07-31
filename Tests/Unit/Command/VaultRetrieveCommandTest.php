@@ -12,6 +12,8 @@ namespace Netresearch\NrVault\Tests\Unit\Command;
 use Netresearch\NrVault\Command\VaultRetrieveCommand;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use org\bovigo\vfs\vfsStream;
@@ -29,6 +31,8 @@ final class VaultRetrieveCommandTest extends TestCase
 {
     private VaultServiceInterface&MockObject $vaultService;
 
+    private AccessControlServiceInterface&MockObject $accessControlService;
+
     private CommandTester $commandTester;
 
     /** @var list<string> */
@@ -39,8 +43,15 @@ final class VaultRetrieveCommandTest extends TestCase
         parent::setUp();
 
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
+        // The command prints plaintext, so it asserts `secret.reveal`. Grant it
+        // by default; `deniesRetrievalWithoutRevealPermission()` builds its own
+        // command with the grant withheld.
+        $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $this->accessControlService
+            ->method('isGranted')
+            ->willReturn(true);
 
-        $command = new VaultRetrieveCommand($this->vaultService);
+        $command = new VaultRetrieveCommand($this->vaultService, $this->accessControlService);
 
         $application = new Application();
         $application->addCommand($command);
@@ -61,7 +72,7 @@ final class VaultRetrieveCommandTest extends TestCase
     #[Test]
     public function hasCorrectName(): void
     {
-        $command = new VaultRetrieveCommand($this->vaultService);
+        $command = new VaultRetrieveCommand($this->vaultService, $this->accessControlService);
 
         self::assertSame('vault:retrieve', $command->getName());
     }
@@ -263,6 +274,35 @@ final class VaultRetrieveCommandTest extends TestCase
         self::assertSame(0, $exitCode);
         self::assertSame('new-content', file_get_contents($outputFile));
         self::assertSame(0o600, fileperms($outputFile) & 0o777);
+    }
+
+    /**
+     * `vault:retrieve` prints plaintext to a terminal, so it is a reveal
+     * surface: without `secret.reveal` it must fail before ever asking the
+     * vault for the value.
+     */
+    #[Test]
+    public function deniesRetrievalWithoutRevealPermission(): void
+    {
+        $accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $accessControlService
+            ->method('isGranted')
+            ->willReturnCallback(
+                // Everything except the reveal permission.
+                static fn (VaultPermission $permission): bool => $permission !== VaultPermission::SecretReveal,
+            );
+
+        $this->vaultService
+            ->expects(self::never())
+            ->method('retrieve');
+
+        $command = new VaultRetrieveCommand($this->vaultService, $accessControlService);
+        $tester = new CommandTester($command);
+
+        $exitCode = $tester->execute(['identifier' => 'some-secret']);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('secret.reveal', $tester->getDisplay());
     }
 
     private function createTempDir(): string
