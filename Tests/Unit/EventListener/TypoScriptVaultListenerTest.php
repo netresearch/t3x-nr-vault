@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Unit\EventListener;
 
 use Netresearch\NrVault\EventListener\TypoScriptVaultListener;
 use Netresearch\NrVault\Exception\AccessDeniedException;
+use Netresearch\NrVault\Security\FrontendPlaceholderPolicy;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -38,7 +39,15 @@ final class TypoScriptVaultListenerTest extends TestCase
 
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
         $this->logger = $this->createMock(LoggerInterface::class);
-        $this->listener = new TypoScriptVaultListener($this->vaultService, $this->logger);
+        // A real policy: under PHPUnit Environment::isCli() is true, so the
+        // policy reports LEGACY and every assertion below still describes
+        // today's behaviour. That is also why these tests prove nothing about
+        // the frontend path — see FrontendPlaceholderPolicyTest for that.
+        $this->listener = new TypoScriptVaultListener(
+            $this->vaultService,
+            $this->logger,
+            new FrontendPlaceholderPolicy(),
+        );
     }
 
     #[Test]

@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Frontend `%vault()%` placeholders are now scoped to published identifiers**
+  (ADR-035). `TypoScriptVaultListener` runs on the output of every `stdWrap()`
+  call, so an editor-written `tt_content` field (`stdWrap.field = bodytext`) or a
+  reflected request parameter (`data = GP:q`) was a resolution site for any
+  secret flagged `frontend_accessible` — the plaintext landed in output shared
+  through the page cache. In a frontend request the extension now resolves an
+  identifier only when it was published through a source an editor cannot write:
+  the TypoScript setup array, the site configuration or settings,
+  `plugin.tx_nrvault.frontendResolvableIdentifiers`, or
+  `FrontendPlaceholderPolicyInterface::allowIdentifier()`. The check runs before
+  the vault is touched, so a rejected identifier reaches neither the vault nor
+  the audit log.
+
+### Changed
+
+- The restriction above applies to frontend requests and to any web request
+  whose type cannot be established — eID among them, where
+  `$GLOBALS['TYPO3_REQUEST']` does not exist. CLI (scheduler, Symfony Messenger,
+  console commands) and backend requests are unchanged — a backend request being
+  recognised by the request the content object renderer carries, never by what an
+  earlier request left in `$GLOBALS['TYPO3_REQUEST']`. A renderer built without a
+  request of its own is restricted wherever it runs.
+- **Migration.** Every documented TypoScript and site-configuration form keeps
+  working: writing `lib.apiKey.value = %vault(my_api_key)%` publishes
+  `my_api_key`. An identifier used *only* in a Fluid template file, a `userFunc`
+  or a DataProcessor is not in the setup array — publish it once per site with
+  `plugin.tx_nrvault.frontendResolvableIdentifiers = my_api_key`. In an eID
+  handler, call
+  `GeneralUtility::makeInstance(FrontendPlaceholderPolicyInterface::class)->allowIdentifier('my_api_key', $request)`.
+  A rejected placeholder is left literal in the output, and Development context
+  emits one `notice` per request naming it.
+- **Migration (eID).** `allowIdentifier()` takes the PSR-7 request as its second
+  argument:
+  `GeneralUtility::makeInstance(FrontendPlaceholderPolicyInterface::class)->allowIdentifier('my_api_key', $request)`.
+  The policy is a shared service that outlives a request, so the grant is stored
+  against that request object in a `WeakMap` — it is unreachable from any later
+  request, which in a worker SAPI (FrankenPHP, RoadRunner) is what stops one
+  request's grant from authorising the next one's anonymous, page-cached render.
+  Pass the request you are handling and `setRequest()` the same object on the
+  content object renderer you render with: the grant is matched by object
+  identity against the renderer's request. `$GLOBALS['TYPO3_REQUEST']` is never
+  used for it — TYPO3 sets that global and never unsets it, so in a worker it
+  outlives its own request. A renderer carrying a different request, or none,
+  resolves nothing.
+- Log volume on the rejection path is now bounded by a latch that is per request
+  and only applies in a frontend/unknown web context: 100 injected placeholders
+  naming a withheld secret produced 100 warnings and 100 `AccessDenied` audit
+  rows, and now produce at most one record and no rows. The latch cannot carry
+  into the next request, and it never engages on the CLI or in a backend
+  request, so a long-running `scheduler:run` or Messenger consumer keeps every
+  warning it emitted before.
+- **Detection trade-off.** Because a rejected identifier is refused before the
+  vault is touched, it no longer produces the `AccessDenied` audit row it used
+  to. Outside Development a rejection is written nowhere, so probing for a
+  site's published identifiers leaves no trace; the signal is the literal
+  `%vault(...)%` surviving in the output. This is deliberate — any per-rejection
+  record is a write an anonymous visitor can drive — and is recorded as a
+  residual in ADR-035.
+
+### Fixed
+
+- The TypoScript examples in `Documentation/Usage/Index.rst` showed `TEXT`
+  objects whose only property was `value`. `TEXT` removes `value` from its
+  configuration before rendering, so such an object never calls `stdWrap()` and
+  the placeholder never resolved. The examples now carry the `stdWrap.` sub-array
+  that makes them work.
+
 ## [0.13.0] - 2026-07-30
 
 ### Added

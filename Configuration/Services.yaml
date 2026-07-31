@@ -67,6 +67,20 @@ services:
   Netresearch\NrVault\Security\TechnicalActorContextInterface:
     alias: Netresearch\NrVault\Security\TechnicalActorContext
 
+  # public: integrator PHP (a userFunc, DataProcessor or eID handler) resolves
+  # this via GeneralUtility::makeInstance(FrontendPlaceholderPolicyInterface::class)
+  # to publish an identifier for frontend resolution — the A4 escape hatch of
+  # ADR-034, same precedent as SiteConfigurationVaultProcessor.
+  #
+  # This is a shared (singleton) service on purpose, and it must stay safe as
+  # one: allowIdentifier() takes the PSR-7 request and stores the grant in a
+  # WeakMap keyed on it, so no grant and no log latch can reach a later request.
+  # Do NOT "fix" request scoping by adding `shared: false` — the consumer of
+  # this service is itself a singleton and would keep the first instance.
+  Netresearch\NrVault\Security\FrontendPlaceholderPolicyInterface:
+    alias: Netresearch\NrVault\Security\FrontendPlaceholderPolicy
+    public: true
+
   Netresearch\NrVault\Audit\AuditLogServiceInterface:
     alias: Netresearch\NrVault\Audit\AuditLogService
 
