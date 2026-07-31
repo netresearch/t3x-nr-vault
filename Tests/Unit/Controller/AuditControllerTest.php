@@ -10,11 +10,18 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Controller;
 
 use Netresearch\NrVault\Audit\AuditLogEntry;
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Controller\AuditController;
+use Netresearch\NrVault\Controller\ModuleAccessGuard;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Tests\Unit\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use ReflectionClass;
+use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 
 /**
  * Unit tests for the CSV audit export writer of AuditController.
@@ -27,6 +34,7 @@ use ReflectionClass;
  * audit field could terminate its own quoted cell and inject a spreadsheet
  * formula into a cell that CsvFormulaSanitizer never inspected (CWE-1236).
  */
+#[AllowMockObjectsWithoutExpectations]
 final class AuditControllerTest extends TestCase
 {
     /**
@@ -80,6 +88,86 @@ final class AuditControllerTest extends TestCase
         $columnIndex = array_search('userAgent', $header, true);
         self::assertIsInt($columnIndex);
         self::assertSame('\'=cmd|\' /C calc\'!A0', $row[$columnIndex]);
+    }
+
+    /**
+     * `audit.view` deliberately does not cover `audit.export`: the downloaded
+     * copy leaves the tamper-evident storage behind, so reading the log in the
+     * module and walking off with the full history are separate grants.
+     */
+    #[Test]
+    public function exportActionReturns403ForHolderOfAuditViewOnly(): void
+    {
+        $auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        $auditLogService
+            ->expects(self::never())
+            ->method('export');
+
+        $subject = $this->createControllerGranting($auditLogService, VaultPermission::AuditView);
+
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getQueryParams')->willReturn(['format' => 'json']);
+
+        $response = $subject->exportAction($request);
+
+        self::assertSame(403, $response->getStatusCode());
+        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($body);
+        self::assertFalse($body['success']);
+        self::assertSame('Access denied', $body['error']);
+    }
+
+    #[Test]
+    public function exportActionSucceedsWithAuditExportPermission(): void
+    {
+        $auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        $auditLogService
+            ->expects(self::once())
+            ->method('export')
+            ->willReturn([]);
+
+        $subject = $this->createControllerGranting($auditLogService, VaultPermission::AuditExport);
+
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getQueryParams')->willReturn(['format' => 'json']);
+
+        $response = $subject->exportAction($request);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('application/json', $response->getHeaderLine('Content-Type'));
+    }
+
+    /**
+     * Build a controller wired with only the seams `exportAction()` consults:
+     * the audit log service and the permission guard.
+     *
+     * The constructor pulls in `final readonly` TYPO3 services this test does
+     * not need, hence `newInstanceWithoutConstructor()` + property injection
+     * (same approach as the sibling OverviewControllerTest).
+     */
+    private function createControllerGranting(
+        AuditLogServiceInterface $auditLogService,
+        VaultPermission ...$granted,
+    ): AuditController {
+        $accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $accessControlService
+            ->method('isGranted')
+            ->willReturnCallback(
+                static fn (VaultPermission $permission): bool => \in_array($permission, $granted, true),
+            );
+
+        $moduleTemplateFactory = (new ReflectionClass(ModuleTemplateFactory::class))
+            ->newInstanceWithoutConstructor();
+
+        $reflection = new ReflectionClass(AuditController::class);
+        $subject = $reflection->newInstanceWithoutConstructor();
+        $reflection->getProperty('auditLogService')->setValue($subject, $auditLogService);
+        $reflection->getProperty('accessGuard')->setValue(
+            $subject,
+            new ModuleAccessGuard($accessControlService, $moduleTemplateFactory),
+        );
+
+        return $subject;
     }
 
     /**

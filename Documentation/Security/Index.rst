@@ -184,17 +184,102 @@ entries to HMAC-SHA256. See :ref:`command-audit-migrate-hmac` for details.
 Access control
 ==============
 
-Secret access is controlled at multiple levels:
+Access is decided by two independent gates. **Both** must pass.
+
+*Per-secret access* answers "may this actor touch *this* secret?":
 
 1. **Authentication**: Backend user must be logged in.
 2. **Ownership**: Creator has full access.
 3. **Group membership**: Shared access via backend groups.
 4. **Admin override**: Administrators can access all secrets.
 
+*Operation permissions* answer "may this actor perform this *kind* of
+operation at all?" — see the next section.
+
 .. note::
 
    CLI access requires explicit configuration and can be restricted
    to specific groups.
+
+.. _security-operation-permissions:
+
+Operation permissions
+---------------------
+
+Each vault operation has its own permission, granted **per backend user
+group** in the Backend Users module (field *Custom module options*,
+group *Vault: operation permissions*). They are registered as TYPO3
+custom permission options under
+``$GLOBALS['TYPO3_CONF_VARS']['BE']['customPermOptions']['tx_nrvault']``
+and checked server-side via
+``AccessControlServiceInterface::isGranted()``.
+
+=================================== ==============================================================
+Permission                          Governs
+=================================== ==============================================================
+``tx_nrvault:secret.use``           Programmatic consumption of a plaintext value (FormEngine
+                                    vault widgets, FlexForm/TCA placeholders, site config, HTTP
+                                    clients).
+``tx_nrvault:secret.reveal``        Displaying a plaintext to a human (the ``vault_reveal``
+                                    endpoint, ``vault:retrieve``).
+``tx_nrvault:secret.create``        Creating new secrets.
+``tx_nrvault:secret.rotate``        Replacing the value of an existing secret.
+``tx_nrvault:secret.delete``        Deleting secrets.
+``tx_nrvault:secret.manage_policy`` Enabling/disabling secrets and editing their
+                                    ``allowed_groups`` / ``write_groups`` tiers.
+``tx_nrvault:audit.view``           Reading the audit log, its usage analytics, and verifying the
+                                    hash chain.
+``tx_nrvault:audit.export``         Downloading the audit log (JSON / CSV).
+``tx_nrvault:master_key.rotate``    Rotating the master key.
+``tx_nrvault:vault.configure``      Running the migration wizard.
+=================================== ==============================================================
+``tx_nrvault:secret.use``       Programmatic consumption of a plaintext value
+                                (FormEngine vault widgets, FlexForm/TCA
+                                placeholders, site config, HTTP clients).
+``tx_nrvault:secret.reveal``    Displaying a plaintext to a human (the
+                                ``vault_reveal`` endpoint, ``vault:retrieve``).
+``tx_nrvault:secret.create``    Creating new secrets.
+``tx_nrvault:secret.rotate``    Replacing the value of an existing secret.
+``tx_nrvault:secret.delete``    Deleting secrets.
+``tx_nrvault:secret.manage_policy`` Enabling/disabling secrets and editing
+                                their ``allowed_groups`` / ``write_groups``.
+``tx_nrvault:audit.view``       Reading the audit log, its usage analytics,
+                                and verifying the hash chain.
+``tx_nrvault:audit.export``     Downloading the audit log (JSON / CSV).
+``tx_nrvault:master_key.rotate`` Rotating the master key.
+``tx_nrvault:vault.configure``  Running the migration wizard.
+=============================== ==============================================
+
+Notes on the model:
+
+-  **``secret.use`` does not imply ``secret.reveal``**, and neither
+   implies the other. A non-admin needs **both** for an end-to-end
+   reveal: the endpoint asserts ``secret.reveal`` (displaying plaintext),
+   and the shared read path asserts ``secret.use`` (obtaining it at all).
+   An integration account gets ``secret.use`` only.
+-  **Non-admin backend users need ``secret.use`` for every plaintext
+   read**, including FormEngine vault field widgets and FlexForm /
+   TypoScript placeholder resolution. Grant it to the groups whose
+   editors work with vault-backed fields.
+-  **Admins and system maintainers hold every permission**
+   unconditionally. That override lives in a single seam
+   (``AccessControlService::adminOverrideGrants()``) so a future hardened
+   profile can disable it.
+-  **The backend modules are registered ``access => 'user'``.** That is
+   deliberate: authorization is asserted by each controller action, not
+   by the module registration, so granular grants are usable by
+   non-admins. The same holds for the ``vault_reveal`` / ``vault_rotate``
+   AJAX routes.
+-  **CLI**: a trusted CLI operator has no backend user record and thus no
+   group grants, so operation permissions follow the vault's
+   :ref:`allowCliAccess <configuration>` switch (**off by default**).
+   Enabling CLI access is therefore required for
+   ``vault:rotate-master-key`` and ``vault:retrieve``.
+-  **Frontend requests never hold operation permissions**, regardless of
+   any backend session the visitor carries — frontend visibility remains
+   a property of the secret (``frontend_accessible``) alone.
+-  **Non-admin technical actors** (``runAs()`` scopes) hold only
+   ``secret.use``; their reach stays bounded by the per-secret tiers.
 
 Technical actors
 ----------------

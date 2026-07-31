@@ -15,6 +15,7 @@ use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Domain\Dto\SecretMetadata;
 use Netresearch\NrVault\Exception\AccessDeniedException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -59,13 +60,22 @@ final readonly class SecretsController
         private FlashMessageService $flashMessageService,
         private ConnectionPool $connectionPool,
         private AuditLogServiceInterface $auditLogService,
+        private ModuleAccessGuard $accessGuard,
     ) {}
 
     /**
      * List all secrets (default action).
+     *
+     * Entering the module needs ANY secret-handling permission; the mutating
+     * actions below assert their own. `VaultService::list()` still filters the
+     * listing down to the secrets the actor may read per-secret.
      */
     public function listAction(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->accessGuard->isAnyGranted(...VaultPermission::secretOperations())) {
+            return $this->accessGuard->deniedResponse($request, VaultPermission::SecretUse);
+        }
+
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
         /** @phpstan-ignore function.alreadyNarrowedType (v14-only method, not available in v13) */
@@ -131,9 +141,14 @@ final readonly class SecretsController
         $moduleTemplate->assignMultiple([
             'secrets' => $formattedSecrets,
             'totalCount' => \count($formattedSecrets),
-            'isAdmin' => $this->isAdmin(),
             'filters' => $filters,
             'ownerOptions' => $ownerOptions,
+            // Per-action flags so the row actions mirror what the endpoints
+            // enforce — a rendered button never leads to a 403.
+            'canReveal' => $this->accessGuard->isGranted(VaultPermission::SecretReveal),
+            'canRotate' => $this->accessGuard->isGranted(VaultPermission::SecretRotate),
+            'canDelete' => $this->accessGuard->isGranted(VaultPermission::SecretDelete),
+            'canManagePolicy' => $this->accessGuard->isGranted(VaultPermission::SecretManagePolicy),
         ]);
 
         $moduleTemplate->setTitle(
@@ -148,8 +163,12 @@ final readonly class SecretsController
     /**
      * Redirect to FormEngine for creating a new secret.
      */
-    public function createAction(): ResponseInterface
+    public function createAction(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->accessGuard->isGranted(VaultPermission::SecretCreate)) {
+            return $this->accessGuard->deniedResponse($request, VaultPermission::SecretCreate);
+        }
+
         // Redirect to FormEngine for native TYPO3 editing experience
         $editUrl = $this->uriBuilder->buildUriFromRoute('record_edit', [
             'edit' => [
@@ -166,9 +185,18 @@ final readonly class SecretsController
 
     /**
      * Show edit secret form.
+     *
+     * Editing hands the record to FormEngine, whose form includes the
+     * `allowed_groups` / `write_groups` tiers — i.e. the secret's access
+     * policy. That makes `secret.manage_policy` the permission this entry
+     * point needs, not a plain write permission.
      */
     public function editAction(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->accessGuard->isGranted(VaultPermission::SecretManagePolicy)) {
+            return $this->accessGuard->deniedResponse($request, VaultPermission::SecretManagePolicy);
+        }
+
         $queryParams = $request->getQueryParams();
         $identifierVal = $queryParams['identifier'] ?? '';
         $identifier = \is_string($identifierVal) ? $identifierVal : '';
@@ -241,6 +269,18 @@ final readonly class SecretsController
         $identifier = \is_string($identifierVal) ? $identifierVal : '';
         $isAjax = $this->isAjaxRequest($request);
 
+        // Enabling/disabling a secret changes its availability to every
+        // consumer, so it belongs to policy management rather than to editing
+        // a value.
+        if (!$this->accessGuard->isGranted(VaultPermission::SecretManagePolicy)) {
+            if ($isAjax) {
+                /** @phpstan-ignore new.internalClass, method.internalClass */
+                return new JsonResponse(['success' => false, 'error' => 'Access denied'], 403);
+            }
+
+            return $this->accessGuard->deniedResponse($request, VaultPermission::SecretManagePolicy);
+        }
+
         $lang = $this->getLanguageService();
 
         if ($identifier === '') {
@@ -285,6 +325,12 @@ final readonly class SecretsController
      */
     public function deleteAction(ServerRequestInterface $request): ResponseInterface
     {
+        // Per-secret deletion rights (owner/admin/maintainer, no group tier)
+        // are still asserted by VaultService::delete() on top of this.
+        if (!$this->accessGuard->isGranted(VaultPermission::SecretDelete)) {
+            return $this->accessGuard->deniedResponse($request, VaultPermission::SecretDelete);
+        }
+
         $bodyRaw = $request->getParsedBody();
         $body = \is_array($bodyRaw) ? $bodyRaw : [];
         $identifierVal = $body['identifier'] ?? '';
@@ -442,13 +488,15 @@ final readonly class SecretsController
         $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
         $lang = $this->getLanguageService();
 
-        // Create Secret button
-        $createButton = $buttonBar->makeLinkButton()
-            ->setHref((string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.create'))
-            ->setTitle($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.create'))
-            ->setShowLabelText(true)
-            ->setIcon($this->iconFactory->getIcon('actions-add', IconSize::SMALL));
-        $buttonBar->addButton($createButton, ButtonBar::BUTTON_POSITION_LEFT, 1);
+        // Create Secret button — only for actors createAction() would admit.
+        if ($this->accessGuard->isGranted(VaultPermission::SecretCreate)) {
+            $createButton = $buttonBar->makeLinkButton()
+                ->setHref((string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.create'))
+                ->setTitle($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.create'))
+                ->setShowLabelText(true)
+                ->setIcon($this->iconFactory->getIcon('actions-add', IconSize::SMALL));
+            $buttonBar->addButton($createButton, ButtonBar::BUTTON_POSITION_LEFT, 1);
+        }
 
         // Note: Reload button is automatically added by TYPO3's DocHeaderComponent
     }
@@ -457,16 +505,6 @@ final readonly class SecretsController
     {
         $flashMessage = new FlashMessage($message, '', $severity, true);
         $this->flashMessageService->getMessageQueueByIdentifier()->addMessage($flashMessage);
-    }
-
-    private function isAdmin(): bool
-    {
-        $backendUser = $GLOBALS['BE_USER'] ?? null;
-        if (!\is_object($backendUser) || !method_exists($backendUser, 'isAdmin')) {
-            return false;
-        }
-
-        return (bool) $backendUser->isAdmin();
     }
 
     private function getLanguageService(): LanguageService

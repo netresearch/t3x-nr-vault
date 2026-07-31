@@ -1,0 +1,20 @@
+<html xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+      data-namespace-typo3-fluid="true">
+
+<f:layout name="Module" />
+
+<f:section name="Content">
+    <h1><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:accessDenied.title" /></h1>
+
+    <f:be.infobox title="{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:accessDenied.message')}" state="2">
+        <p>
+            <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:accessDenied.required"
+                         arguments="{0: requiredPermission}" />
+        </p>
+        <p>
+            <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:accessDenied.hint" />
+        </p>
+    </f:be.infobox>
+</f:section>
+
+</html>

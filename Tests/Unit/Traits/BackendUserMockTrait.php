@@ -34,17 +34,22 @@ trait BackendUserMockTrait
      * TYPO3 `be_users.disable` field).
      *
      * @param list<int> $groupIds backend user group UIDs (populates `userGroupsUID`)
+     * @param bool $isSystemMaintainer answer for `isSystemMaintainer()` — core
+     *                                 treats the role as strictly stronger than
+     *                                 `admin`, and the vault's permission gates
+     *                                 must honour it independently
      */
     protected function createMockBackendUser(
         int $uid = 1,
         bool $isAdmin = false,
         array $groupIds = [],
         bool $disabled = false,
+        bool $isSystemMaintainer = false,
     ): BackendUserAuthentication&MockObject {
         /** @var BackendUserAuthentication&MockObject $backendUser */
         $backendUser = $this->createMock(BackendUserAuthentication::class);
         $backendUser->method('isAdmin')->willReturn($isAdmin);
-        $backendUser->method('isSystemMaintainer')->willReturn(false);
+        $backendUser->method('isSystemMaintainer')->willReturn($isSystemMaintainer);
 
         $backendUser->user = [
             'uid' => $uid,

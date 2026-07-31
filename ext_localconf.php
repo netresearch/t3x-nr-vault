@@ -12,10 +12,34 @@ use Netresearch\NrVault\Form\Element\VaultSecretInputElement;
 use Netresearch\NrVault\Hook\DataHandlerHook;
 use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Hook\SecretTcaHook;
+use Netresearch\NrVault\Security\VaultPermission;
 
 defined('TYPO3') || die();
 
 (static function (): void {
+    // Operation permissions as TYPO3 custom permission options, so
+    // each one is grantable per backend user group in the Backend Users module
+    // and checked via check('custom_options', 'tx_nrvault:<permission>').
+    // Enum-driven: a new VaultPermission case is grantable without touching
+    // this list. Labels/descriptions live in locallang_mod.xlf under
+    // `permissions.<case value>` / `.description`.
+    $permissionLabels = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:permissions.';
+    $permissionItems = [];
+    foreach (VaultPermission::cases() as $permission) {
+        $permissionItems[$permission->value] = [
+            $permissionLabels . $permission->value,
+            // No icon: the Backend Users module falls back to a neutral one.
+            '',
+            $permissionLabels . $permission->value . '.description',
+        ];
+    }
+
+    $GLOBALS['TYPO3_CONF_VARS']['BE']['customPermOptions']['tx_nrvault'] = [
+        'header' => $permissionLabels . 'header',
+        'items' => $permissionItems,
+    ];
+
+
     // Register vaultSecret form element type (for OTHER tables to reference vault secrets)
     $GLOBALS['TYPO3_CONF_VARS']['SYS']['formEngine']['nodeRegistry'][1735400000] = [
         'nodeName' => 'vaultSecret',
