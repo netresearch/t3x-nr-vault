@@ -388,6 +388,57 @@ final class ExtensionConfigurationTest extends TestCase
     }
 
     #[Test]
+    public function getTransitConfigReadsTheTransitSettingsFromTheHashicorpGroup(): void
+    {
+        $this->typo3Config->method('get')
+            ->willReturn(['hashicorp' => [
+                'address' => 'https://vault.example.com:8200',
+                'authMethod' => 'token',
+                'transitMount' => 'platform/transit',
+                'transitKeyName' => 'master-key',
+                'transitWrappedKeyPath' => '/secure/wrapped.key',
+                'tokenEnvVar' => 'MY_VAULT_TOKEN',
+            ]]);
+
+        $result = (new ExtensionConfiguration($this->typo3Config))->getTransitConfig();
+
+        self::assertSame('https://vault.example.com:8200', $result->address);
+        self::assertSame('platform/transit', $result->mount);
+        self::assertSame('master-key', $result->keyName);
+        self::assertSame('/secure/wrapped.key', $result->wrappedKeyPath);
+        self::assertSame('MY_VAULT_TOKEN', $result->tokenEnvVar);
+        self::assertTrue($result->isComplete());
+    }
+
+    #[Test]
+    public function getTransitConfigReadsTheTransitSettingsAndKeepsTheVarPathLazy(): void
+    {
+        // Environment is not initialized in the unit suite, so a configured path
+        // must be enough — this also proves the var-path fallback stays lazy. The
+        // fallback itself is covered by the functional counterpart of this test.
+        $this->typo3Config->method('get')->willReturn(['hashicorp' => [
+            'transitWrappedKeyPath' => '/secure/wrapped.key',
+        ]]);
+
+        $result = (new ExtensionConfiguration($this->typo3Config))->getTransitConfig();
+
+        self::assertSame('/secure/wrapped.key', $result->wrappedKeyPath);
+    }
+
+    #[Test]
+    public function getTransitConfigIsIncompleteWithoutAnAddress(): void
+    {
+        $this->typo3Config->method('get')->willReturn(['hashicorp' => [
+            'transitWrappedKeyPath' => '/secure/wrapped.key',
+        ]]);
+
+        $result = (new ExtensionConfiguration($this->typo3Config))->getTransitConfig();
+
+        self::assertSame('', $result->address);
+        self::assertFalse($result->isComplete());
+    }
+
+    #[Test]
     public function getAwsConfigReturnsEmptyConfigByDefault(): void
     {
         $this->typo3Config->method('get')

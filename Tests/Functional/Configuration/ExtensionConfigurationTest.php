@@ -28,16 +28,52 @@ final class ExtensionConfigurationTest extends FunctionalTestCase
     #[Test]
     public function getAutoKeyPathReturnsPathBasedOnVarPath(): void
     {
-        $typo3Config = $this->createMock(Typo3ExtensionConfiguration::class);
-        $typo3Config->method('get')
-            ->with('nr_vault')
-            ->willReturn([]);
-
-        $config = new ExtensionConfiguration($typo3Config);
+        $config = new ExtensionConfiguration($this->createConfigurationReturning([]));
 
         $path = $config->getAutoKeyPath();
 
         self::assertStringContainsString('secrets/vault-master.key', $path);
         self::assertStringStartsWith(Environment::getVarPath(), $path);
+    }
+
+    #[Test]
+    public function getTransitConfigDefaultsTheWrappedKeyPathToTheVarPath(): void
+    {
+        // The default resolves through Environment, which is only initialized in
+        // the functional suite; the unit test asserts it stays lazy.
+        $config = new ExtensionConfiguration(
+            $this->createConfigurationReturning(['hashicorp' => ['address' => 'https://vault.example.com:8200']]),
+        );
+
+        $transitConfig = $config->getTransitConfig();
+
+        self::assertSame($config->getAutoKeyPath() . '.transit', $transitConfig->wrappedKeyPath);
+        self::assertStringContainsString(Environment::getVarPath(), $transitConfig->wrappedKeyPath);
+        self::assertTrue($transitConfig->isComplete());
+    }
+
+    #[Test]
+    public function getTransitConfigToleratesANonArrayHashicorpSetting(): void
+    {
+        $config = new ExtensionConfiguration($this->createConfigurationReturning(['hashicorp' => 'not-an-array']));
+
+        $transitConfig = $config->getTransitConfig();
+
+        self::assertSame('', $transitConfig->address);
+        self::assertSame('transit', $transitConfig->mount);
+        self::assertFalse($transitConfig->isComplete());
+    }
+
+    /**
+     * @param array<string, mixed> $configuration
+     */
+    private function createConfigurationReturning(array $configuration): Typo3ExtensionConfiguration
+    {
+        $typo3Config = $this->createMock(Typo3ExtensionConfiguration::class);
+        $typo3Config->method('get')
+            ->with('nr_vault')
+            ->willReturn($configuration);
+
+        return $typo3Config;
     }
 }
