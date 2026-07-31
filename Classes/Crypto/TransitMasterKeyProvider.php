@@ -442,6 +442,7 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
             }
         } catch (MasterKeyException $e) {
             if (file_exists($temporaryPath)) {
+                // nosemgrep: php.lang.security.unlink-use.unlink-use - $temporaryPath is a code-generated temp path for the atomic wrapped-key write, never user input; this only cleans up our own leftover on failure.
                 unlink($temporaryPath);
             }
 
