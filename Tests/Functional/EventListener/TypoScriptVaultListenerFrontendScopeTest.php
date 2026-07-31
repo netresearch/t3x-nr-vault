@@ -59,12 +59,9 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
      * mocking them would test the mock. The internal use is concentrated here
      * and in `webRequest()` / `frontendTypoScript()` rather than spread over
      * every case.
-     *
-     * @phpstan-ignore classConstant.internalClass
      */
     private const APPLICATION_FRONTEND = SystemEnvironmentBuilder::REQUESTTYPE_FE;
 
-    /** @phpstan-ignore classConstant.internalClass */
     private const APPLICATION_BACKEND = SystemEnvironmentBuilder::REQUESTTYPE_BE;
 
     /** @var list<string> */
@@ -649,7 +646,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
             $this->environmentBackup['varPath'],
             $this->environmentBackup['configPath'],
             $this->environmentBackup['currentScript'],
-            $this->environmentBackup['isWindows'] ? 'WINDOWS' : 'UNIX',
+            ($this->environmentBackup['isWindows'] === true) ? 'WINDOWS' : 'UNIX',
         );
 
         try {
@@ -674,7 +671,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
             $this->environmentBackup['varPath'],
             $this->environmentBackup['configPath'],
             $this->environmentBackup['currentScript'],
-            $this->environmentBackup['isWindows'] ? 'WINDOWS' : 'UNIX',
+            ($this->environmentBackup['isWindows'] === true) ? 'WINDOWS' : 'UNIX',
         );
     }
 
@@ -702,7 +699,6 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
      */
     private function webRequest(string $url, int $applicationType): ServerRequestInterface
     {
-        /** @phpstan-ignore new.internalClass, method.internalClass */
         return (new ServerRequest($url))->withAttribute('applicationType', $applicationType);
     }
 
@@ -715,18 +711,15 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
      */
     private function frontendTypoScript(?array $setup): FrontendTypoScript
     {
-        /** @phpstan-ignore new.internalClass, new.internalClass */
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
 
         if ($setup === null) {
             return $frontendTypoScript;
         }
 
-        /** @phpstan-ignore method.internalClass */
         $frontendTypoScript->setSetupArray($setup);
         // stdWrap's `cache.` implementation reads `config.`; without it the
         // T-A1 snippet cannot run at all.
-        /** @phpstan-ignore method.internalClass */
         $frontendTypoScript->setConfigArray([]);
 
         return $frontendTypoScript;
