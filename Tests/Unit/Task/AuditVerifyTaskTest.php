@@ -19,10 +19,24 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Scheduler\Scheduler;
 
 #[CoversClass(AuditVerifyTask::class)]
 final class AuditVerifyTaskTest extends TestCase
 {
+    protected bool $resetSingletonInstances = true;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // See AuditAnchorTaskTest::setUp() — v13's AbstractTask resolves the
+        // Scheduler through GeneralUtility, whose 3-arg constructor is not
+        // autowirable in a unit test.
+        GeneralUtility::setSingletonInstance(Scheduler::class, $this->createMock(Scheduler::class));
+    }
+
     #[Test]
     public function cleanReportReportsSuccess(): void
     {
