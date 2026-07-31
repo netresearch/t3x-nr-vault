@@ -368,7 +368,6 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         return Environment::getVarPath() . '/secrets/vault-master.key';
     }
 
-
     /**
      * Read a boolean setting pinned in
      * `$TYPO3_CONF_VARS[SYS][nrVault][<key>]` — typically set in
