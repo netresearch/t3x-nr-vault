@@ -70,6 +70,21 @@ interface ExtensionConfigurationInterface
     public function isAuditReadsEnabled(): bool;
 
     /**
+     * Is the unconditional admin / system-maintainer bypass disabled?
+     *
+     * Honours a `$TYPO3_CONF_VARS[SYS][nrVault][disableAdminOverride]`
+     * filesystem override ahead of the BE-editable extension configuration, so
+     * a compromised admin cannot re-enable their own bypass from the Settings
+     * module.
+     *
+     * Reports the raw configuration. The flag only takes EFFECT in the
+     * {@see SecurityProfile::Hardened} profile; pair this with
+     * {@see self::getSecurityProfile()} to detect the "flag set while the
+     * profile is standard" mismatch.
+     */
+    public function isAdminOverrideDisabled(): bool;
+
+    /**
      * Check if XChaCha20-Poly1305 should be preferred over AES-256-GCM.
      *
      * Only consulted for legacy (encryption version 1) envelopes without a

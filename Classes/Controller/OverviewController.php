@@ -37,6 +37,7 @@ final readonly class OverviewController
         private BackendUriBuilder $backendUriBuilder,
         private PageRenderer $pageRenderer,
         private ModuleAccessGuard $accessGuard,
+        private BreakGlassBannerProvider $breakGlassBanner,
     ) {}
 
     /**
@@ -78,6 +79,7 @@ final readonly class OverviewController
             'stats' => $stats,
             'healthChecks' => $healthChecks,
             'submodules' => $this->getAccessibleSubmodules($lang),
+            'breakGlass' => $this->breakGlassBanner->forView(),
         ]);
 
         return $moduleTemplate->renderResponse('Overview/Index');

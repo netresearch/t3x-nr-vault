@@ -55,6 +55,8 @@
             <file>../Classes/Domain/Repository/SecretRepositoryInterface.php</file>
             <file>../Classes/Http/VaultHttpClientInterface.php</file>
             <file>../Classes/Security/AccessControlServiceInterface.php</file>
+            <file>../Classes/Security/BreakGlassServiceInterface.php</file>
+            <file>../Classes/Security/BreakGlassStateInterface.php</file>
             <file>../Classes/Service/SecretDetectionServiceInterface.php</file>
             <file>../Classes/Service/VaultServiceInterface.php</file>
             <file>../Classes/Service/Detection/SecretFinding.php</file>

@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Traits;
 
+use Netresearch\NrVault\Security\VaultPermission;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -33,11 +34,21 @@ trait BackendUserMockTrait
      * a boolean `disabled` flag via the `user['disable']` column (mirroring the
      * TYPO3 `be_users.disable` field).
      *
+     * Vault operation permissions are wired the way TYPO3 stores them: as the
+     * comma-separated `groupData['custom_options']` list that
+     * `AccessControlService` evaluates. Do NOT stub `check()` instead — core's
+     * `check()` returns true unconditionally for admins, so a test that stubs it
+     * cannot tell a real group grant from the admin override and would pass
+     * while the override is disabled.
+     *
      * @param list<int> $groupIds backend user group UIDs (populates `userGroupsUID`)
      * @param bool $isSystemMaintainer answer for `isSystemMaintainer()` — core
      *                                 treats the role as strictly stronger than
      *                                 `admin`, and the vault's permission gates
      *                                 must honour it independently
+     * @param list<VaultPermission> $grantedPermissions vault operation
+     *                                                  permissions granted via
+     *                                                  the user's groups
      */
     protected function createMockBackendUser(
         int $uid = 1,
@@ -45,6 +56,7 @@ trait BackendUserMockTrait
         array $groupIds = [],
         bool $disabled = false,
         bool $isSystemMaintainer = false,
+        array $grantedPermissions = [],
     ): BackendUserAuthentication&MockObject {
         /** @var BackendUserAuthentication&MockObject $backendUser */
         $backendUser = $this->createMock(BackendUserAuthentication::class);
@@ -57,6 +69,11 @@ trait BackendUserMockTrait
             'disable' => $disabled ? 1 : 0,
         ];
         $backendUser->userGroupsUID = $groupIds;
+        /** @phpstan-ignore property.internal */
+        $backendUser->groupData['custom_options'] = implode(',', array_map(
+            static fn (VaultPermission $permission): string => 'tx_nrvault:' . $permission->value,
+            $grantedPermissions,
+        ));
 
         return $backendUser;
     }

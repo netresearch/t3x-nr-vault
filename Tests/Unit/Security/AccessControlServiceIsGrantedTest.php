@@ -35,8 +35,6 @@ use TYPO3\CMS\Core\Http\ServerRequest;
 #[AllowMockObjectsWithoutExpectations]
 final class AccessControlServiceIsGrantedTest extends TestCase
 {
-    private const OPTION_PREFIX = 'tx_nrvault:';
-
     private AccessControlService $subject;
 
     private ExtensionConfigurationInterface&MockObject $configuration;
@@ -203,11 +201,11 @@ final class AccessControlServiceIsGrantedTest extends TestCase
     }
 
     /**
-     * Install a backend user whose `check('custom_options', ...)` answers for
-     * exactly the given permissions.
+     * Install a backend user whose groups grant exactly the given permissions.
      *
-     * Mirrors TYPO3 core semantics: `check()` consults the merged group data,
-     * so a grant is present or it is not — there is no per-user override.
+     * Mirrors TYPO3 core storage: the grants live in the merged
+     * `groupData['custom_options']` list, so a grant is present or it is not —
+     * there is no per-user override.
      *
      * @param list<VaultPermission> $grantedOptions
      */
@@ -217,28 +215,13 @@ final class AccessControlServiceIsGrantedTest extends TestCase
         bool $isSystemMaintainer = false,
         int $disable = 0,
     ): void {
-        $granted = array_map(
-            static fn (VaultPermission $permission): string => self::OPTION_PREFIX . $permission->value,
-            $grantedOptions,
-        );
-
-        // The shared trait owns the `user` record / `userGroupsUID` / role
-        // wiring; only the group-data lookup that carries the custom permission
-        // options is specific to this test.
-        $backendUser = $this->createMockBackendUser(
+        $GLOBALS['BE_USER'] = $this->createMockBackendUser(
             uid: 5,
             isAdmin: $isAdmin,
             disabled: $disable !== 0,
             isSystemMaintainer: $isSystemMaintainer,
+            grantedPermissions: $grantedOptions,
         );
-        $backendUser
-            ->method('check')
-            ->willReturnCallback(
-                static fn (string $type, string $value): bool => $type === 'custom_options'
-                    && \in_array($value, $granted, true),
-            );
-
-        $GLOBALS['BE_USER'] = $backendUser;
     }
 
     /**

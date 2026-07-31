@@ -462,6 +462,9 @@
       <trans-unit id="overview.cli.cleanup_orphans">
         <source>Remove orphaned secrets</source>
       </trans-unit>
+      <trans-unit id="overview.cli.break_glass">
+        <source>Open, close or inspect a time-boxed break-glass window</source>
+      </trans-unit>
       <trans-unit id="overview.cli.help_hint">
         <source>Run bin/typo3 vault:&lt;command&gt; --help for detailed usage.</source>
       </trans-unit>
@@ -1134,6 +1137,29 @@
       </trans-unit>
       <trans-unit id="permissions.vault.configure.description">
         <source>Run the migration wizard, which scans the database for plaintext secrets and moves them into the vault.</source>
+      </trans-unit>
+
+      <!-- Break-glass warning banner (Partials/BreakGlassBanner.html) -->
+      <trans-unit id="breakGlass.banner.title">
+        <source>Break-glass mode is active</source>
+      </trans-unit>
+      <trans-unit id="breakGlass.banner.description">
+        <source>The administrator override has been temporarily restored. While this window is open, administrators and system maintainers hold every vault permission and can read, change and delete every secret. Every action is recorded in the audit log.</source>
+      </trans-unit>
+      <trans-unit id="breakGlass.banner.activatedBy">
+        <source>Activated by</source>
+      </trans-unit>
+      <trans-unit id="breakGlass.banner.reason">
+        <source>Stated reason</source>
+      </trans-unit>
+      <trans-unit id="breakGlass.banner.expiresAt">
+        <source>Expires at</source>
+      </trans-unit>
+      <trans-unit id="breakGlass.banner.remaining">
+        <source>%s minute(s) remaining</source>
+      </trans-unit>
+      <trans-unit id="breakGlass.banner.close">
+        <source>Close the window as soon as the work is done:</source>
       </trans-unit>
 
       <!-- Access denied (module-level operation permission missing) -->

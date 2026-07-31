@@ -428,6 +428,10 @@ final readonly class AuditController
             'delete' => 'danger',
             'rotate' => 'info',
             'access_denied' => 'danger',
+            // A break-glass activation is the most review-worthy row in the
+            // log; it must not blend into the grey default.
+            'break_glass_activated' => 'danger',
+            'break_glass_deactivated' => 'success',
             default => 'secondary',
         };
     }
