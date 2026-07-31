@@ -143,6 +143,21 @@ Migrating from standard to hardened
 Do this in the order below. Steps 1 to 3 are prerequisites; switching the
 profile before them is what produces an unreadable vault.
 
+..  tip::
+
+    **Plan the migration from a real finding list, not from guesswork.** Run
+    this on the un-migrated system first:
+
+    ..  code-block:: bash
+
+        vendor/bin/typo3 vault:doctor --profile=hardened
+
+    ``--profile`` changes the question the command asks, never the
+    configuration: on a standard installation it answers *"would this pass if
+    we hardened it?"* and writes nothing. Every step below then corresponds to
+    a finding you can see up front, instead of flipping the switch on
+    production to discover what breaks.
+
 #.  **Move off the ``typo3`` provider.** Choose ``file``, ``env`` or
     ``transit`` (:ref:`operations-key-custody`), then rotate the master key
     onto it with ``vault:rotate-master-key``. Verify that secrets still

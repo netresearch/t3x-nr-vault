@@ -294,14 +294,20 @@ Exit codes are the contract:
         -   Meaning
 
     *   -   ``0``
-        -   Pass. Deploy.
+        -   Every control passed. Deploy.
 
     *   -   ``1``
-        -   Warnings. Deployable, but each warning needs a decision and a
+        -   Warnings only. Deployable, but each warning needs a decision and a
             ticket — do not normalise a permanently yellow gate.
 
     *   -   ``2``
-        -   Critical. **Do not deploy.** The hardened policy is not satisfied.
+        -   At least one critical finding. **Do not deploy.** The hardened
+            policy is not satisfied. An unusable ``--profile`` value and an
+            internal crash also exit ``2``, deliberately — a gate that could
+            not check must never read as "checked and fine".
+
+Severity is worst-wins, so a long list of passes cannot average a critical
+finding away.
 
 Use it as an actual gate in the pipeline, and keep the JSON for the deployment
 record:

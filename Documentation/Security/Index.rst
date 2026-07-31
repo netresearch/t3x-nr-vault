@@ -6,9 +6,8 @@
 Security
 ========
 
-This page covers the encryption architecture, the access-control model and
-audit logging. The pages below go deeper on the parts an assessment or a
-hardened deployment needs.
+The sections on this page are the security overview. The pages listed below go
+deeper on the parts an assessment or a hardened deployment needs.
 
 .. toctree::
    :maxdepth: 2

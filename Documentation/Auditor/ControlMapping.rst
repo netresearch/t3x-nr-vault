@@ -376,6 +376,15 @@ v4: chapter 10 (Malicious Code), chapter 14 (Configuration).*
         -   :file:`.github/workflows/release.yml`; verify with
             ``gh attestation verify``
 
+    *   -   Release evidence is itself tamper-evident
+        -   ``actions/attest-build-provenance`` over
+            :file:`release-evidence-<version>.tar.gz`, in the ``bundle`` job
+            with ``id-token: write`` + ``attestations: write``. The attestation
+            outlives the 90-day run-artifact retention
+        -   :file:`.github/workflows/release-evidence.yml`; verify with
+            ``gh attestation verify release-evidence-<version>.tar.gz
+            --repo netresearch/t3x-nr-vault``
+
     *   -   Software bill of materials
         -   Two SBOMs per tagged release via ``anchore/sbom-action``:
             ``<prefix>-<version>.sbom.spdx.json`` (SPDX) and

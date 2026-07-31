@@ -36,10 +36,113 @@ Configuration and posture
     vendor/bin/typo3 vault:doctor --profile=hardened --format=json \
         > evidence/doctor-hardened.json; echo "exit=$?" >> evidence/doctor-hardened.json
 
-Exit code is the verdict: ``0`` pass, ``1`` warnings, ``2`` critical. Record
-it — a JSON body without the exit code loses half the signal. Each finding
-carries a stable identifier, which is what lets you compare two runs months
-apart rather than re-reading prose.
+Exit code is the verdict: ``0`` every control passed, ``1`` warnings only,
+``2`` at least one critical finding. Record it — a JSON body without the exit
+code loses half the signal. Severity is **worst-wins**, so a long list of
+passes can never average a critical finding away.
+
+Two behaviours that matter when this runs as a pipeline gate: an unusable
+``--profile`` value and an internal crash **both** exit ``2``, deliberately
+coinciding with "critical" so a gate that could not actually check something is
+never readable as "checked and fine".
+
+..  note::
+
+    **``--profile`` changes the question, never the configuration.**
+    ``--profile=hardened`` on a standard installation answers *"would this pass
+    if we hardened it?"* and writes nothing. For an assessment that is the more
+    useful run: it produces the real finding list for the un-migrated system
+    without anyone flipping a switch on production. Short forms are ``-p`` and
+    ``-f``; ``--format`` defaults to ``text``.
+
+The JSON body carries ``profile``, ``configuredProfile``,
+``profileOverridden``, ``auditReady``, ``highestSeverity``, ``exitCode``, a
+``summary`` object (``total``, ``pass``, ``warning``, ``critical``) and a
+``findings`` array.
+
+**``findings`` lists every control, including the ones that passed** — 23
+controls in total (22 always emitted, plus ``cli.access_groups`` only when
+``allowCliAccess`` is on). Each entry carries a stable dotted ``id`` plus
+``severity`` (``pass`` | ``warning`` | ``critical``), ``summary``, ``risk``,
+``remediation``, ``docsUrl`` and ``details``; for a pass, ``risk`` and
+``remediation`` are empty strings rather than absent. The ``id`` is what lets
+you diff two runs months apart instead of re-reading prose.
+
+..  warning::
+
+    **Check for ``error`` before ``findings``.** On a rejected ``--profile``
+    value, or a run that could not start at all, the payload is
+    ``{error, exitCode}`` *instead* — there is no ``findings`` key. A parser
+    that reads ``findings`` unconditionally will crash on exactly the runs
+    where something was wrong.
+
+..  important::
+
+    **``vault:doctor`` is a gate, not the authoritative verifier.** It runs in
+    a pipeline and on a backend page load, so two of its audit controls are
+    deliberately bounded:
+
+    *   ``audit.hash_chain`` verifies only the **newest 1000 entries**;
+    *   ``audit.anchor`` checks only that the chain has **not shrunk** below
+        the anchored sequence. It does **not** re-compare the anchored row's
+        tip hash, and it does **not** check the anchor's age.
+
+    ``vault:audit-verify`` remains the authoritative full-range verifier — it
+    walks the whole chain and performs the tip-hash comparison. For an
+    assessment, run both and keep both artefacts; do not accept a green
+    ``vault:doctor`` as evidence that the full chain verifies.
+
+..  note::
+
+    **A default standard installation has zero criticals by design**, so read
+    a green run in context. Nine controls change severity with the target
+    profile; two of them shift from *pass* to *critical*:
+    ``audit.external_sink`` and a missing ``audit.anchor`` are passes under
+    ``standard`` (sinks and anchoring are opt-in there, matching
+    ``NO_EXTERNAL_SINK``'s documented semantics) and criticals under
+    ``hardened``. ``provider.configured`` and ``audit.reads_logged`` go from
+    warning to critical. This is why the ``--profile=hardened`` run is the
+    informative one even on a standard installation.
+
+Finding ids worth citing directly in an assessment:
+
+..  list-table::
+    :header-rows: 1
+    :widths: 34 66
+
+    *   -   Area
+        -   Ids
+
+    *   -   Profile and administrative override
+        -   ``profile.valid``, ``profile.admin_override``
+
+    *   -   Master-key custody
+        -   ``provider.known``, ``provider.configured``,
+            ``provider.available``, ``provider.master_key_readable``,
+            ``provider.key_permissions``
+
+    *   -   Audit evidence
+        -   ``audit.hash_chain``, ``audit.anchor``,
+            ``audit.external_sink``, ``audit.sink_delivery``,
+            ``audit.reads_logged``, ``audit.retention``
+
+    *   -   CLI exposure
+        -   ``cli.access``, ``cli.access_groups``
+
+    *   -   Emergency access
+        -   ``breakglass.window_open``
+
+    *   -   Secret hygiene
+        -   ``secrets.never_rotated``, ``secrets.expired``,
+            ``secrets.dead``
+
+    *   -   Platform
+        -   ``version.extension``, ``version.typo3_supported``,
+            ``environment.production_context``,
+            ``environment.backend_lock_ssl``
+
+    *   -   Check failed to run
+        -   ``check.crashed`` — treat as unknown, never as a pass
 
 ..  code-block:: bash
     :caption: Administrative override state
@@ -115,11 +218,14 @@ the application's word for it:
         < /var/log/typo3/nr-vault-anchors.ndjson > evidence/anchor-effective.json
 
 Each anchor carries ``sequence``, ``chainTip``, ``timestamp`` and
-``hmacEpoch``. Three things to check:
+``hmacEpoch``. Three things to check **by inspecting the file yourself** —
+none of these is covered by a ``vault:doctor`` control:
 
 #.  **Freshness.** Compare the newest ``timestamp`` against the configured
     anchoring interval. A stale anchor means the detection baseline is old even
-    though nothing reported an error.
+    though nothing reported an error. **No automated control checks anchor
+    age** — ``audit.anchor`` covers presence and shrinkage only — so the blind
+    window is the anchoring *interval*, and confirming it is a manual step.
 #.  **Continuity.** Sequences should rise across the file. A long flat stretch
     means anchoring was not running.
 #.  **Epoch.** ``hmacEpoch`` should equal the configured ``auditHmacEpoch``. A
