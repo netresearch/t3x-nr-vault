@@ -357,10 +357,13 @@ v4: chapter 10 (Malicious Code), chapter 14 (Configuration).*
         -   :ref:`adr-026-dns-rebinding-defence`
 
     *   -   Static analysis, security scanning and code review in CI
-        -   Shared ``security.yml``, ``codeql.yml``,
-            ``license-check.yml``, ``dependency-review.yml``,
-            ``fuzz.yml``; in-repo :file:`semgrep.yml`,
-            :file:`.gitleaks.toml`
+        -   Shared ``security.yml`` (``composer audit`` +
+            **Opengrep** SAST on registry rules, blocking on WARNING+),
+            ``codeql.yml``, ``license-check.yml``,
+            ``dependency-review.yml``, ``fuzz.yml``. The in-repo
+            :file:`semgrep.yml` and :file:`.gitleaks.toml` are **not**
+            referenced by any workflow — see
+            :ref:`auditor-evidence-ci`
         -   :file:`.github/workflows/checks.yml`;
             :ref:`auditor-evidence-collection`
 

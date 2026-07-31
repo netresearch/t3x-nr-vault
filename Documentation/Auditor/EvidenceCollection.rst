@@ -332,11 +332,19 @@ the list below is what is actually declared here.
         -   PHP 8.2, 8.3, 8.4, 8.5 × TYPO3 ``^13.4`` and ``^14.3``; unit and
             functional tests; coverage uploaded
 
-    *   -   Security scanning
+    *   -   Dependency vulnerability audit
         -   :file:`.github/workflows/checks.yml` → shared
             ``security.yml``
-        -   Consumes the in-repo :file:`semgrep.yml` rules and
-            :file:`.gitleaks.toml` allowlist
+        -   ``composer audit`` with abandoned packages reported
+
+    *   -   SAST
+        -   ``checks.yml`` → shared ``security.yml``,
+            ``opengrep`` job
+        -   **Opengrep**, not Semgrep. Default arguments
+            ``--config auto --error --severity WARNING`` block CI on
+            WARNING-or-worse; SARIF uploaded to code scanning under category
+            ``opengrep``. nr-vault passes no ``opengrep-config`` override, so
+            the default applies
 
     *   -   Static application security testing
         -   ``checks.yml`` → ``codeql.yml``
@@ -393,6 +401,20 @@ the list below is what is actually declared here.
     *   -   Vulnerability disclosure policy
         -   :file:`SECURITY.md`
         -   Private reporting through GitHub security advisories
+
+..  warning::
+
+    **Two config files in this repository are not wired into CI.**
+    :file:`semgrep.yml` and :file:`.gitleaks.toml` exist at the repository
+    root, but no workflow, ``composer`` script or Makefile target references
+    either — verified by grepping the whole tree. The shared ``security.yml``
+    runs Opengrep with ``--config auto``, i.e. registry rules, **not** the
+    in-repo ruleset; and no job runs gitleaks at all.
+
+    Do not credit them as enforced controls. Their presence is the kind of
+    thing that reads as "custom SAST rules and secret-scanning allowlist are
+    applied in CI" when nothing applies them. Treat them as local or
+    historical tooling unless someone wires them up.
 
 ..  important::
 
