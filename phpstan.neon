@@ -24,7 +24,7 @@ parameters:
     level: 10
     paths:
         - Classes
-        - Tests/Architecture
+        - Tests
     excludePaths:
         analyseAndScan:
             # Secret model uses raw array handling in fromDatabaseRow/toDatabaseRow
@@ -33,6 +33,11 @@ parameters:
             # UpgradeWizardInterface moved from cms-install to cms-core in v14.
             # The wizard only runs in v14+ where the interface exists.
             - Classes/Upgrades/AuditHmacMigrationWizard.php
+            # ... and both of its tests, for the same reason: on v13.4 the
+            # interface is absent, which PHPStan raises as a severe
+            # (non-baselineable) error.
+            - Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
+            - Tests/Functional/Upgrades/AuditHmacMigrationWizardTest.php
             # AdminOnlyWidgetInterface was added in TYPO3 v14 (absent in v13.4).
             # These empty marker subclasses are only registered in the DI
             # container when the interface exists (Services.Dashboard.php).
@@ -46,6 +51,30 @@ parameters:
         # we suppress these internal class/interface errors for the affected files.
         -
             message: '#internal (class|interface) TYPO3\\CMS\\Core\\Schema\\#'
+            reportUnmatched: false
+
+        # v13.4-only findings in the tests. The baseline is shared across the
+        # whole matrix but can only be generated against one resolved core, so
+        # differences in the v13.4 API surface are handled here instead.
+        #
+        # GroupResolver gained a second constructor argument in v14.
+        -
+            message: '#^Class TYPO3\\CMS\\Core\\Authentication\\GroupResolver constructor invoked with 2 parameters, 1 required\.$#'
+            path: Tests/Unit/Security/TechnicalActorContextTest.php
+            reportUnmatched: false
+        # TCA array shapes are typed more loosely in v13.4 than in v14.
+        -
+            message: '#^Parameter \#2 \$array of function implode expects array<string>, array given\.$#'
+            path: Tests/Functional/Hook/SecretTcaHookTest.php
+            reportUnmatched: false
+
+        # Tests/scripts/* are standalone CLI helpers invoked by the test
+        # tooling, where $argv is always populated by the SAPI. PHP 8.5 is
+        # stricter about proving this than earlier versions, so the finding
+        # appears on that matrix cell only.
+        -
+            message: '#^Variable \$argv might not be defined\.$#'
+            path: Tests/scripts/*.php
             reportUnmatched: false
 
         # setShortcutContext() is a v14-only method on DocHeaderComponent.
