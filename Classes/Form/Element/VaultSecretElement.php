@@ -90,6 +90,12 @@ final class VaultSecretElement extends AbstractFormElement
 
         $resultArray['html'] = implode(self::LINE_FEED, $html);
         $resultArray['javaScriptModules'] = $this->appendJsModule($resultArray);
+        // The widget JS renders localized strings (reveal/copy labels, the
+        // auto-hide countdown) via TYPO3.lang — register the label catalogue.
+        $labelFiles = \is_array($resultArray['additionalInlineLanguageLabelFiles'] ?? null)
+            ? $resultArray['additionalInlineLanguageLabelFiles'] : [];
+        $labelFiles[] = 'EXT:nr_vault/Resources/Private/Language/locallang_js.xlf';
+        $resultArray['additionalInlineLanguageLabelFiles'] = $labelFiles;
 
         return $resultArray;
     }

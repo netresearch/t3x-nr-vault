@@ -62,6 +62,12 @@ final class VaultSecretInputElement extends AbstractFormElement
             '@netresearch/nr-vault/vault-secret-input.js',
         );
         $resultArray['javaScriptModules'] = $javaScriptModules;
+        // The widget JS renders localized strings (reveal/copy labels, the
+        // auto-hide countdown) via TYPO3.lang — register the label catalogue.
+        $labelFiles = \is_array($resultArray['additionalInlineLanguageLabelFiles'] ?? null)
+            ? $resultArray['additionalInlineLanguageLabelFiles'] : [];
+        $labelFiles[] = 'EXT:nr_vault/Resources/Private/Language/locallang_js.xlf';
+        $resultArray['additionalInlineLanguageLabelFiles'] = $labelFiles;
 
         return $resultArray;
     }
