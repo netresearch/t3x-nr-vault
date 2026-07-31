@@ -69,6 +69,22 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
      */
     public const DEFAULT_AUDIT_HMAC_EPOCH = 3;
 
+    public const DEFAULT_AUDIT_SINK_SYSLOG_ENABLED = false;
+
+    public const DEFAULT_AUDIT_SINK_SYSLOG_IDENT = 'nr-vault';
+
+    public const DEFAULT_AUDIT_SINK_FILE_ENABLED = false;
+
+    /** Basename appended to `Environment::getVarPath() . '/log'` when no path is configured. */
+    public const DEFAULT_AUDIT_SINK_FILE_BASENAME = 'nr-vault-audit.ndjson';
+
+    /** Basename appended to `Environment::getVarPath() . '/log'` when no anchor path is configured. */
+    public const DEFAULT_AUDIT_SINK_ANCHOR_BASENAME = 'nr-vault-audit-anchor.ndjson';
+
+    public const DEFAULT_AUDIT_SINK_WEBHOOK_ENABLED = false;
+
+    public const DEFAULT_AUDIT_SINK_WEBHOOK_URL = '';
+
     public const DEFAULT_STALE_NEVER_READ_DAYS = 30;
 
     public const DEFAULT_STALE_NOT_READ_DAYS = 90;
@@ -271,6 +287,88 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
+     * Whether the syslog audit sink is enabled.
+     */
+    public function isAuditSinkSyslogEnabled(): bool
+    {
+        return (bool) ($this->configuration['auditSinkSyslogEnabled'] ?? self::DEFAULT_AUDIT_SINK_SYSLOG_ENABLED);
+    }
+
+    /**
+     * `openlog()` ident for the syslog audit sink.
+     *
+     * Falls back to the default for an empty or non-string value: an empty
+     * ident makes syslog lines unattributable, which defeats the point of the
+     * sink.
+     */
+    public function getAuditSinkSyslogIdent(): string
+    {
+        $val = $this->configuration['auditSinkSyslogIdent'] ?? null;
+        if (!\is_string($val) || trim($val) === '') {
+            return self::DEFAULT_AUDIT_SINK_SYSLOG_IDENT;
+        }
+
+        return trim($val);
+    }
+
+    /**
+     * Whether the append-only NDJSON file audit sink is enabled.
+     */
+    public function isAuditSinkFileEnabled(): bool
+    {
+        return (bool) ($this->configuration['auditSinkFileEnabled'] ?? self::DEFAULT_AUDIT_SINK_FILE_ENABLED);
+    }
+
+    /**
+     * Absolute path of the append-only NDJSON audit file.
+     *
+     * An unset/empty value resolves to `<var>/log/nr-vault-audit.ndjson`, which
+     * is outside the public web root on every standard TYPO3 layout.
+     */
+    public function getAuditSinkFilePath(): string
+    {
+        return $this->resolveLogPath(
+            $this->configuration['auditSinkFilePath'] ?? null,
+            self::DEFAULT_AUDIT_SINK_FILE_BASENAME,
+        );
+    }
+
+    /**
+     * Absolute path of the append-only chain-tip anchor file.
+     *
+     * Deliberately a separate setting rather than a name derived from the
+     * NDJSON path: the anchor file is the external evidence that survives a
+     * full audit-table reset, so operators must be able to point it at a
+     * different (ideally append-only or off-host) location than the bulk
+     * entry stream.
+     */
+    public function getAuditSinkAnchorPath(): string
+    {
+        return $this->resolveLogPath(
+            $this->configuration['auditSinkAnchorPath'] ?? null,
+            self::DEFAULT_AUDIT_SINK_ANCHOR_BASENAME,
+        );
+    }
+
+    /**
+     * Whether the webhook audit sink is enabled.
+     */
+    public function isAuditSinkWebhookEnabled(): bool
+    {
+        return (bool) ($this->configuration['auditSinkWebhookEnabled'] ?? self::DEFAULT_AUDIT_SINK_WEBHOOK_ENABLED);
+    }
+
+    /**
+     * Endpoint the webhook audit sink POSTs to ('' = unconfigured).
+     */
+    public function getAuditSinkWebhookUrl(): string
+    {
+        $val = $this->configuration['auditSinkWebhookUrl'] ?? self::DEFAULT_AUDIT_SINK_WEBHOOK_URL;
+
+        return \is_string($val) ? trim($val) : self::DEFAULT_AUDIT_SINK_WEBHOOK_URL;
+    }
+
+    /**
      * Days after creation with zero reads before a secret is "dead".
      */
     public function getStaleNeverReadDays(): int
@@ -336,6 +434,23 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     public function getAutoKeyPath(): string
     {
         return Environment::getVarPath() . '/secrets/vault-master.key';
+    }
+
+    /**
+     * Resolve a configured audit-sink file path, falling back to
+     * `<var>/log/<basename>` when unset or empty.
+     *
+     * Only whitespace is trimmed here; whether the resulting path is *safe*
+     * (outside the public web root, writable) is decided by the sink, which is
+     * the layer that can disable itself and report the reason.
+     */
+    private function resolveLogPath(mixed $configured, string $defaultBasename): string
+    {
+        if (\is_string($configured) && trim($configured) !== '') {
+            return trim($configured);
+        }
+
+        return Environment::getVarPath() . '/log/' . $defaultBasename;
     }
 
     /**

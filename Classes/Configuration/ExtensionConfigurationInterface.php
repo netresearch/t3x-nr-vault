@@ -116,6 +116,45 @@ interface ExtensionConfigurationInterface
     public function getAuditHmacEpoch(): int;
 
     /**
+     * Whether the syslog audit sink is enabled.
+     */
+    public function isAuditSinkSyslogEnabled(): bool;
+
+    /**
+     * `openlog()` ident for the syslog audit sink (never empty).
+     */
+    public function getAuditSinkSyslogIdent(): string;
+
+    /**
+     * Whether the append-only NDJSON file audit sink is enabled.
+     */
+    public function isAuditSinkFileEnabled(): bool;
+
+    /**
+     * Absolute path of the append-only NDJSON audit file.
+     *
+     * Never empty — an unconfigured value resolves to `<var>/log/`.
+     */
+    public function getAuditSinkFilePath(): string;
+
+    /**
+     * Absolute path of the append-only chain-tip anchor file.
+     *
+     * Never empty — an unconfigured value resolves to `<var>/log/`.
+     */
+    public function getAuditSinkAnchorPath(): string;
+
+    /**
+     * Whether the webhook audit sink is enabled.
+     */
+    public function isAuditSinkWebhookEnabled(): bool;
+
+    /**
+     * Endpoint the webhook audit sink POSTs to ('' = unconfigured).
+     */
+    public function getAuditSinkWebhookUrl(): string;
+
+    /**
      * Days after creation with zero reads before a secret is "dead".
      */
     public function getStaleNeverReadDays(): int;
