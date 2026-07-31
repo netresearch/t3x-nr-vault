@@ -436,7 +436,6 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         return Environment::getVarPath() . '/secrets/vault-master.key';
     }
 
-
     /**
      * Resolve a configured audit-sink file path, falling back to
      * `<var>/log/<basename>` when unset or empty.
