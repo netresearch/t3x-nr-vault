@@ -38,6 +38,7 @@ final readonly class OverviewController
         private PageRenderer $pageRenderer,
         private ModuleAccessGuard $accessGuard,
         private BreakGlassBannerProvider $breakGlassBanner,
+        private SecurityStatusProvider $securityStatus,
     ) {}
 
     /**
@@ -80,6 +81,10 @@ final readonly class OverviewController
             'healthChecks' => $healthChecks,
             'submodules' => $this->getAccessibleSubmodules($lang),
             'breakGlass' => $this->breakGlassBanner->forView(),
+            // Readiness controls with the profile badge and pass ratio. The
+            // detailed finding list inside is gated on VaultConfigure by the
+            // provider, not by the template.
+            'securityStatus' => $this->securityStatus->forView(),
         ]);
 
         return $moduleTemplate->renderResponse('Overview/Index');

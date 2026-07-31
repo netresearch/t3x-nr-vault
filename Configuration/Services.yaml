@@ -11,6 +11,11 @@ services:
   _instanceof:
     Netresearch\NrVault\Audit\Sink\AuditSinkInterface:
       tags: ['nr_vault.audit_sink']
+    # Same discovery contract for the vault:doctor readiness checks: implement
+    # the interface and the doctor service receives it, with no edit here and no
+    # way for a check to be silently left out of the report.
+    Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface:
+      tags: ['nr_vault.readiness_check']
 
   Netresearch\NrVault\:
     resource: '../Classes/*'
@@ -132,6 +137,9 @@ services:
   Netresearch\NrVault\Service\Analytics\VaultAnalyticsServiceInterface:
     alias: Netresearch\NrVault\Service\Analytics\VaultAnalyticsService
 
+  Netresearch\NrVault\Service\Doctor\VaultDoctorServiceInterface:
+    alias: Netresearch\NrVault\Service\Doctor\VaultDoctorService
+
   # ----- Factory-resolved services ----------------------------------------
   # Factories cannot be discovered by autowire and must be declared explicitly.
 
@@ -143,6 +151,12 @@ services:
   Netresearch\NrVault\Audit\Sink\AuditSinkRegistry:
     arguments:
       $sinks: !tagged_iterator nr_vault.audit_sink
+
+  # ----- Readiness checks (vault:doctor) ----------------------------------
+
+  Netresearch\NrVault\Service\Doctor\VaultDoctorService:
+    arguments:
+      $checks: !tagged_iterator nr_vault.readiness_check
 
   # The webhook sink deliberately uses a SHORT-timeout client built by
   # SecureHttpClientFactory rather than the ambient PSR-18 client: audit fan-out

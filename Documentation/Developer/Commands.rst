@@ -919,3 +919,263 @@ exits ``0`` — a closed window is a successful answer, not a failure:
    While a window is open, administrators hold **every** vault permission and
    full access to **every** secret. Close it as soon as the work is done
    rather than waiting for the expiry.
+
+.. _command-doctor:
+
+vault:doctor
+============
+
+Evaluate every deployment-readiness control and report each one with the risk it
+carries and the command that fixes it.
+
+Designed as the last step of a deployment pipeline: the exit code is the
+contract, so the command can gate a release without anything parsing its prose.
+See :ref:`security-deployment-gate` for how to wire it in.
+
+.. code-block:: bash
+   :caption: Command syntax
+
+   vendor/bin/typo3 vault:doctor [options]
+
+.. _command-doctor-options:
+
+Options
+-------
+
+--profile, -p =PROFILE
+   Security profile to check against: ``standard`` or ``hardened``. Defaults to
+   the configured profile.
+
+   **This never changes any configuration.** ``--profile=hardened`` on a standard
+   installation answers "would this pass if we hardened it?", so a hardening
+   migration can be planned from the real finding list instead of by flipping the
+   switch on production and seeing what breaks. The report states both the profile
+   it checked and the profile actually in force.
+
+--format, -f =FORMAT
+   Output format: ``text`` (default) or ``json``. The JSON form carries every
+   control — passing ones included — under stable ids.
+
+.. _command-doctor-exit-codes:
+
+Exit codes
+----------
+
+The verdict is the **worst severity present**, never an average: a long list of
+passing controls can never offset a critical finding.
+
+0
+   Every control passed. The configuration is audit-ready for the checked profile.
+
+1
+   Warnings only. Deployable; fix before an audit.
+
+2
+   At least one critical finding — or the profile value was unusable, or the run
+   could not complete at all. A gate that cannot run never reports success.
+
+.. _command-doctor-controls:
+
+Control catalogue
+-----------------
+
+Control ids are **stable API**: they appear in ``--format=json``, in CI gate
+allow-lists and in monitoring rules. A new control gets a new id rather than
+reusing an old one.
+
+Severities below are given as ``standard`` / ``hardened`` where they differ.
+
+.. rst-class:: dl-parameters
+
+provider.configured
+   A master-key provider is chosen and permitted by the profile. ``typo3`` (the
+   zero-configuration default) is *warning* / *critical* — the hardened profile
+   forbids it, and its factory refuses to boot. An empty value is critical in
+   both.
+
+provider.known
+   The configured provider identifier resolves to something this installation can
+   build. Critical when it does not — a provider from a later release, or from an
+   extension that is not installed here.
+
+provider.available
+   A key source is reachable at runtime. Critical when none is. *Warning* when
+   standard-profile auto-detection resolved a different provider than the one
+   configured: the vault works, but not the way the configuration says, and
+   hardening removes the fallback.
+
+provider.master_key_readable
+   A non-empty key was actually read and envelope encryption is operational.
+   Critical otherwise.
+
+provider.key_permissions
+   File provider only. Critical when the key file is readable, writable or
+   executable beyond its owner. Only the octal mode is reported, never the path.
+
+profile.valid
+   The configured ``securityProfile`` is a known profile. Critical otherwise —
+   the extension refuses to guess, so an unknown value is an outage.
+
+profile.admin_override
+   ``disableAdminOverride`` agrees with the profile. Warning in both mismatch
+   directions: the flag set under ``standard`` (where it is inert, so the
+   configuration implies a control that does not exist), and ``hardened`` without
+   it (a hardened deployment that kept its widest bypass).
+
+breakglass.window_open
+   Warning while a :ref:`break-glass window <security-break-glass>` is open,
+   naming who opened it, why, and when it closes. Warning rather than critical on
+   purpose: an open window is a justified deliberate act, and a red gate would
+   push operators to close it mid-incident just to deploy.
+
+audit.reads_logged
+   ``auditReads`` is enabled. *Warning* / *critical* — a stolen credential is
+   *read*, not written, so an unlogged read defeats what the hardened profile
+   exists for.
+
+audit.retention
+   ``auditLogRetention`` is 0 (keep forever) or at least 365 days. Warning for a
+   shorter window, which cannot cover the previous review cycle.
+
+audit.hash_chain
+   The newest 1000 audit entries verify against the hash chain. Critical on any
+   hash error or uid gap. **Bounded on purpose** — a full-table HMAC
+   recomputation does not belong on a page load — so a pass means "the recent
+   tail verifies", never "the chain is intact". :ref:`command-audit-verify` is
+   the authoritative full-range verifier and belongs on a schedule.
+
+audit.external_sink
+   At least one external audit sink is enabled. *Pass* / *critical*: sinks are
+   documented as opt-in under ``standard``, and flagging a default installation
+   for having no SIEM would train operators to ignore the hardened finding.
+   Carries ``details.reasonCode = NO_EXTERNAL_SINK``, the same code
+   ``vault:audit-verify`` uses.
+
+audit.anchor
+   A chain-tip anchor exists and the chain has not shrunk below it. Missing
+   anchor is *pass* / *critical*. A chain shorter than the anchored sequence is
+   critical in both (``TABLE_RESET``) — an append-only chain cannot get shorter.
+   Only the shrinkage comparison is done here; the tip-hash comparison is
+   :ref:`command-audit-verify`.
+
+audit.sink_delivery
+   No sink refused delivery in this process. Warning with the per-sink counts
+   otherwise. Per-process by design, so zero means "not in this run".
+
+cli.access
+   ``allowCliAccess``. Pass when off. When on: *pass* / *warning* — deployment
+   automation legitimately needs it, but under ``hardened`` a bare CLI actor
+   cannot be attributed to a human.
+
+cli.access_groups
+   Emitted only when CLI access is on. Warning when ``cliAccessGroups`` is empty,
+   leaving the grant unscoped with no group boundary left to review.
+
+secrets.expired
+   No stored secret is past its expiry. Warning with the count otherwise: an
+   expired secret still decrypts, so the credential stays recoverable from a
+   database dump.
+
+secrets.never_rotated
+   No secret has gone unrotated beyond ``staleNeverRotatedDays``. Warning with
+   the count otherwise.
+
+secrets.dead
+   No stored secret shows zero read activity. Warning with the count otherwise.
+   No identifier appears in any of these three findings — an identifier names a
+   credential and the JSON report travels into CI logs. Use the Analytics module
+   to see which secrets.
+
+environment.production_context
+   ``Environment::getContext()`` is Production. *Pass* / *warning* — a
+   Development context is the normal state of a developer machine, and only a
+   hardened deployment contradicts itself by running in one.
+
+environment.backend_lock_ssl
+   ``[BE][lockSSL]`` is set. Warning otherwise, in both profiles: the reveal
+   endpoint returns secret plaintext to a browser.
+
+version.extension
+   The extension version was read from ``ext_emconf.php``. Warning otherwise — a
+   report that cannot state which version produced it is not evidence.
+
+version.typo3_supported
+   The running core is inside the range the extension declares. Warning
+   otherwise.
+
+check.crashed
+   Not a control but a containment result: emitted as **critical** when a check
+   throws, naming the failing check in ``details.check``. A diagnostic whose
+   output degrades to "no findings" when part of it breaks is worse than none,
+   because the silence reads as a pass — so a crashed check is louder than a
+   failing one.
+
+.. _command-doctor-json:
+
+JSON output
+-----------
+
+.. code-block:: json
+   :caption: vault:doctor --format=json (abridged)
+
+   {
+     "profile": "hardened",
+     "configuredProfile": "standard",
+     "profileOverridden": true,
+     "auditReady": false,
+     "highestSeverity": "critical",
+     "exitCode": 2,
+     "summary": { "total": 22, "pass": 19, "warning": 2, "critical": 1 },
+     "findings": [
+       {
+         "id": "provider.configured",
+         "severity": "pass",
+         "summary": "Master-key provider \"file\" is explicitly configured.",
+         "risk": "",
+         "remediation": "",
+         "docsUrl": "https://docs.typo3.org/p/netresearch/nr-vault/main/en-us/Configuration/Index.html#configuration-master-key-providers",
+         "details": { "provider": "file" }
+       },
+       {
+         "id": "audit.external_sink",
+         "severity": "critical",
+         "summary": "The hardened profile requires an external audit sink, but none is enabled and usable.",
+         "risk": "The audit trail exists only in the database it is meant to protect. …",
+         "remediation": "Enable at least one of \"auditSinkFileEnabled\", \"auditSinkSyslogEnabled\" or \"auditSinkWebhookEnabled\", then schedule the anchoring command. …",
+         "docsUrl": "https://docs.typo3.org/p/netresearch/nr-vault/main/en-us/Configuration/Index.html#configuration-audit-sinks",
+         "details": { "sinks": "", "reasonCode": "NO_EXTERNAL_SINK" }
+       }
+     ]
+   }
+
+Field notes for anything parsing this:
+
+*  ``findings`` lists **every** evaluated control, passing ones included, so
+   ``summary.pass`` / ``summary.total`` needs no second source of truth.
+*  ``severity`` is one of ``pass``, ``warning``, ``critical``.
+*  ``risk`` and ``remediation`` are empty strings for passing controls, never
+   absent.
+*  ``docsUrl`` may be an empty string.
+*  ``details`` holds scalars only, and never key material, a master-key path or a
+   secret identifier.
+*  ``exitCode`` duplicates the process exit code, for wrappers that swallow it.
+*  On a rejected ``--profile`` value or a run that could not start, the payload is
+   ``{"error": "…", "exitCode": 2}`` instead — check for ``error`` before reading
+   ``findings``.
+
+.. _command-doctor-example:
+
+Example
+-------
+
+.. code-block:: bash
+   :caption: vault:doctor examples
+
+   # Is this deployment ready for the profile it claims?
+   vendor/bin/typo3 vault:doctor
+
+   # Would it pass as hardened? Changes nothing.
+   vendor/bin/typo3 vault:doctor --profile=hardened
+
+   # Machine-readable, for a CI gate or a monitoring probe
+   vendor/bin/typo3 vault:doctor --format=json
