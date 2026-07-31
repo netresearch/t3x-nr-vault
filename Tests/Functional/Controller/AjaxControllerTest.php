@@ -50,8 +50,13 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
 
         self::assertSame(200, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($body);
         self::assertTrue($body['success']);
         self::assertSame($secretValue, $body['secret']);
+        self::assertTrue($body['copyAllowed']);
+
+        // The plaintext-bearing response must never be cached anywhere.
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
 
         // Cleanup
         $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);

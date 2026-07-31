@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Controller;
 
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Configuration\SecurityProfile;
 use Netresearch\NrVault\Controller\AjaxController;
 use Netresearch\NrVault\Domain\Dto\SecretDetails;
 use Netresearch\NrVault\Exception\AccessDeniedException;
@@ -40,6 +42,8 @@ final class AjaxControllerTest extends TestCase
 
     private AccessControlServiceInterface&MockObject $accessControlService;
 
+    private ExtensionConfigurationInterface&MockObject $configuration;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -49,7 +53,11 @@ final class AjaxControllerTest extends TestCase
         $this->accessControlService
             ->method('isCurrentActorAdmin')
             ->willReturn(true);
-        $this->subject = new AjaxController($this->vaultService, $this->accessControlService);
+        $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
+        $this->configuration
+            ->method('getSecurityProfile')
+            ->willReturn(SecurityProfile::Standard);
+        $this->subject = new AjaxController($this->vaultService, $this->accessControlService, $this->configuration);
     }
 
     #[Test]
@@ -85,6 +93,64 @@ final class AjaxControllerTest extends TestCase
         $body = json_decode((string) $response->getBody(), true);
         self::assertTrue($body['success']);
         self::assertSame($secretValue, $body['secret']);
+    }
+
+    #[Test]
+    public function revealActionMarksSuccessResponseAsNotStorable(): void
+    {
+        $request = $this->createRequestWithJsonBody(['identifier' => 'test-secret-id']);
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturn('my-secret-value');
+
+        $response = $this->subject->revealAction($request);
+
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
+        self::assertSame('no-cache', $response->getHeaderLine('Pragma'));
+    }
+
+    #[Test]
+    public function revealActionMarksErrorResponseAsNotStorable(): void
+    {
+        $request = $this->createRequestWithJsonBody([]);
+
+        $response = $this->subject->revealAction($request);
+
+        self::assertSame(400, $response->getStatusCode());
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
+    }
+
+    #[Test]
+    public function revealActionAllowsCopyInStandardProfile(): void
+    {
+        $request = $this->createRequestWithJsonBody(['identifier' => 'test-secret-id']);
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturn('my-secret-value');
+
+        $response = $this->subject->revealAction($request);
+
+        $body = json_decode((string) $response->getBody(), true);
+        self::assertTrue($body['copyAllowed']);
+    }
+
+    #[Test]
+    public function revealActionForbidsCopyInHardenedProfile(): void
+    {
+        $request = $this->createRequestWithJsonBody(['identifier' => 'test-secret-id']);
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturn('my-secret-value');
+
+        $controller = $this->createControllerForHardenedProfile();
+        $response = $controller->revealAction($request);
+
+        $body = json_decode((string) $response->getBody(), true);
+        self::assertTrue($body['success']);
+        self::assertFalse($body['copyAllowed']);
     }
 
     #[Test]
@@ -499,7 +565,20 @@ final class AjaxControllerTest extends TestCase
             ->method('isCurrentActorAdmin')
             ->willReturn(false);
 
-        return new AjaxController($this->vaultService, $accessControlService);
+        return new AjaxController($this->vaultService, $accessControlService, $this->configuration);
+    }
+
+    /**
+     * Build a controller whose configuration reports the hardened profile.
+     */
+    private function createControllerForHardenedProfile(): AjaxController
+    {
+        $configuration = $this->createMock(ExtensionConfigurationInterface::class);
+        $configuration
+            ->method('getSecurityProfile')
+            ->willReturn(SecurityProfile::Hardened);
+
+        return new AjaxController($this->vaultService, $this->accessControlService, $configuration);
     }
 
     /**

@@ -95,8 +95,11 @@ for the nr-vault TYPO3 extension backend modules.
 1. Navigate to secret view or list
 2. Click "Reveal" button
 3. See masked/revealed value toggle
-4. Value is fetched via AJAX (revealAction)
+4. Value is fetched via AJAX (revealAction) — every reveal re-hits the endpoint
 5. Audit log entry created for "read" action
+6. Copy-to-clipboard offered only when the response reports `copyAllowed`
+7. Dialog counts down and closes itself after 30 s, wiping the input
+8. Hiding the tab or leaving the page wipes and closes it immediately
 
 ### UP-SEC-007: Edit Secret Metadata
 **Actor:** Backend Admin

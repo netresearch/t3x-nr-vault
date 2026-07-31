@@ -1,5 +1,5 @@
 import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
-import type { Page, FrameLocator } from '@playwright/test';
+import type { Page, FrameLocator, Locator } from '@playwright/test';
 
 /**
  * E2E tests for Secrets Module User Pathways.
@@ -54,6 +54,63 @@ async function applyIdentifierFilter(
     .waitFor({ state: 'visible', timeout: 10000 })
     .catch(() => undefined);
   return newFrame;
+}
+
+/**
+ * Reveal-lifecycle constant mirrored from
+ * `Resources/Public/JavaScript/vault-reveal-lifecycle.js` (AUTO_HIDE_SECONDS).
+ */
+const AUTO_HIDE_SECONDS = 30;
+
+/**
+ * Scope for locating elements of the open reveal modal.
+ *
+ * TYPO3's Modal is created by the JS module running inside the module iframe,
+ * but depending on the backend version it can end up in the outer document.
+ * Probe the iframe first, fall back to the top document, so the lifecycle specs
+ * assert against whichever document actually holds the dialog.
+ */
+async function revealModalScope(page: Page): Promise<{ locator: (selector: string) => Locator }> {
+  const frame = getModuleFrame(page);
+  try {
+    await frame.locator('#reveal-modal-secret').waitFor({ state: 'attached', timeout: 5000 });
+    return { locator: (selector: string) => frame.locator(selector) };
+  } catch {
+    await page.locator('#reveal-modal-secret').waitFor({ state: 'attached', timeout: 5000 });
+    return { locator: (selector: string) => page.locator(selector) };
+  }
+}
+
+/**
+ * Create a secret, then open its reveal modal from the list (waiting for the
+ * `vault_reveal` POST so the modal is populated before assertions run).
+ */
+async function createSecretAndReveal(page: Page, plaintext: string): Promise<string> {
+  const testIdentifier = generateTestId();
+
+  await page.goto('/typo3/module/admin/vault/secrets/create');
+  await waitForModuleContent(page);
+  let frame = getModuleFrame(page);
+  await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
+  await frame.locator('input[data-vault-is-new="1"]').first().fill(plaintext);
+  await saveFormEngine(page, frame);
+
+  await page.goto('/typo3/module/admin/vault/secrets');
+  await waitForModuleContent(page);
+  frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
+
+  const revealResponse = page.waitForResponse(
+    (resp) => resp.url().includes('/vault/reveal') && resp.request().method() === 'POST',
+    { timeout: 10000 },
+  );
+  await frame
+    .locator(`[data-testid="secret-row-${testIdentifier}"]`)
+    .getByTestId('vault-reveal-btn')
+    .first()
+    .click();
+  await revealResponse;
+
+  return testIdentifier;
 }
 
 async function saveFormEngine(page: Page, frame: FrameLocator): Promise<void> {
@@ -788,6 +845,108 @@ test.describe('Secrets Module User Pathways', () => {
         | null;
       expect(secondJson?.success).toBe(true);
       expect(secondJson?.secret).toBe(plaintext);
+    });
+
+    /**
+     * Reveal-lifecycle hardening: the dialog announces its own auto-hide and the
+     * countdown really ticks — the same interval drives the auto-close, so a
+     * frozen countdown means a dialog that never closes itself.
+     */
+    test('reveal modal shows a ticking auto-hide countdown', async ({
+      authenticatedPage: page,
+    }) => {
+      await createSecretAndReveal(page, 'countdown-test-value');
+      const modal = await revealModalScope(page);
+
+      const countdown = modal.locator('[data-testid="reveal-countdown"]');
+      await expect(countdown).toBeVisible();
+      await expect(countdown).toHaveText(/automatically in \d+ second/);
+
+      const initialText = (await countdown.textContent()) ?? '';
+      await expect(
+        countdown,
+        'countdown must tick down — a frozen countdown means no auto-hide timer',
+      ).not.toHaveText(initialText, { timeout: 8000 });
+    });
+
+    /**
+     * The default DDEV test environment runs the *standard* security profile, so
+     * `copyAllowed` is true and the copy button is offered. In the hardened
+     * profile `AjaxController::revealAction()` reports `copyAllowed: false` and
+     * `buildRevealModalContent()` omits the button entirely (the clipboard
+     * outlives the dialog and cannot be wiped from JS).
+     */
+    test('reveal modal offers copy-to-clipboard in the standard profile', async ({
+      authenticatedPage: page,
+    }) => {
+      await createSecretAndReveal(page, 'copy-allowed-test-value');
+      const modal = await revealModalScope(page);
+
+      await expect(modal.locator('#reveal-modal-toggle')).toBeVisible();
+      await expect(modal.locator('#reveal-modal-copy')).toBeVisible();
+    });
+
+    /**
+     * Wipe-on-close: whichever way the dialog goes away, the input must not keep
+     * the plaintext. Asserted on the explicit Close button here; the auto-hide
+     * path is covered by the next test.
+     */
+    test('closing the reveal modal wipes the plaintext from the input', async ({
+      authenticatedPage: page,
+    }) => {
+      const plaintext = 'wipe-on-close-value';
+      await createSecretAndReveal(page, plaintext);
+      const modal = await revealModalScope(page);
+
+      const input = modal.locator('#reveal-modal-secret');
+      await expect(input).toHaveValue(plaintext);
+
+      // Scope the Close button to the modal container — the module docheader has
+      // buttons with the same accessible name.
+      await modal
+        .locator('typo3-backend-modal button:has-text("Close"), .modal button:has-text("Close")')
+        .first()
+        .click();
+
+      await expect(input).toBeHidden({ timeout: 10000 });
+      if ((await input.count()) > 0) {
+        await expect(
+          input,
+          'modal closed but the input still holds the plaintext — wipe-on-close is broken',
+        ).toHaveValue('');
+      }
+    });
+
+    /**
+     * Auto-hide: the modal closes itself after AUTO_HIDE_SECONDS and the input is
+     * wiped on the way out.
+     *
+     * This waits out the real timer instead of using `page.clock`: the fake clock
+     * has to be installed before the page loads and would also freeze the TYPO3
+     * backend's own timers (session refresh, module loading), which cannot be
+     * validated here. 30 s of real time fits the 60 s spec timeout, `test.slow()`
+     * adds headroom on CI.
+     */
+    test('reveal modal closes itself after the auto-hide window', async ({
+      authenticatedPage: page,
+    }) => {
+      test.slow();
+
+      const plaintext = 'autohide-test-value';
+      await createSecretAndReveal(page, plaintext);
+      const modal = await revealModalScope(page);
+
+      const input = modal.locator('#reveal-modal-secret');
+      await expect(input).toHaveValue(plaintext);
+
+      await expect(
+        input,
+        `reveal modal must close itself ~${AUTO_HIDE_SECONDS}s after opening`,
+      ).toBeHidden({ timeout: (AUTO_HIDE_SECONDS + 15) * 1000 });
+
+      if ((await input.count()) > 0) {
+        await expect(input).toHaveValue('');
+      }
     });
   });
 
