@@ -63,7 +63,12 @@ final class AuditLogServiceTest extends TestCase
 
     private ?MockObject $connection = null;
 
-    private ?MockObject $anchorStore = null;
+    /**
+     * Typed precisely rather than as a bare MockObject: the constructor takes
+     * the interface, and a DNF type lets the analyser see that without an
+     * entry in the baseline.
+     */
+    private (AuditChainAnchorStoreInterface&MockObject)|null $anchorStore = null;
 
     protected function setUp(): void
     {
