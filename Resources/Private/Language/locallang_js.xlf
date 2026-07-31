@@ -70,6 +70,12 @@
       <trans-unit id="nrvault.reveal.failed">
         <source>Failed to reveal secret</source>
       </trans-unit>
+      <trans-unit id="nrvault.reveal.autohide.countdown">
+        <source>This dialog closes automatically in {0} seconds.</source>
+      </trans-unit>
+      <trans-unit id="nrvault.reveal.autohide.hide">
+        <source>The value hides automatically in {0} seconds.</source>
+      </trans-unit>
       <trans-unit id="nrvault.toggle.visibility">
         <source>Toggle visibility</source>
       </trans-unit>

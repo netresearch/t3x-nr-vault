@@ -8,6 +8,11 @@
  */
 import Modal from '@typo3/backend/modal.js';
 import Severity from '@typo3/backend/severity.js';
+import {
+    ensureCountdownElement,
+    removeCountdownElement,
+    startRevealLifecycle,
+} from '@netresearch/nr-vault/vault-reveal-lifecycle.js';
 
 /**
  * Look up a backend label registered via PageRenderer::addInlineLanguageLabelFile()
@@ -34,7 +39,12 @@ class VaultSecretElement {
         // No in-memory secret cache: every reveal MUST hit the AJAX endpoint
         // so the server writes an audit row. Copy reads the value from the
         // visible input field (DOM is the source of truth while revealed).
+        //
+        // Revealed plaintext is bounded by the shared lifecycle guard (auto-hide
+        // + wipe on tab hide / page leave). JS strings cannot be reliably
+        // zeroized — this minimizes exposure duration, it does not clear memory.
         this.originalButtonContents = new WeakMap();
+        this.revealLifecycles = new WeakMap();
         this.init();
     }
 
@@ -77,12 +87,7 @@ class VaultSecretElement {
 
         // If already revealed and showing, hide it
         if (input.dataset.vaultRevealed === '1' && input.type === 'text') {
-            input.type = 'password';
-            input.value = '';
-            input.placeholder = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
-            input.dataset.vaultRevealed = '0';
-            this.updateIcon(button, 'icon-actions-eye-slash', 'icon-actions-eye');
-            this.toggleCopyButton(inputGroup, false);
+            this.hideRevealedSecret(input, button, inputGroup);
             return;
         }
 
@@ -115,7 +120,9 @@ class VaultSecretElement {
 
             if (data.success && data.secret !== undefined) {
                 this.restoreButton(button);
-                this.showSecret(input, button, inputGroup, data.secret);
+                // Absent field = permissive (older backend); only an explicit
+                // `false` (hardened profile) suppresses copy-to-clipboard.
+                this.showSecret(input, button, inputGroup, data.secret, data.copyAllowed !== false);
             } else {
                 throw new Error(data.error || 'Failed to reveal secret');
             }
@@ -156,14 +163,63 @@ class VaultSecretElement {
 
     /**
      * Show the revealed secret in the input field.
+     *
+     * @param {boolean} copyAllowed `false` in the hardened security profile — the
+     *                              clipboard survives the wipe, so no copy button.
      */
-    showSecret(input, button, inputGroup, secret) {
+    showSecret(input, button, inputGroup, secret, copyAllowed) {
         input.value = secret;
         input.type = 'text';
         input.dataset.vaultRevealed = '1';
         this.updateIcon(button, 'icon-actions-eye', 'icon-actions-eye-slash');
-        this.toggleCopyButton(inputGroup, true);
+        this.toggleCopyButton(inputGroup, copyAllowed);
         button.disabled = false;
+
+        // Bound the exposure: auto-hide after the countdown, and wipe at once when
+        // the tab is hidden or the page is left.
+        const countdown = ensureCountdownElement(inputGroup);
+        this.revealLifecycles.set(input, startRevealLifecycle({
+            onWipe: () => {
+                this.revealLifecycles.delete(input);
+                this.hideSecret(input, button, inputGroup);
+            },
+            onTick: (secondsLeft) => {
+                countdown.textContent = lang(
+                    'nrvault.reveal.autohide.hide',
+                    'The value hides automatically in {0} seconds.',
+                    String(secondsLeft),
+                );
+            },
+        }));
+    }
+
+    /**
+     * Hide a revealed secret on user request, going through the lifecycle guard so
+     * its timer and global listeners are torn down as well.
+     */
+    hideRevealedSecret(input, button, inputGroup) {
+        const cancel = this.revealLifecycles.get(input);
+        if (cancel) {
+            this.revealLifecycles.delete(input);
+            cancel();
+            return;
+        }
+
+        this.hideSecret(input, button, inputGroup);
+    }
+
+    /**
+     * Wipe the plaintext out of the field and restore the masked state.
+     * Idempotent — also used as the lifecycle guard's wipe callback.
+     */
+    hideSecret(input, button, inputGroup) {
+        input.type = 'password';
+        input.value = '';
+        input.placeholder = '••••••••';
+        input.dataset.vaultRevealed = '0';
+        this.updateIcon(button, 'icon-actions-eye-slash', 'icon-actions-eye');
+        this.toggleCopyButton(inputGroup, false);
+        removeCountdownElement(inputGroup);
     }
 
     /**

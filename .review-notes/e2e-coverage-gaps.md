@@ -4,6 +4,12 @@
 **Scope:** READ-ONLY audit of `Tests/E2E/` test coverage for TYPO3 v13/v14 secrets-vault extension.  
 **Baseline:** 140 total E2E tests across 14 spec files; 34.1% FULL coverage per `USER_PATHWAY_COVERAGE.md`.
 
+> **Update 2026-07-31 (reveal-lifecycle hardening):** `SecretReveal.js` was deleted as orphaned dead
+> code, so every gap below that cites it (clipboard wipe timing, fetch-error fallback, focus return on
+> dismiss) no longer refers to shipped code. The equivalent behaviour now lives in `SecretsList.js` plus
+> the shared `vault-reveal-lifecycle.js`, covered by the reveal-lifecycle specs in
+> `Tests/E2E/user-pathways/secrets.spec.ts`.
+
 ---
 
 ## Executive Summary

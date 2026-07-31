@@ -6,6 +6,7 @@
 import Modal from '@typo3/backend/modal.js';
 import Notification from '@typo3/backend/notification.js';
 import Severity from '@typo3/backend/severity.js';
+import { AUTO_HIDE_SECONDS, startRevealLifecycle } from '@netresearch/nr-vault/vault-reveal-lifecycle.js';
 
 /**
  * Look up a backend label registered via PageRenderer::addInlineLanguageLabelFile()
@@ -35,6 +36,12 @@ class SecretsList {
         // the audit log on every reveal-after-first (violation of the
         // "Audit every access" rule — see root AGENTS.md, Security
         // Requirements item 5).
+        //
+        // The plaintext lives only in the reveal modal's input element, and only
+        // for as long as the lifecycle guard allows. JS strings cannot be
+        // reliably zeroized, so the goal is minimizing exposure duration — not
+        // guaranteed memory clearing.
+        this.cancelRevealLifecycle = null;
         this.init();
     }
 
@@ -234,7 +241,9 @@ class SecretsList {
             loadingModal.hideModal();
 
             if (data.success && data.secret !== undefined) {
-                this.showRevealModal(identifier, data.secret);
+                // Absent field = permissive (older backend); only an explicit
+                // `false` (hardened profile) suppresses the copy button.
+                this.showRevealModal(identifier, data.secret, data.copyAllowed !== false);
             } else {
                 Notification.error(lang('nrvault.error', 'Error'), data.error || lang('nrvault.reveal.failed', 'Failed to reveal secret'), 5);
             }
@@ -245,10 +254,49 @@ class SecretsList {
     }
 
     /**
-     * Show the reveal modal with secret value.
+     * Resolve an element of the currently open modal.
+     *
+     * TYPO3's Modal can be rendered into the module iframe's document or into
+     * the outer backend document, so both are checked instead of assuming one.
+     * The wipe path depends on actually finding the input — a missed lookup
+     * would leave plaintext on screen.
      */
-    showRevealModal(identifier, secret) {
-        const content = this.buildRevealModalContent(identifier, secret);
+    findModalElement(id) {
+        const local = document.getElementById(id);
+        if (local) {
+            return local;
+        }
+
+        try {
+            return top.document.getElementById(id);
+        } catch {
+            // Cross-origin top window: nothing reachable from here.
+            return null;
+        }
+    }
+
+    /**
+     * Render the auto-hide countdown line.
+     */
+    revealCountdownText(secondsLeft) {
+        return lang(
+            'nrvault.reveal.autohide.countdown',
+            'This dialog closes automatically in {0} seconds.',
+            String(secondsLeft),
+        );
+    }
+
+    /**
+     * Show the reveal modal with secret value.
+     *
+     * @param {string} identifier
+     * @param {string} secret
+     * @param {boolean} copyAllowed `false` in the hardened security profile —
+     *                              the clipboard outlives the dialog, so no copy
+     *                              button is offered at all.
+     */
+    showRevealModal(identifier, secret, copyAllowed) {
+        const content = this.buildRevealModalContent(identifier, secret, copyAllowed);
 
         const modal = Modal.advanced({
             title: lang('nrvault.reveal.title', 'Secret Value'),
@@ -260,16 +308,46 @@ class SecretsList {
                     text: lang('nrvault.close', 'Close'),
                     active: true,
                     btnClass: 'btn-default',
-                    trigger: () => modal.hideModal()
+                    trigger: () => this.closeRevealModal(modal)
                 }
             ]
         });
 
+        // Wipe on close for ANY reason: auto-hide timer, Close button, ESC,
+        // backdrop click, tab switch, navigation away.
+        let closed = false;
+        this.cancelRevealLifecycle = startRevealLifecycle({
+            onWipe: () => {
+                if (closed) {
+                    return;
+                }
+                closed = true;
+                this.cancelRevealLifecycle = null;
+
+                const input = this.findModalElement('reveal-modal-secret');
+                if (input) {
+                    input.value = '';
+                    input.type = 'password';
+                }
+                modal.hideModal();
+            },
+            onTick: (secondsLeft) => {
+                const countdown = this.findModalElement('reveal-modal-countdown');
+                if (countdown) {
+                    countdown.textContent = this.revealCountdownText(secondsLeft);
+                }
+            },
+        });
+
+        // Modal.advanced() returns the modal element in TYPO3 v13/v14, so its own
+        // dismiss paths (ESC, backdrop, header close) run the wipe too.
+        modal.addEventListener?.('typo3-modal-hidden', () => this.closeRevealModal(modal), { once: true });
+
         // Add event listeners after modal is shown
         setTimeout(() => {
-            const toggleBtn = document.getElementById('reveal-modal-toggle');
-            const copyBtn = document.getElementById('reveal-modal-copy');
-            const input = document.getElementById('reveal-modal-secret');
+            const toggleBtn = this.findModalElement('reveal-modal-toggle');
+            const copyBtn = this.findModalElement('reveal-modal-copy');
+            const input = this.findModalElement('reveal-modal-secret');
 
             if (toggleBtn && input) {
                 toggleBtn.addEventListener('click', () => {
@@ -283,8 +361,15 @@ class SecretsList {
 
             if (copyBtn && input) {
                 copyBtn.addEventListener('click', async () => {
+                    // Read from the input rather than closing over the plaintext:
+                    // after a wipe there is nothing left to copy.
+                    const value = input.value;
+                    if (!value) {
+                        return;
+                    }
+
                     try {
-                        await navigator.clipboard.writeText(secret);
+                        await navigator.clipboard.writeText(value);
                         Notification.success(lang('nrvault.copied', 'Copied'), lang('nrvault.copy.success', 'Secret copied to clipboard'), 2);
                     } catch {
                         Notification.error(lang('nrvault.error', 'Error'), lang('nrvault.copy.failed', 'Failed to copy to clipboard'), 5);
@@ -292,6 +377,22 @@ class SecretsList {
                 });
             }
         }, 100);
+    }
+
+    /**
+     * Close the reveal modal *through* the lifecycle guard, so the plaintext is
+     * always wiped before the dialog goes away. Idempotent — the guard is
+     * detached on first use, later calls just hide the modal.
+     */
+    closeRevealModal(modal) {
+        const cancel = this.cancelRevealLifecycle;
+        if (cancel) {
+            this.cancelRevealLifecycle = null;
+            cancel();
+            return;
+        }
+
+        modal.hideModal();
     }
 
     /**
@@ -393,8 +494,12 @@ class SecretsList {
 
     /**
      * Build reveal-modal DOM safely (no innerHTML interpolation).
+     *
+     * @param {string} identifier
+     * @param {string} secret
+     * @param {boolean} copyAllowed
      */
-    buildRevealModalContent(identifier, secret) {
+    buildRevealModalContent(identifier, secret, copyAllowed) {
         const root = document.createElement('div');
 
         const group = document.createElement('div');
@@ -416,8 +521,15 @@ class SecretsList {
 
         inputGroup.append(
             this.buildIconButton('reveal-modal-toggle', lang('nrvault.toggle.visibility', 'Toggle visibility'), 'icon-actions-eye'),
-            this.buildIconButton('reveal-modal-copy', lang('nrvault.copy.clipboard', 'Copy to clipboard'), 'icon-actions-clipboard'),
         );
+
+        // Hardened profile: no copy button at all — the clipboard outlives the
+        // dialog and cannot be wiped from JavaScript.
+        if (copyAllowed) {
+            inputGroup.append(
+                this.buildIconButton('reveal-modal-copy', lang('nrvault.copy.clipboard', 'Copy to clipboard'), 'icon-actions-clipboard'),
+            );
+        }
 
         group.append(label, inputGroup);
 
@@ -428,7 +540,18 @@ class SecretsList {
         code.textContent = identifier;
         hint.append(code);
 
-        root.append(group, hint);
+        // Countdown for the auto-hide, updated every second by the lifecycle
+        // guard. Deliberately not an aria-live region — a fresh number every
+        // second would drown out everything else for screen-reader users.
+        const countdown = document.createElement('p');
+        countdown.className = 'text-muted small mb-0 mt-2';
+        countdown.id = 'reveal-modal-countdown';
+        countdown.dataset.testid = 'reveal-countdown';
+        // Pre-filled: the guard's first tick fires before the modal is in the
+        // document, so without this the line would render empty for one second.
+        countdown.textContent = this.revealCountdownText(AUTO_HIDE_SECONDS);
+
+        root.append(group, hint, countdown);
         return root;
     }
 

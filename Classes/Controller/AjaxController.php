@@ -14,6 +14,7 @@ namespace Netresearch\NrVault\Controller;
 
 use Exception;
 use JsonException;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\AccessDeniedException;
 use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Exception\SecretExpiredException;
@@ -41,6 +42,7 @@ final readonly class AjaxController
     public function __construct(
         private VaultServiceInterface $vaultService,
         private AccessControlServiceInterface $accessControlService,
+        private ExtensionConfigurationInterface $configuration,
     ) {}
 
     /**
@@ -48,6 +50,10 @@ final readonly class AjaxController
      *
      * Accepts POST requests with a JSON body containing `identifier`.
      * Admin-only and server-side re-checked (see SEC-ACCESS-6).
+     *
+     * The response carries the plaintext secret and therefore must never be
+     * stored by any cache (browser, proxy, service worker): every reveal
+     * response is marked `Cache-Control: no-store`.
      *
      * @return ResponseInterface JSON response with secret or error
      */
@@ -80,10 +86,16 @@ final readonly class AjaxController
             }
 
             /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
+            $response = new JsonResponse([
                 'success' => true,
                 'secret' => $secret,
+                // The hardened profile disables copy-to-clipboard: the
+                // clipboard outlives the reveal dialog and cannot be
+                // reliably cleared from JavaScript.
+                'copyAllowed' => !$this->configuration->getSecurityProfile()->isHardened(),
             ]);
+
+            return $this->withNoStore($response);
         } catch (AccessDeniedException) {
             return $this->jsonError(self::ERROR_ACCESS_DENIED, 403);
         } catch (SecretExpiredException) {
@@ -164,10 +176,25 @@ final readonly class AjaxController
     private function jsonError(string $message, int $status): ResponseInterface
     {
         /** @phpstan-ignore new.internalClass, method.internalClass */
-        return new JsonResponse([
+        $response = new JsonResponse([
             'success' => false,
             'error' => $message,
         ], $status);
+
+        return $this->withNoStore($response);
+    }
+
+    /**
+     * Forbid caching of a response on every layer.
+     *
+     * Reveal traffic (success and error envelopes alike) must never be
+     * persisted by browsers, proxies, or service workers.
+     */
+    private function withNoStore(ResponseInterface $response): ResponseInterface
+    {
+        return $response
+            ->withHeader('Cache-Control', 'no-store')
+            ->withHeader('Pragma', 'no-cache');
     }
 
     /**
