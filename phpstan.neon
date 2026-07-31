@@ -84,6 +84,19 @@ parameters:
             message: '#Unknown parameter .* in call to method .*::setShortcutContext\(\)#'
             reportUnmatched: false
 
+        # Environment::initialize() carries @internal, but its own docblock reads
+        # "only used within the very early Set up of TYPO3, OR TO BE USED WITHIN
+        # TESTS" — and TYPO3's own testing framework calls it for exactly this
+        # purpose (UnitTestCase::restoreEnvironment()). There is no public
+        # alternative: getVarPath()/getPublicPath() throw a TypeError until the
+        # singleton is initialised, so a unit test covering a path default or the
+        # public-web-root boundary cannot run without it. Scoped to the one test
+        # helper that does this, so no production code can quietly follow suit.
+        -
+            message: '#Call to internal static method TYPO3\\CMS\\Core\\Core\\Environment::initialize\(\) from outside its root namespace TYPO3\.#'
+            path: Tests/Unit/Traits/EnvironmentSandboxTrait.php
+            reportUnmatched: false
+
     # PHP version targeting
     phpVersion: 80200
 

@@ -209,6 +209,152 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    repeated retrievals of the same secret within a single request
    return the cached value instead of decrypting again.
 
+.. _configuration-audit-sinks:
+
+External audit sinks
+====================
+
+The database table ``tx_nrvault_audit_log`` is the chain-authoritative audit
+sink. External sinks are additional, best-effort *copies* whose purpose is to
+put audit evidence somewhere a database-write attacker cannot reach.
+
+Two properties are worth stating up front:
+
+*  A sink failure **never** fails the audited vault operation. Fan-out happens
+   after the chain row has committed and after the audit lock has been released,
+   so a slow or broken destination cannot roll back a secret operation or
+   serialise every other vault call behind itself. Failures are logged, counted,
+   and reported by :ref:`vault:audit-verify <command-audit-verify>`.
+*  Only an external sink makes a **full audit table reset** detectable. See
+   :ref:`vault:audit-anchor <command-audit-anchor>` for why the in-database hash
+   chain structurally cannot catch a truncate-and-rebuild.
+
+Under the hardened security profile (``securityProfile = hardened``), having no
+usable external sink is reported as a ``NO_EXTERNAL_SINK`` finding.
+
+.. confval:: auditSinkSyslogEnabled
+   :name: ext-nrvault-auditSinkSyslogEnabled
+   :type: boolean
+   :Default: false
+
+   Mirror every audit entry, chain-tip anchor and integrity alert to the local
+   syslog as an RFC 5424 structured-data message on facility ``local0``. The
+   cheapest useful sink: on any host with a log shipper the audit trail leaves
+   the TYPO3 database with no extra infrastructure.
+
+.. confval:: auditSinkSyslogIdent
+   :name: ext-nrvault-auditSinkSyslogIdent
+   :type: string
+   :Default: 'nr-vault'
+
+   ``openlog()`` ident, which becomes RFC 5424's APP-NAME. Vary it when several
+   TYPO3 instances share a host. An empty value falls back to the default — an
+   unattributable syslog line would defeat the purpose of the sink.
+
+.. confval:: auditSinkFileEnabled
+   :name: ext-nrvault-auditSinkFileEnabled
+   :type: boolean
+   :Default: false
+
+   Append audit evidence to newline-delimited JSON files (one JSON object per
+   line). This is also the sink that writes the chain-tip anchors
+   :ref:`vault:audit-verify <command-audit-verify>` reads back, so enabling it is
+   the minimum for table-reset detection.
+
+   Files are created with mode ``0600`` and only ever appended to.
+
+.. confval:: auditSinkFilePath
+   :name: ext-nrvault-auditSinkFilePath
+   :type: string
+   :Default: '' (resolves to :file:`var/log/nr-vault-audit.ndjson`)
+
+   Absolute path of the append-only audit entry stream.
+
+   .. warning::
+
+      A path inside the public web root **disables** the sink rather than
+      writing there: the stream names every secret identifier, actor, IP address
+      and chain hash, so publishing it over HTTP would be worse than having no
+      external sink at all. The refusal is logged with the resolved path.
+
+      The default is outside the document root on every Composer-based
+      installation. A legacy (non-Composer) layout, where ``var/`` lives under
+      :file:`typo3temp/`, must configure an explicit path.
+
+.. confval:: auditSinkAnchorPath
+   :name: ext-nrvault-auditSinkAnchorPath
+   :type: string
+   :Default: '' (resolves to :file:`var/log/nr-vault-audit-anchor.ndjson`)
+
+   Absolute path of the append-only chain-tip anchor stream, written by
+   :ref:`vault:audit-anchor <command-audit-anchor>` and read back by
+   :ref:`vault:audit-verify <command-audit-verify>`. Integrity alerts are
+   appended here too, so this one file tells the whole chain-health story.
+
+   Deliberately separate from ``auditSinkFilePath``: this is the evidence that
+   survives a table reset, so point it at append-only or off-host storage.
+   Verification always takes the anchor with the **highest sequence**, never the
+   last line — appending a low-sequence anchor therefore cannot weaken the
+   baseline.
+
+   The public-web-root refusal described above applies to this path as well.
+
+.. confval:: auditSinkWebhookEnabled
+   :name: ext-nrvault-auditSinkWebhookEnabled
+   :type: boolean
+   :Default: false
+
+   POST every audit entry, anchor and integrity alert as JSON to an HTTP
+   endpoint — typically a SIEM collector. Each payload carries a ``type``
+   discriminator (``entry``, ``anchor``, ``alert``) so one endpoint can route all
+   three.
+
+   When enabled, the webhook also receives integrity alerts by default through
+   the built-in ``nr-vault/audit-integrity-alert-sinks`` event listener.
+
+.. confval:: auditSinkWebhookUrl
+   :name: ext-nrvault-auditSinkWebhookUrl
+   :type: string
+   :Default: ''
+
+   ``https://`` (or ``http://``) endpoint receiving the payloads. Only
+   ``http``/``https`` are accepted, so a ``file://`` or ``php://`` value cannot
+   turn audit fan-out into a local write.
+
+   .. note::
+
+      Outbound calls go through the hardened HTTP client, inheriting the
+      extension-wide SSRF and DNS-rebinding defences. A collector on a
+      private/RFC1918 address is therefore **refused** unless the host is
+      allow-listed literally in
+      :php:`$GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']`.
+
+      That is intentional. This URL is settable from the backend Settings
+      module, so without the guard a compromised administrator could repoint it
+      at a cloud metadata service and use the vault as an SSRF pivot.
+      ``allowed_hosts`` is filesystem-bound and out of the backend's reach,
+      which keeps that pivot closed while leaving the legitimate on-premise path
+      available. A refusal is not silent — it is logged, counted, and reported
+      as a ``SINK_FAILURE`` finding.
+
+.. _configuration-audit-sink-scheduling:
+
+Scheduling
+----------
+
+Two scheduler tasks accompany the CLI commands:
+
+Vault Audit Chain Anchoring
+   Publishes the current chain tip (``vault:audit-anchor``). The interval is the
+   blind window — entries written since the last anchor are what an attacker who
+   resets the table can still hide. Hourly is a reasonable starting point.
+
+Vault Audit Integrity Verification
+   Verifies the chain against the anchor (``vault:audit-verify``) and dispatches
+   an integrity alert event per finding. Set *Fail on tamper evidence only*
+   while sinks are still being rolled out, so a pending integration does not keep
+   the task permanently red and train operators to ignore it.
+
 .. _configuration-master-key-providers:
 
 Master key providers
