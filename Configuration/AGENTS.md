@@ -50,7 +50,7 @@ No separate setup — configuration is loaded by TYPO3 at bootstrap. After editi
 
 ## Security
 - **No secrets in YAML/PHP config** — master-key material comes from providers (env/file/TYPO3 encryptionKey).
-- **AJAX routes** require backend user context (`'access' => 'admin'` on modules).
+- **Modules + AJAX routes are `'access' => 'user'` on purpose** — authorization is asserted per action in the controller via `AccessControlServiceInterface::isGranted(VaultPermission)` (`ModuleAccessGuard` for modules, a 403 envelope for AJAX). Do NOT "harden" these back to `'admin'`: that silently makes the granular per-group permissions unusable for non-admins. Any new module route or AJAX endpoint MUST add its own `isGranted()` check.
 - **TCA**: every column exposing vault data must set `'displayCond'` or guard access via hooks — secrets must not render unredacted in list views.
 - **DI boundary**: avoid making internal classes `public: true`; only controllers, CLI commands, event listeners, and interfaces consumed via DI need it.
 
@@ -85,7 +85,8 @@ return [
     'admin_vault_secrets' => [
         // 'tools' works on v13 natively and is an alias for 'admin' on v14.
         'parent' => 'tools',
-        'access' => 'admin',
+        // 'user': the controller asserts the operation permission per action.
+        'access' => 'user',
         'workspaces' => 'live',
         'path' => '/module/admin/vault/secrets',
         'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/secrets.xlf',

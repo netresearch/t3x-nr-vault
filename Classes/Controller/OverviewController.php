@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Controller;
 
 use Exception;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultHealthServiceInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -35,13 +36,22 @@ final readonly class OverviewController
         private VaultHealthServiceInterface $vaultHealthService,
         private BackendUriBuilder $backendUriBuilder,
         private PageRenderer $pageRenderer,
+        private ModuleAccessGuard $accessGuard,
     ) {}
 
     /**
      * Display vault overview with submodule cards and usage information.
+     *
+     * Reachable with ANY vault permission — it is the landing page of the
+     * module tree. The submodule cards are filtered to the ones the actor can
+     * actually open, so the overview never links into a 403.
      */
     public function indexAction(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->hasAnyVaultPermission()) {
+            return $this->accessGuard->deniedResponse($request, VaultPermission::SecretUse);
+        }
+
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
         $this->buildDocHeaderTabMenu($moduleTemplate, 'dashboard');
@@ -67,32 +77,7 @@ final readonly class OverviewController
         $moduleTemplate->assignMultiple([
             'stats' => $stats,
             'healthChecks' => $healthChecks,
-            'submodules' => [
-                [
-                    'route' => 'admin_vault_secrets',
-                    'icon' => 'module-vault-secrets',
-                    'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.title'),
-                    'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.secrets.description'),
-                ],
-                [
-                    'route' => 'admin_vault_analytics',
-                    'icon' => 'module-vault-analytics',
-                    'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.title'),
-                    'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.analytics.description'),
-                ],
-                [
-                    'route' => 'admin_vault_audit',
-                    'icon' => 'module-vault-audit',
-                    'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.title'),
-                    'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.audit.description'),
-                ],
-                [
-                    'route' => 'admin_vault_migration',
-                    'icon' => 'module-vault-migration',
-                    'title' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.title'),
-                    'description' => $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.migration.description'),
-                ],
-            ],
+            'submodules' => $this->getAccessibleSubmodules($lang),
         ]);
 
         return $moduleTemplate->renderResponse('Overview/Index');
@@ -103,6 +88,10 @@ final readonly class OverviewController
      */
     public function helpAction(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->hasAnyVaultPermission()) {
+            return $this->accessGuard->deniedResponse($request, VaultPermission::SecretUse);
+        }
+
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
         $this->buildDocHeaderTabMenu($moduleTemplate, 'help');
@@ -113,6 +102,76 @@ final readonly class OverviewController
         ]);
 
         return $moduleTemplate->renderResponse('Overview/Help');
+    }
+
+    /**
+     * Does the actor hold at least one vault permission?
+     *
+     * The overview is the module tree's landing page, so any single permission
+     * is enough to see it; the cards and the submodules themselves enforce the
+     * specific permission each operation needs.
+     */
+    private function hasAnyVaultPermission(): bool
+    {
+        return $this->accessGuard->isAnyGranted(...VaultPermission::cases());
+    }
+
+    /**
+     * Submodule cards, filtered to the ones the actor may actually open.
+     *
+     * The required permission per card mirrors exactly what the target
+     * controller asserts, so a rendered card can never lead to a 403.
+     *
+     * @return list<array{route: string, icon: string, title: string, description: string}>
+     */
+    private function getAccessibleSubmodules(LanguageService $lang): array
+    {
+        $llPrefix = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:';
+
+        $candidates = [
+            [
+                'route' => 'admin_vault_secrets',
+                'icon' => 'module-vault-secrets',
+                'title' => $lang->sL($llPrefix . 'secrets.title'),
+                'description' => $lang->sL($llPrefix . 'overview.secrets.description'),
+                // SecretsController::listAction() admits any secret-handling
+                // permission.
+                'permissions' => VaultPermission::secretOperations(),
+            ],
+            [
+                'route' => 'admin_vault_analytics',
+                'icon' => 'module-vault-analytics',
+                'title' => $lang->sL($llPrefix . 'analytics.title'),
+                'description' => $lang->sL($llPrefix . 'overview.analytics.description'),
+                'permissions' => [VaultPermission::AuditView],
+            ],
+            [
+                'route' => 'admin_vault_audit',
+                'icon' => 'module-vault-audit',
+                'title' => $lang->sL($llPrefix . 'audit.title'),
+                'description' => $lang->sL($llPrefix . 'overview.audit.description'),
+                'permissions' => [VaultPermission::AuditView],
+            ],
+            [
+                'route' => 'admin_vault_migration',
+                'icon' => 'module-vault-migration',
+                'title' => $lang->sL($llPrefix . 'migration.title'),
+                'description' => $lang->sL($llPrefix . 'overview.migration.description'),
+                'permissions' => [VaultPermission::VaultConfigure],
+            ],
+        ];
+
+        $accessible = [];
+        foreach ($candidates as $card) {
+            if (!$this->accessGuard->isAnyGranted(...$card['permissions'])) {
+                continue;
+            }
+
+            unset($card['permissions']);
+            $accessible[] = $card;
+        }
+
+        return $accessible;
     }
 
     /**

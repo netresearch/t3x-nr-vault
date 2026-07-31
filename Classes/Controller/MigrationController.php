@@ -14,6 +14,7 @@ use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Schema\Table;
 use Exception;
 use Netresearch\NrVault\Domain\Dto\MigrationResult;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\SecretDetectionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
@@ -69,13 +70,23 @@ final readonly class MigrationController
         private FlashMessageService $flashMessageService,
         private IconFactory $iconFactory,
         private PageRenderer $pageRenderer,
+        private ModuleAccessGuard $accessGuard,
     ) {}
 
     /**
      * Main entry point - dispatches to action methods based on ?action= query param.
+     *
+     * The whole wizard sits behind `vault.configure`: its scan step produces a
+     * map of exactly where plaintext credentials still sit in the database,
+     * and its execute step moves values into the vault. One gate here covers
+     * every dispatched step — the private actions are unreachable otherwise.
      */
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->accessGuard->isGranted(VaultPermission::VaultConfigure)) {
+            return $this->accessGuard->deniedResponse($request, VaultPermission::VaultConfigure);
+        }
+
         $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
         $queryParams = $request->getQueryParams();

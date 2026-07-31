@@ -21,6 +21,7 @@ use Netresearch\NrVault\Exception\SecretExpiredException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -49,7 +50,14 @@ final readonly class AjaxController
      * Reveal a secret value.
      *
      * Accepts POST requests with a JSON body containing `identifier`.
-     * Admin-only and server-side re-checked (see SEC-ACCESS-6).
+     * Requires the `secret.reveal` operation permission, re-checked
+     * server-side (see SEC-ACCESS-6).
+     *
+     * A non-admin needs BOTH `secret.reveal` (asserted here — displaying
+     * plaintext to a human) AND `secret.use` (asserted in
+     * `VaultService::retrieve()` — consuming the plaintext at all), on top of
+     * per-secret read access. That is intentional: the two permissions answer
+     * different questions and neither implies the other.
      *
      * The response carries the plaintext secret and therefore must never be
      * stored by any cache (browser, proxy, service worker): every reveal
@@ -60,14 +68,16 @@ final readonly class AjaxController
     public function revealAction(ServerRequestInterface $request): ResponseInterface
     {
         // SEC-ACCESS-6: defense-in-depth — do not rely solely on the route's
-        // `methods => ['POST']` / `access => admin` config. Re-assert the POST
-        // method (mirroring rotateAction) and re-check admin server-side, so
-        // authorization holds even if the route config is later loosened.
+        // `methods => ['POST']` / `access` config. Re-assert the POST method
+        // (mirroring rotateAction) and re-check the operation permission
+        // server-side, so authorization holds even if the route config is
+        // later loosened. The route is `access => user` precisely because this
+        // check, not the route, is the authority.
         if ($request->getMethod() !== 'POST') {
             return $this->jsonError('Method not allowed', 405);
         }
 
-        if (!$this->accessControlService->isCurrentActorAdmin()) {
+        if (!$this->accessControlService->isGranted(VaultPermission::SecretReveal)) {
             return $this->jsonError(self::ERROR_ACCESS_DENIED, 403);
         }
 
@@ -123,8 +133,10 @@ final readonly class AjaxController
             return $this->jsonError('Method not allowed', 405);
         }
 
-        // SEC-ACCESS-6: defense-in-depth admin re-check (see revealAction).
-        if (!$this->accessControlService->isCurrentActorAdmin()) {
+        // SEC-ACCESS-6: defense-in-depth operation-permission re-check
+        // (see revealAction). Per-secret write access is asserted by
+        // VaultService::rotate() on top of this.
+        if (!$this->accessControlService->isGranted(VaultPermission::SecretRotate)) {
             return $this->jsonError(self::ERROR_ACCESS_DENIED, 403);
         }
 

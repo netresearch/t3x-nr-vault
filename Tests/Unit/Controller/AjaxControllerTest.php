@@ -19,6 +19,7 @@ use Netresearch\NrVault\Exception\SecretExpiredException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -49,9 +50,12 @@ final class AjaxControllerTest extends TestCase
         parent::setUp();
 
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
+        // Default seam: every operation permission granted, so the tests that
+        // exercise the non-authorization behaviour of the endpoints get past
+        // the gate. The permission-specific tests build their own controller.
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
         $this->accessControlService
-            ->method('isCurrentActorAdmin')
+            ->method('isGranted')
             ->willReturn(true);
         $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
         $this->configuration
@@ -282,11 +286,11 @@ final class AjaxControllerTest extends TestCase
     }
 
     #[Test]
-    public function revealActionReturns403WhenNotAdmin(): void
+    public function revealActionReturns403WithoutRevealPermission(): void
     {
         $request = $this->createRequestWithJsonBody(['identifier' => 'restricted-id']);
 
-        $controller = $this->createControllerForNonAdmin();
+        $controller = $this->createControllerGranting();
 
         $response = $controller->revealAction($request);
 
@@ -294,6 +298,48 @@ final class AjaxControllerTest extends TestCase
         $body = json_decode((string) $response->getBody(), true);
         self::assertFalse($body['success']);
         self::assertSame(self::MSG_ACCESS_DENIED, $body['error']);
+    }
+
+    /**
+     * "Use does not imply reveal": a holder of `secret.use` may let machinery
+     * consume secret values, but must not be able to put a plaintext on screen.
+     */
+    #[Test]
+    public function revealActionReturns403ForHolderOfSecretUseOnly(): void
+    {
+        $request = $this->createRequestWithJsonBody(['identifier' => 'restricted-id']);
+
+        $controller = $this->createControllerGranting(VaultPermission::SecretUse);
+
+        $this->vaultService
+            ->expects(self::never())
+            ->method('retrieve');
+
+        $response = $controller->revealAction($request);
+
+        self::assertSame(403, $response->getStatusCode());
+        $body = json_decode((string) $response->getBody(), true);
+        self::assertFalse($body['success']);
+        self::assertSame(self::MSG_ACCESS_DENIED, $body['error']);
+    }
+
+    #[Test]
+    public function revealActionSucceedsWithRevealPermissionOnly(): void
+    {
+        $request = $this->createRequestWithJsonBody(['identifier' => 'revealable-id']);
+
+        $controller = $this->createControllerGranting(VaultPermission::SecretReveal);
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturn('plaintext-value');
+
+        $response = $controller->revealAction($request);
+
+        self::assertSame(200, $response->getStatusCode());
+        $body = json_decode((string) $response->getBody(), true);
+        self::assertTrue($body['success']);
+        self::assertSame('plaintext-value', $body['secret']);
     }
 
     #[Test]
@@ -311,14 +357,25 @@ final class AjaxControllerTest extends TestCase
     }
 
     #[Test]
-    public function rotateActionReturns403WhenNotAdmin(): void
+    public function rotateActionReturns403WithoutRotatePermission(): void
     {
         $request = $this->createPostRequestWithBody([
             'identifier' => 'restricted-id',
             'secret' => 'new-value',
         ]);
 
-        $controller = $this->createControllerForNonAdmin();
+        // Every OTHER secret permission granted — only `secret.rotate` missing.
+        $controller = $this->createControllerGranting(
+            VaultPermission::SecretUse,
+            VaultPermission::SecretReveal,
+            VaultPermission::SecretCreate,
+            VaultPermission::SecretDelete,
+            VaultPermission::SecretManagePolicy,
+        );
+
+        $this->vaultService
+            ->expects(self::never())
+            ->method('rotate');
 
         $response = $controller->rotateAction($request);
 
@@ -552,18 +609,21 @@ final class AjaxControllerTest extends TestCase
     }
 
     /**
-     * Build a controller whose access-control seam denies admin status.
+     * Build a controller whose access-control seam grants exactly the given
+     * operation permissions and nothing else.
      *
-     * `createMock()` allows a method to be configured only once, so the
-     * non-admin variant needs a dedicated controller rather than re-stubbing
-     * the admin mock created in setUp().
+     * `createMock()` allows a method to be configured only once, so a variant
+     * with different grants needs a dedicated controller rather than
+     * re-stubbing the permissive mock created in setUp().
      */
-    private function createControllerForNonAdmin(): AjaxController
+    private function createControllerGranting(VaultPermission ...$granted): AjaxController
     {
         $accessControlService = $this->createMock(AccessControlServiceInterface::class);
         $accessControlService
-            ->method('isCurrentActorAdmin')
-            ->willReturn(false);
+            ->method('isGranted')
+            ->willReturnCallback(
+                static fn (VaultPermission $permission): bool => \in_array($permission, $granted, true),
+            );
 
         return new AjaxController($this->vaultService, $accessControlService, $this->configuration);
     }

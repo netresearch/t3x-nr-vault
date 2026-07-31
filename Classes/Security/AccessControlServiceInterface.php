@@ -50,6 +50,32 @@ interface AccessControlServiceInterface
     public function canCreate(): bool;
 
     /**
+     * Is the current actor granted an OPERATION permission?
+     *
+     * Orthogonal to the per-secret tiers above: `canRead()` answers "may this
+     * actor touch THIS secret?", `isGranted()` answers "may this actor perform
+     * this KIND of operation at all?". Both gates apply — e.g. revealing a
+     * secret needs `VaultPermission::SecretReveal` *and* `canRead()` for that
+     * identifier.
+     *
+     * Resolution (fail-closed at every step, mirroring the actor resolution of
+     * the per-secret tiers):
+     *
+     * - active `TechnicalActorContext::runAs()` scope → the actor's admin flag
+     *   decides, with `VaultPermission::SecretUse` granted unconditionally so
+     *   headless consumers keep working under their per-secret ACL;
+     * - frontend request → `false`, always (no operation permissions in a
+     *   context whose output is shared with anonymous visitors);
+     * - trusted CLI operator without an authenticated backend user → the
+     *   vault's `allowCliAccess` switch decides (off by default);
+     * - authenticated backend user → admin / system maintainer are granted
+     *   everything, anyone else needs the matching custom permission option
+     *   (`tx_nrvault:<permission>`) on one of their groups;
+     * - disabled user, no user at all → `false`.
+     */
+    public function isGranted(VaultPermission $permission): bool;
+
+    /**
      * Is the current actor a TYPO3 backend admin?
      *
      * Returns `true` for BE users where `BackendUserAuthentication::isAdmin()`

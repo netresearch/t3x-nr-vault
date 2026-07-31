@@ -14,13 +14,19 @@ use Netresearch\NrVault\Controller\AjaxController;
  *
  * These routes are accessible via TYPO3.settings.ajaxUrls['route_name']
  * in JavaScript.
+ *
+ * `access => 'user'` only means "any authenticated backend user may reach the
+ * endpoint". Authorization is the controller's job: both actions re-check their
+ * operation permission (`secret.reveal` / `secret.rotate`) via
+ * `AccessControlServiceInterface::isGranted()` and answer with the uniform 403
+ * envelope otherwise — see SEC-ACCESS-6 in AjaxController.
  */
 return [
     // Reveal a secret value (for FormEngine and list view)
     'vault_reveal' => [
         'path' => '/vault/reveal',
         'methods' => ['POST'],
-        'access' => 'admin',
+        'access' => 'user',
         'target' => AjaxController::class . '::revealAction',
     ],
 
@@ -28,7 +34,7 @@ return [
     'vault_rotate' => [
         'path' => '/vault/rotate',
         'methods' => ['POST'],
-        'access' => 'admin',
+        'access' => 'user',
         'target' => AjaxController::class . '::rotateAction',
     ],
 ];

@@ -40,6 +40,13 @@ final class AccessControlService implements AccessControlServiceInterface
     private const PERMISSION_DELETE = 'delete';
 
     /**
+     * Namespace of the TYPO3 custom permission options that carry the
+     * operation permissions. Must match the `customPermOptions` key
+     * registered in `ext_localconf.php`.
+     */
+    private const PERM_OPTION_GROUP = 'tx_nrvault';
+
+    /**
      * Per-request cache of group UIDs that actually exist in the be_groups table.
      * Reset only for the lifetime of the service instance.
      *
@@ -100,6 +107,64 @@ final class AccessControlService implements AccessControlServiceInterface
         }
 
         // No backend user and not CLI
+        return false;
+    }
+
+    public function isGranted(VaultPermission $permission): bool
+    {
+        // An active TechnicalActorContext::runAs() scope supersedes every
+        // ambient branch below — same precedence as hasAccess().
+        $technicalActor = $this->getTechnicalActor();
+        if ($technicalActor instanceof TechnicalActor) {
+            return $this->hasTechnicalActorGrant($technicalActor, $permission);
+        }
+
+        // A FRONTEND request never carries operation permissions, no matter
+        // what $GLOBALS['BE_USER'] holds: TYPO3 populates that global for any
+        // visitor with a valid backend session, and frontend output is shared
+        // (page cache) with anonymous visitors. Frontend reads stay governed
+        // exclusively by the secret's own `frontend_accessible` flag.
+        if ($this->isFrontendRequest()) {
+            return false;
+        }
+
+        $backendUser = $this->getBackendUser();
+
+        // The trusted CLI operator: the TYPO3 CLI bootstrap places an
+        // UNAUTHENTICATED CommandLineUserAuthentication in $GLOBALS['BE_USER']
+        // (CommandApplication::run() never logs the `_cli_` user in), so there
+        // is no user record and no group that could carry a custom permission
+        // option. The vault's own CLI trust switch decides instead — the same
+        // authority hasCliAccess() uses for the per-secret tiers, and off by
+        // default (ExtensionConfiguration::DEFAULT_ALLOW_CLI_ACCESS).
+        if ($this->isUnauthenticatedCommandLineUser($backendUser)) {
+            return $this->configuration->isCliAccessAllowed();
+        }
+
+        if ($backendUser instanceof BackendUserAuthentication) {
+            // Defence-in-depth: a disabled user must not hold any operation
+            // permission, even if a stale session reaches this layer.
+            if ($this->isBackendUserDisabled($backendUser)) {
+                return false;
+            }
+
+            if ($this->adminOverrideGrants($backendUser)) {
+                return true;
+            }
+
+            return $backendUser->check(
+                'custom_options',
+                self::PERM_OPTION_GROUP . ':' . $permission->value,
+            );
+        }
+
+        // No backend user at all but a real CLI context (no BE_USER global
+        // was ever created): same trusted-operator rule as above.
+        if ($this->isRealCliContext()) {
+            return $this->configuration->isCliAccessAllowed();
+        }
+
+        // No actor we can attribute an operation to: fail closed.
         return false;
     }
 
@@ -494,6 +559,49 @@ final class AccessControlService implements AccessControlServiceInterface
         }
 
         return false;
+    }
+
+    /**
+     * Operation permissions for a validated technical actor.
+     *
+     * A technical actor is a snapshot of a real backend user, but it has no
+     * live session and `runAs()` is explicitly NOT an authentication boundary
+     * (any code with DI access can open a scope). So a NON-admin technical
+     * actor gets no operation permissions at all — its power stays bounded by
+     * the per-secret `canRead`/`canWrite` tiers, which is what its group
+     * membership was actually provisioned for.
+     *
+     * The one exception is `SecretUse`: headless consumption is the entire
+     * purpose of a technical actor, and gating it on a group-level custom
+     * permission option would break every existing `runAs()` caller while
+     * adding nothing — the per-secret tier already decides which secrets the
+     * actor may read.
+     */
+    private function hasTechnicalActorGrant(TechnicalActor $actor, VaultPermission $permission): bool
+    {
+        if ($actor->admin) {
+            return true;
+        }
+
+        return $permission === VaultPermission::SecretUse;
+    }
+
+    /**
+     * The unconditional admin / system-maintainer override for operation
+     * permissions.
+     *
+     * Isolated in one seam on purpose: the hardened security profile will make
+     * this override disableable in a follow-up (break-glass mode), so that a
+     * TYPO3 admin no longer automatically holds every vault permission. Every
+     * "admins may do anything" decision for operation permissions must flow
+     * through here — never inline `isAdmin()` in a caller.
+     *
+     * `isSystemMaintainer()` is checked explicitly even though it implies the
+     * admin flag in core, mirroring `hasBackendUserAccess()`.
+     */
+    private function adminOverrideGrants(BackendUserAuthentication $backendUser): bool
+    {
+        return $backendUser->isAdmin() || $backendUser->isSystemMaintainer();
     }
 
     private function getTechnicalActor(): ?TechnicalActor

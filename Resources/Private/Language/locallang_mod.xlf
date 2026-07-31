@@ -1070,6 +1070,85 @@
       <trans-unit id="analytics.note">
         <source>Core signals use durable secret metadata; the automated/manual split is derived from the audit log (actor_type is a proxy). "Automation-stale" means revealed manually but not read by automation — review, do not auto-delete.</source>
       </trans-unit>
+
+      <!-- Operation permissions (BE custom permission options, granted per backend user group) -->
+      <trans-unit id="permissions.header">
+        <source>Vault: operation permissions</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.use">
+        <source>Use secrets (programmatic)</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.use.description">
+        <source>Let forms, TypoScript and integrations resolve secret values for this user. Does not allow displaying a value on screen — grant "Reveal secrets" for that.</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.reveal">
+        <source>Reveal secrets (show plaintext)</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.reveal.description">
+        <source>Display a secret's plaintext in the backend. Grant only to people who legitimately need to read credentials; requires "Use secrets" as well.</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.create">
+        <source>Create secrets</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.create.description">
+        <source>Add new secrets to the vault. The creator becomes the owner and therefore gains full access to the secrets they create.</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.rotate">
+        <source>Rotate secrets</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.rotate.description">
+        <source>Replace the value of an existing secret. The identifier and all its consumers stay in place, so a wrong value takes systems down.</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.delete">
+        <source>Delete secrets</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.delete.description">
+        <source>Delete secrets from the vault. Per-secret deletion additionally requires ownership or admin rights.</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.manage_policy">
+        <source>Manage secret policy</source>
+      </trans-unit>
+      <trans-unit id="permissions.secret.manage_policy.description">
+        <source>Enable/disable secrets and edit their allowed/write group tiers — the permission that decides other people's access.</source>
+      </trans-unit>
+      <trans-unit id="permissions.audit.view">
+        <source>View audit log</source>
+      </trans-unit>
+      <trans-unit id="permissions.audit.view.description">
+        <source>Read the audit log, its usage analytics and verify the hash chain. The log maps out which credentials exist and who uses them.</source>
+      </trans-unit>
+      <trans-unit id="permissions.audit.export">
+        <source>Export audit log</source>
+      </trans-unit>
+      <trans-unit id="permissions.audit.export.description">
+        <source>Download the audit log as JSON or CSV. The exported copy leaves the tamper-evident storage behind — no hash chain, no retention, no access control.</source>
+      </trans-unit>
+      <trans-unit id="permissions.master_key.rotate">
+        <source>Rotate the master key</source>
+      </trans-unit>
+      <trans-unit id="permissions.master_key.rotate.description">
+        <source>Re-encrypt every secret with a new master key. The most powerful vault operation — a failed rotation can make the whole vault unreadable.</source>
+      </trans-unit>
+      <trans-unit id="permissions.vault.configure">
+        <source>Configure the vault</source>
+      </trans-unit>
+      <trans-unit id="permissions.vault.configure.description">
+        <source>Run the migration wizard, which scans the database for plaintext secrets and moves them into the vault.</source>
+      </trans-unit>
+
+      <!-- Access denied (module-level operation permission missing) -->
+      <trans-unit id="accessDenied.title">
+        <source>Access denied</source>
+      </trans-unit>
+      <trans-unit id="accessDenied.message">
+        <source>You do not have the vault permission required for this action.</source>
+      </trans-unit>
+      <trans-unit id="accessDenied.required">
+        <source>Required permission: %s</source>
+      </trans-unit>
+      <trans-unit id="accessDenied.hint">
+        <source>Ask an administrator to grant this permission to one of your backend user groups (Backend Users module, "Vault: operation permissions").</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>
