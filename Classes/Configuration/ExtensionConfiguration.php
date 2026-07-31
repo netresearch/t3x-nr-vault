@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Configuration;
 
 use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
+use Netresearch\NrVault\Configuration\Dto\TransitConfig;
 use Netresearch\NrVault\Configuration\Dto\VaultServerConfig;
 use Netresearch\NrVault\Exception\ConfigurationException;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration as Typo3ExtensionConfiguration;
@@ -136,7 +137,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
-     * Get master key provider identifier (typo3, file, env, derived).
+     * Get master key provider identifier (typo3, file, env, transit).
      */
     public function getMasterKeyProvider(): string
     {
@@ -414,6 +415,35 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
+     * Get the HashiCorp Vault Transit master-key provider configuration.
+     *
+     * Shares the `hashicorp.*` group with the (planned) storage adapter so an
+     * installation configures the Vault address once. The wrapped-key path
+     * falls back to the var path when unset, mirroring
+     * {@see self::getAutoKeyPath()} for the file provider.
+     */
+    public function getTransitConfig(): TransitConfig
+    {
+        $config = $this->configuration['hashicorp'] ?? [];
+
+        if (!\is_array($config)) {
+            $config = [];
+        }
+
+        /** @var array{address?: string, authMethod?: string, token?: string, transitMount?: string, transitKeyName?: string, transitWrappedKeyPath?: string, tokenEnvVar?: string} $config */
+        $configuredPath = \is_string($config['transitWrappedKeyPath'] ?? null)
+            ? trim($config['transitWrappedKeyPath'])
+            : '';
+
+        // Resolve the var-path default lazily: it touches Environment, which an
+        // explicitly configured path makes unnecessary.
+        return TransitConfig::fromArray(
+            $config,
+            $configuredPath === '' ? $this->getTransitWrappedKeyPathDefault() : '',
+        );
+    }
+
+    /**
      * Get AWS Secrets Manager configuration.
      */
     public function getAwsConfig(): AwsSecretsConfig
@@ -472,5 +502,16 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         $nrVault = \is_array($sys['nrVault'] ?? null) ? $sys['nrVault'] : [];
 
         return \array_key_exists($key, $nrVault) ? (bool) $nrVault[$key] : null;
+    }
+
+    /**
+     * Default location of the Vault-wrapped master key.
+     *
+     * The stored blob is Transit ciphertext (`vault:v1:…`), never key material,
+     * so it lives next to the auto key path rather than in a separate store.
+     */
+    private function getTransitWrappedKeyPathDefault(): string
+    {
+        return $this->getAutoKeyPath() . '.transit';
     }
 }

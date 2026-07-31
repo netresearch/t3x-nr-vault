@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Configuration;
 
 use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
+use Netresearch\NrVault\Configuration\Dto\TransitConfig;
 use Netresearch\NrVault\Configuration\Dto\VaultServerConfig;
 use Netresearch\NrVault\Exception\ConfigurationException;
 
@@ -33,7 +34,7 @@ interface ExtensionConfigurationInterface
     public function getStorageAdapter(): string;
 
     /**
-     * Get master key provider identifier (typo3, file, env, derived).
+     * Get master key provider identifier (typo3, file, env, transit).
      */
     public function getMasterKeyProvider(): string;
 
@@ -104,6 +105,11 @@ interface ExtensionConfigurationInterface
      * Get HashiCorp Vault configuration.
      */
     public function getHashiCorpConfig(): VaultServerConfig;
+
+    /**
+     * Get the HashiCorp Vault Transit master-key provider configuration.
+     */
+    public function getTransitConfig(): TransitConfig;
 
     /**
      * Get AWS Secrets Manager configuration.
