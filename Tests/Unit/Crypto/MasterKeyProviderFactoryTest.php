@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Crypto;
 
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Configuration\SecurityProfile;
 use Netresearch\NrVault\Crypto\EnvironmentMasterKeyProvider;
 use Netresearch\NrVault\Crypto\FileMasterKeyProvider;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactory;
@@ -35,6 +36,9 @@ final class MasterKeyProviderFactoryTest extends TestCase
         parent::setUp();
 
         $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
+        $this->configuration
+            ->method('getSecurityProfile')
+            ->willReturn(SecurityProfile::Standard);
         $this->subject = new MasterKeyProviderFactory($this->configuration);
     }
 
@@ -98,5 +102,98 @@ final class MasterKeyProviderFactoryTest extends TestCase
         $result = $this->subject->getAvailableProvider();
 
         self::assertInstanceOf(MasterKeyProviderInterface::class, $result);
+    }
+
+    #[Test]
+    public function createThrowsWhenHardenedProfileUsesTypo3Provider(): void
+    {
+        $factory = $this->createHardenedFactory('typo3');
+
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionCode(1753900002);
+
+        $factory->create();
+    }
+
+    #[Test]
+    public function getAvailableProviderThrowsWhenHardenedProfileUsesTypo3Provider(): void
+    {
+        $factory = $this->createHardenedFactory('typo3');
+
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionCode(1753900002);
+
+        $factory->getAvailableProvider();
+    }
+
+    #[Test]
+    public function getAvailableProviderThrowsWhenHardenedProfileUsesUnknownProvider(): void
+    {
+        // Hardened: no auto-detection may paper over an invalid provider name.
+        $factory = $this->createHardenedFactory('invalid');
+
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionCode(1703800015);
+
+        $factory->getAvailableProvider();
+    }
+
+    #[Test]
+    public function getAvailableProviderDoesNotFallBackWhenHardenedProviderIsUnavailable(): void
+    {
+        // The configured file provider points at a nonexistent key file. In the
+        // hardened profile the factory must still return THAT provider (whose
+        // getMasterKey() fails loudly) — never a typo3/env substitute.
+        $factory = $this->createHardenedFactory('file');
+
+        $result = $factory->getAvailableProvider();
+
+        self::assertInstanceOf(FileMasterKeyProvider::class, $result);
+        self::assertFalse($result->isAvailable());
+    }
+
+    #[Test]
+    public function createAllowsFileProviderInHardenedProfile(): void
+    {
+        $factory = $this->createHardenedFactory('file');
+
+        self::assertInstanceOf(FileMasterKeyProvider::class, $factory->create());
+    }
+
+    #[Test]
+    public function createAllowsEnvProviderInHardenedProfile(): void
+    {
+        $factory = $this->createHardenedFactory('env');
+
+        self::assertInstanceOf(EnvironmentMasterKeyProvider::class, $factory->create());
+    }
+
+    #[Test]
+    public function createAllowsTypo3ProviderInStandardProfile(): void
+    {
+        $this->configuration
+            ->method('getMasterKeyProvider')
+            ->willReturn('typo3');
+
+        self::assertInstanceOf(Typo3MasterKeyProvider::class, $this->subject->create());
+    }
+
+    /**
+     * Build a factory whose configuration uses the hardened profile.
+     */
+    private function createHardenedFactory(string $provider): MasterKeyProviderFactory
+    {
+        $configuration = $this->createMock(ExtensionConfigurationInterface::class);
+        $configuration
+            ->method('getSecurityProfile')
+            ->willReturn(SecurityProfile::Hardened);
+        $configuration
+            ->method('getMasterKeyProvider')
+            ->willReturn($provider);
+        $configuration
+            ->method('getMasterKeySource')
+            ->willReturn('/nonexistent/hardened-test.key');
+
+        return new MasterKeyProviderFactory($configuration);
     }
 }

@@ -19,12 +19,21 @@ interface MasterKeyProviderFactoryInterface
     /**
      * Create a master key provider based on configuration.
      *
-     * @throws ConfigurationException If provider is invalid
+     * @throws ConfigurationException If the provider is invalid, or if the
+     *                                hardened security profile forbids the
+     *                                configured provider (e.g. 'typo3')
      */
     public function create(): MasterKeyProviderInterface;
 
     /**
      * Get the configured provider, falling back to auto-detection.
+     *
+     * Auto-detection applies to the Standard profile only. In the Hardened
+     * profile this behaves exactly like {@see create()}: no fallback, no
+     * auto-detection — configuration errors propagate (fail-closed).
+     *
+     * @throws ConfigurationException In the hardened profile, if the
+     *                                configured provider is invalid or forbidden
      */
     public function getAvailableProvider(): MasterKeyProviderInterface;
 }

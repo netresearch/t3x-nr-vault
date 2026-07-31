@@ -37,4 +37,29 @@ final class ConfigurationException extends VaultException
             1703800017,
         );
     }
+
+    public static function invalidSecurityProfile(string $profile): self
+    {
+        return new self(
+            \sprintf(
+                'Unknown security profile "%s". Valid profiles: standard, hardened. '
+                . 'Refusing to fall back to a weaker profile.',
+                $profile,
+            ),
+            1753900001,
+        );
+    }
+
+    public static function providerForbiddenInHardenedProfile(string $provider): self
+    {
+        return new self(
+            \sprintf(
+                'Master key provider "%s" is not permitted in the hardened security profile. '
+                . 'Configure an explicit external provider (file, env) — the TYPO3 encryption '
+                . 'key must not protect vault secrets in hardened deployments.',
+                $provider,
+            ),
+            1753900002,
+        );
+    }
 }

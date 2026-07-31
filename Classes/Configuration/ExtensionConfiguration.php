@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Configuration;
 
 use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
 use Netresearch\NrVault\Configuration\Dto\VaultServerConfig;
+use Netresearch\NrVault\Exception\ConfigurationException;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration as Typo3ExtensionConfiguration;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\SingletonInterface;
@@ -21,6 +22,8 @@ use TYPO3\CMS\Core\SingletonInterface;
 final class ExtensionConfiguration implements ExtensionConfigurationInterface, SingletonInterface
 {
     // Default values as constants for maintainability
+    public const DEFAULT_SECURITY_PROFILE = 'standard';
+
     public const DEFAULT_STORAGE_ADAPTER = 'local';
 
     public const DEFAULT_MASTER_KEY_PROVIDER = 'typo3';
@@ -82,6 +85,26 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         /** @var array<string, mixed> $configArray */
         $configArray = \is_array($config) ? $config : [];
         $this->configuration = $configArray;
+    }
+
+    /**
+     * Get the configured security profile.
+     *
+     * Fail-closed: an unknown profile value throws instead of silently
+     * degrading to Standard — a typo in a hardened deployment must never
+     * weaken the effective policy.
+     *
+     * @throws ConfigurationException
+     */
+    public function getSecurityProfile(): SecurityProfile
+    {
+        $val = $this->configuration['securityProfile'] ?? self::DEFAULT_SECURITY_PROFILE;
+        if (!\is_string($val) || $val === '') {
+            $val = self::DEFAULT_SECURITY_PROFILE;
+        }
+
+        return SecurityProfile::tryFrom($val)
+            ?? throw ConfigurationException::invalidSecurityProfile($val);
     }
 
     /**

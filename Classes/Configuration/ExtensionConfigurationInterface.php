@@ -18,6 +18,15 @@ use Netresearch\NrVault\Configuration\Dto\VaultServerConfig;
 interface ExtensionConfigurationInterface
 {
     /**
+     * Get the configured security profile.
+     *
+     * @throws \Netresearch\NrVault\Exception\ConfigurationException if the
+     *                                                               configured value is not a valid profile (fail-closed: an
+     *                                                               unknown profile must never silently degrade to Standard)
+     */
+    public function getSecurityProfile(): SecurityProfile;
+
+    /**
      * Get storage adapter identifier (local, hashicorp, aws).
      */
     public function getStorageAdapter(): string;
