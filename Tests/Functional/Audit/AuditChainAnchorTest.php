@@ -28,6 +28,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
+use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
@@ -91,10 +92,16 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
 
     /**
      * The anchored HASH — not just the anchored uid — is what makes this
-     * detectable: after a truncate the auto-increment counter is reused on
-     * SQLite (`max(rowid)+1`) and MariaDB (`AUTO_INCREMENT` re-derived from
-     * `max(uid)+1`), so ordinary appends refill the anchored uid and the
-     * surviving chain re-links perfectly. Existence alone would report VALID.
+     * detectable. Once the auto-increment restarts, ordinary appends refill the
+     * anchored uid and the refilled chain re-links perfectly, so an anchor that
+     * only asserted existence would report VALID.
+     *
+     * Whether a wipe restarts the counter by itself is platform-specific:
+     * MariaDB gets it from TRUNCATE, while on SQLite the platform emits
+     * DELETE FROM and TYPO3 maps `uid` to INTEGER PRIMARY KEY AUTOINCREMENT,
+     * whose sequence survives in `sqlite_sequence`. `truncateAuditLog()`
+     * therefore resets both, so this test pins the anchor's behaviour rather
+     * than the database's.
      */
     #[Test]
     public function truncateThenRefillIsDetected(): void
@@ -104,9 +111,11 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         $anchoredUid = $this->currentAnchorUid();
 
         $this->truncateAuditLog();
-        // Refill past the anchored uid using the ordinary write path. The
-        // refilled events are DIFFERENT events — replaying the byte-identical
-        // originals would legitimately reproduce the same chain.
+        // Refill past the anchored uid using the ordinary write path, so the
+        // refilled chain is genuinely self-consistent and the walk alone cannot
+        // catch it — the whole point of the anchor. The refilled events are
+        // DIFFERENT events: replaying the byte-identical originals would
+        // legitimately reproduce the same chain.
         $this->writeEntries($auditLogService, $anchoredUid + 1, 'refill');
 
         self::assertNotNull(
@@ -672,6 +681,20 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         $connection->executeStatement(
             $connection->getDatabasePlatform()->getTruncateTableSQL(self::AUDIT_TABLE),
         );
+
+        // Reset the auto-increment as well, so a refill starts at uid 1 on every
+        // platform. MariaDB gets that from TRUNCATE; SQLite does not, because
+        // the platform emits DELETE FROM and TYPO3 maps `uid` to INTEGER PRIMARY
+        // KEY AUTOINCREMENT, whose sequence lives in `sqlite_sequence` and
+        // survives. The statement is meaningless elsewhere and that table does
+        // not exist there, so a failure is the expected non-SQLite outcome.
+        try {
+            $connection->executeStatement(
+                'DELETE FROM sqlite_sequence WHERE name = ' . $connection->quote(self::AUDIT_TABLE),
+            );
+        } catch (Throwable) {
+            // Not SQLite: TRUNCATE already reset the counter.
+        }
     }
 
     /**
