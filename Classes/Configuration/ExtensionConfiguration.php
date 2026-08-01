@@ -228,7 +228,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         }
 
         return array_values(array_filter(array_map(
-            static fn (string $value): string => trim($value),
+            trim(...),
             explode(',', $raw),
         ), static fn (string $value): bool => $value !== ''));
     }
