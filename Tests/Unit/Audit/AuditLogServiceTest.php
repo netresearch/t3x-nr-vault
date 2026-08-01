@@ -753,9 +753,10 @@ final class AuditLogServiceTest extends TestCase
     {
         $this->setupDatabaseMocks();
 
+        $cause = new RuntimeException('Insert failed');
         $this->connection
             ->method('insert')
-            ->willThrowException(new RuntimeException('Insert failed'));
+            ->willThrowException($cause);
 
         $this->connection
             ->expects(self::once())
@@ -765,10 +766,37 @@ final class AuditLogServiceTest extends TestCase
             ->expects(self::never())
             ->method('commit');
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Insert failed');
+        // Single failure contract: any chain-write failure surfaces as
+        // AuditWriteException — the type the SEC-3 compensating rollbacks in
+        // VaultService and SecretTcaHook key on — with the driver error
+        // chained as previous.
+        try {
+            $this->getSubject()->log('test_secret', 'create', true);
+            self::fail('log() must throw on a failed insert');
+        } catch (AuditWriteException $e) {
+            self::assertStringContainsString('Insert failed', $e->getMessage());
+            self::assertSame($cause, $e->getPrevious());
+        }
+    }
 
-        $this->getSubject()->log('test_secret', 'create', true);
+    #[Test]
+    public function logDoesNotDoubleWrapAnAuditWriteException(): void
+    {
+        // A lock-acquisition failure is already an AuditWriteException; the
+        // wrap in log() must rethrow it as-is instead of nesting it.
+        $this->setupDatabaseMocks();
+
+        $original = AuditWriteException::lockAcquisitionFailed(0);
+        $this->connection
+            ->method('insert')
+            ->willThrowException($original);
+
+        try {
+            $this->getSubject()->log('test_secret', 'create', true);
+            self::fail('log() must rethrow the AuditWriteException');
+        } catch (AuditWriteException $e) {
+            self::assertSame($original, $e);
+        }
     }
 
     #[Test]

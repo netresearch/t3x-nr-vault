@@ -173,7 +173,7 @@ final class SecretTcaHook
         // submits, for the compensating rollback should the metadata-update
         // audit write fail in afterDatabaseOperations (SEC-3 atomicity).
         if (!str_starts_with((string) $id, 'NEW') && $fieldArray !== []) {
-            $columns = array_filter(array_keys($fieldArray), is_string(...));
+            $columns = $this->submittedColumns($fieldArray);
             if ($columns !== []) {
                 $original = BackendUtility::getRecord(self::TABLE, (int) $id, implode(',', $columns));
                 if ($original !== null) {
@@ -290,7 +290,7 @@ final class SecretTcaHook
             return;
         }
 
-        $changedColumns = array_values(array_filter(array_keys($fieldArray), is_string(...)));
+        $changedColumns = $this->submittedColumns($fieldArray);
         if ($changedColumns === []) {
             return;
         }
@@ -416,7 +416,7 @@ final class SecretTcaHook
                 AuditAction::Create->value,
                 true,
                 null,
-                'FormEngine create: ' . implode(', ', array_filter(array_keys($fieldArray), is_string(...))),
+                'FormEngine create: ' . implode(', ', $this->submittedColumns($fieldArray)),
             );
         } catch (Throwable $e) {
             $reverted = $this->revertRow($uid, null);
@@ -474,6 +474,27 @@ final class SecretTcaHook
                 . ($reverted ? 'reverted (no mutation may persist without an audit entry).' : 'NOT revertible; manual reconciliation required.'),
             );
         }
+    }
+
+    /**
+     * The string column names a datamap submits. An explicit loop rather
+     * than array_filter with a first-class callable: every PHPStan version
+     * in the CI matrix narrows this form to list<string>.
+     *
+     * @param array<string, mixed> $fieldArray
+     *
+     * @return list<string>
+     */
+    private function submittedColumns(array $fieldArray): array
+    {
+        $columns = [];
+        foreach (array_keys($fieldArray) as $column) {
+            if (\is_string($column)) {
+                $columns[] = $column;
+            }
+        }
+
+        return $columns;
     }
 
     /**
