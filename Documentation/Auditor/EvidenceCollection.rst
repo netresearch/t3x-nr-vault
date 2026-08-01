@@ -124,6 +124,7 @@ Finding ids worth citing directly in an assessment:
     *   -   Audit evidence
         -   ``audit.hash_chain``, ``audit.anchor``,
             ``audit.external_sink``, ``audit.sink_delivery``,
+            ``audit.sink_state.<sink>``,
             ``audit.reads_logged``, ``audit.retention``
 
     *   -   CLI exposure

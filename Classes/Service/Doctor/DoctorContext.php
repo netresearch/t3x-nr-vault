@@ -33,6 +33,14 @@ final readonly class DoctorContext
         public SecurityProfile $profile,
         /** The profile actually configured in the extension configuration. */
         public SecurityProfile $configuredProfile,
+        /**
+         * Whether the run may perform ACTIVE probes (deliver a test record
+         * through every enabled audit sink). Off by default: the passive
+         * checks are safe on every page load of the status panel, while a
+         * probe talks to external systems and belongs to an explicit
+         * `vault:doctor --active-probes` invocation.
+         */
+        public bool $activeProbes = false,
     ) {}
 
     /**

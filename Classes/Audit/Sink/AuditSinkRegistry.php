@@ -63,6 +63,12 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
         private readonly iterable $sinks,
         private readonly LoggerInterface $logger,
         private readonly EventDispatcherInterface $eventDispatcher,
+        /**
+         * Persisted per-sink delivery health. Optional so pre-existing test
+         * constructions keep working; without it only the in-process
+         * counters exist (and `vault:doctor` reports the evidence gap).
+         */
+        private readonly ?SinkDeliveryStateRepositoryInterface $deliveryState = null,
     ) {}
 
     public function dispatch(AuditLogEntry $entry, string $chainTip): int
@@ -161,6 +167,7 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
             try {
                 $publish($sink);
                 ++$accepted;
+                $this->deliveryState?->recordSuccess($sink->getIdentifier());
             } catch (Throwable $e) {
                 $this->recordFailure($sink->getIdentifier(), $recordKind, $e, $logContext);
             }
@@ -197,6 +204,7 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
     {
         ++$this->failureCount;
         $this->failuresBySink[$sinkIdentifier] = ($this->failuresBySink[$sinkIdentifier] ?? 0) + 1;
+        $this->deliveryState?->recordFailure($sinkIdentifier, $e->getMessage());
 
         $this->logger->error(
             'nr-vault audit sink delivery failed; the database chain entry is unaffected.',

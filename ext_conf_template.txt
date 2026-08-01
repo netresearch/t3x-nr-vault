@@ -84,6 +84,9 @@ auditSinkWebhookEnabled = 0
 # cat=Audit Sinks; type=string; label=Webhook URL: https:// endpoint receiving the JSON payloads. Outbound calls go through the hardened HTTP client, so a collector on a private/RFC1918 address must be allow-listed literally in $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] (a filesystem-bound setting, deliberately out of reach of the backend Settings module).
 auditSinkWebhookUrl =
 
+# cat=Audit Sinks; type=int+; label=Stale Delivery Threshold (hours): vault:doctor treats an enabled sink whose last successful external delivery is older than this as stale (hardened profile: critical finding). Persisted delivery state lives in sys_registry.
+auditSinkStaleDeliveryHours = 24
+
 ########################
 ### HASHICORP VAULT ###
 ########################

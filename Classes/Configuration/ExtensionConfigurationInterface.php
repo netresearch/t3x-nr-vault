@@ -165,6 +165,12 @@ interface ExtensionConfigurationInterface
     public function getAuditSinkWebhookUrl(): string;
 
     /**
+     * Hours after which the last successful external delivery of an enabled
+     * sink counts as stale for the readiness surface (minimum 1).
+     */
+    public function getAuditSinkStaleDeliveryHours(): int;
+
+    /**
      * Days after creation with zero reads before a secret is "dead".
      */
     public function getStaleNeverReadDays(): int;

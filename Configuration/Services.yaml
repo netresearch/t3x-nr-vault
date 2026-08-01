@@ -104,6 +104,9 @@ services:
   Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface:
     alias: Netresearch\NrVault\Audit\Sink\AuditSinkRegistry
 
+  Netresearch\NrVault\Audit\Sink\SinkDeliveryStateRepositoryInterface:
+    alias: Netresearch\NrVault\Audit\Sink\SinkDeliveryStateRepository
+
   Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface:
     alias: Netresearch\NrVault\Audit\Anchor\AnchorFileReader
 
@@ -149,6 +152,10 @@ services:
   # ----- External audit sinks ---------------------------------------------
 
   Netresearch\NrVault\Audit\Sink\AuditSinkRegistry:
+    arguments:
+      $sinks: !tagged_iterator nr_vault.audit_sink
+
+  Netresearch\NrVault\Service\Doctor\Check\SinkProbeCheck:
     arguments:
       $sinks: !tagged_iterator nr_vault.audit_sink
 

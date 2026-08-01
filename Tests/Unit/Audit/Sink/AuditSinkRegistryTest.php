@@ -16,6 +16,8 @@ use Netresearch\NrVault\Audit\AuditIntegrityReason;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\Sink\AuditSinkInterface;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistry;
+use Netresearch\NrVault\Audit\Sink\SinkDeliveryState;
+use Netresearch\NrVault\Audit\Sink\SinkDeliveryStateRepositoryInterface;
 use Netresearch\NrVault\Event\AuditIntegrityAlertEvent;
 use Netresearch\NrVault\Exception\AuditSinkException;
 use Netresearch\NrVault\Tests\Unit\TestCase;
@@ -404,6 +406,31 @@ final class AuditSinkRegistryTest extends TestCase
         self::assertSame(2, $sink->alertCalls);
     }
 
+    #[Test]
+    public function successfulDeliveryIsRecordedInThePersistentState(): void
+    {
+        $deliveryState = new RecordingDeliveryState();
+
+        $this->createSubject([new SpyAuditSink('healthy')], deliveryState: $deliveryState)
+            ->dispatch($this->createEntry(), 'tip');
+
+        self::assertSame(['healthy'], $deliveryState->successes);
+        self::assertSame([], $deliveryState->failures);
+    }
+
+    #[Test]
+    public function failedDeliveryIsRecordedInThePersistentState(): void
+    {
+        $deliveryState = new RecordingDeliveryState();
+        $broken = new SpyAuditSink('broken', throwOnPublish: new RuntimeException('collector unreachable'));
+
+        $this->createSubject([$broken], deliveryState: $deliveryState)
+            ->dispatch($this->createEntry(), 'tip');
+
+        self::assertSame([], $deliveryState->successes);
+        self::assertSame([['broken', 'collector unreachable']], $deliveryState->failures);
+    }
+
     /**
      * @param list<AuditSinkInterface> $sinks
      */
@@ -411,11 +438,13 @@ final class AuditSinkRegistryTest extends TestCase
         array $sinks,
         ?LoggerInterface $logger = null,
         ?EventDispatcherInterface $eventDispatcher = null,
+        ?SinkDeliveryStateRepositoryInterface $deliveryState = null,
     ): AuditSinkRegistry {
         return new AuditSinkRegistry(
             $sinks,
             $logger ?? new NullLogger(),
             $eventDispatcher ?? new RecordingEventDispatcher(),
+            $deliveryState,
         );
     }
 
@@ -623,5 +652,34 @@ final class ReentrantAlertSink implements AuditSinkInterface
     public function isEnabled(): bool
     {
         return true;
+    }
+}
+
+/**
+ * Records delivery-state bookkeeping calls for assertion.
+ *
+ * @internal test helper
+ */
+final class RecordingDeliveryState implements SinkDeliveryStateRepositoryInterface
+{
+    /** @var list<string> */
+    public array $successes = [];
+
+    /** @var list<array{0: string, 1: string}> */
+    public array $failures = [];
+
+    public function recordSuccess(string $sinkIdentifier): void
+    {
+        $this->successes[] = $sinkIdentifier;
+    }
+
+    public function recordFailure(string $sinkIdentifier, string $errorMessage): void
+    {
+        $this->failures[] = [$sinkIdentifier, $errorMessage];
+    }
+
+    public function getState(string $sinkIdentifier): SinkDeliveryState
+    {
+        return new SinkDeliveryState(sinkIdentifier: $sinkIdentifier);
     }
 }

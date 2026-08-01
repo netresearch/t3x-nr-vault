@@ -46,12 +46,13 @@ final readonly class VaultDoctorService implements VaultDoctorServiceInterface
         private LoggerInterface $logger,
     ) {}
 
-    public function run(?SecurityProfile $targetProfile = null): DoctorReport
+    public function run(?SecurityProfile $targetProfile = null, bool $activeProbes = false): DoctorReport
     {
         $configuredProfile = $this->resolveConfiguredProfile();
         $context = new DoctorContext(
             profile: $targetProfile ?? $configuredProfile,
             configuredProfile: $configuredProfile,
+            activeProbes: $activeProbes,
         );
 
         $findings = [];

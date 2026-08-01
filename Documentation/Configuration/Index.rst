@@ -395,6 +395,20 @@ usable external sink is reported as a ``NO_EXTERNAL_SINK`` finding.
    ``http``/``https`` are accepted, so a ``file://`` or ``php://`` value cannot
    turn audit fan-out into a local write.
 
+.. confval:: auditSinkStaleDeliveryHours
+   :name: ext-nrvault-auditSinkStaleDeliveryHours
+   :type: integer
+   :Default: 24
+
+   Hours after which the last successful external delivery of an enabled
+   sink counts as **stale** for :bash:`vault:doctor` (finding
+   ``audit.sink_state.<sink>``: warning under the standard profile, critical
+   under hardened). The per-sink delivery state — last success, last
+   failure, consecutive failures — is persisted in ``sys_registry`` by the
+   sink registry, so a freshly started process still knows a collector has
+   been unreachable for days. Use
+   :bash:`vault:doctor --active-probes` to verify delivery end-to-end.
+
    .. note::
 
       Outbound calls go through the hardened HTTP client, inheriting the

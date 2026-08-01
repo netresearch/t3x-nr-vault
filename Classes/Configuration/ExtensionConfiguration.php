@@ -90,6 +90,12 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
 
     public const DEFAULT_AUDIT_SINK_WEBHOOK_ENABLED = false;
 
+    /**
+     * Hours after which the last successful external delivery of an enabled
+     * sink counts as stale for `vault:doctor` (hardened: critical).
+     */
+    public const DEFAULT_AUDIT_SINK_STALE_DELIVERY_HOURS = 24;
+
     public const DEFAULT_AUDIT_SINK_WEBHOOK_URL = '';
 
     public const DEFAULT_STALE_NEVER_READ_DAYS = 30;
@@ -377,6 +383,16 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     public function isAuditSinkWebhookEnabled(): bool
     {
         return (bool) ($this->configuration['auditSinkWebhookEnabled'] ?? self::DEFAULT_AUDIT_SINK_WEBHOOK_ENABLED);
+    }
+
+    public function getAuditSinkStaleDeliveryHours(): int
+    {
+        $value = $this->configuration['auditSinkStaleDeliveryHours'] ?? null;
+        if (!is_numeric($value) || (int) $value < 1) {
+            return self::DEFAULT_AUDIT_SINK_STALE_DELIVERY_HOURS;
+        }
+
+        return (int) $value;
     }
 
     /**
