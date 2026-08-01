@@ -55,7 +55,6 @@ final class VaultServiceTest extends FunctionalTestCase
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = [
             'masterKeySource' => $this->masterKeyPath,
             'autoKeyPath' => $this->masterKeyPath,
-            'enableCache' => false,
         ];
 
         // Import backend user for access control
@@ -231,22 +230,19 @@ final class VaultServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function clearCacheDoesNotAffectStoredSecrets(): void
+    public function repeatedRetrieveAlwaysDecryptsFromTheDatabase(): void
     {
-        $identifier = 'cache_test';
-        $secretValue = 'cache-test-value';
+        $identifier = 'no_cache_test';
+        $secretValue = 'no-cache-test-value';
 
         $subject = $this->getSubject();
         $subject->store($identifier, $secretValue);
 
-        // clearCache is implementation detail - only available on VaultService
-        if ($subject instanceof VaultService) {
-            $subject->clearCache();
-        }
-
-        // Should still be retrievable from database
-        $retrieved = $subject->retrieve($identifier);
-        self::assertEquals($secretValue, $retrieved);
+        // No plaintext cache exists: every retrieve() decrypts from the
+        // database, so repeated reads in one process stay consistent with
+        // the stored record.
+        self::assertSame($secretValue, $subject->retrieve($identifier));
+        self::assertSame($secretValue, $subject->retrieve($identifier));
     }
 
     private function getSubject(): VaultServiceInterface

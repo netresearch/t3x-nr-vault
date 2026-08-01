@@ -50,9 +50,6 @@ use TYPO3\CMS\Core\SingletonInterface;
  */
 final class VaultService implements VaultServiceInterface, SingletonInterface
 {
-    /** @var array<string, string> Request-scoped cache */
-    private array $cache = [];
-
     public function __construct(
         private readonly VaultAdapterInterface $adapter,
         private readonly EncryptionServiceInterface $encryptionService,
@@ -63,11 +60,6 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         private readonly ?EventDispatcherInterface $eventDispatcher = null,
         private readonly ?LoggerInterface $logger = null,
     ) {}
-
-    public function __destruct()
-    {
-        $this->clearCache();
-    }
 
     /**
      * @param array<string, mixed> $options
@@ -128,8 +120,6 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             }
 
             $this->dispatchStoreEvent($identifier, $secretEntity, !$existing instanceof Secret);
-
-            unset($this->cache[$identifier]);
         } finally {
             // Securely wipe the plaintext even if an exception occurred
             sodium_memzero($secret);
@@ -224,9 +214,6 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             $this->accessControlService->getCurrentActorUid(),
             $reason,
         ));
-
-        // Clear cache
-        unset($this->cache[$identifier]);
     }
 
     public function rotate(string $identifier, #[SensitiveParameter] string $newSecret, string $reason = ''): void
@@ -295,9 +282,6 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
                 $this->accessControlService->getCurrentActorUid(),
                 $reason,
             ));
-
-            // Clear cache
-            unset($this->cache[$identifier]);
         } finally {
             // Securely wipe the plaintext even if an exception occurred
             sodium_memzero($newSecret);
@@ -357,19 +341,6 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
     }
 
     /**
-     * Clear the request-scoped cache.
-     */
-    public function clearCache(): void
-    {
-        // Securely wipe cached values via reference to avoid copy-on-write
-        foreach ($this->cache as &$value) {
-            sodium_memzero($value);
-        }
-        unset($value);
-        $this->cache = [];
-    }
-
-    /**
      * The single read path shared by `retrieve()` and `retrieveForFrontend()`.
      *
      * `$enforceSecretUse` toggles ONLY the interactive-backend-user operation
@@ -382,11 +353,6 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
      */
     private function doRetrieve(string $identifier, bool $enforceSecretUse): ?string
     {
-        // Check request-scoped cache
-        if ($this->configuration->isCacheEnabled() && isset($this->cache[$identifier])) {
-            return $this->cache[$identifier];
-        }
-
         $secret = $this->adapter->retrieve($identifier);
         if (!$secret instanceof Secret) {
             return null;
@@ -444,11 +410,6 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             $this->accessControlService->getCurrentActorUid(),
             $secret->getContext(),
         ));
-
-        // Cache for this request
-        if ($this->configuration->isCacheEnabled()) {
-            $this->cache[$identifier] = $plaintext;
-        }
 
         return $plaintext;
     }
@@ -529,16 +490,12 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
                 ],
             );
 
-            unset($this->cache[$identifier]);
-
             throw new AuditWriteException(
                 $auditException->getMessage(),
                 $auditException->getCode(),
                 $revertFailure,
             );
         }
-
-        unset($this->cache[$identifier]);
 
         throw $auditException;
     }

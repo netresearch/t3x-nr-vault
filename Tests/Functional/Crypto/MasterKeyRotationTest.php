@@ -149,7 +149,6 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
         // Clear cached keys so the provider re-reads from disk
         FileMasterKeyProvider::clearCachedKey();
-        $vaultService->clearCache();
 
         // Verify all secrets are still retrievable with the new key
         foreach ($secrets as $identifier => $expectedValue) {
@@ -208,7 +207,6 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
         // Clear caches and verify both secrets are still accessible with the original key
         FileMasterKeyProvider::clearCachedKey();
-        $vaultService->clearCache();
 
         $retrieved1 = $vaultService->retrieve($identifier1);
         self::assertSame('secret-1', $retrieved1, 'First secret must remain accessible after failed rotation');
@@ -291,7 +289,6 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         // Switch to new key and verify retrieval works
         copy($newKeyPath, $this->masterKeyPath);
         FileMasterKeyProvider::clearCachedKey();
-        $vaultService->clearCache();
 
         foreach ($identifiers as $i => $identifier) {
             $retrieved = $vaultService->retrieve($identifier);
@@ -414,7 +411,6 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         // with the original key. A mix (some under new, some under old) is
         // a failure of atomicity.
         FileMasterKeyProvider::clearCachedKey();
-        $vaultService->clearCache();
 
         foreach ($seeded as $identifier => $expectedValue) {
             $retrieved = $vaultService->retrieve($identifier);
@@ -558,7 +554,6 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         self::assertIsString($this->masterKeyPath);
         copy($newKeyPath, $this->masterKeyPath);
         FileMasterKeyProvider::clearCachedKey();
-        $vaultService->clearCache();
     }
 
     /**

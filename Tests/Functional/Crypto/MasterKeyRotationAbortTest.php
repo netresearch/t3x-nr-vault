@@ -281,7 +281,6 @@ final class MasterKeyRotationAbortTest extends AbstractVaultFunctionalTestCase
     {
         FileMasterKeyProvider::clearCachedKey();
         $vaultService = $this->get(VaultServiceInterface::class);
-        $vaultService->clearCache();
 
         foreach ($seeded as $identifier => $expected) {
             if ($identifier === $sabotaged) {

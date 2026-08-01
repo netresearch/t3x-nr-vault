@@ -889,7 +889,7 @@ parameters:
 		-
 			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
 			identifier: phpunit.assertEquals
-			count: 14
+			count: 13
 			path: ../Tests/Functional/Service/VaultServiceTest.php
 
 		-

@@ -53,7 +53,6 @@ final class VaultRotateCommandTest extends AbstractVaultFunctionalTestCase
             self::assertSame(0, $exitCode, $tester->getDisplay());
 
             // Verify the secret was updated
-            $vaultService->clearCache();
             $retrieved = $vaultService->retrieve($identifier);
             self::assertSame('rotated-value', $retrieved);
         } finally {

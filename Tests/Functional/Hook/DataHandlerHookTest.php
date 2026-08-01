@@ -109,7 +109,6 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
             $dataHandler = $this->createDataHandler();
             $hook->processDatamap_afterDatabaseOperations('update', 'tx_test', 99, $fieldArray, $dataHandler);
 
-            $vaultService->clearCache();
             $retrieved = $vaultService->retrieve($vaultIdentifier);
             self::assertSame($newValue, $retrieved, 'Vault must contain rotated secret value');
         } finally {
@@ -149,7 +148,6 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
 
             $hook->processDatamap_afterDatabaseOperations('update', 'tx_test', 99, $fieldArray, $this->createDataHandler());
 
-            $vaultService->clearCache();
             $retrieved = $vaultService->retrieve($vaultIdentifier);
             self::assertSame($originalValue, $retrieved, 'Vault secret must survive an untouched save (issue #223)');
         } finally {
@@ -229,7 +227,6 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
 
             $hook->processDatamap_afterDatabaseOperations('update', 'tx_test', 99, $fieldArray, $dataHandler);
 
-            $vaultService->clearCache();
             self::assertSame(
                 $originalValue,
                 $vaultService->retrieve($vaultIdentifier),
@@ -276,7 +273,6 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
 
             $hook->processDatamap_afterDatabaseOperations('update', 'tx_test', 99, $fieldArray, $dataHandler);
 
-            $vaultService->clearCache();
             self::assertSame(
                 $newValue,
                 $vaultService->retrieve($vaultIdentifier),
@@ -336,7 +332,6 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         $hook->processCmdmap_preProcess('delete', 'tx_nrvault_hooktest2', $recordUid, null, $dataHandler, false);
 
         // Secret must be deleted
-        $vaultService->clearCache();
         $retrieved = $vaultService->retrieve($vaultIdentifier);
         self::assertNull($retrieved, 'Vault secret must be deleted when its record is deleted');
     }
