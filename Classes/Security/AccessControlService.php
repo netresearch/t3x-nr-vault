@@ -643,7 +643,10 @@ final class AccessControlService implements AccessControlServiceInterface
 
         foreach ($rows as $row) {
             $options = $row['custom_options'] ?? null;
-            if (!\is_string($options) || $options === '') {
+            if (!\is_string($options)) {
+                continue;
+            }
+            if ($options === '') {
                 continue;
             }
             if (GeneralUtility::inList($options, self::PERM_OPTION_GROUP . ':' . $permission->value)) {
