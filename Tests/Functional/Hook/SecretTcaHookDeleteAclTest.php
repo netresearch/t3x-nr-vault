@@ -37,8 +37,11 @@ final class SecretTcaHookDeleteAclTest extends AbstractVaultFunctionalTestCase
     /** Admin backend user (uid 1 in the fixture). */
     private const ADMIN_UID = 1;
 
-    /** Non-admin editor (uid 2 in the fixture). */
+    /** Non-admin editor (uid 2 in the fixture), no operation permissions. */
     private const EDITOR_UID = 2;
+
+    /** Non-admin user (uid 3) whose group grants tx_nrvault:secret.delete. */
+    private const DELETER_UID = 3;
 
     protected ?string $backendUserFixture = __DIR__ . '/Fixtures/be_users_acl.csv';
 
@@ -77,14 +80,46 @@ final class SecretTcaHookDeleteAclTest extends AbstractVaultFunctionalTestCase
     }
 
     #[Test]
-    public function nonAdminOwnerDeleteIsAllowedByVaultGate(): void
+    public function ownerWithoutDeletePermissionIsBlocked(): void
     {
+        // Separation of duties: owning the secret satisfies the per-secret
+        // tier, but without the secret.delete operation permission the delete
+        // must still be cancelled.
         $this->setUpBackendUser(self::EDITOR_UID);
         [$uid, $identifier] = $this->seedSecret(self::EDITOR_UID);
 
         $commandIsProcessed = $this->runDeleteHook($uid);
 
-        self::assertFalse($commandIsProcessed, 'The owner must not be blocked by the vault delete gate.');
+        self::assertTrue(
+            $commandIsProcessed,
+            'An owner without the secret.delete permission must be blocked (commandIsProcessed=true).',
+        );
+        self::assertSame(
+            1,
+            $this->countAudit($identifier, AuditAction::AccessDenied->value, 0),
+            'A failed access_denied audit entry must be recorded for the denied delete.',
+        );
+        self::assertSame(
+            0,
+            $this->countAudit($identifier, AuditAction::Delete->value, 1),
+            'No successful delete audit entry may be written for a denied delete.',
+        );
+    }
+
+    #[Test]
+    public function ownerWithDeletePermissionIsAllowedByVaultGate(): void
+    {
+        // Both gates hold: per-secret tier (owner) AND the secret.delete
+        // operation permission via the group custom permission option.
+        $this->setUpBackendUser(self::DELETER_UID);
+        [$uid, $identifier] = $this->seedSecret(self::DELETER_UID);
+
+        $commandIsProcessed = $this->runDeleteHook($uid);
+
+        self::assertFalse(
+            $commandIsProcessed,
+            'An owner holding secret.delete must not be blocked by the vault delete gate.',
+        );
         self::assertSame(
             1,
             $this->countAudit($identifier, AuditAction::Delete->value, 1),

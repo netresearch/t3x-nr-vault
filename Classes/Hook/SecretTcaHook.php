@@ -14,6 +14,7 @@ use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Throwable;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
@@ -301,10 +302,14 @@ final class SecretTcaHook
 
         $identifier = $secret->getIdentifier();
 
-        // Write-path authorization (CWE-862): only the owner, an admin or a
-        // system maintainer may delete a secret. A non-owner non-admin editor
-        // with generic table-modify rights must be stopped here.
-        if (!$this->accessControlService->canDelete($secret)) {
+        // Write-path authorization (CWE-862): the per-secret tier (owner /
+        // admin / system maintainer) AND the secret.delete operation
+        // permission must both hold. A non-owner non-admin editor with
+        // generic table-modify rights — or an owner lacking the delete
+        // grant — must be stopped here.
+        if (!$this->accessControlService->canDelete($secret)
+            || !$this->accessControlService->isGranted(VaultPermission::SecretDelete)
+        ) {
             $this->deniedDeletions[$uid] = true;
 
             try {
@@ -326,7 +331,7 @@ final class SecretTcaHook
                 2,
                 null,
                 1,
-                'Vault secret can only be deleted by its owner or an administrator',
+                'Vault secret deletion requires being its owner or an administrator AND holding the secret.delete permission',
             );
 
             return;
@@ -437,8 +442,14 @@ final class SecretTcaHook
         $storedOwner = is_numeric($original['owner_uid'] ?? null) ? (int) $original['owner_uid'] : 0;
         $actorUid = $this->accessControlService->getCurrentActorUid();
 
-        // The owner may freely manage their own secret's ACL.
-        if ($actorUid !== 0 && $actorUid === $storedOwner) {
+        // The owner may manage their own secret's ACL — but only while
+        // holding the secret.manage_policy operation permission (separation
+        // of duties: owning a secret and widening who may access it are
+        // different privileges). An owner without the grant falls through to
+        // the revert below, exactly like a non-owner.
+        if ($actorUid !== 0 && $actorUid === $storedOwner
+            && $this->accessControlService->isGranted(VaultPermission::SecretManagePolicy)
+        ) {
             return;
         }
 
@@ -489,7 +500,7 @@ final class SecretTcaHook
                 2,
                 null,
                 1,
-                'Vault secret ACL columns can only be changed by the secret owner or an administrator',
+                'Vault secret ACL columns can only be changed by an administrator or by the secret owner holding the secret.manage_policy permission',
             );
         }
     }
