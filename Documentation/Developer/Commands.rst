@@ -956,6 +956,14 @@ Options
    Output format: ``text`` (default) or ``json``. The JSON form carries every
    control — passing ones included — under stable ids.
 
+--active-probes
+   Additionally push the current chain-tip anchor through every enabled audit
+   sink to verify end-to-end delivery (the webhook collector must answer 2xx;
+   the file sink must actually append; syslog must accept the message). Adds
+   one ``audit.sink_probe.<sink>`` finding per enabled sink; a refused probe
+   is critical. Talks to external systems, so it is never run implicitly —
+   neither by the passive checks nor by the backend status panel.
+
 .. _command-doctor-exit-codes:
 
 Exit codes
@@ -1060,12 +1068,28 @@ audit.anchor
 
 audit.sink_delivery
    No sink refused delivery in this process. Warning with the per-sink counts
-   otherwise. Per-process by design, so zero means "not in this run".
+   otherwise. Zero means "not in this run" — the cross-process question is
+   answered by ``audit.sink_state.<sink>``.
+
+audit.sink_state.<sink>
+   One finding per enabled sink, based on the PERSISTED delivery state
+   (``sys_registry``): consecutive failures or a last successful delivery
+   older than ``auditSinkStaleDeliveryHours`` are *warning* / **critical**
+   (hardened); an enabled sink with no recorded delivery yet is *pass* /
+   *warning* (hardened). A freshly started ``vault:doctor`` can therefore no
+   longer report a collector that has been unreachable for days as healthy.
+
+audit.sink_probe.<sink>
+   Emitted only with ``--active-probes``: the current chain-tip anchor is
+   pushed through every enabled sink end-to-end (webhook: the collector must
+   answer 2xx). A refused probe is **critical** in both profiles — the sink
+   is enabled but demonstrably not accepting evidence.
 
 cli.access
-   ``allowCliAccess``. Pass when off. When on: *pass* / *warning* — deployment
-   automation legitimately needs it, but under ``hardened`` a bare CLI actor
-   cannot be attributed to a human.
+   ``allowCliAccess``. Pass when off. When on: *pass* / **critical**
+   (hardened) — deployment automation legitimately needs it under the
+   standard profile, but the hardened profile promises attributability and a
+   bare CLI actor breaks that promise.
 
 cli.access_groups
    Emitted only when CLI access is on. Warning when ``cliAccessGroups`` is empty,
@@ -1179,3 +1203,6 @@ Example
 
    # Machine-readable, for a CI gate or a monitoring probe
    vendor/bin/typo3 vault:doctor --format=json
+
+   # Verify end-to-end sink delivery (talks to the collector)
+   vendor/bin/typo3 vault:doctor --active-probes

@@ -15,6 +15,8 @@ use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
+use Netresearch\NrVault\Audit\Sink\SinkDeliveryState;
+use Netresearch\NrVault\Audit\Sink\SinkDeliveryStateRepositoryInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Configuration\SecurityProfile;
 use Netresearch\NrVault\Service\Doctor\Check\AuditCheck;
@@ -300,6 +302,96 @@ final class AuditCheckTest extends TestCase
         self::assertStringContainsString('webhook', $finding->summary);
     }
 
+    #[Test]
+    public function aFailingSinkInThePersistedStateIsCriticalUnderHardened(): void
+    {
+        $findings = $this->check(
+            sinks: ['webhook'],
+            deliveryState: $this->deliveryStateWith([
+                'webhook' => new SinkDeliveryState(
+                    sinkIdentifier: 'webhook',
+                    lastSuccessAt: time() - 600,
+                    lastFailureAt: time() - 60,
+                    consecutiveFailures: 4,
+                    totalFailures: 4,
+                    lastError: 'connection refused',
+                ),
+            ]),
+        )->run($this->doctorContext(SecurityProfile::Hardened));
+
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Critical,
+            $findings,
+            'audit.sink_state.webhook',
+        );
+        self::assertStringContainsString('connection refused', $finding->summary);
+    }
+
+    #[Test]
+    public function aStaleLastSuccessfulDeliveryIsCriticalUnderHardenedAndAWarningUnderStandard(): void
+    {
+        $staleState = $this->deliveryStateWith([
+            'file' => new SinkDeliveryState(
+                sinkIdentifier: 'file',
+                lastSuccessAt: time() - (48 * 3600),
+            ),
+        ]);
+
+        $this->assertFindingSeverity(
+            FindingSeverity::Critical,
+            $this->check(sinks: ['file'], deliveryState: $staleState)
+                ->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.sink_state.file',
+        );
+
+        $this->assertFindingSeverity(
+            FindingSeverity::Warning,
+            $this->check(sinks: ['file'], deliveryState: $staleState)
+                ->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.sink_state.file',
+        );
+    }
+
+    #[Test]
+    public function aSinkThatNeverDeliveredIsAWarningUnderHardenedOnly(): void
+    {
+        // A freshly enabled sink has no history yet — under hardened that is
+        // unproven external evidence (the remediation points at
+        // --active-probes); under standard it is normal ramp-up.
+        $pristine = $this->deliveryStateWith([]);
+
+        $hardened = $this->assertFindingSeverity(
+            FindingSeverity::Warning,
+            $this->check(sinks: ['syslog'], deliveryState: $pristine)
+                ->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.sink_state.syslog',
+        );
+        self::assertStringContainsString('--active-probes', $hardened->remediation);
+
+        $standard = $this->findingById(
+            $this->check(sinks: ['syslog'], deliveryState: $pristine)
+                ->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.sink_state.syslog',
+        );
+        self::assertTrue($standard->isPass());
+    }
+
+    #[Test]
+    public function aRecentlyDeliveringSinkPasses(): void
+    {
+        $finding = $this->findingById(
+            $this->check(
+                sinks: ['file'],
+                deliveryState: $this->deliveryStateWith([
+                    'file' => new SinkDeliveryState(sinkIdentifier: 'file', lastSuccessAt: time() - 120),
+                ]),
+            )->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.sink_state.file',
+        );
+
+        self::assertTrue($finding->isPass());
+    }
+
     /**
      * A check wired with a healthy audit configuration, overridable per test.
      *
@@ -320,10 +412,12 @@ final class AuditCheckTest extends TestCase
         ?ChainTipAnchor $anchor = null,
         bool $withoutAnchor = false,
         ?AuditLogServiceInterface $auditLogService = null,
+        ?SinkDeliveryStateRepositoryInterface $deliveryState = null,
     ): AuditCheck {
         $configuration = self::createStub(ExtensionConfigurationInterface::class);
         $configuration->method('isAuditReadsEnabled')->willReturn($auditReads);
         $configuration->method('getAuditLogRetention')->willReturn($retention);
+        $configuration->method('getAuditSinkStaleDeliveryHours')->willReturn(24);
 
         if (!$auditLogService instanceof AuditLogServiceInterface) {
             $stub = self::createStub(AuditLogServiceInterface::class);
@@ -365,6 +459,20 @@ final class AuditCheckTest extends TestCase
             $registry,
             $anchorService,
             $anchorReader,
+            $deliveryState,
         );
+    }
+
+    /**
+     * @param array<string, SinkDeliveryState> $states
+     */
+    private function deliveryStateWith(array $states): SinkDeliveryStateRepositoryInterface
+    {
+        $repository = self::createStub(SinkDeliveryStateRepositoryInterface::class);
+        $repository->method('getState')->willReturnCallback(
+            static fn (string $sink): SinkDeliveryState => $states[$sink] ?? new SinkDeliveryState(sinkIdentifier: $sink),
+        );
+
+        return $repository;
     }
 }

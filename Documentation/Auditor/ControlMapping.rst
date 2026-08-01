@@ -255,8 +255,12 @@ and Logging).*
         -   :ref:`security-audit-evidence-sinks`
 
     *   -   Availability of the audit pipeline is observable
-        -   Per-sink failure counters; ``SINK_FAILURE`` and
-            ``NO_EXTERNAL_SINK`` reason codes
+        -   Persisted per-sink delivery state (last success / last failure /
+            consecutive failures, ``sys_registry``) surfaced as
+            ``audit.sink_state.<sink>`` findings; active end-to-end
+            verification via ``vault:doctor --active-probes``
+            (``audit.sink_probe.<sink>``); process-local failure counters;
+            ``SINK_FAILURE`` and ``NO_EXTERNAL_SINK`` reason codes
         -   :ref:`operations-monitoring-counters`
 
     *   -   Machine-readable alerting

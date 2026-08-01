@@ -15,6 +15,8 @@ use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditIntegrityReason;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
+use Netresearch\NrVault\Audit\Sink\SinkDeliveryState;
+use Netresearch\NrVault\Audit\Sink\SinkDeliveryStateRepositoryInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Configuration\SecurityProfile;
 use Netresearch\NrVault\Service\Doctor\DocsLink;
@@ -63,6 +65,12 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         private AuditSinkRegistryInterface $sinkRegistry,
         private ChainTipAnchorServiceInterface $anchorService,
         private AnchorReaderInterface $anchorReader,
+        /**
+         * Persisted per-sink delivery health. Optional so pre-existing test
+         * constructions keep working; absent means the persisted-state
+         * findings are simply not emitted.
+         */
+        private ?SinkDeliveryStateRepositoryInterface $deliveryState = null,
     ) {}
 
     public function getId(): string
@@ -87,7 +95,124 @@ final readonly class AuditCheck implements ReadinessCheckInterface
             $this->checkExternalSink($context),
             $this->checkAnchor($context, $anchor, $currentSequence),
             $this->checkSinkFailures(),
+            ...$this->checkPersistedDeliveryState($context),
         ];
+    }
+
+    /**
+     * Has each enabled sink demonstrably accepted a record recently?
+     *
+     * The per-process counter below answers "did anything fail since this PHP
+     * process started" — for a freshly started `vault:doctor` that is always
+     * "no failures", which let a collector that has been unreachable for days
+     * pass the gate. This check reads the PERSISTED delivery state
+     * (sys_registry, written fail-safe by the sink registry) instead.
+     *
+     * @return list<Finding>
+     */
+    private function checkPersistedDeliveryState(DoctorContext $context): array
+    {
+        if (!$this->deliveryState instanceof SinkDeliveryStateRepositoryInterface) {
+            return [];
+        }
+
+        $findings = [];
+        $staleAfterSeconds = $this->configuration->getAuditSinkStaleDeliveryHours() * 3600;
+
+        foreach ($this->sinkRegistry->getEnabledSinkIdentifiers() as $sinkIdentifier) {
+            $findings[] = $this->deliveryFindingForSink(
+                $context,
+                $this->deliveryState->getState($sinkIdentifier),
+                $staleAfterSeconds,
+            );
+        }
+
+        return $findings;
+    }
+
+    private function deliveryFindingForSink(
+        DoctorContext $context,
+        SinkDeliveryState $state,
+        int $staleAfterSeconds,
+    ): Finding {
+        $id = 'audit.sink_state.' . $state->sinkIdentifier;
+        $details = $state->toArray();
+
+        if ($state->isFailing()) {
+            $summary = \sprintf(
+                'Audit sink "%s" is failing: %d consecutive failure(s), last error: %s',
+                $state->sinkIdentifier,
+                $state->consecutiveFailures,
+                $state->lastError !== '' ? $state->lastError : '(not recorded)',
+            );
+            $risk = 'Audit evidence is not reaching this external sink. The database copy is intact, '
+                . 'but the external witness — the part that survives a table reset — has holes, and '
+                . 'under the hardened profile the external-evidence promise is currently broken.';
+            $remediation = 'Fix the sink (unreachable collector, full disk, unwritable path — see '
+                . 'lastError), verify with vendor/bin/typo3 vault:doctor --active-probes, then '
+                . 're-anchor with vendor/bin/typo3 vault:audit-anchor.';
+
+            return $context->isHardened()
+                ? Finding::critical(id: $id, summary: $summary, risk: $risk, remediation: $remediation, docsUrl: DocsLink::AUDIT_SINKS, details: $details)
+                : Finding::warning(id: $id, summary: $summary, risk: $risk, remediation: $remediation, docsUrl: DocsLink::AUDIT_SINKS, details: $details);
+        }
+
+        if (!$state->hasEverSucceeded()) {
+            $summary = \sprintf(
+                'Audit sink "%s" is enabled but no successful delivery has been recorded yet.',
+                $state->sinkIdentifier,
+            );
+
+            if (!$context->isHardened()) {
+                return Finding::pass(
+                    id: $id,
+                    summary: $summary . ' Delivery state builds up as audit events flow.',
+                    docsUrl: DocsLink::AUDIT_SINKS,
+                    details: $details,
+                );
+            }
+
+            return Finding::warning(
+                id: $id,
+                summary: $summary,
+                risk: 'The sink is configured but has never demonstrably accepted a record — external '
+                    . 'evidence is assumed, not proven.',
+                remediation: 'Run vendor/bin/typo3 vault:doctor --active-probes to push a chain-tip '
+                    . 'anchor through every enabled sink and confirm end-to-end delivery.',
+                docsUrl: DocsLink::AUDIT_SINKS,
+                details: $details,
+            );
+        }
+
+        $age = max(0, time() - $state->lastSuccessAt);
+        if ($age > $staleAfterSeconds) {
+            $summary = \sprintf(
+                'Audit sink "%s": last successful delivery is %d hour(s) old (threshold: %d).',
+                $state->sinkIdentifier,
+                intdiv($age, 3600),
+                intdiv($staleAfterSeconds, 3600),
+            );
+            $risk = 'No record has demonstrably reached this sink within the configured window. Either '
+                . 'no audit events occurred — or evidence has silently stopped flowing.';
+            $remediation = 'Verify end-to-end delivery with vendor/bin/typo3 vault:doctor '
+                . '--active-probes; if the probe fails, fix the sink and re-anchor. Adjust '
+                . '"auditSinkStaleDeliveryHours" if the installation is genuinely this quiet.';
+
+            return $context->isHardened()
+                ? Finding::critical(id: $id, summary: $summary, risk: $risk, remediation: $remediation, docsUrl: DocsLink::AUDIT_SINKS, details: $details)
+                : Finding::warning(id: $id, summary: $summary, risk: $risk, remediation: $remediation, docsUrl: DocsLink::AUDIT_SINKS, details: $details);
+        }
+
+        return Finding::pass(
+            id: $id,
+            summary: \sprintf(
+                'Audit sink "%s" last accepted a record %d minute(s) ago.',
+                $state->sinkIdentifier,
+                intdiv($age, 60),
+            ),
+            docsUrl: DocsLink::AUDIT_SINKS,
+            details: $details,
+        );
     }
 
     /**
@@ -391,10 +516,11 @@ final readonly class AuditCheck implements ReadinessCheckInterface
     /**
      * Did any sink refuse delivery in this process?
      *
-     * Per-process by design (persisting the counter would mean writing to the
-     * storage a sink failure may indicate is broken), so a zero here means "not
-     * in this run", not "never". It still catches the common case: a wrong
-     * webhook URL or an unwritable log path fails on the very first dispatch.
+     * A zero here means "not in this run", not "never" — the persisted state
+     * above ({@see self::checkPersistedDeliveryState()}) answers the
+     * cross-process question. This process-local view still catches the
+     * common case cheaply: a wrong webhook URL or an unwritable log path
+     * fails on the very first dispatch of the current run.
      */
     private function checkSinkFailures(): Finding
     {

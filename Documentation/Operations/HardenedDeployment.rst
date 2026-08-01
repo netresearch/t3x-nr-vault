@@ -369,8 +369,10 @@ configuration is coherent; these steps say the deployment works.
 *   [ ] ``vault:audit-verify`` reports a valid chain and no findings.
 *   [ ] An anchor exists and is recent — check the newest ``timestamp`` in the
       anchor file.
-*   [ ] Records actually arrive at the collector: perform a reveal, then look
-      for it in syslog or the SIEM. Do not infer delivery from the absence of
+*   [ ] Records actually arrive at the collector: run
+      :bash:`vault:doctor --active-probes` (every enabled sink must accept
+      the chain-tip anchor end-to-end), then perform a reveal and look for it
+      in syslog or the SIEM. Do not infer delivery from the absence of
       errors.
 *   [ ] Break the delivery on purpose once (point the webhook at an
       unreachable host, or make the NDJSON directory read-only), confirm a

@@ -79,6 +79,14 @@ final class VaultDoctorCommand extends Command
                 InputOption::VALUE_REQUIRED,
                 'Output format: text (default) or json',
                 'text',
+            )
+            ->addOption(
+                'active-probes',
+                null,
+                InputOption::VALUE_NONE,
+                'Additionally push the current chain-tip anchor through every enabled audit sink '
+                . 'to verify end-to-end delivery (webhook: the collector must answer 2xx). '
+                . 'Talks to external systems; not run by the passive checks or the status panel.',
             );
     }
 
@@ -102,7 +110,7 @@ final class VaultDoctorCommand extends Command
         }
 
         try {
-            $report = $this->doctor->run($targetProfile);
+            $report = $this->doctor->run($targetProfile, (bool) $input->getOption('active-probes'));
         } catch (Throwable $e) {
             // A gate that cannot run must never look like a gate that found
             // nothing — same stance as vault:audit-verify.

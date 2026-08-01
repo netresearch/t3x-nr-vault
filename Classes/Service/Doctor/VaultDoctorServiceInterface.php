@@ -27,6 +27,10 @@ interface VaultDoctorServiceInterface
      *                                            uses the configured profile
      *                                            ("is this deployment ready for
      *                                            what it claims to be?")
+     * @param bool $activeProbes Perform active end-to-end probes (deliver a
+     *                           test record through every enabled audit sink).
+     *                           Reserved for explicit CLI invocations — the
+     *                           backend status panel must stay passive.
      */
-    public function run(?SecurityProfile $targetProfile = null): DoctorReport;
+    public function run(?SecurityProfile $targetProfile = null, bool $activeProbes = false): DoctorReport;
 }
