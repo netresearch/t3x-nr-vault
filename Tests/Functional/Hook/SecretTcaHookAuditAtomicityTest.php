@@ -136,9 +136,12 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
         self::assertIsNumeric($recordUid);
         self::assertGreaterThan(0, (int) $recordUid);
 
+        // assertSame([], ...) prints the offending entries itself on failure
+        // (and sidesteps the v13 core stub typing errorLog as plain `array`,
+        // which rejects implode()).
         /** @phpstan-ignore property.internal */
         $errorLog = $dataHandler->errorLog;
-        self::assertEmpty($errorLog, 'Seeding must succeed: ' . implode(', ', $errorLog));
+        self::assertSame([], $errorLog, 'Seeding must succeed without DataHandler errors.');
 
         return (int) $recordUid;
     }
