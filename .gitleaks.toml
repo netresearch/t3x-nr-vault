@@ -7,6 +7,8 @@ paths = [
     '''Tests/Unit/Service/SecretDetectionServiceTest\.php''',
     '''Tests/Unit/Crypto/EnvironmentMasterKeyProviderTest\.php''',
     '''Tests/Fuzz/.*\.php''',
+    '''Tests/Unit/Secret/SecretRedactorTest\.php''',
+    '''Tests/Unit/Command/VaultMigrateFieldCommandTest\.php''',
     '''docs/implementation-plan\.md''',
     '''\.php-cs-fixer\.cache''',
     '''\.ddev/docker-compose\..*\.yaml''',
