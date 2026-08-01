@@ -19,9 +19,15 @@ use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Doctrine\DBAL\Result;
 use PHPUnit\Framework\MockObject\MockObject;
+use RuntimeException;
 use TYPO3\CMS\Core\Authentication\CommandLineUserAuthentication;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
+use TYPO3\CMS\Core\Database\Query\QueryBuilder;
+use TYPO3\CMS\Core\Database\Query\Restriction\DefaultRestrictionContainer;
 use TYPO3\CMS\Core\Http\ServerRequest;
 
 /**
@@ -249,7 +255,98 @@ final class AccessControlServiceIsGrantedTest extends TestCase
         $GLOBALS['TYPO3_REQUEST'] = $request->withAttribute('applicationType', $frontendType);
     }
 
-    private function createSubjectWithTechnicalActor(bool $admin): AccessControlService
+    #[Test]
+    public function technicalActorAlwaysHoldsSecretUse(): void
+    {
+        // Headless consumption is the purpose of a technical actor; the
+        // implicit grant must not depend on any group or database state.
+        $subject = $this->createSubjectWithTechnicalActor(admin: false);
+
+        self::assertTrue($subject->isGranted(VaultPermission::SecretUse));
+    }
+
+    #[Test]
+    public function technicalActorGainsOperationsGrantedByItsGroups(): void
+    {
+        $subject = $this->createSubjectWithTechnicalActor(
+            admin: false,
+            groupRows: [['uid' => 5, 'custom_options' => 'tx_nrvault:secret.create,tx_nrvault:secret.rotate']],
+        );
+
+        self::assertTrue($subject->isGranted(VaultPermission::SecretCreate));
+        self::assertTrue($subject->isGranted(VaultPermission::SecretRotate));
+        self::assertFalse($subject->isGranted(VaultPermission::SecretDelete), 'not granted by the group');
+        self::assertFalse($subject->isGranted(VaultPermission::SecretReveal), 'never implicit');
+    }
+
+    #[Test]
+    public function technicalActorWithoutMatchingGroupOptionsIsDenied(): void
+    {
+        $subject = $this->createSubjectWithTechnicalActor(
+            admin: false,
+            groupRows: [['uid' => 5, 'custom_options' => '']],
+        );
+
+        self::assertFalse($subject->isGranted(VaultPermission::SecretCreate));
+    }
+
+    #[Test]
+    public function technicalActorGrantFailsClosedWithoutAConnectionPool(): void
+    {
+        // Bare construction (no pool): the group grants cannot be resolved,
+        // so everything except the implicit secret.use is denied.
+        $subject = $this->createSubjectWithTechnicalActor(admin: false);
+
+        self::assertFalse($subject->isGranted(VaultPermission::SecretCreate));
+        self::assertFalse($subject->isGranted(VaultPermission::MasterKeyRotate));
+    }
+
+    #[Test]
+    public function technicalActorGrantFailsClosedOnADatabaseError(): void
+    {
+        $context = $this->createMock(TechnicalActorContextInterface::class);
+        $context->method('getCurrentActor')->willReturn(new TechnicalActor(
+            uid: 10,
+            username: 'tech_indexer',
+            admin: false,
+            groupIds: [5],
+        ));
+
+        $connectionPool = $this->createMock(ConnectionPool::class);
+        $connectionPool->method('getQueryBuilderForTable')
+            ->willThrowException(new RuntimeException('database gone'));
+
+        $subject = new AccessControlService($this->configuration, $connectionPool, $context);
+
+        self::assertFalse($subject->isGranted(VaultPermission::SecretCreate));
+        self::assertTrue($subject->isGranted(VaultPermission::SecretUse), 'implicit grant needs no DB');
+    }
+
+    #[Test]
+    public function technicalActorWithoutGroupsIsDeniedWithoutQuerying(): void
+    {
+        $context = $this->createMock(TechnicalActorContextInterface::class);
+        $context->method('getCurrentActor')->willReturn(new TechnicalActor(
+            uid: 10,
+            username: 'tech_loner',
+            admin: false,
+            groupIds: [],
+        ));
+
+        $connectionPool = $this->createMock(ConnectionPool::class);
+
+        $subject = new AccessControlService($this->configuration, $connectionPool, $context);
+
+        self::assertFalse($subject->isGranted(VaultPermission::SecretCreate));
+    }
+
+    /**
+     * @param list<array{uid: int, custom_options: string}>|null $groupRows
+     *        be_groups rows the mocked pool returns; the same rows serve the
+     *        existing-uid filter (reads `uid`) and the custom-options grant
+     *        lookup (reads `custom_options`). null = no ConnectionPool.
+     */
+    private function createSubjectWithTechnicalActor(bool $admin, ?array $groupRows = null): AccessControlService
     {
         $context = $this->createMock(TechnicalActorContextInterface::class);
         $context
@@ -261,6 +358,30 @@ final class AccessControlServiceIsGrantedTest extends TestCase
                 groupIds: [5],
             ));
 
-        return new AccessControlService($this->configuration, null, $context);
+        $connectionPool = null;
+        if ($groupRows !== null) {
+            $result = $this->createMock(Result::class);
+            $result->method('fetchAllAssociative')->willReturn($groupRows);
+
+            $expressionBuilder = $this->createMock(ExpressionBuilder::class);
+            $expressionBuilder->method('eq')->willReturn('deleted = 0');
+            $expressionBuilder->method('in')->willReturn('uid IN (:dcValue1)');
+
+            $queryBuilder = $this->createMock(QueryBuilder::class);
+            $queryBuilder->method('getRestrictions')->willReturn($this->createMock(DefaultRestrictionContainer::class));
+            $queryBuilder->method('select')->willReturnSelf();
+            $queryBuilder->method('from')->willReturnSelf();
+            $queryBuilder->method('where')->willReturnSelf();
+            $queryBuilder->method('expr')->willReturn($expressionBuilder);
+            $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
+            $queryBuilder->method('executeQuery')->willReturn($result);
+
+            $connectionPool = $this->createMock(ConnectionPool::class);
+            $connectionPool
+                ->method('getQueryBuilderForTable')
+                ->willReturn($queryBuilder);
+        }
+
+        return new AccessControlService($this->configuration, $connectionPool, $context);
     }
 }

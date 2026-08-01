@@ -476,7 +476,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         file_put_contents($key1Path, sodium_crypto_secretbox_keygen());
 
         $this->runRotationCommand($commandTester, $key1Path);
-        $this->switchMasterKeyFile($key1Path, $vaultService);
+        $this->switchMasterKeyFile($key1Path);
 
         foreach ($secrets as $identifier => $expectedValue) {
             self::assertSame(
@@ -496,7 +496,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         file_put_contents($key2Path, sodium_crypto_secretbox_keygen());
 
         $this->runRotationCommand($commandTester, $key2Path);
-        $this->switchMasterKeyFile($key2Path, $vaultService);
+        $this->switchMasterKeyFile($key2Path);
 
         foreach ($secrets as $identifier => $expectedValue) {
             self::assertSame(
@@ -547,9 +547,9 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
     /**
      * Make the rotated key the configured one, as the operator does after
-     * the command: replace the key file and drop all caches.
+     * the command: replace the key file and drop the cached key.
      */
-    private function switchMasterKeyFile(string $newKeyPath, VaultServiceInterface $vaultService): void
+    private function switchMasterKeyFile(string $newKeyPath): void
     {
         self::assertIsString($this->masterKeyPath);
         copy($newKeyPath, $this->masterKeyPath);
