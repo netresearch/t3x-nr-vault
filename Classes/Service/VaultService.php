@@ -48,17 +48,17 @@ use TYPO3\CMS\Core\SingletonInterface;
 /**
  * Main vault service implementation.
  */
-final class VaultService implements VaultServiceInterface, SingletonInterface
+final readonly class VaultService implements VaultServiceInterface, SingletonInterface
 {
     public function __construct(
-        private readonly VaultAdapterInterface $adapter,
-        private readonly EncryptionServiceInterface $encryptionService,
-        private readonly AccessControlServiceInterface $accessControlService,
-        private readonly AuditLogServiceInterface $auditLogService,
-        private readonly ExtensionConfigurationInterface $configuration,
-        private readonly VaultHttpClientFactoryInterface $httpClientFactory,
-        private readonly ?EventDispatcherInterface $eventDispatcher = null,
-        private readonly ?LoggerInterface $logger = null,
+        private VaultAdapterInterface $adapter,
+        private EncryptionServiceInterface $encryptionService,
+        private AccessControlServiceInterface $accessControlService,
+        private AuditLogServiceInterface $auditLogService,
+        private ExtensionConfigurationInterface $configuration,
+        private VaultHttpClientFactoryInterface $httpClientFactory,
+        private ?EventDispatcherInterface $eventDispatcher = null,
+        private ?LoggerInterface $logger = null,
     ) {}
 
     /**
