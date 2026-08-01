@@ -110,16 +110,20 @@ final class SecretTcaHookDeleteAclTest extends AbstractVaultFunctionalTestCase
     public function ownerWithDeletePermissionIsAllowedByVaultGate(): void
     {
         // Both gates hold: per-secret tier (owner) AND the secret.delete
-        // operation permission via the group custom permission option.
+        // operation permission via the group custom permission option. The
+        // delete runs THROUGH VaultService (audit with compensating
+        // rollback), so the hook marks the command processed and core's own
+        // deleteAction is skipped.
         $this->setUpBackendUser(self::DELETER_UID);
         [$uid, $identifier] = $this->seedSecret(self::DELETER_UID);
 
         $commandIsProcessed = $this->runDeleteHook($uid);
 
-        self::assertFalse(
+        self::assertTrue(
             $commandIsProcessed,
-            'An owner holding secret.delete must not be blocked by the vault delete gate.',
+            'The service-performed delete must mark the command processed (core skips deleteAction).',
         );
+        self::assertSame(1, $this->readDeletedFlag($uid), 'The record must be soft-deleted by the service.');
         self::assertSame(
             1,
             $this->countAudit($identifier, AuditAction::Delete->value, 1),
@@ -135,7 +139,11 @@ final class SecretTcaHookDeleteAclTest extends AbstractVaultFunctionalTestCase
 
         $commandIsProcessed = $this->runDeleteHook($uid);
 
-        self::assertFalse($commandIsProcessed, 'An admin must not be blocked by the vault delete gate.');
+        self::assertTrue(
+            $commandIsProcessed,
+            'The service-performed delete must mark the command processed (core skips deleteAction).',
+        );
+        self::assertSame(1, $this->readDeletedFlag($uid), 'The record must be soft-deleted by the service.');
         self::assertSame(
             1,
             $this->countAudit($identifier, AuditAction::Delete->value, 1),
@@ -181,6 +189,20 @@ final class SecretTcaHookDeleteAclTest extends AbstractVaultFunctionalTestCase
         ]);
 
         return [(int) $connection->lastInsertId(), $identifier];
+    }
+
+    private function readDeletedFlag(int $uid): int
+    {
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable(self::SECRET_TABLE);
+        $queryBuilder->getRestrictions()->removeAll();
+        $deleted = $queryBuilder
+            ->select('deleted')
+            ->from(self::SECRET_TABLE)
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
+            ->executeQuery()
+            ->fetchOne();
+
+        return is_numeric($deleted) ? (int) $deleted : -1;
     }
 
     private function countAudit(string $identifier, string $action, int $success): int

@@ -76,17 +76,28 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
             $this->assertWritePermission($identifier, $existing);
 
+            // A record that exists but carries no encrypted value is a
+            // creation in progress, not a rotation target: the FormEngine
+            // path inserts the tx_nrvault_secret row first (DataHandler) and
+            // hands the value to store() afterwards. Classify by the VALUE,
+            // so that path faces secret.create — like the module controller —
+            // and is audited as the creation it is.
+            $isCreation = !$existing instanceof Secret
+                || ($existing->getEncryptedValue() ?? '') === '';
+
             // Separation of duties: the per-secret ACL above answers "may this
             // actor touch THIS secret", the operation permission answers "may
             // this actor perform this KIND of operation at all". Both gates
             // must pass at this business boundary — controller checks are UX,
             // not the security boundary (a DataHandler request or programmatic
             // caller never passes through them).
-            if ($existing instanceof Secret) {
-                $this->assertOperationGranted(VaultPermission::SecretRotate, $identifier, 'Update');
-                $this->assertPolicyChangeGranted($identifier, $options, $existing);
-            } else {
+            if ($isCreation) {
                 $this->assertOperationGranted(VaultPermission::SecretCreate, $identifier, 'Create');
+            } else {
+                $this->assertOperationGranted(VaultPermission::SecretRotate, $identifier, 'Update');
+            }
+            if ($existing instanceof Secret && !$isCreation) {
+                $this->assertPolicyChangeGranted($identifier, $options, $existing);
             }
 
             $encrypted = $this->encryptionService->encrypt($secret, $identifier);
@@ -109,7 +120,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             try {
                 $this->auditLogService->log(
                     $identifier,
-                    $existing instanceof Secret ? AuditAction::Update->value : AuditAction::Create->value,
+                    $isCreation ? AuditAction::Create->value : AuditAction::Update->value,
                     true,
                     null,
                     null,
@@ -132,7 +143,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
                 );
             }
 
-            $this->dispatchStoreEvent($identifier, $secretEntity, !$existing instanceof Secret);
+            $this->dispatchStoreEvent($identifier, $secretEntity, $isCreation);
         } finally {
             // Securely wipe the plaintext even if an exception occurred
             sodium_memzero($secret);
@@ -523,7 +534,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
      */
     private function assertPolicyChangeGranted(string $identifier, array $options, Secret $existing): void
     {
-        $optional = $this->collectOptionalFields($options);
+        $optional = $this->collectOptionalFields($options, $existing);
 
         $ownerChanges = $this->resolveOwnerUid($options, $existing) !== $existing->getOwnerUid();
         $frontendChanges = $this->resolveFrontendAccessible($optional['frontendAccessible'], $existing)
@@ -617,7 +628,16 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
      * Assemble the `Secret` aggregate from the encryption output + options.
      *
      * `$existing === null` → create path (new entity, new crdate/cruserId).
-     * `$existing !== null` → update path (preserve uid/crdate/version).
+     * `$existing !== null` → update path (preserve uid/crdate/version — and
+     * every metadata field the caller did NOT explicitly submit). The
+     * preserve semantics matter twice over: the FormEngine path persists the
+     * metadata columns via DataHandler BEFORE handing the value to store(),
+     * so replace-with-defaults would wipe what the editor just entered; and
+     * a programmatic `store('id', $value)` on an existing secret must not
+     * silently reset description, ACL group tiers, write_groups, expiry or
+     * frontend availability — those are policy fields whose CHANGE is gated
+     * by secret.manage_policy, so an accidental reset is a policy change
+     * without its permission.
      *
      * @param array<string, mixed> $options
      */
@@ -627,7 +647,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         array $options,
         ?Secret $existing,
     ): Secret {
-        $optional = $this->collectOptionalFields($options);
+        $optional = $this->collectOptionalFields($options, $existing);
 
         return new Secret(
             identifier: $identifier,
@@ -643,6 +663,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             valueChecksum: $encrypted->valueChecksum,
             ownerUid: $this->resolveOwnerUid($options, $existing),
             allowedGroups: $optional['allowedGroups'],
+            writeGroups: $existing instanceof Secret ? $existing->getWriteGroups() : [],
             context: $optional['context'],
             frontendAccessible: $this->resolveFrontendAccessible($optional['frontendAccessible'], $existing),
             version: $existing instanceof Secret ? $existing->getVersion() : 1,
@@ -708,10 +729,10 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
     /**
      * Collect the value-type-flexible options from the `store($options)`
-     * array into a typed bundle. Each option is defensively coerced to
-     * its expected type; options not supplied get the Secret-default
-     * value (matching the previous mutator-based behaviour where unset
-     * options left the constructed entity at its default).
+     * array into a typed bundle. Each option is defensively coerced to its
+     * expected type. An option NOT supplied keeps the existing secret's
+     * value on update (preserve semantics — see buildSecretEntity()) and
+     * gets the Secret-default value on create.
      *
      * @param array<string, mixed> $options
      *
@@ -725,21 +746,33 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
      *     metadata: array<string, mixed>,
      * }
      */
-    private function collectOptionalFields(array $options): array
+    private function collectOptionalFields(array $options, ?Secret $existing): array
     {
-        $metadata = [];
+        $metadata = $existing?->getMetadata() ?? [];
         if (isset($options['metadata'])) {
             /** @var array<string, mixed> $metadata */
             $metadata = (array) $options['metadata'];
         }
 
         return [
-            'scopePid' => (isset($options['scopePid']) && is_numeric($options['scopePid'])) ? (int) $options['scopePid'] : 0,
-            'description' => isset($options['description']) ? $this->coerceToString($options['description']) : '',
-            'allowedGroups' => isset($options['groups']) ? $this->coerceGroupList($options['groups']) : [],
-            'context' => isset($options['context']) ? $this->coerceToString($options['context']) : '',
-            'frontendAccessible' => isset($options['frontendAccessible']) && (bool) $options['frontendAccessible'],
-            'expiresAt' => isset($options['expiresAt']) ? $this->coerceTimestamp($options['expiresAt']) : 0,
+            'scopePid' => (isset($options['scopePid']) && is_numeric($options['scopePid']))
+                ? (int) $options['scopePid']
+                : ($existing?->getScopePid() ?? 0),
+            'description' => isset($options['description'])
+                ? $this->coerceToString($options['description'])
+                : ($existing?->getDescription() ?? ''),
+            'allowedGroups' => isset($options['groups'])
+                ? $this->coerceGroupList($options['groups'])
+                : array_values($existing?->getAllowedGroups() ?? []),
+            'context' => isset($options['context'])
+                ? $this->coerceToString($options['context'])
+                : ($existing?->getContext() ?? ''),
+            'frontendAccessible' => isset($options['frontendAccessible'])
+                ? (bool) $options['frontendAccessible']
+                : ($existing instanceof Secret && $existing->isFrontendAccessible()),
+            'expiresAt' => isset($options['expiresAt'])
+                ? $this->coerceTimestamp($options['expiresAt'])
+                : ($existing?->getExpiresAt() ?? 0),
             'metadata' => $metadata,
         ];
     }

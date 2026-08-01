@@ -45,6 +45,18 @@ final class DataHandlerHook
     /** @var array<string, list<string>> Per-table cache of vault field names */
     private array $vaultFieldCache = [];
 
+    /**
+     * Record deletes (keyed by table) whose vault-secret cleanup failed in
+     * processCmdmap_preProcess() and that must therefore be cancelled in
+     * processCmdmap(): deleting the record while its secret survives would
+     * orphan the secret AND hide the failed (possibly denied) vault delete
+     * behind an apparently successful record removal. Entries are consumed
+     * when the cancel is applied.
+     *
+     * @var array<string, array<int, true>>
+     */
+    private array $deniedDeletions = [];
+
     public function __construct(
         private readonly ConnectionPool $connectionPool,
         private readonly VaultServiceInterface $vaultService,
@@ -252,6 +264,12 @@ final class DataHandlerHook
                     'operation' => 'delete',
                 ]);
 
+                // Fail closed: if the secret cannot be deleted (denied, audit
+                // write failed, vault error), the record delete is cancelled
+                // in processCmdmap() — otherwise the record removal would
+                // orphan the secret and mask the failure.
+                $this->deniedDeletions[$table][(int) $id] = true;
+
                 /** @phpstan-ignore method.internal */
                 $dataHandler->log(
                     $table,
@@ -259,9 +277,36 @@ final class DataHandlerHook
                     3,
                     null,
                     1,
-                    'Vault error during delete for field "' . $fieldName . '": ' . $userMessage,
+                    'Vault error during delete for field "' . $fieldName . '": ' . $userMessage
+                    . ' The record was preserved.',
                 );
             }
+        }
+    }
+
+    /**
+     * Cancels a record delete whose vault-secret cleanup failed in
+     * processCmdmap_preProcess(). Setting $commandIsProcessed = true makes
+     * core skip its own deleteAction() (DataHandler runs this hook before the
+     * command switch), so the record survives together with its secret.
+     */
+    public function processCmdmap(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
+        string $command,
+        string $table,
+        string|int $id,
+        mixed $value,
+        bool &$commandIsProcessed,
+        DataHandler $dataHandler,
+        mixed $pasteUpdate,
+    ): void {
+        if ($command !== 'delete') {
+            return;
+        }
+
+        $uid = is_numeric($id) ? (int) $id : 0;
+        if (($this->deniedDeletions[$table][$uid] ?? false) === true) {
+            unset($this->deniedDeletions[$table][$uid]);
+            $commandIsProcessed = true;
         }
     }
 
