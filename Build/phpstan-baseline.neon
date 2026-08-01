@@ -1219,7 +1219,7 @@ parameters:
 		-
 			rawMessage: 'Cannot call method method() on PHPUnit\Framework\MockObject\MockObject|null.'
 			identifier: method.nonObject
-			count: 160
+			count: 161
 			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
 
 		-
