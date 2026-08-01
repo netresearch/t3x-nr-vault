@@ -86,10 +86,6 @@ final class VaultServiceTest extends TestCase
             ->method('canCreate')
             ->willReturn(true);
 
-        $this->configuration
-            ->method('isCacheEnabled')
-            ->willReturn(false);
-
         $this->subject = new VaultService(
             $this->adapter,
             $this->encryptionService,
@@ -812,14 +808,6 @@ final class VaultServiceTest extends TestCase
     }
 
     #[Test]
-    public function clearCacheClearsInternalCache(): void
-    {
-        // This test verifies clearCache doesn't throw
-        $this->subject->clearCache();
-        $this->expectNotToPerformAssertions();
-    }
-
-    #[Test]
     public function storeWithAllOptions(): void
     {
         $identifier = 'fullOptions';
@@ -954,22 +942,42 @@ final class VaultServiceTest extends TestCase
     }
 
     #[Test]
-    public function retrieveWithCacheEnabled(): void
+    public function retrieveNeverCachesPlaintextAcrossCalls(): void
     {
-        // Create service with cache enabled
-        $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
-        $this->configuration->method('isCacheEnabled')->willReturn(true);
+        // Security invariant: there is NO plaintext cache. Every retrieve()
+        // must re-load the record, re-run the ACL decision and re-decrypt —
+        // a cached plaintext handed to a later caller would bypass
+        // authorization, expiry and the audit trail (cross-actor leak in
+        // long-running worker processes).
+        $secret = $this->createSecretEntity('uncached');
 
-        $subject = new VaultService(
-            $this->adapter,
-            $this->encryptionService,
-            $this->accessControlService,
-            $this->auditLogService,
-            $this->configuration,
-            $this->httpClientFactory,
-        );
+        $this->adapter
+            ->expects(self::exactly(2))
+            ->method('retrieve')
+            ->willReturn($secret);
 
-        $secret = $this->createSecretEntity('cached');
+        $this->accessControlService
+            ->expects(self::exactly(2))
+            ->method('canRead')
+            ->willReturn(true);
+
+        $this->encryptionService
+            ->expects(self::exactly(2))
+            ->method('decrypt')
+            ->willReturn('plain-value');
+
+        self::assertSame('plain-value', $this->subject->retrieve('uncached'));
+        self::assertSame('plain-value', $this->subject->retrieve('uncached'));
+    }
+
+    #[Test]
+    public function retrieveDeniesSecondCallWhenAclRevokedBetweenReads(): void
+    {
+        // The cross-actor regression: actor A reads the secret, then the ACL
+        // decision changes (e.g. a technical-actor switch in the same
+        // process). The second retrieve() must be denied — never served from
+        // a previous caller's plaintext.
+        $secret = $this->createSecretEntity('switched');
 
         $this->adapter
             ->method('retrieve')
@@ -977,20 +985,23 @@ final class VaultServiceTest extends TestCase
 
         $this->accessControlService
             ->method('canRead')
-            ->willReturn(true);
+            ->willReturnOnConsecutiveCalls(true, false);
 
         $this->encryptionService
-            ->expects(self::once()) // Only once due to caching
+            ->expects(self::once())
             ->method('decrypt')
-            ->willReturn('cached-value');
+            ->willReturn('plain-value');
 
-        // First call - should decrypt
-        $result1 = $subject->retrieve('cached');
-        // Second call - should use cache
-        $result2 = $subject->retrieve('cached');
+        self::assertSame('plain-value', $this->subject->retrieve('switched'));
 
-        self::assertSame('cached-value', $result1);
-        self::assertSame('cached-value', $result2);
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('switched', 'access_denied', false, 'Read access denied');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $this->subject->retrieve('switched');
     }
 
     #[Test]
@@ -1049,51 +1060,6 @@ final class VaultServiceTest extends TestCase
         $this->expectException(AccessDeniedException::class);
 
         $this->subject->rotate('protected', 'newValue');
-    }
-
-    #[Test]
-    public function clearCacheWipesSecureMemory(): void
-    {
-        // Enable cache for this test
-        $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
-        $this->configuration->method('isCacheEnabled')->willReturn(true);
-
-        $subject = new VaultService(
-            $this->adapter,
-            $this->encryptionService,
-            $this->accessControlService,
-            $this->auditLogService,
-            $this->configuration,
-            $this->httpClientFactory,
-        );
-
-        $secret = $this->createSecretEntity('cached');
-
-        $this->adapter
-            ->method('retrieve')
-            ->willReturn($secret);
-
-        $this->accessControlService
-            ->method('canRead')
-            ->willReturn(true);
-
-        $this->encryptionService
-            ->method('decrypt')
-            ->willReturn('secret-value');
-
-        // First retrieve to populate cache
-        $subject->retrieve('cached');
-
-        // Clear cache should not throw
-        $subject->clearCache();
-
-        // Verify by retrieving again - should call decrypt again
-        $this->encryptionService
-            ->expects(self::once())
-            ->method('decrypt')
-            ->willReturn('secret-value');
-
-        $subject->retrieve('cached');
     }
 
     #[Test]

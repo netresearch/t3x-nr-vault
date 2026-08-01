@@ -93,7 +93,6 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
         self::assertTrue($result, $result ? 'ok' : 'Task execution failed');
 
         // The orphan should be deleted
-        $vaultService->clearCache();
         $retrieved = $vaultService->retrieve($identifier);
         self::assertNull($retrieved, 'Orphaned secret must be deleted after cleanup task runs');
     }
@@ -114,7 +113,6 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
         $task->execute();
 
         // Non-TCA secrets must not be deleted
-        $vaultService->clearCache();
         $retrieved = $vaultService->retrieve($identifier);
         self::assertSame('nonorphan_value', $retrieved, 'Non-orphaned secrets must not be deleted');
 
@@ -146,7 +144,6 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
         $task->execute();
 
         // Secret must still exist (within retention period)
-        $vaultService->clearCache();
         $retrieved = $vaultService->retrieve($identifier);
         self::assertSame(
             'freshorphan_value',

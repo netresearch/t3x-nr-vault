@@ -1,0 +1,4 @@
+"be_users",,,,,,,,
+,"uid","pid","tstamp","username","password","admin","disable","usergroup"
+,10,0,1700000000,"tech_owner","",0,0,""
+,13,0,1700000000,"tech_other","",0,0,""

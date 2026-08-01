@@ -116,7 +116,6 @@ VaultServiceInterface::delete(string $identifier, string $reason = ''): void
 VaultServiceInterface::rotate(string $identifier, string $newSecret, string $reason = ''): void
 VaultServiceInterface::list(?string $pattern = null): array
 VaultServiceInterface::getMetadata(string $identifier): SecretDetails
-VaultServiceInterface::clearCache(): void
 VaultServiceInterface::http(): VaultHttpClientInterface
 
 // Encryption — Classes/Crypto/EncryptionServiceInterface.php

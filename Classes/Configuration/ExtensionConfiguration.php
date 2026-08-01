@@ -35,8 +35,6 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
 
     public const DEFAULT_ALLOW_CLI_ACCESS = false;
 
-    public const DEFAULT_CACHE_ENABLED = true;
-
     public const DEFAULT_AUDIT_READS = true;
 
     public const DEFAULT_DISABLE_ADMIN_OVERRIDE = false;
@@ -197,14 +195,6 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         }
 
         return [];
-    }
-
-    /**
-     * Check if request-scoped caching is enabled.
-     */
-    public function isCacheEnabled(): bool
-    {
-        return (bool) ($this->configuration['cacheEnabled'] ?? self::DEFAULT_CACHE_ENABLED);
     }
 
     /**

@@ -182,30 +182,6 @@ final class ExtensionConfigurationTest extends TestCase
     }
 
     #[Test]
-    public function isCacheEnabledReturnsTrueByDefault(): void
-    {
-        $this->typo3Config->method('get')
-            ->with('nr_vault')
-            ->willReturn([]);
-
-        $config = new ExtensionConfiguration($this->typo3Config);
-
-        self::assertTrue($config->isCacheEnabled());
-    }
-
-    #[Test]
-    public function isCacheEnabledReturnsFalseWhenDisabled(): void
-    {
-        $this->typo3Config->method('get')
-            ->with('nr_vault')
-            ->willReturn(['cacheEnabled' => false]);
-
-        $config = new ExtensionConfiguration($this->typo3Config);
-
-        self::assertFalse($config->isCacheEnabled());
-    }
-
-    #[Test]
     public function isAuditReadsEnabledReturnsTrueByDefault(): void
     {
         $this->typo3Config->method('get')

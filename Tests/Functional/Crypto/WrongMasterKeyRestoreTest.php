@@ -213,7 +213,6 @@ final class WrongMasterKeyRestoreTest extends AbstractVaultFunctionalTestCase
         chmod($this->masterKeyPath, 0o600);
 
         FileMasterKeyProvider::clearCachedKey();
-        $this->get(VaultServiceInterface::class)->clearCache();
     }
 
     /**

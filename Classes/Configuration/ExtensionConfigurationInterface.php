@@ -61,11 +61,6 @@ interface ExtensionConfigurationInterface
     public function getCliAccessGroups(): array;
 
     /**
-     * Check if request-scoped caching is enabled.
-     */
-    public function isCacheEnabled(): bool;
-
-    /**
      * Check if read operations should be written to the audit log.
      */
     public function isAuditReadsEnabled(): bool;
