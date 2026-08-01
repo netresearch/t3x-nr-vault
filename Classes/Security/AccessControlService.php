@@ -165,14 +165,10 @@ final class AccessControlService implements AccessControlServiceInterface
             return $this->hasCustomPermissionOption($backendUser, $permission);
         }
 
-        // No backend user at all but a real CLI context (no BE_USER global
-        // was ever created): same trusted-operator rule as above.
-        if ($this->isRealCliContext()) {
-            return $this->cliOperationGranted($permission);
-        }
-
-        // No actor we can attribute an operation to: fail closed.
-        return false;
+        // No backend user at all: grant only in a real CLI context (no
+        // BE_USER global was ever created — same trusted-operator rule as
+        // above). Any other unattributable actor fails closed.
+        return $this->isRealCliContext() && $this->cliOperationGranted($permission);
     }
 
     public function isCurrentActorAdmin(): bool
@@ -656,7 +652,10 @@ final class AccessControlService implements AccessControlServiceInterface
 
         foreach ($rows as $row) {
             $options = $row['custom_options'] ?? null;
-            if (!\is_string($options) || $options === '') {
+            if (!\is_string($options)) {
+                continue;
+            }
+            if ($options === '') {
                 continue;
             }
             if (GeneralUtility::inList($options, self::PERM_OPTION_GROUP . ':' . $permission->value)) {

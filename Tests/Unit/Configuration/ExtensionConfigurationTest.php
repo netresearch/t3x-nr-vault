@@ -209,6 +209,21 @@ final class ExtensionConfigurationTest extends TestCase
     }
 
     #[Test]
+    public function getCliAllowedOperationsFallsBackToTheDefaultOnANonStringValue(): void
+    {
+        $this->typo3Config->method('get')
+            ->with('nr_vault')
+            ->willReturn(['cliAllowedOperations' => ['not', 'a', 'string']]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame(
+            ['secret.use', 'secret.create', 'secret.rotate'],
+            $config->getCliAllowedOperations(),
+        );
+    }
+
+    #[Test]
     public function getCliAllowedOperationsCanBeEmptiedExplicitly(): void
     {
         // An operator may strip the CLI actor of every operation while
