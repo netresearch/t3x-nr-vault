@@ -11,7 +11,13 @@ on:
 permissions:
   contents: read
 
-# Per-extension test matrix (intentional-drift). Security/quality jobs are in checks.yml.
+# This workflow runs the extension's own test matrix and is the ONE per-extension
+# CI value: its `with:` block (php-versions, typo3-versions, matrix-exclude,
+# run-functional-tests, db settings, remove-dev-deps, coverage, …) differs per
+# extension. It is therefore listed under intentional-drift in
+# .github/template.yaml — customise it freely here. The security/quality jobs
+# with elevated permissions are drift-enforced in checks.yml; do not duplicate
+# them here.
 jobs:
   ci:
     uses: netresearch/typo3-ci-workflows/.github/workflows/ci.yml@main
@@ -19,10 +25,8 @@ jobs:
       contents: read
     with:
       php-versions: '["8.2","8.3","8.4","8.5"]'
-      typo3-versions: '["^13.4","^14.3"]'
-      run-functional-tests: true
-      upload-coverage: true
-      coverage-tool: 'xdebug'
-      php-extensions: 'intl, mbstring, xml, sodium, json'
+      typo3-versions: '["^12.4","^13.4","^14.3"]'
+      # TYPO3 12.4 supports PHP <= 8.4 (drop the 8.5 x ^12.4 combo).
+      matrix-exclude: '[{"php":"8.5","typo3":"^12.4"}]'
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
