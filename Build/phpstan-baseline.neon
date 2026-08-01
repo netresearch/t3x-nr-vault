@@ -1549,7 +1549,7 @@ parameters:
 		-
 			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
 			identifier: method.notFound
-			count: 38
+			count: 39
 			path: ../Tests/Unit/Configuration/ExtensionConfigurationTest.php
 
 		-
@@ -1567,7 +1567,7 @@ parameters:
 		-
 			rawMessage: 'Cannot call method willReturn() on mixed.'
 			identifier: method.nonObject
-			count: 38
+			count: 39
 			path: ../Tests/Unit/Configuration/ExtensionConfigurationTest.php
 
 		-

@@ -61,6 +61,15 @@ interface ExtensionConfigurationInterface
     public function getCliAccessGroups(): array;
 
     /**
+     * Operation permissions the unattributed CLI actor may hold when
+     * `allowCliAccess` is on. High-risk operations are excluded by default
+     * and must be opted into explicitly.
+     *
+     * @return list<string>
+     */
+    public function getCliAllowedOperations(): array;
+
+    /**
      * Check if read operations should be written to the audit log.
      */
     public function isAuditReadsEnabled(): bool;

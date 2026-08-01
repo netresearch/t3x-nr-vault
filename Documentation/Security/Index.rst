@@ -290,10 +290,16 @@ Notes on the model:
    non-admins. The same holds for the ``vault_reveal`` / ``vault_rotate``
    AJAX routes.
 -  **CLI**: a trusted CLI operator has no backend user record and thus no
-   group grants, so operation permissions follow the vault's
-   :ref:`allowCliAccess <configuration>` switch (**off by default**).
-   Enabling CLI access is therefore required for
-   ``vault:rotate-master-key`` and ``vault:retrieve``.
+   group grants. Operation permissions follow the vault's
+   :ref:`allowCliAccess <configuration>` switch (**off by default**),
+   narrowed to the ``cliAllowedOperations`` allowlist (default:
+   ``secret.use,secret.create,secret.rotate``). High-risk operations are
+   excluded by default: ``vault:retrieve`` (needs ``secret.reveal``),
+   ``vault:delete`` / the scheduled orphan cleanup (``secret.delete``),
+   ``vault:rotate-master-key`` (``master_key.rotate``) and the audit
+   export require adding the respective operation to the allowlist — or,
+   preferably, a named technical actor via
+   ``TechnicalActorContext::runAs()``.
 -  **Frontend requests never hold operation permissions**, regardless of
    any backend session the visitor carries — frontend visibility remains
    a property of the secret (``frontend_accessible``) alone.

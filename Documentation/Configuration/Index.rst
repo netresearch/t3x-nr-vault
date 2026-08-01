@@ -166,6 +166,24 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    Comma-separated list of backend user group UIDs that CLI can access.
    Empty means all secrets are accessible when CLI access is enabled.
 
+.. confval:: cliAllowedOperations
+   :name: ext-nrvault-cliAllowedOperations
+   :type: string
+   :Default: ``secret.use,secret.create,secret.rotate``
+
+   Operation permissions the unattributed CLI actor may hold while
+   :confval:`allowCliAccess <ext-nrvault-allowCliAccess>` is on.
+   The default covers deployment automation (store, rotate, consume).
+   High-risk operations — ``secret.reveal`` (:bash:`vault:retrieve`
+   printing plaintext), ``secret.delete``, ``audit.export``,
+   ``master_key.rotate`` (:bash:`vault:rotate-master-key`),
+   ``vault.configure`` — are **excluded by default** and must be added
+   explicitly where a workflow genuinely needs them. Prefer a named
+   technical actor (``TechnicalActorContext::runAs()``) over widening
+   this list: the audit trail then names the responsible identity.
+   Note that the scheduled orphan cleanup deletes secrets and therefore
+   needs ``secret.delete`` when it runs as the bare CLI actor.
+
 .. confval:: auditLogRetention
    :name: ext-nrvault-auditLogRetention
    :type: integer

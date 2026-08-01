@@ -182,6 +182,47 @@ final class ExtensionConfigurationTest extends TestCase
     }
 
     #[Test]
+    public function getCliAllowedOperationsReturnsSafeDefault(): void
+    {
+        $this->typo3Config->method('get')
+            ->with('nr_vault')
+            ->willReturn([]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame(
+            ['secret.use', 'secret.create', 'secret.rotate'],
+            $config->getCliAllowedOperations(),
+        );
+    }
+
+    #[Test]
+    public function getCliAllowedOperationsParsesAndTrimsConfiguredList(): void
+    {
+        $this->typo3Config->method('get')
+            ->with('nr_vault')
+            ->willReturn(['cliAllowedOperations' => ' secret.use , secret.delete ,, ']);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame(['secret.use', 'secret.delete'], $config->getCliAllowedOperations());
+    }
+
+    #[Test]
+    public function getCliAllowedOperationsCanBeEmptiedExplicitly(): void
+    {
+        // An operator may strip the CLI actor of every operation while
+        // keeping the per-secret CLI tiers (allowCliAccess) intact.
+        $this->typo3Config->method('get')
+            ->with('nr_vault')
+            ->willReturn(['cliAllowedOperations' => '']);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame([], $config->getCliAllowedOperations());
+    }
+
+    #[Test]
     public function isAuditReadsEnabledReturnsTrueByDefault(): void
     {
         $this->typo3Config->method('get')

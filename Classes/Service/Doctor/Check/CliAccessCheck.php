@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Service\Doctor\Check;
 
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Configuration\SecurityProfile;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\Doctor\DocsLink;
 use Netresearch\NrVault\Service\Doctor\DoctorContext;
 use Netresearch\NrVault\Service\Doctor\Finding;
@@ -63,6 +64,7 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
         return [
             $this->checkAccessEnabled($context),
             $this->checkAccessGroups(),
+            $this->checkAllowedOperations(),
         ];
     }
 
@@ -71,8 +73,9 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
      *
      * A pass under the standard profile: a deployment pipeline that stores
      * credentials needs this, and calling it a defect would make the check noise.
-     * A warning under hardened, where every read is supposed to be attributable
-     * to a named actor and a bare CLI actor is not.
+     * A CRITICAL under hardened: that profile promises every operation is
+     * attributable to a named actor, and a bare CLI actor is by construction
+     * not — the promise is broken as long as the switch is on.
      */
     private function checkAccessEnabled(DoctorContext $context): Finding
     {
@@ -88,15 +91,79 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
             );
         }
 
+        return Finding::critical(
+            id: $id,
+            summary: 'Unattributed CLI access to secrets is enabled under the hardened profile.',
+            risk: 'Anyone with a shell on the host can use secrets without authenticating as a backend '
+                . 'user. The audit trail records the operation but attributes it to the anonymous CLI '
+                . 'actor, so it cannot name the human responsible — the hardened profile\'s '
+                . 'attributability promise does not hold while this switch is on.',
+            remediation: 'Use the technical-actor API (TechnicalActorContext::runAs()) so headless '
+                . 'operations are attributed to a named backend user, then disable "allowCliAccess". '
+                . 'While migrating, restrict "cliAccessGroups" and keep "cliAllowedOperations" minimal.',
+            docsUrl: DocsLink::ACCESS_CONTROL,
+            details: $details,
+        );
+    }
+
+    /**
+     * Which operations does the unattributed CLI actor actually hold?
+     *
+     * The allowlist defaults to store/rotate/use. Every high-risk operation
+     * present is called out; unknown tokens are reported too — a typo in the
+     * list silently revokes the grant the operator believes is configured.
+     */
+    private function checkAllowedOperations(): Finding
+    {
+        $id = 'cli.allowed_operations';
+        $operations = $this->configuration->getCliAllowedOperations();
+
+        $known = array_map(
+            static fn (VaultPermission $permission): string => $permission->value,
+            VaultPermission::cases(),
+        );
+        $highRisk = ['secret.reveal', 'secret.delete', 'audit.export', 'master_key.rotate', 'vault.configure'];
+
+        $unknown = array_values(array_diff($operations, $known));
+        $risky = array_values(array_intersect($operations, $highRisk));
+
+        $details = [
+            'cliAllowedOperations' => implode(',', $operations),
+            'highRisk' => implode(',', $risky),
+            'unknown' => implode(',', $unknown),
+        ];
+
+        if ($risky === [] && $unknown === []) {
+            return Finding::pass(
+                id: $id,
+                summary: \sprintf(
+                    'The CLI operation allowlist is scoped to %d low-risk operation(s): %s.',
+                    \count($operations),
+                    implode(', ', $operations),
+                ),
+                docsUrl: DocsLink::ACCESS_CONTROL,
+                details: $details,
+            );
+        }
+
+        $summaryParts = [];
+        if ($risky !== []) {
+            $summaryParts[] = \sprintf('grants high-risk operation(s) %s to the unattributed CLI actor', implode(', ', $risky));
+        }
+        if ($unknown !== []) {
+            $summaryParts[] = \sprintf('contains unknown value(s) %s', implode(', ', $unknown));
+        }
+
         return Finding::warning(
             id: $id,
-            summary: 'CLI access to secrets is enabled under the hardened profile.',
-            risk: 'Anyone with a shell on the host can read secrets without authenticating as a backend '
-                . 'user. The audit trail records the operation but attributes it to the CLI actor, so it '
-                . 'cannot name the human responsible.',
-            remediation: 'Prefer the technical-actor API (TechnicalActorContext::runAs()) so headless '
-                . 'reads are attributed to a named backend user, then disable "allowCliAccess". If the '
-                . 'switch must stay on, restrict "cliAccessGroups" to the smallest possible group set.',
+            summary: 'The "cliAllowedOperations" list ' . implode(' and ', $summaryParts) . '.',
+            risk: 'High-risk operations let anyone with a shell reveal plaintext, delete secrets, walk '
+                . 'off with the audit history or rewrite every key envelope — without a named actor in '
+                . 'the audit trail. Unknown values do nothing: the grant the operator believes is '
+                . 'configured is silently absent.',
+            remediation: 'Remove the high-risk operations from "cliAllowedOperations" (use a named '
+                . 'technical actor for those workflows) and fix any typo — valid values are the '
+                . 'tx_nrvault permission identifiers, e.g. secret.use, secret.create, secret.rotate.',
             docsUrl: DocsLink::ACCESS_CONTROL,
             details: $details,
         );
