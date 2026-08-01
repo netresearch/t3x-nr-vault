@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Security;
 
+use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Security\AccessControlService;
 use Netresearch\NrVault\Security\TechnicalActor;
@@ -19,7 +20,6 @@ use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
-use Doctrine\DBAL\Result;
 use PHPUnit\Framework\MockObject\MockObject;
 use RuntimeException;
 use TYPO3\CMS\Core\Authentication\CommandLineUserAuthentication;
@@ -206,55 +206,6 @@ final class AccessControlServiceIsGrantedTest extends TestCase
         }
     }
 
-    /**
-     * Install a backend user whose groups grant exactly the given permissions.
-     *
-     * Mirrors TYPO3 core storage: the grants live in the merged
-     * `groupData['custom_options']` list, so a grant is present or it is not —
-     * there is no per-user override.
-     *
-     * @param list<VaultPermission> $grantedOptions
-     */
-    private function setBackendUser(
-        bool $isAdmin,
-        array $grantedOptions = [],
-        bool $isSystemMaintainer = false,
-        int $disable = 0,
-    ): void {
-        $GLOBALS['BE_USER'] = $this->createMockBackendUser(
-            uid: 5,
-            isAdmin: $isAdmin,
-            disabled: $disable !== 0,
-            isSystemMaintainer: $isSystemMaintainer,
-            grantedPermissions: $grantedOptions,
-        );
-    }
-
-    /**
-     * Install the unauthenticated CommandLineUserAuthentication placeholder the
-     * TYPO3 CLI bootstrap puts into $GLOBALS['BE_USER'] (no user record).
-     */
-    private function setUnauthenticatedCommandLineUser(): void
-    {
-        $cliUser = $this->createMock(CommandLineUserAuthentication::class);
-        /** @phpstan-ignore property.internal */
-        $cliUser->user = ['uid' => 0];
-
-        $GLOBALS['BE_USER'] = $cliUser;
-    }
-
-    private function setFrontendRequest(): void
-    {
-        /** @phpstan-ignore classConstant.internal */
-        $frontendType = SystemEnvironmentBuilder::REQUESTTYPE_FE;
-
-        /** @phpstan-ignore new.internalClass, method.internalClass */
-        $request = new ServerRequest('https://example.com/');
-
-        /** @phpstan-ignore method.internalClass */
-        $GLOBALS['TYPO3_REQUEST'] = $request->withAttribute('applicationType', $frontendType);
-    }
-
     #[Test]
     public function technicalActorAlwaysHoldsSecretUse(): void
     {
@@ -341,10 +292,59 @@ final class AccessControlServiceIsGrantedTest extends TestCase
     }
 
     /**
+     * Install a backend user whose groups grant exactly the given permissions.
+     *
+     * Mirrors TYPO3 core storage: the grants live in the merged
+     * `groupData['custom_options']` list, so a grant is present or it is not —
+     * there is no per-user override.
+     *
+     * @param list<VaultPermission> $grantedOptions
+     */
+    private function setBackendUser(
+        bool $isAdmin,
+        array $grantedOptions = [],
+        bool $isSystemMaintainer = false,
+        int $disable = 0,
+    ): void {
+        $GLOBALS['BE_USER'] = $this->createMockBackendUser(
+            uid: 5,
+            isAdmin: $isAdmin,
+            disabled: $disable !== 0,
+            isSystemMaintainer: $isSystemMaintainer,
+            grantedPermissions: $grantedOptions,
+        );
+    }
+
+    /**
+     * Install the unauthenticated CommandLineUserAuthentication placeholder the
+     * TYPO3 CLI bootstrap puts into $GLOBALS['BE_USER'] (no user record).
+     */
+    private function setUnauthenticatedCommandLineUser(): void
+    {
+        $cliUser = $this->createMock(CommandLineUserAuthentication::class);
+        /** @phpstan-ignore property.internal */
+        $cliUser->user = ['uid' => 0];
+
+        $GLOBALS['BE_USER'] = $cliUser;
+    }
+
+    private function setFrontendRequest(): void
+    {
+        /** @phpstan-ignore classConstant.internal */
+        $frontendType = SystemEnvironmentBuilder::REQUESTTYPE_FE;
+
+        /** @phpstan-ignore new.internalClass, method.internalClass */
+        $request = new ServerRequest('https://example.com/');
+
+        /** @phpstan-ignore method.internalClass */
+        $GLOBALS['TYPO3_REQUEST'] = $request->withAttribute('applicationType', $frontendType);
+    }
+
+    /**
      * @param list<array{uid: int, custom_options: string}>|null $groupRows
-     *        be_groups rows the mocked pool returns; the same rows serve the
-     *        existing-uid filter (reads `uid`) and the custom-options grant
-     *        lookup (reads `custom_options`). null = no ConnectionPool.
+     *                                                                      be_groups rows the mocked pool returns; the same rows serve the
+     *                                                                      existing-uid filter (reads `uid`) and the custom-options grant
+     *                                                                      lookup (reads `custom_options`). null = no ConnectionPool.
      */
     private function createSubjectWithTechnicalActor(bool $admin, ?array $groupRows = null): AccessControlService
     {
