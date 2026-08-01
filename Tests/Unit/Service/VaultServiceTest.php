@@ -469,7 +469,7 @@ final class VaultServiceTest extends TestCase
                 && $s->getAllowedGroups() === [5, 6]
                 && $s->getWriteGroups() === [6]
                 && $s->getContext() === 'prod'
-                && $s->isFrontendAccessible() === true
+                && $s->isFrontendAccessible()
                 && $s->getExpiresAt() === 2000000000
                 && $s->getMetadata() === ['team' => 'ops']))
             ->willReturnArgument(0);
