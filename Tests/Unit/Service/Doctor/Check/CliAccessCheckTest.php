@@ -61,15 +61,56 @@ final class CliAccessCheckTest extends TestCase
     }
 
     #[Test]
-    public function enabledCliAccessIsAWarningUnderTheHardenedProfile(): void
+    public function enabledCliAccessIsCriticalUnderTheHardenedProfile(): void
     {
+        // The hardened profile promises attributability; an unattributed CLI
+        // actor breaks that promise, so this blocks (exit code 2), it does
+        // not merely warn.
         $finding = $this->assertFindingSeverity(
-            FindingSeverity::Warning,
+            FindingSeverity::Critical,
             $this->check(true, [42])->run($this->doctorContext(SecurityProfile::Hardened)),
             'cli.access',
         );
 
         self::assertStringContainsString('TechnicalActorContext', $finding->remediation);
+    }
+
+    #[Test]
+    public function theDefaultOperationAllowlistPasses(): void
+    {
+        $finding = $this->findingById(
+            $this->check(true, [42])->run($this->doctorContext(SecurityProfile::Standard)),
+            'cli.allowed_operations',
+        );
+
+        self::assertTrue($finding->isPass());
+    }
+
+    #[Test]
+    public function highRiskOperationsInTheAllowlistAreAWarning(): void
+    {
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Warning,
+            $this->check(true, [42], ['secret.use', 'secret.reveal', 'master_key.rotate'])
+                ->run($this->doctorContext(SecurityProfile::Standard)),
+            'cli.allowed_operations',
+        );
+
+        self::assertSame('secret.reveal,master_key.rotate', $finding->details['highRisk']);
+    }
+
+    #[Test]
+    public function unknownAllowlistValuesAreAWarning(): void
+    {
+        // A typo silently revokes the grant the operator believes exists.
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Warning,
+            $this->check(true, [42], ['secret.use', 'secret.rotat'])
+                ->run($this->doctorContext(SecurityProfile::Standard)),
+            'cli.allowed_operations',
+        );
+
+        self::assertSame('secret.rotat', $finding->details['unknown']);
     }
 
     #[Test]
@@ -113,12 +154,17 @@ final class CliAccessCheckTest extends TestCase
 
     /**
      * @param list<int> $groups
+     * @param list<string> $operations
      */
-    private function check(bool $allowed, array $groups = []): CliAccessCheck
-    {
+    private function check(
+        bool $allowed,
+        array $groups = [],
+        array $operations = ['secret.use', 'secret.create', 'secret.rotate'],
+    ): CliAccessCheck {
         $configuration = self::createStub(ExtensionConfigurationInterface::class);
         $configuration->method('isCliAccessAllowed')->willReturn($allowed);
         $configuration->method('getCliAccessGroups')->willReturn($groups);
+        $configuration->method('getCliAllowedOperations')->willReturn($operations);
 
         return new CliAccessCheck($configuration);
     }

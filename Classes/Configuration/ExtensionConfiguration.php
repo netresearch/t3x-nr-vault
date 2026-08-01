@@ -35,6 +35,14 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
 
     public const DEFAULT_ALLOW_CLI_ACCESS = false;
 
+    /**
+     * Operation permissions the unattributed CLI actor may hold when
+     * `allowCliAccess` is on. High-risk operations (secret.reveal,
+     * secret.delete, audit.export, master_key.rotate, vault.configure) are
+     * deliberately absent — they must be opted into explicitly.
+     */
+    public const DEFAULT_CLI_ALLOWED_OPERATIONS = 'secret.use,secret.create,secret.rotate';
+
     public const DEFAULT_AUDIT_READS = true;
 
     public const DEFAULT_DISABLE_ADMIN_OVERRIDE = false;
@@ -195,6 +203,28 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         }
 
         return [];
+    }
+
+    /**
+     * The operation permissions the unattributed CLI actor may hold when
+     * `allowCliAccess` is on (see DEFAULT_CLI_ALLOWED_OPERATIONS for the
+     * default and its rationale). Entries are trimmed; unknown values are
+     * kept as-is here — `vault:doctor` reports them, and the grant lookup
+     * compares against real permission values so junk simply never matches.
+     *
+     * @return list<string>
+     */
+    public function getCliAllowedOperations(): array
+    {
+        $raw = $this->configuration['cliAllowedOperations'] ?? self::DEFAULT_CLI_ALLOWED_OPERATIONS;
+        if (!\is_string($raw)) {
+            $raw = self::DEFAULT_CLI_ALLOWED_OPERATIONS;
+        }
+
+        return array_values(array_filter(array_map(
+            trim(...),
+            explode(',', $raw),
+        ), static fn (string $value): bool => $value !== ''));
     }
 
     /**

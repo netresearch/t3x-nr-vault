@@ -143,11 +143,12 @@ final class AccessControlService implements AccessControlServiceInterface
         // UNAUTHENTICATED CommandLineUserAuthentication in $GLOBALS['BE_USER']
         // (CommandApplication::run() never logs the `_cli_` user in), so there
         // is no user record and no group that could carry a custom permission
-        // option. The vault's own CLI trust switch decides instead — the same
-        // authority hasCliAccess() uses for the per-secret tiers, and off by
-        // default (ExtensionConfiguration::DEFAULT_ALLOW_CLI_ACCESS).
+        // option. The vault's own CLI trust switch decides instead — narrowed
+        // to the cliAllowedOperations allowlist, because "anyone with a shell"
+        // must not implicitly hold reveal/delete/audit-export/master-key
+        // powers just because deployment automation needs store/rotate.
         if ($this->isUnauthenticatedCommandLineUser($backendUser)) {
-            return $this->configuration->isCliAccessAllowed();
+            return $this->cliOperationGranted($permission);
         }
 
         if ($backendUser instanceof BackendUserAuthentication) {
@@ -164,14 +165,10 @@ final class AccessControlService implements AccessControlServiceInterface
             return $this->hasCustomPermissionOption($backendUser, $permission);
         }
 
-        // No backend user at all but a real CLI context (no BE_USER global
-        // was ever created): same trusted-operator rule as above.
-        if ($this->isRealCliContext()) {
-            return $this->configuration->isCliAccessAllowed();
-        }
-
-        // No actor we can attribute an operation to: fail closed.
-        return false;
+        // No backend user at all: grant only in a real CLI context (no
+        // BE_USER global was ever created — same trusted-operator rule as
+        // above). Any other unattributable actor fails closed.
+        return $this->isRealCliContext() && $this->cliOperationGranted($permission);
     }
 
     public function isCurrentActorAdmin(): bool
@@ -341,6 +338,18 @@ final class AccessControlService implements AccessControlServiceInterface
         }
 
         return array_values(array_intersect($groupIds, $existing));
+    }
+
+    /**
+     * The unattributed CLI actor's operation grant: the CLI trust switch AND
+     * the cliAllowedOperations allowlist must both hold. The per-secret tiers
+     * (hasCliAccess) stay governed by allowCliAccess/cliAccessGroups alone —
+     * this narrows only the OPERATION dimension.
+     */
+    private function cliOperationGranted(VaultPermission $permission): bool
+    {
+        return $this->configuration->isCliAccessAllowed()
+            && \in_array($permission->value, $this->configuration->getCliAllowedOperations(), true);
     }
 
     /**

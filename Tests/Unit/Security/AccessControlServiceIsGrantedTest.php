@@ -188,12 +188,39 @@ final class AccessControlServiceIsGrantedTest extends TestCase
 
     #[Test]
     #[DataProvider('allPermissionsProvider')]
-    public function unauthenticatedCliOperatorIsGrantedWhenCliAccessIsOn(VaultPermission $permission): void
+    public function unauthenticatedCliOperatorIsGrantedOnlyAllowlistedOperationsWhenCliAccessIsOn(VaultPermission $permission): void
     {
+        // With CLI access on, the actor holds exactly the
+        // cliAllowedOperations allowlist — never reveal/delete/audit-export/
+        // master-key/configure implicitly.
         $this->configuration->method('isCliAccessAllowed')->willReturn(true);
+        $this->configuration->method('getCliAllowedOperations')->willReturn(
+            ['secret.use', 'secret.create', 'secret.rotate'],
+        );
         $this->setUnauthenticatedCommandLineUser();
 
-        self::assertTrue($this->subject->isGranted($permission));
+        $expected = \in_array(
+            $permission,
+            [VaultPermission::SecretUse, VaultPermission::SecretCreate, VaultPermission::SecretRotate],
+            true,
+        );
+
+        self::assertSame($expected, $this->subject->isGranted($permission));
+    }
+
+    #[Test]
+    public function unauthenticatedCliOperatorGainsAnExplicitlyAllowlistedHighRiskOperation(): void
+    {
+        // The exclusion is a default, not a hard rule: an operator who
+        // explicitly adds secret.reveal opts into it.
+        $this->configuration->method('isCliAccessAllowed')->willReturn(true);
+        $this->configuration->method('getCliAllowedOperations')->willReturn(
+            ['secret.use', 'secret.reveal'],
+        );
+        $this->setUnauthenticatedCommandLineUser();
+
+        self::assertTrue($this->subject->isGranted(VaultPermission::SecretReveal));
+        self::assertFalse($this->subject->isGranted(VaultPermission::SecretDelete));
     }
 
     /**
