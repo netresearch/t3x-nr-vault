@@ -19,6 +19,7 @@ use InvalidArgumentException;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
+use Netresearch\NrVault\Exception\AuditWriteException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
@@ -120,7 +121,16 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         } catch (Throwable $e) {
             $this->rollbackAuditLock($connection, $isSQLite);
 
-            throw $e;
+            // Single failure contract: log() either persisted the entry or
+            // throws AuditWriteException — the type the SEC-3 compensating
+            // rollbacks (VaultService, SecretTcaHook) key on. Without this
+            // wrap, a genuine write failure (broken schema, connection loss)
+            // would bypass the compensation that a lock timeout triggers.
+            if ($e instanceof AuditWriteException) {
+                throw $e;
+            }
+
+            throw AuditWriteException::writeFailed($e);
         } finally {
             $this->releaseAuditLock($connection, $isSQLite);
         }

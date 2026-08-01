@@ -203,9 +203,16 @@ and Logging).*
 
     *   -   Log entry precedes the effect where order matters
         -   Break-glass audits **before** granting; delete/store compensate a
-            failed audit write by rolling the data change back
+            failed audit write by rolling the data change back. The
+            FormEngine/DataHandler paths share this contract: the
+            ``tx_nrvault_secret`` delete command runs through
+            :php:`VaultService::delete()`, and a metadata change (or
+            value-less record creation) whose audit write fails is reverted
+            by :php:`SecretTcaHook` — no mutation persists without its audit
+            entry.
         -   :php:`BreakGlassService::activate()`,
-            :php:`VaultService::delete()`
+            :php:`VaultService::delete()`,
+            :php:`SecretTcaHook`
 
     *   -   Complete attribution
         -   ``actor_uid``, ``actor_type``, ``actor_username``,

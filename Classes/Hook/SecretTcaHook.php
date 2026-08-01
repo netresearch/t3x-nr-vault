@@ -13,11 +13,13 @@ use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
+use Netresearch\NrVault\Exception\AccessDeniedException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Throwable;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 
 /**
@@ -67,20 +69,41 @@ final class SecretTcaHook
     private array $pendingSecrets = [];
 
     /**
-     * Record UIDs whose delete command failed the vault ACL in
-     * processCmdmap_preProcess(), to be cancelled in processCmdmap(). Entries
-     * are consumed (unset) when the cancel is applied so a DI-shared hook
-     * instance cannot leak a stale denial across DataHandler runs.
+     * Record UIDs whose delete command was fully handled in
+     * processCmdmap_preProcess() — either performed through
+     * VaultService::delete() (ACL, operation permission and compensated audit
+     * included) or refused. Both outcomes must make core skip its own
+     * deleteAction in processCmdmap(). Entries are consumed (unset) when the
+     * cancel is applied so a DI-shared hook instance cannot leak a stale
+     * entry across DataHandler runs.
      *
      * @var array<int, true>
      */
-    private array $deniedDeletions = [];
+    private array $handledDeletions = [];
+
+    /**
+     * Original values of the real columns a datamap UPDATE submits, captured
+     * in processDatamap_preProcessFieldArray() keyed by record id. Used by
+     * the compensating rollback when the metadata-update audit write fails:
+     * the mutation and its audit entry are all-or-nothing (SEC-3), mirroring
+     * VaultService::compensateAuditFailure().
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    private array $originalMetadata = [];
 
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
         private readonly AuditLogServiceInterface $auditService,
         private readonly AccessControlServiceInterface $accessControlService,
         private readonly SecretRepositoryInterface $secretRepository,
+        /**
+         * Needed for the compensating rollback of a metadata change whose
+         * audit write failed. Optional so pre-existing unit-test
+         * constructions keep working; without it the rollback degrades to
+         * logging the inconsistency in the DataHandler log.
+         */
+        private readonly ?ConnectionPool $connectionPool = null,
     ) {}
 
     /**
@@ -145,6 +168,22 @@ final class SecretTcaHook
 
         // Always remove secret_input from fieldArray - it's not a real database column
         unset($fieldArray['secret_input']);
+
+        // Capture the pre-change values of the real columns this UPDATE
+        // submits, for the compensating rollback should the metadata-update
+        // audit write fail in afterDatabaseOperations (SEC-3 atomicity).
+        if (!str_starts_with((string) $id, 'NEW') && $fieldArray !== []) {
+            $columns = array_filter(array_keys($fieldArray), is_string(...));
+            if ($columns !== []) {
+                $original = BackendUtility::getRecord(self::TABLE, (int) $id, implode(',', $columns));
+                if ($original !== null) {
+                    $this->originalMetadata[(string) $id] = array_intersect_key(
+                        $original,
+                        array_flip($columns),
+                    );
+                }
+            }
+        }
     }
 
     /**
@@ -210,7 +249,7 @@ final class SecretTcaHook
                         $secretStored = true;
                     } else {
                         // Existing record - rotate the secret
-                        $this->vaultService->rotate($identifier, $secretValue);
+                        $this->vaultService->rotate($identifier, $secretValue, 'FormEngine edit');
                         $secretStored = true;
                     }
                 } catch (Throwable $e) {
@@ -232,41 +271,31 @@ final class SecretTcaHook
             }
         }
 
-        // Determine what changed for audit context
-        $changedFields = array_keys($fieldArray);
-        if ($secretStored) {
-            $changedFields[] = 'secret_input';
-        }
+        // Audit strategy: value mutations (the store()/rotate() above) are
+        // audited by VaultService itself, with a compensating rollback when
+        // the audit write fails — the hook must not add a second (or worse, a
+        // premature "success") entry for them. The hook stays responsible for
+        // what the service never sees: the creation of a value-less record
+        // and metadata-only column changes. Both are all-or-nothing here as
+        // well (SEC-3): if the audit write fails, the database change is
+        // reverted so no mutation persists without a tamper-evident record.
+        $originalMetadata = $this->originalMetadata[$originalId] ?? null;
+        unset($this->originalMetadata[$originalId]);
 
-        try {
-            // Determine action type
-            $action = AuditAction::MetadataUpdate->value;
-            if ($status === 'new') {
-                $action = AuditAction::Create->value;
-            } elseif ($secretStored) {
-                $action = AuditAction::Rotate->value;
+        if ($status === 'new') {
+            if (!$secretStored) {
+                $this->auditRecordCreationOrCompensate($identifier, $uid, $fieldArray, $dataHandler);
             }
 
-            // Log the operation
-            $this->auditService->log(
-                $identifier,
-                $action,
-                true,
-                null,
-                'FormEngine edit: ' . implode(', ', $changedFields),
-            );
-        } catch (Throwable $e) {
-            // Don't fail the save if audit logging fails
-            /** @phpstan-ignore method.internal */
-            $dataHandler->log(
-                self::TABLE,
-                $uid,
-                2,
-                null,
-                1,
-                'Audit logging failed: ' . $e->getMessage(),
-            );
+            return;
         }
+
+        $changedColumns = array_values(array_filter(array_keys($fieldArray), is_string(...)));
+        if ($changedColumns === []) {
+            return;
+        }
+
+        $this->auditMetadataUpdateOrCompensate($identifier, $uid, $changedColumns, $originalMetadata, $dataHandler);
     }
 
     /**
@@ -300,30 +329,19 @@ final class SecretTcaHook
             return;
         }
 
-        $identifier = $secret->getIdentifier();
+        // The delete is performed THROUGH the service, so the per-secret tier
+        // (owner / admin / system maintainer, CWE-862), the secret.delete
+        // operation permission, the audit entry and its compensating rollback
+        // (SEC-3: no delete may persist without an audit record) all apply
+        // exactly as on the programmatic path. Core's own deleteAction is
+        // skipped in processCmdmap() in every outcome: on success the service
+        // already soft-deleted the record, on refusal it must survive.
+        $this->handledDeletions[$uid] = true;
 
-        // Write-path authorization (CWE-862): the per-secret tier (owner /
-        // admin / system maintainer) AND the secret.delete operation
-        // permission must both hold. A non-owner non-admin editor with
-        // generic table-modify rights — or an owner lacking the delete
-        // grant — must be stopped here.
-        if (!$this->accessControlService->canDelete($secret)
-            || !$this->accessControlService->isGranted(VaultPermission::SecretDelete)
-        ) {
-            $this->deniedDeletions[$uid] = true;
-
-            try {
-                $this->auditService->log(
-                    $identifier,
-                    AuditAction::AccessDenied->value,
-                    false,
-                    'Delete access denied',
-                    'FormEngine delete denied',
-                );
-            } catch (Throwable) {
-                // A failed audit write must not mask the denial.
-            }
-
+        try {
+            $this->vaultService->delete($secret->getIdentifier(), 'Deleted via FormEngine');
+        } catch (AccessDeniedException) {
+            // The service audited the denial (access_denied entry).
             /** @phpstan-ignore method.internal */
             $dataHandler?->log(
                 self::TABLE,
@@ -333,33 +351,29 @@ final class SecretTcaHook
                 1,
                 'Vault secret deletion requires being its owner or an administrator AND holding the secret.delete permission',
             );
-
-            return;
-        }
-
-        // Authorized delete: record the audit entry now, while the identifier
-        // is still resolvable (core removes the row afterwards).
-        try {
-            $this->auditService->log(
-                $identifier,
-                AuditAction::Delete->value,
-                true,
+        } catch (Throwable $e) {
+            // Audit-write failure (the service reverted the delete) or any
+            // other vault error: the record is preserved.
+            /** @phpstan-ignore method.internal */
+            $dataHandler?->log(
+                self::TABLE,
+                $uid,
+                2,
                 null,
-                'Deleted via FormEngine',
+                1,
+                'Vault delete failed: ' . $e->getMessage() . ' — the record was preserved.',
             );
-        } catch (Throwable) {
-            // Don't fail the delete if audit logging fails
         }
     }
 
     /**
-     * Cancels a delete command that failed the vault ACL in
-     * processCmdmap_preProcess(). Setting $commandIsProcessed = true makes core
-     * skip its own deleteAction() (DataHandler runs this hook before the
-     * command switch), so the record is preserved.
+     * Makes core skip its own deleteAction() for every delete command the
+     * hook handled in processCmdmap_preProcess() — a successful service
+     * delete already soft-deleted the record, a refused one must leave it
+     * untouched. (DataHandler runs this hook before the command switch.)
      *
-     * The denial flag is consumed so a DI-shared hook instance cannot leak a
-     * stale denial into a later DataHandler run (same discipline as
+     * The flag is consumed so a DI-shared hook instance cannot leak a stale
+     * entry into a later DataHandler run (same discipline as
      * $pendingSecrets).
      */
     public function processCmdmap(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
@@ -376,9 +390,119 @@ final class SecretTcaHook
         }
 
         $uid = is_numeric($id) ? (int) $id : 0;
-        if (($this->deniedDeletions[$uid] ?? false) === true) {
-            unset($this->deniedDeletions[$uid]);
+        if (($this->handledDeletions[$uid] ?? false) === true) {
+            unset($this->handledDeletions[$uid]);
             $commandIsProcessed = true;
+        }
+    }
+
+    /**
+     * Audit the FormEngine creation of a record that carries no secret value
+     * (a value-bearing create is audited by VaultService::store()). If the
+     * audit write fails, the just-created row is removed again — a record
+     * must not exist without its audit entry.
+     *
+     * @param array<string, mixed> $fieldArray
+     */
+    private function auditRecordCreationOrCompensate(
+        string $identifier,
+        int $uid,
+        array $fieldArray,
+        DataHandler $dataHandler,
+    ): void {
+        try {
+            $this->auditService->log(
+                $identifier,
+                AuditAction::Create->value,
+                true,
+                null,
+                'FormEngine create: ' . implode(', ', array_filter(array_keys($fieldArray), is_string(...))),
+            );
+        } catch (Throwable $e) {
+            $reverted = $this->revertRow($uid, null);
+
+            /** @phpstan-ignore method.internal */
+            $dataHandler->log(
+                self::TABLE,
+                $uid,
+                1,
+                null,
+                1,
+                'Vault audit logging failed: ' . $e->getMessage() . ' — the record creation was '
+                . ($reverted ? 'reverted (no mutation may persist without an audit entry).' : 'NOT revertible; manual reconciliation required.'),
+            );
+        }
+    }
+
+    /**
+     * Audit a metadata-only column change. If the audit write fails, the
+     * captured pre-change values are written back (scalar columns; MM
+     * relation rows are owned by DataHandler and only their count column is
+     * restored) so the change does not persist unaudited.
+     *
+     * @param list<string> $changedColumns
+     * @param array<string, mixed>|null $originalMetadata
+     */
+    private function auditMetadataUpdateOrCompensate(
+        string $identifier,
+        int $uid,
+        array $changedColumns,
+        ?array $originalMetadata,
+        DataHandler $dataHandler,
+    ): void {
+        try {
+            $this->auditService->log(
+                $identifier,
+                AuditAction::MetadataUpdate->value,
+                true,
+                null,
+                'FormEngine edit: ' . implode(', ', $changedColumns),
+            );
+        } catch (Throwable $e) {
+            $reverted = $originalMetadata !== null
+                && $originalMetadata !== []
+                && $this->revertRow($uid, $originalMetadata);
+
+            /** @phpstan-ignore method.internal */
+            $dataHandler->log(
+                self::TABLE,
+                $uid,
+                2,
+                null,
+                1,
+                'Vault audit logging failed: ' . $e->getMessage() . ' — the metadata change was '
+                . ($reverted ? 'reverted (no mutation may persist without an audit entry).' : 'NOT revertible; manual reconciliation required.'),
+            );
+        }
+    }
+
+    /**
+     * Write the compensating revert: `null` removes the just-created row,
+     * a value map restores the captured pre-change column values.
+     *
+     * @param array<string, mixed>|null $originalValues
+     */
+    private function revertRow(int $uid, ?array $originalValues): bool
+    {
+        if ($uid <= 0 || !$this->connectionPool instanceof ConnectionPool) {
+            return false;
+        }
+
+        try {
+            $connection = $this->connectionPool->getConnectionForTable(self::TABLE);
+            if ($originalValues === null) {
+                $connection->delete(self::TABLE, ['uid' => $uid]);
+
+                return true;
+            }
+            if ($originalValues === []) {
+                return false;
+            }
+            $connection->update(self::TABLE, $originalValues, ['uid' => $uid]);
+
+            return true;
+        } catch (Throwable) {
+            return false;
         }
     }
 

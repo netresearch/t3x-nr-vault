@@ -427,6 +427,110 @@ final class VaultServiceTest extends TestCase
     }
 
     #[Test]
+    public function storeUpdatePreservesUnsubmittedMetadata(): void
+    {
+        // Preserve semantics: a value update without options must not reset
+        // description, ACL tiers, context, expiry or frontend availability —
+        // those are policy fields whose CHANGE is gated by
+        // secret.manage_policy, so an accidental reset would be a policy
+        // change without its permission.
+        $existing = new Secret(
+            identifier: 'preserve',
+            uid: 42,
+            scopePid: 7,
+            description: 'Keep me',
+            encryptedValue: 'encrypted',
+            encryptedDek: 'dek',
+            dekNonce: 'n1',
+            valueNonce: 'n2',
+            valueChecksum: 'cs',
+            ownerUid: 1,
+            allowedGroups: [5, 6],
+            writeGroups: [6],
+            context: 'prod',
+            frontendAccessible: true,
+            version: 3,
+            expiresAt: 2000000000,
+            metadata: ['team' => 'ops'],
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc2', 'dek2', 'n3', 'n4', 'cs2'));
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::callback(static fn (Secret $s): bool => $s->getDescription() === 'Keep me'
+                && $s->getScopePid() === 7
+                && $s->getAllowedGroups() === [5, 6]
+                && $s->getWriteGroups() === [6]
+                && $s->getContext() === 'prod'
+                && $s->isFrontendAccessible() === true
+                && $s->getExpiresAt() === 2000000000
+                && $s->getMetadata() === ['team' => 'ops']))
+            ->willReturnArgument(0);
+
+        $this->subject->store('preserve', 'new-value');
+    }
+
+    #[Test]
+    public function storeOnValueLessExistingRecordIsACreation(): void
+    {
+        // The FormEngine path: DataHandler inserts the tx_nrvault_secret row
+        // (metadata only), then hands the value to store(). A record without
+        // an encrypted value is a creation in progress — it must face
+        // secret.create (not secret.rotate), be audited as create, and keep
+        // the metadata the row already carries.
+        $existing = new Secret(
+            identifier: 'formCreate',
+            uid: 42,
+            description: 'Entered in the form',
+            ownerUid: 1,
+        );
+
+        $createOnlyAccess = $this->createMock(AccessControlServiceInterface::class);
+        $createOnlyAccess->method('getCurrentActorUid')->willReturn(1);
+        $createOnlyAccess->method('getCurrentActorType')->willReturn('cli');
+        $createOnlyAccess->method('canWrite')->willReturn(true);
+        $createOnlyAccess->method('isGranted')->willReturnCallback(
+            static fn (VaultPermission $permission): bool => $permission === VaultPermission::SecretCreate,
+        );
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $createOnlyAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::callback(static fn (Secret $s): bool => $s->getUid() === 42
+                && $s->getDescription() === 'Entered in the form'))
+            ->willReturnArgument(0);
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('formCreate', 'create', true);
+
+        $subject->store('formCreate', 'first-value');
+    }
+
+    #[Test]
     public function storeCoercesOwnerUidForNonAdminBackendActor(): void
     {
         $beActorAccess = $this->createMock(AccessControlServiceInterface::class);
