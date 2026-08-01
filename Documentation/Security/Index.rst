@@ -264,6 +264,21 @@ Notes on the model:
    read**, including FormEngine vault field widgets and FlexForm /
    TypoScript placeholder resolution. Grant it to the groups whose
    editors work with vault-backed fields.
+-  **Mutations are enforced centrally in the service, not only in the
+   module controllers.** ``VaultService::store()`` requires
+   ``secret.create`` (new identifier) or ``secret.rotate`` (existing
+   identifier, plus ``secret.manage_policy`` when the call also changes
+   owner, group tiers or frontend availability); ``rotate()`` requires
+   ``secret.rotate``; ``delete()`` requires ``secret.delete``. A direct
+   DataHandler/FormEngine request or a programmatic caller therefore
+   faces the same gates as the secrets module. Editors whose forms
+   write vault-backed TCA fields need ``secret.create`` /
+   ``secret.rotate`` in addition to ``secret.use``.
+-  **Technical actors** (``TechnicalActorContext::runAs()``) hold
+   ``secret.use`` implicitly — headless consumption is their purpose —
+   and every other operation permission only if one of their
+   provisioned backend groups grants it via the same
+   ``tx_nrvault:*`` custom permission options.
 -  **Admins and system maintainers hold every permission**
    unconditionally, and have full per-secret access to every secret.
    That override lives in a single seam

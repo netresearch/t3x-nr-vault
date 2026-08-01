@@ -86,6 +86,13 @@ final class VaultServiceTest extends TestCase
             ->method('canCreate')
             ->willReturn(true);
 
+        // Default the operation permissions (secret.create/rotate/delete,
+        // secret.manage_policy) to granted; the denial-branch tests build
+        // their own access-control mock instead.
+        $this->accessControlService
+            ->method('isGranted')
+            ->willReturn(true);
+
         $this->subject = new VaultService(
             $this->adapter,
             $this->encryptionService,
@@ -212,12 +219,221 @@ final class VaultServiceTest extends TestCase
     }
 
     #[Test]
+    public function storeDeniesCreateWithoutSecretCreatePermission(): void
+    {
+        // Per-secret ACL passes (canCreate), but the actor lacks the
+        // secret.create operation permission: both gates must hold.
+        $noGrantAccess = $this->createMock(AccessControlServiceInterface::class);
+        $noGrantAccess->method('getCurrentActorUid')->willReturn(1);
+        $noGrantAccess->method('getCurrentActorType')->willReturn('backend');
+        $noGrantAccess->method('canCreate')->willReturn(true);
+        $noGrantAccess->method('isGranted')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $noGrantAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn(null);
+        $this->adapter->expects(self::never())->method('store');
+        $this->encryptionService->expects(self::never())->method('encrypt');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('opGate', 'access_denied', false, 'Create denied: missing secret.create permission');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->store('opGate', 'plaintext');
+    }
+
+    #[Test]
+    public function storeDeniesUpdateWithoutSecretRotatePermission(): void
+    {
+        $existing = $this->createSecretEntity('opGateUpdate', uid: 42);
+
+        $noGrantAccess = $this->createMock(AccessControlServiceInterface::class);
+        $noGrantAccess->method('getCurrentActorUid')->willReturn(1);
+        $noGrantAccess->method('getCurrentActorType')->willReturn('backend');
+        $noGrantAccess->method('canWrite')->willReturn(true);
+        $noGrantAccess->method('isGranted')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $noGrantAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->adapter->expects(self::never())->method('store');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('opGateUpdate', 'access_denied', false, 'Update denied: missing secret.rotate permission');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->store('opGateUpdate', 'new-value');
+    }
+
+    #[Test]
+    public function storeDeniesPolicyChangeWithoutManagePolicyPermission(): void
+    {
+        $existing = $this->createSecretEntity('opGatePolicy', uid: 42);
+
+        // secret.rotate is granted, secret.manage_policy is not: replacing
+        // the value is fine, widening the group ACL alongside it is not.
+        $rotateOnlyAccess = $this->createMock(AccessControlServiceInterface::class);
+        $rotateOnlyAccess->method('getCurrentActorUid')->willReturn(1);
+        $rotateOnlyAccess->method('getCurrentActorType')->willReturn('cli');
+        $rotateOnlyAccess->method('canWrite')->willReturn(true);
+        $rotateOnlyAccess->method('isGranted')->willReturnCallback(
+            static fn (VaultPermission $permission): bool => $permission === VaultPermission::SecretRotate,
+        );
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $rotateOnlyAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->adapter->expects(self::never())->method('store');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('opGatePolicy', 'access_denied', false, 'Policy change denied: missing secret.manage_policy permission');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->store('opGatePolicy', 'new-value', ['groups' => [5, 6]]);
+    }
+
+    #[Test]
+    public function storeAllowsUpdateWithoutManagePolicyWhenPolicyIsUnchanged(): void
+    {
+        $existing = $this->createSecretEntity('opGateNoPolicy', uid: 42);
+
+        // Same grant profile as above — but no policy option changes, so
+        // secret.rotate alone must suffice for a plain value update.
+        $rotateOnlyAccess = $this->createMock(AccessControlServiceInterface::class);
+        $rotateOnlyAccess->method('getCurrentActorUid')->willReturn(1);
+        $rotateOnlyAccess->method('getCurrentActorType')->willReturn('cli');
+        $rotateOnlyAccess->method('canWrite')->willReturn(true);
+        $rotateOnlyAccess->method('isGranted')->willReturnCallback(
+            static fn (VaultPermission $permission): bool => $permission === VaultPermission::SecretRotate,
+        );
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $rotateOnlyAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->willReturnArgument(0);
+
+        $subject->store('opGateNoPolicy', 'new-value');
+    }
+
+    #[Test]
+    public function rotateDeniesWithoutSecretRotatePermission(): void
+    {
+        $existing = $this->createSecretEntity('opGateRotate', uid: 42);
+
+        $noGrantAccess = $this->createMock(AccessControlServiceInterface::class);
+        $noGrantAccess->method('getCurrentActorUid')->willReturn(1);
+        $noGrantAccess->method('getCurrentActorType')->willReturn('backend');
+        $noGrantAccess->method('canWrite')->willReturn(true);
+        $noGrantAccess->method('isGranted')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $noGrantAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->adapter->expects(self::never())->method('store');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('opGateRotate', 'access_denied', false, 'Rotate denied: missing secret.rotate permission');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->rotate('opGateRotate', 'new-value');
+    }
+
+    #[Test]
+    public function deleteDeniesWithoutSecretDeletePermission(): void
+    {
+        $existing = $this->createSecretEntity('opGateDelete', uid: 42);
+
+        $noGrantAccess = $this->createMock(AccessControlServiceInterface::class);
+        $noGrantAccess->method('getCurrentActorUid')->willReturn(1);
+        $noGrantAccess->method('getCurrentActorType')->willReturn('backend');
+        $noGrantAccess->method('canDelete')->willReturn(true);
+        $noGrantAccess->method('isGranted')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $noGrantAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->adapter->expects(self::never())->method('delete');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('opGateDelete', 'access_denied', false, 'Delete denied: missing secret.delete permission');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->delete('opGateDelete');
+    }
+
+    #[Test]
     public function storeCoercesOwnerUidForNonAdminBackendActor(): void
     {
         $beActorAccess = $this->createMock(AccessControlServiceInterface::class);
         $beActorAccess->method('getCurrentActorUid')->willReturn(7);
         $beActorAccess->method('getCurrentActorType')->willReturn('backend');
         $beActorAccess->method('canCreate')->willReturn(true);
+        $beActorAccess->method('isGranted')->willReturn(true);
         $beActorAccess->method('isCurrentActorAdmin')->willReturn(false);
 
         $subject = new VaultService(
@@ -252,6 +468,7 @@ final class VaultServiceTest extends TestCase
         $beActorAccess->method('getCurrentActorUid')->willReturn(7);
         $beActorAccess->method('getCurrentActorType')->willReturn('backend');
         $beActorAccess->method('canCreate')->willReturn(true);
+        $beActorAccess->method('isGranted')->willReturn(true);
         $beActorAccess->method('isCurrentActorAdmin')->willReturn(false);
 
         $subject = new VaultService(
@@ -287,6 +504,7 @@ final class VaultServiceTest extends TestCase
         $adminAccess->method('getCurrentActorUid')->willReturn(1);
         $adminAccess->method('getCurrentActorType')->willReturn('backend');
         $adminAccess->method('canCreate')->willReturn(true);
+        $adminAccess->method('isGranted')->willReturn(true);
         $adminAccess->method('isCurrentActorAdmin')->willReturn(true);
 
         $subject = new VaultService(

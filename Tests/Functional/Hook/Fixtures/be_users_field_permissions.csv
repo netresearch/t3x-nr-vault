@@ -4,4 +4,4 @@
 page.vault.permissions.tx_test.secret_read_only.readOnly = 1","20"
 "be_groups",,,,
 ,"uid","pid","title","custom_options"
-,20,0,"vault-field-editors","tx_nrvault:secret.use"
+,20,0,"vault-field-editors","tx_nrvault:secret.use,tx_nrvault:secret.create,tx_nrvault:secret.rotate"

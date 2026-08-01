@@ -131,9 +131,17 @@ OWASP ASVS v4: chapter 2 (Authentication), chapter 4 (Access Control).*
         -   :ref:`adr-005-access-control`
 
     *   -   Server-side enforcement at every entry point
-        -   :php:`AjaxController` re-asserts method and permission; modules
-            registered ``access => 'user'`` with per-action checks
-        -   Route configuration plus controller code
+        -   Operation permissions are enforced centrally in
+            :php:`VaultService` (``store()`` requires ``secret.create`` /
+            ``secret.rotate`` and — for access-policy changes —
+            ``secret.manage_policy``; ``rotate()`` requires
+            ``secret.rotate``; ``delete()`` requires ``secret.delete``), so
+            DataHandler/FormEngine requests and programmatic callers face the
+            same gate as the module controllers. Controllers and
+            :php:`SecretTcaHook` re-assert the permissions as
+            defense-in-depth.
+        -   :php:`VaultService::assertOperationGranted()`; route
+            configuration plus controller code
 
     *   -   No privileged short-circuit in the grant lookup
         -   Grant evaluation deliberately avoids

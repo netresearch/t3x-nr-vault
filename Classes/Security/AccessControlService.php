@@ -579,16 +579,18 @@ final class AccessControlService implements AccessControlServiceInterface
      *
      * A technical actor is a snapshot of a real backend user, but it has no
      * live session and `runAs()` is explicitly NOT an authentication boundary
-     * (any code with DI access can open a scope). So a NON-admin technical
-     * actor gets no operation permissions at all — its power stays bounded by
-     * the per-secret `canRead`/`canWrite` tiers, which is what its group
-     * membership was actually provisioned for.
+     * (any code with DI access can open a scope). A NON-admin technical actor
+     * therefore holds exactly what its provisioned backend groups grant via
+     * the `tx_nrvault` custom permission options — the same carrier an
+     * interactive user's grants come from, resolved here directly from
+     * `be_groups` because a technical actor has no authenticated
+     * `BackendUserAuthentication` whose `groupData` could be consulted.
      *
-     * The one exception is `SecretUse`: headless consumption is the entire
-     * purpose of a technical actor, and gating it on a group-level custom
-     * permission option would break every existing `runAs()` caller while
-     * adding nothing — the per-secret tier already decides which secrets the
-     * actor may read.
+     * The one implicit grant is `SecretUse`: headless consumption is the
+     * entire purpose of a technical actor, and gating it on a group-level
+     * custom permission option would break every existing `runAs()` caller
+     * while adding nothing — the per-secret tier already decides which
+     * secrets the actor may read.
      */
     private function hasTechnicalActorGrant(TechnicalActor $actor, VaultPermission $permission): bool
     {
@@ -596,7 +598,63 @@ final class AccessControlService implements AccessControlServiceInterface
             return true;
         }
 
-        return $permission === VaultPermission::SecretUse;
+        if ($permission === VaultPermission::SecretUse) {
+            return true;
+        }
+
+        return $this->technicalActorGroupsGrant($actor, $permission);
+    }
+
+    /**
+     * Does any of the technical actor's (already subgroup-expanded) groups
+     * carry the `tx_nrvault:<permission>` custom permission option?
+     *
+     * Fail-closed: no ConnectionPool wired (bare unit-test construction) or
+     * no groups means no grant.
+     */
+    private function technicalActorGroupsGrant(TechnicalActor $actor, VaultPermission $permission): bool
+    {
+        if (!$this->connectionPool instanceof ConnectionPool) {
+            return false;
+        }
+
+        $groupIds = $this->filterExistingGroupIds($actor->groupIds);
+        if ($groupIds === []) {
+            return false;
+        }
+
+        try {
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('be_groups');
+            $rows = $queryBuilder
+                ->select('custom_options')
+                ->from('be_groups')
+                ->where(
+                    $queryBuilder->expr()->in(
+                        'uid',
+                        $queryBuilder->createNamedParameter($groupIds, Connection::PARAM_INT_ARRAY),
+                    ),
+                )
+                ->executeQuery()
+                ->fetchAllAssociative();
+        } catch (Throwable) {
+            // Fail closed on any database error.
+            return false;
+        }
+
+        foreach ($rows as $row) {
+            $options = $row['custom_options'] ?? null;
+            if (!\is_string($options)) {
+                continue;
+            }
+            if ($options === '') {
+                continue;
+            }
+            if (GeneralUtility::inList($options, self::PERM_OPTION_GROUP . ':' . $permission->value)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

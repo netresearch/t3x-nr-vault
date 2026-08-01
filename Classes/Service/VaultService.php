@@ -76,6 +76,19 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
             $this->assertWritePermission($identifier, $existing);
 
+            // Separation of duties: the per-secret ACL above answers "may this
+            // actor touch THIS secret", the operation permission answers "may
+            // this actor perform this KIND of operation at all". Both gates
+            // must pass at this business boundary — controller checks are UX,
+            // not the security boundary (a DataHandler request or programmatic
+            // caller never passes through them).
+            if ($existing instanceof Secret) {
+                $this->assertOperationGranted(VaultPermission::SecretRotate, $identifier, 'Update');
+                $this->assertPolicyChangeGranted($identifier, $options, $existing);
+            } else {
+                $this->assertOperationGranted(VaultPermission::SecretCreate, $identifier, 'Create');
+            }
+
             $encrypted = $this->encryptionService->encrypt($secret, $identifier);
             $secretEntity = $this->buildSecretEntity($identifier, $encrypted, $options, $existing);
 
@@ -181,6 +194,9 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             throw AccessDeniedException::forIdentifier($identifier, 'delete permission denied');
         }
 
+        // Separation of duties: per-secret ACL AND operation permission.
+        $this->assertOperationGranted(VaultPermission::SecretDelete, $identifier, 'Delete');
+
         $hashBefore = $secret->getValueChecksum();
 
         // Delete
@@ -229,6 +245,9 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
             throw AccessDeniedException::forIdentifier($identifier, 'rotate permission denied');
         }
+
+        // Separation of duties: per-secret ACL AND operation permission.
+        $this->assertOperationGranted(VaultPermission::SecretRotate, $identifier, 'Rotate');
 
         if ($newSecret === '') {
             throw ValidationException::emptySecret();
@@ -455,6 +474,75 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             $identifier,
             'missing ' . VaultPermission::SecretUse->value . ' permission',
         );
+    }
+
+    /**
+     * Assert an operation-level vault permission for the current actor, on
+     * top of the per-secret ACL tier the caller already verified.
+     *
+     * `isGranted()` resolves the actor-appropriate grant source: custom
+     * permission options for interactive backend users (admins pass via the
+     * central bypass seam), group-provisioned grants for technical actors,
+     * the CLI trust switch for unauthenticated CLI, and a hard deny for
+     * frontend requests — which never mutate the vault.
+     */
+    private function assertOperationGranted(
+        VaultPermission $permission,
+        string $identifier,
+        string $operation,
+    ): void {
+        if ($this->accessControlService->isGranted($permission)) {
+            return;
+        }
+
+        $this->auditLogService->log(
+            $identifier,
+            AuditAction::AccessDenied->value,
+            false,
+            $operation . ' denied: missing ' . $permission->value . ' permission',
+        );
+
+        throw AccessDeniedException::forIdentifier(
+            $identifier,
+            'missing ' . $permission->value . ' permission',
+        );
+    }
+
+    /**
+     * A `store()` over an existing secret that changes its access policy
+     * (owner, group tiers, frontend availability) additionally requires
+     * `secret.manage_policy` — widening who can read or write a secret is
+     * vault administration, not day-to-day secret handling.
+     *
+     * The comparison uses the EFFECTIVE values (after the owner /
+     * frontend-accessible coercions below): a submitted change that the
+     * coercion silently reverts for a non-admin backend user is not a policy
+     * change and must not start requiring an additional permission.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function assertPolicyChangeGranted(string $identifier, array $options, Secret $existing): void
+    {
+        $optional = $this->collectOptionalFields($options);
+
+        $ownerChanges = $this->resolveOwnerUid($options, $existing) !== $existing->getOwnerUid();
+        $frontendChanges = $this->resolveFrontendAccessible($optional['frontendAccessible'], $existing)
+            !== $existing->isFrontendAccessible();
+
+        $groupsChange = false;
+        if (isset($options['groups'])) {
+            $submittedGroups = $optional['allowedGroups'];
+            $existingGroups = $existing->getAllowedGroups();
+            sort($submittedGroups);
+            sort($existingGroups);
+            $groupsChange = $submittedGroups !== $existingGroups;
+        }
+
+        if (!$ownerChanges && !$frontendChanges && !$groupsChange) {
+            return;
+        }
+
+        $this->assertOperationGranted(VaultPermission::SecretManagePolicy, $identifier, 'Policy change');
     }
 
     /**
