@@ -58,6 +58,7 @@ ADR      Title                                                    Status
 031      :ref:`adr-031-shared-secret-pattern-catalogue`           Accepted
 032      :ref:`adr-032-portable-envelope-codec`                   Accepted
 033      :ref:`adr-033-foreign-envelope-rotation`                 Accepted
+034      :ref:`adr-035-frontend-placeholder-allow-set`            Accepted
 =======  =======================================================  ========
 
 .. toctree::
@@ -97,3 +98,4 @@ ADR      Title                                                    Status
    ADR-031-SharedSecretPatternCatalogue
    ADR-032-PortableEnvelopeCodec
    ADR-033-ForeignEnvelopeRotation
+   ADR-035-FrontendPlaceholderAllowSet
