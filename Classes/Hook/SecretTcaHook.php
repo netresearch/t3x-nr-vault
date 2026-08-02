@@ -177,7 +177,7 @@ final class SecretTcaHook
         // For existing records, prevent identifier changes
         if (!str_starts_with((string) $id, 'NEW') && isset($fieldArray['identifier'])) {
             // Get the original identifier
-            $originalRecord = BackendUtility::getRecord(self::TABLE, (int) $id, 'identifier');
+            $originalRecord = $this->readRecord((int) $id, ['identifier']);
             $originalIdentifier = \is_string($originalRecord['identifier'] ?? null) ? $originalRecord['identifier'] : '';
             if ($originalRecord !== null && $fieldArray['identifier'] !== $originalIdentifier) {
                 // Identifier change attempted - revert to original
@@ -225,7 +225,7 @@ final class SecretTcaHook
         if (!str_starts_with((string) $id, 'NEW') && $fieldArray !== []) {
             $columns = $this->submittedColumns($fieldArray);
             if ($columns !== []) {
-                $original = BackendUtility::getRecord(self::TABLE, (int) $id, implode(',', $columns));
+                $original = $this->readRecord((int) $id, $columns);
                 if ($original !== null) {
                     $this->originalMetadata[(string) $id] = array_intersect_key(
                         $original,
@@ -268,7 +268,7 @@ final class SecretTcaHook
         $uid = is_numeric($uidRaw) ? (int) $uidRaw : 0;
 
         // Get the secret identifier for operations
-        $record = BackendUtility::getRecord(self::TABLE, $uid, 'identifier,owner_uid,allowed_groups,scope_pid');
+        $record = $this->readRecord($uid, ['identifier', 'owner_uid', 'allowed_groups', 'scope_pid']);
         if ($record === null) {
             return;
         }
@@ -634,6 +634,71 @@ final class SecretTcaHook
     }
 
     /**
+     * Read the requested columns of one secret row, soft-deleted rows
+     * excluded — the semantics of BackendUtility::getRecord(), but through
+     * the injected ConnectionPool.
+     *
+     * The static call is avoided because its internals differ across the
+     * supported TYPO3 range: v13 gates on `$GLOBALS['TCA'][$table]`, v14 on
+     * a TcaSchemaFactory resolved through GeneralUtility. That made this
+     * hook's record reads depend on which core version was installed. The
+     * `deleted = 0` predicate is spelled out for the same reason — core's
+     * DeletedRestriction resolves the schema on v14 as well; it matches the
+     * restriction set getRecord() applies (removeAll() plus DeletedRestriction).
+     *
+     * Without a ConnectionPool (construction without DI) the static call is
+     * kept so those callers keep working unchanged.
+     *
+     * @param list<string> $columns
+     *
+     * @return array<string, mixed>|null
+     */
+    private function readRecord(int $uid, array $columns): ?array
+    {
+        if ($uid < 1) {
+            return null;
+        }
+
+        if (!$this->connectionPool instanceof ConnectionPool) {
+            $record = BackendUtility::getRecord(self::TABLE, $uid, implode(',', $columns));
+            if ($record === null) {
+                return null;
+            }
+
+            // Core annotates the return as a bare `array`; re-key so the
+            // string-keyed row this method promises is established rather
+            // than assumed. An explicit loop, like submittedColumns().
+            $row = [];
+            foreach ($record as $column => $value) {
+                $row[(string) $column] = $value;
+            }
+
+            return $row;
+        }
+
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
+        $queryBuilder->getRestrictions()->removeAll();
+
+        $row = $queryBuilder
+            ->select(...$columns)
+            ->from(self::TABLE)
+            ->where(
+                $queryBuilder->expr()->eq(
+                    'uid',
+                    $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT),
+                ),
+                $queryBuilder->expr()->eq(
+                    'deleted',
+                    $queryBuilder->createNamedParameter(0, Connection::PARAM_INT),
+                ),
+            )
+            ->executeQuery()
+            ->fetchAssociative();
+
+        return $row === false ? null : $row;
+    }
+
+    /**
      * Write the compensating revert: `null` removes the just-created row,
      * a value map restores the captured pre-change column values.
      *
@@ -842,11 +907,7 @@ final class SecretTcaHook
         }
 
         $uid = is_numeric($id) ? (int) $id : 0;
-        $original = BackendUtility::getRecord(
-            self::TABLE,
-            $uid,
-            'owner_uid,frontend_accessible,scope_pid',
-        );
+        $original = $this->readRecord($uid, ['owner_uid', 'frontend_accessible', 'scope_pid']);
         if ($original === null) {
             return;
         }
