@@ -184,6 +184,47 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    Note that the scheduled orphan cleanup deletes secrets and therefore
    needs ``secret.delete`` when it runs as the bare CLI actor.
 
+.. confval:: frontendPlaceholderLegacyCli
+   :name: ext-nrvault-frontendPlaceholderLegacyCli
+   :type: boolean
+   :Default: false
+
+   Restore the pre-hardening command-line behaviour, in which *every*
+   frontend-accessible :typoscript:`%vault(id)%` placeholder resolves on
+   the CLI, whoever authored the string it appears in.
+
+   Off by default: the CLI enforces the same allow-set as a frontend
+   request, so an identifier has to be published through an admin-only
+   source — TypoScript setup, site configuration,
+   :typoscript:`plugin.tx_nrvault.frontendResolvableIdentifiers`, or
+   :php:`FrontendPlaceholderPolicyInterface::allowIdentifier()`. See
+   :ref:`adr-035-frontend-placeholder-allow-set`.
+
+   .. warning::
+
+      Turning this on re-opens a real path, not a theoretical one.
+      :bash:`scheduler:run` authenticates the ``_cli_`` administrator, so
+      the admin bypass grants the read and this allow-set is the only
+      remaining gate between an editor-authored ``tt_content`` field and
+      a secret in the output of a scheduled newsletter or export job.
+
+      Pin the value out of admin reach in
+      :file:`config/system/additional.php`, or a compromised admin can
+      simply tick the box in the backend Settings module:
+
+      .. code-block:: php
+
+         $GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['frontendPlaceholderLegacyCli'] = false;
+
+   Enable it only for a deployment whose internal render jobs genuinely
+   need the old behaviour and cannot publish their identifiers. The
+   narrower remedy is one :typoscript:`frontendResolvableIdentifiers`
+   line, or one :php:`allowIdentifier()` call in the job itself.
+
+   The flag is CLI-only: it never weakens a web request, and it never
+   changes *which* secrets exist — a secret without
+   ``frontend_accessible`` stays unreadable either way.
+
 .. confval:: auditLogRetention
    :name: ext-nrvault-auditLogRetention
    :type: integer
@@ -758,7 +799,9 @@ To allow a secret to be used in TypoScript:
 2. Use the :typoscript:`%vault(identifier)%` syntax in TypoScript.
 
 ``frontend_accessible`` says the secret *may* appear in a page; it does not say
-which placeholders get expanded. In a frontend request the identifier must also
+which placeholders get expanded. In a frontend request — and on the command
+line, unless :confval:`frontendPlaceholderLegacyCli
+<ext-nrvault-frontendPlaceholderLegacyCli>` is on — the identifier must also
 be published through an admin-only source — the TypoScript setup array, the site
 configuration, :typoscript:`plugin.tx_nrvault.frontendResolvableIdentifiers`, or
 :php:`FrontendPlaceholderPolicyInterface::allowIdentifier()`. Step 2 satisfies

@@ -400,6 +400,7 @@ Configuration summary
     masterKeySource = /var/lib/typo3-secrets/vault-master.key
 
     allowCliAccess = 0              # default; enable only for a specific need
+    frontendPlaceholderLegacyCli = 0  # default; pin it in additional.php
     auditReads = 1
     auditHmacEpoch = 3
 
