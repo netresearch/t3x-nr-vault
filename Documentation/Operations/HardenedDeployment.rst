@@ -163,6 +163,21 @@ Remember that operation permissions are only one of two gates. Per-secret
 ownership and group tiers still apply — see
 :ref:`security-access-control`.
 
+..  note::
+
+    The table above grants *named* backend groups. If ``allowCliAccess`` has
+    to stay on for a deployment pipeline, the unattributed CLI actor is
+    granted separately by
+    :confval:`ext-nrvault-cliAllowedOperations`, which defaults to
+    ``secret.use,secret.create,secret.rotate``. Keep it at or below that:
+    every high-risk operation added there (``secret.reveal``,
+    ``secret.delete``, ``audit.export``, ``master_key.rotate``,
+    ``vault.configure``) becomes available to anyone with a shell on the
+    host, under an actor the audit trail cannot name. Prefer a named
+    technical actor — :ref:`developer-technical-actor-context` — for those
+    workflows. ``vault:doctor`` reports the list as
+    ``cli.allowed_operations``.
+
 .. _operations-hardened-deployment-step4:
 
 Step 4 — Enable an external audit sink
@@ -221,6 +236,28 @@ immediately rather than after the first scheduled run:
 Wire the alerting at the same time — a scheduled check whose failures nobody
 receives is not a control. :ref:`operations-monitoring-what-to-page` says what
 to page on.
+
+The external anchor above is only half of the control. A second, independent
+tip anchor lives in ``sys_registry`` (:ref:`adr-034-audit-chain-tip-anchor`)
+and is what makes a full
+wipe of ``tx_nrvault_audit_log`` detectable from inside the installation. It
+arms itself on the next audit write; confirm it did, then require it:
+
+..  code-block:: bash
+
+    vendor/bin/typo3 vault:audit --verify   # "Tip anchor: ok" — not "NOT ARMED"
+
+..  code-block:: none
+    :caption: Extension configuration — only after the anchor reports ``ok``
+
+    auditAnchorRequired = 1
+
+Order matters. Turned on before the anchor is armed, every verification
+reports a violation: an install that never had an anchor and one whose anchor
+an attacker deleted look identical. Once on, the requirement lives in a
+configuration file rather than the database, so a database-write attacker can
+no longer silence the control by deleting the row. ``vault:doctor`` reports
+the state as ``audit.db_anchor``.
 
 .. _operations-hardened-deployment-step6:
 
@@ -369,6 +406,9 @@ configuration is coherent; these steps say the deployment works.
 *   [ ] ``vault:audit-verify`` reports a valid chain and no findings.
 *   [ ] An anchor exists and is recent — check the newest ``timestamp`` in the
       anchor file.
+*   [ ] ``vault:audit --verify`` reports ``Tip anchor: ok``, and
+      ``auditAnchorRequired`` is on so a deleted anchor cannot silence the
+      control.
 *   [ ] Records actually arrive at the collector: run
       :bash:`vault:doctor --active-probes` (every enabled sink must accept
       the chain-tip anchor end-to-end), then perform a reveal and look for it
@@ -400,9 +440,12 @@ Configuration summary
     masterKeySource = /var/lib/typo3-secrets/vault-master.key
 
     allowCliAccess = 0              # default; enable only for a specific need
+    cliAllowedOperations = secret.use,secret.create,secret.rotate
+                                    # default; only read when allowCliAccess = 1
     frontendPlaceholderLegacyCli = 0  # default; pin it in additional.php
     auditReads = 1
     auditHmacEpoch = 3
+    auditAnchorRequired = 1         # only after the in-DB anchor reports ok
 
     auditSinkSyslogEnabled = 1
     auditSinkSyslogIdent = nr-vault-prod

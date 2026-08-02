@@ -865,7 +865,7 @@ vault:break-glass
 
 Open, close or inspect a time-boxed break-glass window that temporarily
 restores the administrator override removed by
-:ref:`disableAdminOverride <ext-nrvault-disableAdminOverride>`.
+:confval:`disableAdminOverride <ext-nrvault-disableAdminOverride>`.
 
 Only a real backend administrator or system maintainer — or an operator with
 CLI access to the host — may open or close a window. A justification is
@@ -1142,6 +1142,15 @@ cli.access
 cli.access_groups
    Emitted only when CLI access is on. Warning when ``cliAccessGroups`` is empty,
    leaving the grant unscoped with no group boundary left to review.
+
+cli.allowed_operations
+   Emitted only when CLI access is on. Reports which operations
+   :confval:`ext-nrvault-cliAllowedOperations` actually grants the unattributed
+   CLI actor. Warning when the list contains a high-risk operation
+   (``secret.reveal``, ``secret.delete``, ``audit.export``,
+   ``master_key.rotate``, ``vault.configure``) or an unknown value. Unknown
+   values are called out because they are silently inert — a typo revokes the
+   grant the operator believes is configured rather than failing loudly.
 
 secrets.expired
    No stored secret is past its expiry. Warning with the count otherwise: an
