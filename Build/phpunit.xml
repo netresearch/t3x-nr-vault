@@ -37,6 +37,10 @@
             <file>../Classes/Controller/MigrationController.php</file>
             <file>../Classes/Controller/OverviewController.php</file>
             <file>../Classes/Controller/SecretsController.php</file>
+            <!-- Module permission gate: renders a ModuleTemplate (final TYPO3
+                 classes) for the 403 response; its decision seams are unit
+                 tested, the render is covered functionally/E2E. -->
+            <file>../Classes/Controller/ModuleAccessGuard.php</file>
             <!-- Form elements: VaultSecretInputElement depends on final TYPO3 classes -->
             <file>../Classes/Form/Element/VaultSecretInputElement.php</file>
             <!-- Interfaces define contracts, not executable code -->
@@ -51,13 +55,21 @@
             <file>../Classes/Domain/Repository/SecretRepositoryInterface.php</file>
             <file>../Classes/Http/VaultHttpClientInterface.php</file>
             <file>../Classes/Security/AccessControlServiceInterface.php</file>
+            <file>../Classes/Security/BreakGlassServiceInterface.php</file>
+            <file>../Classes/Security/BreakGlassStateInterface.php</file>
             <file>../Classes/Service/SecretDetectionServiceInterface.php</file>
             <file>../Classes/Service/VaultServiceInterface.php</file>
+            <file>../Classes/Service/Doctor/ReadinessCheckInterface.php</file>
+            <file>../Classes/Service/Doctor/VaultDoctorServiceInterface.php</file>
+            <!-- Constant holder for documentation deep links: no executable code. -->
+            <file>../Classes/Service/Doctor/DocsLink.php</file>
             <file>../Classes/Service/Detection/SecretFinding.php</file>
             <!-- Enums: PHPUnit 12 cannot attribute coverage to enum classes -->
             <file>../Classes/Http/SecretPlacement.php</file>
             <file>../Classes/Service/Detection/Severity.php</file>
             <file>../Classes/Service/VaultFieldPermission.php</file>
+            <file>../Classes/Security/VaultPermission.php</file>
+            <file>../Classes/Service/Doctor/FindingSeverity.php</file>
             <!-- Interfaces and enums added with ADR-031/032/033: no executable
                  code to cover, and declaring CoversClass on an excluded target
                  raises a warning that failOnWarning turns into a failure. -->

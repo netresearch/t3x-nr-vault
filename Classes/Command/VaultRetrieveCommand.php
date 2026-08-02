@@ -11,6 +11,8 @@ namespace Netresearch\NrVault\Command;
 
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -31,6 +33,7 @@ final class VaultRetrieveCommand extends Command
 {
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
+        private readonly AccessControlServiceInterface $accessControlService,
     ) {
         parent::__construct();
     }
@@ -68,6 +71,20 @@ final class VaultRetrieveCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $identifierArg = $input->getArgument('identifier');
         $identifier = \is_string($identifierArg) ? $identifierArg : '';
+
+        // This command prints plaintext to a terminal (or writes it to a file),
+        // so it is a reveal surface and needs `secret.reveal` on top of the
+        // per-secret read access VaultService::retrieve() asserts. For a
+        // trusted CLI operator the vault's `allowCliAccess` switch decides;
+        // when invoked as a backend user, that user's group grants do.
+        if (!$this->accessControlService->isGranted(VaultPermission::SecretReveal)) {
+            $io->error(\sprintf(
+                'Access denied: the "%s" permission is required to print a secret value.',
+                VaultPermission::SecretReveal->value,
+            ));
+
+            return Command::FAILURE;
+        }
 
         try {
             $value = $this->vaultService->retrieve($identifier);

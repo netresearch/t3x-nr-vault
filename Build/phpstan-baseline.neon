@@ -889,7 +889,7 @@ parameters:
 		-
 			rawMessage: 'You should use assertSame() instead of assertEquals(), because both values are scalars of the same type'
 			identifier: phpunit.assertEquals
-			count: 14
+			count: 13
 			path: ../Tests/Functional/Service/VaultServiceTest.php
 
 		-
@@ -1201,7 +1201,7 @@ parameters:
 		-
 			rawMessage: 'Cannot call method method() on PHPUnit\Framework\MockObject\MockObject|null.'
 			identifier: method.nonObject
-			count: 160
+			count: 161
 			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
 
 		-
@@ -1537,7 +1537,7 @@ parameters:
 		-
 			rawMessage: 'Call to an undefined method PHPUnit\Framework\MockObject\InvocationStubber::with().'
 			identifier: method.notFound
-			count: 38
+			count: 40
 			path: ../Tests/Unit/Configuration/ExtensionConfigurationTest.php
 
 		-
@@ -1555,7 +1555,7 @@ parameters:
 		-
 			rawMessage: 'Cannot call method willReturn() on mixed.'
 			identifier: method.nonObject
-			count: 38
+			count: 40
 			path: ../Tests/Unit/Configuration/ExtensionConfigurationTest.php
 
 		-
@@ -2463,6 +2463,22 @@ parameters:
 			identifier: staticMethod.internal
 			count: 2
 			path: ../Tests/Unit/Task/OrphanCleanupTaskTest.php
+
+		# TYPO3 v13's AbstractTask::__construct() resolves the Scheduler via
+		# GeneralUtility; a unit test cannot instantiate the task without
+		# registering a Scheduler stand-in. Same framework-imposed pattern as
+		# OrphanCleanupTaskTest above; no public API exists for it.
+		-
+			rawMessage: 'Call to internal static method TYPO3\CMS\Core\Utility\GeneralUtility::setSingletonInstance() from outside its root namespace TYPO3.'
+			identifier: staticMethod.internal
+			count: 1
+			path: ../Tests/Unit/Task/AuditAnchorTaskTest.php
+
+		-
+			rawMessage: 'Call to internal static method TYPO3\CMS\Core\Utility\GeneralUtility::setSingletonInstance() from outside its root namespace TYPO3.'
+			identifier: staticMethod.internal
+			count: 1
+			path: ../Tests/Unit/Task/AuditVerifyTaskTest.php
 
 		-
 			rawMessage: 'Dynamic call to static method PHPUnit\Framework\Assert::isInt().'

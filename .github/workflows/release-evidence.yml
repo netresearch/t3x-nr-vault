@@ -1,0 +1,675 @@
+name: Release Evidence
+
+# Publishes the security release evidence bundle for a tagged release: what was
+# tested, how well, and how to verify the artifacts. The bundle is the receipt an
+# auditor or a security-conscious integrator reads instead of taking the release
+# notes on faith.
+#
+# This workflow only *produces* the raw verification artifacts and publishes the
+# result. Assembling them into the bundle is `Build/Scripts/collect-evidence.php`
+# (`composer ci:evidence`), which is self-tested via `composer ci:test:evidence`
+# and therefore reviewable and runnable without a runner.
+#
+# WHY A STANDALONE WORKFLOW
+# =========================
+# Same reasoning as security-gates.yml. `checks.yml` is byte-identical and
+# drift-enforced across every netresearch typo3-extension, so an
+# extension-specific job cannot live there. `release.yml` is a thin call into the
+# shared `typo3-ci-workflows/release-typo3-extension.yml` orchestrator, and that
+# orchestrator has no input for injecting extra evidence into its `dist/`.
+# Template drift only compares files the template owns, so a repo-local workflow
+# file is drift-safe (see check-template-drift.yml).
+#
+# WHY THE BUNDLE IS NOT A RELEASE ASSET
+# =====================================
+# `release-typo3-extension.yml` creates the GitHub release LAST, in one atomic
+# call, explicitly so it stays compatible with GitHub "Immutable Releases":
+# nothing is added, removed or edited after publication. Attaching the bundle
+# afterwards would either fail on an immutable release or break that guarantee.
+# So this workflow runs in parallel with the release and publishes the bundle as
+#
+#   1. a workflow-run artifact (the downloadable bundle),
+#   2. a build-provenance attestation over the bundle tarball, which is
+#      permanent and independently verifiable long after the artifact expires,
+#   3. the job summary, so the evidence table is readable without downloading
+#      anything and is retained with the run.
+#
+# Making the bundle a real release asset requires an `evidence` input on the
+# fleet reusable — a follow-up in netresearch/typo3-ci-workflows, not a local
+# hack. SECURITY.md documents how to fetch and verify a bundle.
+#
+# WHY EVERY VERIFICATION STEP IS continue-on-error
+# ================================================
+# A bundle that only exists when everything passed is marketing, not evidence.
+# Each step records its own outcome and the run continues, so the bundle always
+# describes the true state — including failures. The producing jobs still go red,
+# and the `bundle` job fails the workflow when any check failed, so a bad release
+# is loud rather than silently unreported.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag to (re)generate the evidence bundle for (e.g. "v1.2.3")'
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  # Never cancel an in-flight evidence run: a half-generated bundle is worse than
+  # a slow one, and re-running costs a full mutation pass.
+  cancel-in-progress: false
+
+env:
+  EVIDENCE_TAG: ${{ inputs.ref || github.ref_name }}
+  PHP_VERSION: '8.5'
+
+jobs:
+  checks:
+    name: Tests & static analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EVIDENCE_TAG }}
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          # pdo_sqlite for the functional suite (the shared ci.yml runs it on
+          # SQLite too), pcov for coverage.
+          extensions: intl, mbstring, xml, sodium, json, pdo_sqlite, pcov
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Install dependencies
+        env:
+          # CaptainHook's post-install hook installer is pointless on a CI
+          # checkout and fails in a detached worktree.
+          CAPTAINHOOK_DISABLE: 'true'
+        run: composer install --prefer-dist --no-progress
+
+      # Output paths are the defaults collect-evidence.php looks for.
+      - name: Unit tests
+        id: unit
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/logs .Build/coverage
+          .Build/bin/phpunit -c Build/phpunit.xml --testsuite Unit \
+            --log-junit=.Build/logs/junit.xml \
+            --coverage-clover=.Build/coverage/clover.xml
+
+      - name: Fuzz tests
+        id: fuzz
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/logs
+          .Build/bin/phpunit -c Build/phpunit.xml --testsuite Fuzz \
+            --log-junit=.Build/logs/junit-fuzz.xml
+
+      - name: Functional tests
+        id: functional
+        continue-on-error: true
+        env:
+          typo3DatabaseDriver: pdo_sqlite
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/logs
+          .Build/bin/phpunit -c Build/FunctionalTests.xml \
+            --log-junit=.Build/logs/junit-functional.xml
+
+      - name: PHPStan
+        id: phpstan
+        continue-on-error: true
+        # The default 128M limit crashes PHPStan on this codebase.
+        run: .Build/bin/phpstan analyse --no-progress --memory-limit=1G
+
+      - name: Code style
+        id: cgl
+        continue-on-error: true
+        run: composer ci:test:php:cgl
+
+      - name: Architecture rules
+        id: arch
+        continue-on-error: true
+        run: composer ci:test:php:arch
+
+      - name: CLI documentation drift
+        id: doc-cli
+        continue-on-error: true
+        run: composer ci:test:php:doc-cli
+
+      - name: Dependency audit
+        id: audit
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/evidence-inputs
+          # JSON rather than the plain format `composer ci:audit` uses: the
+          # collector parses this file. `composer audit` exits non-zero when it
+          # finds an advisory, which is the outcome we want recorded.
+          composer audit --locked --format=json --abandoned=report \
+            > .Build/evidence-inputs/composer-audit.json
+
+      # Flattened into the `--parts` drop-zone layout the collector documents
+      # (`collect-evidence.php --help`). The three producing jobs run on
+      # separate runners and upload disjoint files under one flat prefix, which
+      # merge back into a single directory in the `bundle` job. Flat names avoid
+      # upload-artifact's directory-stripping surprises entirely.
+      - name: Stage verification artifacts
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          # `-s`: stage only non-empty files. A shell redirect creates the file
+          # before the command runs, so a producer that crashed at startup leaves
+          # a zero-byte artifact — that is an absent producer, and the collector
+          # must see it as absent rather than as a corrupt report.
+          stage_if_present() { [ -s "$1" ] && cp "$1" "stage/$2" || true; }
+          stage_if_present .Build/logs/junit.xml            junit-unit.xml
+          stage_if_present .Build/logs/junit-fuzz.xml       junit-fuzz.xml
+          stage_if_present .Build/logs/junit-functional.xml junit-functional.xml
+          stage_if_present .Build/coverage/clover.xml       clover.xml
+          stage_if_present .Build/evidence-inputs/composer-audit.json composer-audit.json
+          find stage -type f | sort
+
+      - name: Upload verification artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evidence-inputs-checks
+          path: stage/
+          retention-days: 7
+          if-no-files-found: error
+
+      # Makes this job red when a check failed, so the failure is visible on the
+      # tag without waiting for the bundle. Runs after the upload so the evidence
+      # survives regardless.
+      - name: Report check outcomes
+        if: always()
+        env:
+          OUTCOMES: >-
+            unit=${{ steps.unit.outcome }}
+            fuzz=${{ steps.fuzz.outcome }}
+            functional=${{ steps.functional.outcome }}
+            phpstan=${{ steps.phpstan.outcome }}
+            cgl=${{ steps.cgl.outcome }}
+            arch=${{ steps.arch.outcome }}
+            doc-cli=${{ steps.doc-cli.outcome }}
+            audit=${{ steps.audit.outcome }}
+        run: |
+          set -euo pipefail
+          echo "$OUTCOMES" | tr ' ' '\n' | sed '/^$/d'
+          if echo "$OUTCOMES" | grep -q '=failure'; then
+            echo "::error::At least one verification check failed — see the outcomes above."
+            exit 1
+          fi
+
+  mutation:
+    name: Mutation testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EVIDENCE_TAG }}
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: intl, mbstring, xml, sodium, json, pcov
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Install dependencies
+        env:
+          CAPTAINHOOK_DISABLE: 'true'
+        run: composer install --prefer-dist --no-progress
+
+      # Coverage over Unit AND Fuzz: the crypto boundary is covered by the fuzz
+      # suite, so measuring Unit alone would understate the real score. Matches
+      # the security ratchet in security-gates.yml.
+      - name: Generate coverage for Infection
+        id: coverage
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/logs-evidence
+          .Build/bin/phpunit -c Build/phpunit.xml \
+            --testsuite Unit,Fuzz \
+            --coverage-xml=.Build/logs-evidence/coverage-xml \
+            --log-junit=.Build/logs-evidence/junit.xml
+
+      # infection.json5 logs to .Build/infection/, which is where the collector
+      # looks for infection.json and summary.log.
+      - name: Mutation testing
+        id: mutation
+        if: steps.coverage.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          .Build/bin/infection \
+            --configuration=infection.json5 \
+            --threads=max \
+            --skip-initial-tests \
+            --coverage=.Build/logs-evidence \
+            --no-progress
+
+      # The security ratchet an auditor actually cares about: the same mutation
+      # analysis narrowed to Classes/Crypto, Classes/Security and Classes/Audit,
+      # held to the stricter thresholds in infection-security.json5. Skipped
+      # (and recorded as absent) on releases that predate that config.
+      - name: Mutation testing (security-critical scope)
+        id: mutation-security
+        if: steps.coverage.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if [ ! -f infection-security.json5 ]; then
+            echo "::notice::No infection-security.json5 in this release — the security-scoped mutation score is recorded as absent."
+            exit 0
+          fi
+          .Build/bin/infection \
+            --configuration=infection-security.json5 \
+            --threads=max \
+            --skip-initial-tests \
+            --coverage=.Build/logs-evidence \
+            --no-progress
+
+      # Flattened into the `--parts` drop-zone layout (see the `checks` job).
+      - name: Stage mutation artifacts
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          # See the `checks` job: only non-empty artifacts are staged.
+          stage_if_present() { [ -s "$1" ] && cp "$1" "stage/$2" || true; }
+          stage_if_present .Build/infection/infection.json          infection.json
+          stage_if_present .Build/infection/summary.log             infection-summary.log
+          stage_if_present .Build/infection-security/infection.json infection-security.json
+          find stage -type f | sort
+
+      - name: Upload mutation artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evidence-inputs-mutation
+          path: stage/
+          retention-days: 7
+          # A crashed Infection run leaves no report. The bundle records that as
+          # a missing measurement, so an empty upload must not fail this job.
+          if-no-files-found: warn
+
+      - name: Report mutation outcome
+        if: always()
+        env:
+          COVERAGE: ${{ steps.coverage.outcome }}
+          MUTATION: ${{ steps.mutation.outcome }}
+          MUTATION_SECURITY: ${{ steps.mutation-security.outcome }}
+        run: |
+          set -euo pipefail
+          echo "coverage=$COVERAGE mutation=$MUTATION mutation-security=$MUTATION_SECURITY"
+          if [ "$COVERAGE" != 'success' ]; then
+            echo "::error::Coverage generation failed — the mutation score was never measured."
+            exit 1
+          fi
+          if [ "$MUTATION" != 'success' ]; then
+            echo "::error::Mutation testing failed or dropped below the ratchet in infection.json5."
+            exit 1
+          fi
+          if [ "$MUTATION_SECURITY" != 'success' ]; then
+            echo "::error::The security-scoped mutation run failed or dropped below the ratchet in infection-security.json5."
+            exit 1
+          fi
+
+  doctor:
+    name: Reference posture
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EVIDENCE_TAG }}
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: intl, mbstring, xml, sodium, json, pdo_sqlite
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        env:
+          CAPTAINHOOK_DISABLE: 'true'
+        run: composer install --prefer-dist --no-progress
+
+      # `vault:doctor` reports a *deployment's* posture, so its release-time
+      # value is a reference baseline: proof that a clean installation of this
+      # exact commit comes up healthy, which operators diff against their own
+      # `vault:doctor` output.
+      #
+      # The install mirrors .ddev/commands/web/install-v14 — the repo's proven
+      # non-interactive recipe — on SQLite instead of MySQL.
+      # Short-circuit on the file, not the CLI: `typo3 list` needs a bootstrapped
+      # instance, which is what this step is about to create. A tag predating
+      # PR6 must skip provisioning entirely rather than boot TYPO3 to find out.
+      - name: Check whether this release ships vault:doctor
+        id: available
+        run: |
+          set -euo pipefail
+          if [ -f Classes/Command/VaultDoctorCommand.php ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::This release predates vault:doctor — skipping the reference installation."
+          fi
+
+      - name: Provision a reference installation
+        id: provision
+        if: steps.available.outputs.present == 'true'
+        continue-on-error: true
+        env:
+          TYPO3_CONTEXT: Production
+        run: |
+          set -euo pipefail
+          .Build/bin/typo3 setup \
+            --driver=pdo_sqlite \
+            --admin-username=evidence \
+            --admin-email=evidence@example.com \
+            --admin-user-password="$(openssl rand -base64 24)" \
+            --project-name='nr-vault release evidence' \
+            --server-type=other \
+            --no-interaction \
+            --force
+          .Build/bin/typo3 extension:setup
+
+          # Belt-and-braces now that TYPO3 is bootstrapped: confirm the command
+          # is actually registered, not merely present as a file.
+          .Build/bin/typo3 list vault --raw | grep -q '^vault:doctor' \
+            || { echo "::error::VaultDoctorCommand.php exists but vault:doctor is not registered."; exit 1; }
+
+      # Exit code 2 is OVERLOADED, so it cannot be the success signal:
+      #   * `$report->exitCode()` returns 2 when a control is critical,
+      #   * `Command::INVALID` is also 2 (unusable --profile value),
+      #   * the crash path returns 2 as well.
+      # The discriminator is the PAYLOAD SHAPE: a run that never started emits
+      # {"error":…,"exitCode":…} with no `findings` key. So capture the exit code
+      # without failing the step, then branch on the shape. Exit 1 (warnings) and
+      # exit 2 with findings are both successfully collected evidence describing
+      # a degraded posture — recording those as "collection broke" would be the
+      # exact misreporting this bundle exists to prevent.
+      - name: Collect vault:doctor report
+        id: doctor
+        if: steps.provision.outcome == 'success'
+        env:
+          TYPO3_CONTEXT: Production
+        run: |
+          set -uo pipefail
+          mkdir -p .Build/evidence-inputs
+          set +e
+          .Build/bin/typo3 vault:doctor --format=json \
+            > .Build/evidence-inputs/doctor.json
+          DOCTOR_EXIT=$?
+          set -e
+          echo "vault:doctor exited ${DOCTOR_EXIT}"
+          cat .Build/evidence-inputs/doctor.json
+
+          if jq -e 'has("findings")' .Build/evidence-inputs/doctor.json >/dev/null 2>&1; then
+            SEVERITY="$(jq -r '.highestSeverity // "unknown"' .Build/evidence-inputs/doctor.json)"
+            CRASHED="$(jq -r '[.findings[]? | select(.id == "check.crashed")] | length' \
+              .Build/evidence-inputs/doctor.json)"
+            {
+              echo "collected=true"
+              echo "severity=$SEVERITY"
+              echo "crashed=$CRASHED"
+            } >> "$GITHUB_OUTPUT"
+            echo "::notice::vault:doctor posture collected (highestSeverity=${SEVERITY}, crashed checks=${CRASHED})."
+            exit 0
+          fi
+
+          # No `findings` key: the command could not evaluate anything.
+          echo "collected=false" >> "$GITHUB_OUTPUT"
+          echo "::error::vault:doctor could not run (exit ${DOCTOR_EXIT}): $(jq -r '.error // "no error message"' \
+            .Build/evidence-inputs/doctor.json 2>/dev/null || echo 'unparseable output'). No posture evidence for this release."
+          exit 1
+
+      # Flattened into the `--parts` drop-zone layout (see the `checks` job).
+      - name: Stage posture artifact
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          # See the `checks` job: only non-empty artifacts are staged. A hard
+          # bootstrap failure leaves doctor.json empty; staging it would make the
+          # collector treat a dead producer as a corrupt report.
+          [ -s .Build/evidence-inputs/doctor.json ] \
+            && cp .Build/evidence-inputs/doctor.json stage/doctor.json || true
+          find stage -type f | sort
+
+      - name: Upload posture artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evidence-inputs-doctor
+          path: stage/
+          retention-days: 7
+          # Absent when the release predates vault:doctor, or when the reference
+          # installation could not be provisioned. The bundle records it as
+          # missing; it must not fail this upload.
+          if-no-files-found: warn
+
+      # This job goes red only when the EVIDENCE is missing, never because the
+      # posture it recorded is degraded. A degraded posture is a finding for the
+      # bundle and the `bundle` job's gate to report, not a collection failure.
+      - name: Report posture outcome
+        if: always()
+        env:
+          PRESENT: ${{ steps.available.outputs.present }}
+          PROVISION: ${{ steps.provision.outcome }}
+          DOCTOR: ${{ steps.doctor.outcome }}
+          COLLECTED: ${{ steps.doctor.outputs.collected }}
+          SEVERITY: ${{ steps.doctor.outputs.severity }}
+          CRASHED: ${{ steps.doctor.outputs.crashed }}
+        run: |
+          set -euo pipefail
+          if [ "$PRESENT" != 'true' ]; then
+            echo "::notice::This release predates vault:doctor — no reference posture to collect."
+            exit 0
+          fi
+          echo "provision=$PROVISION doctor=$DOCTOR collected=${COLLECTED:-} severity=${SEVERITY:-} crashed=${CRASHED:-}"
+          if [ "$PROVISION" != 'success' ]; then
+            echo "::error::Could not provision a reference installation — no posture evidence for this release."
+            exit 1
+          fi
+          if [ "${COLLECTED:-false}" != 'true' ]; then
+            echo "::error::vault:doctor produced no evaluable report — no posture evidence for this release."
+            exit 1
+          fi
+
+          # Per-check containment turns an unreachable database into a
+          # `check.crashed` CRITICAL, which is indistinguishable from bad posture
+          # by severity alone. On this job that means the sqlite provisioning did
+          # not fully complete, so it is an evidence problem, not a posture one.
+          if [ "${CRASHED:-0}" != '0' ]; then
+            echo "::error::${CRASHED} readiness check(s) crashed — those controls were never evaluated. The sqlite reference installation is incomplete; fix provisioning rather than reading this as bad posture."
+            exit 1
+          fi
+
+          echo "::notice::Reference posture collected (highestSeverity=${SEVERITY}). A degraded posture is reported by the bundle, not failed here."
+
+  bundle:
+    name: Publish evidence bundle
+    needs: [checks, mutation, doctor]
+    # always(): the bundle must exist precisely when something went wrong.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EVIDENCE_TAG }}
+          # The collector falls back to the HEAD committer date for `builtAt`
+          # rather than the wall clock, so it needs real git history.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          coverage: none
+          tools: none
+
+      # merge-multiple: the three producing jobs upload disjoint files under one
+      # flat prefix, which overlay into the single `--parts` drop-zone the
+      # collector reads. A job that produced nothing simply contributes nothing,
+      # and its checks come out "absent".
+      - name: Download verification artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: evidence-inputs-*
+          merge-multiple: true
+          path: parts
+
+      - name: Assemble bundle
+        id: assemble
+        env:
+          COMMIT: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "Collected verification artifacts:"
+          find parts -type f | sort
+
+          php Build/Scripts/collect-evidence.php \
+            --output-dir=.Build/evidence \
+            --parts=parts \
+            --tag="$EVIDENCE_TAG" \
+            --commit="$COMMIT" \
+            --repo="$REPO" \
+            --archive-prefix=nr-vault \
+            --extension-key=nr_vault
+
+          VERSION="${EVIDENCE_TAG#v}"
+          TARBALL="release-evidence-${VERSION}.tar.gz"
+          tar -czf "$TARBALL" -C .Build/evidence .
+          {
+            echo "tarball=$TARBALL"
+            echo "digest=$(sha256sum "$TARBALL" | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attest the evidence bundle
+        # A provenance attestation keeps the bundle verifiable with
+        # `gh attestation verify` after the run artifact expires, and binds it to
+        # this workflow at this commit.
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: ${{ steps.assemble.outputs.tarball }}
+
+      - name: Upload evidence bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-evidence-${{ env.EVIDENCE_TAG }}
+          path: ${{ steps.assemble.outputs.tarball }}
+          # 90 days is the ceiling for a public repository. The attestation and
+          # this job summary outlive it; SECURITY.md documents re-verification.
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Publish job summary
+        env:
+          TARBALL: ${{ steps.assemble.outputs.tarball }}
+          DIGEST: ${{ steps.assemble.outputs.digest }}
+        run: |
+          set -euo pipefail
+          {
+            cat .Build/evidence/EVIDENCE.md
+            echo ""
+            echo "## Bundle integrity"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Artifact | \`$TARBALL\` |"
+            echo "| SHA-256 | \`$DIGEST\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The verdict combines two independent signals: the manifest (what the
+      # artifacts show) and the producing jobs' results (whether the steps that
+      # should have produced them actually succeeded). A job that died before
+      # writing its artifact would otherwise read as a benign "absent".
+      - name: Gate on the verdict
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          MUTATION_RESULT: ${{ needs.mutation.result }}
+          DOCTOR_RESULT: ${{ needs.doctor.result }}
+        run: |
+          set -euo pipefail
+          MANIFEST=.Build/evidence/evidence-manifest.json
+
+          echo "Check statuses in the manifest:"
+          jq -r '.checks[] | "  \(.status)\t\(.id)\t\(.summary)"' "$MANIFEST"
+
+          FAILED="$(jq -r '[.checks[] | select(.status == "fail")] | length' "$MANIFEST")"
+          SOFT="$(jq -r '[.checks[] | select(.status == "warn" or .status == "absent")] | length' "$MANIFEST")"
+
+          echo "jobs: checks=$CHECKS_RESULT mutation=$MUTATION_RESULT doctor=$DOCTOR_RESULT"
+
+          if [ "$FAILED" -gt 0 ] || [ "$CHECKS_RESULT" != 'success' ] || [ "$MUTATION_RESULT" != 'success' ]; then
+            echo "::error::Release evidence verdict: FAIL — $FAILED failing check(s); see the job summary. The bundle is published; do not describe this release as verified until this is resolved."
+            exit 1
+          fi
+
+          if [ "$SOFT" -gt 0 ] || [ "$DOCTOR_RESULT" != 'success' ]; then
+            echo "::warning::Release evidence verdict: DEGRADED — $SOFT check(s) warned or produced no artifact. The release is verified only to the extent the bundle shows."
+            exit 0
+          fi
+
+          echo "::notice::Release evidence verdict: PASS — every check passed with a report."

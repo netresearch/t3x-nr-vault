@@ -7,6 +7,8 @@
 
 declare(strict_types=1);
 
+use Netresearch\NrVault\Task\AuditAnchorTask;
+use Netresearch\NrVault\Task\AuditVerifyTask;
 use Netresearch\NrVault\Task\OrphanCleanupTask;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 
@@ -40,6 +42,15 @@ if (is_array($GLOBALS['TCA'] ?? null) && isset($GLOBALS['TCA']['tx_scheduler_tas
                     'placeholder' => 'e.g., tx_myext_settings',
                 ],
             ],
+            'nr_vault_tamper_only' => [
+                'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditVerify.tamperOnly',
+                'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditVerify.tamperOnly.description',
+                'config' => [
+                    'type' => 'check',
+                    'renderType' => 'checkboxToggle',
+                    'default' => 0,
+                ],
+            ],
         ],
     );
 
@@ -59,6 +70,64 @@ if (is_array($GLOBALS['TCA'] ?? null) && isset($GLOBALS['TCA']['tx_scheduler_tas
                 description,
                 nr_vault_retention_days,
                 nr_vault_table_filter,
+            --div--;LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:scheduler.form.palettes.timing,
+                execution_details,
+                nextexecution,
+                --palette--;;lastexecution,
+            --div--;LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.accessTab,
+                disable,
+            --div--;LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.extended,
+        ',
+        [],
+        '',
+        'tx_scheduler_task',
+    );
+
+    // Register the AuditAnchorTask — publishes the audit chain tip to the
+    // external sinks. No task-specific fields: what it does is fully determined
+    // by which audit sinks are enabled in the extension configuration.
+    ExtensionManagementUtility::addRecordType(
+        [
+            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditAnchor.title',
+            'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditAnchor.description',
+            'value' => AuditAnchorTask::class,
+            'icon' => 'actions-lock',
+            'group' => 'nr_vault',
+        ],
+        '
+            --div--;LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.generalTab,
+                tasktype,
+                task_group,
+                description,
+            --div--;LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:scheduler.form.palettes.timing,
+                execution_details,
+                nextexecution,
+                --palette--;;lastexecution,
+            --div--;LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.accessTab,
+                disable,
+            --div--;LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.extended,
+        ',
+        [],
+        '',
+        'tx_scheduler_task',
+    );
+
+    // Register the AuditVerifyTask — verifies the hash chain against the
+    // external anchor and dispatches integrity alerts.
+    ExtensionManagementUtility::addRecordType(
+        [
+            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditVerify.title',
+            'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditVerify.description',
+            'value' => AuditVerifyTask::class,
+            'icon' => 'actions-check',
+            'group' => 'nr_vault',
+        ],
+        '
+            --div--;LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.generalTab,
+                tasktype,
+                task_group,
+                description,
+                nr_vault_tamper_only,
             --div--;LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:scheduler.form.palettes.timing,
                 execution_details,
                 nextexecution,

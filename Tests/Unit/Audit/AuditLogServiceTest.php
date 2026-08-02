@@ -12,16 +12,20 @@ namespace Netresearch\NrVault\Tests\Unit\Audit;
 use ArrayIterator;
 use DateTimeImmutable;
 use Doctrine\DBAL\Result;
+use InvalidArgumentException;
 use Iterator;
+use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainAnchor;
 use Netresearch\NrVault\Audit\AuditChainAnchorLoad;
 use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
 use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
+use Netresearch\NrVault\Audit\AuditLogInputs;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
+use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Exception\AuditWriteException;
@@ -32,6 +36,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Log\LoggerInterface;
 use RuntimeException;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -40,6 +45,7 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
 #[CoversClass(AuditLogService::class)]
 #[CoversClass(AuditLogEntry::class)]
+#[CoversClass(AuditLogInputs::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class AuditLogServiceTest extends TestCase
 {
@@ -772,9 +778,10 @@ final class AuditLogServiceTest extends TestCase
     {
         $this->setupDatabaseMocks();
 
+        $cause = new RuntimeException('Insert failed');
         $this->connection
             ->method('insert')
-            ->willThrowException(new RuntimeException('Insert failed'));
+            ->willThrowException($cause);
 
         $this->connection
             ->expects(self::once())
@@ -784,10 +791,37 @@ final class AuditLogServiceTest extends TestCase
             ->expects(self::never())
             ->method('commit');
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Insert failed');
+        // Single failure contract: any chain-write failure surfaces as
+        // AuditWriteException — the type the SEC-3 compensating rollbacks in
+        // VaultService and SecretTcaHook key on — with the driver error
+        // chained as previous.
+        try {
+            $this->getSubject()->log('test_secret', 'create', true);
+            self::fail('log() must throw on a failed insert');
+        } catch (AuditWriteException $e) {
+            self::assertStringContainsString('Insert failed', $e->getMessage());
+            self::assertSame($cause, $e->getPrevious());
+        }
+    }
 
-        $this->getSubject()->log('test_secret', 'create', true);
+    #[Test]
+    public function logDoesNotDoubleWrapAnAuditWriteException(): void
+    {
+        // A lock-acquisition failure is already an AuditWriteException; the
+        // wrap in log() must rethrow it as-is instead of nesting it.
+        $this->setupDatabaseMocks();
+
+        $original = AuditWriteException::lockAcquisitionFailed(0);
+        $this->connection
+            ->method('insert')
+            ->willThrowException($original);
+
+        try {
+            $this->getSubject()->log('test_secret', 'create', true);
+            self::fail('log() must rethrow the AuditWriteException');
+        } catch (AuditWriteException $e) {
+            self::assertSame($original, $e);
+        }
     }
 
     #[Test]
@@ -2594,6 +2628,452 @@ final class AuditLogServiceTest extends TestCase
         );
     }
 
+    // =========================================================================
+    // Guard rails and branches around the chain write.
+    // =========================================================================
+
+    /**
+     * An unknown action string would be sealed into the tamper-evident chain
+     * forever and could never be verified against a known payload again, so it is
+     * a hard programming error — not an `AuditWriteException` the VaultService
+     * atomicity path compensates for.
+     */
+    #[Test]
+    public function anUnknownActionIsRejectedBeforeAnythingIsWritten(): void
+    {
+        $this->connectionMock()->expects(self::never())->method('insert');
+
+        try {
+            $this->getSubject()->log('api_creds', 'exfiltrate', true);
+            self::fail('an unknown action must not be accepted');
+        } catch (InvalidArgumentException $e) {
+            self::assertSame(1717100000, $e->getCode());
+            self::assertStringContainsString('exfiltrate', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function everyDeclaredAuditActionIsAcceptedByLog(): void
+    {
+        $actions = AuditAction::cases();
+
+        $this->setupDatabaseMocks();
+        // The guard must reject typos, not the canonical set: every case has to
+        // reach the INSERT.
+        $this->connectionMock()->expects(self::exactly(\count($actions)))->method('insert');
+
+        foreach ($actions as $action) {
+            $this->getSubject()->log('api_creds', $action->value, true);
+        }
+    }
+
+    /**
+     * `export()` materialises what `exportIterable()` streams. Exercised over a
+     * non-empty result so the accumulation — not just the empty short-circuit —
+     * is covered.
+     */
+    #[Test]
+    public function exportMaterialisesEveryStreamedEntry(): void
+    {
+        $this->setupQueryMocks([
+            ['uid' => 1, 'secret_identifier' => 'a', 'action' => 'create', 'success' => 1, 'actor_uid' => 1, 'crdate' => 100, 'entry_hash' => 'h1', 'previous_hash' => '', 'hmac_key_epoch' => 1],
+            ['uid' => 2, 'secret_identifier' => 'b', 'action' => 'read', 'success' => 1, 'actor_uid' => 1, 'crdate' => 200, 'entry_hash' => 'h2', 'previous_hash' => 'h1', 'hmac_key_epoch' => 1],
+        ]);
+
+        $entries = $this->getSubject()->export();
+
+        self::assertCount(2, $entries);
+        self::assertContainsOnlyInstancesOf(AuditLogEntry::class, $entries);
+        self::assertSame([1, 2], array_map(static fn (AuditLogEntry $e): int => $e->uid, $entries));
+    }
+
+    #[Test]
+    public function exportIterableYieldsTheSameEntriesItStreams(): void
+    {
+        $this->setupQueryMocks([
+            ['uid' => 7, 'secret_identifier' => 'a', 'action' => 'read', 'success' => 1, 'actor_uid' => 1, 'crdate' => 100, 'entry_hash' => 'h7', 'previous_hash' => '', 'hmac_key_epoch' => 1],
+        ]);
+
+        $uids = [];
+        foreach ($this->getSubject()->exportIterable() as $entry) {
+            $uids[] = $entry->uid;
+        }
+
+        self::assertSame([7], $uids);
+    }
+
+    // =========================================================================
+    // verifyChainForReseal() — the gate that stops a re-seal from laundering
+    // tampering into a freshly valid chain.
+    // =========================================================================
+
+    /**
+     * A genuinely-legacy keyless chain carries no HMAC evidence to check; the
+     * re-seal is exactly how it FIRST gains protection, so it must be allowed.
+     */
+    #[Test]
+    public function resealVerificationSkipsAChainWithNoHmacRows(): void
+    {
+        $this->setupResealMocks(rows: [], hmacRowCount: 0);
+
+        self::assertNull($this->getSubject()->verifyChainForReseal());
+    }
+
+    #[Test]
+    public function resealVerificationPassesAnIntactHmacChain(): void
+    {
+        $hmacKey = AuditLogService::deriveHmacKey($this->masterKeyProviderMock());
+        $hash1 = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '', $hmacKey);
+        $hash2 = AuditLogService::calculateHash(2, 'b', 'read', 1, 200, $hash1, $hmacKey);
+
+        $this->setupResealMocks(
+            rows: [
+                ['uid' => 1, 'secret_identifier' => 'a', 'action' => 'create', 'actor_uid' => 1, 'crdate' => 100, 'previous_hash' => '', 'entry_hash' => $hash1, 'hmac_key_epoch' => 1],
+                ['uid' => 2, 'secret_identifier' => 'b', 'action' => 'read', 'actor_uid' => 1, 'crdate' => 200, 'previous_hash' => $hash1, 'entry_hash' => $hash2, 'hmac_key_epoch' => 1],
+            ],
+            hmacRowCount: 2,
+        );
+
+        self::assertNull(
+            $this->getSubject()->verifyChainForReseal(),
+            'an intact HMAC chain must not block its own re-seal',
+        );
+    }
+
+    /**
+     * The security-relevant direction: re-sealing recomputes every hash under the
+     * current key, which would turn a tampered chain into a valid-looking one. So
+     * the tampering has to be REPORTED here, for the caller to refuse on.
+     */
+    #[Test]
+    public function resealVerificationReportsATamperedHmacChainSoTheResealCanBeRefused(): void
+    {
+        $hmacKey = AuditLogService::deriveHmacKey($this->masterKeyProviderMock());
+        $hash1 = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '', $hmacKey);
+
+        $this->setupResealMocks(
+            rows: [
+                ['uid' => 1, 'secret_identifier' => 'a', 'action' => 'create', 'actor_uid' => 1, 'crdate' => 100, 'previous_hash' => '', 'entry_hash' => $hash1, 'hmac_key_epoch' => 1],
+                // Rewritten identifier: the stored hash no longer matches the payload.
+                ['uid' => 2, 'secret_identifier' => 'rewritten', 'action' => 'read', 'actor_uid' => 1, 'crdate' => 200, 'previous_hash' => $hash1, 'entry_hash' => str_repeat('0', 64), 'hmac_key_epoch' => 1],
+            ],
+            hmacRowCount: 2,
+        );
+
+        $result = $this->getSubject()->verifyChainForReseal();
+
+        self::assertInstanceOf(HashChainVerificationResult::class, $result);
+        self::assertFalse($result->isValid());
+        self::assertArrayHasKey(2, $result->errors);
+    }
+
+    /**
+     * The re-seal check must verify under the chain's OWN stored epochs, not the
+     * configured target: an epoch-1 chain migrating to epoch 2 is legitimate and
+     * must not be reported as a downgrade. The subject here is configured for
+     * epoch 1 while the chain sits at epoch 0 plus HMAC rows.
+     */
+    #[Test]
+    public function resealVerificationDoesNotApplyTheConfiguredEpochFloor(): void
+    {
+        $hmacKey = AuditLogService::deriveHmacKey($this->masterKeyProviderMock());
+        $hash1 = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '');
+        $hash2 = AuditLogService::calculateHash(2, 'b', 'read', 1, 200, $hash1, $hmacKey);
+
+        $this->setupResealMocks(
+            rows: [
+                ['uid' => 1, 'secret_identifier' => 'a', 'action' => 'create', 'actor_uid' => 1, 'crdate' => 100, 'previous_hash' => '', 'entry_hash' => $hash1, 'hmac_key_epoch' => 0],
+                ['uid' => 2, 'secret_identifier' => 'b', 'action' => 'read', 'actor_uid' => 1, 'crdate' => 200, 'previous_hash' => $hash1, 'entry_hash' => $hash2, 'hmac_key_epoch' => 1],
+            ],
+            hmacRowCount: 1,
+        );
+
+        self::assertNull(
+            $this->getSubject()->verifyChainForReseal(),
+            'a partly-migrated chain must remain re-sealable',
+        );
+    }
+
+    // =========================================================================
+    // Error-message hygiene and the sink fan-out.
+    // =========================================================================
+
+    /**
+     * The audit row is long-retained and frequently exported to lower-privilege
+     * operators, so `error_message` is bounded: the forensic value is the
+     * CATEGORY of failure, not a verbose dump that may carry internal state.
+     */
+    #[Test]
+    public function anOversizedErrorMessageIsTruncatedWithAnEllipsis(): void
+    {
+        $this->setupDatabaseMocks();
+
+        $captured = [];
+        $this->connectionMock()
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                'tx_nrvault_audit_log',
+                self::callback(static function (array $data) use (&$captured): bool {
+                    $captured = $data;
+
+                    return true;
+                }),
+            );
+
+        $this->getSubject()->log('api_creds', 'read', false, str_repeat('x', 500));
+
+        self::assertIsString($captured['error_message']);
+        self::assertSame(200, mb_strlen($captured['error_message']));
+        self::assertStringEndsWith('...', $captured['error_message']);
+        self::assertSame(str_repeat('x', 197) . '...', $captured['error_message']);
+    }
+
+    #[Test]
+    public function anErrorMessageAtTheLimitIsStoredWhole(): void
+    {
+        $this->setupDatabaseMocks();
+
+        $message = str_repeat('y', 200);
+        $captured = [];
+        $this->connectionMock()
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                'tx_nrvault_audit_log',
+                self::callback(static function (array $data) use (&$captured): bool {
+                    $captured = $data;
+
+                    return true;
+                }),
+            );
+
+        $this->getSubject()->log('api_creds', 'read', false, $message);
+
+        self::assertSame($message, $captured['error_message']);
+    }
+
+    /**
+     * The database row is chain-authoritative and already committed by the time
+     * the sinks run. A broken fan-out must therefore be reported, never allowed
+     * to fail the audited vault operation.
+     */
+    #[Test]
+    public function aBrokenSinkFanOutIsLoggedAndDoesNotFailTheAuditedOperation(): void
+    {
+        $this->setupDatabaseMocks();
+        $this->connectionMock()->method('lastInsertId')->willReturn('42');
+
+        $registry = self::createStub(AuditSinkRegistryInterface::class);
+        $registry->method('dispatch')->willThrowException(new RuntimeException('DI graph broken', 1750000020));
+
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::once())
+            ->method('error')
+            ->with(
+                self::stringContains('audit sink fan-out failed'),
+                self::callback(static fn (array $context): bool => $context['uid'] === 42
+                    && $context['error'] === 'DI graph broken'
+                    && $context['exception'] === RuntimeException::class),
+            );
+
+        $subject = new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            $registry,
+            $logger,
+        );
+
+        $subject->log('api_creds', 'read', true);
+    }
+
+    #[Test]
+    public function aWorkingSinkFanOutReceivesTheCommittedRowAndItsChainTip(): void
+    {
+        $this->setupDatabaseMocks();
+        $this->connectionMock()->method('lastInsertId')->willReturn('42');
+
+        $registry = $this->createMock(AuditSinkRegistryInterface::class);
+        $registry->expects(self::once())
+            ->method('dispatch')
+            ->with(
+                self::callback(static fn (AuditLogEntry $entry): bool => $entry->uid === 42),
+                // The chain tip after this write IS this entry's own hash.
+                self::matchesRegularExpression(self::SHA256_HEX_PATTERN),
+            );
+
+        $subject = new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            $registry,
+        );
+
+        $subject->log('api_creds', 'read', true);
+    }
+
+    // =========================================================================
+    // Epoch dispatch on the write path. The stored entry_hash must be the one
+    // the configured epoch's algorithm produces, or every later verification of
+    // the row reports a tamper that never happened.
+    // =========================================================================
+
+    #[Test]
+    public function epochZeroWritesAKeylessSha256EntryHash(): void
+    {
+        [$insertedRow, $storedHash] = $this->captureWriteAtEpoch(0);
+
+        $v1 = AuditLogService::extractHashRow(['uid' => 42] + $insertedRow);
+
+        self::assertSame(
+            AuditLogService::calculateHash(
+                $v1['uid'],
+                $v1['secretId'],
+                $v1['action'],
+                $v1['actorUid'],
+                $v1['crdate'],
+                '',
+            ),
+            $storedHash,
+        );
+    }
+
+    #[Test]
+    public function epochTwoWritesTheExtendedForensicHmacEntryHash(): void
+    {
+        [$insertedRow, $storedHash] = $this->captureWriteAtEpoch(2);
+
+        self::assertSame(
+            AuditLogService::calculateHashV2(
+                AuditLogService::extractV2HashRow(['uid' => 42] + $insertedRow),
+                '',
+                AuditLogService::deriveHmacKey($this->masterKeyProviderMock()),
+            ),
+            $storedHash,
+        );
+    }
+
+    /**
+     * The epochs must not agree: if epoch 0 and epoch 2 produced the same hash
+     * the two tests above would pass without the dispatch working at all.
+     */
+    #[Test]
+    public function theEpochsProduceDifferentEntryHashesForTheSameRow(): void
+    {
+        [, $epochZeroHash] = $this->captureWriteAtEpoch(0);
+        [, $epochTwoHash] = $this->captureWriteAtEpoch(2);
+
+        self::assertNotSame($epochZeroHash, $epochTwoHash);
+    }
+
+    /**
+     * Run one `log()` at the given epoch and return the inserted row plus the
+     * `entry_hash` the second-step UPDATE stored.
+     *
+     * @return array{array<string, mixed>, string}
+     */
+    private function captureWriteAtEpoch(int $epoch): array
+    {
+        $connectionPool = $this->createMock(ConnectionPool::class);
+        $connection = $this->createMock(Connection::class);
+        $queryBuilder = $this->createMock(QueryBuilder::class);
+
+        $previousHashResult = self::createStub(Result::class);
+        // No prior entry: the previous hash is the empty string.
+        $previousHashResult->method('fetchOne')->willReturn(false);
+
+        $lockResult = self::createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
+        $connectionPool->method('getConnectionForTable')->willReturn($connection);
+        $connection->method('createQueryBuilder')->willReturn($queryBuilder);
+        $connection->method('executeQuery')->willReturn($lockResult);
+        $connection->method('lastInsertId')->willReturn('42');
+        $queryBuilder->method('select')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('orderBy')->willReturnSelf();
+        $queryBuilder->method('setMaxResults')->willReturnSelf();
+        $queryBuilder->method('executeQuery')->willReturn($previousHashResult);
+
+        $insertedRow = [];
+        $connection->expects(self::once())
+            ->method('insert')
+            ->with(
+                'tx_nrvault_audit_log',
+                self::callback(static function (array $data) use (&$insertedRow): bool {
+                    $insertedRow = $data;
+
+                    return true;
+                }),
+            );
+
+        $storedHash = null;
+        $connection->expects(self::once())
+            ->method('update')
+            ->with(
+                'tx_nrvault_audit_log',
+                self::callback(static function (array $fields) use (&$storedHash): bool {
+                    $storedHash = $fields['entry_hash'] ?? null;
+
+                    return true;
+                }),
+                self::anything(),
+            );
+
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
+        $configuration->method('getAuditHmacEpoch')->willReturn($epoch);
+
+        $subject = new AuditLogService(
+            $connectionPool,
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $configuration,
+        );
+
+        $subject->log('api_creds', 'read', true);
+
+        self::assertIsString($storedHash);
+
+        $row = $this->asColumnRow($insertedRow);
+        self::assertSame($epoch, $row['hmac_key_epoch']);
+
+        return [$row, $storedHash];
+    }
+
+    /**
+     * Wire the two queries `verifyChainForReseal()` makes: the HMAC-row count and
+     * the full chain scan.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     */
+    private function setupResealMocks(array $rows, int $hmacRowCount): void
+    {
+        $result = $this->createMock(Result::class);
+        $result->method('fetchOne')->willReturn($hmacRowCount);
+        $result->method('fetchAllAssociative')->willReturn($rows);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($rows));
+
+        $expressionBuilder = $this->createMock(ExpressionBuilder::class);
+
+        $connection = $this->connectionMock();
+        $queryBuilder = $this->queryBuilderMock();
+
+        $this->connectionPoolMock()->method('getConnectionForTable')->willReturn($connection);
+        $connection->method('createQueryBuilder')->willReturn($queryBuilder);
+        $queryBuilder->method('expr')->willReturn($expressionBuilder);
+        $queryBuilder->method('count')->willReturnSelf();
+        $queryBuilder->method('select')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('where')->willReturnSelf();
+        $queryBuilder->method('orderBy')->willReturnSelf();
+        $queryBuilder->method('setMaxResults')->willReturnSelf();
+        $queryBuilder->method('createNamedParameter')->willReturn('?');
+        $queryBuilder->method('executeQuery')->willReturn($result);
+    }
+
     /**
      * Double-read stability rule: a hash mismatch is only reported when the raw
      * anchor bytes are IDENTICAL either side of the row read. A re-seal that
@@ -2840,6 +3320,73 @@ final class AuditLogServiceTest extends TestCase
         self::assertNotNull($this->subject);
 
         return $this->subject;
+    }
+
+    /**
+     * The shared mocks are declared as `?MockObject`, which loses the mocked
+     * type. These accessors restore it so new tests can call `expects()` /
+     * `method()` on a value static analysis knows is non-null and correctly
+     * typed.
+     */
+    private function connectionMock(): Connection&MockObject
+    {
+        self::assertInstanceOf(Connection::class, $this->connection);
+
+        return $this->connection;
+    }
+
+    private function connectionPoolMock(): ConnectionPool&MockObject
+    {
+        self::assertInstanceOf(ConnectionPool::class, $this->connectionPool);
+
+        return $this->connectionPool;
+    }
+
+    private function queryBuilderMock(): QueryBuilder&MockObject
+    {
+        self::assertInstanceOf(QueryBuilder::class, $this->queryBuilder);
+
+        return $this->queryBuilder;
+    }
+
+    private function accessControlMock(): AccessControlServiceInterface&MockObject
+    {
+        self::assertInstanceOf(AccessControlServiceInterface::class, $this->accessControlService);
+
+        return $this->accessControlService;
+    }
+
+    private function masterKeyProviderMock(): MasterKeyProviderInterface&MockObject
+    {
+        self::assertInstanceOf(MasterKeyProviderInterface::class, $this->masterKeyProvider);
+
+        return $this->masterKeyProvider;
+    }
+
+    private function extensionConfigurationMock(): ExtensionConfigurationInterface&MockObject
+    {
+        self::assertInstanceOf(ExtensionConfigurationInterface::class, $this->extensionConfiguration);
+
+        return $this->extensionConfiguration;
+    }
+
+    /**
+     * Re-key an array captured from a `Connection::insert()` argument, whose keys
+     * static analysis only knows as `array-key`, to the string-keyed row shape the
+     * hash extractors require. Audit column names are strings by construction.
+     *
+     * @param array<mixed> $row
+     *
+     * @return array<string, mixed>
+     */
+    private function asColumnRow(array $row): array
+    {
+        $columns = [];
+        foreach ($row as $column => $value) {
+            $columns[(string) $column] = $value;
+        }
+
+        return $columns;
     }
 
     private function setupDatabaseMocks(mixed $previousHashFetchOne = false): void

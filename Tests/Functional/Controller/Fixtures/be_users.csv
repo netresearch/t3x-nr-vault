@@ -1,4 +1,10 @@
-"be_users"
-,"uid","username","password","admin","disable","starttime","endtime"
-,1,"admin","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",1,0,0,0
-,2,"editor","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0
+"be_users",,,,,,,
+,"uid","username","password","admin","disable","starttime","endtime","usergroup"
+,1,"admin","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",1,0,0,0,""
+,2,"editor","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,""
+,3,"revealer","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"10"
+,4,"auditor","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"11"
+"be_groups",,,,
+,"uid","pid","title","custom_options"
+,10,0,"vault-revealer","tx_nrvault:secret.use,tx_nrvault:secret.reveal"
+,11,0,"vault-auditor","tx_nrvault:audit.view"

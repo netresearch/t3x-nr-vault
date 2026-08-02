@@ -10,7 +10,7 @@ storageAdapter = local
 ### MASTER KEY ###
 #################
 
-# cat=Master Key; type=options[typo3=TYPO3 Encryption Key,file=External File,env=Environment Variable]; label=Master Key Provider: Source of the master encryption key
+# cat=Master Key; type=options[typo3=TYPO3 Encryption Key,file=External File,env=Environment Variable,transit=HashiCorp Vault Transit]; label=Master Key Provider: Source of the master encryption key. "transit" keeps the master key wrapped by HashiCorp Vault's transit engine and stores only the ciphertext locally (see the hashicorp.transit* settings).
 masterKeyProvider = typo3
 
 # cat=Master Key; type=string; label=Master Key Source: File path (for 'file' provider) or environment variable name (for 'env' provider). Ignored when using 'typo3' provider.
@@ -30,11 +30,17 @@ encryptionAlgorithm =
 ### SECURITY ###
 #################
 
+# cat=Security; type=options[standard=Standard (secure defaults),hardened=Hardened (fail-closed, audit-ready)]; label=Security Profile: "standard" keeps zero-configuration defaults. "hardened" enforces a fail-closed policy: an explicit external master key provider (file or env) is required, provider auto-detection and any fallback to the TYPO3 encryption key are disabled, and vault operations refuse to run on a misconfigured or unavailable provider.
+securityProfile = standard
+
 # cat=Security; type=boolean; label=Allow CLI Access: Enable secret access via CLI commands (requires proper authentication)
 allowCliAccess = 0
 
 # cat=Security; type=string; label=CLI Access Groups: Comma-separated list of backend user group IDs allowed CLI access
 cliAccessGroups =
+
+# cat=Security; type=string; label=CLI Allowed Operations: Comma-separated operation permissions the unattributed CLI actor may hold when "allowCliAccess" is on. High-risk operations (secret.reveal, secret.delete, audit.export, master_key.rotate, vault.configure) are excluded by default - add them explicitly only where the deployment genuinely needs them, or prefer a named technical actor (TechnicalActorContext::runAs()).
+cliAllowedOperations = secret.use,secret.create,secret.rotate
 
 # cat=Security; type=int+; label=Audit Log Retention (days): Number of days to keep audit log entries (0 = forever)
 auditLogRetention = 365
@@ -42,35 +48,77 @@ auditLogRetention = 365
 # cat=Security; type=boolean; label=Audit Read Operations: Log every secret read to the audit log. Disable for high-throughput scenarios where read logging is not required.
 auditReads = 1
 
+# cat=Security; type=boolean; label=Disable Admin Override (Hardened profile only): Remove the unconditional "admins and system maintainers may do anything" bypass — both the operation permissions and the per-secret read/write/delete tiers. Admins then need the same group grants as everyone else and can only read secrets they own or share a group with. Requires securityProfile = hardened; in the standard profile this flag has no effect (lockout guard). Recover full admin power for a time-boxed, audited window with "vault:break-glass --activate". Pin the value out of admin reach in config/system/additional.php via $GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['disableAdminOverride'].
+disableAdminOverride = 0
+
 # cat=Security; type=int+; label=Audit HMAC Epoch: Hash algorithm version marker for the audit log hash chain (0 = legacy SHA-256 without HMAC, 1 = HMAC-SHA256 over identity fields only, 2 = HMAC-SHA256 over identity + forensic fields including success/error_message/reason/ip_address/user_agent/context, 3 = additionally binds the epoch selector hmac_key_epoch plus the attribution fields actor_type/actor_username/actor_role/request_id). Default 3 closes the algorithm-downgrade forgery (a DB-write attacker can no longer downgrade a row to keyless SHA-256 and re-sign it) and makes actor attribution tamper-evident. Run the install-tool "Migrate audit hash chain" wizard after bumping.
 auditHmacEpoch = 3
 
 # cat=Security; type=boolean; label=Require Audit Chain Anchor: Treat a missing audit chain tip anchor as an ERROR instead of a warning. The anchor pins "row uid=A still exists with entry_hash=H" in sys_registry under a MAC-key that is not in the database, which is what makes tail truncation and full wipes of the audit log detectable. It arms itself on the next audit write. Leave this off until the first audit write after upgrading — before that, an install that never had an anchor is indistinguishable from one whose anchor was deleted, and every chain would report invalid. Once enabled, a DB-write attacker can no longer silence the control by deleting the anchor row, because this setting lives in a configuration file rather than the database.
 auditAnchorRequired = 0
 
-##################
-### PERFORMANCE ###
-##################
+####################
+### AUDIT SINKS ###
+####################
+# External copies of the audit chain. The database table stays the ONE
+# chain-authoritative sink; these are additional, best-effort destinations that
+# put audit evidence beyond the reach of a database-write attacker. A sink that
+# fails NEVER fails the audited vault operation — the failure is logged, counted
+# and surfaced by "vault:audit-verify".
 
-# cat=Performance; type=boolean; label=Enable Cache: Enable request-scoped caching of decrypted secrets
-cacheEnabled = 1
+# cat=Audit Sinks; type=boolean; label=Syslog Sink: Mirror every audit entry to the local syslog as an RFC 5424 structured-data message (facility local0). The cheapest way to get audit evidence off the TYPO3 database and into a log shipper.
+auditSinkSyslogEnabled = 0
+
+# cat=Audit Sinks; type=string; label=Syslog Ident: openlog() ident prefixed to every syslog line. Empty falls back to "nr-vault".
+auditSinkSyslogIdent = nr-vault
+
+# cat=Audit Sinks; type=boolean; label=NDJSON File Sink: Append every audit entry as one JSON object per line to an append-only file. Also writes the chain-tip anchors that let "vault:audit-verify" detect a full audit table reset.
+auditSinkFileEnabled = 0
+
+# cat=Audit Sinks; type=string; label=NDJSON File Path: Absolute path of the append-only audit file. Empty uses <var>/log/nr-vault-audit.ndjson. The sink refuses to run (and reports itself as disabled) when the path resolves inside the public web root.
+auditSinkFilePath =
+
+# cat=Audit Sinks; type=string; label=Anchor File Path: Absolute path of the append-only chain-tip anchor file written by "vault:audit-anchor" and read back by "vault:audit-verify". Empty uses <var>/log/nr-vault-audit-anchor.ndjson. Point this at a write-once / off-host location for real tamper evidence.
+auditSinkAnchorPath =
+
+# cat=Audit Sinks; type=boolean; label=Webhook Sink: POST every audit entry (and every integrity alert) as JSON to an HTTP endpoint — e.g. a SIEM collector.
+auditSinkWebhookEnabled = 0
+
+# cat=Audit Sinks; type=string; label=Webhook URL: https:// endpoint receiving the JSON payloads. Outbound calls go through the hardened HTTP client, so a collector on a private/RFC1918 address must be allow-listed literally in $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] (a filesystem-bound setting, deliberately out of reach of the backend Settings module).
+auditSinkWebhookUrl =
+
+# cat=Audit Sinks; type=int+; label=Stale Delivery Threshold (hours): vault:doctor treats an enabled sink whose last successful external delivery is older than this as stale (hardened profile: critical finding). Persisted delivery state lives in sys_registry.
+auditSinkStaleDeliveryHours = 24
 
 ########################
 ### HASHICORP VAULT ###
 ########################
-# NOTE: HashiCorp Vault adapter is planned but not yet implemented. These settings are reserved for future use.
+# NOTE: The HashiCorp Vault STORAGE adapter (hashicorp.path) is planned but not yet implemented.
+# The settings below are live for the "transit" master key provider (masterKeyProvider = transit).
 
-# cat=HashiCorp Vault; type=string; label=Vault Address: HashiCorp Vault server address (e.g., https://vault.example.com:8200)
+# cat=HashiCorp Vault; type=string; label=Vault Address: HashiCorp Vault server address (e.g., https://vault.example.com:8200). Used by the transit master key provider.
 hashicorp.address =
 
-# cat=HashiCorp Vault; type=string; label=Secret Path: Path prefix for secrets in Vault (e.g., secret/data/typo3)
+# cat=HashiCorp Vault; type=string; label=Secret Path: Path prefix for secrets in Vault (e.g., secret/data/typo3). Reserved for the not-yet-implemented storage adapter.
 hashicorp.path = secret/data/typo3
 
-# cat=HashiCorp Vault; type=options[token,kubernetes,approle]; label=Auth Method: Authentication method for Vault
+# cat=HashiCorp Vault; type=options[token,kubernetes,approle]; label=Auth Method: Authentication method for Vault. The transit master key provider implements "token" only and refuses to start on the others.
 hashicorp.authMethod = token
 
-# cat=HashiCorp Vault; type=string; label=Token: Vault token (only for token auth method). Use environment variable VAULT_TOKEN in production.
+# cat=HashiCorp Vault; type=string; label=Token: Vault token (only for token auth method). Prefer the environment variable named in hashicorp.tokenEnvVar — a token stored here is readable in the Install Tool and lands in configuration exports.
 hashicorp.token =
+
+# cat=HashiCorp Vault; type=string; label=Token Environment Variable: Name of the environment variable holding the Vault token. Read in preference to hashicorp.token.
+hashicorp.tokenEnvVar = VAULT_TOKEN
+
+# cat=HashiCorp Vault; type=string; label=Transit Mount: Mount path of the transit secrets engine (without /v1/). Nested mounts like "platform/transit" are supported.
+hashicorp.transitMount = transit
+
+# cat=HashiCorp Vault; type=string; label=Transit Key Name: Name of the transit key that wraps the vault master key. The Vault token's policy needs encrypt + decrypt on this key only.
+hashicorp.transitKeyName = nr-vault-master
+
+# cat=HashiCorp Vault; type=string; label=Wrapped Master Key Path: File holding the Vault-wrapped (encrypted) master key. Empty = <var-path>/secrets/vault-master.key.transit. The file contains ciphertext only — never key material.
+hashicorp.transitWrappedKeyPath =
 
 ################################
 ### AWS SECRETS MANAGER ###

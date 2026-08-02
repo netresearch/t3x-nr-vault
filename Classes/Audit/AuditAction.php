@@ -40,6 +40,8 @@ enum AuditAction: string
     case OAuthRefreshStoreFailed = 'oauth_refresh_store_failed';
     case AuditReadLoggingChanged = 'audit_read_logging_changed';
     case AuditAnchorReset = 'audit_anchor_reset';
+    case BreakGlassActivated = 'break_glass_activated';
+    case BreakGlassDeactivated = 'break_glass_deactivated';
 
     /**
      * Human-readable label for backend filter dropdowns.

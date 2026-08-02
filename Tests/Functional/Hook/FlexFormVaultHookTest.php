@@ -96,7 +96,6 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
             $dataHandler->substNEWwithIDs['NEW1'] = 4711;
             $hook->processDatamap_afterDatabaseOperations('new', 'tt_content', 'NEW1', $fieldArray, $dataHandler);
 
-            $vaultService->clearCache();
             self::assertSame(
                 $secretValue,
                 $vaultService->retrieve($vaultIdentifier),

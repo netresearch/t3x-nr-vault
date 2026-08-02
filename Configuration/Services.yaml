@@ -4,6 +4,19 @@ services:
     autoconfigure: true
     public: false
 
+  # Every AuditSinkInterface implementation discovered by the resource glob below
+  # is tagged automatically, so the registry receives new sinks without another
+  # edit here. A consuming extension adds its own destination by implementing the
+  # interface and applying the same tag in ITS Services.yaml.
+  _instanceof:
+    Netresearch\NrVault\Audit\Sink\AuditSinkInterface:
+      tags: ['nr_vault.audit_sink']
+    # Same discovery contract for the vault:doctor readiness checks: implement
+    # the interface and the doctor service receives it, with no edit here and no
+    # way for a check to be silently left out of the report.
+    Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface:
+      tags: ['nr_vault.readiness_check']
+
   Netresearch\NrVault\:
     resource: '../Classes/*'
     exclude:
@@ -11,6 +24,7 @@ services:
       - '../Classes/Exception/*'
       - '../Classes/Http/OAuth/OAuthConfig.php'
       - '../Classes/Security/TechnicalActor.php'
+      - '../Classes/Security/BreakGlassSession.php'
       # Widgets depend on typo3/cms-dashboard classes (a "suggest", not a
       # requirement) — they are registered by Services.Dashboard.php, imported
       # from Services.php only when EXT:dashboard is installed.
@@ -67,6 +81,20 @@ services:
   Netresearch\NrVault\Security\TechnicalActorContextInterface:
     alias: Netresearch\NrVault\Security\TechnicalActorContext
 
+  # Two implementations exist for the read-only state contract
+  # (BreakGlassState and BreakGlassService, which extends it), so autowiring
+  # cannot pick one — both aliases must be explicit.
+  #
+  # AccessControlService MUST receive the narrow BreakGlassState, not the full
+  # service: the service writes audit rows, AuditLogService depends on
+  # AccessControlService, and injecting the service here would close that DI
+  # cycle. It also means access control cannot open a window, only observe one.
+  Netresearch\NrVault\Security\BreakGlassStateInterface:
+    alias: Netresearch\NrVault\Security\BreakGlassState
+
+  Netresearch\NrVault\Security\BreakGlassServiceInterface:
+    alias: Netresearch\NrVault\Security\BreakGlassService
+
   Netresearch\NrVault\Audit\AuditLogServiceInterface:
     alias: Netresearch\NrVault\Audit\AuditLogService
 
@@ -75,6 +103,22 @@ services:
 
   Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface:
     alias: Netresearch\NrVault\Audit\AuditChainAnchorStore
+
+  Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface:
+    alias: Netresearch\NrVault\Audit\Sink\AuditSinkRegistry
+
+  Netresearch\NrVault\Audit\Sink\SinkDeliveryStateRepositoryInterface:
+    alias: Netresearch\NrVault\Audit\Sink\SinkDeliveryStateRepository
+
+  Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface:
+    alias: Netresearch\NrVault\Audit\Anchor\AnchorFileReader
+
+  Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface:
+    alias: Netresearch\NrVault\Audit\Anchor\ChainTipAnchorService
+    # public: AuditAnchorTask / AuditVerifyTask run in the scheduler context,
+    # which unserializes task objects outside the DI container and resolves the
+    # service via GeneralUtility::makeInstance(<Interface>::class).
+    public: true
 
   Netresearch\NrVault\Adapter\VaultAdapterInterface:
     alias: Netresearch\NrVault\Adapter\LocalEncryptionAdapter
@@ -99,11 +143,45 @@ services:
   Netresearch\NrVault\Service\Analytics\VaultAnalyticsServiceInterface:
     alias: Netresearch\NrVault\Service\Analytics\VaultAnalyticsService
 
+  Netresearch\NrVault\Service\Doctor\VaultDoctorServiceInterface:
+    alias: Netresearch\NrVault\Service\Doctor\VaultDoctorService
+
   # ----- Factory-resolved services ----------------------------------------
   # Factories cannot be discovered by autowire and must be declared explicitly.
 
   Netresearch\NrVault\Crypto\MasterKeyProviderInterface:
     factory: ['@Netresearch\NrVault\Crypto\MasterKeyProviderFactory', 'create']
+
+  # ----- External audit sinks ---------------------------------------------
+
+  Netresearch\NrVault\Audit\Sink\AuditSinkRegistry:
+    arguments:
+      $sinks: !tagged_iterator nr_vault.audit_sink
+
+  Netresearch\NrVault\Service\Doctor\Check\SinkProbeCheck:
+    arguments:
+      $sinks: !tagged_iterator nr_vault.audit_sink
+
+  # ----- Readiness checks (vault:doctor) ----------------------------------
+
+  Netresearch\NrVault\Service\Doctor\VaultDoctorService:
+    arguments:
+      $checks: !tagged_iterator nr_vault.readiness_check
+
+  # The webhook sink deliberately uses a SHORT-timeout client built by
+  # SecureHttpClientFactory rather than the ambient PSR-18 client: audit fan-out
+  # must inherit the extension-wide SSRF / DNS-rebinding / no-redirect defences
+  # (Tests/Architecture enforces that no other class stands up its own Guzzle
+  # client), and a slow collector must not hold a web request open. 3s total
+  # bounds the whole transfer; connect_timeout stays platform-managed.
+  nr_vault.audit_sink.webhook_client:
+    class: Psr\Http\Client\ClientInterface
+    factory: ['@Netresearch\NrVault\Http\SecureHttpClientFactory', 'create']
+    arguments: [3]
+
+  Netresearch\NrVault\Audit\Sink\WebhookAuditSink:
+    arguments:
+      $httpClient: '@nr_vault.audit_sink.webhook_client'
 
   # ----- Classes that need public visibility ------------------------------
   # TYPO3 DataHandler resolves $TYPO3_CONF_VARS hook references via

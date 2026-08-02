@@ -144,6 +144,16 @@ Configure the extension:
    For file and environment providers: never commit master keys to version
    control. Store them securely outside the web root.
 
+.. _installation-master-key-transit:
+
+Option 4: HashiCorp Vault Transit
+---------------------------------
+
+Where a Vault deployment already exists, the master key can be kept wrapped by
+Vault's transit engine so only ciphertext is stored locally, and custody,
+rotation and audit move into Vault. Setup (transit engine, policy, token) is
+described in :ref:`configuration-master-key-transit`.
+
 See :ref:`configuration-master-key-providers` for detailed information on each provider.
 
 .. _installation-verify:

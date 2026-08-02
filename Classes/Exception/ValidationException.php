@@ -34,4 +34,17 @@ final class ValidationException extends VaultException
             1703800014,
         );
     }
+
+    /**
+     * A justification that only exists in the audit log is worthless if it is
+     * empty, so the reason is a hard precondition rather than an optional
+     * annotation.
+     */
+    public static function missingReason(string $operation): self
+    {
+        return new self(
+            \sprintf('A non-empty reason is required for %s', $operation),
+            1753900002,
+        );
+    }
 }

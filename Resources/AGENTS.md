@@ -16,8 +16,8 @@ Fluid templates, backend JS/CSS, and XLIFF translation files for the nr-vault TY
 | `Resources/Private/Templates/Audit/VerifyChain.html` | HMAC chain verification view |
 | `Resources/Private/Templates/Migration/*.html` | Migration wizard steps |
 | `Resources/Private/Language/locallang_mod.xlf` | Main translation catalogue |
-| `Resources/Public/JavaScript/SecretReveal.js` | AJAX reveal + clipboard copy |
-| `Resources/Public/JavaScript/SecretsList.js` | List filtering/interaction |
+| `Resources/Public/JavaScript/SecretsList.js` | List interaction + AJAX reveal/rotate modals |
+| `Resources/Public/JavaScript/vault-reveal-lifecycle.js` | Shared auto-hide/wipe guard for revealed plaintext |
 | `Resources/Public/JavaScript/vault-secret-input.js` | TCA field widget |
 | `Resources/Public/Css/backend.css` | Backend module styles |
 
@@ -26,7 +26,7 @@ Fluid templates, backend JS/CSS, and XLIFF translation files for the nr-vault TY
 |---------|-----------|
 | Fluid template with docheader | `Resources/Private/Templates/Overview/Index.html` |
 | List/detail view | `Resources/Private/Templates/Secrets/List.html` |
-| AJAX-driven JS module | `Resources/Public/JavaScript/SecretReveal.js` |
+| AJAX-driven JS module | `Resources/Public/JavaScript/SecretsList.js` |
 | TCA input widget | `Resources/Public/JavaScript/vault-secret-input.js` |
 | XLIFF structure | `Resources/Private/Language/locallang_mod.xlf` |
 
@@ -76,7 +76,9 @@ Resources/
 - **Auto-escape** — never `<f:format.raw>` on user-controlled values (secrets, identifiers, audit context).
 - **CSP** — inline `<script>` forbidden; load JS via `<f:be.pageRenderer includeJsModules="...">`.
 - **No secrets in templates** — secret values arrive via AJAX at reveal time, rendered to a short-lived container, then cleared.
-- **Clipboard** — use `navigator.clipboard.writeText`; show toast then wipe local variable.
+- **No client-side secret cache** — every reveal MUST re-hit `vault_reveal` so `VaultService::retrieve()` writes an audit row. Never keep the plaintext in a JS field/Map across modal opens.
+- **Bounded exposure** — plaintext revealed from the server goes through `startRevealLifecycle()` (`vault-reveal-lifecycle.js`): auto-wipe after `AUTO_HIDE_SECONDS`, plus immediate wipe on `visibilitychange` (hidden) and `pagehide`. JS strings cannot be zeroized — the guarantee is a short exposure window, not cleared memory.
+- **Clipboard** — use `navigator.clipboard.writeText`, and only when the reveal response reports `copyAllowed !== false` (the hardened security profile disables copy: the clipboard outlives the dialog).
 - **AJAX** — routes declared in `Configuration/Backend/AjaxRoutes.php`; CSRF protected by `@typo3/core/ajax/ajax-request.js`.
 
 ## Checklist
@@ -105,12 +107,12 @@ Resources/
 import Notification from '@typo3/backend/notification.js';
 import AjaxRequest from '@typo3/core/ajax/ajax-request.js';
 
-class SecretReveal {
+class RevealModal {
   async reveal(id) {
     const resp = await new AjaxRequest(TYPO3.settings.ajaxUrls['vault_reveal'])
       .post({ id });
     const body = await resp.resolve();
-    // render then clear
+    // render, then wipe via startRevealLifecycle() — see vault-reveal-lifecycle.js
   }
 }
 ```

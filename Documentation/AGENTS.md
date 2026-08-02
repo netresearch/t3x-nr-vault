@@ -1,5 +1,5 @@
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-04-20 | Last verified: 2026-04-20 -->
+<!-- Last updated: 2026-07-31 | Last verified: 2026-07-31 -->
 
 # AGENTS.md — Documentation
 
@@ -15,7 +15,26 @@ Invoke skill **`typo3-docs`** for deeper guidance (rendering, directives, screen
 | `Documentation/Introduction/Index.rst` | Product intro |
 | `Documentation/Installation/Index.rst` | Install + environment prep |
 | `Documentation/Usage/ExtensionSettings.rst` | Admin tooling reference |
-| `Documentation/Security/Index.rst` | Threat model + hardening guidance |
+| `Documentation/Security/Index.rst` | Encryption, access control, audit logging + subsection toctree |
+| `Documentation/Security/ThreatModel.rst` | Assets, actors, trust boundaries, STRIDE-lite, attack scenarios |
+| `Documentation/Security/SecurityProfiles.rst` | standard vs hardened; migration checklist |
+| `Documentation/Security/TrustBoundaries.rst` | The five process boundaries + frontend/page-cache caveats |
+| `Documentation/Security/Cryptography.rst` | Envelope scheme, HKDF uses, algorithm agility, memory policy |
+| `Documentation/Security/AuditEvidence.rst` | What the chain proves; epochs, anchoring, sinks, export |
+| `Documentation/Security/KnownLimitations.rst` | Honest boundaries — load-bearing, read before deploying |
+| `Documentation/Operations/Index.rst` | Operations toctree + start-here matrix |
+| `Documentation/Operations/HardenedDeployment.rst` | Step-by-step hardened rollout + smoke test |
+| `Documentation/Operations/KeyCustody.rst` | Per-provider key custody, rotation story, permissions |
+| `Documentation/Operations/BackupAndRestore.rst` | DB/key separation, restore verification, wrong-key symptoms |
+| `Documentation/Operations/KeyRotation.rst` | `vault:rotate-master-key` flow + transit key distinction |
+| `Documentation/Operations/MonitoringAndAlerting.rst` | Scheduler tasks, events, SIEM wiring, what to page on |
+| `Documentation/Operations/IncidentResponse.rst` | Exposure / tampering / break-glass runbooks |
+| `Documentation/Operations/Decommissioning.rst` | Disposal, key destruction, retention vs deletion |
+| `Documentation/Auditor/Index.rst` | Auditor toctree + first three checks |
+| `Documentation/Auditor/TargetOfEvaluation.rst` | Scope, trust assumptions, what nr-vault is not |
+| `Documentation/Auditor/ControlMapping.rst` | Controls → BSI IT-Grundschutz / OWASP ASVS + declared gaps |
+| `Documentation/Auditor/EvidenceCollection.rst` | Read-only evidence commands + artefact package |
+| `Documentation/Auditor/VerificationProcedures.rst` | Reproducible procedures (some STAGING-ONLY) |
 | `Documentation/Troubleshooting/Index.rst` | Common issues + diagnostics |
 | `Documentation/Developer/Index.rst` | Developer toctree |
 | `Documentation/Developer/Commands.rst` | `vault:*` CLI reference |

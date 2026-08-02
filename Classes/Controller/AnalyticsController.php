@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Controller;
 
 use Netresearch\NrVault\Domain\Dto\StaleSecret;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\Analytics\VaultAnalyticsServiceInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -37,10 +38,20 @@ final readonly class AnalyticsController
         private VaultAnalyticsServiceInterface $analyticsService,
         private BackendUriBuilder $backendUriBuilder,
         private PageRenderer $pageRenderer,
+        private ModuleAccessGuard $accessGuard,
     ) {}
 
+    /**
+     * Usage analytics are derived from the audit log (the automated/manual read
+     * split comes from `actor_type`), so they carry the same disclosure as the
+     * log itself and share its `audit.view` permission.
+     */
     public function indexAction(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->accessGuard->isGranted(VaultPermission::AuditView)) {
+            return $this->accessGuard->deniedResponse($request, VaultPermission::AuditView);
+        }
+
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
         $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');

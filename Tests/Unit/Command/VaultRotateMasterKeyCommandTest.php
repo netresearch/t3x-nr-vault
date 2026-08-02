@@ -26,6 +26,7 @@ use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Event\MasterKeyRotatedEvent;
 use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use org\bovigo\vfs\vfsStream;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -93,6 +94,12 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $this->auditChainRekeyService = $this->createMock(AuditChainRekeyServiceInterface::class);
         $this->envelopeCodec = $this->createMock(EnvelopeCodecInterface::class);
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        // The command asserts `master_key.rotate` before doing anything. Grant
+        // it by default so the rotation-mechanics tests reach their subject;
+        // `refusesRotationWithoutMasterKeyRotatePermission()` withholds it.
+        $this->accessControlService
+            ->method('isGranted')
+            ->willReturn(true);
         $this->eventDispatcher = $this->createMock(EventDispatcherInterface::class);
 
         $command = $this->createCommand();
@@ -877,6 +884,45 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $display = $tester->getDisplay();
         self::assertStringContainsString('Successfully rotated', $display);
         self::assertStringContainsString('Update your configuration', $display);
+    }
+
+    /**
+     * Rotating the master key rewrites every envelope in the store, so the
+     * command refuses to start without `master_key.rotate` — before it reads
+     * any key material or touches the repository.
+     */
+    #[Test]
+    public function refusesRotationWithoutMasterKeyRotatePermission(): void
+    {
+        $accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $accessControlService
+            ->method('isGranted')
+            ->willReturnCallback(
+                // Every other vault permission granted — only the master-key one missing.
+                static fn (VaultPermission $permission): bool => $permission !== VaultPermission::MasterKeyRotate,
+            );
+
+        $this->secretRepository
+            ->expects(self::never())
+            ->method('findIdentifiers');
+
+        $command = new VaultRotateMasterKeyCommand(
+            $this->secretRepository,
+            $this->encryptionService,
+            $this->masterKeyProviderFactory,
+            $this->connectionPool,
+            $this->auditLogService,
+            $this->auditChainRekeyService,
+            $this->envelopeCodec,
+            $accessControlService,
+            $this->eventDispatcher,
+        );
+        $tester = new CommandTester($command);
+
+        $exitCode = $tester->execute(['--confirm' => true]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('master_key.rotate', $tester->getDisplay());
     }
 
     /**

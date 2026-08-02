@@ -26,6 +26,7 @@ use Netresearch\NrVault\Event\MasterKeyRotatedEvent;
 use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Exception\MasterKeyException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use SensitiveParameter;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -117,6 +118,20 @@ final class VaultRotateMasterKeyCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+
+        // Master-key rotation rewrites every envelope in the store and rekeys
+        // the audit chain — the most powerful vault operation, so it carries
+        // its own operation permission. For a trusted CLI operator the vault's
+        // `allowCliAccess` switch decides; invoked as a backend user, the
+        // admin override or that user's group grants do.
+        if (!$this->accessControlService->isGranted(VaultPermission::MasterKeyRotate)) {
+            $io->error(\sprintf(
+                'Access denied: the "%s" permission is required to rotate the master key.',
+                VaultPermission::MasterKeyRotate->value,
+            ));
+
+            return Command::FAILURE;
+        }
 
         try {
             $oldKeyPath = $input->getOption('old-key');

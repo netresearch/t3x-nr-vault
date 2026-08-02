@@ -26,6 +26,7 @@ use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Http\VaultHttpClientFactoryInterface;
 use Netresearch\NrVault\Http\VaultHttpClientInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultService;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -85,9 +86,12 @@ final class VaultServiceTest extends TestCase
             ->method('canCreate')
             ->willReturn(true);
 
-        $this->configuration
-            ->method('isCacheEnabled')
-            ->willReturn(false);
+        // Default the operation permissions (secret.create/rotate/delete,
+        // secret.manage_policy) to granted; the denial-branch tests build
+        // their own access-control mock instead.
+        $this->accessControlService
+            ->method('isGranted')
+            ->willReturn(true);
 
         $this->subject = new VaultService(
             $this->adapter,
@@ -215,12 +219,325 @@ final class VaultServiceTest extends TestCase
     }
 
     #[Test]
+    public function storeDeniesCreateWithoutSecretCreatePermission(): void
+    {
+        // Per-secret ACL passes (canCreate), but the actor lacks the
+        // secret.create operation permission: both gates must hold.
+        $noGrantAccess = $this->createMock(AccessControlServiceInterface::class);
+        $noGrantAccess->method('getCurrentActorUid')->willReturn(1);
+        $noGrantAccess->method('getCurrentActorType')->willReturn('backend');
+        $noGrantAccess->method('canCreate')->willReturn(true);
+        $noGrantAccess->method('isGranted')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $noGrantAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn(null);
+        $this->adapter->expects(self::never())->method('store');
+        $this->encryptionService->expects(self::never())->method('encrypt');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('opGate', 'access_denied', false, 'Create denied: missing secret.create permission');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->store('opGate', 'plaintext');
+    }
+
+    #[Test]
+    public function storeDeniesUpdateWithoutSecretRotatePermission(): void
+    {
+        $existing = $this->createSecretEntity('opGateUpdate', uid: 42);
+
+        $noGrantAccess = $this->createMock(AccessControlServiceInterface::class);
+        $noGrantAccess->method('getCurrentActorUid')->willReturn(1);
+        $noGrantAccess->method('getCurrentActorType')->willReturn('backend');
+        $noGrantAccess->method('canWrite')->willReturn(true);
+        $noGrantAccess->method('isGranted')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $noGrantAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->adapter->expects(self::never())->method('store');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('opGateUpdate', 'access_denied', false, 'Update denied: missing secret.rotate permission');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->store('opGateUpdate', 'new-value');
+    }
+
+    #[Test]
+    public function storeDeniesPolicyChangeWithoutManagePolicyPermission(): void
+    {
+        $existing = $this->createSecretEntity('opGatePolicy', uid: 42);
+
+        // secret.rotate is granted, secret.manage_policy is not: replacing
+        // the value is fine, widening the group ACL alongside it is not.
+        $rotateOnlyAccess = $this->createMock(AccessControlServiceInterface::class);
+        $rotateOnlyAccess->method('getCurrentActorUid')->willReturn(1);
+        $rotateOnlyAccess->method('getCurrentActorType')->willReturn('cli');
+        $rotateOnlyAccess->method('canWrite')->willReturn(true);
+        $rotateOnlyAccess->method('isGranted')->willReturnCallback(
+            static fn (VaultPermission $permission): bool => $permission === VaultPermission::SecretRotate,
+        );
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $rotateOnlyAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->adapter->expects(self::never())->method('store');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('opGatePolicy', 'access_denied', false, 'Policy change denied: missing secret.manage_policy permission');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->store('opGatePolicy', 'new-value', ['groups' => [5, 6]]);
+    }
+
+    #[Test]
+    public function storeAllowsUpdateWithoutManagePolicyWhenPolicyIsUnchanged(): void
+    {
+        $existing = $this->createSecretEntity('opGateNoPolicy', uid: 42);
+
+        // Same grant profile as above — but no policy option changes, so
+        // secret.rotate alone must suffice for a plain value update.
+        $rotateOnlyAccess = $this->createMock(AccessControlServiceInterface::class);
+        $rotateOnlyAccess->method('getCurrentActorUid')->willReturn(1);
+        $rotateOnlyAccess->method('getCurrentActorType')->willReturn('cli');
+        $rotateOnlyAccess->method('canWrite')->willReturn(true);
+        $rotateOnlyAccess->method('isGranted')->willReturnCallback(
+            static fn (VaultPermission $permission): bool => $permission === VaultPermission::SecretRotate,
+        );
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $rotateOnlyAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->willReturnArgument(0);
+
+        $subject->store('opGateNoPolicy', 'new-value');
+    }
+
+    #[Test]
+    public function rotateDeniesWithoutSecretRotatePermission(): void
+    {
+        $existing = $this->createSecretEntity('opGateRotate', uid: 42);
+
+        $noGrantAccess = $this->createMock(AccessControlServiceInterface::class);
+        $noGrantAccess->method('getCurrentActorUid')->willReturn(1);
+        $noGrantAccess->method('getCurrentActorType')->willReturn('backend');
+        $noGrantAccess->method('canWrite')->willReturn(true);
+        $noGrantAccess->method('isGranted')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $noGrantAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->adapter->expects(self::never())->method('store');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('opGateRotate', 'access_denied', false, 'Rotate denied: missing secret.rotate permission');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->rotate('opGateRotate', 'new-value');
+    }
+
+    #[Test]
+    public function deleteDeniesWithoutSecretDeletePermission(): void
+    {
+        $existing = $this->createSecretEntity('opGateDelete', uid: 42);
+
+        $noGrantAccess = $this->createMock(AccessControlServiceInterface::class);
+        $noGrantAccess->method('getCurrentActorUid')->willReturn(1);
+        $noGrantAccess->method('getCurrentActorType')->willReturn('backend');
+        $noGrantAccess->method('canDelete')->willReturn(true);
+        $noGrantAccess->method('isGranted')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $noGrantAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->adapter->expects(self::never())->method('delete');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('opGateDelete', 'access_denied', false, 'Delete denied: missing secret.delete permission');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->delete('opGateDelete');
+    }
+
+    #[Test]
+    public function storeUpdatePreservesUnsubmittedMetadata(): void
+    {
+        // Preserve semantics: a value update without options must not reset
+        // description, ACL tiers, context, expiry or frontend availability —
+        // those are policy fields whose CHANGE is gated by
+        // secret.manage_policy, so an accidental reset would be a policy
+        // change without its permission.
+        $existing = new Secret(
+            identifier: 'preserve',
+            uid: 42,
+            scopePid: 7,
+            description: 'Keep me',
+            encryptedValue: 'encrypted',
+            encryptedDek: 'dek',
+            dekNonce: 'n1',
+            valueNonce: 'n2',
+            valueChecksum: 'cs',
+            ownerUid: 1,
+            allowedGroups: [5, 6],
+            writeGroups: [6],
+            context: 'prod',
+            frontendAccessible: true,
+            version: 3,
+            expiresAt: 2000000000,
+            metadata: ['team' => 'ops'],
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc2', 'dek2', 'n3', 'n4', 'cs2'));
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::callback(static fn (Secret $s): bool => $s->getDescription() === 'Keep me'
+                && $s->getScopePid() === 7
+                && $s->getAllowedGroups() === [5, 6]
+                && $s->getWriteGroups() === [6]
+                && $s->getContext() === 'prod'
+                && $s->isFrontendAccessible()
+                && $s->getExpiresAt() === 2000000000
+                && $s->getMetadata() === ['team' => 'ops']))
+            ->willReturnArgument(0);
+
+        $this->subject->store('preserve', 'new-value');
+    }
+
+    #[Test]
+    public function storeOnValueLessExistingRecordIsACreation(): void
+    {
+        // The FormEngine path: DataHandler inserts the tx_nrvault_secret row
+        // (metadata only), then hands the value to store(). A record without
+        // an encrypted value is a creation in progress — it must face
+        // secret.create (not secret.rotate), be audited as create, and keep
+        // the metadata the row already carries.
+        $existing = new Secret(
+            identifier: 'formCreate',
+            uid: 42,
+            description: 'Entered in the form',
+            ownerUid: 1,
+        );
+
+        $createOnlyAccess = $this->createMock(AccessControlServiceInterface::class);
+        $createOnlyAccess->method('getCurrentActorUid')->willReturn(1);
+        $createOnlyAccess->method('getCurrentActorType')->willReturn('cli');
+        $createOnlyAccess->method('canWrite')->willReturn(true);
+        $createOnlyAccess->method('isGranted')->willReturnCallback(
+            static fn (VaultPermission $permission): bool => $permission === VaultPermission::SecretCreate,
+        );
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $createOnlyAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::callback(static fn (Secret $s): bool => $s->getUid() === 42
+                && $s->getDescription() === 'Entered in the form'))
+            ->willReturnArgument(0);
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('formCreate', 'create', true);
+
+        $subject->store('formCreate', 'first-value');
+    }
+
+    #[Test]
     public function storeCoercesOwnerUidForNonAdminBackendActor(): void
     {
         $beActorAccess = $this->createMock(AccessControlServiceInterface::class);
         $beActorAccess->method('getCurrentActorUid')->willReturn(7);
         $beActorAccess->method('getCurrentActorType')->willReturn('backend');
         $beActorAccess->method('canCreate')->willReturn(true);
+        $beActorAccess->method('isGranted')->willReturn(true);
         $beActorAccess->method('isCurrentActorAdmin')->willReturn(false);
 
         $subject = new VaultService(
@@ -255,6 +572,7 @@ final class VaultServiceTest extends TestCase
         $beActorAccess->method('getCurrentActorUid')->willReturn(7);
         $beActorAccess->method('getCurrentActorType')->willReturn('backend');
         $beActorAccess->method('canCreate')->willReturn(true);
+        $beActorAccess->method('isGranted')->willReturn(true);
         $beActorAccess->method('isCurrentActorAdmin')->willReturn(false);
 
         $subject = new VaultService(
@@ -290,6 +608,7 @@ final class VaultServiceTest extends TestCase
         $adminAccess->method('getCurrentActorUid')->willReturn(1);
         $adminAccess->method('getCurrentActorType')->willReturn('backend');
         $adminAccess->method('canCreate')->willReturn(true);
+        $adminAccess->method('isGranted')->willReturn(true);
         $adminAccess->method('isCurrentActorAdmin')->willReturn(true);
 
         $subject = new VaultService(
@@ -383,6 +702,113 @@ final class VaultServiceTest extends TestCase
         $this->expectException(AccessDeniedException::class);
 
         $this->subject->retrieve('restricted');
+    }
+
+    /**
+     * On top of the per-secret `canRead()` tier, an interactively authenticated
+     * NON-admin backend user needs the `secret.use` operation permission for
+     * every plaintext read — the FormEngine widget, FlexForm resolution and the
+     * reveal endpoint alike.
+     */
+    #[Test]
+    public function retrieveDeniesNonAdminBackendUserWithoutSecretUsePermission(): void
+    {
+        $secret = $this->createSecretEntity('usable');
+
+        $access = $this->createMock(AccessControlServiceInterface::class);
+        $access->method('getCurrentActorUid')->willReturn(7);
+        $access->method('getCurrentActorType')->willReturn('backend');
+        $access->method('isCurrentActorAdmin')->willReturn(false);
+        // Per-secret read access granted; the operation permission is not.
+        $access->method('canRead')->willReturn(true);
+        $access->method('isGranted')->willReturn(false);
+
+        $subject = $this->createSubjectWith($access);
+
+        $this->adapter->method('retrieve')->willReturn($secret);
+        $this->encryptionService->expects(self::never())->method('decrypt');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('usable', 'access_denied', false, self::stringContains('secret.use'));
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->retrieve('usable');
+    }
+
+    #[Test]
+    public function retrieveAllowsNonAdminBackendUserHoldingSecretUsePermission(): void
+    {
+        $secret = $this->createSecretEntity('usable');
+
+        $access = $this->createMock(AccessControlServiceInterface::class);
+        $access->method('getCurrentActorUid')->willReturn(7);
+        $access->method('getCurrentActorType')->willReturn('backend');
+        $access->method('isCurrentActorAdmin')->willReturn(false);
+        $access->method('canRead')->willReturn(true);
+        $access
+            ->method('isGranted')
+            ->willReturnCallback(
+                static fn (VaultPermission $permission): bool => $permission === VaultPermission::SecretUse,
+            );
+
+        $subject = $this->createSubjectWith($access);
+
+        $this->adapter->method('retrieve')->willReturn($secret);
+        $this->encryptionService->method('decrypt')->willReturn('plaintext');
+
+        self::assertSame('plaintext', $subject->retrieve('usable'));
+    }
+
+    /**
+     * Admins are exempt from the operation gate — the branch is expressed via
+     * `isCurrentActorAdmin()`, so `isGranted()` is never consulted for them.
+     */
+    #[Test]
+    public function retrieveDoesNotGateAdminBackendUsersOnSecretUse(): void
+    {
+        $secret = $this->createSecretEntity('usable');
+
+        $access = $this->createMock(AccessControlServiceInterface::class);
+        $access->method('getCurrentActorUid')->willReturn(1);
+        $access->method('getCurrentActorType')->willReturn('backend');
+        $access->method('isCurrentActorAdmin')->willReturn(true);
+        $access->method('canRead')->willReturn(true);
+        $access->expects(self::never())->method('isGranted');
+
+        $subject = $this->createSubjectWith($access);
+
+        $this->adapter->method('retrieve')->willReturn($secret);
+        $this->encryptionService->method('decrypt')->willReturn('plaintext');
+
+        self::assertSame('plaintext', $subject->retrieve('usable'));
+    }
+
+    /**
+     * The frontend path must keep its exact previous behaviour: a page render's
+     * output is shared via the page cache, so it may not depend on whichever
+     * backend user happens to hold a session. `frontend_accessible` decides.
+     */
+    #[Test]
+    public function retrieveForFrontendIsNotGatedOnSecretUse(): void
+    {
+        $secret = $this->createSecretEntity('publicKey', frontendAccessible: true);
+
+        $access = $this->createMock(AccessControlServiceInterface::class);
+        $access->method('getCurrentActorUid')->willReturn(7);
+        $access->method('getCurrentActorType')->willReturn('backend');
+        $access->method('isCurrentActorAdmin')->willReturn(false);
+        $access->method('canRead')->willReturn(true);
+        $access->method('isGranted')->willReturn(false);
+
+        $subject = $this->createSubjectWith($access);
+
+        $this->adapter->method('retrieve')->willReturn($secret);
+        $this->encryptionService->method('decrypt')->willReturn('plaintext');
+
+        self::assertSame('plaintext', $subject->retrieveForFrontend('publicKey'));
     }
 
     #[Test]
@@ -704,14 +1130,6 @@ final class VaultServiceTest extends TestCase
     }
 
     #[Test]
-    public function clearCacheClearsInternalCache(): void
-    {
-        // This test verifies clearCache doesn't throw
-        $this->subject->clearCache();
-        $this->expectNotToPerformAssertions();
-    }
-
-    #[Test]
     public function storeWithAllOptions(): void
     {
         $identifier = 'fullOptions';
@@ -846,22 +1264,42 @@ final class VaultServiceTest extends TestCase
     }
 
     #[Test]
-    public function retrieveWithCacheEnabled(): void
+    public function retrieveNeverCachesPlaintextAcrossCalls(): void
     {
-        // Create service with cache enabled
-        $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
-        $this->configuration->method('isCacheEnabled')->willReturn(true);
+        // Security invariant: there is NO plaintext cache. Every retrieve()
+        // must re-load the record, re-run the ACL decision and re-decrypt —
+        // a cached plaintext handed to a later caller would bypass
+        // authorization, expiry and the audit trail (cross-actor leak in
+        // long-running worker processes).
+        $secret = $this->createSecretEntity('uncached');
 
-        $subject = new VaultService(
-            $this->adapter,
-            $this->encryptionService,
-            $this->accessControlService,
-            $this->auditLogService,
-            $this->configuration,
-            $this->httpClientFactory,
-        );
+        $this->adapter
+            ->expects(self::exactly(2))
+            ->method('retrieve')
+            ->willReturn($secret);
 
-        $secret = $this->createSecretEntity('cached');
+        $this->accessControlService
+            ->expects(self::exactly(2))
+            ->method('canRead')
+            ->willReturn(true);
+
+        $this->encryptionService
+            ->expects(self::exactly(2))
+            ->method('decrypt')
+            ->willReturn('plain-value');
+
+        self::assertSame('plain-value', $this->subject->retrieve('uncached'));
+        self::assertSame('plain-value', $this->subject->retrieve('uncached'));
+    }
+
+    #[Test]
+    public function retrieveDeniesSecondCallWhenAclRevokedBetweenReads(): void
+    {
+        // The cross-actor regression: actor A reads the secret, then the ACL
+        // decision changes (e.g. a technical-actor switch in the same
+        // process). The second retrieve() must be denied — never served from
+        // a previous caller's plaintext.
+        $secret = $this->createSecretEntity('switched');
 
         $this->adapter
             ->method('retrieve')
@@ -869,20 +1307,23 @@ final class VaultServiceTest extends TestCase
 
         $this->accessControlService
             ->method('canRead')
-            ->willReturn(true);
+            ->willReturnOnConsecutiveCalls(true, false);
 
         $this->encryptionService
-            ->expects(self::once()) // Only once due to caching
+            ->expects(self::once())
             ->method('decrypt')
-            ->willReturn('cached-value');
+            ->willReturn('plain-value');
 
-        // First call - should decrypt
-        $result1 = $subject->retrieve('cached');
-        // Second call - should use cache
-        $result2 = $subject->retrieve('cached');
+        self::assertSame('plain-value', $this->subject->retrieve('switched'));
 
-        self::assertSame('cached-value', $result1);
-        self::assertSame('cached-value', $result2);
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('switched', 'access_denied', false, 'Read access denied');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $this->subject->retrieve('switched');
     }
 
     #[Test]
@@ -941,51 +1382,6 @@ final class VaultServiceTest extends TestCase
         $this->expectException(AccessDeniedException::class);
 
         $this->subject->rotate('protected', 'newValue');
-    }
-
-    #[Test]
-    public function clearCacheWipesSecureMemory(): void
-    {
-        // Enable cache for this test
-        $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
-        $this->configuration->method('isCacheEnabled')->willReturn(true);
-
-        $subject = new VaultService(
-            $this->adapter,
-            $this->encryptionService,
-            $this->accessControlService,
-            $this->auditLogService,
-            $this->configuration,
-            $this->httpClientFactory,
-        );
-
-        $secret = $this->createSecretEntity('cached');
-
-        $this->adapter
-            ->method('retrieve')
-            ->willReturn($secret);
-
-        $this->accessControlService
-            ->method('canRead')
-            ->willReturn(true);
-
-        $this->encryptionService
-            ->method('decrypt')
-            ->willReturn('secret-value');
-
-        // First retrieve to populate cache
-        $subject->retrieve('cached');
-
-        // Clear cache should not throw
-        $subject->clearCache();
-
-        // Verify by retrieving again - should call decrypt again
-        $this->encryptionService
-            ->expects(self::once())
-            ->method('decrypt')
-            ->willReturn('secret-value');
-
-        $subject->retrieve('cached');
     }
 
     #[Test]
@@ -1169,6 +1565,26 @@ final class VaultServiceTest extends TestCase
             // The compensating store must be the original pre-rotation secret.
             self::assertSame($secret, $storeArgs[1] ?? null);
         }
+    }
+
+    /**
+     * Build a subject wired to a different access-control seam, reusing the
+     * remaining collaborators from setUp().
+     *
+     * `createMock()` allows a method to be configured only once, so tests that
+     * need other actor semantics than the CLI default must bring their own
+     * access-control mock rather than re-stubbing the shared one.
+     */
+    private function createSubjectWith(AccessControlServiceInterface $accessControlService): VaultService
+    {
+        return new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $accessControlService,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
     }
 
     /**
