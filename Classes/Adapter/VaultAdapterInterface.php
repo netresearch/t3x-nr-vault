@@ -35,8 +35,14 @@ interface VaultAdapterInterface
      * UPDATE the original is returned unchanged. Callers that dispatch
      * events about the just-stored secret MUST use the return value so
      * downstream consumers see the populated UID.
+     *
+     * `$persistGroupRelations` declares whether the group tiers carried by
+     * `$secret` are authoritative for this write. Pass `false` when they
+     * were merely round-tripped from a read that may not have seen the
+     * record's complete relations — the stored tiers are then left exactly
+     * as they are instead of being replaced with an incomplete list.
      */
-    public function store(Secret $secret): Secret;
+    public function store(Secret $secret, bool $persistGroupRelations = true): Secret;
 
     /**
      * Retrieve a secret by identifier.

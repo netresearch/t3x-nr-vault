@@ -29,8 +29,15 @@ interface SecretRepositoryInterface
      * UID; on UPDATE, the original is returned unchanged. Callers must
      * use the return value if they need the populated UID — the input
      * is readonly and cannot be mutated in place.
+     *
+     * `$persistGroupRelations` declares whether the entity's two group
+     * tiers are authoritative for this write. With `false` the record
+     * keeps the tiers it already has: neither the MM relation rows nor the
+     * `allowed_groups`/`write_groups` columns mirroring their count are
+     * touched. Callers pass `false` when the tiers were only round-tripped
+     * from a read that may not have seen the record's complete relations.
      */
-    public function save(Secret $secret): Secret;
+    public function save(Secret $secret, bool $persistGroupRelations = true): Secret;
 
     public function delete(Secret $secret): void;
 

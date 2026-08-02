@@ -131,12 +131,12 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
         $identifier = 'atomic_acl_' . bin2hex(random_bytes(4));
         $recordUid = $this->createRecord($identifier, 'ACL rollback');
 
-        // Seed the ACL tiers through a separate, still-audited edit. Setting
-        // them in the create datamap would not do: on a value-bearing create
-        // VaultService::store() re-saves the entity with empty group tiers
-        // after DataHandler's insert but before its deferred MM writes, which
-        // leaves the count column at 0 — a create-path inconsistency of its
-        // own, and not what this test is about.
+        // Seed the ACL tiers through a separate, still-audited edit, so the
+        // rollback under test faces relations written on the UPDATE path —
+        // the one whose MM writes land during checkValue(), before this hook
+        // runs, and therefore the one the snapshot/restore has to cope with.
+        // (A create-path seed is covered by
+        // SecretTcaHookCreateAclPreservationTest.)
         $this->updateAclGroups($recordUid, '10,11', '20');
 
         // Precondition: DataHandler really wrote the seeded relations, and
