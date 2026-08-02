@@ -19,6 +19,7 @@ use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Throwable;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 
@@ -49,16 +50,29 @@ final class SecretTcaHook
     ];
 
     /**
-     * Privileged ACL columns backed by MM relation tables. The row column
-     * only holds the relation COUNT, so it cannot be reverted by writing a
-     * value back — the submitted change is instead dropped from $fieldArray
-     * entirely, leaving DataHandler to keep the existing MM relations.
+     * Privileged ACL columns backed by MM relation tables, mapped to the MM
+     * table holding their relations. The row column only holds the relation
+     * COUNT, so the effective ACL cannot be restored by writing that column
+     * back — the MM rows themselves are the source of truth
+     * (`SecretRepository::loadGroupsForSecret()`).
      *
-     * @var list<string>
+     * Two consequences follow, and both are implemented below:
+     *  - An unauthorized change is dropped from $fieldArray entirely
+     *    (see enforcePrivilegedColumnPolicy()), leaving DataHandler to keep
+     *    the existing MM relations rather than replacing them.
+     *  - An authorized change that later fails its audit write is rolled
+     *    back by restoring the snapshotted MM rows, not just the count
+     *    column (see snapshotMmRelations()/restoreMmRelations()).
+     *
+     * The table names are duplicated from SecretRepository rather than read
+     * from $GLOBALS['TCA'] so the rollback keeps working on the CLI/scheduler
+     * paths, where the hook may run before TCA is fully built.
+     *
+     * @var array<string, string>
      */
     private const PRIVILEGED_MM_COLUMNS = [
-        'allowed_groups',
-        'write_groups',
+        'allowed_groups' => 'tx_nrvault_secret_begroups_mm',
+        'write_groups' => 'tx_nrvault_secret_writegroups_mm',
     ];
 
     /**
@@ -91,6 +105,38 @@ final class SecretTcaHook
      * @var array<string, array<string, mixed>>
      */
     private array $originalMetadata = [];
+
+    /**
+     * Pre-change MM relation rows for every privileged MM column a datamap
+     * UPDATE submits, keyed by record id and then by MM table. Captured in
+     * processDatamap_preProcessFieldArray() — DataHandler writes the new MM
+     * rows during checkValue(), i.e. before this hook's
+     * afterDatabaseOperations() runs, so by rollback time the widened set is
+     * already committed and only a snapshot taken beforehand can restore it.
+     *
+     * An entry with an empty row list is meaningful: it records "this tier
+     * had no groups", which the rollback restores by deleting the rows the
+     * failed change added.
+     *
+     * @var array<string, array<string, list<array{uid_foreign: int, sorting: int, sorting_foreign: int}>>>
+     */
+    private array $originalMmRelations = [];
+
+    /**
+     * UIDs whose record creation was rolled back because the creation audit
+     * write failed, awaiting the MM purge in
+     * processDatamap_afterAllOperations().
+     *
+     * For a 'new' record DataHandler defers the MM writes to
+     * $dbAnalysisStore (the uid is unknown during checkValue) and flushes
+     * them in dbAnalysisStoreExec() — after every afterDatabaseOperations()
+     * hook has run. The row is therefore deleted BEFORE its MM rows are
+     * written, and without this purge the reverted creation would leave
+     * orphaned relation rows pointing at a uid that no longer exists.
+     *
+     * @var array<int, true>
+     */
+    private array $revertedCreations = [];
 
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
@@ -131,7 +177,7 @@ final class SecretTcaHook
         // For existing records, prevent identifier changes
         if (!str_starts_with((string) $id, 'NEW') && isset($fieldArray['identifier'])) {
             // Get the original identifier
-            $originalRecord = BackendUtility::getRecord(self::TABLE, (int) $id, 'identifier');
+            $originalRecord = $this->readRecord((int) $id, ['identifier']);
             $originalIdentifier = \is_string($originalRecord['identifier'] ?? null) ? $originalRecord['identifier'] : '';
             if ($originalRecord !== null && $fieldArray['identifier'] !== $originalIdentifier) {
                 // Identifier change attempted - revert to original
@@ -169,19 +215,29 @@ final class SecretTcaHook
         // Always remove secret_input from fieldArray - it's not a real database column
         unset($fieldArray['secret_input']);
 
-        // Capture the pre-change values of the real columns this UPDATE
-        // submits, for the compensating rollback should the metadata-update
-        // audit write fail in afterDatabaseOperations (SEC-3 atomicity).
+        // Capture the pre-change state of everything this UPDATE submits, for
+        // the compensating rollback should the metadata-update audit write
+        // fail in afterDatabaseOperations (SEC-3 atomicity): the real column
+        // values, plus the MM relation rows behind the privileged ACL columns
+        // (whose column value is only a count). Both snapshots are taken here
+        // because DataHandler has overwritten neither yet — checkValue() and
+        // updateDB() both run after this hook.
         if (!str_starts_with((string) $id, 'NEW') && $fieldArray !== []) {
             $columns = $this->submittedColumns($fieldArray);
             if ($columns !== []) {
-                $original = BackendUtility::getRecord(self::TABLE, (int) $id, implode(',', $columns));
+                $original = $this->readRecord((int) $id, $columns);
                 if ($original !== null) {
                     $this->originalMetadata[(string) $id] = array_intersect_key(
                         $original,
                         array_flip($columns),
                     );
                 }
+
+                // Assigned unconditionally, empty result included: a save that
+                // submits no ACL column must clear any snapshot a previous
+                // save left behind on a DI-shared instance, never inherit it
+                // and "restore" a state two edits old.
+                $this->originalMmRelations[(string) $id] = $this->snapshotMmRelations((int) $id, $columns);
             }
         }
     }
@@ -212,7 +268,7 @@ final class SecretTcaHook
         $uid = is_numeric($uidRaw) ? (int) $uidRaw : 0;
 
         // Get the secret identifier for operations
-        $record = BackendUtility::getRecord(self::TABLE, $uid, 'identifier,owner_uid,allowed_groups,scope_pid');
+        $record = $this->readRecord($uid, ['identifier', 'owner_uid', 'allowed_groups', 'scope_pid']);
         if ($record === null) {
             return;
         }
@@ -280,7 +336,8 @@ final class SecretTcaHook
         // well (SEC-3): if the audit write fails, the database change is
         // reverted so no mutation persists without a tamper-evident record.
         $originalMetadata = $this->originalMetadata[$originalId] ?? null;
-        unset($this->originalMetadata[$originalId]);
+        $originalMmRelations = $this->originalMmRelations[$originalId] ?? [];
+        unset($this->originalMetadata[$originalId], $this->originalMmRelations[$originalId]);
 
         if ($status === 'new') {
             if (!$secretStored) {
@@ -295,7 +352,52 @@ final class SecretTcaHook
             return;
         }
 
-        $this->auditMetadataUpdateOrCompensate($identifier, $uid, $changedColumns, $originalMetadata, $dataHandler);
+        $this->auditMetadataUpdateOrCompensate(
+            $identifier,
+            $uid,
+            $changedColumns,
+            $originalMetadata,
+            $originalMmRelations,
+            $dataHandler,
+        );
+    }
+
+    /**
+     * Called once every datamap operation — including DataHandler's deferred
+     * MM writes (dbAnalysisStoreExec()) — has finished. Purges the relation
+     * rows those deferred writes just created for records whose creation this
+     * hook rolled back, so a reverted create leaves no orphaned MM rows
+     * behind (see $revertedCreations).
+     *
+     * Cleaning up here rather than filtering DataHandler's public-but-internal
+     * $dbAnalysisStore keeps the fix on a documented extension point, and it
+     * is idempotent: deleting by uid_local removes whatever was written for
+     * that uid, in whichever order the store was flushed.
+     *
+     * Entries are consumed so a DI-shared hook instance cannot carry a stale
+     * uid into a later DataHandler run (same discipline as $pendingSecrets).
+     */
+    public function processDatamap_afterAllOperations(DataHandler $dataHandler): void// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
+    {
+        $revertedUids = array_keys($this->revertedCreations);
+        $this->revertedCreations = [];
+
+        foreach ($revertedUids as $uid) {
+            if ($this->purgeMmRelations($uid)) {
+                continue;
+            }
+
+            /** @phpstan-ignore method.internal */
+            $dataHandler->log(
+                self::TABLE,
+                $uid,
+                2,
+                null,
+                1,
+                'Vault secret ACL relations of the reverted record creation could not be purged; '
+                . 'manual reconciliation required.',
+            );
+        }
     }
 
     /**
@@ -400,7 +502,9 @@ final class SecretTcaHook
      * Audit the FormEngine creation of a record that carries no secret value
      * (a value-bearing create is audited by VaultService::store()). If the
      * audit write fails, the just-created row is removed again — a record
-     * must not exist without its audit entry.
+     * must not exist without its audit entry. Its ACL relation rows are
+     * purged in processDatamap_afterAllOperations(), because DataHandler
+     * writes them only after this hook has run.
      *
      * @param array<string, mixed> $fieldArray
      */
@@ -420,6 +524,13 @@ final class SecretTcaHook
             );
         } catch (Throwable $e) {
             $reverted = $this->revertRow($uid, null);
+            if ($reverted) {
+                // The deferred MM writes for this uid have not run yet; queue
+                // the purge for after dbAnalysisStoreExec(). Only a genuinely
+                // removed row gets queued — if the revert failed the record
+                // still exists and its relations rightfully belong to it.
+                $this->revertedCreations[$uid] = true;
+            }
 
             /** @phpstan-ignore method.internal */
             $dataHandler->log(
@@ -436,18 +547,27 @@ final class SecretTcaHook
 
     /**
      * Audit a metadata-only column change. If the audit write fails, the
-     * captured pre-change values are written back (scalar columns; MM
-     * relation rows are owned by DataHandler and only their count column is
-     * restored) so the change does not persist unaudited.
+     * captured pre-change state is written back so the change does not
+     * persist unaudited: the scalar column values AND the MM relation rows
+     * behind the privileged ACL columns.
+     *
+     * Restoring the count column alone would be worse than not reverting at
+     * all — it would leave the row claiming the old number of groups while
+     * the MM tables still granted the widened set, and the effective ACL is
+     * read from the MM tables. The revert therefore only counts as done when
+     * both halves succeeded; a partial result is reported as
+     * "NOT revertible" so the inconsistency is surfaced, not hidden.
      *
      * @param list<string> $changedColumns
      * @param array<string, mixed>|null $originalMetadata
+     * @param array<string, list<array{uid_foreign: int, sorting: int, sorting_foreign: int}>> $originalMmRelations
      */
     private function auditMetadataUpdateOrCompensate(
         string $identifier,
         int $uid,
         array $changedColumns,
         ?array $originalMetadata,
+        array $originalMmRelations,
         DataHandler $dataHandler,
     ): void {
         try {
@@ -462,6 +582,22 @@ final class SecretTcaHook
             $reverted = $originalMetadata !== null
                 && $originalMetadata !== []
                 && $this->revertRow($uid, $originalMetadata);
+
+            // Restore the relation rows even when the row revert failed, so
+            // the effective ACL stops granting the unaudited widening either
+            // way; $reverted stays false so the log reports the row half.
+            if ($originalMmRelations !== [] && !$this->restoreMmRelations($uid, $originalMmRelations)) {
+                $reverted = false;
+            }
+
+            // A changed ACL column whose tier is absent from the snapshot
+            // means the pre-change read failed: the relations cannot be
+            // restored, so the change must not be reported as reverted.
+            foreach (self::PRIVILEGED_MM_COLUMNS as $column => $mmTable) {
+                if (\in_array($column, $changedColumns, true) && !\array_key_exists($mmTable, $originalMmRelations)) {
+                    $reverted = false;
+                }
+            }
 
             /** @phpstan-ignore method.internal */
             $dataHandler->log(
@@ -498,6 +634,71 @@ final class SecretTcaHook
     }
 
     /**
+     * Read the requested columns of one secret row, soft-deleted rows
+     * excluded — the semantics of BackendUtility::getRecord(), but through
+     * the injected ConnectionPool.
+     *
+     * The static call is avoided because its internals differ across the
+     * supported TYPO3 range: v13 gates on `$GLOBALS['TCA'][$table]`, v14 on
+     * a TcaSchemaFactory resolved through GeneralUtility. That made this
+     * hook's record reads depend on which core version was installed. The
+     * `deleted = 0` predicate is spelled out for the same reason — core's
+     * DeletedRestriction resolves the schema on v14 as well; it matches the
+     * restriction set getRecord() applies (removeAll() plus DeletedRestriction).
+     *
+     * Without a ConnectionPool (construction without DI) the static call is
+     * kept so those callers keep working unchanged.
+     *
+     * @param list<string> $columns
+     *
+     * @return array<string, mixed>|null
+     */
+    private function readRecord(int $uid, array $columns): ?array
+    {
+        if ($uid < 1) {
+            return null;
+        }
+
+        if (!$this->connectionPool instanceof ConnectionPool) {
+            $record = BackendUtility::getRecord(self::TABLE, $uid, implode(',', $columns));
+            if ($record === null) {
+                return null;
+            }
+
+            // Core annotates the return as a bare `array`; re-key so the
+            // string-keyed row this method promises is established rather
+            // than assumed. An explicit loop, like submittedColumns().
+            $row = [];
+            foreach ($record as $column => $value) {
+                $row[(string) $column] = $value;
+            }
+
+            return $row;
+        }
+
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
+        $queryBuilder->getRestrictions()->removeAll();
+
+        $row = $queryBuilder
+            ->select(...$columns)
+            ->from(self::TABLE)
+            ->where(
+                $queryBuilder->expr()->eq(
+                    'uid',
+                    $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT),
+                ),
+                $queryBuilder->expr()->eq(
+                    'deleted',
+                    $queryBuilder->createNamedParameter(0, Connection::PARAM_INT),
+                ),
+            )
+            ->executeQuery()
+            ->fetchAssociative();
+
+        return $row === false ? null : $row;
+    }
+
+    /**
      * Write the compensating revert: `null` removes the just-created row,
      * a value map restores the captured pre-change column values.
      *
@@ -525,6 +726,137 @@ final class SecretTcaHook
         } catch (Throwable) {
             return false;
         }
+    }
+
+    /**
+     * Read the current MM relation rows of every privileged ACL column among
+     * $submittedColumns, so a failed audit write can restore them verbatim.
+     *
+     * `sorting` is carried along because it is what orders the group list in
+     * the FormEngine field and in
+     * `SecretRepository::loadGroupsForSecret()` — a rollback that restored
+     * the same groups in a different order would still alter the record.
+     *
+     * @param list<string> $submittedColumns
+     *
+     * @return array<string, list<array{uid_foreign: int, sorting: int, sorting_foreign: int}>>
+     */
+    private function snapshotMmRelations(int $uid, array $submittedColumns): array
+    {
+        if ($uid <= 0 || !$this->connectionPool instanceof ConnectionPool) {
+            return [];
+        }
+
+        $snapshot = [];
+
+        foreach (self::PRIVILEGED_MM_COLUMNS as $column => $mmTable) {
+            if (!\in_array($column, $submittedColumns, true)) {
+                continue;
+            }
+
+            try {
+                $queryBuilder = $this->connectionPool->getQueryBuilderForTable($mmTable);
+                $rows = $queryBuilder
+                    ->select('uid_foreign', 'sorting', 'sorting_foreign')
+                    ->from($mmTable)
+                    ->where($queryBuilder->expr()->eq(
+                        'uid_local',
+                        $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT),
+                    ))
+                    ->orderBy('sorting', 'ASC')
+                    ->executeQuery()
+                    ->fetchAllAssociative();
+            } catch (Throwable) {
+                // An unreadable tier cannot be restored. Skip it rather than
+                // recording an empty snapshot, which the rollback would
+                // "restore" by deleting the record's real relations.
+                continue;
+            }
+
+            $snapshot[$mmTable] = array_map(
+                static fn (array $row): array => [
+                    'uid_foreign' => is_numeric($row['uid_foreign'] ?? null) ? (int) $row['uid_foreign'] : 0,
+                    'sorting' => is_numeric($row['sorting'] ?? null) ? (int) $row['sorting'] : 0,
+                    'sorting_foreign' => is_numeric($row['sorting_foreign'] ?? null) ? (int) $row['sorting_foreign'] : 0,
+                ],
+                $rows,
+            );
+        }
+
+        return $snapshot;
+    }
+
+    /**
+     * Write a snapshot taken by snapshotMmRelations() back: replace the
+     * record's current relation rows in each snapshotted tier with the
+     * captured ones. An empty captured list is honoured — it means the tier
+     * held no groups before the change, so the rows the change added are
+     * deleted and nothing is re-inserted.
+     *
+     * @param array<string, list<array{uid_foreign: int, sorting: int, sorting_foreign: int}>> $snapshot
+     *
+     * @return bool True only if every snapshotted tier was fully restored
+     */
+    private function restoreMmRelations(int $uid, array $snapshot): bool
+    {
+        if ($uid <= 0 || !$this->connectionPool instanceof ConnectionPool) {
+            return false;
+        }
+
+        $restored = true;
+
+        foreach ($snapshot as $mmTable => $rows) {
+            try {
+                $connection = $this->connectionPool->getConnectionForTable($mmTable);
+                // Transactional per tier: without it, an insert failure after
+                // the delete would leave the tier EMPTY — locking out the
+                // legitimate groups, which is worse than the unaudited
+                // widening the rollback set out to undo. On rollback the tier
+                // keeps its current rows and the caller reports NOT revertible.
+                $connection->transactional(static function () use ($connection, $mmTable, $uid, $rows): void {
+                    $connection->delete($mmTable, ['uid_local' => $uid]);
+
+                    foreach ($rows as $row) {
+                        $connection->insert($mmTable, ['uid_local' => $uid, ...$row]);
+                    }
+                });
+            } catch (Throwable) {
+                // Keep going: restoring the remaining tiers narrows the
+                // unaudited widening even when one tier cannot be repaired.
+                $restored = false;
+            }
+        }
+
+        return $restored;
+    }
+
+    /**
+     * Delete every privileged ACL relation row pointing at $uid, in both
+     * tiers. Used to clean up after a reverted record creation, whose MM
+     * rows DataHandler writes only after the revert has already removed the
+     * row they reference.
+     *
+     * @return bool True if both tiers were purged
+     */
+    private function purgeMmRelations(int $uid): bool
+    {
+        if ($uid <= 0 || !$this->connectionPool instanceof ConnectionPool) {
+            return false;
+        }
+
+        $purged = true;
+
+        foreach (self::PRIVILEGED_MM_COLUMNS as $mmTable) {
+            try {
+                $this->connectionPool
+                    ->getConnectionForTable($mmTable)
+                    ->delete($mmTable, ['uid_local' => $uid]);
+            } catch (Throwable) {
+                $purged = false;
+            }
+        }
+
+        return $purged;
     }
 
     /**
@@ -575,11 +907,7 @@ final class SecretTcaHook
         }
 
         $uid = is_numeric($id) ? (int) $id : 0;
-        $original = BackendUtility::getRecord(
-            self::TABLE,
-            $uid,
-            'owner_uid,frontend_accessible,scope_pid',
-        );
+        $original = $this->readRecord($uid, ['owner_uid', 'frontend_accessible', 'scope_pid']);
         if ($original === null) {
             return;
         }
@@ -625,7 +953,7 @@ final class SecretTcaHook
             $reverted = true;
         }
 
-        foreach (self::PRIVILEGED_MM_COLUMNS as $column) {
+        foreach (array_keys(self::PRIVILEGED_MM_COLUMNS) as $column) {
             if (!\array_key_exists($column, $fieldArray)) {
                 continue;
             }

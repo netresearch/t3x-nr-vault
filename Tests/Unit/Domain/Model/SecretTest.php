@@ -497,7 +497,9 @@ final class SecretTest extends TestCase
             'encryption_version' => 1,
             'value_checksum' => 'sha256hash',
             'owner_uid' => 5,
-            'allowed_groups' => '1,2,3',
+            // MM-backed column: the value is the relation COUNT, and the UIDs
+            // are passed separately by the repository from the MM table.
+            'allowed_groups' => 3,
             'context' => 'payment',
             'version' => 3,
             'expires_at' => 1735689600,
@@ -514,7 +516,7 @@ final class SecretTest extends TestCase
             'last_read_at' => 1704153600,
         ];
 
-        $secret = Secret::fromDatabaseRow($row);
+        $secret = Secret::fromDatabaseRow($row, [1, 2, 3]);
 
         self::assertSame(42, $secret->getUid());
         self::assertSame(1, $secret->getScopePid());
@@ -817,7 +819,7 @@ final class SecretTest extends TestCase
             'encryption_algorithm' => 'xchacha20poly1305',
             'value_checksum' => 'cs',
             'owner_uid' => 5,
-            'allowed_groups' => '7,8,9',
+            'allowed_groups' => 3,
             'context' => 'payment',
             'frontend_accessible' => 1,
             'version' => 3,
@@ -835,7 +837,7 @@ final class SecretTest extends TestCase
             'last_read_at' => 1704153600,
         ];
 
-        $secret = Secret::fromDatabaseRow($row);
+        $secret = Secret::fromDatabaseRow($row, [7, 8, 9]);
 
         self::assertSame(42, $secret->getUid());
         self::assertSame(1, $secret->getScopePid());
@@ -1039,30 +1041,65 @@ final class SecretTest extends TestCase
         self::assertTrue($secret->isHidden());
     }
 
+    /**
+     * The row columns hold the MM relation COUNT, never the related UIDs.
+     * Interpreting "3 groups are allowed" as "group 3 is allowed" would
+     * forge an ACL out of a counter, so the columns must be ignored
+     * entirely when the caller passes no MM-loaded groups.
+     */
     #[Test]
-    public function fromDatabaseRowAllowedGroupsFiltersZeroValues(): void
+    public function fromDatabaseRowIgnoresTheRelationCountColumns(): void
     {
         $secret = Secret::fromDatabaseRow([
             'uid' => 1,
             'identifier' => 't',
-            'allowed_groups' => '1,0,2,0,3',
-        ]);
-
-        // Zeros must be filtered out — without array_filter() they would remain.
-        self::assertNotContains(0, $secret->getAllowedGroups());
-        self::assertSame([1, 2, 3], array_values($secret->getAllowedGroups()));
-    }
-
-    #[Test]
-    public function fromDatabaseRowAllowedGroupsAllZeroReturnsEmpty(): void
-    {
-        $secret = Secret::fromDatabaseRow([
-            'uid' => 1,
-            'identifier' => 't',
-            'allowed_groups' => '0,0,0',
+            'allowed_groups' => 3,
+            'write_groups' => 2,
         ]);
 
         self::assertSame([], $secret->getAllowedGroups());
+        self::assertSame([], $secret->getWriteGroups());
+    }
+
+    /**
+     * The same holds for a count that happens to look like a UID list — a
+     * legacy row still carrying comma-separated values must not resurrect
+     * the removed CSV fallback.
+     */
+    #[Test]
+    public function fromDatabaseRowIgnoresACommaSeparatedGroupsColumn(): void
+    {
+        $secret = Secret::fromDatabaseRow([
+            'uid' => 1,
+            'identifier' => 't',
+            'allowed_groups' => '1,2,3',
+            'write_groups' => '4,5',
+        ]);
+
+        self::assertSame([], $secret->getAllowedGroups());
+        self::assertSame([], $secret->getWriteGroups());
+    }
+
+    /**
+     * The MM-loaded lists win over whatever the columns say — they are the
+     * only source of the effective ACL.
+     */
+    #[Test]
+    public function fromDatabaseRowTakesGroupsSolelyFromTheMmArguments(): void
+    {
+        $secret = Secret::fromDatabaseRow(
+            [
+                'uid' => 1,
+                'identifier' => 't',
+                'allowed_groups' => 99,
+                'write_groups' => 98,
+            ],
+            [4, 5],
+            [6],
+        );
+
+        self::assertSame([4, 5], $secret->getAllowedGroups());
+        self::assertSame([6], $secret->getWriteGroups());
     }
 
     // ---------------------------------------------------------------
@@ -1099,7 +1136,9 @@ final class SecretTest extends TestCase
         self::assertSame('dek', $row['encrypted_dek']);
         self::assertSame('checksum', $row['value_checksum']);
         self::assertSame(5, $row['owner_uid']);
-        self::assertSame('1,2', $row['allowed_groups']);
+        // MM-backed column: the relation count, matching what DataHandler
+        // writes — the UIDs themselves go to the MM table.
+        self::assertSame(2, $row['allowed_groups']);
         self::assertSame('testing', $row['context']);
         self::assertSame(2, $row['version']);
         self::assertSame('{"key":"value"}', $row['metadata']);
@@ -1210,7 +1249,7 @@ final class SecretTest extends TestCase
         self::assertSame(1, $row['encryption_version']);
         self::assertSame('cs', $row['value_checksum']);
         self::assertSame(2, $row['owner_uid']);
-        self::assertSame('3,4', $row['allowed_groups']);
+        self::assertSame(2, $row['allowed_groups']);
         self::assertSame('ctx', $row['context']);
         self::assertSame(1, $row['frontend_accessible']);
         self::assertSame(5, $row['version']);
@@ -1226,14 +1265,25 @@ final class SecretTest extends TestCase
     }
 
     #[Test]
-    public function toDatabaseRowSerialisesEmptyAllowedGroupsAsEmptyString(): void
+    public function toDatabaseRowSerialisesGroupTiersAsRelationCounts(): void
+    {
+        $secret = new Secret(identifier: 't', allowedGroups: [3, 4, 5], writeGroups: [9]);
+
+        $row = $secret->toDatabaseRow();
+
+        self::assertSame(3, $row['allowed_groups']);
+        self::assertSame(1, $row['write_groups']);
+    }
+
+    #[Test]
+    public function toDatabaseRowSerialisesEmptyGroupTiersAsZero(): void
     {
         $secret = new Secret(identifier: 't');
 
         $row = $secret->toDatabaseRow();
 
-        // implode(',', []) === ''
-        self::assertSame('', $row['allowed_groups']);
+        self::assertSame(0, $row['allowed_groups']);
+        self::assertSame(0, $row['write_groups']);
     }
 
     #[Test]

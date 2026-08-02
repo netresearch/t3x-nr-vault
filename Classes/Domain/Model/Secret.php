@@ -379,6 +379,14 @@ final readonly class Secret
      * caller must look them up and pass them here — there is no
      * second-step `setAllowedGroups()` after construction.
      *
+     * The row's own `allowed_groups`/`write_groups` columns are deliberately
+     * NOT consulted: for MM-backed TCA group fields they hold the relation
+     * COUNT, not the related UIDs (DataHandler writes
+     * `RelationHandler::countItems()` there, and `toDatabaseRow()` mirrors
+     * that). Reading them as a UID list would turn "3 groups are allowed"
+     * into "group 3 is allowed" — a silent ACL forgery. The MM tables are
+     * the single source of truth for both tiers.
+     *
      * @param array<string, mixed> $row
      * @param int[] $allowedGroups Read-tier group UIDs (from MM table)
      * @param int[] $writeGroups Write-tier group UIDs (from MM table)
@@ -389,23 +397,6 @@ final readonly class Secret
         if (!empty($row['metadata'])) {
             $decoded = json_decode((string) $row['metadata'], true);
             $metadata = \is_array($decoded) ? $decoded : [];
-        }
-
-        // If the caller didn't pre-load the MM table, fall back to the
-        // comma-separated denormalised column some legacy rows still carry.
-        if ($allowedGroups === [] && !empty($row['allowed_groups'])) {
-            $groups = (string) $row['allowed_groups'];
-            $allowedGroups = array_values(array_filter(
-                array_map(\intval(...), explode(',', $groups)),
-            ));
-        }
-
-        // Same legacy-CSV fallback for the write-tier groups.
-        if ($writeGroups === [] && !empty($row['write_groups'])) {
-            $wGroups = (string) $row['write_groups'];
-            $writeGroups = array_values(array_filter(
-                array_map(\intval(...), explode(',', $wGroups)),
-            ));
         }
 
         $encryptedValue = $row['encrypted_value'] ?? null;
@@ -453,9 +444,13 @@ final readonly class Secret
      * These three columns are therefore DB-managed; a `fromDatabaseRow()`
      * → `toDatabaseRow()` round-trip is not an identity for them.
      *
-     * The `allowed_groups`/`write_groups` CSV columns are written for
-     * legacy-read fallback only; the authoritative source of truth for
-     * group relations is the MM tables (written by `SecretRepository`).
+     * The `allowed_groups`/`write_groups` columns are MM-backed TCA group
+     * fields, so their column value is the relation COUNT — the convention
+     * DataHandler writes on the FormEngine path
+     * (`RelationHandler::countItems()`). Writing the same count here keeps
+     * one meaning for the column no matter which writer produced the row;
+     * the group UIDs themselves live solely in the MM tables, written by
+     * `SecretRepository::save()` from the very lists counted here.
      *
      * @return array<string, mixed>
      */
@@ -473,8 +468,8 @@ final readonly class Secret
             'encryption_algorithm' => $this->encryptionAlgorithm,
             'value_checksum' => $this->valueChecksum,
             'owner_uid' => $this->ownerUid,
-            'allowed_groups' => implode(',', $this->allowedGroups),
-            'write_groups' => implode(',', $this->writeGroups),
+            'allowed_groups' => \count($this->allowedGroups),
+            'write_groups' => \count($this->writeGroups),
             'context' => $this->context,
             'frontend_accessible' => $this->frontendAccessible ? 1 : 0,
             'version' => $this->version,
