@@ -325,7 +325,6 @@ final class PendingSecretPersisterTest extends TestCase
             self::DELETE_REASON,
             self::ROTATE_REASON,
             $this->redactingMessage(),
-            null,
         );
 
         self::assertSame($thrown, $error);

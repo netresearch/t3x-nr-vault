@@ -194,8 +194,8 @@ final class OAuthTokenRequestParamsTest extends TestCase
 
         $params->wipeCredentials();
 
-        self::assertZeroized($params->clientId);
-        self::assertZeroized($params->clientSecret);
+        $this->assertZeroized($params->clientId);
+        $this->assertZeroized($params->clientSecret);
         self::assertNull($params->refreshToken);
     }
 

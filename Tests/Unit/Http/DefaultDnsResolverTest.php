@@ -35,7 +35,7 @@ namespace Netresearch\NrVault\Http {
     ): array|false {
         $handler = DefaultDnsResolverTest::$dnsHandler;
 
-        if ($handler === null) {
+        if (!$handler instanceof \Closure) {
             // Called through a variable so the global function is reached
             // without a `\` prefix: the CGL rule `native_function_invocation`
             // (strict, @compiler_optimized only) would strip that prefix and
@@ -286,7 +286,7 @@ namespace Netresearch\NrVault\Tests\Unit\Http {
         public function errorHandlerIsRestoredWhenTheLookupThrows(): void
         {
             self::$dnsHandler = static function (): never {
-                throw new RuntimeException('resolver exploded');
+                throw new RuntimeException('resolver exploded', 8304165671);
             };
 
             $sentinel = static fn (): bool => true;
