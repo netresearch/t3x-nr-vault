@@ -2041,7 +2041,7 @@ parameters:
 		-
 			rawMessage: Access to internal property TYPO3\CMS\Core\DataHandling\DataHandler::$copyMappingArray from outside its root namespace TYPO3.
 			identifier: property.internal
-			count: 9
+			count: 12
 			path: ../Tests/Unit/Hook/DataHandlerHookTest.php
 
 		-

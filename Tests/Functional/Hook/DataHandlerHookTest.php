@@ -40,6 +40,9 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 #[CoversClass(DataHandlerHook::class)]
 final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
 {
+    /** Non-admin user (uid 3) whose group grants `tx_nrvault:secret.delete`. */
+    private const DELETER_UID = 3;
+
     protected ?string $backendUserFixture = __DIR__ . '/Fixtures/be_users.csv';
 
     /** @var array<string, mixed> */
@@ -392,6 +395,106 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         );
     }
 
+    #[Test]
+    public function recordDeleteRemovesNoSecretWhenAnotherFieldIsDenied(): void
+    {
+        $this->skipIfNotSqlite();
+
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $connectionPool = $this->get(ConnectionPool::class);
+        $hook = $this->createHookWithVaultFields('tx_nrvault_hooktest4', ['api_key', 'api_secret']);
+
+        $connection = $connectionPool->getConnectionForTable('tx_nrvault_hooktest4');
+        $connection->executeStatement(
+            'CREATE TABLE IF NOT EXISTS tx_nrvault_hooktest4 (
+                uid INTEGER PRIMARY KEY AUTOINCREMENT,
+                pid INTEGER DEFAULT 0,
+                api_key VARCHAR(255) DEFAULT \'\',
+                api_secret VARCHAR(255) DEFAULT \'\'
+            )',
+        );
+
+        // Seeded as the admin of this test case: the deleter below may not create.
+        $deletableIdentifier = $this->generateUuidV7();
+        $deniedIdentifier = $this->generateUuidV7();
+        $vaultService->store($deletableIdentifier, 'owned-by-the-deleter', ['owner' => self::DELETER_UID]);
+        $vaultService->store($deniedIdentifier, 'owned-by-somebody-else', ['owner' => 1]);
+
+        $connection->insert('tx_nrvault_hooktest4', [
+            'pid' => 0,
+            'api_key' => $deletableIdentifier,
+            'api_secret' => $deniedIdentifier,
+        ]);
+        $recordUid = (int) $connection->lastInsertId();
+
+        // The deleter owns the FIRST field's secret and holds secret.delete, but
+        // not the second field's secret (canDelete is owner/admin only).
+        $this->setUpVaultDeletePermissionUser();
+
+        $dataHandler = $this->createDataHandler();
+        $hook->processCmdmap_preProcess('delete', 'tx_nrvault_hooktest4', $recordUid, null, $dataHandler, false);
+
+        $commandIsProcessed = false;
+        $hook->processCmdmap('delete', 'tx_nrvault_hooktest4', $recordUid, null, $commandIsProcessed, $dataHandler, false);
+
+        self::assertTrue($commandIsProcessed, 'A denied field must cancel the record delete (fail closed).');
+        self::assertTrue(
+            $vaultService->exists($deletableIdentifier),
+            'The preflight must abort BEFORE the first secret is deleted — a vault delete is not reversible.',
+        );
+        self::assertTrue(
+            $vaultService->exists($deniedIdentifier),
+            'The denied secret must survive.',
+        );
+    }
+
+    #[Test]
+    public function recordDeleteProceedsWhenOneFieldReferencesAMissingSecret(): void
+    {
+        $this->skipIfNotSqlite();
+
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $connectionPool = $this->get(ConnectionPool::class);
+        $hook = $this->createHookWithVaultFields('tx_nrvault_hooktest5', ['api_key', 'api_secret']);
+
+        $connection = $connectionPool->getConnectionForTable('tx_nrvault_hooktest5');
+        $connection->executeStatement(
+            'CREATE TABLE IF NOT EXISTS tx_nrvault_hooktest5 (
+                uid INTEGER PRIMARY KEY AUTOINCREMENT,
+                pid INTEGER DEFAULT 0,
+                api_key VARCHAR(255) DEFAULT \'\',
+                api_secret VARCHAR(255) DEFAULT \'\'
+            )',
+        );
+
+        // A dangling reference: never stored, or already cleaned up elsewhere.
+        $missingIdentifier = $this->generateUuidV7();
+        $existingIdentifier = $this->generateUuidV7();
+        $vaultService->store($existingIdentifier, 'still-there');
+
+        $connection->insert('tx_nrvault_hooktest5', [
+            'pid' => 0,
+            'api_key' => $missingIdentifier,
+            'api_secret' => $existingIdentifier,
+        ]);
+        $recordUid = (int) $connection->lastInsertId();
+
+        $dataHandler = $this->createDataHandler();
+        $hook->processCmdmap_preProcess('delete', 'tx_nrvault_hooktest5', $recordUid, null, $dataHandler, false);
+
+        $commandIsProcessed = false;
+        $hook->processCmdmap('delete', 'tx_nrvault_hooktest5', $recordUid, null, $commandIsProcessed, $dataHandler, false);
+
+        self::assertFalse(
+            $commandIsProcessed,
+            'An absent secret already satisfies the goal state and must not make the record undeletable.',
+        );
+        self::assertFalse(
+            $vaultService->exists($existingIdentifier),
+            'The remaining fields must still be cleaned up after a missing one.',
+        );
+    }
+
     /**
      * Build a DataHandlerHook instance with a pre-seeded vault-field cache.
      *
@@ -447,6 +550,17 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
     {
         $this->importCSVDataSet(__DIR__ . '/Fixtures/be_users_field_permissions.csv');
         $this->setUpBackendUser(2);
+    }
+
+    /**
+     * Log in the non-admin user who holds the `secret.delete` operation
+     * permission via their group. Administrators pass every per-secret tier, so
+     * only a non-admin can exercise the ownership half of the delete gate.
+     */
+    private function setUpVaultDeletePermissionUser(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/be_users_delete_permission.csv');
+        $this->setUpBackendUser(self::DELETER_UID);
     }
 
     /**

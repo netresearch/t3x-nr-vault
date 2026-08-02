@@ -87,6 +87,29 @@ interface VaultServiceInterface
     public function delete(string $identifier, string $reason = ''): void;
 
     /**
+     * Assert that {@see delete()} is permitted for this identifier — without deleting.
+     *
+     * Exists for callers that delete SEVERAL secrets as one logical unit (the
+     * DataHandler record delete across multiple vault fields). A vault delete is
+     * a hard delete with no restore, so a partially applied batch cannot be
+     * compensated: the only way to keep such a batch all-or-nothing is to run
+     * every permission gate up front and abort before the first deletion.
+     *
+     * A secret that does not exist returns without throwing — the goal state
+     * ("no secret under this identifier") is already reached, so deleting it is
+     * permitted in the only sense a caller can act on. Callers that need to
+     * distinguish absent from present must ask {@see exists()}.
+     *
+     * The gates asserted here are exactly the ones {@see delete()} applies, and
+     * the denial is audited the same way. Passing this check does NOT guarantee
+     * the subsequent delete succeeds — an audit-write failure, or a permission
+     * revoked in between, can still abort it.
+     *
+     * @throws AccessDeniedException If current user lacks permission
+     */
+    public function assertDeletable(string $identifier): void;
+
+    /**
      * Rotate a secret.
      *
      * @throws SecretNotFoundException If secret doesn't exist
