@@ -20,6 +20,7 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use ReflectionClass;
@@ -41,6 +42,15 @@ final class SecretTcaHookTest extends TestCase
     private const READ_GROUPS_MM = 'tx_nrvault_secret_begroups_mm';
 
     private const WRITE_GROUPS_MM = 'tx_nrvault_secret_writegroups_mm';
+
+    /**
+     * The hook refuses a record by nulling the by-ref $fieldArray, which is
+     * how it tells DataHandler to skip it (see SecretTcaHook::isUpdateAuthorized()).
+     * Asserting the array survived therefore asserts the record was NOT
+     * refused — without it these tests would fail on a null offset access and
+     * hide which of the two things went wrong.
+     */
+    private const NOT_ABORTED = 'the hook must not abort this record';
 
     private VaultServiceInterface&MockObject $vaultService;
 
@@ -150,6 +160,7 @@ final class SecretTcaHookTest extends TestCase
             $dataHandler,
         );
 
+        self::assertIsArray($fieldArray, self::NOT_ABORTED);
         self::assertSame(42, $fieldArray['owner_uid']);
     }
 
@@ -168,6 +179,7 @@ final class SecretTcaHookTest extends TestCase
             $dataHandler,
         );
 
+        self::assertIsArray($fieldArray, self::NOT_ABORTED);
         self::assertSame(100, $fieldArray['scope_pid']);
     }
 
@@ -186,6 +198,7 @@ final class SecretTcaHookTest extends TestCase
             $dataHandler,
         );
 
+        self::assertIsArray($fieldArray, self::NOT_ABORTED);
         self::assertSame(15, $fieldArray['owner_uid']);
     }
 
@@ -239,6 +252,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         // Integer should pass through unchanged
+        self::assertIsArray($fieldArray, self::NOT_ABORTED);
         self::assertSame(42, $fieldArray['owner_uid']);
     }
 
@@ -258,6 +272,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         // Should remain as string without conversion (no 'pages' in value)
+        self::assertIsArray($fieldArray, self::NOT_ABORTED);
         self::assertSame('99', $fieldArray['scope_pid']);
     }
 
@@ -367,6 +382,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         // owner_uid must be forced to the current backend user (7), not 42.
+        self::assertIsArray($fieldArray, self::NOT_ABORTED);
         self::assertSame(7, $fieldArray['owner_uid']);
     }
 
@@ -401,6 +417,7 @@ final class SecretTcaHookTest extends TestCase
             $dataHandler,
         );
 
+        self::assertIsArray($fieldArray, self::NOT_ABORTED);
         self::assertSame(7, $fieldArray['owner_uid']);
     }
 
@@ -421,6 +438,7 @@ final class SecretTcaHookTest extends TestCase
             $dataHandler,
         );
 
+        self::assertIsArray($fieldArray, self::NOT_ABORTED);
         self::assertSame(42, $fieldArray['owner_uid']);
     }
 
@@ -993,13 +1011,20 @@ final class SecretTcaHookTest extends TestCase
     }
 
     #[Test]
-    public function preProcessRevertsAScalarAclChangeSubmittedByANonOwner(): void
+    public function preProcessDropsAScalarAclChangeSubmittedByANonOwner(): void
     {
-        // Two reads: the ACL gate, then the pre-change metadata capture.
+        // Only one read: dropping owner_uid empties $fieldArray, so the
+        // pre-change metadata capture has no submitted column left to snapshot.
         $this->stubBackendRecords([
-            ['owner_uid' => 99, 'frontend_accessible' => 0, 'scope_pid' => 0],
-            ['owner_uid' => 99],
+            ['owner_uid' => 99, 'identifier' => 'acl-secret'],
         ]);
+
+        $this->auditService->expects($this->once())->method('log')->with(
+            'acl-secret',
+            'access_denied',
+            false,
+            self::stringContains('owner_uid'),
+        );
 
         $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
 
@@ -1007,19 +1032,23 @@ final class SecretTcaHookTest extends TestCase
         $messages = [];
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
 
-        self::assertSame(['owner_uid' => 99], $fieldArray);
+        // Dropped, not written back: DataHandler then leaves the column alone,
+        // which preserves the stored owner without a second write.
+        self::assertSame([], $fieldArray);
         self::assertCount(1, $messages);
     }
 
     #[Test]
-    public function preProcessLeavesAnUnchangedScalarAclColumnAlone(): void
+    public function preProcessDoesNotReportAnUnchangedPrivilegedColumnAsTampering(): void
     {
         // An ordinary save by a non-owner resubmits the stored owner in group
-        // notation — that is not tampering and must not be logged as such.
+        // notation. The column is still dropped — that is what protects it —
+        // but nothing changed, so this must be neither logged nor audited.
         $this->stubBackendRecords([
-            ['owner_uid' => 99, 'frontend_accessible' => 0, 'scope_pid' => 0],
-            ['owner_uid' => 99],
+            ['owner_uid' => 99, 'identifier' => 'acl-secret'],
         ]);
+
+        $this->auditService->expects($this->never())->method('log');
 
         $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
 
@@ -1027,8 +1056,104 @@ final class SecretTcaHookTest extends TestCase
         $messages = [];
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
 
-        self::assertSame(99, $fieldArray['owner_uid']);
+        self::assertSame([], $fieldArray);
         self::assertSame([], $messages);
+    }
+
+    /**
+     * The newly privileged columns normalise very differently from the group
+     * references the policy started with — an ISO-8601 datetime against a
+     * stored Unix timestamp, JSON text, a plain label. A resubmitted
+     * unchanged value must be recognised as unchanged for each of them,
+     * because reporting every ordinary save as tampering is how a real
+     * warning stops being read.
+     */
+    #[Test]
+    #[DataProvider('unchangedPrivilegedValueProvider')]
+    public function preProcessRecognisesAnUnchangedPrivilegedValueColumn(
+        string $column,
+        mixed $submitted,
+        mixed $stored,
+    ): void {
+        $this->stubBackendRecords([
+            [$column => $stored, 'identifier' => 'acl-secret'],
+        ]);
+
+        $this->auditService->expects($this->never())->method('log');
+
+        $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
+
+        $fieldArray = [$column => $submitted];
+        $messages = [];
+        $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
+
+        self::assertSame([], $fieldArray);
+        self::assertSame([], $messages, $column . ' was wrongly reported as changed');
+    }
+
+    /**
+     * @return iterable<string, array{string, mixed, mixed}>
+     */
+    public static function unchangedPrivilegedValueProvider(): iterable
+    {
+        // The FormEngine submits a datetime as ISO-8601 while the row holds a
+        // Unix timestamp; DataHandler only converts in checkValue(), i.e.
+        // after this hook.
+        yield 'expires_at as ISO-8601' => ['expires_at', '2030-01-01T00:00:00+00:00', strtotime('2030-01-01T00:00:00+00:00')];
+        yield 'expires_at unset both sides' => ['expires_at', '', 0];
+        yield 'context' => ['context', 'production', 'production'];
+        yield 'metadata' => ['metadata', '{"source":"tca_field"}', '{"source":"tca_field"}'];
+        yield 'frontend_accessible' => ['frontend_accessible', '1', 1];
+        yield 'hidden' => ['hidden', '0', 0];
+    }
+
+    /**
+     * The counterpart: a genuine change to one of the newly privileged
+     * columns must be dropped and reported. `metadata` matters most — it
+     * feeds OrphanCleanupTask's delete decision.
+     */
+    #[Test]
+    #[DataProvider('changedPrivilegedValueProvider')]
+    public function preProcessDropsAChangedPrivilegedValueColumn(
+        string $column,
+        mixed $submitted,
+        mixed $stored,
+    ): void {
+        $this->stubBackendRecords([
+            [$column => $stored, 'identifier' => 'acl-secret'],
+        ]);
+
+        $this->auditService->expects($this->once())->method('log')->with(
+            'acl-secret',
+            'access_denied',
+            false,
+            self::stringContains($column),
+        );
+
+        $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
+
+        $fieldArray = [$column => $submitted];
+        $messages = [];
+        $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
+
+        self::assertSame([], $fieldArray);
+        self::assertCount(1, $messages);
+    }
+
+    /**
+     * @return iterable<string, array{string, mixed, mixed}>
+     */
+    public static function changedPrivilegedValueProvider(): iterable
+    {
+        // Backdating denies the secret to every consumer via
+        // Secret::isExpired(); zeroing revives a retired one.
+        yield 'expires_at backdated' => ['expires_at', '2000-01-01T00:00:00+00:00', strtotime('2030-01-01T00:00:00+00:00')];
+        yield 'expires_at cleared' => ['expires_at', '', strtotime('2030-01-01T00:00:00+00:00')];
+        // The OrphanCleanupTask deletion vector.
+        yield 'metadata retargeted' => ['metadata', '{"source":"tca_field","table":"tt_content","uid":2147483647}', '{"source":"tca_field"}'];
+        yield 'context re-bucketed' => ['context', 'staging', 'production'];
+        yield 'frontend_accessible enabled' => ['frontend_accessible', '1', 0];
+        yield 'hidden enabled' => ['hidden', '1', 0];
     }
 
     #[Test]
@@ -1154,6 +1279,7 @@ final class SecretTcaHookTest extends TestCase
         $fieldArray = ['allowed_groups' => '3,4'];
         $dataHandler = $this->createMock(DataHandler::class);
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $dataHandler);
+        self::assertIsArray($fieldArray, self::NOT_ABORTED);
 
         $messages = [];
         $hook->processDatamap_afterDatabaseOperations(

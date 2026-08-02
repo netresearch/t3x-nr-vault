@@ -1,0 +1,13 @@
+"pages",,,,,,,,,
+,"uid","pid","title","doktype","perms_userid","perms_groupid","perms_user","perms_group","perms_everybody"
+,1,0,"Vault secrets",1,1,30,31,31,0
+"be_groups",,,,,
+,"uid","pid","title","tables_modify","custom_options"
+,30,0,"vault-record-editors","tx_nrvault_secret",""
+,40,0,"secret-write-tier","",""
+,41,0,"secret-read-tier","",""
+"be_users",,,,,,,,,,
+,"uid","pid","username","password","admin","disable","starttime","endtime","usergroup","db_mountpoints"
+,1,0,"owner","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"30","1"
+,2,0,"editor","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"30","1"
+,4,0,"writer","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"30,40","1"
