@@ -92,3 +92,28 @@ ignore:
   - "Tests/**/*"
   - ".Build/**/*"
   - ".ddev/**/*"
+  # ---------------------------------------------------------------------------
+  # Mirror of the <exclude> list in Build/phpunit.xml — keep the two in sync.
+  # Without this, Codecov counts files the coverage run deliberately skips and
+  # reports a project number lower than what the suite actually measures.
+  # ---------------------------------------------------------------------------
+  # Backend controllers + form element: depend on final TYPO3 classes, covered
+  # through functional/E2E tests (which upload no coverage).
+  - "Classes/Controller/AuditController.php"
+  - "Classes/Controller/MigrationController.php"
+  - "Classes/Controller/OverviewController.php"
+  - "Classes/Controller/SecretsController.php"
+  - "Classes/Controller/ModuleAccessGuard.php"
+  - "Classes/Form/Element/VaultSecretInputElement.php"
+  # Enums: PHPUnit 12 cannot attribute coverage to enum classes.
+  - "Classes/Http/SecretPlacement.php"
+  - "Classes/Service/Detection/Severity.php"
+  - "Classes/Service/VaultFieldPermission.php"
+  - "Classes/Security/VaultPermission.php"
+  - "Classes/Service/Doctor/FindingSeverity.php"
+  - "Classes/Secret/SecretIdentifierKind.php"
+  # Constant holders without executable code.
+  - "Classes/Service/Doctor/DocsLink.php"
+  - "Classes/Service/Detection/SecretFinding.php"
+  # Exceptions: excluded as a directory in Build/phpunit.xml.
+  - "Classes/Exception/**/*"
