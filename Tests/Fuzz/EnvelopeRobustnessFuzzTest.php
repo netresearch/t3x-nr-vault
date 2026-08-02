@@ -269,18 +269,24 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
      * Whether a given envelope carries padding depends on its body length mod 3,
      * and the class-level {@see PLAINTEXT} happens to encode without any — so
      * this seals progressively longer payloads until a padded envelope appears
-     * instead of skipping. Three extra bytes are always enough to cycle the
-     * remainder, so the loop cannot silently degrade into a no-op.
+     * instead of skipping. In theory three extra bytes cycle the remainder;
+     * in practice one CI run (2026-08-02, combined coverage suite) found no
+     * padded envelope within four consecutive lengths, so the probe now spans
+     * two full base64 block periods and reports what it actually observed —
+     * a bare "not found" hides exactly the numbers needed to diagnose it.
      */
     #[Test]
     public function droppingBase64PaddingStillOpensTheSameEnvelope(): void
     {
-        for ($extra = 0; $extra <= 3; $extra++) {
+        $observed = [];
+
+        for ($extra = 0; $extra <= 8; $extra++) {
             $plaintext = self::PLAINTEXT . str_repeat('.', $extra);
             $sealed = $this->subject->seal($plaintext, self::IDENTIFIER);
             $unpadded = rtrim($sealed, '=');
 
             if ($unpadded === $sealed) {
+                $observed[] = \sprintf('+%d bytes -> length %d, unpadded', $extra, \strlen($sealed));
                 continue;
             }
 
@@ -293,7 +299,10 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
             return;
         }
 
-        self::fail('No padded envelope found in four consecutive payload lengths — base64 framing changed');
+        self::fail(
+            'No padded envelope found in nine consecutive payload lengths — base64 framing changed. Observed: '
+            . implode('; ', $observed),
+        );
     }
 
     /**
