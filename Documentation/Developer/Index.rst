@@ -76,9 +76,15 @@ Implement :php:`VaultAdapterInterface` to add new storage backends:
            // Check if your backend is configured and reachable
        }
 
-       public function store(Secret $secret): void
+       public function store(Secret $secret, bool $persistGroupRelations = true): Secret
        {
-           // Store secret in your backend
+           // Store secret in your backend and return the stored instance —
+           // on INSERT it must carry the freshly assigned UID (see ADR-025).
+           //
+           // $persistGroupRelations = false means: leave the record's two
+           // group tiers untouched, MM rows and count columns alike. The
+           // FormEngine completion path passes false so it does not overwrite
+           // ACL relations DataHandler has already written.
        }
 
        public function retrieve(string $identifier): ?Secret
@@ -101,6 +107,11 @@ Implement :php:`VaultAdapterInterface` to add new storage backends:
            // List secret identifiers
        }
 
+       public function listSecrets(?\Netresearch\NrVault\Domain\Dto\SecretFilters $filters = null): array
+       {
+           // List whole Secret objects, not just identifiers
+       }
+
        public function getMetadata(string $identifier): ?array
        {
            // Get secret metadata
@@ -117,15 +128,22 @@ Implement :php:`VaultAdapterInterface` to add new storage backends:
        }
    }
 
-Register in :file:`Services.yaml`:
+Register in :file:`Services.yaml` by overriding the interface alias. Adapter
+selection is **not** pluggable through a tag: nothing consumes a
+``nr_vault.adapter`` tag, and :php:`VaultAdapterInterface` is a plain alias to
+:php:`LocalEncryptionAdapter`. Repointing that alias is what swaps the
+adapter, and it swaps it for the whole installation.
 
 .. code-block:: yaml
    :caption: EXT:my_extension/Configuration/Services.yaml
 
-   MyVendor\MyExtension\Adapter\CustomAdapter:
-     tags:
-       - name: nr_vault.adapter
-         identifier: custom
+   Netresearch\NrVault\Adapter\VaultAdapterInterface:
+     alias: MyVendor\MyExtension\Adapter\CustomAdapter
+
+..  note::
+
+    The two tags nr-vault does consume are ``nr_vault.audit_sink`` and
+    ``nr_vault.readiness_check``; both are collected as tagged iterators.
 
 .. _developer-custom-key-providers:
 
@@ -133,41 +151,50 @@ Custom master key providers
 ---------------------------
 
 .. note::
-   nr-vault includes three built-in master key providers: **typo3** (derives
-   from TYPO3's encryption key), **file** (reads from filesystem), and **env**
-   (reads from environment variable). The example below shows how to implement
-   a custom provider for enterprise key management systems like HashiCorp Vault
-   Transit or AWS KMS.
+   nr-vault includes four built-in master key providers: **typo3** (derives
+   from TYPO3's encryption key), **file** (reads from filesystem), **env**
+   (reads from environment variable) and **transit** (unwraps the master key
+   through HashiCorp Vault's transit engine — see the ``hashicorp.transit*``
+   settings). The example below shows how to implement a custom provider for
+   another key management system.
 
 Implement :php:`MasterKeyProviderInterface` for custom key sources:
 
 .. code-block:: php
-   :caption: EXT:my_extension/Classes/Crypto/VaultKeyProvider.php
+   :caption: EXT:my_extension/Classes/Crypto/KmsKeyProvider.php
 
    namespace MyVendor\MyExtension\Crypto;
 
    use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 
-   final class VaultKeyProvider implements MasterKeyProviderInterface
+   final class KmsKeyProvider implements MasterKeyProviderInterface
    {
+       // Pick an identifier no shipped provider uses. 'hashicorp' and
+       // 'transit' are taken by the built-in transit provider.
        public function getIdentifier(): string
        {
-           return 'hashicorp';
+           return 'kms';
        }
 
        public function isAvailable(): bool
        {
-           // Check if HashiCorp Vault is accessible
+           // Check if the KMS is accessible
        }
 
        public function getMasterKey(): string
        {
-           // Retrieve key from HashiCorp Vault
+           // Retrieve key from the KMS
        }
 
        public function storeMasterKey(string $key): void
        {
-           // Store key in HashiCorp Vault
+           // Store key in the KMS
+       }
+
+       // Static: wipe the request-lifetime key cache (ADR-020).
+       public static function clearCachedKey(): void
+       {
+           // Zero and drop this provider's cached key
        }
 
        public function generateMasterKey(): string
@@ -206,6 +233,19 @@ MasterKeyRotatedEvent
    implement :php:`ForeignEnvelopeRotatorInterface`
    (:ref:`ADR-033 <adr-033-foreign-envelope-rotation>`).
 
+AuditIntegrityAlertEvent
+   Dispatched when audit verification produces a finding. Carries the alert,
+   its stable reason code, and :php:`isTamperEvidence()` so a listener can
+   page on tampering without also paging on a failed sink delivery.
+
+BreakGlassActivatedEvent
+   Dispatched when a break-glass window opens, carrying the actor uid and
+   username, the mandatory justification, and the expiry.
+
+BreakGlassDeactivatedEvent
+   Dispatched when a window is closed deliberately. Note that a window which
+   merely *expires* dispatches nothing — nothing runs at the moment it lapses.
+
 Example listener:
 
 .. code-block:: php
@@ -242,7 +282,7 @@ Use DDEV for local development:
 
    ddev start
    ddev install-v14
-   ddev vault-init
+   ddev exec vendor/bin/typo3 vault:init
 
 .. _developer-testing-running:
 
@@ -515,76 +555,6 @@ See :file:`CONTRIBUTING.md` for contribution guidelines.
 API reference
 =============
 
-.. _developer-api-vault-service:
-
-VaultService
-------------
-
-.. php:class:: Netresearch\\NrVault\\Service\\VaultService
-
-   Main facade for vault operations.
-
-   .. php:method:: retrieve(string $identifier)
-
-      Retrieve a decrypted secret value.
-
-      :returntype: string|null
-
-   .. php:method:: store(string $identifier, string $secret, array $options = []): void
-
-      Create or update a secret.
-
-   .. php:method:: exists(string $identifier): bool
-
-      Check if a secret exists and is accessible.
-
-   .. php:method:: delete(string $identifier, string $reason = ''): void
-
-      Delete a secret.
-
-   .. php:method:: rotate(string $identifier, string $newSecret, string $reason = ''): void
-
-      Rotate a secret with a new value.
-
-   .. php:method:: list(string $pattern = null): array
-
-      List accessible secrets.
-
-      :param string|null $pattern: Optional filter pattern.
-
-   .. php:method:: getMetadata(string $identifier): array
-
-      Get metadata for a secret.
-
-   .. php:method:: http(): VaultHttpClientInterface
-
-      Get the Vault HTTP Client.
-
-.. _developer-api-encryption-service:
-
-EncryptionService
------------------
-
-.. php:class:: Netresearch\\NrVault\\Crypto\\EncryptionService
-
-   Envelope encryption implementation.
-
-   .. php:method:: encrypt(string $plaintext, string $identifier): array
-
-      Encrypt a value using envelope encryption.
-
-   .. php:method:: decrypt(string $encryptedValue, string $encryptedDek, string $dekNonce, string $valueNonce, string $identifier): string
-
-      Decrypt an envelope-encrypted value.
-
-   .. php:method:: generateDek(): string
-
-      Generate a new Data Encryption Key.
-
-   .. php:method:: calculateChecksum(string $plaintext): string
-
-      Calculate value checksum for change detection.
-
-   .. php:method:: reEncryptDek(string $encryptedDek, string $dekNonce, string $identifier, string $oldMasterKey, string $newMasterKey): array
-
-      Re-encrypt a DEK with a new master key (for master key rotation).
+The authoritative API reference — every interface, signature, exception and
+event, kept in one place so it cannot drift against a second copy — lives in
+:ref:`developer-api`.
