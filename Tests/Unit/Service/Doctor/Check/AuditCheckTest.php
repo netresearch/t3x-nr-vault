@@ -401,19 +401,114 @@ final class AuditCheckTest extends TestCase
     }
 
     /**
-     * The lowest epoch that still keys the chain. Epoch 1 must pass, so a
-     * relaxed `>= 1` boundary in the check cannot go unnoticed.
+     * The shipped default, and the only epoch whose MAC spans the whole row —
+     * so it is the only one that may pass. Pinned at the boundary so a relaxed
+     * `>= 1` or `>= 2` cannot go unnoticed.
      */
     #[Test]
-    public function theLowestKeyedEpochPasses(): void
+    public function onlyTheFullySignedEpochPasses(): void
+    {
+        foreach ([SecurityProfile::Standard, SecurityProfile::Hardened] as $profile) {
+            $finding = $this->findingById(
+                $this->check(epoch: 3)->run($this->doctorContext($profile)),
+                'audit.hmac_epoch',
+            );
+
+            self::assertTrue($finding->isPass(), $finding->summary);
+            self::assertSame(3, $finding->details['auditHmacEpoch']);
+        }
+    }
+
+    /**
+     * A future epoch is still fully signed — the dispatch in `AuditLogService`
+     * routes everything above 2 to `calculateHashV3()`, so `> 3` must not
+     * regress into the partial-signature warning.
+     */
+    #[Test]
+    public function anEpochAboveTheDefaultPasses(): void
+    {
+        $finding = $this->findingById(
+            $this->check(epoch: 4)->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.hmac_epoch',
+        );
+
+        self::assertTrue($finding->isPass(), $finding->summary);
+    }
+
+    /**
+     * Epochs 1 and 2 key the chain but do not sign the whole row, and reporting
+     * them as equivalent to 3 is what let a stalled `vault:audit-migrate-hmac`
+     * run read as clean. Warning, not critical: the entries still cannot be
+     * rewritten wholesale without the key.
+     */
+    #[DataProvider('partiallySignedEpochProvider')]
+    #[Test]
+    public function aPartiallySignedEpochWarnsUnderBothProfiles(int $epoch): void
+    {
+        foreach ([SecurityProfile::Standard, SecurityProfile::Hardened] as $profile) {
+            $finding = $this->assertFindingSeverity(
+                FindingSeverity::Warning,
+                $this->check(epoch: $epoch)->run($this->doctorContext($profile)),
+                'audit.hmac_epoch',
+            );
+
+            self::assertSame($epoch, $finding->details['auditHmacEpoch']);
+            self::assertStringContainsString('vault:audit-migrate-hmac', $finding->remediation);
+        }
+    }
+
+    /**
+     * @return iterable<string, array{int}>
+     */
+    public static function partiallySignedEpochProvider(): iterable
+    {
+        yield 'identity fields only' => [1];
+        yield 'forensic payload without the epoch selector' => [2];
+    }
+
+    /**
+     * At epoch 1 the MAC covers six identity fields, so `success` itself is
+     * forgeable — a recorded denial can be flipped into a recorded grant. The
+     * finding has to name that concretely; "not the latest epoch" is not
+     * something an operator can weigh.
+     */
+    #[Test]
+    public function theEpochOneFindingNamesSuccessAsForgeable(): void
     {
         $finding = $this->findingById(
             $this->check(epoch: 1)->run($this->doctorContext(SecurityProfile::Standard)),
             'audit.hmac_epoch',
         );
 
-        self::assertTrue($finding->isPass(), $finding->summary);
-        self::assertSame(1, $finding->details['auditHmacEpoch']);
+        self::assertStringContainsString('success', $finding->summary);
+        self::assertStringContainsString('"success" itself', $finding->risk);
+        self::assertSame(
+            'success,error_message,reason,ip_address,user_agent,hash_before,hash_after,context,'
+            . 'hmac_key_epoch,actor_type,actor_username,actor_role,request_id',
+            $finding->details['unsignedFields'],
+        );
+    }
+
+    /**
+     * At epoch 2 the forensic columns ARE signed — naming them here would send
+     * the operator after a problem that does not exist. What is left unbound is
+     * the epoch selector and the attribution fields.
+     */
+    #[Test]
+    public function theEpochTwoFindingNamesOnlyTheStillUnboundFields(): void
+    {
+        $finding = $this->findingById(
+            $this->check(epoch: 2)->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.hmac_epoch',
+        );
+
+        self::assertSame(
+            'hmac_key_epoch,actor_type,actor_username,actor_role,request_id',
+            $finding->details['unsignedFields'],
+        );
+        self::assertStringNotContainsString('success', $finding->summary);
+        self::assertStringContainsString('hmac_key_epoch', $finding->risk);
+        self::assertStringContainsString('actor_username', $finding->risk);
     }
 
     /**

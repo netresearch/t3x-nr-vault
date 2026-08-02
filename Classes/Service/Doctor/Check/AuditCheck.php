@@ -401,22 +401,36 @@ final readonly class AuditCheck implements ReadinessCheckInterface
     }
 
     /**
-     * Is the chain keyed at all?
+     * Is the chain keyed, and does the key cover the columns that matter?
      *
-     * `auditHmacEpoch = 0` is a single integer that switches off three separate
-     * controls, and until this finding existed none of them said so:
+     * Three-way, because "keyed" and "trustworthy" are not the same state and a
+     * two-way check said they were. `AuditLogService`'s dispatch signs a
+     * different payload per epoch, so the epoch integer is what decides which
+     * columns a database-write attacker can rewrite without the HMAC key:
      *
-     *  1. rows are hashed with plain SHA-256 instead of HMAC-SHA256, so the
-     *     chain needs no key to recompute;
-     *  2. the epoch-downgrade floor in
-     *     {@see AuditLogServiceInterface::verifyHashChain()} defaults to the
-     *     CONFIGURED epoch, so at 0 no chain can fall below it;
-     *  3. {@see AuditChainAnchorStoreInterface::isEnabled()} is `epoch >= 1`, so
-     *     the in-DB tip anchor is never read, written or verified.
+     *  - **0** — no key at all. One integer switches off three separate
+     *    controls: rows are hashed with plain SHA-256 so the chain needs no key
+     *    to recompute; the epoch-downgrade floor in
+     *    {@see AuditLogServiceInterface::verifyHashChain()} defaults to the
+     *    CONFIGURED epoch, so at 0 no chain can fall below it; and
+     *    {@see AuditChainAnchorStoreInterface::isEnabled()} is `epoch >= 1`, so
+     *    the in-DB tip anchor is never read, written or verified.
+     *  - **1** — {@see AuditLogService::calculateHash()} over six identity
+     *    fields only. Every outcome and forensic column is outside the MAC,
+     *    `success` included.
+     *  - **2** — {@see AuditLogService::calculateHashV2()} adds the forensic
+     *    columns but still leaves the epoch selector and the human-readable
+     *    attribution fields unsigned.
+     *  - **3+** — {@see AuditLogService::calculateHashV3()} binds both.
      *
-     * Critical under both profiles: the standard profile does not promise an
-     * external witness, but it does promise a tamper-evident chain, and at
-     * epoch 0 there is none. The shipped default is 3.
+     * Critical at 0 under both profiles: the standard profile does not promise
+     * an external witness, but it does promise a tamper-evident chain, and at
+     * epoch 0 there is none. Warning at 1-2 rather than critical: the chain IS
+     * keyed there, so the entries cannot be rewritten wholesale — but 1 and 2
+     * are live states reachable from a stalled or partial
+     * {@see \Netresearch\NrVault\Upgrades\AuditHmacMigrationWizard} run, not
+     * hypotheticals, and reporting them as equivalent to 3 is what let a
+     * half-migrated installation read as clean. The shipped default is 3.
      */
     private function checkHmacEpoch(): Finding
     {
@@ -427,17 +441,22 @@ final readonly class AuditCheck implements ReadinessCheckInterface
             'auditAnchorRequired' => $this->configuration->isAuditAnchorRequired(),
         ];
 
-        if ($epoch >= 1) {
+        if ($epoch >= 3) {
             return Finding::pass(
                 id: $id,
                 summary: \sprintf(
-                    'Audit chain HMAC epoch is %d: rows are HMAC-signed, the epoch-downgrade floor '
-                    . 'is armed, and the in-DB tip anchor is active.',
+                    'Audit chain HMAC epoch is %d: rows are HMAC-signed over the full forensic '
+                    . 'payload including the epoch selector and the attribution fields, the '
+                    . 'epoch-downgrade floor is armed, and the in-DB tip anchor is active.',
                     $epoch,
                 ),
                 docsUrl: DocsLink::AUDIT_HMAC_EPOCH,
                 details: $details,
             );
+        }
+
+        if ($epoch >= 1) {
+            return $this->partiallySignedEpochFinding($id, $epoch, $details);
         }
 
         return Finding::critical(
@@ -457,6 +476,70 @@ final readonly class AuditCheck implements ReadinessCheckInterface
                 . 'vendor/bin/typo3 vault:audit-migrate-hmac (or the install-tool "Migrate audit hash '
                 . 'chain" wizard), then arm the anchor with vendor/bin/typo3 vault:audit '
                 . '--reset-anchor.',
+            docsUrl: DocsLink::AUDIT_HMAC_EPOCH,
+            details: $details,
+        );
+    }
+
+    /**
+     * Epoch 1 or 2 — keyed, but the MAC does not span the whole row.
+     *
+     * Named per epoch rather than with one shared "not the latest epoch" text,
+     * because the two leave a different set of columns forgeable and an operator
+     * cannot act on "upgrade for unspecified reasons". `details.unsignedFields`
+     * carries the same list in machine-readable form for a CI gate.
+     *
+     * @param array<string, bool|int|string> $details
+     */
+    private function partiallySignedEpochFinding(string $id, int $epoch, array $details): Finding
+    {
+        // The columns each epoch's payload leaves OUT of the MAC — read off
+        // AuditLogService::calculateHash() (epoch 1) and calculateHashV2()
+        // (epoch 2) against the v3 payload, which binds everything.
+        $unsigned = $epoch === 1
+            ? [
+                'success', 'error_message', 'reason', 'ip_address', 'user_agent',
+                'hash_before', 'hash_after', 'context',
+                'hmac_key_epoch', 'actor_type', 'actor_username', 'actor_role', 'request_id',
+            ]
+            : ['hmac_key_epoch', 'actor_type', 'actor_username', 'actor_role', 'request_id'];
+
+        $details['unsignedFields'] = implode(',', $unsigned);
+
+        $risk = $epoch === 1
+            ? 'The epoch-1 payload covers six identity fields only — uid, secret_identifier, action, '
+                . 'actor_uid, crdate and previous_hash. Everything else is outside the MAC, so anyone '
+                . 'with database write access can rewrite it and the chain still verifies. That '
+                . 'includes "success" itself: a recorded denial can be flipped into a recorded grant, '
+                . 'which inverts the meaning of the entry without touching a signed byte. '
+                . 'error_message, reason, ip_address, user_agent, hash_before, hash_after and context '
+                . 'are forgeable the same way; so is the hmac_key_epoch column, so the algorithm can '
+                . 'be relabelled downwards and re-signed without the key; and so are the attribution '
+                . 'fields the backend audit list and the CSV export present as "who did this", so '
+                . 'blame can be reassigned on any row.'
+            : 'The epoch-2 payload signs the forensic columns but leaves two sets out. The '
+                . 'hmac_key_epoch column — the algorithm selector itself — is unsigned, so a '
+                . 'database-write attacker can relabel a row to a lower epoch and re-sign it under the '
+                . 'weaker algorithm; at epoch 0 that algorithm needs no key at all. The attribution '
+                . 'fields actor_type, actor_username, actor_role and request_id are unsigned too — the '
+                . 'exact fields the backend audit list and the CSV export show as the responsible '
+                . 'actor — so blame can be reassigned on any row without breaking the chain.';
+
+        return Finding::warning(
+            id: $id,
+            summary: \sprintf(
+                'Audit chain HMAC epoch is %d: the chain is keyed, but %d column(s) stay outside the '
+                . 'signed payload (%s).',
+                $epoch,
+                \count($unsigned),
+                implode(', ', $unsigned),
+            ),
+            risk: $risk,
+            remediation: 'Set "auditHmacEpoch" to 3 and re-sign the existing entries with '
+                . 'vendor/bin/typo3 vault:audit-migrate-hmac (or the install-tool "Migrate audit hash '
+                . 'chain" wizard). A stalled or partial run of that migration is the usual way an '
+                . 'installation ends up here, so check that it completed rather than only raising the '
+                . 'setting.',
             docsUrl: DocsLink::AUDIT_HMAC_EPOCH,
             details: $details,
         );

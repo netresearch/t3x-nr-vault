@@ -1128,12 +1128,37 @@ audit.hash_chain
    the authoritative full-range verifier and belongs on a schedule.
 
 audit.hmac_epoch
-   :confval:`ext-nrvault-auditHmacEpoch` is at least 1. **Critical** in both
-   profiles below that: the one integer switches off three controls at once —
+   :confval:`ext-nrvault-auditHmacEpoch` is at least 3 — the shipped default,
+   and the only epoch whose HMAC spans the whole audit row. Three-way, because
+   the epoch integer selects which payload ``AuditLogService`` signs, and
+   "keyed" and "trustworthy" are not the same state:
+
+   **Critical** at 0. The one integer switches off three controls at once —
    rows are hashed with keyless SHA-256, the epoch-downgrade floor equals the
    configured epoch and so can never be undercut, and the in-DB tip anchor is
    disabled. The finding names all three, because "epoch is 0" on its own reads
-   like a version marker rather than a disabled chain. The shipped default is 3.
+   like a version marker rather than a disabled chain.
+
+   **Warning** at 1 and 2. The chain is keyed there, so entries cannot be
+   rewritten wholesale — but the MAC does not cover the whole row, and the
+   finding names the columns it leaves out (also as
+   ``details.unsignedFields``). At **epoch 1** the payload is six identity
+   fields only (uid, secret_identifier, action, actor_uid, crdate,
+   previous_hash), so ``success`` itself is forgeable: a recorded denial can be
+   flipped into a recorded grant, and ``error_message``, ``reason``,
+   ``ip_address``, ``user_agent``, ``hash_before``, ``hash_after`` and
+   ``context`` can be rewritten the same way. At **epoch 2** the forensic
+   columns are signed, but ``hmac_key_epoch`` — the algorithm selector itself —
+   is not, so a row can be relabelled to a lower epoch and re-signed under the
+   weaker algorithm without the key; neither are ``actor_type``,
+   ``actor_username``, ``actor_role`` and ``request_id``, the fields the backend
+   audit list and the CSV export present as the responsible actor, so blame can
+   be reassigned on any row.
+
+   Both intermediate epochs are live states, not hypotheticals: a stalled or
+   partial :ref:`command-audit-migrate-hmac` run (or its install-tool wizard)
+   leaves an installation exactly there, which is why the remediation says to
+   check that the migration completed rather than only raising the setting.
 
 audit.db_anchor
    The IN-DATABASE tip anchor in ``sys_registry`` — a different control from
