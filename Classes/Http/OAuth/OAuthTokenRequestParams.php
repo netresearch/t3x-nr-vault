@@ -34,6 +34,8 @@ use SensitiveParameter;
  */
 final class OAuthTokenRequestParams
 {
+    private bool $wiped = false;
+
     public function __construct(
         public string $grantType,
         #[SensitiveParameter]
@@ -69,15 +71,21 @@ final class OAuthTokenRequestParams
 
     /**
      * Zeroize every credential field. Idempotent and safe to call multiple
-     * times — subsequent calls on already-empty strings are no-ops.
+     * times — the guard flag makes repeat calls no-ops, which matters on
+     * failure paths: `sodium_memzero()` sets the zval to null after zeroing,
+     * so an unguarded second wipe would raise a SodiumException and replace
+     * the real error.
      *
-     * `sodium_memzero()` overwrites the string buffer in place with NUL
-     * bytes; the property remains a (now-empty) string. PHPStan's stub
-     * marks the by-ref param as nullable so we ignore the spurious
-     * "does not accept null" diagnostics on the three lines below.
+     * PHPStan's stub marks the by-ref param as nullable so we ignore the
+     * spurious "does not accept null" diagnostics on the lines below.
      */
     public function wipeCredentials(): void
     {
+        if ($this->wiped) {
+            return;
+        }
+        $this->wiped = true;
+
         /** @phpstan-ignore assign.propertyType */
         sodium_memzero($this->clientId);
         /** @phpstan-ignore assign.propertyType */

@@ -13,7 +13,6 @@ use Netresearch\NrVault\Http\OAuth\OAuthTokenRequestParams;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
-use SodiumException;
 
 /**
  * This value object holds OAuth client credentials in plaintext between the
@@ -224,16 +223,13 @@ final class OAuthTokenRequestParamsTest extends TestCase
     }
 
     /**
-     * Pins the real behaviour of a repeated wipe, which contradicts the class
-     * docblock ("Idempotent and safe to call multiple times"): PHP's
-     * `sodium_memzero()` converts the zval to NULL after zeroing it, so the
-     * second call is handed a null and raises. The single production caller
-     * (`OAuthTokenManager::dispatchTokenRequest()`) wipes exactly once in a
-     * `finally`, so nothing hits this today — but a second wipe added anywhere
-     * on a failure path would replace the real error with a SodiumException.
+     * Pins the documented idempotency contract: PHP's `sodium_memzero()`
+     * converts the zval to NULL after zeroing it, so without the guard flag a
+     * second wipe on a failure path would raise a SodiumException and replace
+     * the real error. The guard makes repeat calls no-ops.
      */
     #[Test]
-    public function secondWipeRaisesBecauseTheFirstOneNulledTheProperty(): void
+    public function aSecondWipeIsANoOpInsteadOfRaising(): void
     {
         $params = new OAuthTokenRequestParams(
             'refresh_token',
@@ -244,10 +240,11 @@ final class OAuthTokenRequestParamsTest extends TestCase
         );
 
         $params->wipeCredentials();
-
-        $this->expectException(SodiumException::class);
-
         $params->wipeCredentials();
+
+        $this->assertZeroized($params->clientId);
+        $this->assertZeroized($params->clientSecret);
+        self::assertNull($params->refreshToken);
     }
 
     #[Test]
@@ -307,7 +304,7 @@ final class OAuthTokenRequestParamsTest extends TestCase
      * describes. Accept either so the assertion tracks "unreadable", not the
      * ext-sodium implementation detail.
      */
-    private static function assertZeroized(mixed $value): void
+    private function assertZeroized(mixed $value): void
     {
         self::assertContains($value, [null, ''], 'Credential was not zeroized');
     }
