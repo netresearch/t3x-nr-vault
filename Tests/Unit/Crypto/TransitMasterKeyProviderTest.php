@@ -16,6 +16,7 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\TransitMasterKeyProvider;
 use Netresearch\NrVault\Exception\MasterKeyException;
 use Netresearch\NrVault\Tests\Unit\TestCase;
+use Netresearch\NrVault\Tests\Unit\Traits\ErrorSuppressionTrait;
 use org\bovigo\vfs\vfsStream;
 use org\bovigo\vfs\vfsStreamContent;
 use org\bovigo\vfs\vfsStreamDirectory;
@@ -32,6 +33,8 @@ use RuntimeException;
 #[AllowMockObjectsWithoutExpectations]
 final class TransitMasterKeyProviderTest extends TestCase
 {
+    use ErrorSuppressionTrait;
+
     private const ADDRESS = 'https://vault.example.com:8200';
 
     private const TOKEN_ENV_VAR = 'NR_VAULT_TEST_TRANSIT_TOKEN';
@@ -451,6 +454,316 @@ final class TransitMasterKeyProviderTest extends TestCase
         self::assertSame(self::TOKEN, $config->token);
     }
 
+    #[Test]
+    public function isAvailableReturnsFalseWhenMountPathIsUnsafe(): void
+    {
+        // Availability must fail closed on an unsafe key reference, otherwise a
+        // traversal mount is only caught once the hot path builds the URL.
+        $this->writeWrappedKeyFile();
+
+        $provider = $this->createProvider(
+            $this->createMock(ClientInterface::class),
+            $this->transitConfig(mount: '../../sys'),
+        );
+
+        self::assertFalse($provider->isAvailable());
+    }
+
+    #[Test]
+    public function getMasterKeyThrowsWhenPlaintextIsAnEmptyString(): void
+    {
+        $this->writeWrappedKeyFile();
+
+        $provider = $this->createProvider(
+            $this->clientReturning($this->transitResponse(['plaintext' => ''])),
+        );
+
+        $this->expectException(MasterKeyException::class);
+        $this->expectExceptionCode(1754100006);
+
+        $provider->getMasterKey();
+    }
+
+    #[Test]
+    public function getMasterKeyRejectsAStatusOfExactlyThreeHundred(): void
+    {
+        // 300 is outside the 2xx success band; only a `>= 300` bound rejects it.
+        $this->writeWrappedKeyFile();
+
+        $body = json_encode(
+            ['data' => ['plaintext' => base64_encode(sodium_crypto_secretbox_keygen())]],
+            JSON_THROW_ON_ERROR,
+        );
+
+        $provider = $this->createProvider($this->clientReturning(new Response(300, [], $body)));
+
+        $this->expectException(MasterKeyException::class);
+        $this->expectExceptionCode(1754100004);
+
+        $provider->getMasterKey();
+    }
+
+    #[Test]
+    public function getMasterKeyAcceptsAResponseAtTheSupportedJsonDepth(): void
+    {
+        $key = sodium_crypto_secretbox_keygen();
+        $this->writeWrappedKeyFile();
+
+        $provider = $this->createProvider(
+            $this->clientReturning(new Response(200, [], $this->nestedTransitBody($key, 29))),
+        );
+
+        self::assertSame($key, $provider->getMasterKey());
+    }
+
+    #[Test]
+    public function getMasterKeyRejectsAResponseNestedBeyondTheSupportedJsonDepth(): void
+    {
+        // A deliberately over-nested body must be refused rather than parsed —
+        // the depth cap is the defence against decoder resource exhaustion.
+        $this->writeWrappedKeyFile();
+
+        $provider = $this->createProvider(
+            $this->clientReturning(
+                new Response(200, [], $this->nestedTransitBody(sodium_crypto_secretbox_keygen(), 30)),
+            ),
+        );
+
+        try {
+            $provider->getMasterKey();
+            self::fail('Expected MasterKeyException was not thrown.');
+        } catch (MasterKeyException $e) {
+            self::assertSame(1754100006, $e->getCode());
+            self::assertStringContainsString('not valid JSON', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function getMasterKeyReadsPlaintextFromAMultiFieldDataObject(): void
+    {
+        // Vault answers with `key_version` alongside `plaintext`; the whole data
+        // object must be handed back, not just its first entry.
+        $key = sodium_crypto_secretbox_keygen();
+        $this->writeWrappedKeyFile();
+
+        $provider = $this->createProvider(
+            $this->clientReturning($this->transitResponse([
+                'key_version' => '1',
+                'plaintext' => base64_encode($key),
+            ])),
+        );
+
+        self::assertSame($key, $provider->getMasterKey());
+    }
+
+    #[Test]
+    public function getMasterKeyReportsAMissingWrappedKeyWithoutClaimingItIsUnreadable(): void
+    {
+        $provider = $this->createProvider($this->createMock(ClientInterface::class));
+
+        try {
+            $provider->getMasterKey();
+            self::fail('Expected MasterKeyException was not thrown.');
+        } catch (MasterKeyException $e) {
+            self::assertSame('Master key not found at: ' . $this->wrappedKeyPath(), $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function wrappedKeyFileIsTrimmedBeforeItIsSentToVault(): void
+    {
+        // Editors and shell redirection add surrounding whitespace; the prefix
+        // check and the submitted ciphertext must both see the trimmed blob.
+        $key = sodium_crypto_secretbox_keygen();
+        file_put_contents($this->wrappedKeyPath(), " \n" . self::WRAPPED_CIPHERTEXT . "\n");
+
+        $client = $this->clientReturning($this->transitResponse(['plaintext' => base64_encode($key)]));
+        $provider = $this->createProvider($client);
+
+        self::assertSame($key, $provider->getMasterKey());
+        self::assertSame(
+            ['ciphertext' => self::WRAPPED_CIPHERTEXT],
+            json_decode((string) $this->assertSingleRequest()->getBody(), true, 8, JSON_THROW_ON_ERROR),
+        );
+    }
+
+    #[Test]
+    public function transportFailureMessageEndsWithTheCausingExceptionClass(): void
+    {
+        $this->writeWrappedKeyFile();
+
+        $transportError = new class ('cURL error 7: connection refused') extends RuntimeException implements ClientExceptionInterface {};
+
+        $client = $this->createMock(ClientInterface::class);
+        $client->method('sendRequest')->willThrowException($transportError);
+
+        try {
+            $this->createProvider($client)->getMasterKey();
+            self::fail('Expected MasterKeyException was not thrown.');
+        } catch (MasterKeyException $e) {
+            self::assertStringStartsWith(
+                'Vault Transit decrypt request could not be sent: cURL error 7: connection refused',
+                $e->getMessage(),
+            );
+            self::assertStringEndsWith(
+                \sprintf(' (caused by %s)', $transportError::class),
+                $e->getMessage(),
+            );
+        }
+    }
+
+    #[Test]
+    public function transportFailureRedactsHeaderTokensAndBareServiceTokens(): void
+    {
+        $this->writeWrappedKeyFile();
+
+        // Clearly synthetic, generated at runtime: the legacy `s.` service-token
+        // shape the third redaction pattern targets.
+        $bareToken = 's.' . bin2hex(random_bytes(12));
+        $headerToken = 'unit-test-header-token-' . bin2hex(random_bytes(4));
+
+        $client = $this->createMock(ClientInterface::class);
+        $client->method('sendRequest')->willThrowException(
+            new class ('sending failed with X-Vault-Token: ' . $headerToken . ' using ' . $bareToken . ' downstream') extends RuntimeException implements ClientExceptionInterface {},
+        );
+
+        try {
+            $this->createProvider($client)->getMasterKey();
+            self::fail('Expected MasterKeyException was not thrown.');
+        } catch (MasterKeyException $e) {
+            self::assertStringNotContainsString($headerToken, $e->getMessage());
+            self::assertStringNotContainsString($bareToken, $e->getMessage());
+            // The header NAME survives (only its value is replaced), and the
+            // bare token is replaced rather than dropped.
+            self::assertStringContainsString('X-Vault-Token: [REDACTED]', $e->getMessage());
+            self::assertStringContainsString('using [REDACTED] downstream', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function storeMasterKeyCreatesTheKeyDirectoryWithOwnerOnlyPermissions(): void
+    {
+        $client = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
+
+        $provider = $this->createProvider($client, $this->transitConfig(
+            wrappedKeyPath: vfsStream::url('transit/created/deep/wrapped.key'),
+        ));
+        $provider->storeMasterKey(sodium_crypto_secretbox_keygen());
+
+        $outer = $this->root->getChild('created');
+        self::assertNotNull($outer);
+        self::assertSame(0o700, $outer->getPermissions());
+
+        $inner = $this->root->getChild('created/deep');
+        self::assertNotNull($inner);
+        self::assertSame(0o700, $inner->getPermissions());
+    }
+
+    #[Test]
+    public function storeMasterKeyReportsAnUncreatableDirectoryRatherThanTheFailedWrite(): void
+    {
+        mkdir(vfsStream::url('transit/readonly'), 0o500);
+
+        $client = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
+        $provider = $this->createProvider($client, $this->transitConfig(
+            wrappedKeyPath: vfsStream::url('transit/readonly/nested/wrapped.key'),
+        ));
+
+        try {
+            $this->withoutPhpDiagnostics(
+                static fn (): null => $provider->storeMasterKey(sodium_crypto_secretbox_keygen()),
+            );
+            self::fail('Expected MasterKeyException was not thrown.');
+        } catch (MasterKeyException $e) {
+            self::assertSame(
+                'Cannot store master key: Cannot create directory: ' . vfsStream::url('transit/readonly/nested'),
+                $e->getMessage(),
+            );
+        }
+    }
+
+    #[Test]
+    public function storeMasterKeyRestoresThePreviousUmask(): void
+    {
+        $client = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
+        $provider = $this->createProvider($client);
+
+        $outerUmask = umask(0o022);
+
+        try {
+            $provider->storeMasterKey(sodium_crypto_secretbox_keygen());
+
+            self::assertSame(0o022, umask());
+        } finally {
+            umask($outerUmask);
+        }
+    }
+
+    #[Test]
+    public function storeMasterKeyRestoresThePreviousUmaskWhenTheWriteFails(): void
+    {
+        // The umask is tightened for the write; a failing write must not leak
+        // the tightened value into the rest of the request.
+        mkdir(vfsStream::url('transit/readonly'), 0o500);
+
+        $client = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
+        $provider = $this->createProvider($client, $this->transitConfig(
+            wrappedKeyPath: vfsStream::url('transit/readonly/wrapped.key'),
+        ));
+
+        $outerUmask = umask(0o022);
+
+        try {
+            $this->withoutPhpDiagnostics(
+                static fn (): null => $provider->storeMasterKey(sodium_crypto_secretbox_keygen()),
+            );
+            self::fail('Expected MasterKeyException was not thrown.');
+        } catch (MasterKeyException $e) {
+            self::assertStringContainsString('Cannot write to', $e->getMessage());
+            self::assertSame(0o022, umask());
+        } finally {
+            umask($outerUmask);
+        }
+    }
+
+    #[Test]
+    public function destructionClearsTheRequestLifetimeKeyCache(): void
+    {
+        $this->writeWrappedKeyFile();
+
+        $first = sodium_crypto_secretbox_keygen();
+        $provider = $this->createProvider(
+            $this->clientReturning($this->transitResponse(['plaintext' => base64_encode($first)])),
+        );
+        self::assertSame($first, $provider->getMasterKey());
+        unset($provider);
+
+        $second = sodium_crypto_secretbox_keygen();
+        $successor = $this->createProvider(
+            $this->clientReturning($this->transitResponse(['plaintext' => base64_encode($second)])),
+        );
+
+        self::assertSame($second, $successor->getMasterKey());
+    }
+
+    /**
+     * A syntactically valid transit response whose `data` object carries an
+     * extra branch nested $levels deep, used to probe the json_decode() depth
+     * cap from both sides.
+     */
+    private function nestedTransitBody(string $key, int $levels): string
+    {
+        $nested = 1;
+        for ($i = 0; $i < $levels; ++$i) {
+            $nested = [$nested];
+        }
+
+        return json_encode(
+            ['data' => ['plaintext' => base64_encode($key), 'deep' => $nested]],
+            JSON_THROW_ON_ERROR,
+        );
+    }
+
     private function createProvider(
         ClientInterface $client,
         ?TransitConfig $config = null,
@@ -470,12 +783,13 @@ final class TransitMasterKeyProviderTest extends TestCase
         string $keyName = 'nr-vault-master',
         string $authMethod = 'token',
         string $token = '',
+        ?string $wrappedKeyPath = null,
     ): TransitConfig {
         return new TransitConfig(
             address: self::ADDRESS,
             mount: $mount,
             keyName: $keyName,
-            wrappedKeyPath: $this->wrappedKeyPath(),
+            wrappedKeyPath: $wrappedKeyPath ?? $this->wrappedKeyPath(),
             authMethod: $authMethod,
             tokenEnvVar: self::TOKEN_ENV_VAR,
             token: $token,

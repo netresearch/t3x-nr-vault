@@ -14,7 +14,9 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\FileMasterKeyProvider;
 use Netresearch\NrVault\Exception\MasterKeyException;
 use Netresearch\NrVault\Tests\Unit\TestCase;
+use Netresearch\NrVault\Tests\Unit\Traits\ErrorSuppressionTrait;
 use org\bovigo\vfs\vfsStream;
+use org\bovigo\vfs\vfsStreamDirectory;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -23,6 +25,8 @@ use PHPUnit\Framework\Attributes\Test;
 #[AllowMockObjectsWithoutExpectations]
 final class FileMasterKeyProviderTest extends TestCase
 {
+    use ErrorSuppressionTrait;
+
     private const MASTER_KEY_PATH = 'vault/master.key';
 
     private const NONEXISTENT_KEY_PATH = 'vault/nonexistent.key';
@@ -31,12 +35,21 @@ final class FileMasterKeyProviderTest extends TestCase
 
     private const INVALID_KEY_LENGTH_MESSAGE = 'Invalid master key length';
 
+    private vfsStreamDirectory $root;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         FileMasterKeyProvider::clearCachedKey();
-        vfsStream::setup('vault');
+        $this->root = vfsStream::setup('vault');
+    }
+
+    protected function tearDown(): void
+    {
+        FileMasterKeyProvider::clearCachedKey();
+
+        parent::tearDown();
     }
 
     #[Test]
@@ -320,5 +333,187 @@ final class FileMasterKeyProviderTest extends TestCase
         $key = $provider->generateMasterKey();
 
         self::assertEquals(32, \strlen($key));
+    }
+
+    #[Test]
+    public function storeMasterKeyChmodsTheKeyFileToOwnerReadOnly(): void
+    {
+        $keyPath = vfsStream::url('vault/perm.key');
+
+        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config->method('getMasterKeySource')->willReturn($keyPath);
+
+        (new FileMasterKeyProvider($config))->storeMasterKey(sodium_crypto_secretbox_keygen());
+
+        $file = $this->root->getChild('perm.key');
+        self::assertNotNull($file);
+        self::assertSame(0o400, $file->getPermissions());
+    }
+
+    #[Test]
+    public function storeMasterKeyCreatesTheKeyDirectoryWithOwnerOnlyPermissions(): void
+    {
+        $keyPath = vfsStream::url('vault/created/deep/master.key');
+
+        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config->method('getMasterKeySource')->willReturn($keyPath);
+
+        (new FileMasterKeyProvider($config))->storeMasterKey(sodium_crypto_secretbox_keygen());
+
+        $outer = $this->root->getChild('created');
+        self::assertNotNull($outer);
+        self::assertSame(0o700, $outer->getPermissions());
+
+        $inner = $this->root->getChild('created/deep');
+        self::assertNotNull($inner);
+        self::assertSame(0o700, $inner->getPermissions());
+    }
+
+    #[Test]
+    public function storeMasterKeyRestoresThePreviousUmask(): void
+    {
+        $keyPath = vfsStream::url('vault/umask.key');
+
+        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config->method('getMasterKeySource')->willReturn($keyPath);
+
+        $outerUmask = umask(0o022);
+
+        try {
+            (new FileMasterKeyProvider($config))->storeMasterKey(sodium_crypto_secretbox_keygen());
+
+            self::assertSame(0o022, umask());
+        } finally {
+            umask($outerUmask);
+        }
+    }
+
+    #[Test]
+    public function storeMasterKeyReportsAnUncreatableDirectoryRatherThanTheFailedWrite(): void
+    {
+        // A read-only parent makes the recursive mkdir() fail, which must be
+        // reported as such instead of leaking through to the write attempt.
+        mkdir(vfsStream::url('vault/readonly'), 0o500);
+        $keyPath = vfsStream::url('vault/readonly/nested/master.key');
+
+        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config->method('getMasterKeySource')->willReturn($keyPath);
+
+        $provider = new FileMasterKeyProvider($config);
+
+        try {
+            $this->withoutPhpDiagnostics(
+                static fn (): null => $provider->storeMasterKey(sodium_crypto_secretbox_keygen()),
+            );
+            self::fail('Expected MasterKeyException was not thrown.');
+        } catch (MasterKeyException $e) {
+            self::assertSame(
+                'Cannot store master key: Cannot create directory: ' . vfsStream::url('vault/readonly/nested'),
+                $e->getMessage(),
+            );
+        }
+    }
+
+    #[Test]
+    public function getMasterKeyRefusesAnUnconfiguredPathEvenWhenAnAutoKeyExists(): void
+    {
+        // The empty-path guard fires BEFORE the auto-key fallback: an operator
+        // who cleared the setting must get a configuration error, not a silent
+        // switch to the development key.
+        $autoKeyPath = vfsStream::url('vault/present-auto.key');
+        file_put_contents($autoKeyPath, base64_encode(sodium_crypto_secretbox_keygen()));
+
+        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config->method('getMasterKeySource')->willReturn(ExtensionConfiguration::DEFAULT_MASTER_KEY_SOURCE);
+        $config->method('getAutoKeyPath')->willReturn($autoKeyPath);
+
+        $provider = new FileMasterKeyProvider($config);
+
+        $this->expectException(MasterKeyException::class);
+        $this->expectExceptionMessage('Master key not found at: No path configured');
+
+        $provider->getMasterKey();
+    }
+
+    #[Test]
+    public function getMasterKeyReportsAMissingFileWithoutClaimingItIsUnreadable(): void
+    {
+        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config->method('getMasterKeySource')->willReturn(vfsStream::url(self::NONEXISTENT_KEY_PATH));
+        $config->method('getAutoKeyPath')->willReturn(vfsStream::url('vault/also-missing.key'));
+
+        $provider = new FileMasterKeyProvider($config);
+
+        try {
+            $provider->getMasterKey();
+            self::fail('Expected MasterKeyException was not thrown.');
+        } catch (MasterKeyException $e) {
+            self::assertSame(
+                'Master key not found at: ' . vfsStream::url(self::NONEXISTENT_KEY_PATH),
+                $e->getMessage(),
+            );
+        }
+    }
+
+    #[Test]
+    public function getMasterKeyNamesThePathAndTheReasonWhenTheKeyFileIsUnreadable(): void
+    {
+        $keyPath = vfsStream::url('vault/unreadable.key');
+        file_put_contents($keyPath, base64_encode(sodium_crypto_secretbox_keygen()));
+        chmod($keyPath, 0o000);
+
+        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config->method('getMasterKeySource')->willReturn($keyPath);
+
+        $provider = new FileMasterKeyProvider($config);
+
+        try {
+            $provider->getMasterKey();
+            self::fail('Expected MasterKeyException was not thrown.');
+        } catch (MasterKeyException $e) {
+            self::assertSame(
+                'Master key not found at: ' . $keyPath . ' (not readable)',
+                $e->getMessage(),
+            );
+        }
+    }
+
+    #[Test]
+    public function getMasterKeyTrimsATrailingNewlineFromARawBinaryKey(): void
+    {
+        // A 32-byte raw key written by `printf ... > file` picks up a newline.
+        // Only the trimmed value has the key length; the untrimmed bytes are
+        // neither 32 bytes nor decodable base64.
+        $key = '12345678901234567890123456789012';
+        $keyPath = vfsStream::url('vault/raw-newline.key');
+        file_put_contents($keyPath, $key . "\n");
+
+        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config->method('getMasterKeySource')->willReturn($keyPath);
+
+        $provider = new FileMasterKeyProvider($config);
+
+        self::assertSame($key, $provider->getMasterKey());
+    }
+
+    #[Test]
+    public function destructionClearsTheRequestLifetimeKeyCache(): void
+    {
+        $keyPath = vfsStream::url(self::MASTER_KEY_PATH);
+
+        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config->method('getMasterKeySource')->willReturn($keyPath);
+
+        $first = sodium_crypto_secretbox_keygen();
+        file_put_contents($keyPath, base64_encode($first));
+
+        $provider = new FileMasterKeyProvider($config);
+        self::assertSame($first, $provider->getMasterKey());
+        unset($provider);
+
+        $second = sodium_crypto_secretbox_keygen();
+        file_put_contents($keyPath, base64_encode($second));
+
+        self::assertSame($second, (new FileMasterKeyProvider($config))->getMasterKey());
     }
 }

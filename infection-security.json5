@@ -60,18 +60,20 @@
     //   * Deleting or excluding a file/directory from `source` above has the
     //     same effect as lowering the threshold and needs the same sign-off.
     //
-    // MEASUREMENT (2026-07-31, PHP 8.5, Unit+Fuzz):
-    //   909 mutants — 681 killed, 227 escaped, 1 timed out, 0 not covered
-    //   MSI 75.03 %, covered-code MSI 75.03 %, mutation code coverage 100 %
-    //   wall time 50 s at --threads=max
+    // MEASUREMENT (2026-08-02, PHP 8.5, Unit+Fuzz):
+    //   2338 mutants — 2049 killed, 286 escaped, 1 timed out, 0 not covered
+    //   MSI 87.77 %, covered-code MSI 87.77 %, mutation code coverage 100 %
+    //   (previous 2026-07-31 baseline: MSI 75.03 % — raised by a targeted
+    //   assertion-hardening pass over Crypto/Security/Audit)
     //
-    // The thresholds sit ~1 point under the measurement so run-to-run jitter in
-    // timing-sensitive tests cannot fail an unrelated PR, while any real
+    // The thresholds sit ~1.5 points under the measurement so run-to-run jitter
+    // in timing-sensitive tests cannot fail an unrelated PR, while any real
     // regression (a deleted assertion, a weakened test) still trips the gate.
     // Mutation code coverage is already 100 % here: every mutant is reached by a
-    // test, so the 227 escapes are assertion gaps, not coverage gaps — which is
-    // exactly the kind of weakness this gate is meant to hold the line on.
+    // test, so the remaining escapes are assertion gaps, not coverage gaps —
+    // which is exactly the kind of weakness this gate is meant to hold the
+    // line on.
     // ------------------------------------------------------------------------
-    "minMsi": 74,
-    "minCoveredMsi": 74
+    "minMsi": 86,
+    "minCoveredMsi": 86
 }

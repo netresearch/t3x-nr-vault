@@ -224,6 +224,84 @@ final class AccessControlServiceIsGrantedTest extends TestCase
     }
 
     /**
+     * The unattributable actor — no backend user, no technical actor, and not
+     * a real CLI process — must fail closed even when the operation IS on the
+     * CLI allowlist. Both halves of the conjunction are load-bearing: the
+     * allowlist alone describes what a CLI operator may do, never who counts
+     * as one.
+     */
+    #[Test]
+    #[DataProvider('allPermissionsProvider')]
+    public function noActorIsDeniedEvenWhenTheOperationIsCliAllowlisted(VaultPermission $permission): void
+    {
+        $this->configuration->method('isCliAccessAllowed')->willReturn(true);
+        $this->configuration->method('getCliAllowedOperations')->willReturn(
+            array_map(static fn (VaultPermission $case): string => $case->value, VaultPermission::cases()),
+        );
+
+        self::assertFalse($this->subject->isGranted($permission));
+    }
+
+    /**
+     * A CommandLineUserAuthentication whose record carries no usable uid was
+     * never logged in — the CLI trust switch decides, not the (empty) user
+     * record, whose every group/admin check would fail closed for the wrong
+     * reason.
+     */
+    #[Test]
+    public function commandLineUserWithAnUnusableUidIsTreatedAsUnauthenticated(): void
+    {
+        $this->configuration->method('isCliAccessAllowed')->willReturn(true);
+        $this->configuration->method('getCliAllowedOperations')->willReturn(['secret.reveal']);
+
+        $cliUser = $this->createMock(CommandLineUserAuthentication::class);
+        /** @phpstan-ignore property.internal */
+        $cliUser->user = ['uid' => 'not-a-uid'];
+
+        $GLOBALS['BE_USER'] = $cliUser;
+
+        self::assertTrue($this->subject->isGranted(VaultPermission::SecretReveal));
+    }
+
+    /**
+     * The mirror case: an AUTHENTICATED `_cli_` user keeps user-based
+     * semantics, and a driver that returns the uid as a string must not push
+     * it back onto the unauthenticated branch — where its grants would come
+     * from the CLI trust switch instead of its own groups.
+     */
+    #[Test]
+    public function commandLineUserWithANumericStringUidKeepsItsUserBasedSemantics(): void
+    {
+        $this->configuration->method('isCliAccessAllowed')->willReturn(false);
+
+        $cliUser = $this->createMock(CommandLineUserAuthentication::class);
+        /** @phpstan-ignore property.internal */
+        $cliUser->user = ['uid' => '3', 'username' => '_cli_', 'disable' => 0];
+        /** @phpstan-ignore property.internal */
+        $cliUser->groupData['custom_options'] = 'tx_nrvault:secret.reveal';
+
+        $GLOBALS['BE_USER'] = $cliUser;
+
+        self::assertTrue($this->subject->isGranted(VaultPermission::SecretReveal));
+    }
+
+    /**
+     * `custom_options` is a nullable be_groups column: an unpopulated one must
+     * deny, not raise a TypeError out of the permission check.
+     */
+    #[Test]
+    public function backendUserWithoutAnyCustomOptionsValueIsDenied(): void
+    {
+        $backendUser = $this->createMockBackendUser(uid: 5);
+        /** @phpstan-ignore property.internal */
+        $backendUser->groupData['custom_options'] = null;
+
+        $GLOBALS['BE_USER'] = $backendUser;
+
+        self::assertFalse($this->subject->isGranted(VaultPermission::SecretReveal));
+    }
+
+    /**
      * @return iterable<string, array{VaultPermission}>
      */
     public static function allPermissionsProvider(): iterable
@@ -255,6 +333,26 @@ final class AccessControlServiceIsGrantedTest extends TestCase
         self::assertTrue($subject->isGranted(VaultPermission::SecretRotate));
         self::assertFalse($subject->isGranted(VaultPermission::SecretDelete), 'not granted by the group');
         self::assertFalse($subject->isGranted(VaultPermission::SecretReveal), 'never implicit');
+    }
+
+    /**
+     * The scan must cover every group the actor holds. A group without any
+     * custom options is a gap in the list, not the end of it — stopping there
+     * would make a grant depend on the row order the database happens to
+     * return.
+     */
+    #[Test]
+    public function technicalActorGrantIsFoundBehindAGroupWithoutCustomOptions(): void
+    {
+        $subject = $this->createSubjectWithTechnicalActor(
+            admin: false,
+            groupRows: [
+                ['uid' => 5, 'custom_options' => ''],
+                ['uid' => 6, 'custom_options' => 'tx_nrvault:secret.create'],
+            ],
+        );
+
+        self::assertTrue($subject->isGranted(VaultPermission::SecretCreate));
     }
 
     #[Test]
@@ -312,6 +410,10 @@ final class AccessControlServiceIsGrantedTest extends TestCase
         ));
 
         $connectionPool = $this->createMock(ConnectionPool::class);
+        // An actor without groups is answered from the empty list alone —
+        // neither the existing-group filter nor the custom-options lookup may
+        // reach the database.
+        $connectionPool->expects(self::never())->method('getQueryBuilderForTable');
 
         $subject = new AccessControlService($this->configuration, $connectionPool, $context);
 

@@ -76,6 +76,21 @@ final class AuditLogServiceTest extends TestCase
      */
     private AuditChainAnchorStoreInterface&MockObject $anchorStore;
 
+    /**
+     * LIMIT / OFFSET recorded per query by `setupPagingQueryMocks()`, and the
+     * LIMIT recorded by `verifyWithAnchorLoads()`. Paging and single-row reads
+     * are only observable through the arguments the builder received.
+     *
+     * @var list<int|null>
+     */
+    private array $recordedLimits = [];
+
+    /** @var list<int|null> */
+    private array $recordedOffsets = [];
+
+    /** @var list<int|null> */
+    private array $recordedMaxResults = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -1454,6 +1469,150 @@ final class AuditLogServiceTest extends TestCase
 
         self::assertSame(64, \strlen($hash), 'hash_hmac sha256 hex output is 64 chars');
         self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $hash);
+    }
+
+    /**
+     * The v3 payload adds the attribution fields, which come from the same
+     * arbitrary-byte sources; hashing must not throw there either.
+     */
+    #[Test]
+    public function calculateHashV3SurvivesInvalidUtf8InTheAttributionFields(): void
+    {
+        $hash = AuditLogService::calculateHashV3(
+            $this->makeV3Row(actorUsername: "valid prefix \xC3\x28 broken sequence"),
+            '',
+            str_repeat("\xAA", 32),
+        );
+
+        self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $hash);
+    }
+
+    /**
+     * `success` is a flag, not a number: every truthy driver representation
+     * has to hash identically, or the same logical row would verify
+     * differently depending on which driver read it.
+     */
+    #[Test]
+    public function calculateHashV2TreatsAnyTruthySuccessAsOne(): void
+    {
+        $hmacKey = str_repeat("\xAA", 32);
+
+        self::assertSame(
+            AuditLogService::calculateHashV2($this->makeV2Row(success: 1), '', $hmacKey),
+            AuditLogService::calculateHashV2($this->makeV2Row(success: 2), '', $hmacKey),
+        );
+    }
+
+    /**
+     * The master-key-taking derivation is the single home of the HKDF
+     * parameters, called by the master-key rotation from outside this class —
+     * so it has to stay reachable, and agree with the provider-based variant.
+     */
+    #[Test]
+    public function theMasterKeyTakingHmacDerivationIsPubliclyReachable(): void
+    {
+        $derived = AuditLogService::deriveHmacKeyFromMasterKey(str_repeat("\x01", 32));
+
+        self::assertSame(32, \strlen($derived));
+        self::assertSame(AuditLogService::deriveHmacKey($this->masterKeyProviderMock()), $derived);
+    }
+
+    /**
+     * Doctrine hands integer columns back as strings on several drivers. The
+     * extractors exist to restore the integer type — the hash payload is JSON,
+     * where `"7"` and `7` are different values and would break the chain.
+     */
+    #[Test]
+    public function extractHashRowCoercesNumericStringsToIntegers(): void
+    {
+        $extracted = AuditLogService::extractHashRow([
+            'uid' => '7',
+            'secret_identifier' => 'sek',
+            'action' => 'read',
+            'actor_uid' => '3',
+            'crdate' => '1704067200',
+            'hmac_key_epoch' => '2',
+        ]);
+
+        self::assertSame(7, $extracted['uid']);
+        self::assertSame(3, $extracted['actorUid']);
+        self::assertSame(1704067200, $extracted['crdate']);
+        self::assertSame(2, $extracted['epoch']);
+    }
+
+    /**
+     * A value that is not a number at all falls back to 0 — the neutral value
+     * a fresh row would carry, never a sentinel that could collide with a real
+     * uid or shift the epoch dispatch.
+     */
+    #[Test]
+    public function extractHashRowFallsBackToZeroForUnusableFields(): void
+    {
+        $extracted = AuditLogService::extractHashRow([
+            'uid' => 'not-a-number',
+            'actor_uid' => null,
+            'crdate' => 'not-a-number',
+            'hmac_key_epoch' => 'not-a-number',
+        ]);
+
+        self::assertSame(0, $extracted['uid']);
+        self::assertSame(0, $extracted['actorUid']);
+        self::assertSame(0, $extracted['crdate']);
+        self::assertSame(0, $extracted['epoch']);
+    }
+
+    #[Test]
+    public function extractV2HashRowCoercesNumericStringsToIntegers(): void
+    {
+        $extracted = AuditLogService::extractV2HashRow([
+            'uid' => '7',
+            'actor_uid' => '3',
+            'crdate' => '1704067200',
+        ]);
+
+        self::assertSame(7, $extracted['uid']);
+        self::assertSame(3, $extracted['actor_uid']);
+        self::assertSame(1704067200, $extracted['crdate']);
+    }
+
+    #[Test]
+    public function extractV2HashRowFallsBackToZeroForUnusableFields(): void
+    {
+        $extracted = AuditLogService::extractV2HashRow([
+            'uid' => 'not-a-number',
+            'actor_uid' => 'not-a-number',
+            'crdate' => 'not-a-number',
+            // Neither a bool nor numeric: outside the accepted driver shapes.
+            'success' => 'not-a-number',
+        ]);
+
+        self::assertSame(0, $extracted['uid']);
+        self::assertSame(0, $extracted['actor_uid']);
+        self::assertSame(0, $extracted['crdate']);
+        self::assertSame(0, $extracted['success']);
+    }
+
+    /**
+     * `success` is a flag: anything truthy normalises to 1, so the value that
+     * enters the hash does not depend on how a driver spelled "true".
+     */
+    #[Test]
+    public function extractV2HashRowNormalisesAnyTruthySuccessToOne(): void
+    {
+        self::assertSame(1, AuditLogService::extractV2HashRow(['success' => 2])['success']);
+        self::assertSame(1, AuditLogService::extractV2HashRow(['success' => true])['success']);
+        self::assertSame(0, AuditLogService::extractV2HashRow(['success' => false])['success']);
+    }
+
+    /**
+     * The epoch is the algorithm selector the v3 payload authenticates, so it
+     * has to reach the hash as an integer and default to the keyless 0.
+     */
+    #[Test]
+    public function extractV3HashRowCoercesTheEpochToAnInteger(): void
+    {
+        self::assertSame(3, AuditLogService::extractV3HashRow(['hmac_key_epoch' => '3'])['hmac_key_epoch']);
+        self::assertSame(0, AuditLogService::extractV3HashRow(['hmac_key_epoch' => 'not-a-number'])['hmac_key_epoch']);
     }
 
     // =========================================================================
@@ -3036,6 +3195,751 @@ final class AuditLogServiceTest extends TestCase
         $subject->log('secret', 'create', true);
     }
 
+    // =========================================================================
+    // Write path — the lock lifecycle, the values that reach the row, and the
+    // fan-out that must never fail the audited operation.
+    // =========================================================================
+
+    #[Test]
+    public function theNamedLockIsReleasedAfterASuccessfulWrite(): void
+    {
+        $this->setupDatabaseMocks();
+
+        $statements = [];
+        $this->connectionMock()
+            ->method('executeStatement')
+            ->willReturnCallback(static function (string $sql) use (&$statements): int {
+                $statements[] = $sql;
+
+                return 0;
+            });
+
+        $this->getSubject()->log('s', 'create', true);
+
+        self::assertContains('SELECT RELEASE_LOCK("nr_vault_audit")', $statements);
+    }
+
+    /**
+     * The release lives in a `finally` for this case: a write that fails must
+     * not leave the named lock held for the lifetime of the connection, where
+     * it would block every subsequent audit writer.
+     */
+    #[Test]
+    public function theNamedLockIsReleasedWhenTheWriteFails(): void
+    {
+        $this->setupDatabaseMocks();
+
+        $statements = [];
+        $this->connectionMock()
+            ->method('executeStatement')
+            ->willReturnCallback(static function (string $sql) use (&$statements): int {
+                $statements[] = $sql;
+
+                return 0;
+            });
+        $this->connectionMock()
+            ->method('insert')
+            ->willThrowException(new RuntimeException('constraint violation'));
+
+        try {
+            $this->getSubject()->log('s', 'create', true);
+            self::fail('a failed write must surface as an AuditWriteException');
+        } catch (AuditWriteException) {
+            self::assertContains('SELECT RELEASE_LOCK("nr_vault_audit")', $statements);
+        }
+    }
+
+    /**
+     * The UID reserved by the INSERT addresses the row the UPDATE seals, and
+     * the driver hands it out as a string.
+     */
+    #[Test]
+    public function theHashUpdateTargetsTheInsertIdAsAnInteger(): void
+    {
+        $this->setupDatabaseMocks();
+        $this->connectionMock()->method('lastInsertId')->willReturn('42');
+
+        $criteria = [];
+        $this->connectionMock()
+            ->expects(self::once())
+            ->method('update')
+            ->with(
+                AuditLogService::TABLE_NAME,
+                self::anything(),
+                self::callback(static function (array $identifier) use (&$criteria): bool {
+                    $criteria = $identifier;
+
+                    return true;
+                }),
+            );
+
+        $this->getSubject()->log('s', 'create', true);
+
+        self::assertSame(['uid' => 42], $criteria);
+    }
+
+    /**
+     * The anchor pins the row that was just written: its own uid and its own
+     * entry hash. Anchoring anything else would either point at a row that
+     * does not exist or assert a hash no row carries.
+     */
+    #[Test]
+    public function theTipAnchorIsBuiltFromThePersistedRow(): void
+    {
+        $this->setupDatabaseMocks();
+        $this->connectionMock()->method('lastInsertId')->willReturn('42');
+
+        $storedHash = null;
+        $this->connectionMock()
+            ->expects(self::once())
+            ->method('update')
+            ->with(
+                AuditLogService::TABLE_NAME,
+                self::callback(static function (array $fields) use (&$storedHash): bool {
+                    $storedHash = $fields['entry_hash'] ?? null;
+
+                    return true;
+                }),
+                self::anything(),
+            );
+
+        $anchored = null;
+        $this->anchorStore
+            ->expects(self::once())
+            ->method('advance')
+            ->willReturnCallback(static function (Connection $connection, AuditChainAnchor $tip) use (&$anchored): void {
+                $anchored = $tip;
+            });
+
+        $this->getSubject()->log('s', 'create', true);
+
+        self::assertInstanceOf(AuditChainAnchor::class, $anchored);
+        self::assertSame(42, $anchored->uid);
+        self::assertIsString($storedHash);
+        self::assertSame($storedHash, $anchored->entryHash);
+    }
+
+    /**
+     * Epoch 1 binds the identity fields under the HMAC key — not the v3
+     * forensic payload the later epochs use. A row sealed with the wrong
+     * algorithm reports a tamper on every subsequent verification.
+     */
+    #[Test]
+    public function epochOneWritesTheIdentityOnlyHmacEntryHash(): void
+    {
+        [$insertedRow, $storedHash] = $this->captureWriteAtEpoch(1);
+
+        $v1 = AuditLogService::extractHashRow(['uid' => 42] + $insertedRow);
+
+        self::assertSame(
+            AuditLogService::calculateHash(
+                $v1['uid'],
+                $v1['secretId'],
+                $v1['action'],
+                $v1['actorUid'],
+                $v1['crdate'],
+                '',
+                AuditLogService::deriveHmacKey($this->masterKeyProviderMock()),
+            ),
+            $storedHash,
+        );
+    }
+
+    #[Test]
+    public function theCallerSuppliedReasonIsSealedIntoTheRowVerbatim(): void
+    {
+        $captured = $this->captureInsertPayload(reason: 'rotation requested by ops');
+
+        self::assertSame('rotation requested by ops', $captured['reason']);
+    }
+
+    /**
+     * Column widths are counted in characters, so a value that fits in
+     * characters must be stored whole even when its UTF-8 encoding needs more
+     * bytes than the column has columns.
+     */
+    #[Test]
+    public function aMultiByteHeaderThatFitsInCharactersIsStoredWhole(): void
+    {
+        // 300 two-byte characters: 600 bytes, but only 300 of the 500 columns.
+        $userAgent = str_repeat('ä', 300);
+        $this->stubServerRequest(userAgent: $userAgent);
+
+        $captured = $this->captureInsertPayload();
+
+        self::assertSame($userAgent, $captured['user_agent']);
+    }
+
+    /**
+     * Clipping keeps the START of the value — the part that identifies the
+     * client — not an arbitrary window into it.
+     */
+    #[Test]
+    public function anOversizedHeaderKeepsItsLeadingCharacters(): void
+    {
+        $this->stubServerRequest(userAgent: 'Z' . str_repeat('b', 600));
+
+        $captured = $this->captureInsertPayload();
+
+        self::assertSame('Z' . str_repeat('b', 499), $captured['user_agent']);
+    }
+
+    /**
+     * Control characters collapse to spaces, which can leave the message
+     * padded at both ends; the stored value is the trimmed one.
+     */
+    #[Test]
+    public function theSanitizedErrorMessageCarriesNoSurroundingWhitespace(): void
+    {
+        $captured = $this->captureInsertPayload(errorMessage: "\n  decryption failed  \n");
+
+        self::assertSame('decryption failed', $captured['error_message']);
+    }
+
+    /**
+     * The 200-character bound is counted in characters too: a multi-byte
+     * message that fits must not be truncated just because its byte length
+     * exceeds the bound.
+     */
+    #[Test]
+    public function aMultiByteErrorMessageIsBoundedInCharactersNotBytes(): void
+    {
+        // 150 two-byte characters: 300 bytes, 150 of the 200 characters.
+        $errorMessage = str_repeat('ä', 150);
+
+        $captured = $this->captureInsertPayload(errorMessage: $errorMessage);
+
+        self::assertSame($errorMessage, $captured['error_message']);
+    }
+
+    /**
+     * An over-long message keeps its first 197 characters plus the ellipsis —
+     * cut on a character boundary, so the stored value stays well-formed
+     * UTF-8 and is exactly 200 characters wide.
+     */
+    #[Test]
+    public function anOversizedErrorMessageKeepsItsFirstCharactersUpToTheEllipsis(): void
+    {
+        $captured = $this->captureInsertPayload(errorMessage: 'Z' . str_repeat('ä', 299));
+
+        self::assertSame('Z' . str_repeat('ä', 196) . '...', $captured['error_message']);
+        self::assertIsString($captured['error_message']);
+        self::assertSame(200, mb_strlen($captured['error_message']));
+    }
+
+    /**
+     * With no request in scope the write is a CLI one, and the audit row says
+     * so instead of recording an empty actor environment.
+     */
+    #[Test]
+    public function aWriteWithoutAServerRequestIsAttributedToTheCli(): void
+    {
+        unset($GLOBALS['TYPO3_REQUEST']);
+
+        $captured = $this->captureInsertPayload();
+
+        self::assertSame('CLI', $captured['ip_address']);
+        self::assertSame('CLI', $captured['user_agent']);
+    }
+
+    #[Test]
+    public function aWriteUnderAServerRequestRecordsItsRemoteAddress(): void
+    {
+        $this->stubServerRequest();
+
+        $captured = $this->captureInsertPayload();
+
+        self::assertSame(self::IP_ADDRESS, $captured['ip_address']);
+    }
+
+    /**
+     * Without an inbound correlation header the row still gets a request id,
+     * generated from 16 random bytes so entries of one request can be tied
+     * together after the fact.
+     */
+    #[Test]
+    public function aRequestWithoutACorrelationHeaderGetsAGeneratedRequestId(): void
+    {
+        $this->stubServerRequest();
+
+        $captured = $this->captureInsertPayload();
+
+        self::assertIsString($captured['request_id']);
+        self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $captured['request_id']);
+    }
+
+    /**
+     * No sinks configured is the default deployment, not a fan-out failure —
+     * it must not produce an error-level log line on every audited operation.
+     */
+    #[Test]
+    public function aMissingSinkRegistryIsNotReportedAsAFanOutFailure(): void
+    {
+        $this->setupDatabaseMocks();
+
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::never())->method('error');
+
+        $subject = new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            $this->anchorStore,
+            null,
+            $logger,
+        );
+
+        $this->connectionMock()->expects(self::once())->method('insert');
+
+        $subject->log('s', 'create', true);
+    }
+
+    /**
+     * The logger is optional, so a broken fan-out on a logger-less service must
+     * still be contained: the chain row is committed and the audited operation
+     * completes.
+     */
+    #[Test]
+    public function aBrokenSinkFanOutWithoutALoggerStillCompletesTheAuditedOperation(): void
+    {
+        $this->setupDatabaseMocks();
+
+        $sinkRegistry = $this->createMock(AuditSinkRegistryInterface::class);
+        $sinkRegistry->method('dispatch')->willThrowException(new RuntimeException('registry unavailable'));
+
+        $subject = new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            $this->anchorStore,
+            $sinkRegistry,
+            null,
+        );
+
+        $captured = [];
+        $this->connectionMock()
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                AuditLogService::TABLE_NAME,
+                self::callback(static function (array $data) use (&$captured): bool {
+                    $captured = $data;
+
+                    return true;
+                }),
+            );
+
+        $subject->log('s', 'create', true);
+
+        self::assertSame('create', $captured['action']);
+    }
+
+    // =========================================================================
+    // Read/verify path — each test below pins one behaviour of the chain walk
+    // that would otherwise be free to drift.
+    // =========================================================================
+
+    /**
+     * `count()` must issue a COUNT over the audit table. Without the builder
+     * calls the query degrades to an unbounded SELECT whose first column is
+     * returned as the "count".
+     */
+    #[Test]
+    public function countAsksTheDatabaseForACountOverTheAuditTable(): void
+    {
+        $result = $this->createMock(Result::class);
+        $result->method('fetchOne')->willReturn(7);
+
+        $this->connectionPoolMock()->method('getConnectionForTable')->willReturn($this->connectionMock());
+        $this->connectionMock()->method('createQueryBuilder')->willReturn($this->queryBuilderMock());
+
+        $queryBuilder = $this->queryBuilderMock();
+        $queryBuilder->expects(self::once())->method('count')->with('uid')->willReturnSelf();
+        $queryBuilder->expects(self::once())->method('from')->with(AuditLogService::TABLE_NAME)->willReturnSelf();
+        $queryBuilder->method('executeQuery')->willReturn($result);
+
+        self::assertSame(7, $this->getSubject()->count());
+    }
+
+    /**
+     * The chain walk depends on ascending-uid order: gap detection, the
+     * previous-hash link and the epoch-transition check all compare a row
+     * against its immediate predecessor.
+     */
+    #[Test]
+    public function verifyHashChainSelectsEveryColumnOrderedByAscendingUid(): void
+    {
+        $result = $this->createMock(Result::class);
+        $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator([]));
+
+        $this->connectionPoolMock()->method('getConnectionForTable')->willReturn($this->connectionMock());
+        $this->connectionMock()->method('createQueryBuilder')->willReturn($this->queryBuilderMock());
+
+        $queryBuilder = $this->queryBuilderMock();
+        $queryBuilder->expects(self::once())->method('select')->with('*')->willReturnSelf();
+        $queryBuilder->expects(self::once())->method('from')->with(AuditLogService::TABLE_NAME)->willReturnSelf();
+        $queryBuilder->expects(self::once())->method('orderBy')->with('uid', 'ASC')->willReturnSelf();
+        $queryBuilder->method('executeQuery')->willReturn($result);
+
+        self::assertTrue($this->getSubject()->verifyHashChain()->valid);
+    }
+
+    /**
+     * The default window is a literal 1000 rows — the bound that keeps peak
+     * memory O(chunkSize) instead of O(table).
+     */
+    #[Test]
+    public function exportIterableDefaultsToAThousandRowWindow(): void
+    {
+        $this->setupPagingQueryMocks([[]]);
+
+        self::assertSame([], iterator_to_array($this->getSubject()->exportIterable()));
+        self::assertSame([1000], $this->recordedLimits);
+    }
+
+    /**
+     * Every round advances the offset by exactly one window, and the loop
+     * keeps going while the window came back full.
+     */
+    #[Test]
+    public function exportIterablePagesForwardByOneWindowPerRound(): void
+    {
+        $this->setupPagingQueryMocks([
+            [['uid' => 1], ['uid' => 2]],
+            [['uid' => 3], ['uid' => 4]],
+            [['uid' => 5]],
+        ]);
+
+        $entries = iterator_to_array($this->getSubject()->exportIterable(chunkSize: 2));
+
+        self::assertCount(5, $entries);
+        self::assertSame([0, 2, 4], $this->recordedOffsets);
+        self::assertSame([2, 2, 2], $this->recordedLimits);
+    }
+
+    /**
+     * A non-positive chunk size is clamped to 1, not to 0 — a zero-row window
+     * would return an empty chunk forever while the loop condition
+     * (`count($chunk) === $chunkSize`) stayed true.
+     */
+    #[Test]
+    public function exportIterableClampsANonPositiveWindowToASingleRow(): void
+    {
+        $this->setupPagingQueryMocks([[['uid' => 1]], []]);
+
+        $entries = iterator_to_array($this->getSubject()->exportIterable(chunkSize: 0));
+
+        self::assertCount(1, $entries);
+        self::assertSame([1, 1], $this->recordedLimits);
+    }
+
+    /**
+     * The re-seal gate verifies under the chain's OWN stored epochs. An
+     * install configured for a higher epoch must not make its own
+     * not-yet-migrated chain unresealable — that chain is exactly what the
+     * migration exists to lift.
+     */
+    #[Test]
+    public function resealVerificationIgnoresTheConfiguredEpochFloorEntirely(): void
+    {
+        // Every row sits at epoch 0 while the subject is configured for epoch 1.
+        $this->setupResealMocks(rows: $this->epochZeroChain([1, 2]), hmacRowCount: 1);
+
+        self::assertNull($this->getSubject()->verifyChainForReseal());
+    }
+
+    /**
+     * A range verification starts one uid BELOW the requested start, so rows
+     * deleted between `$fromUid` and the first surviving row are still
+     * reported instead of falling outside the window unnoticed.
+     */
+    #[Test]
+    public function verifyHashChainDetectsAGapBelowTheFirstRowOfARequestedRange(): void
+    {
+        $this->setupQueryMocksWithFilter(
+            $this->createMock(ExpressionBuilder::class),
+            [$this->epochZeroRow(7, '')],
+        );
+
+        $verification = $this->getSubject()->verifyHashChain(fromUid: 5);
+
+        self::assertSame([5, 6], $verification->missingUids);
+    }
+
+    /**
+     * The mirror image: on a full scan there is no prior row to compare the
+     * first one against, so a chain whose lowest uid is not 1 must not be
+     * reported as starting with a gap.
+     */
+    #[Test]
+    public function verifyHashChainDoesNotInventAGapBeforeTheFirstRowOfAFullScan(): void
+    {
+        $this->setupQueryMocks($this->epochZeroChain([5, 6]));
+
+        $verification = $this->subjectWithConfiguredEpoch(0)->verifyHashChain();
+
+        self::assertSame([], $verification->missingUids);
+        self::assertSame(0, $verification->missingUidCount);
+        self::assertTrue($verification->valid);
+    }
+
+    /**
+     * The enumerated list is capped to bound memory after a mass purge, but
+     * the reported COUNT stays exact — that is the number an operator uses to
+     * judge the scale of the hole.
+     */
+    #[Test]
+    public function theEnumeratedMissingUidListIsCappedWhileTheCountStaysExact(): void
+    {
+        // Two 600-uid gaps: the 1000-entry cap admits all of the first and 400
+        // of the second, while the count must still report the true 1200.
+        $this->setupQueryMocks($this->epochZeroChain([1, 602, 1203]));
+
+        $verification = $this->subjectWithConfiguredEpoch(0)->verifyHashChain();
+
+        self::assertCount(1000, $verification->missingUids);
+        self::assertSame(1200, $verification->missingUidCount);
+        self::assertSame(2, $verification->missingUids[0]);
+        self::assertSame(1002, $verification->missingUids[999]);
+    }
+
+    /**
+     * Gap sizes accumulate across gaps; the count is the total, not the size
+     * of the last one.
+     */
+    #[Test]
+    public function everyMissingUidAcrossSeveralGapsIsCounted(): void
+    {
+        $this->setupQueryMocks($this->epochZeroChain([1, 4, 8]));
+
+        $verification = $this->subjectWithConfiguredEpoch(0)->verifyHashChain();
+
+        self::assertSame([2, 3, 5, 6, 7], $verification->missingUids);
+        self::assertSame(5, $verification->missingUidCount);
+    }
+
+    /**
+     * A row whose `hmac_key_epoch` drops BELOW its predecessor's is a
+     * downgrade — including the negative value a DB-write attacker can set to
+     * slip past the epoch dispatch. It must be an error (chain invalid), never
+     * the non-fatal warning an epoch INCREASE gets.
+     */
+    #[Test]
+    public function anEpochDropBelowZeroIsReportedAsADowngradeError(): void
+    {
+        $first = $this->epochZeroRow(1, '');
+        $second = [
+            'uid' => 2,
+            'secret_identifier' => 'a',
+            'action' => 'create',
+            'success' => 1,
+            'actor_uid' => 1,
+            'crdate' => 100,
+            'error_message' => '',
+            'reason' => '',
+            'ip_address' => '',
+            'user_agent' => '',
+            'hash_before' => '',
+            'hash_after' => '',
+            'context' => '{}',
+            'actor_type' => 'backend',
+            'actor_username' => 'admin',
+            'actor_role' => 'backend',
+            'request_id' => '',
+            'previous_hash' => $first['entry_hash'],
+            'hmac_key_epoch' => -1,
+        ];
+        // Sign the tampered row correctly, so the ONLY finding left is the
+        // epoch downgrade itself rather than a hash mismatch on the same key.
+        $second['entry_hash'] = AuditLogService::calculateHashV3(
+            AuditLogService::extractV3HashRow($second),
+            $first['entry_hash'],
+            AuditLogService::deriveHmacKey($this->masterKeyProviderMock()),
+        );
+
+        $this->setupQueryMocks([$first, $second]);
+
+        $verification = $this->subjectWithConfiguredEpoch(0)->verifyHashChain();
+
+        self::assertFalse($verification->valid);
+        self::assertArrayHasKey(2, $verification->errors);
+        self::assertStringContainsString('downgrade', $verification->errors[2]);
+    }
+
+    /**
+     * A keyless chain carries no HMAC evidence to authenticate, so the re-seal
+     * — the operation that FIRST protects those rows — must not be blocked by
+     * their content. Only the anchor half of the gate applies.
+     */
+    #[Test]
+    public function resealVerificationOfAKeylessChainSkipsTheRowWalkEntirely(): void
+    {
+        $this->setupResealMocks(
+            rows: [
+                // A hash that matches nothing: were the rows walked, this would
+                // report tampering and refuse the re-seal.
+                ['uid' => 1, 'secret_identifier' => 'a', 'action' => 'create', 'actor_uid' => 1, 'crdate' => 100, 'previous_hash' => '', 'entry_hash' => str_repeat('0', 64), 'hmac_key_epoch' => 0],
+            ],
+            hmacRowCount: 0,
+        );
+
+        self::assertNull($this->getSubject()->verifyChainForReseal());
+    }
+
+    /**
+     * The anchor-only half of the gate never walked the rows, so it must not
+     * claim a missing-uid count it did not measure.
+     */
+    #[Test]
+    public function anAnchorOnlyResealFailureReportsNoMissingUids(): void
+    {
+        $this->setupResealMocks(rows: [], hmacRowCount: 0);
+
+        // Status Ok with no anchor payload is the "unreadable anchor" case.
+        $anchorStore = $this->createMock(AuditChainAnchorStoreInterface::class);
+        $anchorStore->method('load')->willReturn(new AuditChainAnchorLoad(AuditChainAnchorStatus::Ok));
+
+        $subject = new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            $anchorStore,
+        );
+
+        $result = $subject->verifyChainForReseal();
+
+        self::assertInstanceOf(HashChainVerificationResult::class, $result);
+        self::assertSame(AuditChainAnchorStatus::Unreadable, $result->anchorStatus);
+        self::assertSame([], $result->missingUids);
+        self::assertSame(0, $result->missingUidCount);
+    }
+
+    /**
+     * "Carries HMAC evidence" means epoch >= 1. Probing for a different
+     * threshold would either skip the verification of a protected chain or
+     * apply it to a genuinely keyless one.
+     */
+    #[Test]
+    public function theHmacRowProbeAsksForEpochOneOrHigher(): void
+    {
+        $result = $this->createMock(Result::class);
+        $result->method('fetchOne')->willReturn(0);
+
+        $this->connectionPoolMock()->method('getConnectionForTable')->willReturn($this->connectionMock());
+        $this->connectionMock()->method('createQueryBuilder')->willReturn($this->queryBuilderMock());
+
+        $queryBuilder = $this->queryBuilderMock();
+        $queryBuilder->method('expr')->willReturn($this->createMock(ExpressionBuilder::class));
+        $queryBuilder->method('count')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('where')->willReturnSelf();
+        $queryBuilder
+            ->expects(self::once())
+            ->method('createNamedParameter')
+            ->with(1, Connection::PARAM_INT)
+            ->willReturn('?');
+        $queryBuilder->method('executeQuery')->willReturn($result);
+
+        self::assertNull($this->getSubject()->verifyChainForReseal());
+    }
+
+    /**
+     * The violation message is what an operator acts on, so both halves of it
+     * — which uid, and what the mismatch means — have to survive.
+     */
+    #[Test]
+    public function aStableAnchorMismatchNamesTheAnchoredUidAndWhatItMeans(): void
+    {
+        $verification = $this->verifyWithAnchorLoads(['raw-1', 'raw-1']);
+
+        self::assertSame(
+            'Audit chain tip anchor for uid 1 does not match the stored entry hash - the '
+            . 'anchored row was replaced (e.g. truncation followed by re-inserted entries)',
+            $verification->errors[-3],
+        );
+    }
+
+    #[Test]
+    public function anInFlightAnchorWarningSaysWhatHappenedAndWhatToDo(): void
+    {
+        $verification = $this->verifyWithAnchorLoads(['raw-1', 'raw-2', 'raw-3', 'raw-4']);
+
+        self::assertSame(
+            'Audit chain tip anchor changed while it was '
+            . 'being verified (concurrent re-seal); re-run the verification',
+            $verification->warnings[-3],
+        );
+    }
+
+    /**
+     * The anchored row is addressed by its primary key, so exactly one row can
+     * ever match — a wider limit would read rows the anchor says nothing about.
+     */
+    #[Test]
+    public function theAnchoredRowIsReadWithAnExactSingleRowLimit(): void
+    {
+        $this->verifyWithAnchorLoads(['raw-1', 'raw-1']);
+
+        self::assertSame([1], $this->recordedMaxResults);
+    }
+
+    #[Test]
+    public function getLatestHashReadsExactlyOneRow(): void
+    {
+        $tip = str_repeat('a', 64);
+
+        $result = $this->createMock(Result::class);
+        $result->method('fetchOne')->willReturn($tip);
+
+        $this->connectionPoolMock()->method('getConnectionForTable')->willReturn($this->connectionMock());
+        $this->connectionMock()->method('createQueryBuilder')->willReturn($this->queryBuilderMock());
+
+        $queryBuilder = $this->queryBuilderMock();
+        $queryBuilder->method('select')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('orderBy')->willReturnSelf();
+        $queryBuilder->expects(self::once())->method('setMaxResults')->with(1)->willReturnSelf();
+        $queryBuilder->method('executeQuery')->willReturn($result);
+
+        self::assertSame($tip, $this->getSubject()->getLatestHash());
+    }
+
+    /**
+     * Only a string is a hash. A numeric column value (some drivers coerce, an
+     * empty table returns `false`) is "no tip", never a tip of its own.
+     */
+    #[Test]
+    public function getLatestHashReturnsNullForANonStringColumnValue(): void
+    {
+        $this->setupDatabaseMocks(0);
+
+        self::assertNull($this->getSubject()->getLatestHash());
+    }
+
+    /**
+     * Both chain-level checks are restricted to a FULL pass: a bounded range
+     * may legitimately exclude the higher-epoch rows and the tip, so neither
+     * the epoch floor nor the anchor may be applied to it.
+     */
+    #[Test]
+    public function aBoundedRangeVerificationSkipsTheEpochFloorAndTheAnchor(): void
+    {
+        $this->setupQueryMocksWithFilter(
+            $this->createMock(ExpressionBuilder::class),
+            $this->epochZeroChain([1, 2]),
+        );
+
+        // Configured for epoch 3 while every row sits at epoch 0: on a full
+        // scan that is a downgrade, on a sub-range it is out of scope.
+        $verification = $this->subjectWithConfiguredEpoch(3)->verifyHashChain(fromUid: 1);
+
+        self::assertTrue($verification->valid);
+        self::assertSame(AuditChainAnchorStatus::NotChecked, $verification->anchorStatus);
+    }
+
     /**
      * Run one `log()` at the given epoch and return the inserted row plus the
      * `entry_hash` the second-step UPDATE stored.
@@ -3168,7 +4072,7 @@ final class AuditLogServiceTest extends TestCase
      *
      * @return array<string, mixed>
      */
-    private function captureInsertPayload(): array
+    private function captureInsertPayload(?string $errorMessage = null, ?string $reason = null): array
     {
         $this->setupDatabaseMocks();
 
@@ -3185,7 +4089,7 @@ final class AuditLogServiceTest extends TestCase
                 }),
             );
 
-        $this->getSubject()->log('s', 'create', true);
+        $this->getSubject()->log('s', 'create', true, $errorMessage, $reason);
 
         self::assertIsArray($captured);
 
@@ -3485,7 +4389,13 @@ final class AuditLogServiceTest extends TestCase
         $this->queryBuilder->method('from')->willReturnSelf();
         $this->queryBuilder->method('where')->willReturnSelf();
         $this->queryBuilder->method('orderBy')->willReturnSelf();
-        $this->queryBuilder->method('setMaxResults')->willReturnSelf();
+        $this->queryBuilder->method('setMaxResults')->willReturnCallback(
+            function (?int $limit): QueryBuilder {
+                $this->recordedMaxResults[] = $limit;
+
+                return $this->queryBuilderMock();
+            },
+        );
         $this->queryBuilder->method('executeQuery')->willReturn($result);
 
         $anchoredHash = str_repeat('c', 64);
@@ -3513,6 +4423,108 @@ final class AuditLogServiceTest extends TestCase
             $extensionConfig,
             $anchorStore,
         ))->verifyHashChain();
+    }
+
+    /**
+     * One epoch-0 chain row carrying its correct legacy hash, linked to
+     * `$previousHash`.
+     *
+     * @return array{uid: int, secret_identifier: string, action: string, actor_uid: int, crdate: int, previous_hash: string, entry_hash: string, hmac_key_epoch: int}
+     */
+    private function epochZeroRow(int $uid, string $previousHash): array
+    {
+        return [
+            'uid' => $uid,
+            'secret_identifier' => 'a',
+            'action' => 'create',
+            'actor_uid' => 1,
+            'crdate' => 100,
+            'previous_hash' => $previousHash,
+            'entry_hash' => AuditLogService::calculateHash($uid, 'a', 'create', 1, 100, $previousHash),
+            'hmac_key_epoch' => 0,
+        ];
+    }
+
+    /**
+     * A correctly-linked epoch-0 chain over the given uids, so a test that is
+     * about gaps or epochs is not also about hash mismatches.
+     *
+     * @param list<int> $uids
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function epochZeroChain(array $uids): array
+    {
+        $rows = [];
+        $previousHash = '';
+        foreach ($uids as $uid) {
+            $row = $this->epochZeroRow($uid, $previousHash);
+            $previousHash = $row['entry_hash'];
+            $rows[] = $row;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * The default subject is configured for epoch 1; tests about the epoch
+     * floor need to state the configured epoch themselves.
+     */
+    private function subjectWithConfiguredEpoch(int $epoch): AuditLogService
+    {
+        $extensionConfiguration = $this->createMock(ExtensionConfigurationInterface::class);
+        $extensionConfiguration->method('getAuditHmacEpoch')->willReturn($epoch);
+
+        return new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $extensionConfiguration,
+            $this->anchorStore,
+        );
+    }
+
+    /**
+     * Wire `query()` so consecutive calls return the given windows, recording
+     * the LIMIT / OFFSET each call asked for in `$recordedLimits` /
+     * `$recordedOffsets`.
+     *
+     * @param list<list<array<string, mixed>>> $windows rows per consecutive query
+     */
+    private function setupPagingQueryMocks(array $windows): void
+    {
+        $call = 0;
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAllAssociative')->willReturnCallback(
+            static function () use ($windows, &$call): array {
+                $rows = $windows[$call] ?? [];
+                ++$call;
+
+                return $rows;
+            },
+        );
+
+        $queryBuilder = $this->queryBuilderMock();
+        $this->connectionPoolMock()->method('getConnectionForTable')->willReturn($this->connectionMock());
+        $this->connectionMock()->method('createQueryBuilder')->willReturn($queryBuilder);
+        $queryBuilder->method('select')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('orderBy')->willReturnSelf();
+        $queryBuilder->method('setMaxResults')->willReturnCallback(
+            function (?int $limit) use ($queryBuilder): QueryBuilder {
+                $this->recordedLimits[] = $limit;
+
+                return $queryBuilder;
+            },
+        );
+        $queryBuilder->method('setFirstResult')->willReturnCallback(
+            function (?int $offset) use ($queryBuilder): QueryBuilder {
+                $this->recordedOffsets[] = $offset;
+
+                return $queryBuilder;
+            },
+        );
+        $queryBuilder->method('executeQuery')->willReturn($result);
     }
 
     /**

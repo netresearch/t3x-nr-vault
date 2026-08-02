@@ -23,6 +23,7 @@ use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Authentication\CommandLineUserAuthentication;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -160,6 +161,83 @@ final class AccessControlServiceTest extends TestCase
     {
         // No CLI mode, no backend user
         self::assertFalse($this->subject->canCreate());
+    }
+
+    /**
+     * `allowCliAccess` describes what a CLI operator may do — it never decides
+     * who counts as one. An unattributable web actor stays denied.
+     */
+    #[Test]
+    public function canCreateIsDeniedWithoutAnyActorEvenWhenCliAccessIsAllowed(): void
+    {
+        $this->configuration->method('isCliAccessAllowed')->willReturn(true);
+
+        self::assertFalse($this->subject->canCreate());
+    }
+
+    /**
+     * The `disable` column is optional in the session record, and a driver may
+     * hand it over as a string. "Absent" and "'0'" both mean enabled — reading
+     * either as disabled locks legitimate users out of their own secrets.
+     */
+    #[Test]
+    public function backendUserRecordWithoutADisableColumnIsNotDisabled(): void
+    {
+        $backendUser = $this->createMockBackendUser(uid: 5);
+        /** @phpstan-ignore property.internal */
+        $backendUser->user = ['uid' => 5, 'username' => 'no_disable_column'];
+
+        $GLOBALS['BE_USER'] = $backendUser;
+
+        self::assertTrue($this->subject->canCreate());
+    }
+
+    #[Test]
+    public function backendUserWithADisableColumnOfStringZeroIsNotDisabled(): void
+    {
+        $backendUser = $this->createMockBackendUser(uid: 5);
+        /** @phpstan-ignore property.internal */
+        $backendUser->user = ['uid' => 5, 'username' => 'string_columns', 'disable' => '0'];
+
+        $GLOBALS['BE_USER'] = $backendUser;
+
+        self::assertTrue($this->subject->canCreate());
+    }
+
+    /**
+     * A session record without a usable uid must not accidentally *own*
+     * anything: the fallback uid is the one value no real be_users row can
+     * carry, so no owner check can match it.
+     */
+    #[Test]
+    public function backendUserWithoutAUidOwnsNoSecret(): void
+    {
+        $backendUser = $this->createMockBackendUser(uid: 5);
+        /** @phpstan-ignore property.internal */
+        $backendUser->user = ['username' => 'no_uid', 'disable' => 0];
+
+        $GLOBALS['BE_USER'] = $backendUser;
+
+        self::assertFalse($this->subject->canRead($this->createSecret(ownerUid: 1)));
+        self::assertFalse($this->subject->canRead($this->createSecret(ownerUid: -1)));
+    }
+
+    /**
+     * `TYPO3_cliMode` is a legacy constant; only the value `true` classifies a
+     * request as CLI. Reading a falsy one as CLI would attribute every web
+     * access to the trusted CLI operator.
+     *
+     * Defining it as `false` is inert for the rest of the suite — that is
+     * exactly the branch the production code ignores.
+     */
+    #[Test]
+    public function actorTypeIgnoresAFalsyLegacyCliModeConstant(): void
+    {
+        if (!\defined('TYPO3_cliMode')) {
+            \define('TYPO3_cliMode', false);
+        }
+
+        self::assertSame('api', $this->subject->getCurrentActorType());
     }
 
     #[Test]
@@ -1015,6 +1093,78 @@ final class AccessControlServiceTest extends TestCase
         self::assertFalse($nonAdmin->isCurrentActorAdmin());
     }
 
+    /**
+     * Holding *an* existing group is not holding the secret's group. Without
+     * the intersection every actor with any surviving group would read every
+     * group-scoped secret.
+     */
+    #[Test]
+    public function technicalActorGroupsMustIntersectTheSecretGroups(): void
+    {
+        $subject = $this->createSubjectWithTechnicalActor(
+            new TechnicalActor(uid: 10, username: 'tech_indexer', admin: false, groupIds: [9]),
+            existingGroupUids: [9],
+        );
+
+        self::assertFalse($subject->canRead($this->createSecret(ownerUid: 1, allowedGroups: [5])));
+    }
+
+    /**
+     * The stale-group filter is the reason a deleted group cannot grant
+     * access, so its query must see deleted rows (restrictions removed) and
+     * exclude them by its own `deleted = 0` constraint.
+     */
+    #[Test]
+    public function existingGroupLookupDropsRestrictionsAndExcludesDeletedGroups(): void
+    {
+        $restrictions = $this->createMock(DefaultRestrictionContainer::class);
+        $restrictions->expects(self::once())->method('removeAll');
+
+        $parameters = [];
+        $subject = $this->createSubjectWithObservableGroupLookup(
+            [['uid' => 7]],
+            restrictions: $restrictions,
+            capturedParameters: $parameters,
+        );
+
+        self::assertSame([7], $subject->filterExistingGroupIds([7]));
+        self::assertContains(
+            [0, Connection::PARAM_INT],
+            $parameters,
+            'Deleted groups must be excluded by the query itself',
+        );
+    }
+
+    #[Test]
+    public function existingGroupLookupIsCachedForTheLifetimeOfTheService(): void
+    {
+        $subject = $this->createSubjectWithObservableGroupLookup([['uid' => 7]], expectedQueries: 1);
+
+        self::assertSame([7], $subject->filterExistingGroupIds([7]));
+        self::assertSame([7], $subject->filterExistingGroupIds([7]));
+    }
+
+    #[Test]
+    public function filteringAnEmptyGroupListAnswersWithoutQuerying(): void
+    {
+        $subject = $this->createSubjectWithObservableGroupLookup([], expectedQueries: 0);
+
+        self::assertSame([], $subject->filterExistingGroupIds([]));
+    }
+
+    /**
+     * Group uids arriving as strings must become integers: the filtered list
+     * is compared against a secret's group list, and a '007' that never became
+     * 7 would silently stop matching.
+     */
+    #[Test]
+    public function numericStringGroupUidsFromTheDatabaseAreNormalisedToIntegers(): void
+    {
+        $subject = $this->createSubjectWithObservableGroupLookup([['uid' => '007']]);
+
+        self::assertSame([7], $subject->filterExistingGroupIds([7]));
+    }
+
     // ----- Characterization: behaviour without an active runAs() scope ------
 
     #[Test]
@@ -1182,6 +1332,58 @@ final class AccessControlServiceTest extends TestCase
 
         $connectionPool = $this->createMock(ConnectionPool::class);
         $connectionPool
+            ->method('getQueryBuilderForTable')
+            ->with('be_groups')
+            ->willReturn($queryBuilder);
+
+        return new AccessControlService($this->configuration, $connectionPool);
+    }
+
+    /**
+     * Build an AccessControlService whose be_groups lookup is observable: how
+     * often it runs, which restrictions it drops and which named parameters it
+     * binds.
+     *
+     * @param list<array<string, mixed>> $rows rows the lookup returns
+     * @param int|null $expectedQueries exact number of lookups
+     *                                  expected; null = at least one
+     * @param list<array{mixed, mixed}> $capturedParameters collects every
+     *                                                      createNamedParameter() call as [value, type]
+     */
+    private function createSubjectWithObservableGroupLookup(
+        array $rows,
+        ?int $expectedQueries = null,
+        ?DefaultRestrictionContainer $restrictions = null,
+        array &$capturedParameters = [],
+    ): AccessControlService {
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAllAssociative')->willReturn($rows);
+
+        $expressionBuilder = $this->createMock(ExpressionBuilder::class);
+        $expressionBuilder->method('eq')->willReturn('deleted = 0');
+
+        $queryBuilder = $this->createMock(QueryBuilder::class);
+        $queryBuilder
+            ->method('getRestrictions')
+            ->willReturn($restrictions ?? $this->createMock(DefaultRestrictionContainer::class));
+        $queryBuilder->method('select')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('where')->willReturnSelf();
+        $queryBuilder->method('expr')->willReturn($expressionBuilder);
+        $queryBuilder
+            ->method('createNamedParameter')
+            ->willReturnCallback(
+                static function (mixed $value, mixed $type = null) use (&$capturedParameters): string {
+                    $capturedParameters[] = [$value, $type];
+
+                    return ':dcValue1';
+                },
+            );
+        $queryBuilder->method('executeQuery')->willReturn($result);
+
+        $connectionPool = $this->createMock(ConnectionPool::class);
+        $connectionPool
+            ->expects($expectedQueries === null ? self::atLeastOnce() : self::exactly($expectedQueries))
             ->method('getQueryBuilderForTable')
             ->with('be_groups')
             ->willReturn($queryBuilder);

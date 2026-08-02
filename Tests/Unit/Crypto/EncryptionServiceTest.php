@@ -18,6 +18,7 @@ use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 
@@ -236,6 +237,88 @@ final class EncryptionServiceTest extends TestCase
             'not-valid',
             'nope',
             'test',
+        );
+    }
+
+    /**
+     * Each of the four base64 inputs is validated independently: a single
+     * malformed field must be refused before any key material is unwrapped,
+     * not only when several of them are malformed at once.
+     */
+    #[Test]
+    #[DataProvider('singleMalformedDecryptFieldProvider')]
+    public function decryptRejectsASingleMalformedBase64Field(string $field): void
+    {
+        $encrypted = $this->subject->encrypt('field-validation', 'field-validation-test');
+
+        $arguments = [
+            'encryptedValue' => $encrypted->encryptedValue,
+            'encryptedDek' => $encrypted->encryptedDek,
+            'dekNonce' => $encrypted->dekNonce,
+            'valueNonce' => $encrypted->valueNonce,
+        ];
+        $arguments[$field] = '!!!not-base64!!!';
+
+        $this->expectException(EncryptionException::class);
+        $this->expectExceptionMessage('Invalid base64 encoding');
+
+        $this->subject->decrypt(
+            $arguments['encryptedValue'],
+            $arguments['encryptedDek'],
+            $arguments['dekNonce'],
+            $arguments['valueNonce'],
+            'field-validation-test',
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
+        );
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function singleMalformedDecryptFieldProvider(): iterable
+    {
+        yield 'encrypted value' => ['encryptedValue'];
+        yield 'encrypted dek' => ['encryptedDek'];
+        yield 'dek nonce' => ['dekNonce'];
+        yield 'value nonce' => ['valueNonce'];
+    }
+
+    #[Test]
+    public function reEncryptDekRejectsAMalformedEncryptedDekAlone(): void
+    {
+        $encrypted = $this->subject->encrypt('rewrap', 'rewrap-test');
+
+        $this->expectException(EncryptionException::class);
+        $this->expectExceptionMessage('Invalid base64 encoding');
+
+        $this->subject->reEncryptDek(
+            '!!!not-base64!!!',
+            $encrypted->dekNonce,
+            'rewrap-test',
+            $this->testMasterKey,
+            random_bytes(32),
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
+        );
+    }
+
+    #[Test]
+    public function reEncryptDekRejectsAMalformedDekNonceAlone(): void
+    {
+        $encrypted = $this->subject->encrypt('rewrap', 'rewrap-test');
+
+        $this->expectException(EncryptionException::class);
+        $this->expectExceptionMessage('Invalid base64 encoding');
+
+        $this->subject->reEncryptDek(
+            $encrypted->encryptedDek,
+            '!!!not-base64!!!',
+            'rewrap-test',
+            $this->testMasterKey,
+            random_bytes(32),
+            $encrypted->encryptionVersion,
+            $encrypted->encryptionAlgorithm->value,
         );
     }
 

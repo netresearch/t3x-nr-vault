@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Audit;
 
 use Doctrine\DBAL\Result;
+use InvalidArgumentException;
 use Netresearch\NrVault\Audit\AuditChainAnchor;
 use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
 use Netresearch\NrVault\Audit\AuditChainAnchorStore;
@@ -44,6 +45,12 @@ final class AuditChainAnchorStoreTest extends TestCase
 
     private Connection&MockObject $connection;
 
+    /**
+     * The restriction container the wired query builder hands out — the seam
+     * that proves the anchor lookup drops the default restrictions.
+     */
+    private QueryRestrictionContainerInterface&MockObject $restrictions;
+
     private ConnectionPool $connectionPool;
 
     private ExtensionConfigurationInterface $extensionConfiguration;
@@ -53,6 +60,7 @@ final class AuditChainAnchorStoreTest extends TestCase
         parent::setUp();
 
         $this->connection = $this->createMock(Connection::class);
+        $this->restrictions = $this->createMock(QueryRestrictionContainerInterface::class);
         $this->connectionPool = self::createStub(ConnectionPool::class);
         $this->connectionPool->method('getConnectionForTable')->willReturn($this->connection);
         $this->extensionConfiguration = self::createStub(ExtensionConfigurationInterface::class);
@@ -84,7 +92,20 @@ final class AuditChainAnchorStoreTest extends TestCase
     {
         $this->wireReads([$this->anchorRow($this->encode(4, self::HASH_A))], [self::HASH_A]);
 
-        $this->connection->expects(self::once())->method('update');
+        // The full argument list is pinned: an UPDATE that carries no value
+        // blanks the anchor, one that drops the namespace from its WHERE hits
+        // every extension's registry entry under the same key, and one that
+        // drops the LOB type corrupts the value on PostgreSQL.
+        $this->connection
+            ->expects(self::once())
+            ->method('update')
+            ->with(
+                'sys_registry',
+                self::callback(static fn (array $data): bool => \is_string($data['entry_value'] ?? null)
+                    && str_starts_with($data['entry_value'], 'nrvault-audit-tip.v1|9|' . self::HASH_B . '|')),
+                ['entry_namespace' => 'tx_nrvault_audit_anchor', 'entry_key' => 'auditChainTip'],
+                ['entry_value' => Connection::PARAM_LOB],
+            );
         $this->connection->expects(self::never())->method('insert');
 
         $this->subject()->advance($this->connection, new AuditChainAnchor(9, self::HASH_B, 1_700_000_000));
@@ -166,16 +187,53 @@ final class AuditChainAnchorStoreTest extends TestCase
     #[Test]
     public function advanceWritesNothingAtEpochZero(): void
     {
-        $configuration = self::createStub(ExtensionConfigurationInterface::class);
-        $configuration->method('getAuditHmacEpoch')->willReturn(0);
+        $this->connection->expects(self::never())->method('update');
+        $this->connection->expects(self::never())->method('insert');
+
+        $subject = $this->subjectAtEpoch(0);
+        $subject->advance($this->connection, new AuditChainAnchor(1, self::HASH_A, 1_700_000_000));
+
+        self::assertFalse($subject->isEnabled());
+    }
+
+    /**
+     * Epoch 1 is the FIRST anchored epoch, not the second: the anchor exists to
+     * pin a KEYED chain, and a chain is keyed from epoch 1 upwards. Anchoring
+     * only from epoch 2 would leave every install that stopped at the first
+     * HMAC epoch silently unanchored.
+     */
+    #[Test]
+    public function theAnchorIsEnabledFromTheFirstKeyedEpoch(): void
+    {
+        self::assertFalse($this->subjectAtEpoch(0)->isEnabled());
+        self::assertTrue($this->subjectAtEpoch(1)->isEnabled());
+    }
+
+    /**
+     * Both guards are independent refusals, not a conjunction: a disabled
+     * anchor must stay unwritten even though the registry is on the audit
+     * connection, which is the ordinary single-connection installation.
+     */
+    #[Test]
+    public function resealWritesNothingAtEpochZero(): void
+    {
+        $this->wireReads([['uid' => 4, 'entry_hash' => self::HASH_A], false]);
 
         $this->connection->expects(self::never())->method('update');
         $this->connection->expects(self::never())->method('insert');
 
-        $subject = new AuditChainAnchorStore($this->connectionPool, $this->masterKeyProvider(), $configuration);
-        $subject->advance($this->connection, new AuditChainAnchor(1, self::HASH_A, 1_700_000_000));
+        $this->subjectAtEpoch(0)->reseal($this->connection);
+    }
 
-        self::assertFalse($subject->isEnabled());
+    #[Test]
+    public function armWritesNothingAtEpochZero(): void
+    {
+        $this->wireReads([['uid' => 4, 'entry_hash' => self::HASH_A], false]);
+
+        $this->connection->expects(self::never())->method('update');
+        $this->connection->expects(self::never())->method('insert');
+
+        self::assertFalse($this->subjectAtEpoch(0)->arm($this->connection));
     }
 
     #[Test]
@@ -442,9 +500,204 @@ final class AuditChainAnchorStoreTest extends TestCase
         self::assertFalse($this->subject()->arm($this->connection));
     }
 
+    /**
+     * The "already asserts exactly this tip" short-circuit is what stops a
+     * re-seal from rewriting the row on every call. It has to fire on (uid,
+     * entry_hash) equality alone — and it has to fire while the anchored row is
+     * still present, which is the state every legitimate repeat re-seal is in.
+     * Falling through to the truncation guard instead only looks harmless
+     * because that guard also refuses; wire the row in and the fall-through
+     * writes.
+     */
+    #[Test]
+    public function resealWritesNothingWhenTheStoredTipMatchesAndTheAnchoredRowIsStillThere(): void
+    {
+        $this->wireReads(
+            [['uid' => 4, 'entry_hash' => self::HASH_A], $this->anchorRow($this->encode(4, self::HASH_A))],
+            [self::HASH_A],
+        );
+
+        $this->connection->expects(self::never())->method('update');
+        $this->connection->expects(self::never())->method('insert');
+
+        $this->subject()->reseal($this->connection);
+    }
+
+    /**
+     * `auditAnchorRequired` gates the ABSENT-anchor case only. A re-seal over an
+     * anchor that is PRESENT must still happen under the flag — otherwise a
+     * master-key rotation on a hardened installation leaves the anchor signed
+     * under the old key, and every later verification reports a violation that
+     * never happened.
+     */
+    #[Test]
+    public function resealStillRewritesAPresentAnchorWhenImplicitArmingIsRefused(): void
+    {
+        $this->wireReads(
+            [['uid' => 4, 'entry_hash' => self::HASH_B], $this->anchorRow($this->encode(4, self::HASH_A))],
+            [self::HASH_B],
+        );
+
+        $this->connection->expects(self::once())->method('update');
+
+        $this->subjectWithAnchorRequired()->reseal($this->connection);
+    }
+
+    /**
+     * The anchor lookup runs with every default restriction removed.
+     * `sys_registry` has no `deleted`/`hidden`/workspace columns, so a
+     * restriction that survives here turns the read into an SQL error — and an
+     * anchor that cannot be read is an anchor that cannot report a truncation.
+     */
+    #[Test]
+    public function theAnchorLookupDropsAllDefaultQueryRestrictions(): void
+    {
+        $this->wireReads([$this->anchorRow($this->encode(3, self::HASH_A))]);
+
+        $this->restrictions->expects(self::atLeastOnce())->method('removeAll');
+
+        self::assertSame(AuditChainAnchorStatus::Ok, $this->subject()->load($this->connection)->status);
+    }
+
+    /**
+     * Storing bytes our own reader rejects would leave the installation
+     * reporting `Unreadable` forever, so each guard fails loudly on its own.
+     * The caller turns this into an `AuditWriteException`, taking the audited
+     * operation down with it — fail closed.
+     *
+     * @param int $uid uid of the tip that must not be anchored
+     * @param string $entryHash entry hash of the tip that must not be anchored
+     * @param int $tstamp timestamp of the tip that must not be anchored
+     */
+    #[Test]
+    #[DataProvider('unanchorableTipProvider')]
+    public function anchoringATipOurOwnReaderWouldRejectFailsLoudly(
+        int $uid,
+        string $entryHash,
+        int $tstamp,
+    ): void {
+        $this->wireReads([false]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionCode(1753900002);
+
+        $this->subject()->advance($this->connection, new AuditChainAnchor($uid, $entryHash, $tstamp));
+    }
+
+    /**
+     * @return iterable<string, array{int, string, int}>
+     */
+    public static function unanchorableTipProvider(): iterable
+    {
+        yield 'uid below the first row' => [0, self::HASH_A, 1_700_000_000];
+        yield 'hash that is not 64 lowercase hex' => [7, strtoupper(self::HASH_A), 1_700_000_000];
+        yield 'negative timestamp' => [7, self::HASH_A, -1];
+    }
+
+    /**
+     * `tstamp` is a point in time, not a duration: the stored format accepts
+     * `\d{1,10}`, so 0 is a value the reader takes back. Only NEGATIVE
+     * timestamps are refused — rejecting 0 would make the guard stricter than
+     * the format it exists to protect.
+     */
+    #[Test]
+    public function aTipWithAZeroTimestampIsAnchored(): void
+    {
+        $this->wireReads([false]);
+
+        $this->expectInsertedValueStartingWith('nrvault-audit-tip.v1|7|' . self::HASH_A . '|0|');
+
+        $this->subject()->advance($this->connection, new AuditChainAnchor(7, self::HASH_A, 0));
+    }
+
+    /**
+     * uid 1 is the first row of a fresh chain — the tip a brand-new
+     * installation arms on. Refusing it (in the tip read or in the encoder)
+     * would leave exactly that installation unanchorable.
+     */
+    #[Test]
+    public function armAnchorsATipAtTheVeryFirstUid(): void
+    {
+        $this->wireReads([['uid' => 1, 'entry_hash' => self::HASH_A], false]);
+
+        $this->expectInsertedValueStartingWith('nrvault-audit-tip.v1|1|' . self::HASH_A . '|');
+
+        self::assertTrue($this->subject()->arm($this->connection));
+    }
+
+    /**
+     * Drivers hand `uid` back as a string on more than one supported platform,
+     * so the tip read normalises it. Without the cast the anchor DTO refuses the
+     * value outright and every anchored write dies with a TypeError.
+     */
+    #[Test]
+    public function theTipUidIsNormalisedFromADriverSuppliedString(): void
+    {
+        $this->wireReads([['uid' => '7', 'entry_hash' => self::HASH_A], false]);
+
+        $this->expectInsertedValueStartingWith('nrvault-audit-tip.v1|7|' . self::HASH_A . '|');
+
+        self::assertTrue($this->subject()->arm($this->connection));
+    }
+
+    /**
+     * A tip row the reader cannot make sense of yields NO anchor rather than an
+     * invented one: an unusable uid must not fall back to a plausible-looking
+     * row number, and a malformed hash must not be signed at all. Both
+     * substitutions would MAC-attest a tip that does not exist.
+     *
+     * @param mixed $uid raw `uid` column value
+     * @param mixed $entryHash raw `entry_hash` column value
+     */
+    #[Test]
+    #[DataProvider('unusableTipRowProvider')]
+    public function armIgnoresATipRowItCannotRead(mixed $uid, mixed $entryHash): void
+    {
+        $this->wireReads([['uid' => $uid, 'entry_hash' => $entryHash], false]);
+
+        $this->connection->expects(self::never())->method('update');
+        $this->connection->expects(self::never())->method('insert');
+
+        self::assertFalse($this->subject()->arm($this->connection));
+    }
+
+    /**
+     * @return iterable<string, array{mixed, mixed}>
+     */
+    public static function unusableTipRowProvider(): iterable
+    {
+        yield 'uid is not numeric' => [null, self::HASH_A];
+        yield 'entry hash is malformed' => [5, 'not-a-sha256-digest'];
+    }
+
     // =====================================================================
     // Helpers
     // =====================================================================
+
+    /**
+     * Expect exactly one anchor INSERT whose stored value starts with $prefix.
+     */
+    private function expectInsertedValueStartingWith(string $prefix): void
+    {
+        $this->connection->expects(self::never())->method('update');
+        $this->connection
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                'sys_registry',
+                self::callback(static fn (array $data): bool => \is_string($data['entry_value'] ?? null)
+                    && str_starts_with($data['entry_value'], $prefix)),
+                ['entry_value' => Connection::PARAM_LOB],
+            );
+    }
+
+    private function subjectAtEpoch(int $epoch): AuditChainAnchorStore
+    {
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
+        $configuration->method('getAuditHmacEpoch')->willReturn($epoch);
+
+        return new AuditChainAnchorStore($this->connectionPool, $this->masterKeyProvider(), $configuration);
+    }
 
     private function subjectWithAnchorRequired(): AuditChainAnchorStore
     {
@@ -524,17 +777,26 @@ final class AuditChainAnchorStoreTest extends TestCase
         $expressionBuilder = self::createStub(ExpressionBuilder::class);
         $expressionBuilder->method('eq')->willReturn('c = :p');
 
-        $restrictions = self::createStub(QueryRestrictionContainerInterface::class);
-
-        $queryBuilder = self::createStub(QueryBuilder::class);
-        $queryBuilder->method('getRestrictions')->willReturn($restrictions);
+        $queryBuilder = $this->createMock(QueryBuilder::class);
+        $queryBuilder->method('getRestrictions')->willReturn($this->restrictions);
         $queryBuilder->method('expr')->willReturn($expressionBuilder);
         $queryBuilder->method('createNamedParameter')->willReturn(':p');
         $queryBuilder->method('select')->willReturnSelf();
         $queryBuilder->method('from')->willReturnSelf();
         $queryBuilder->method('where')->willReturnSelf();
         $queryBuilder->method('orderBy')->willReturnSelf();
-        $queryBuilder->method('setMaxResults')->willReturnSelf();
+        // Every read this class performs is a single-row lookup — the anchor
+        // row, the anchored audit row, the chain tip. The bound is checked here
+        // rather than in one test so that no call site can quietly grow a
+        // second row (an anchor "read" that returns two rows is a read whose
+        // result depends on row order) or lose the limit altogether.
+        $queryBuilder->method('setMaxResults')->willReturnCallback(
+            static function (?int $maxResults) use ($queryBuilder): QueryBuilder {
+                self::assertSame(1, $maxResults, 'every anchor-store read is a single-row lookup');
+
+                return $queryBuilder;
+            },
+        );
         $queryBuilder->method('executeQuery')->willReturn($result);
 
         $this->connection->method('createQueryBuilder')->willReturn($queryBuilder);
