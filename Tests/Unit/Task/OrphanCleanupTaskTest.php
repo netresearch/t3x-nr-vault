@@ -23,6 +23,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
+use RuntimeException;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
@@ -1023,6 +1024,95 @@ final class OrphanCleanupTaskTest extends TestCase
      * repository and vault service come from the shared mocks; a custom
      * LogManager may be supplied for log-assertion tests.
      */
+    /**
+     * The reference the task acts on comes from the secret's `metadata`
+     * column, which is editable through the FormEngine. A reference naming a
+     * table that does not exist is therefore attacker-supplied text, not
+     * evidence that a source record was removed — and "the source is gone" is
+     * a DELETE trigger. The existence check must fail CLOSED and keep the
+     * secret.
+     */
+    #[Test]
+    public function executeKeepsTheSecretWhenTheReferencedTableDoesNotExist(): void
+    {
+        $this->mockPage([
+            $this->createSecret(
+                'crafted__reference__1',
+                time() - 86400 * 30,
+                ['source' => 'tca_field', 'table' => 'no_such_table', 'field' => 'x', 'uid' => 1],
+            ),
+        ]);
+
+        $this->mockUnknownTable();
+
+        $this->vaultService->expects($this->never())->method('delete');
+
+        $task = $this->createTask();
+        $task->setTaskParameters(['nr_vault_retention_days' => 0]);
+
+        self::assertTrue($task->execute(), 'An unresolvable reference is not a task failure, just not a deletion.');
+    }
+
+    /**
+     * Same fail-closed rule for the other way the check can come up short:
+     * the lookup errors instead of answering.
+     */
+    #[Test]
+    public function executeKeepsTheSecretWhenTheExistenceLookupFails(): void
+    {
+        $this->mockPage([
+            $this->createSecret(
+                'tx_myext__api_key__1',
+                time() - 86400 * 30,
+                ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
+            ),
+        ]);
+
+        $this->mockLookupFailure();
+
+        $this->vaultService->expects($this->never())->method('delete');
+
+        $task = $this->createTask();
+        $task->setTaskParameters(['nr_vault_retention_days' => 0]);
+
+        self::assertTrue($task->execute());
+    }
+
+    /**
+     * An unresolvable reference must not pass silently — it is either a bug
+     * in a producer of the metadata or an attempt to nominate a secret for
+     * deletion, and both need to be visible to an operator.
+     */
+    #[Test]
+    public function executeWarnsWhenTheReferencedTableDoesNotExist(): void
+    {
+        $this->mockPage([
+            $this->createSecret(
+                'crafted__reference__1',
+                time() - 86400 * 30,
+                ['source' => 'tca_field', 'table' => 'no_such_table', 'field' => 'x', 'uid' => 1],
+            ),
+        ]);
+
+        $this->mockUnknownTable();
+
+        $this->logger
+            ->expects($this->once())
+            ->method('warning')
+            ->with(
+                self::stringContains('unknown table'),
+                self::callback(static fn (array $context): bool => ($context['table'] ?? null) === 'no_such_table'),
+            );
+
+        $logManager = $this->createMock(LogManager::class);
+        $logManager->method('getLogger')->willReturn($this->logger);
+
+        $task = $this->createTask($logManager);
+        $task->setTaskParameters(['nr_vault_retention_days' => 0]);
+
+        self::assertTrue($task->execute());
+    }
+
     private function createTask(?LogManager $logManager = null): OrphanCleanupTask
     {
         return new OrphanCleanupTask(
@@ -1045,6 +1135,44 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->secretRepository
             ->method('findPaginatedAfterUid')
             ->willReturn($secrets);
+    }
+
+    /**
+     * A connection pool whose schema manager reports the table as unknown —
+     * the shape a crafted `metadata` reference produces.
+     */
+    private function mockUnknownTable(): void
+    {
+        $schemaManager = $this->createMock(AbstractSchemaManager::class);
+        $schemaManager->method('tablesExist')->willReturn(false);
+
+        $connection = $this->createMock(Connection::class);
+        $connection->method('createSchemaManager')->willReturn($schemaManager);
+
+        $this->connectionPool
+            ->method('getConnectionByName')
+            ->willReturn($connection);
+
+        // Reaching the query builder at all would mean the task queried a
+        // table it just established does not exist.
+        $this->connectionPool
+            ->expects($this->never())
+            ->method('getQueryBuilderForTable');
+    }
+
+    /**
+     * A connection pool whose schema lookup throws, standing in for every way
+     * the existence check can fail short of answering.
+     */
+    private function mockLookupFailure(): void
+    {
+        $connection = $this->createMock(Connection::class);
+        $connection->method('createSchemaManager')
+            ->willThrowException(new RuntimeException('connection lost', 1754000001));
+
+        $this->connectionPool
+            ->method('getConnectionByName')
+            ->willReturn($connection);
     }
 
     private function mockRecordExists(int $uid, bool $exists): void

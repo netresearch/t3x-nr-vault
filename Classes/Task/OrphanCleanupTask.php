@@ -127,7 +127,7 @@ final class OrphanCleanupTask extends AbstractTask
 
                 // Only delete if the source record is gone AND the secret is
                 // older than the retention period.
-                if ($this->recordExists($connectionPool, $reference->table, $reference->uid) || $secret->getCrdate() >= $retentionCutoff) {
+                if ($this->recordExists($connectionPool, $logger, $reference->table, $reference->uid) || $secret->getCrdate() >= $retentionCutoff) {
                     continue;
                 }
 
@@ -242,26 +242,64 @@ final class OrphanCleanupTask extends AbstractTask
         );
     }
 
-    private function recordExists(ConnectionPool $connectionPool, string $table, int $uid): bool
-    {
-        $connection = $connectionPool->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
-        if (!$connection->createSchemaManager()->tablesExist([$table])) {
-            return false;
+    /**
+     * Does the referenced source record still exist?
+     *
+     * Fails CLOSED. Only a successful lookup against an existing table that
+     * returns no row may answer false, because false is a DELETE trigger:
+     * the caller reads it as "the source is gone, retire the secret". A
+     * reference the task cannot resolve — a table that does not exist, a
+     * lookup that errors — proves nothing about the source and must answer
+     * true, leaving the secret alone.
+     *
+     * This matters because the reference is not trusted input. It comes from
+     * the secret's `metadata` column, which is editable through the
+     * FormEngine; before this hardening a crafted table name was enough to
+     * make the scheduler delete a secret on the attacker's behalf, with the
+     * task as the recorded actor. `metadata` is a privileged column in
+     * `SecretTcaHook` for the same reason — both halves are needed: the gate
+     * keeps the payload out, this keeps an unresolvable payload from being
+     * read as evidence.
+     */
+    private function recordExists(
+        ConnectionPool $connectionPool,
+        LoggerInterface $logger,
+        string $table,
+        int $uid,
+    ): bool {
+        try {
+            $connection = $connectionPool->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
+            if (!$connection->createSchemaManager()->tablesExist([$table])) {
+                $logger->warning('Orphan reference names an unknown table; keeping the secret', [
+                    'table' => $table,
+                    'uid' => $uid,
+                ]);
+
+                return true;
+            }
+
+            $queryBuilder = $connectionPool->getQueryBuilderForTable($table);
+            $queryBuilder->getRestrictions()->removeAll();
+
+            $count = $queryBuilder
+                ->count('*')
+                ->from($table)
+                ->where(
+                    $queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)),
+                )
+                ->executeQuery()
+                ->fetchOne();
+
+            return $count > 0;
+        } catch (Throwable $e) {
+            $logger->warning('Orphan reference could not be resolved; keeping the secret', [
+                'table' => $table,
+                'uid' => $uid,
+                'error' => $e->getMessage(),
+            ]);
+
+            return true;
         }
-
-        $queryBuilder = $connectionPool->getQueryBuilderForTable($table);
-        $queryBuilder->getRestrictions()->removeAll();
-
-        $count = $queryBuilder
-            ->count('*')
-            ->from($table)
-            ->where(
-                $queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)),
-            )
-            ->executeQuery()
-            ->fetchOne();
-
-        return $count > 0;
     }
 
     private function getVaultService(): VaultServiceInterface
