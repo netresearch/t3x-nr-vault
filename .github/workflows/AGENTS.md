@@ -1,5 +1,5 @@
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-04-20 | Last verified: 2026-04-20 -->
+<!-- Last updated: 2026-08-02 | Last verified: 2026-08-02 -->
 
 # AGENTS.md — .github/workflows
 
@@ -9,13 +9,21 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 ## Key Files
 | File | Purpose |
 |------|---------|
-| `ci.yml` | Lint + PHPStan + PHPUnit (unit/functional/fuzz) matrix on PRs & main |
+| `ci.yml` | Extension-specific test matrix — a thin call into `typo3-ci-workflows/ci.yml` |
+| `checks.yml` | Security + quality jobs (security, gitleaks, zizmor, codeql, scorecard, fuzz, license-check, dependency-review, pr-quality, labeler). **Byte-identical and drift-enforced across every netresearch typo3-extension — never add a repo-specific job here** |
+| `security-gates.yml` | Mutation ratchet over `Classes/Crypto`, `Classes/Security`, `Classes/Audit` (`infection-security.json5`). Standalone precisely because `checks.yml` is drift-locked |
+| `check-template-drift.yml` | Verifies this repo still matches the `typo3-extension` template |
+| `docs.yml` | Renders `Documentation/` on PRs touching it |
 | `release.yml` | Tag-triggered TER publish + GitHub release assets |
+| `release-evidence.yml` | Publishes the security release-evidence bundle for a tag |
+| `republish.yml` | Manual re-run of a publish target (ter / docs / packagist) for an existing tag |
 | `auto-merge-deps.yml` | Auto-merge dependency PRs when CI green (Renovate/Dependabot) |
 | `community.yml` | Community health: labeler, stale bot, welcome |
 | `../labeler.yml` | PR auto-labeling rules |
+| `../dependabot.yml` | Dependabot ecosystems |
+| `../zizmor.yml` | zizmor audit configuration |
 | `../CODEOWNERS` | Code ownership |
-| `../renovate.json` | Renovate configuration |
+| `../../renovate.json` | Renovate configuration (repository root, not `.github/`) |
 
 ## Golden Samples
 | Pattern | Reference |
@@ -42,18 +50,26 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 .github/
 ├── workflows/
 │   ├── ci.yml
+│   ├── checks.yml            # drift-locked, shared across all typo3-extensions
+│   ├── check-template-drift.yml
+│   ├── security-gates.yml
+│   ├── docs.yml
 │   ├── release.yml
+│   ├── release-evidence.yml
+│   ├── republish.yml
 │   ├── auto-merge-deps.yml
 │   └── community.yml
-├── actions/                 # composite actions (if any)
+├── ISSUE_TEMPLATE/
+├── PULL_REQUEST_TEMPLATE.md
 ├── labeler.yml
-├── renovate.json
-├── CODEOWNERS
-└── pull_request_template.md (optional)
+├── dependabot.yml
+├── zizmor.yml
+├── template.yaml            # template identity for the drift check
+└── CODEOWNERS
 ```
 
 ## Code Style
-- **Pin every action to a full commit SHA** (not tags). Keep `# vX.Y.Z` comment next to the SHA.
+- **Pin every third-party action to a full commit SHA** (not tags). Keep `# vX.Y.Z` comment next to the SHA. **`netresearch/*` reusable workflows stay on `@main`** so upstream fixes propagate — do not SHA-pin those.
 - **Minimal permissions** on every workflow — declare `permissions: contents: read` by default, widen per-job only where needed.
 - **Reusable workflows** live under `.github/workflows/reusable-*.yml` or are centrally hosted.
 - **Naming**:
@@ -72,7 +88,8 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
   secrets:
     TER_TOKEN: ${{ secrets.TER_TOKEN }}
   ```
-- **Pin actions to commit SHAs** (not tags) — mitigates tag-hijack supply-chain attacks.
+- **Pin third-party actions to commit SHAs** (not tags) — mitigates tag-hijack supply-chain attacks.
+- **Secret scanning is enforced** — the `gitleaks` job in `checks.yml` runs on every PR against the root `.gitleaks.toml`; `zizmor` audits these workflow files themselves (config in `.github/zizmor.yml`).
 - **Mask dynamic values** with `::add-mask::` before logging.
 - **Environment protection** for release/deploy — require reviewers.
 - **OIDC** over long-lived credentials where possible.
@@ -80,7 +97,8 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 
 ## Checklist
 - [ ] `actionlint` clean
-- [ ] Actions pinned to full SHA with version comment
+- [ ] Third-party actions pinned to full SHA with version comment (`netresearch/*` reusables stay `@main`)
+- [ ] `checks.yml` untouched — repo-specific jobs go elsewhere or the drift check fails
 - [ ] `permissions:` block explicit and minimal
 - [ ] No `secrets: inherit` — explicit per-secret
 - [ ] Cache key uses lockfile/composer.json hash
