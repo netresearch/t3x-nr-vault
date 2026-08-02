@@ -118,8 +118,11 @@ must still hash to the anchored tip.
 its storage is trustworthy. An attacker who also holds ``DELETE`` on
 ``sys_registry`` can remove the in-database anchor, which then reads as "not
 armed" rather than as a violation; :confval:`ext-nrvault-auditAnchorRequired`
-is what closes that, because it lives in a configuration file and turns a
-missing anchor into a critical finding the database cannot silence. An anchor
+is what closes that, turning a missing anchor into a critical finding a
+database writer cannot silence. It lives in the extension configuration, so a
+database-write attacker cannot reach it — but unlike ``disableAdminOverride``
+it accepts no ``$TYPO3_CONF_VARS`` pin, so a compromised administrator can
+still clear it from the Settings module. An anchor
 file on a host the attacker owns can likewise be truncated, so anchors shipped
 off-host through syslog or a webhook are what makes the external property
 real. And in every case: **tamper-evident, not tamper-proof.**

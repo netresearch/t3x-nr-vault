@@ -333,6 +333,28 @@ Because the counters are per-request, they are a signal for a health check or a
 custom listener, not a long-term metric. For trends, count ``SINK_FAILURE``
 alerts in the SIEM.
 
+.. _operations-monitoring-delivery-state:
+
+Persisted delivery state
+========================
+
+The per-request counters are not the whole picture. The sink registry also
+**persists** each sink's delivery state — last success, last failure, the
+error text, and the consecutive-failure count — in ``sys_registry``. A freshly
+started process therefore still knows that a collector has been unreachable
+for days, which no request-scoped counter can tell you.
+
+``vault:doctor`` surfaces it as one ``audit.sink_state.<sink>`` finding per
+enabled sink, warning under the standard profile and critical under hardened.
+A sink counts as stale once its last successful delivery is older than
+:confval:`ext-nrvault-auditSinkStaleDeliveryHours` (default 24). A sink that
+is enabled but has never delivered successfully is reported as such rather
+than as healthy.
+
+This is the state to monitor for "the audit pipeline is quietly broken",
+because it survives process boundaries and does not depend on anyone having
+been watching when the failure happened.
+
 .. _operations-monitoring-doctor:
 
 Periodic ``vault:doctor``
@@ -349,3 +371,18 @@ permissions change, a sink URL is edited.
 The exit code is the contract: ``0`` pass, ``1`` warnings, ``2`` critical.
 Alert on ``2``, ticket on ``1``, and — as with the verify task — alert on the
 check not having run at all.
+
+The scheduled run above is passive: it reads state, it does not test
+delivery. To prove end-to-end that every enabled sink still *accepts*
+evidence, add a less frequent run with active probes:
+
+..  code-block:: bash
+
+    vendor/bin/typo3 vault:doctor --active-probes --format=json
+
+This pushes the current chain-tip anchor through every enabled sink — a
+webhook collector must answer 2xx — and emits one
+``audit.sink_probe.<sink>`` finding each. It talks to external systems and
+writes delivery state, so it is never run implicitly, neither by the passive
+checks nor by the backend status panel. Schedule it daily rather than every
+few minutes, and keep the passive run for the frequent one.

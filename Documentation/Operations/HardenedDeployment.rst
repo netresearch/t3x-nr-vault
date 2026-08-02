@@ -165,18 +165,21 @@ ownership and group tiers still apply — see
 
 ..  note::
 
-    The table above grants *named* backend groups. If ``allowCliAccess`` has
-    to stay on for a deployment pipeline, the unattributed CLI actor is
-    granted separately by
-    :confval:`ext-nrvault-cliAllowedOperations`, which defaults to
-    ``secret.use,secret.create,secret.rotate``. Keep it at or below that:
-    every high-risk operation added there (``secret.reveal``,
-    ``secret.delete``, ``audit.export``, ``master_key.rotate``,
-    ``vault.configure``) becomes available to anyone with a shell on the
-    host, under an actor the audit trail cannot name. Prefer a named
-    technical actor — :ref:`developer-technical-actor-context` — for those
-    workflows. ``vault:doctor`` reports the list as
-    ``cli.allowed_operations``.
+    The table above grants *named* backend groups. Under this profile
+    ``allowCliAccess = 1`` is itself a **critical** doctor finding, so a
+    deployment that leaves it on does not pass Step 7's gate.
+
+    If it has to stay on anyway, the unattributed CLI actor is granted
+    separately by :confval:`ext-nrvault-cliAllowedOperations`, which defaults
+    to ``secret.use,secret.create,secret.rotate``. Keep it at or below that,
+    and scope ``cliAccessGroups`` as well. Of the high-risk entries,
+    ``secret.reveal``, ``secret.delete`` and ``master_key.rotate`` directly
+    hand ``vault:retrieve``, ``vault:delete`` and ``vault:rotate-master-key``
+    to anyone with a shell on the host, under an actor the audit trail cannot
+    name; ``audit.export`` and ``vault.configure`` gate the corresponding
+    backend actions. Prefer a named technical actor —
+    :ref:`developer-technical-actor-context` — for those workflows.
+    ``vault:doctor`` reports the list as ``cli.allowed_operations``.
 
 .. _operations-hardened-deployment-step4:
 
@@ -254,10 +257,15 @@ arms itself on the next audit write; confirm it did, then require it:
 
 Order matters. Turned on before the anchor is armed, every verification
 reports a violation: an install that never had an anchor and one whose anchor
-an attacker deleted look identical. Once on, the requirement lives in a
-configuration file rather than the database, so a database-write attacker can
-no longer silence the control by deleting the row. ``vault:doctor`` reports
-the state as ``audit.db_anchor``.
+an attacker deleted look identical. Once on, the requirement lives in the
+extension configuration rather than in a table, so a database-write attacker
+can no longer silence the control by deleting the anchor row.
+``vault:doctor`` reports the state as ``audit.db_anchor``.
+
+Unlike ``disableAdminOverride`` and ``frontendPlaceholderLegacyCli``, this
+setting accepts **no** ``$TYPO3_CONF_VARS`` pin — only those three keys do —
+so a compromised administrator can still clear it from the Settings module.
+It closes the database-writer path, not the backend-administrator one.
 
 .. _operations-hardened-deployment-step6:
 
@@ -282,6 +290,23 @@ configured in — a compromised administrator can untick a checkbox:
     :caption: config/system/additional.php
 
     $GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['disableAdminOverride'] = true;
+
+    // Pin the strict CLI placeholder policy off-limits too (ADR-035). The
+    // value below is the DEFAULT — pinning false is what stops an
+    // administrator from turning the legacy CLI bypass back on. A deployment
+    // that genuinely needs the old behaviour pins true instead.
+    $GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['frontendPlaceholderLegacyCli'] = false;
+
+Only three settings accept such a pin: ``disableAdminOverride``,
+``frontendPlaceholderLegacyCli`` and ``auditReads``. Everything else in the
+hardened set stays editable from the Settings module by whoever holds
+``vault.configure``.
+
+``frontendPlaceholderLegacyCli`` matters here because
+:bash:`scheduler:run` authenticates the ``_cli_`` administrator: the admin
+bypass grants the read, so the allow-set is the only remaining gate between an
+editor-authored ``tt_content`` field and a secret in the output of a scheduled
+newsletter or export job.
 
 The pinned value wins in both directions and requires filesystem access to
 change. Confirm it took effect:
@@ -400,6 +425,12 @@ configuration is coherent; these steps say the deployment works.
       still can, the flag is not effective, and ``--status`` will show why.
 *   [ ] The audit module is reachable by a group holding ``audit.view`` and not
       by one without it.
+*   [ ] The strict CLI placeholder policy is in force: put a
+      ``%vault(id)%`` placeholder for a ``frontend_accessible`` secret into an
+      editor-editable field, run a scheduled render over it
+      (:bash:`scheduler:run`), and confirm the placeholder does **not**
+      resolve. If it does, ``frontendPlaceholderLegacyCli`` is on — check the
+      pin.
 
 **Audit pipeline**
 
@@ -439,7 +470,8 @@ Configuration summary
     masterKeyProvider = file        # or env / transit — never typo3
     masterKeySource = /var/lib/typo3-secrets/vault-master.key
 
-    allowCliAccess = 0              # default; enable only for a specific need
+    allowCliAccess = 0              # default; 1 is a CRITICAL doctor finding
+                                    # under --profile=hardened, i.e. exit 2
     cliAllowedOperations = secret.use,secret.create,secret.rotate
                                     # default; only read when allowCliAccess = 1
     frontendPlaceholderLegacyCli = 0  # default; pin it in additional.php

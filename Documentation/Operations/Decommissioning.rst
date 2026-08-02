@@ -43,10 +43,18 @@ database level once the audit-retention obligations below are satisfied:
 ..  code-block:: sql
     :caption: Only after the evidence export is complete and verified
 
-    -- Secrets, including soft-deleted rows.
+    -- Secrets, including soft-deleted rows, and their two ACL relation
+    -- tables. Dropping only the secret table leaves the MM rows behind.
     DROP TABLE tx_nrvault_secret;
+    DROP TABLE tx_nrvault_secret_begroups_mm;
+    DROP TABLE tx_nrvault_secret_writegroups_mm;
     -- Audit chain. Check your retention obligations FIRST.
     DROP TABLE tx_nrvault_audit_log;
+
+    -- Vault state also lives in the core registry: the chain tip anchor,
+    -- and the break-glass session plus per-sink delivery state.
+    DELETE FROM sys_registry WHERE entry_namespace = 'tx_nrvault_audit_anchor';
+    DELETE FROM sys_registry WHERE entry_namespace = 'tx_nrvault';
 
 ..  note::
 
@@ -213,7 +221,9 @@ Installation cleanup
     model nobody reviewed.
 *   **Unpin the settings.** Remove the
     :php:`$GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']` entries from
-    :file:`config/system/additional.php`.
+    :file:`config/system/additional.php`, and the extension configuration
+    block itself from :file:`config/system/settings.php` — the pins are only
+    the part that lives in ``additional.php``.
 *   **Remove the extension**, and remember that removing it does not remove
     its tables.
 *   **Clean up the KMS side** if ``transit`` was used: revoke the token, remove

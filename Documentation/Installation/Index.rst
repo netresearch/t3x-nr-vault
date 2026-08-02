@@ -63,7 +63,12 @@ Update the database schema to create the required tables:
 This creates the following tables:
 
 -  :sql:`tx_nrvault_secret` - Stores encrypted secrets with metadata.
+-  :sql:`tx_nrvault_secret_begroups_mm` - Read-tier group relations.
+-  :sql:`tx_nrvault_secret_writegroups_mm` - Write-tier group relations.
 -  :sql:`tx_nrvault_audit_log` - Stores audit log entries with hash chain.
+
+The chain tip anchor, the break-glass session and the per-sink delivery state
+live in core's :sql:`sys_registry` rather than in a table of their own.
 
 .. _installation-master-key:
 
@@ -71,7 +76,7 @@ Master key setup
 ================
 
 nr-vault requires a master encryption key to protect your secrets. There are
-three options, from simplest to most configurable:
+four options, from simplest to most configurable:
 
 .. _installation-master-key-typo3:
 
@@ -170,16 +175,22 @@ Verify the installation by listing secrets (should return empty if newly install
 
 If the command executes without errors, the extension is properly configured.
 
-You can also test by storing and retrieving a test secret:
+You can also test by storing and retrieving a test secret. Note that this
+probe needs CLI access that is **off by default**: :confval:`allowCliAccess
+<ext-nrvault-allowCliAccess>` must be on, and ``secret.reveal`` and
+``secret.delete`` must be added to :confval:`cliAllowedOperations
+<ext-nrvault-cliAllowedOperations>`, which excludes both. If you would rather
+not widen that for a smoke test, create and reveal a secret in the backend
+module instead — it exercises the same encrypt and decrypt path.
 
 .. code-block:: bash
    :caption: Test vault functionality
 
-   # Store a test secret
+   # Store a test secret (needs allowCliAccess; secret.create is in the default allowlist)
    vendor/bin/typo3 vault:store test_secret --value="test-value"
 
-   # Retrieve it
+   # Retrieve it (additionally needs secret.reveal in cliAllowedOperations)
    vendor/bin/typo3 vault:retrieve test_secret
 
-   # Clean up
+   # Clean up (additionally needs secret.delete in cliAllowedOperations)
    vendor/bin/typo3 vault:delete test_secret --force

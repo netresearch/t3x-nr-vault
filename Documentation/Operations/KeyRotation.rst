@@ -89,8 +89,10 @@ Preflight
 The command performs these checks itself, in this order, and each one aborts:
 
 #.  **Permission.** ``master_key.rotate`` must be granted. On CLI without a
-    backend user this means ``allowCliAccess = 1``; as a backend user it means
-    the admin override or an explicit group grant.
+    backend user that means ``allowCliAccess = 1`` **and** ``master_key.rotate``
+    listed in :confval:`ext-nrvault-cliAllowedOperations`, which excludes it by
+    default; as a backend user it means the admin override or an explicit group
+    grant.
 #.  **Keys must differ.** Compared with :php:`hash_equals()`. Identical keys
     are refused as *"Nothing to rotate."*
 #.  **Inventory.** Vault secrets are counted, and so are consumer-owned
@@ -219,7 +221,9 @@ Verification
     # 1. The provider resolves and the configuration is coherent.
     vendor/bin/typo3 vault:doctor --format=json
 
-    # 2. Plaintext comes back — the real proof.
+    # 2. Plaintext comes back — the real proof. On the CLI this needs
+    #    allowCliAccess = 1 AND secret.reveal in cliAllowedOperations;
+    #    a reveal in the backend module proves the same decrypt path.
     vendor/bin/typo3 vault:retrieve <a-known-identifier>
 
     # 3. The chain verifies under the new key, end to end.
@@ -227,6 +231,11 @@ Verification
 
     # 4. Anchor the new tip; the old anchor's baseline is now stale.
     vendor/bin/typo3 vault:audit-anchor
+
+    # 5. The in-database anchor is re-sealed by the rotation itself. Confirm
+    #    it reads "Tip anchor: ok" — a re-key that left it UNREADABLE means
+    #    the re-seal did not complete, and that is a finding, not a nuisance.
+    vendor/bin/typo3 vault:audit --verify
 
 Probe at least two secrets, and pick them from different encryption versions
 if the installation has both — see

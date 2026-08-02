@@ -347,7 +347,8 @@ Data flow
 ---------
 
 1. **Form display**: The :php:`VaultSecretElement` renders an obfuscated
-   password field with reveal/copy buttons.
+   password field with a reveal button, plus a copy button outside the
+   hardened profile.
 
 2. **Form submit**: The :php:`DataHandlerHook` intercepts the form data:
 
