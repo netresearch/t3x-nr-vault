@@ -176,8 +176,11 @@ unbroken chain:
        return hash_hmac('sha256', $data, $hmacKey);
    }
 
-   public function verifyHashChain(?int $fromUid = null, ?int $toUid = null): array
-   {
+   public function verifyHashChain(
+       ?int $fromUid = null,
+       ?int $toUid = null,
+       ?int $minEpoch = null,
+   ): HashChainVerificationResult {
        $entries = $this->getEntriesInRange($fromUid, $toUid);
        $errors = [];
 
@@ -194,8 +197,16 @@ unbroken chain:
            }
        }
 
-       return ['valid' => empty($errors), 'errors' => $errors];
+       return $errors === []
+           ? HashChainVerificationResult::valid(...)
+           : HashChainVerificationResult::invalid(...);
    }
+
+The return value is a :php:`HashChainVerificationResult` value object, not an
+array. Besides ``errors`` it carries ``warnings``, the missing-uid set and its
+count, and — since :ref:`adr-034-audit-chain-tip-anchor` — the
+``anchorStatus`` verdict for the in-database chain tip, which an array shape
+had no room for.
 
 Database schema
 ---------------
@@ -285,7 +296,11 @@ AuditLogService
 
        public function count(?AuditLogFilter $filter = null): int;
 
-       public function verifyHashChain(?int $fromUid = null, ?int $toUid = null): array;
+       public function verifyHashChain(
+           ?int $fromUid = null,
+           ?int $toUid = null,
+           ?int $minEpoch = null,
+       ): HashChainVerificationResult;
 
        public function export(?AuditLogFilter $filter = null): array;
    }

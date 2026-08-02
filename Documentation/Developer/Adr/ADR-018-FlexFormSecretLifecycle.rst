@@ -49,10 +49,22 @@ record lifecycle operations:
    deleted, automatically clean up (delete) the associated vault secrets.
 -  **Copy hook**: When a record is copied, generate fresh UUIDs for all
    vault secret references in the new record and duplicate the secret
-   values under the new identifiers.
+   values under the new identifiers. If any one duplication fails, the
+   secrets already cloned for that copy are deleted again and *every* vault
+   field of the new record is blanked, so a copy never silently shares the
+   source record's secrets. If the blanking itself fails, the editor is told
+   the new record may still reference them.
 
 This ensures vault secrets follow the same lifecycle as the records that
 own them.
+
+..  note::
+
+    The decision is written from the FlexForm case, but the shipped
+    lifecycle hooks are not FlexForm-specific: :php:`DataHandlerHook` applies
+    the same fail-closed copy and delete semantics to plain TCA vault fields,
+    while :php:`FlexFormVaultHook` handles the FlexForm shape. Read the
+    consequences below as covering both.
 
 Consequences
 ============
@@ -75,8 +87,12 @@ Negative
    layer.
 -  **Copy overhead**: Copying a record with many vault secrets requires
    additional vault write operations for each secret duplication.
--  **Cascade risk**: Bulk delete operations trigger cascading vault
-   deletions; failures mid-batch could leave partial state.
+-  **Fail-closed cascade**: a vault delete that fails — including one that is
+   *denied* — cancels the record delete rather than leaving partial state, and
+   the failure surfaces to the editor. Deleting the record while its secret
+   survived would orphan the secret and hide the failed delete behind an
+   apparently successful record removal. The cost is that a record cannot be
+   removed while its secret delete is refused.
 
 Related decisions
 =================

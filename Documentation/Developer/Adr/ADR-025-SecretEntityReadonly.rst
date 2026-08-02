@@ -85,6 +85,13 @@ return value if they need the UID — the input is readonly.
 Same shape applied to ``VaultAdapterInterface::store(Secret $secret): Secret``
 so events fired after ``adapter->store()`` see the populated UID.
 
+Both later gained a ``bool $persistGroupRelations = true`` parameter for the
+two-tier MM handling. Passing ``false`` leaves the record's group tiers
+untouched — MM rows and count columns alike — which the FormEngine completion
+path needs so it does not overwrite ACL relations DataHandler has already
+written. The decision recorded here, returning a new instance rather than
+mutating a readonly one, is unaffected.
+
 Consequences
 ============
 

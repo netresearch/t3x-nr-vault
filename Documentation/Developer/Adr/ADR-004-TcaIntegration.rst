@@ -164,7 +164,9 @@ DataHandler hook
            }
        }
 
-       // After save: Store secrets with correct UID
+       // After save: Store secrets with correct UID. The shipped hook
+       // delegates this to PendingSecretPersister, which rolls the field
+       // value back and reports to the editor when the store is refused.
        public function processDatamap_afterDatabaseOperations(...): void
        {
            foreach ($this->pendingSecrets[$table][$id] as $field => $data) {
@@ -202,6 +204,15 @@ Separate hook for FlexForm fields due to different data structure:
            // Same UUID-based approach as TCA fields
            // Store metadata: flexField, sheet, fieldPath
        }
+
+       // Store the pending secrets once the record has its final UID
+       public function processDatamap_afterDatabaseOperations(...): void;
+
+       // Before delete: remove the secrets the FlexForm references
+       public function processCmdmap_deleteAction(...): void;
+
+       // After copy: re-key the copied FlexForm onto fresh identifiers
+       public function processCmdmap_postProcess(...): void;
    }
 
 TCA configuration
@@ -245,17 +256,26 @@ Data flow
    1. DataHandlerHook.preProcess extracts secret value
    2. Generates UUID v7 identifier (see ADR-001)
    3. Sets field value to UUID (for database)
-   4. DataHandlerHook.afterDatabaseOperations stores secret in vault
+   4. DataHandlerHook.afterDatabaseOperations delegates to
+      PendingSecretPersister, which stores the secret in the vault
+   5. On refusal: the field value is rolled back, VaultFailureReporter tells
+      the editor, and no success audit entry survives
 
    Record Delete:
    1. DataHandlerHook.processCmdmap_preProcess finds vault fields
    2. Retrieves UUIDs from record
-   3. Deletes corresponding vault secrets
+   3. Asserts every field's delete gate BEFORE removing the first secret
+   4. Deletes corresponding vault secrets
+   5. On failure: processCmdmap cancels the record delete, so the record and
+      its surviving secret stay together rather than orphaning either
 
    Record Copy:
    1. DataHandlerHook.processCmdmap_postProcess detects copy
    2. Retrieves source secrets by UUID
    3. Creates new secrets with new UUIDs for copied record
+   4. On failure: the secrets already cloned are deleted again and every
+      vault field of the new record is blanked, so the copy never shares the
+      source record's secrets
 
 Runtime resolution
 ------------------
@@ -265,11 +285,16 @@ Runtime resolution
 
    use Netresearch\NrVault\Utility\VaultFieldResolver;
 
+   // VaultFieldResolver is a DI service, not a static utility — inject it.
+   public function __construct(
+       private readonly VaultFieldResolver $vaultFieldResolver,
+   ) {}
+
    // Resolve specific fields
-   $resolved = VaultFieldResolver::resolveFields($record, ['api_key']);
+   $resolved = $this->vaultFieldResolver->resolveFields($record, ['api_key']);
 
    // Auto-detect vault fields from TCA
-   $resolved = VaultFieldResolver::resolveRecord('tx_myext_settings', $record);
+   $resolved = $this->vaultFieldResolver->resolveRecord('tx_myext_settings', $record);
 
 Consequences
 ============

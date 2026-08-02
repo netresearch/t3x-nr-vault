@@ -59,7 +59,7 @@ ADR      Title                                                    Status
 032      :ref:`adr-032-portable-envelope-codec`                   Accepted
 033      :ref:`adr-033-foreign-envelope-rotation`                 Accepted
 034      :ref:`adr-034-audit-chain-tip-anchor`                    Accepted
-035      :ref:`adr-035-frontend-placeholder-allow-set`            Accepted
+035      :ref:`adr-035-frontend-placeholder-allow-set`            Amended
 =======  =======================================================  ========
 
 .. toctree::

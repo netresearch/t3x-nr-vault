@@ -368,11 +368,10 @@ round-trip plus new ``ext_conf_template.txt`` surface. (Still rejected as an
 context rule, and it publishes no identifier.)
 
 **A per-request resolution cap.** An arbitrary constant that degrades a
-legitimate page in production, for a case the code already handles:
-``VaultService::retrieve()`` short-circuits on its request-scoped cache, which is
-on by default. Memoising resolved values inside the listener is likewise
-rejected — an operator who disables that cache has deliberately chosen per-read
-auditing, and the listener must not override that choice.
+legitimate page in production. Memoising resolved values inside the listener is
+likewise rejected: ``VaultService`` holds no plaintext cache (the request-scoped
+one was removed on 2026-08-01), and one audit ``Read`` row per resolution is the
+deliberate contract, not an artefact the listener may optimise away.
 
 **A** ``legacy`` **opt-out switch for the whole policy.** One config key that
 restores the vulnerable behaviour everywhere is one edit away from being set
@@ -401,9 +400,9 @@ Residual risk
 -  **A bare placeholder in a Fluid template file** stops resolving without A3 or
    A4. Such a placeholder was already inconsistent: a ``FLUIDTEMPLATE`` without a
    ``stdWrap.`` sub-array never reached the listener at all.
--  **Repeat resolution of an allow-listed identifier** still writes one audit
-   ``Read`` row per occurrence when the request-scoped cache is disabled.
-   Pre-existing, and strictly narrower afterwards.
+-  **Repeat resolution of an allow-listed identifier** writes one audit
+   ``Read`` row per occurrence, unconditionally — there is no plaintext cache
+   to absorb the repeats. Pre-existing, and strictly narrower afterwards.
 -  **A2 trusts a core ACL** that v13.4 still marks ``@todo implement
    access=user`` on the site-settings module. If core opens site settings to
    non-admins, A2 must be dropped. Pinned as a comment at the A2 collector.

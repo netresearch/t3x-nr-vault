@@ -44,6 +44,18 @@ The chain proves that *what is there* was not altered. Nothing in the database
 proved *how much should be there*, because any counter kept inside the same
 table is deleted along with the rows.
 
+..  note::
+
+    Two anchors exist and they are different mechanisms. This ADR covers the
+    **in-database** anchor in ``sys_registry``, driven by ``vault:audit
+    --verify`` and ``vault:audit --reset-anchor`` and reported as the
+    ``audit.db_anchor`` readiness control. The **external** anchor published
+    to the audit sinks is :php:`ChainTipAnchorService`, driven by
+    ``vault:audit-anchor`` and ``vault:audit-verify`` and reported as
+    ``audit.anchor``. The in-database anchor still works when no sink is
+    configured; the external one survives an attacker who owns the whole
+    database. Neither replaces the other.
+
 Decision
 ========
 
@@ -86,9 +98,16 @@ the hash comparison catches it: the refilled row ``A`` carries a different
 -------------------------------------------
 
 The anchor lives in the core table ``sys_registry``
-(``entry_namespace = 'tx_nrvault'``, ``entry_key = 'auditChainTip'``), reached
-exclusively through our own Doctrine QueryBuilder in
+(``entry_namespace = 'tx_nrvault_audit_anchor'``, ``entry_key =
+'auditChainTip'``), reached exclusively through our own Doctrine QueryBuilder in
 ``Classes/Audit/AuditChainAnchorStore.php``.
+
+It gets its **own** namespace, never ``tx_nrvault``. The anchor value is
+deliberately raw rather than PHP-serialized, while core's ``Registry::get()``
+unserializes every row of a namespace it loads. Other extension state — the
+break-glass session, the per-sink delivery state — lives in ``tx_nrvault``
+via the core Registry API, so sharing a namespace with the raw anchor would
+make every one of those reads throw a ``DeserializerException``.
 
 Two alternatives were considered and rejected, both of which created a new table
 ``tx_nrvault_audit_anchor`` in ``ext_tables.sql``:
@@ -293,10 +312,12 @@ lock and transaction that ``log()`` already opens, ``advance()`` runs up to
 three statements against indexed columns:
 
 #. the ``sys_registry`` row read (unique key ``entry_identifier``);
-#. one of — the anchored row's ``entry_hash`` by primary key (anchor present),
-   or the "is there a row below this tip" probe (anchor absent and
-   ``auditAnchorRequired`` on);
+#. the anchored row's ``entry_hash`` by primary key, when an anchor is present;
 #. the INSERT or UPDATE of the anchor row, skipped whenever a guard declines.
+
+An absent anchor costs the registry read alone: with ``auditAnchorRequired``
+on, ``advance()`` returns immediately rather than probing the chain, because
+it refuses to arm implicitly either way.
 
 A full-chain verification adds the ``sys_registry`` read, one primary-key
 lookup, and — only when the tip hash mismatches — a second ``sys_registry`` read
