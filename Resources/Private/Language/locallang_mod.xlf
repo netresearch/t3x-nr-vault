@@ -1241,6 +1241,17 @@
       <trans-unit id="accessDenied.hint">
         <source>Ask an administrator to grant this permission to one of your backend user groups (Backend Users module, "Vault: operation permissions").</source>
       </trans-unit>
+
+      <!-- Access denied (permission held, but not for this one secret) -->
+      <trans-unit id="accessDenied.secret.message">
+        <source>You do not have write access to this secret.</source>
+      </trans-unit>
+      <trans-unit id="accessDenied.secret.explanation">
+        <source>No vault permission is missing — you hold the one this action needs. Access to an individual secret is decided by its owner and by the backend user groups listed in its write access tier.</source>
+      </trans-unit>
+      <trans-unit id="accessDenied.secret.hint">
+        <source>Ask the owner of the secret to add one of your backend user groups to its write access tier, or to carry out the change for you.</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>

@@ -311,7 +311,7 @@ final readonly class SecretsController
                 return new JsonResponse(['success' => false, 'error' => 'Access denied'], 403);
             }
 
-            return $this->accessGuard->deniedResponse($request, VaultPermission::SecretManagePolicy);
+            return $this->accessGuard->deniedForSecretResponse($request);
         }
 
         try {

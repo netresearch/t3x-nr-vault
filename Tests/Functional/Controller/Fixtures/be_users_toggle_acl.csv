@@ -5,3 +5,4 @@
 ,"uid","username","password","admin","disable","starttime","endtime","usergroup"
 ,3,"policy_holder","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"12"
 ,4,"secret_owner","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"12"
+,5,"no_permissions","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,""

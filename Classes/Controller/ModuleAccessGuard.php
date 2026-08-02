@@ -90,12 +90,39 @@ final readonly class ModuleAccessGuard
         ServerRequestInterface $request,
         VaultPermission $required,
     ): ResponseInterface {
+        return $this->renderDenied($request, $required->value);
+    }
+
+    /**
+     * Render the module-shaped 403 for an action refused on ONE secret.
+     *
+     * The actor passed the operation permission gate — the refusal comes from
+     * the secret's own tiers (owner / write groups). Reusing deniedResponse()
+     * here would name a permission the actor demonstrably holds, sending both
+     * the operator and whoever picks up the ticket after a grant that is
+     * already in place. Deliberately says nothing about WHICH secret: the page
+     * carries no identifier, so it cannot become a disclosure channel, and the
+     * audit entry the caller writes is where the identifier belongs.
+     */
+    public function deniedForSecretResponse(ServerRequestInterface $request): ResponseInterface
+    {
+        return $this->renderDenied($request, null);
+    }
+
+    /**
+     * @param string|null $requiredPermission the missing permission, or null
+     *                                        when the refusal is per-secret
+     */
+    private function renderDenied(
+        ServerRequestInterface $request,
+        ?string $requiredPermission,
+    ): ResponseInterface {
         $lang = $this->getLanguageService();
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
         $moduleTemplate->setTitle($lang->sL(self::LL_PREFIX . 'accessDenied.title'));
         $moduleTemplate->assignMultiple([
-            'requiredPermission' => $required->value,
+            'requiredPermission' => $requiredPermission,
         ]);
 
         return $moduleTemplate->renderResponse('AccessDenied')->withStatus(403);
