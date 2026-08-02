@@ -372,6 +372,12 @@ Notes on the model:
    faces the same gates as the secrets module. Editors whose forms
    write vault-backed TCA fields need ``secret.create`` /
    ``secret.rotate`` in addition to ``secret.use``.
+   Creating a ``tx_nrvault_secret`` record asserts ``secret.create``
+   even when no value is submitted. That one case cannot go through
+   the service — no value means no ``store()`` call — so
+   :php:`SecretTcaHook` gates it in
+   ``processDatamap_preProcessFieldArray()``, refusing the record
+   before DataHandler inserts it rather than deleting it afterwards.
 -  **Technical actors** (``TechnicalActorContext::runAs()``) hold
    ``secret.use`` implicitly — headless consumption is their purpose —
    and every other operation permission only if one of their

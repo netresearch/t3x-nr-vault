@@ -80,6 +80,14 @@ final class SecretTcaHookTest extends TestCase
         // privileged-column policy. Policy-specific tests override this.
         $this->accessControlService->method('isCurrentActorAdmin')->willReturn(true);
 
+        // ... and let that actor create. The create gate refuses a NEW record
+        // outright (the field array is nulled and core skips the record), so
+        // without these the normalisation tests below would assert against a
+        // record that never got normalised. The gate has its own tests, each
+        // building its own access-control mock.
+        $this->accessControlService->method('canCreate')->willReturn(true);
+        $this->accessControlService->method('isGranted')->willReturn(true);
+
         $this->hook = new SecretTcaHook(
             $this->vaultService,
             $this->auditService,
@@ -150,6 +158,7 @@ final class SecretTcaHookTest extends TestCase
             $dataHandler,
         );
 
+        self::assertIsArray($fieldArray);
         self::assertSame(42, $fieldArray['owner_uid']);
     }
 
@@ -168,6 +177,7 @@ final class SecretTcaHookTest extends TestCase
             $dataHandler,
         );
 
+        self::assertIsArray($fieldArray);
         self::assertSame(100, $fieldArray['scope_pid']);
     }
 
@@ -186,6 +196,7 @@ final class SecretTcaHookTest extends TestCase
             $dataHandler,
         );
 
+        self::assertIsArray($fieldArray);
         self::assertSame(15, $fieldArray['owner_uid']);
     }
 
@@ -239,6 +250,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         // Integer should pass through unchanged
+        self::assertIsArray($fieldArray);
         self::assertSame(42, $fieldArray['owner_uid']);
     }
 
@@ -258,6 +270,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         // Should remain as string without conversion (no 'pages' in value)
+        self::assertIsArray($fieldArray);
         self::assertSame('99', $fieldArray['scope_pid']);
     }
 
@@ -341,9 +354,13 @@ final class SecretTcaHookTest extends TestCase
     public function nonAdminCreatingNewRecordCannotAssignForeignOwnerUid(): void
     {
         // Fresh hook with a NON-admin actor (uid 7); setUp() defaults to admin.
+        // The actor holds secret.create — this test is about WHOSE name the
+        // created record carries, not about whether it may be created.
         $accessControl = $this->createMock(AccessControlServiceInterface::class);
         $accessControl->method('isCurrentActorAdmin')->willReturn(false);
         $accessControl->method('getCurrentActorUid')->willReturn(7);
+        $accessControl->method('canCreate')->willReturn(true);
+        $accessControl->method('isGranted')->willReturn(true);
 
         $hook = new SecretTcaHook(
             $this->vaultService,
@@ -367,6 +384,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         // owner_uid must be forced to the current backend user (7), not 42.
+        self::assertIsArray($fieldArray);
         self::assertSame(7, $fieldArray['owner_uid']);
     }
 
@@ -380,6 +398,8 @@ final class SecretTcaHookTest extends TestCase
         $accessControl = $this->createMock(AccessControlServiceInterface::class);
         $accessControl->method('isCurrentActorAdmin')->willReturn(false);
         $accessControl->method('getCurrentActorUid')->willReturn(7);
+        $accessControl->method('canCreate')->willReturn(true);
+        $accessControl->method('isGranted')->willReturn(true);
 
         $hook = new SecretTcaHook(
             $this->vaultService,
@@ -401,6 +421,7 @@ final class SecretTcaHookTest extends TestCase
             $dataHandler,
         );
 
+        self::assertIsArray($fieldArray);
         self::assertSame(7, $fieldArray['owner_uid']);
     }
 
@@ -421,7 +442,297 @@ final class SecretTcaHookTest extends TestCase
             $dataHandler,
         );
 
+        self::assertIsArray($fieldArray);
         self::assertSame(42, $fieldArray['owner_uid']);
+    }
+
+    /**
+     * The gate this suite exists for: a create whose value is empty never
+     * reaches VaultService::store(), where both create gates live, so it has
+     * to be refused before DataHandler inserts anything.
+     */
+    #[Test]
+    public function preProcessRefusesAValuelessCreateWithoutTheSecretCreatePermission(): void
+    {
+        $accessControl = $this->createMock(AccessControlServiceInterface::class);
+        $accessControl->method('isCurrentActorAdmin')->willReturn(false);
+        $accessControl->method('getCurrentActorUid')->willReturn(7);
+        $accessControl->method('canCreate')->willReturn(true);
+        $accessControl->expects($this->once())
+            ->method('isGranted')
+            ->with(VaultPermission::SecretCreate)
+            ->willReturn(false);
+
+        // No value is submitted, so store() — and with it every gate inside
+        // it — is never called. That is precisely the bypass under test.
+        $this->vaultService->expects($this->never())->method('store');
+
+        $this->auditService->expects($this->once())->method('log')->with(
+            'squatted-identifier',
+            'access_denied',
+            false,
+            'Create denied: missing secret.create permission',
+        );
+
+        $hook = new SecretTcaHook(
+            $this->vaultService,
+            $this->auditService,
+            $accessControl,
+            $this->secretRepository,
+        );
+
+        $fieldArray = ['identifier' => 'squatted-identifier', 'description' => 'no value'];
+        $messages = [];
+
+        $hook->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            self::TABLE,
+            'NEW123',
+            $this->capturingDataHandler($messages),
+        );
+
+        // Nulling the by-ref array is what makes core skip the record (its
+        // guard is is_array()); an empty array would still be inserted with
+        // TCA defaults.
+        self::assertNull($fieldArray, 'A refused create must invalidate the field array, not merely empty it.');
+        self::assertSame(
+            ['Vault secret creation requires the secret.create permission '
+                . '(Create denied: missing secret.create permission) — the record was not created.'],
+            $messages,
+        );
+    }
+
+    /**
+     * The coarser tier, checked first and audited under its own reason so an
+     * operator can tell "may not use the vault at all" from "may use it but
+     * not create".
+     */
+    #[Test]
+    public function preProcessRefusesACreateWhenCanCreateDenies(): void
+    {
+        $accessControl = $this->createMock(AccessControlServiceInterface::class);
+        $accessControl->method('isCurrentActorAdmin')->willReturn(false);
+        $accessControl->method('getCurrentActorUid')->willReturn(7);
+        $accessControl->method('canCreate')->willReturn(false);
+        // The coarse tier already refused; the operation permission is not
+        // consulted.
+        $accessControl->expects($this->never())->method('isGranted');
+
+        $this->auditService->expects($this->once())->method('log')->with(
+            'denied-identifier',
+            'access_denied',
+            false,
+            'Create access denied',
+        );
+
+        $hook = new SecretTcaHook(
+            $this->vaultService,
+            $this->auditService,
+            $accessControl,
+            $this->secretRepository,
+        );
+
+        $fieldArray = ['identifier' => 'denied-identifier'];
+        $messages = [];
+
+        $hook->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            self::TABLE,
+            'NEW1',
+            $this->capturingDataHandler($messages),
+        );
+
+        self::assertNull($fieldArray);
+        self::assertSame(
+            ['Vault secret creation requires the secret.create permission '
+                . '(Create access denied) — the record was not created.'],
+            $messages,
+        );
+    }
+
+    /**
+     * A value-BEARING create by an unauthorized actor is refused by the same
+     * gate, one step earlier than before: the row is never inserted, so it
+     * cannot squat the identifier while the compensating revert runs.
+     */
+    #[Test]
+    public function preProcessRefusesAValueBearingCreateWithoutTheSecretCreatePermission(): void
+    {
+        $accessControl = $this->createMock(AccessControlServiceInterface::class);
+        $accessControl->method('isCurrentActorAdmin')->willReturn(false);
+        $accessControl->method('getCurrentActorUid')->willReturn(7);
+        $accessControl->method('canCreate')->willReturn(true);
+        $accessControl->method('isGranted')->willReturn(false);
+
+        $this->vaultService->expects($this->never())->method('store');
+
+        $hook = new SecretTcaHook(
+            $this->vaultService,
+            $this->auditService,
+            $accessControl,
+            $this->secretRepository,
+        );
+
+        $fieldArray = [
+            'identifier' => 'value-bearing',
+            'secret_input' => 'must-not-be-stored',
+        ];
+        $messages = [];
+
+        $hook->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            self::TABLE,
+            'NEW7',
+            $this->capturingDataHandler($messages),
+        );
+
+        self::assertNull($fieldArray);
+        // The refused value must not be parked for afterDatabaseOperations to
+        // pick up — the record it belonged to will never exist.
+        self::assertSame([], $this->readPrivate($hook, 'pendingSecrets'));
+    }
+
+    /**
+     * The gate must not fire on an UPDATE: secret.create governs creation, and
+     * an existing record's edit is governed by the privileged-column policy
+     * and the metadata audit instead.
+     */
+    #[Test]
+    public function preProcessDoesNotApplyTheCreateGateToAnExistingRecord(): void
+    {
+        $accessControl = $this->createMock(AccessControlServiceInterface::class);
+        $accessControl->method('isCurrentActorAdmin')->willReturn(true);
+        // Would refuse if it were consulted — an update must not consult it.
+        $accessControl->method('canCreate')->willReturn(false);
+        $accessControl->expects($this->never())->method('isGranted');
+
+        // The update path snapshots the pre-change column values for the
+        // compensating rollback, so it needs a readable record.
+        $this->stubBackendRecords([['description' => 'stored']]);
+
+        $hook = new SecretTcaHook(
+            $this->vaultService,
+            $this->auditService,
+            $accessControl,
+            $this->secretRepository,
+            $this->recordPool(),
+        );
+
+        $fieldArray = ['description' => 'edited'];
+        $messages = [];
+
+        $hook->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            self::TABLE,
+            5,
+            $this->capturingDataHandler($messages),
+        );
+
+        self::assertSame(['description' => 'edited'], $fieldArray);
+        self::assertSame([], $messages);
+    }
+
+    /**
+     * The gate is scoped to this extension's own table — every other table's
+     * datamap must pass through untouched.
+     */
+    #[Test]
+    public function preProcessDoesNotApplyTheCreateGateToAnotherTable(): void
+    {
+        $accessControl = $this->createMock(AccessControlServiceInterface::class);
+        $accessControl->method('canCreate')->willReturn(false);
+        $accessControl->expects($this->never())->method('isGranted');
+
+        $hook = new SecretTcaHook(
+            $this->vaultService,
+            $this->auditService,
+            $accessControl,
+            $this->secretRepository,
+        );
+
+        $fieldArray = ['title' => 'a page'];
+
+        $hook->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            'pages',
+            'NEW123',
+            $this->createMock(DataHandler::class),
+        );
+
+        self::assertSame(['title' => 'a page'], $fieldArray);
+    }
+
+    /**
+     * A granted creator passes both gates and keeps a value-less record —
+     * which after this change is the only thing ValueLess can still mean.
+     */
+    #[Test]
+    public function preProcessLetsAGrantedCreatorCreateAValuelessRecord(): void
+    {
+        $hook = $this->hookForNonAdmin(7);
+
+        $this->auditService->expects($this->never())->method('log');
+
+        $fieldArray = ['identifier' => 'allowed-identifier'];
+        $messages = [];
+
+        $hook->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            self::TABLE,
+            'NEW123',
+            $this->capturingDataHandler($messages),
+        );
+
+        self::assertIsArray($fieldArray);
+        self::assertSame('allowed-identifier', $fieldArray['identifier']);
+        // ... and the creator owns what they created.
+        self::assertSame(7, $fieldArray['owner_uid']);
+        self::assertSame([], $messages);
+    }
+
+    /**
+     * A denial whose audit entry cannot be written must still deny — the
+     * refusal is the security control, the audit entry is its record. The
+     * failure is surfaced rather than swallowed.
+     */
+    #[Test]
+    public function preProcessStillRefusesTheCreateWhenTheDenialAuditWriteFails(): void
+    {
+        $accessControl = $this->createMock(AccessControlServiceInterface::class);
+        $accessControl->method('isCurrentActorAdmin')->willReturn(false);
+        $accessControl->method('getCurrentActorUid')->willReturn(7);
+        $accessControl->method('canCreate')->willReturn(true);
+        $accessControl->method('isGranted')->willReturn(false);
+
+        $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
+
+        $hook = new SecretTcaHook(
+            $this->vaultService,
+            $this->auditService,
+            $accessControl,
+            $this->secretRepository,
+        );
+
+        $fieldArray = ['identifier' => 'audit-fails'];
+        $messages = [];
+
+        $hook->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            self::TABLE,
+            'NEW123',
+            $this->capturingDataHandler($messages),
+        );
+
+        self::assertNull($fieldArray, 'An unauditable denial must still deny.');
+        self::assertSame(
+            [
+                'Vault audit logging of the refused secret creation failed: audit sink down'
+                . ' — the creation was refused regardless.',
+                'Vault secret creation requires the secret.create permission '
+                . '(Create denied: missing secret.create permission) — the record was not created.',
+            ],
+            $messages,
+        );
     }
 
     #[Test]
@@ -1027,6 +1338,7 @@ final class SecretTcaHookTest extends TestCase
         $messages = [];
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
 
+        self::assertIsArray($fieldArray);
         self::assertSame(99, $fieldArray['owner_uid']);
         self::assertSame([], $messages);
     }
@@ -1154,6 +1466,7 @@ final class SecretTcaHookTest extends TestCase
         $fieldArray = ['allowed_groups' => '3,4'];
         $dataHandler = $this->createMock(DataHandler::class);
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $dataHandler);
+        self::assertIsArray($fieldArray);
 
         $messages = [];
         $hook->processDatamap_afterDatabaseOperations(
@@ -1483,15 +1796,20 @@ final class SecretTcaHookTest extends TestCase
         int $actorUid,
         bool $canManagePolicy = false,
         ?ConnectionPool $connectionPool = null,
+        bool $canCreate = true,
     ): SecretTcaHook {
         $accessControl = $this->createMock(AccessControlServiceInterface::class);
         $accessControl->method('isCurrentActorAdmin')->willReturn(false);
         $accessControl->method('getCurrentActorUid')->willReturn($actorUid);
+        $accessControl->method('canCreate')->willReturn($canCreate);
+        // Each gate answers for its own permission — a path that asked for the
+        // wrong one falls to `false` and fails the test that expects it to
+        // pass, so the permission identity stays asserted.
         $accessControl->method('isGranted')->willReturnCallback(
-            static function (VaultPermission $permission) use ($canManagePolicy): bool {
-                self::assertSame(VaultPermission::SecretManagePolicy, $permission);
-
-                return $canManagePolicy;
+            static fn (VaultPermission $permission): bool => match ($permission) {
+                VaultPermission::SecretManagePolicy => $canManagePolicy,
+                VaultPermission::SecretCreate => $canCreate,
+                default => false,
             },
         );
 
