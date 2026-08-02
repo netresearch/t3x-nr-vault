@@ -193,7 +193,7 @@ Secret placement options: `Bearer`, `BasicAuth`, `Header`, `QueryParam`, `BodyFi
 
 ## CLI Commands
 
-All 12 `vault:*` commands (full options and examples in
+All 17 `vault:*` commands (full options and examples in
 [`Documentation/Developer/Commands.rst`](Documentation/Developer/Commands.rst)):
 
 ```bash
@@ -228,8 +228,25 @@ vendor/bin/typo3 vault:cleanup-orphans
 # --- Audit ---
 # Query and export vault audit logs (filter by --since / --until, Y-m-d)
 vendor/bin/typo3 vault:audit --identifier=my_secret_id --since=2026-05-01
+# Verify the hash chain and the in-DB chain-tip anchor
+vendor/bin/typo3 vault:audit --verify
 # Migrate the audit log hash chain from SHA-256 to HMAC-SHA256
 vendor/bin/typo3 vault:audit-migrate-hmac
+# Publish the chain tip to the configured external sinks (scheduled task wrapper)
+vendor/bin/typo3 vault:audit-anchor
+# Verify chain + external anchor for unattended runs (scheduled task wrapper)
+vendor/bin/typo3 vault:audit-verify
+
+# --- Operations ---
+# Check the configuration for deployment/audit readiness
+# (exit 0 clean / 1 warnings / 2 critical)
+vendor/bin/typo3 vault:doctor
+# Open, close or inspect a time-boxed break-glass window
+vendor/bin/typo3 vault:break-glass --status
+
+# --- Development only ---
+# Seed demo secrets and audit history
+vendor/bin/typo3 vault:seed-demo
 ```
 
 ## Requirements
