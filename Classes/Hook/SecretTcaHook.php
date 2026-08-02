@@ -1136,7 +1136,7 @@ final class SecretTcaHook
         // `identifier` is read alongside the privileged columns — the denial
         // audit entry needs it — but it is NOT one of them: its immutability
         // is enforced separately, further down the calling method.
-        $original = $this->readRecord($uid, [...self::privilegedScalarColumns(), 'identifier']);
+        $original = $this->readRecord($uid, [...$this->privilegedScalarColumns(), 'identifier']);
         if ($original === null) {
             return;
         }
@@ -1160,7 +1160,7 @@ final class SecretTcaHook
         // the MM relation rows alone rather than replacing them.
         $attempted = [];
 
-        foreach (self::privilegedScalarColumns() as $column) {
+        foreach ($this->privilegedScalarColumns() as $column) {
             if (!\array_key_exists($column, $fieldArray)) {
                 continue;
             }
@@ -1218,7 +1218,7 @@ final class SecretTcaHook
      *
      * @return list<string>
      */
-    private static function privilegedScalarColumns(): array
+    private function privilegedScalarColumns(): array
     {
         return [...self::PRIVILEGED_GROUP_COLUMNS, ...self::PRIVILEGED_VALUE_COLUMNS];
     }
