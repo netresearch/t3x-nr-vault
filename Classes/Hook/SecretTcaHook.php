@@ -673,6 +673,15 @@ final class SecretTcaHook
                 $reverted = false;
             }
 
+            // A changed ACL column whose tier is absent from the snapshot
+            // means the pre-change read failed: the relations cannot be
+            // restored, so the change must not be reported as reverted.
+            foreach (self::PRIVILEGED_MM_COLUMNS as $column => $mmTable) {
+                if (\in_array($column, $changedColumns, true) && !\array_key_exists($mmTable, $originalMmRelations)) {
+                    $reverted = false;
+                }
+            }
+
             /** @phpstan-ignore method.internal */
             $dataHandler->log(
                 self::TABLE,
@@ -817,11 +826,18 @@ final class SecretTcaHook
         foreach ($snapshot as $mmTable => $rows) {
             try {
                 $connection = $this->connectionPool->getConnectionForTable($mmTable);
-                $connection->delete($mmTable, ['uid_local' => $uid]);
+                // Transactional per tier: without it, an insert failure after
+                // the delete would leave the tier EMPTY — locking out the
+                // legitimate groups, which is worse than the unaudited
+                // widening the rollback set out to undo. On rollback the tier
+                // keeps its current rows and the caller reports NOT revertible.
+                $connection->transactional(static function () use ($connection, $mmTable, $uid, $rows): void {
+                    $connection->delete($mmTable, ['uid_local' => $uid]);
 
-                foreach ($rows as $row) {
-                    $connection->insert($mmTable, ['uid_local' => $uid, ...$row]);
-                }
+                    foreach ($rows as $row) {
+                        $connection->insert($mmTable, ['uid_local' => $uid, ...$row]);
+                    }
+                });
             } catch (Throwable) {
                 // Keep going: restoring the remaining tiers narrows the
                 // unaudited widening even when one tier cannot be repaired.

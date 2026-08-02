@@ -1048,6 +1048,99 @@ final class VaultServiceTest extends TestCase
     }
 
     #[Test]
+    public function assertDeletableAcceptsADeletableSecretWithoutDeletingIt(): void
+    {
+        $identifier = 'preflightOk';
+        $secret = $this->createSecretEntity($identifier);
+
+        $this->adapter
+            ->method('retrieve')
+            ->willReturn($secret);
+
+        $this->accessControlService
+            ->method('canDelete')
+            ->willReturn(true);
+
+        // A preflight that mutates would defeat its own purpose.
+        $this->adapter->expects(self::never())->method('delete');
+        $this->auditLogService->expects(self::never())->method('log');
+
+        $this->subject->assertDeletable($identifier);
+    }
+
+    #[Test]
+    public function assertDeletableAcceptsAnAbsentSecret(): void
+    {
+        // The goal state — nothing stored under this identifier — already
+        // holds, so a caller batching several deletes must not be blocked.
+        $this->adapter
+            ->method('retrieve')
+            ->willReturn(null);
+
+        $this->adapter->expects(self::never())->method('delete');
+
+        $this->subject->assertDeletable('gone');
+    }
+
+    #[Test]
+    public function assertDeletableRejectsASecretTheActorMayNotDelete(): void
+    {
+        $secret = $this->createSecretEntity('protected');
+
+        $this->adapter
+            ->method('retrieve')
+            ->willReturn($secret);
+
+        $this->accessControlService
+            ->method('canDelete')
+            ->willReturn(false);
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('protected', 'access_denied', false, 'Delete access denied');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $this->subject->assertDeletable('protected');
+    }
+
+    #[Test]
+    public function assertDeletableRejectsAnActorWithoutTheDeleteOperationPermission(): void
+    {
+        // Separation of duties: owning the secret is not enough, and the
+        // preflight must apply the same second gate delete() does.
+        $existing = $this->createSecretEntity('opGatePreflight', uid: 42);
+
+        $noGrantAccess = $this->createMock(AccessControlServiceInterface::class);
+        $noGrantAccess->method('getCurrentActorUid')->willReturn(1);
+        $noGrantAccess->method('getCurrentActorType')->willReturn('backend');
+        $noGrantAccess->method('canDelete')->willReturn(true);
+        $noGrantAccess->method('isGranted')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $noGrantAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->adapter->expects(self::never())->method('delete');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('opGatePreflight', 'access_denied', false, 'Delete denied: missing secret.delete permission');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->assertDeletable('opGatePreflight');
+    }
+
+    #[Test]
     public function rotateUpdatesSecretValue(): void
     {
         $identifier = 'toRotate';

@@ -212,15 +212,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             throw SecretNotFoundException::forIdentifier($identifier);
         }
 
-        // Check access
-        if (!$this->accessControlService->canDelete($secret)) {
-            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Delete access denied');
-
-            throw AccessDeniedException::forIdentifier($identifier, 'delete permission denied');
-        }
-
-        // Separation of duties: per-secret ACL AND operation permission.
-        $this->assertOperationGranted(VaultPermission::SecretDelete, $identifier, 'Delete');
+        $this->assertDeletePermitted($identifier, $secret);
 
         $hashBefore = $secret->getValueChecksum();
 
@@ -255,6 +247,17 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             $this->accessControlService->getCurrentActorUid(),
             $reason,
         ));
+    }
+
+    public function assertDeletable(string $identifier): void
+    {
+        $secret = $this->adapter->retrieve($identifier);
+        if (!$secret instanceof Secret) {
+            // Nothing to delete — see the interface docblock.
+            return;
+        }
+
+        $this->assertDeletePermitted($identifier, $secret);
     }
 
     public function rotate(string $identifier, #[SensitiveParameter] string $newSecret, string $reason = ''): void
@@ -499,6 +502,26 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             $identifier,
             'missing ' . VaultPermission::SecretUse->value . ' permission',
         );
+    }
+
+    /**
+     * The complete delete gate: per-secret ACL tier plus the operation
+     * permission (separation of duties).
+     *
+     * Shared by {@see delete()} and {@see assertDeletable()} so the preflight a
+     * multi-secret caller runs and the check the actual delete applies can
+     * never drift apart — a preflight that passes while the delete denies would
+     * be worse than no preflight at all.
+     */
+    private function assertDeletePermitted(string $identifier, Secret $secret): void
+    {
+        if (!$this->accessControlService->canDelete($secret)) {
+            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Delete access denied');
+
+            throw AccessDeniedException::forIdentifier($identifier, 'delete permission denied');
+        }
+
+        $this->assertOperationGranted(VaultPermission::SecretDelete, $identifier, 'Delete');
     }
 
     /**
