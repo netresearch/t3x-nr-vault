@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Controller;
 
+use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Psr\Http\Message\ResponseInterface;
@@ -44,6 +45,20 @@ final readonly class ModuleAccessGuard
     public function isGranted(VaultPermission $permission): bool
     {
         return $this->accessControlService->isGranted($permission);
+    }
+
+    /**
+     * May the actor change THIS secret?
+     *
+     * An operation permission answers "may this actor ever do X"; it says
+     * nothing about which secrets X may be done to. Module actions that
+     * mutate one named secret need both, so the per-secret tier is exposed
+     * here alongside isGranted() rather than reached for through a second
+     * injected service in every controller.
+     */
+    public function canWrite(Secret $secret): bool
+    {
+        return $this->accessControlService->canWrite($secret);
     }
 
     /**
