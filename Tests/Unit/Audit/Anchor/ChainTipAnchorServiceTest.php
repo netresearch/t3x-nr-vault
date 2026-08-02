@@ -50,6 +50,13 @@ use UnexpectedValueException;
 #[CoversClass(ChainTipAnchorService::class)]
 final class ChainTipAnchorServiceTest extends TestCase
 {
+    /**
+     * Every `setMaxResults()` argument the service passed, in call order.
+     *
+     * @var list<int|null>
+     */
+    private array $setMaxResultsCalls = [];
+
     // -------------------------------------------------------------------------
     // publish()
     // -------------------------------------------------------------------------
@@ -69,8 +76,12 @@ final class ChainTipAnchorServiceTest extends TestCase
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects(self::once())
             ->method('error')
+            // Asserted verbatim: the second sentence is the part that tells the
+            // operator what to DO, and a message that loses it still "contains"
+            // the alarming half while being useless.
             ->with(
-                self::stringContains('zero external sinks'),
+                'nr-vault published an audit chain anchor to zero external sinks; '
+                . 'the anchor provides no table-reset protection. Enable at least one audit sink.',
                 ['sequence' => 12],
             );
         $logger->expects(self::never())->method('info');
@@ -142,6 +153,25 @@ final class ChainTipAnchorServiceTest extends TestCase
         self::assertSame('', $anchor->chainTip);
     }
 
+    /**
+     * On an empty chain there is no row to hash, so the tip is '' by
+     * construction — the latest hash is not even asked for. Anchoring a hash
+     * that belongs to no row (a stale value the writer still holds) would
+     * publish a baseline no future chain can ever satisfy.
+     */
+    #[Test]
+    public function captureOnAnEmptyChainAnchorsAnEmptyTipRatherThanTheLatestHash(): void
+    {
+        $auditLogService = self::createStub(AuditLogServiceInterface::class);
+        $auditLogService->method('getLatestHash')->willReturn('stale-tip');
+
+        $anchor = $this->createSubject(auditLogService: $auditLogService, maxUid: 0)->capture();
+
+        self::assertSame(0, $anchor->sequence);
+        self::assertSame('', $anchor->chainTip);
+        self::assertTrue($anchor->isEmpty());
+    }
+
     // -------------------------------------------------------------------------
     // Chain-error classification
     // -------------------------------------------------------------------------
@@ -188,7 +218,114 @@ final class ChainTipAnchorServiceTest extends TestCase
         self::assertCount(1, $downgrades);
         self::assertSame(4, $downgrades[0]->context['affectedRows']);
         self::assertSame(11, $downgrades[0]->context['firstUid'], 'the earliest affected row locates the break');
-        self::assertStringContainsString('4 row(s)', $downgrades[0]->detail);
+        self::assertSame(
+            'Audit chain HMAC epoch was downgraded on 4 row(s); a weaker or keyless '
+            . 'verification algorithm was selected.',
+            $downgrades[0]->detail,
+        );
+    }
+
+    /**
+     * The classifier matches marker substrings case-insensitively so it keeps
+     * working when the verifier rewords or re-cases its messages. Losing the
+     * fold would silently reclassify a downgrade as a generic hash mismatch —
+     * the fallback path — and point the operator at the wrong incident.
+     */
+    #[Test]
+    public function markerMatchingIsCaseInsensitive(): void
+    {
+        $report = $this->createSubject(
+            chainResult: HashChainVerificationResult::invalid([
+                4 => 'HMAC key EPOCH DOWNGRADE DETECTED: 3 -> 0 (possible algorithm-downgrade forgery)',
+            ]),
+        )->verify();
+
+        self::assertTrue($report->hasReason(AuditIntegrityReason::EpochDowngrade));
+        self::assertFalse($report->hasReason(AuditIntegrityReason::HashMismatch));
+    }
+
+    /**
+     * A uid-gap error is skipped, not treated as the end of the error list: the
+     * verifier reports errors keyed by uid, so a gap early in the chain is
+     * routinely followed by the rewritten rows that matter most.
+     */
+    #[Test]
+    public function aUidGapErrorDoesNotStopTheClassificationOfLaterErrors(): void
+    {
+        $report = $this->createSubject(
+            chainResult: HashChainVerificationResult::invalid(
+                [
+                    3 => 'Audit log uid gap detected: missing uids 2..2',
+                    5 => 'Entry hash mismatch - possible tampering',
+                ],
+                [],
+                [2],
+                1,
+            ),
+        )->verify();
+
+        self::assertTrue($report->hasReason(AuditIntegrityReason::UidGap));
+        self::assertTrue(
+            $report->hasReason(AuditIntegrityReason::HashMismatch),
+            'the rewritten row after the gap must still be reported',
+        );
+    }
+
+    /**
+     * The uid-gap finding carries the full count plus a bounded sample: the
+     * sample lands in a syslog line and a webhook payload, so it is capped at the
+     * FIRST 20 uids — the ones that bound the start of the deletion — while the
+     * count keeps the true size of the damage visible.
+     */
+    #[Test]
+    public function theUidGapFindingCarriesTheFullCountAndTheFirstTwentyUidsOnly(): void
+    {
+        $missing = range(2, 30);
+
+        $report = $this->createSubject(
+            chainResult: HashChainVerificationResult::invalid(
+                [31 => 'Audit log uid gap detected: missing uids 2..30'],
+                [],
+                $missing,
+                29,
+            ),
+        )->verify();
+
+        $findings = array_values(array_filter(
+            $report->findings,
+            static fn (AuditIntegrityAlert $finding): bool => $finding->reason === AuditIntegrityReason::UidGap,
+        ));
+
+        self::assertCount(1, $findings);
+        self::assertSame(29, $findings[0]->context['missingUidCount']);
+        self::assertSame(implode(',', range(2, 21)), $findings[0]->context['missingUidSample']);
+        self::assertSame('Audit chain has 29 missing uid(s); rows were deleted from the chain.', $findings[0]->detail);
+    }
+
+    /**
+     * The hash-mismatch finding collapses its rows the same way, and must carry
+     * both the row count and the earliest affected uid — the count sizes the
+     * damage, the uid locates where the chain diverged.
+     */
+    #[Test]
+    public function theHashMismatchFindingCarriesTheRowCountAndTheEarliestUid(): void
+    {
+        $report = $this->createSubject(
+            chainResult: HashChainVerificationResult::invalid([
+                6 => 'Entry hash mismatch - possible tampering',
+                7 => 'Entry hash mismatch - possible tampering',
+            ]),
+        )->verify();
+
+        $findings = array_values(array_filter(
+            $report->findings,
+            static fn (AuditIntegrityAlert $finding): bool => $finding->reason === AuditIntegrityReason::HashMismatch,
+        ));
+
+        self::assertCount(1, $findings);
+        self::assertSame(2, $findings[0]->context['affectedRows']);
+        self::assertSame(6, $findings[0]->context['firstUid']);
+        self::assertSame('Audit chain hash verification failed on 2 row(s).', $findings[0]->detail);
     }
 
     /**
@@ -273,7 +410,12 @@ final class ChainTipAnchorServiceTest extends TestCase
 
         self::assertCount(1, $findings);
         self::assertSame('hardened', $findings[0]->context['profile']);
-        self::assertStringContainsString('only in the database it is meant to protect', $findings[0]->detail);
+        self::assertSame(
+            'Hardened profile requires at least one external audit sink, but none is enabled '
+            . 'and usable. The audit trail exists only in the database it is meant to protect, '
+            . 'and no chain-tip anchor can be published.',
+            $findings[0]->detail,
+        );
         self::assertFalse($report->hasTamperEvidence(), 'a configuration gap is not tamper evidence');
     }
 
@@ -455,6 +597,58 @@ final class ChainTipAnchorServiceTest extends TestCase
     }
 
     /**
+     * A chain sitting exactly at its anchored sequence has not shrunk — it is
+     * simply an installation that has not written since the last anchoring run.
+     * Reporting that as a table reset would fire TABLE_RESET at every quiet site
+     * and train operators to ignore the one alert that matters.
+     */
+    #[Test]
+    public function aChainSittingExactlyAtItsAnchoredSequenceIsValid(): void
+    {
+        $anchorReader = self::createStub(AnchorReaderInterface::class);
+        $anchorReader->method('readLatestAnchor')->willReturn(new ChainTipAnchor(6, 'tip-6', 1_750_000_000, 3));
+
+        $report = $this->createSubject(
+            anchorReader: $anchorReader,
+            maxUid: 6,
+            rowAtAnchor: ['entry_hash' => 'tip-6', 'hmac_key_epoch' => 3],
+        )->verify();
+
+        self::assertTrue($report->isValid(), 'findings: ' . implode(',', $report->getReasonCodes()));
+    }
+
+    /**
+     * The driver hands back whatever the column type maps to — for MySQL/PDO
+     * that is a numeric STRING. The report's sequence is an int, so the value has
+     * to be coerced rather than passed through.
+     */
+    #[Test]
+    public function aNumericStringFromTheDriverBecomesAnIntSequence(): void
+    {
+        self::assertSame(7, $this->createSubject(maxUid: '7')->verify()->currentSequence);
+    }
+
+    /**
+     * Both queries are point lookups: the highest uid and the single anchored
+     * row. Dropping the limit turns the first into a full-table scan on a table
+     * that grows without bound, and neither needs a second row.
+     */
+    #[Test]
+    public function bothLookupsAreLimitedToASingleRow(): void
+    {
+        $anchorReader = self::createStub(AnchorReaderInterface::class);
+        $anchorReader->method('readLatestAnchor')->willReturn(new ChainTipAnchor(2, 'tip-2', 1_750_000_000, 3));
+
+        $this->createSubject(
+            anchorReader: $anchorReader,
+            maxUid: 4,
+            rowAtAnchor: ['entry_hash' => 'tip-2', 'hmac_key_epoch' => 3],
+        )->verify();
+
+        self::assertSame([1, 1], $this->setMaxResultsCalls);
+    }
+
+    /**
      * A row whose stored hash is not a string (a NULL column after a partial
      * write) must not compare equal to the anchored tip by collapsing to ''.
      */
@@ -489,7 +683,107 @@ final class ChainTipAnchorServiceTest extends TestCase
             rowAtAnchor: ['entry_hash' => 'tip-2', 'hmac_key_epoch' => 'not-a-number'],
         )->verify();
 
-        self::assertTrue($report->hasReason(AuditIntegrityReason::EpochDowngrade));
+        $findings = array_values(array_filter(
+            $report->findings,
+            static fn (AuditIntegrityAlert $finding): bool => $finding->reason === AuditIntegrityReason::EpochDowngrade,
+        ));
+
+        self::assertCount(1, $findings);
+        // 0, not 1 and not -1: the unreadable column has to degrade to "no HMAC
+        // protection at all", the level that is below every configurable epoch.
+        self::assertSame(0, $findings[0]->context['currentEpoch']);
+    }
+
+    /**
+     * The anchored row is still there and still hashes as anchored, but reports a
+     * lower epoch than the anchor witnessed: the chain was relabelled down to a
+     * weaker (or keyless) algorithm. The in-chain check cannot see this — only
+     * the external anchor knows which level was actually in force.
+     */
+    #[Test]
+    public function anEpochBelowTheAnchoredOneIsReportedAgainstTheAnchoredEvidence(): void
+    {
+        $anchorReader = self::createStub(AnchorReaderInterface::class);
+        $anchorReader->method('readLatestAnchor')->willReturn(new ChainTipAnchor(2, 'tip-2', 1_750_000_000, 3));
+
+        $report = $this->createSubject(
+            anchorReader: $anchorReader,
+            maxUid: 4,
+            // A string epoch is what the driver hands back for an int column.
+            rowAtAnchor: ['entry_hash' => 'tip-2', 'hmac_key_epoch' => '1'],
+        )->verify();
+
+        $findings = array_values(array_filter(
+            $report->findings,
+            static fn (AuditIntegrityAlert $finding): bool => $finding->reason === AuditIntegrityReason::EpochDowngrade,
+        ));
+
+        self::assertCount(1, $findings);
+        self::assertSame(
+            'Audit row 2 now reports HMAC epoch 1 but epoch 3 was anchored; the '
+            . 'verification algorithm was downgraded.',
+            $findings[0]->detail,
+        );
+        self::assertSame(2, $findings[0]->context['anchoredSequence']);
+        self::assertSame(1, $findings[0]->context['currentEpoch']);
+        self::assertSame(3, $findings[0]->context['anchoredEpoch']);
+    }
+
+    /**
+     * The substitution check. The row survives and the chain is long enough, so
+     * the only remaining evidence is that the row no longer hashes to the
+     * anchored tip — and the finding has to name the capture time, because that
+     * bounds the window in which the chain was rebuilt.
+     */
+    #[Test]
+    public function anAnchoredRowHashingDifferentlyIsReportedAsATableReset(): void
+    {
+        $anchorReader = self::createStub(AnchorReaderInterface::class);
+        $anchorReader->method('readLatestAnchor')->willReturn(new ChainTipAnchor(4, 'tip-4', 1_750_000_000, 3));
+
+        $report = $this->createSubject(
+            anchorReader: $anchorReader,
+            maxUid: 6,
+            rowAtAnchor: ['entry_hash' => 'rebuilt-hash', 'hmac_key_epoch' => 3],
+        )->verify();
+
+        $findings = array_values(array_filter(
+            $report->findings,
+            static fn (AuditIntegrityAlert $finding): bool => $finding->reason === AuditIntegrityReason::TableReset,
+        ));
+
+        self::assertCount(1, $findings);
+        self::assertSame(
+            'Audit row 4 hashes differently than anchored: the chain at that sequence is '
+            . 'not the chain that was anchored on 2025-06-15 15:06:40 UTC.',
+            $findings[0]->detail,
+        );
+        self::assertSame(4, $findings[0]->context['anchoredSequence']);
+        self::assertSame(1_750_000_000, $findings[0]->context['anchoredAt']);
+    }
+
+    /**
+     * A rebuilt chain commonly trips both checks at once — a different hash AND a
+     * lower epoch. Reporting only the first would hide the algorithm downgrade,
+     * which is the finding that decides whether the stored hashes can be trusted
+     * at all.
+     */
+    #[Test]
+    public function aRowThatBothHashesDifferentlyAndReportsALowerEpochYieldsBothFindings(): void
+    {
+        $anchorReader = self::createStub(AnchorReaderInterface::class);
+        $anchorReader->method('readLatestAnchor')->willReturn(new ChainTipAnchor(4, 'tip-4', 1_750_000_000, 3));
+
+        $report = $this->createSubject(
+            anchorReader: $anchorReader,
+            maxUid: 6,
+            rowAtAnchor: ['entry_hash' => 'rebuilt-hash', 'hmac_key_epoch' => 0],
+        )->verify();
+
+        self::assertSame(
+            [AuditIntegrityReason::TableReset->value, AuditIntegrityReason::EpochDowngrade->value],
+            $report->getReasonCodes(),
+        );
     }
 
     /**
@@ -515,7 +809,11 @@ final class ChainTipAnchorServiceTest extends TestCase
         self::assertSame(2, $findings[0]->context['currentSequence']);
         self::assertSame(9, $findings[0]->context['anchoredSequence']);
         self::assertSame(1_750_000_000, $findings[0]->context['anchoredAt']);
-        self::assertStringContainsString('2025-06-15 15:06:40 UTC', $findings[0]->detail);
+        self::assertSame(
+            'Audit chain shrank: highest uid is 2 but sequence 9 was anchored on 2025-06-15 15:06:40 UTC. '
+            . 'The audit table was truncated or rows were deleted wholesale.',
+            $findings[0]->detail,
+        );
         self::assertTrue($report->hasTamperEvidence());
     }
 
@@ -543,7 +841,11 @@ final class ChainTipAnchorServiceTest extends TestCase
         self::assertCount(1, $findings);
         self::assertSame(3, $findings[0]->context['anchoredSequence']);
         self::assertSame(11, $findings[0]->context['currentSequence']);
-        self::assertStringContainsString('no longer exists', $findings[0]->detail);
+        self::assertSame(
+            'Anchored audit row 3 no longer exists although the chain reaches uid 11; '
+            . 'the chain was rebuilt.',
+            $findings[0]->detail,
+        );
     }
 
     /**
@@ -571,7 +873,12 @@ final class ChainTipAnchorServiceTest extends TestCase
 
         self::assertCount(1, $findings);
         self::assertFalse($findings[0]->context['anchorAvailable']);
-        self::assertStringContainsString('vault:audit-anchor', $findings[0]->detail);
+        self::assertSame(
+            'Hardened profile requires an external chain-tip anchor, but none could be read. '
+            . 'A full audit-table reset would be undetectable. Run vault:audit-anchor '
+            . '(or schedule the anchor task).',
+            $findings[0]->detail,
+        );
     }
 
     /**
@@ -652,7 +959,13 @@ final class ChainTipAnchorServiceTest extends TestCase
         $queryBuilder->method('from')->willReturnSelf();
         $queryBuilder->method('where')->willReturnSelf();
         $queryBuilder->method('orderBy')->willReturnSelf();
-        $queryBuilder->method('setMaxResults')->willReturnSelf();
+        $queryBuilder->method('setMaxResults')->willReturnCallback(
+            function (?int $maxResults) use ($queryBuilder): QueryBuilder {
+                $this->setMaxResultsCalls[] = $maxResults;
+
+                return $queryBuilder;
+            },
+        );
         $queryBuilder->method('createNamedParameter')->willReturn('?');
         $queryBuilder->method('executeQuery')->willReturn($result);
 

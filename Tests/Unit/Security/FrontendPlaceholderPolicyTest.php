@@ -122,6 +122,46 @@ final class FrontendPlaceholderPolicyTest extends TestCase
         self::assertFalse($this->subject->isResolvable('', $cObj));
     }
 
+    #[Test]
+    public function aSecondGrantDoesNotDropTheFirst(): void
+    {
+        $request = $this->frontendRequest();
+        $cObj = $this->contentObjectRenderer($request);
+
+        $this->subject->allowIdentifier('first_grant', $request);
+        $this->subject->allowIdentifier('second_grant', $request);
+
+        self::assertTrue($this->subject->isResolvable('first_grant', $cObj), 'the earlier grant must survive');
+        self::assertTrue($this->subject->isResolvable('second_grant', $cObj));
+    }
+
+    /**
+     * `scopeRequest()` removes `$GLOBALS['TYPO3_REQUEST']` for the duration of
+     * the call so `getRequest()` cannot smuggle it back in. It must put back
+     * exactly what it found: leaving the global emptied would change the
+     * behaviour of every later consumer in the same request.
+     */
+    #[Test]
+    public function scopingRestoresTheGlobalRequestItTemporarilyRemoved(): void
+    {
+        $stale = $this->backendRequest();
+        $GLOBALS['TYPO3_REQUEST'] = $stale;
+
+        $this->subject->isResolvable(self::IDENTIFIER, $this->contentObjectRenderer($this->frontendRequest()));
+
+        self::assertSame($stale, $GLOBALS['TYPO3_REQUEST'] ?? null);
+    }
+
+    #[Test]
+    public function scopingDoesNotInventAGlobalRequestWhereThereWasNone(): void
+    {
+        unset($GLOBALS['TYPO3_REQUEST']);
+
+        $this->subject->isResolvable(self::IDENTIFIER, $this->contentObjectRenderer($this->frontendRequest()));
+
+        self::assertArrayNotHasKey('TYPO3_REQUEST', $GLOBALS);
+    }
+
     /**
      * The policy is a container singleton, so a grant that is not bound to the
      * request object outlives the request. In a worker SAPI that means an eID
@@ -326,6 +366,122 @@ final class FrontendPlaceholderPolicyTest extends TestCase
 
         self::assertTrue($this->subject->isResolvable('id_0000', $cObj));
         self::assertFalse($this->subject->isResolvable('id_1099', $cObj), 'Beyond 1000 identifiers the set only shrinks');
+    }
+
+    /**
+     * The caps are exact, not approximate. One level or one identifier of
+     * slack is a level or an identifier an integrator never published.
+     */
+    #[Test]
+    public function theDepthCapIsExact(): void
+    {
+        $cObj = $this->contentObjectRenderer($this->frontendRequest([
+            'a.' => $this->nest('%vault(at_the_cap)%', 30),
+            'b.' => $this->nest('%vault(past_the_cap)%', 31),
+        ]));
+
+        self::assertTrue($this->subject->isResolvable('at_the_cap', $cObj), 'the last level inside the cap');
+        self::assertFalse($this->subject->isResolvable('past_the_cap', $cObj), 'the first level beyond it');
+    }
+
+    #[Test]
+    public function theIdentifierCapIsExact(): void
+    {
+        $setup = [];
+        for ($i = 0; $i < 1000; ++$i) {
+            $setup['key' . $i] = \sprintf('%%vault(id_%04d)%%', $i);
+        }
+
+        // Both harvest sources meet the full set and must refuse to add to it.
+        $setup['overflow'] = '%vault(leaf_overflow)%';
+        $setup['plugin.'] = ['tx_nrvault.' => ['frontendResolvableIdentifiers' => 'optin_overflow']];
+
+        $cObj = $this->contentObjectRenderer($this->frontendRequest($setup));
+
+        self::assertTrue($this->subject->isResolvable('id_0999', $cObj), 'the thousandth identifier still fits');
+        self::assertFalse($this->subject->isResolvable('leaf_overflow', $cObj), 'the 1001st from a setup leaf');
+        self::assertFalse($this->subject->isResolvable('optin_overflow', $cObj), 'the 1001st from the opt-in list');
+    }
+
+    /**
+     * The walk must visit every sibling. A nested node and a leaf without a
+     * placeholder are both things to skip over, not places to stop — an
+     * integrator's identifier further down the same array would silently stop
+     * being resolvable.
+     */
+    #[Test]
+    public function harvestContinuesPastNestedNodesAndPlaceholderFreeLeaves(): void
+    {
+        $cObj = $this->contentObjectRenderer($this->frontendRequest([
+            'nested.' => ['value' => '%vault(nested_key)%'],
+            'plain' => 'nothing to resolve here',
+            'later' => '%vault(sibling_key)%',
+        ]));
+
+        self::assertTrue($this->subject->isResolvable('nested_key', $cObj));
+        self::assertTrue($this->subject->isResolvable('sibling_key', $cObj), 'a later sibling must still be harvested');
+    }
+
+    #[Test]
+    public function optInListSkipsEmptyEntriesInsteadOfStoppingAtThem(): void
+    {
+        $cObj = $this->contentObjectRenderer($this->frontendRequest([
+            'plugin.' => ['tx_nrvault.' => ['frontendResolvableIdentifiers' => ', ,' . self::IDENTIFIER]],
+        ]));
+
+        self::assertTrue($this->subject->isResolvable(self::IDENTIFIER, $cObj));
+    }
+
+    /**
+     * A2 has two halves and neither is redundant: the site *configuration*
+     * carries identifiers that are not settings at all.
+     */
+    #[Test]
+    public function siteConfigurationOutsideSettingsPublishesIdentifiers(): void
+    {
+        $site = new Site('acme', 1, [
+            'base' => 'https://example.com/',
+            'websiteTitle' => '%vault(' . self::IDENTIFIER . ')%',
+        ]);
+        $cObj = $this->contentObjectRenderer($this->frontendRequest()->withAttribute('site', $site));
+
+        self::assertTrue($this->subject->isResolvable(self::IDENTIFIER, $cObj));
+    }
+
+    /**
+     * …and the flat settings view reaches leaves the configuration walk cannot:
+     * settings are merged back into the configuration as a *tree*, so a deeply
+     * nested one sits past the depth cap there while `getAllFlat()` presents it
+     * one level down.
+     */
+    #[Test]
+    public function deeplyNestedSiteSettingsAreStillHarvestedThroughTheFlatView(): void
+    {
+        $tree = ['value' => '%vault(' . self::IDENTIFIER . ')%'];
+        for ($i = 0; $i < 40; ++$i) {
+            $tree = ['level' => $tree];
+        }
+
+        $site = new Site('acme', 1, ['base' => 'https://example.com/', 'settings' => $tree]);
+        $cObj = $this->contentObjectRenderer($this->frontendRequest()->withAttribute('site', $site));
+
+        self::assertTrue($this->subject->isResolvable(self::IDENTIFIER, $cObj));
+    }
+
+    #[Test]
+    public function everyIdentifierOfASitePublishesNotJustTheFirst(): void
+    {
+        $site = new Site('acme', 1, [
+            'base' => 'https://example.com/',
+            'first' => '%vault(first_site_key)%',
+            'second' => '%vault(second_site_key)%',
+        ]);
+        $cObj = $this->contentObjectRenderer($this->frontendRequest()->withAttribute('site', $site));
+
+        // Asked for before the first one, so a truncated set cannot be masked
+        // by the memo that is filled on the way out.
+        self::assertTrue($this->subject->isResolvable('second_site_key', $cObj));
+        self::assertTrue($this->subject->isResolvable('first_site_key', $cObj));
     }
 
     #[Test]

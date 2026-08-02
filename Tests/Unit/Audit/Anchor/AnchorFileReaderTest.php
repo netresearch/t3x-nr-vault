@@ -19,6 +19,7 @@ use org\bovigo\vfs\vfsStream;
 use org\bovigo\vfs\vfsStreamDirectory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 /**
@@ -54,6 +55,30 @@ final class AnchorFileReaderTest extends TestCase
         $path = $this->writeFile('');
 
         self::assertTrue($this->createSubject($path)->isAvailable());
+    }
+
+    /**
+     * A directory is readable but is not a file, so both guards have to hold at
+     * once: `is_file() && is_readable()`. A misconfigured path pointing at the
+     * containing directory must be rejected before the open is even attempted —
+     * otherwise the reader opens a directory handle and reports the failure as a
+     * warning, turning a configuration typo into log noise on every run.
+     */
+    #[Test]
+    public function aDirectoryAtTheAnchorPathIsRejectedBeforeAnyOpenIsAttempted(): void
+    {
+        vfsStream::newDirectory('store')->at($this->root);
+        $path = $this->root->url() . '/store';
+
+        self::assertTrue(is_readable($path), 'precondition: only is_file() separates this from an anchor file');
+
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::never())->method('warning');
+
+        $subject = $this->createSubject($path, $logger);
+
+        self::assertFalse($subject->isAvailable());
+        self::assertNull($subject->readLatestAnchor());
     }
 
     #[Test]
@@ -100,6 +125,26 @@ final class AnchorFileReaderTest extends TestCase
         self::assertInstanceOf(ChainTipAnchor::class, $anchor);
         self::assertSame(100, $anchor->sequence);
         self::assertSame('tip-100', $anchor->chainTip);
+    }
+
+    /**
+     * The same rule one step further: a later line at the sequence that is
+     * already the maximum must not replace it either. `>` rather than `>=` means
+     * the first anchor seen at a sequence wins, so an attacker who can append
+     * cannot overwrite the tip recorded for a sequence with one of their own.
+     */
+    #[Test]
+    public function aLaterAnchorAtTheSameSequenceDoesNotReplaceTheOneAlreadySeen(): void
+    {
+        $path = $this->writeFile(
+            $this->anchorLine(5, 'tip-genuine', 1_750_000_000, 3)
+            . $this->anchorLine(5, 'tip-forged', 1_750_000_900, 3),
+        );
+
+        $anchor = $this->createSubject($path)->readLatestAnchor();
+
+        self::assertInstanceOf(ChainTipAnchor::class, $anchor);
+        self::assertSame('tip-genuine', $anchor->chainTip);
     }
 
     #[Test]
@@ -181,6 +226,61 @@ final class AnchorFileReaderTest extends TestCase
         self::assertNull($this->createSubject($path)->readLatestAnchor());
     }
 
+    /**
+     * A record is only a baseline when it says `type: "anchor"`. An `alert`
+     * record carrying an otherwise well-formed `anchor` payload is exactly what
+     * an attacker with append access to the shared stream would write to plant a
+     * weaker baseline, so the type check has to reject it even though the
+     * payload parses.
+     */
+    #[Test]
+    public function anAlertRecordCarryingAnAnchorPayloadIsNotUsedAsABaseline(): void
+    {
+        $path = $this->writeFile(
+            '{"type":"alert","anchor":{"sequence":1,"chainTip":"tip-1","timestamp":1,"hmacEpoch":3}}' . "\n",
+        );
+
+        self::assertNull($this->createSubject($path)->readLatestAnchor());
+    }
+
+    /**
+     * A torn write can leave the line padded with NUL bytes (a delayed-allocation
+     * filesystem after a power loss). The payload itself is intact, so trimming
+     * the padding keeps the anchor usable instead of losing the baseline to
+     * bytes that carry no data.
+     */
+    #[Test]
+    public function aLineNulPaddedByATornWriteIsStillParsed(): void
+    {
+        $path = $this->writeFile(
+            rtrim($this->anchorLine(6, 'tip-6', 1_750_000_000, 3), "\n") . "\0\0\0\n",
+        );
+
+        $anchor = $this->createSubject($path)->readLatestAnchor();
+
+        self::assertInstanceOf(ChainTipAnchor::class, $anchor);
+        self::assertSame(6, $anchor->sequence);
+    }
+
+    /**
+     * The anchor file lives on a filesystem this code does not control, so the
+     * decoder keeps PHP's default nesting cap of 512: a hand-crafted line cannot
+     * push the parser arbitrarily deep, and a line just inside the cap still
+     * yields its anchor.
+     */
+    #[Test]
+    public function theDecoderKeepsTheDefaultNestingCap(): void
+    {
+        // 2 levels of anchor envelope + the padding array = exactly the cap.
+        $atTheCap = $this->createSubject($this->writeFile($this->paddedAnchorLine(509)))->readLatestAnchor();
+
+        self::assertInstanceOf(ChainTipAnchor::class, $atTheCap);
+        self::assertSame(8, $atTheCap->sequence);
+
+        // One level deeper: rejected as a whole line, no anchor.
+        self::assertNull($this->createSubject($this->writeFile($this->paddedAnchorLine(510)))->readLatestAnchor());
+    }
+
     #[Test]
     public function nonJsonLinesAreSkipped(): void
     {
@@ -206,8 +306,21 @@ final class AnchorFileReaderTest extends TestCase
     {
         FailingStreamWrapper::register(FailingStreamWrapper::MODE_OPEN_REFUSED);
 
+        $path = FailingStreamWrapper::path('anchor.ndjson');
+
+        // Silence is the danger here: an operator who never learns the baseline
+        // went away reads "chain valid" as "chain anchored". The path travels in
+        // the context because that is what tells them which mount to fix.
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::once())
+            ->method('warning')
+            ->with(
+                'nr-vault could not open the audit anchor file; verification has no external baseline.',
+                ['path' => $path],
+            );
+
         try {
-            $subject = $this->createSubject(FailingStreamWrapper::path('anchor.ndjson'));
+            $subject = $this->createSubject($path, $logger);
 
             // `isAvailable()` still reports true: the file is there, which is
             // exactly why the read path needs its own guard.
@@ -235,12 +348,22 @@ final class AnchorFileReaderTest extends TestCase
         }
     }
 
-    private function createSubject(string $path): AnchorFileReader
+    private function createSubject(string $path, ?LoggerInterface $logger = null): AnchorFileReader
     {
         $configuration = self::createStub(ExtensionConfigurationInterface::class);
         $configuration->method('getAuditSinkAnchorPath')->willReturn($path);
 
-        return new AnchorFileReader($configuration, new NullLogger());
+        return new AnchorFileReader($configuration, $logger ?? new NullLogger());
+    }
+
+    /**
+     * A valid anchor record whose payload carries `$depth` extra array levels,
+     * on top of the two levels of `{"type":…,"anchor":{…}}` envelope.
+     */
+    private function paddedAnchorLine(int $depth): string
+    {
+        return '{"type":"anchor","anchor":{"sequence":8,"chainTip":"tip-8","timestamp":1,"hmacEpoch":3,'
+            . '"padding":' . str_repeat('[', $depth) . '1' . str_repeat(']', $depth) . '}}' . "\n";
     }
 
     private function writeFile(string $contents): string

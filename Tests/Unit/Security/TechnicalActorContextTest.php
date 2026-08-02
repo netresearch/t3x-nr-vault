@@ -22,6 +22,7 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use ReflectionClass;
 use RuntimeException;
 use TYPO3\CMS\Core\Authentication\GroupResolver;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -196,6 +197,132 @@ final class TechnicalActorContextTest extends TestCase
         });
     }
 
+    /**
+     * A row that carries none of the optional columns must default to
+     * "root level, enabled, unrestricted, non-admin". Every other default is a
+     * security bug in one direction or the other: a non-zero `pid`/`disable`
+     * default locks a valid technical user out, a non-zero `admin` default
+     * silently promotes it to a full bypass.
+     */
+    #[Test]
+    public function recordWithoutOptionalColumnsIsAnEnabledRootLevelNonAdminUser(): void
+    {
+        $subject = $this->createSubject([['uid' => 42, 'username' => 'sparse_user']]);
+
+        $subject->runAs(42, static function () use ($subject): void {
+            $actor = $subject->getCurrentActor();
+
+            self::assertInstanceOf(TechnicalActor::class, $actor);
+            self::assertFalse($actor->admin, 'A missing admin column must never mean "admin"');
+        });
+    }
+
+    /**
+     * Both boundaries of the activity window, exactly on the second: a user is
+     * active AT its starttime and inactive AT its endtime — the same
+     * `>` / `<=` pair a real backend login evaluates.
+     */
+    #[Test]
+    public function userIsActiveAtExactlyItsStarttime(): void
+    {
+        $subject = $this->createSubject([$this->userRow(uid: 42, starttime: time())]);
+
+        self::assertSame('ok', $subject->runAs(42, static fn (): string => 'ok'));
+    }
+
+    #[Test]
+    public function userIsRejectedAtExactlyItsEndtime(): void
+    {
+        $subject = $this->createSubject([$this->userRow(uid: 42, endtime: time())]);
+
+        $this->expectException(TechnicalActorException::class);
+        $this->expectExceptionCode(1784000004);
+
+        $subject->runAs(42, static fn (): bool => true);
+    }
+
+    /**
+     * Drivers that return every column as a string must not turn '0' into a
+     * truthy flag — `disable`/`pid` would then reject every user, and `admin`
+     * would grant the bypass on the string '0'.
+     */
+    #[Test]
+    public function numericStringColumnsAreNormalisedToIntegers(): void
+    {
+        $subject = $this->createSubject([[
+            'uid' => 42,
+            'pid' => '0',
+            'username' => 'string_columns',
+            'admin' => '1',
+            'disable' => '0',
+            'starttime' => '0',
+            'endtime' => '0',
+            'usergroup' => '',
+        ]]);
+
+        $subject->runAs(42, static function () use ($subject): void {
+            $actor = $subject->getCurrentActor();
+
+            self::assertInstanceOf(TechnicalActor::class, $actor);
+            self::assertTrue($actor->admin);
+        });
+    }
+
+    /**
+     * The group uids reaching the actor snapshot must be real integers: they
+     * are compared with `array_intersect()` against a secret's group list, and
+     * that comparison is by string value — a '5' that never became 5 would
+     * silently stop matching normalised uids.
+     */
+    #[Test]
+    public function stringGroupUidsAreNormalisedToIntegers(): void
+    {
+        $subject = $this->createSubject(
+            [$this->userRow(uid: 42, usergroup: '5')],
+            [['uid' => '5', 'subgroup' => '']],
+        );
+
+        $subject->runAs(42, static function () use ($subject): void {
+            $actor = $subject->getCurrentActor();
+
+            self::assertInstanceOf(TechnicalActor::class, $actor);
+            self::assertSame([5], $actor->groupIds);
+        });
+    }
+
+    /**
+     * The lookup evaluates the enable columns itself (so each rejection can
+     * carry its own typed exception), which is only sound because it drops
+     * core's restrictions AND filters `deleted = 0` explicitly. Losing either
+     * half turns a deleted user into a usable technical actor.
+     */
+    #[Test]
+    public function userLookupDropsRestrictionsAndExcludesDeletedRowsItself(): void
+    {
+        $restrictions = $this->createMock(DefaultRestrictionContainer::class);
+        $restrictions->expects(self::once())->method('removeAll');
+
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAssociative')->willReturn($this->userRow(uid: 42));
+
+        $parameters = [];
+
+        $connectionPool = $this->createMock(ConnectionPool::class);
+        $connectionPool
+            ->method('getQueryBuilderForTable')
+            ->willReturn($this->createQueryBuilderMock($result, $restrictions, $parameters));
+
+        $subject = new TechnicalActorContext($connectionPool, $this->createGroupResolver([]));
+        $subject->runAs(42, static fn (): bool => true);
+
+        self::assertContains([42, Connection::PARAM_INT], $parameters);
+        self::assertContains(
+            [0, Connection::PARAM_INT],
+            $parameters,
+            'The lookup must constrain deleted = 0 itself',
+        );
+    }
+
     #[Test]
     public function runAsRestoresThePreviousStateWhenTheCallableThrows(): void
     {
@@ -305,19 +432,36 @@ final class TechnicalActorContextTest extends TestCase
         return $reflection->newInstance($eventDispatcher);
     }
 
-    private function createQueryBuilderMock(Result&MockObject $result): QueryBuilder&MockObject
-    {
+    /**
+     * @param list<array{mixed, mixed}> $capturedParameters collects every
+     *                                                      createNamedParameter() call as [value, type]
+     */
+    private function createQueryBuilderMock(
+        Result&MockObject $result,
+        ?DefaultRestrictionContainer $restrictions = null,
+        array &$capturedParameters = [],
+    ): QueryBuilder&MockObject {
         $expressionBuilder = $this->createMock(ExpressionBuilder::class);
         $expressionBuilder->method('eq')->willReturn('field = :value');
         $expressionBuilder->method('in')->willReturn('field IN (:value)');
 
         $queryBuilder = $this->createMock(QueryBuilder::class);
-        $queryBuilder->method('getRestrictions')->willReturn($this->createMock(DefaultRestrictionContainer::class));
+        $queryBuilder
+            ->method('getRestrictions')
+            ->willReturn($restrictions ?? $this->createMock(DefaultRestrictionContainer::class));
         $queryBuilder->method('select')->willReturnSelf();
         $queryBuilder->method('from')->willReturnSelf();
         $queryBuilder->method('where')->willReturnSelf();
         $queryBuilder->method('expr')->willReturn($expressionBuilder);
-        $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
+        $queryBuilder
+            ->method('createNamedParameter')
+            ->willReturnCallback(
+                static function (mixed $value, mixed $type = null) use (&$capturedParameters): string {
+                    $capturedParameters[] = [$value, $type];
+
+                    return ':dcValue' . \count($capturedParameters);
+                },
+            );
         $queryBuilder->method('executeQuery')->willReturn($result);
 
         return $queryBuilder;
