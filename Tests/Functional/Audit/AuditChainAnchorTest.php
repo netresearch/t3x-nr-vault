@@ -50,7 +50,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
 
     private const REGISTRY_TABLE = 'sys_registry';
 
-    private const ENTRY_NAMESPACE = 'tx_nrvault';
+    private const ENTRY_NAMESPACE = 'tx_nrvault_audit_anchor';
 
     private const ENTRY_KEY = 'auditChainTip';
 

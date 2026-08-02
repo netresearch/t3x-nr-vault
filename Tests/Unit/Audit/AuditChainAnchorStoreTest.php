@@ -69,7 +69,7 @@ final class AuditChainAnchorStoreTest extends TestCase
             ->method('insert')
             ->with(
                 'sys_registry',
-                self::callback(static fn (array $data): bool => $data['entry_namespace'] === 'tx_nrvault'
+                self::callback(static fn (array $data): bool => $data['entry_namespace'] === 'tx_nrvault_audit_anchor'
                     && $data['entry_key'] === 'auditChainTip'
                     && \is_string($data['entry_value'])
                     && str_starts_with($data['entry_value'], 'nrvault-audit-tip.v1|7|' . self::HASH_A . '|')),

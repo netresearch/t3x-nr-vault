@@ -180,7 +180,6 @@ interface ExtensionConfigurationInterface
     public function getAuditSinkStaleDeliveryHours(): int;
 
     /**
->>>>>>> origin/main
      * Days after creation with zero reads before a secret is "dead".
      */
     public function getStaleNeverReadDays(): int;

@@ -2882,8 +2882,8 @@ final class AuditLogServiceTest extends TestCase
             $this->accessControlMock(),
             $this->masterKeyProviderMock(),
             $this->extensionConfigurationMock(),
-            $registry,
-            $logger,
+            sinkRegistry: $registry,
+            logger: $logger,
         );
 
         $subject->log('api_creds', 'read', true);
@@ -2909,7 +2909,7 @@ final class AuditLogServiceTest extends TestCase
             $this->accessControlMock(),
             $this->masterKeyProviderMock(),
             $this->extensionConfigurationMock(),
-            $registry,
+            sinkRegistry: $registry,
         );
 
         $subject->log('api_creds', 'read', true);
@@ -2967,6 +2967,73 @@ final class AuditLogServiceTest extends TestCase
         [, $epochTwoHash] = $this->captureWriteAtEpoch(2);
 
         self::assertNotSame($epochZeroHash, $epochTwoHash);
+    }
+
+    /**
+     * Double-read stability rule: a hash mismatch is only reported when the raw
+     * anchor bytes are IDENTICAL either side of the row read. A re-seal that
+     * commits mid-check must never be reported as tampering.
+     */
+    #[Test]
+    public function anchorMismatchThatKeepsChangingIsAnInFlightWarningNotAnError(): void
+    {
+        $verification = $this->verifyWithAnchorLoads(['raw-1', 'raw-2', 'raw-3', 'raw-4']);
+
+        self::assertTrue($verification->isValid(), 'an in-flight re-seal must never invalidate');
+        self::assertSame(AuditChainAnchorStatus::InFlight, $verification->anchorStatus);
+        self::assertCount(1, $verification->warnings);
+    }
+
+    #[Test]
+    public function anchorMismatchThatStaysStableIsAViolation(): void
+    {
+        $verification = $this->verifyWithAnchorLoads(['raw-1', 'raw-1']);
+
+        self::assertFalse($verification->isValid());
+        self::assertSame(AuditChainAnchorStatus::Violated, $verification->anchorStatus);
+    }
+
+    /**
+     * A retry that stabilises on the second attempt resolves cleanly instead of
+     * degrading to a warning.
+     */
+    #[Test]
+    public function anchorMismatchThatStabilisesOnTheRetryIsAViolation(): void
+    {
+        $verification = $this->verifyWithAnchorLoads(['raw-1', 'raw-2', 'raw-2', 'raw-2']);
+
+        self::assertFalse($verification->isValid());
+        self::assertSame(AuditChainAnchorStatus::Violated, $verification->anchorStatus);
+    }
+
+    /**
+     * `AuditWriteException` is the type `VaultService::compensateAuditFailure()`
+     * keys on, so a failing anchor write must arrive as that type — otherwise
+     * the vault write is not compensated and the secret persists without a
+     * matching audit row.
+     */
+    #[Test]
+    public function anchorWriteFailureSurfacesAsAuditWriteException(): void
+    {
+        $this->setupDatabaseMocks();
+
+        $anchorStore = $this->createMock(AuditChainAnchorStoreInterface::class);
+        $anchorStore->method('advance')->willThrowException(new RuntimeException('registry unavailable'));
+
+        self::assertNotNull($this->connectionPool);
+        self::assertNotNull($this->accessControlService);
+        $subject = new AuditLogService(
+            $this->connectionPool,
+            $this->accessControlService,
+            $this->masterKeyProvider,
+            $this->extensionConfiguration,
+            $anchorStore,
+        );
+
+        $this->expectException(AuditWriteException::class);
+        $this->expectExceptionCode(1753900001);
+
+        $subject->log('secret', 'create', true);
     }
 
     /**
@@ -3072,73 +3139,6 @@ final class AuditLogServiceTest extends TestCase
         $queryBuilder->method('setMaxResults')->willReturnSelf();
         $queryBuilder->method('createNamedParameter')->willReturn('?');
         $queryBuilder->method('executeQuery')->willReturn($result);
-    }
-
-    /**
-     * Double-read stability rule: a hash mismatch is only reported when the raw
-     * anchor bytes are IDENTICAL either side of the row read. A re-seal that
-     * commits mid-check must never be reported as tampering.
-     */
-    #[Test]
-    public function anchorMismatchThatKeepsChangingIsAnInFlightWarningNotAnError(): void
-    {
-        $verification = $this->verifyWithAnchorLoads(['raw-1', 'raw-2', 'raw-3', 'raw-4']);
-
-        self::assertTrue($verification->isValid(), 'an in-flight re-seal must never invalidate');
-        self::assertSame(AuditChainAnchorStatus::InFlight, $verification->anchorStatus);
-        self::assertCount(1, $verification->warnings);
-    }
-
-    #[Test]
-    public function anchorMismatchThatStaysStableIsAViolation(): void
-    {
-        $verification = $this->verifyWithAnchorLoads(['raw-1', 'raw-1']);
-
-        self::assertFalse($verification->isValid());
-        self::assertSame(AuditChainAnchorStatus::Violated, $verification->anchorStatus);
-    }
-
-    /**
-     * A retry that stabilises on the second attempt resolves cleanly instead of
-     * degrading to a warning.
-     */
-    #[Test]
-    public function anchorMismatchThatStabilisesOnTheRetryIsAViolation(): void
-    {
-        $verification = $this->verifyWithAnchorLoads(['raw-1', 'raw-2', 'raw-2', 'raw-2']);
-
-        self::assertFalse($verification->isValid());
-        self::assertSame(AuditChainAnchorStatus::Violated, $verification->anchorStatus);
-    }
-
-    /**
-     * `AuditWriteException` is the type `VaultService::compensateAuditFailure()`
-     * keys on, so a failing anchor write must arrive as that type — otherwise
-     * the vault write is not compensated and the secret persists without a
-     * matching audit row.
-     */
-    #[Test]
-    public function anchorWriteFailureSurfacesAsAuditWriteException(): void
-    {
-        $this->setupDatabaseMocks();
-
-        $anchorStore = $this->createMock(AuditChainAnchorStoreInterface::class);
-        $anchorStore->method('advance')->willThrowException(new RuntimeException('registry unavailable'));
-
-        self::assertNotNull($this->connectionPool);
-        self::assertNotNull($this->accessControlService);
-        $subject = new AuditLogService(
-            $this->connectionPool,
-            $this->accessControlService,
-            $this->masterKeyProvider,
-            $this->extensionConfiguration,
-            $anchorStore,
-        );
-
-        $this->expectException(AuditWriteException::class);
-        $this->expectExceptionCode(1753900001);
-
-        $subject->log('secret', 'create', true);
     }
 
     /**

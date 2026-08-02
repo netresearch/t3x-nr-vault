@@ -143,13 +143,21 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         $service->publish($anchor);
         self::assertSame(5, $anchor->sequence);
 
-        // Wipe the table and re-seed a SHORTER chain from uid 1.
+        // Wipe the table and re-seed a SHORTER chain from uid 1. The attacker
+        // holds DB-write rights, so they also delete the in-database
+        // sys_registry tip anchor — otherwise that layer already flags the
+        // reset on its own. What is left for THIS subsystem to catch is
+        // exactly this complete in-database wipe.
         $this->truncateAuditTable();
+        $this->getConnectionPool()
+            ->getConnectionForTable('sys_registry')
+            ->delete('sys_registry', ['entry_namespace' => 'tx_nrvault_audit_anchor']);
         $auditService->log('attacker_seeded', 'create', true);
         $auditService->log('attacker_seeded', 'read', true);
 
-        // The rebuilt chain is internally consistent — this is exactly why the
-        // in-database check cannot see the reset.
+        // The rebuilt chain is internally consistent and re-armed its own
+        // in-database anchor — this is exactly why only EXTERNAL evidence can
+        // see the reset.
         self::assertTrue(
             $auditService->verifyHashChain()->isValid(),
             'the rebuilt chain verifies against itself, which is the premise of this test',

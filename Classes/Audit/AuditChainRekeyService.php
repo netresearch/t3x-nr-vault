@@ -35,8 +35,15 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
      */
     private const BATCH_SIZE = 1000;
 
+    /**
+     * @param AuditChainAnchorStoreInterface|null $anchorStore Optional so the
+     *                                                         pre-existing zero-argument test constructions keep
+     *                                                         working; DI autowires it in production. Null means no
+     *                                                         anchor to re-seal — matching an install where the tip
+     *                                                         was never pinned.
+     */
     public function __construct(
-        private AuditChainAnchorStoreInterface $anchorStore,
+        private ?AuditChainAnchorStoreInterface $anchorStore = null,
     ) {}
 
     public function rekeyChain(Connection $connection, #[SensitiveParameter] string $newMasterKey): int
@@ -56,7 +63,7 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
         // obligation it was a docblock that every future caller had to honour,
         // and skipping it makes an entirely healthy chain report a tip-anchor
         // violation on every subsequent verification.
-        $this->anchorStore->reseal($connection, $newMasterKey);
+        $this->anchorStore?->reseal($connection, $newMasterKey);
 
         return $rewritten;
     }

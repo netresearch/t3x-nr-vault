@@ -43,7 +43,16 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
 
     private const AUDIT_TABLE = 'tx_nrvault_audit_log';
 
-    private const ENTRY_NAMESPACE = 'tx_nrvault';
+    /**
+     * The anchor gets its OWN namespace, never `tx_nrvault`: the anchor value
+     * is deliberately raw (not PHP-serialized — see the class docblock), while
+     * core's `Registry::get()` unserializes EVERY row of a namespace it loads.
+     * Other extension state (break-glass session, sink delivery state) lives
+     * in the `tx_nrvault` namespace via the core Registry API; sharing a
+     * namespace with the raw anchor makes every one of those reads throw a
+     * DeserializerException.
+     */
+    private const ENTRY_NAMESPACE = 'tx_nrvault_audit_anchor';
 
     private const ENTRY_KEY = 'auditChainTip';
 
