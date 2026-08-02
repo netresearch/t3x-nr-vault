@@ -137,10 +137,16 @@ OWASP ASVS v4: chapter 2 (Authentication), chapter 4 (Access Control).*
             ``secret.manage_policy``; ``rotate()`` requires
             ``secret.rotate``; ``delete()`` requires ``secret.delete``), so
             DataHandler/FormEngine requests and programmatic callers face the
-            same gate as the module controllers. Controllers and
-            :php:`SecretTcaHook` re-assert the permissions as
-            defense-in-depth.
-        -   :php:`VaultService::assertOperationGranted()`; route
+            same gate as the module controllers. Controllers re-assert the
+            permissions as defense-in-depth. :php:`SecretTcaHook` does so
+            too, and is the *sole* enforcement point for one case the
+            service cannot see: creating a ``tx_nrvault_secret`` record
+            without a value never calls ``store()``, so the hook asserts
+            ``secret.create`` in
+            ``processDatamap_preProcessFieldArray()`` and refuses the
+            record before it is inserted.
+        -   :php:`VaultService::assertOperationGranted()`;
+            :php:`SecretTcaHook::isCreationGranted()`; route
             configuration plus controller code
 
     *   -   No privileged short-circuit in the grant lookup
