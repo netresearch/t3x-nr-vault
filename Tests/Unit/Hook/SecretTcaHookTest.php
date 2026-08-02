@@ -9,10 +9,13 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Hook;
 
+use Closure;
+use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Hook\SecretTcaHook;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -20,12 +23,28 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use ReflectionClass;
+use RuntimeException;
+use Throwable;
+use TYPO3\CMS\Core\Database\Connection;
+use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
+use TYPO3\CMS\Core\Database\Query\QueryBuilder;
+use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 #[CoversClass(SecretTcaHook::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class SecretTcaHookTest extends TestCase
 {
+    private const TABLE = 'tx_nrvault_secret';
+
+    private const READ_GROUPS_MM = 'tx_nrvault_secret_begroups_mm';
+
+    private const WRITE_GROUPS_MM = 'tx_nrvault_secret_writegroups_mm';
+
     private VaultServiceInterface&MockObject $vaultService;
 
     private AuditLogServiceInterface&MockObject $auditService;
@@ -399,5 +418,1020 @@ final class SecretTcaHookTest extends TestCase
         $this->auditService->expects($this->never())->method('log');
 
         $this->hook->processCmdmap_preProcess('move', 'tx_nrvault_secret', 1);
+    }
+
+    #[Test]
+    public function snapshotMmRelationsSkipsANewRecordWithoutTouchingTheDatabase(): void
+    {
+        $calls = [];
+        $hook = $this->hookWith($this->queryBuilderPool([], $calls));
+
+        self::assertSame([], $this->invokePrivate($hook, 'snapshotMmRelations', [0, ['allowed_groups']]));
+        self::assertSame([], $calls, 'a record without a uid must not be read');
+    }
+
+    #[Test]
+    public function snapshotMmRelationsYieldsNothingWithoutAConnectionPool(): void
+    {
+        // $this->hook is built without the optional ConnectionPool — the
+        // rollback degrades to logging, so nothing may be snapshotted.
+        self::assertSame(
+            [],
+            $this->invokePrivate($this->hook, 'snapshotMmRelations', [5, ['allowed_groups', 'write_groups']]),
+        );
+    }
+
+    #[Test]
+    public function snapshotMmRelationsOnlyReadsTheTiersTheSaveSubmits(): void
+    {
+        $calls = [];
+        $pool = $this->queryBuilderPool([self::READ_GROUPS_MM => []], $calls);
+
+        $snapshot = $this->invokePrivate(
+            $this->hookWith($pool),
+            'snapshotMmRelations',
+            [5, ['allowed_groups', 'title']],
+        );
+
+        self::assertIsArray($snapshot);
+        self::assertSame([self::READ_GROUPS_MM], array_keys($snapshot));
+        self::assertContains(['from', self::READ_GROUPS_MM], $calls);
+    }
+
+    #[Test]
+    public function snapshotMmRelationsReadsTheRecordsRowsInSortingOrder(): void
+    {
+        $calls = [];
+        $pool = $this->queryBuilderPool([self::READ_GROUPS_MM => []], $calls);
+
+        $this->invokePrivate($this->hookWith($pool), 'snapshotMmRelations', [5, ['allowed_groups']]);
+
+        // `sorting` is part of the identity of the restored state: the same
+        // groups in a different order are a different record.
+        self::assertContains(['select', ['uid_foreign', 'sorting', 'sorting_foreign']], $calls);
+        self::assertContains(['orderBy', 'sorting', 'ASC'], $calls);
+        self::assertContains(['createNamedParameter', 5, Connection::PARAM_INT], $calls);
+    }
+
+    #[Test]
+    public function snapshotMmRelationsOmitsATierWhoseReadFails(): void
+    {
+        $calls = [];
+        $pool = $this->queryBuilderPool([
+            self::READ_GROUPS_MM => new RuntimeException('mm read failed'),
+            self::WRITE_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
+        ], $calls);
+
+        $snapshot = $this->invokePrivate(
+            $this->hookWith($pool),
+            'snapshotMmRelations',
+            [5, ['allowed_groups', 'write_groups']],
+        );
+
+        self::assertIsArray($snapshot);
+        // Absent, NOT an empty list: an empty entry would be "restored" by
+        // deleting the tier's real relations.
+        self::assertArrayNotHasKey(self::READ_GROUPS_MM, $snapshot);
+        self::assertSame(
+            [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
+            $snapshot[self::WRITE_GROUPS_MM],
+        );
+    }
+
+    #[Test]
+    public function snapshotMmRelationsCoercesNonNumericRowValuesToZero(): void
+    {
+        $calls = [];
+        $pool = $this->queryBuilderPool([
+            self::READ_GROUPS_MM => [['uid_foreign' => '7', 'sorting' => null, 'sorting_foreign' => 'x']],
+        ], $calls);
+
+        $snapshot = $this->invokePrivate($this->hookWith($pool), 'snapshotMmRelations', [5, ['allowed_groups']]);
+
+        self::assertIsArray($snapshot);
+        self::assertSame(
+            [['uid_foreign' => 7, 'sorting' => 0, 'sorting_foreign' => 0]],
+            $snapshot[self::READ_GROUPS_MM],
+        );
+    }
+
+    #[Test]
+    public function restoreMmRelationsRefusesARecordWithoutAUid(): void
+    {
+        $calls = [];
+        $pool = $this->poolWith([self::READ_GROUPS_MM => $this->recordingConnection($calls)]);
+
+        $restored = $this->invokePrivate(
+            $this->hookWith($pool),
+            'restoreMmRelations',
+            [0, [self::READ_GROUPS_MM => []]],
+        );
+
+        self::assertFalse($restored);
+        self::assertSame([], $calls);
+    }
+
+    #[Test]
+    public function restoreMmRelationsRefusesWithoutAConnectionPool(): void
+    {
+        self::assertFalse(
+            $this->invokePrivate($this->hook, 'restoreMmRelations', [5, [self::READ_GROUPS_MM => []]]),
+        );
+    }
+
+    #[Test]
+    public function restoreMmRelationsReplacesATierInsideOneTransaction(): void
+    {
+        $calls = [];
+        $pool = $this->poolWith([self::READ_GROUPS_MM => $this->recordingConnection($calls)]);
+
+        $restored = $this->invokePrivate($this->hookWith($pool), 'restoreMmRelations', [5, [
+            self::READ_GROUPS_MM => [
+                ['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0],
+                ['uid_foreign' => 9, 'sorting' => 2, 'sorting_foreign' => 0],
+            ],
+        ]]);
+
+        self::assertTrue($restored);
+        // Order matters twice over: the delete must precede the inserts, and
+        // both must sit inside the transaction — a failed insert after a
+        // committed delete would leave the tier empty.
+        self::assertSame([
+            ['transactional'],
+            ['delete', self::READ_GROUPS_MM, ['uid_local' => 5]],
+            ['insert', self::READ_GROUPS_MM, ['uid_local' => 5, 'uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
+            ['insert', self::READ_GROUPS_MM, ['uid_local' => 5, 'uid_foreign' => 9, 'sorting' => 2, 'sorting_foreign' => 0]],
+        ], $calls);
+    }
+
+    #[Test]
+    public function restoreMmRelationsHonoursAnEmptyTierByDeletingWhatTheChangeAdded(): void
+    {
+        $calls = [];
+        $pool = $this->poolWith([self::WRITE_GROUPS_MM => $this->recordingConnection($calls)]);
+
+        $restored = $this->invokePrivate(
+            $this->hookWith($pool),
+            'restoreMmRelations',
+            [5, [self::WRITE_GROUPS_MM => []]],
+        );
+
+        self::assertTrue($restored);
+        self::assertSame([
+            ['transactional'],
+            ['delete', self::WRITE_GROUPS_MM, ['uid_local' => 5]],
+        ], $calls);
+    }
+
+    #[Test]
+    public function restoreMmRelationsReportsFailureYetStillRestoresTheOtherTier(): void
+    {
+        $failingCalls = [];
+        $healthyCalls = [];
+        $pool = $this->poolWith([
+            self::READ_GROUPS_MM => $this->recordingConnection(
+                $failingCalls,
+                transactionFailure: new RuntimeException('transaction rolled back'),
+            ),
+            self::WRITE_GROUPS_MM => $this->recordingConnection($healthyCalls),
+        ]);
+
+        $restored = $this->invokePrivate($this->hookWith($pool), 'restoreMmRelations', [5, [
+            self::READ_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
+            self::WRITE_GROUPS_MM => [['uid_foreign' => 4, 'sorting' => 1, 'sorting_foreign' => 0]],
+        ]]);
+
+        self::assertFalse($restored);
+        // The rolled-back tier keeps its current rows — no half-write leaked.
+        self::assertSame([['transactional']], $failingCalls);
+        self::assertSame([
+            ['transactional'],
+            ['delete', self::WRITE_GROUPS_MM, ['uid_local' => 5]],
+            ['insert', self::WRITE_GROUPS_MM, ['uid_local' => 5, 'uid_foreign' => 4, 'sorting' => 1, 'sorting_foreign' => 0]],
+        ], $healthyCalls);
+    }
+
+    #[Test]
+    public function purgeMmRelationsRefusesARecordWithoutAUid(): void
+    {
+        $calls = [];
+        $pool = $this->poolWith([self::READ_GROUPS_MM => $this->recordingConnection($calls)]);
+
+        self::assertFalse($this->invokePrivate($this->hookWith($pool), 'purgeMmRelations', [0]));
+        self::assertSame([], $calls);
+    }
+
+    #[Test]
+    public function purgeMmRelationsRefusesWithoutAConnectionPool(): void
+    {
+        self::assertFalse($this->invokePrivate($this->hook, 'purgeMmRelations', [5]));
+    }
+
+    #[Test]
+    public function purgeMmRelationsDeletesTheRecordsRowsInBothTiers(): void
+    {
+        $calls = [];
+        $connection = $this->recordingConnection($calls);
+        $pool = $this->poolWith([
+            self::READ_GROUPS_MM => $connection,
+            self::WRITE_GROUPS_MM => $connection,
+        ]);
+
+        self::assertTrue($this->invokePrivate($this->hookWith($pool), 'purgeMmRelations', [5]));
+        self::assertSame([
+            ['delete', self::READ_GROUPS_MM, ['uid_local' => 5]],
+            ['delete', self::WRITE_GROUPS_MM, ['uid_local' => 5]],
+        ], $calls);
+    }
+
+    #[Test]
+    public function purgeMmRelationsReportsFailureYetStillPurgesTheOtherTier(): void
+    {
+        $failingCalls = [];
+        $healthyCalls = [];
+        $pool = $this->poolWith([
+            self::READ_GROUPS_MM => $this->recordingConnection(
+                $failingCalls,
+                writeFailure: new RuntimeException('delete refused'),
+            ),
+            self::WRITE_GROUPS_MM => $this->recordingConnection($healthyCalls),
+        ]);
+
+        self::assertFalse($this->invokePrivate($this->hookWith($pool), 'purgeMmRelations', [5]));
+        self::assertSame([['delete', self::WRITE_GROUPS_MM, ['uid_local' => 5]]], $healthyCalls);
+    }
+
+    #[Test]
+    public function revertRowRefusesARecordWithoutAUid(): void
+    {
+        $calls = [];
+        $pool = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
+
+        self::assertFalse($this->invokePrivate($this->hookWith($pool), 'revertRow', [0, null]));
+        self::assertSame([], $calls);
+    }
+
+    #[Test]
+    public function revertRowRefusesWithoutAConnectionPool(): void
+    {
+        self::assertFalse($this->invokePrivate($this->hook, 'revertRow', [5, null]));
+    }
+
+    #[Test]
+    public function revertRowRemovesTheRecordWhenNoOriginalValuesWereCaptured(): void
+    {
+        $calls = [];
+        $pool = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
+
+        self::assertTrue($this->invokePrivate($this->hookWith($pool), 'revertRow', [5, null]));
+        self::assertSame([['delete', self::TABLE, ['uid' => 5]]], $calls);
+    }
+
+    #[Test]
+    public function revertRowRefusesAnEmptyValueMapWithoutWriting(): void
+    {
+        $calls = [];
+        $pool = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
+
+        // An empty map is not "restore nothing" — it is a failed capture, and
+        // writing it would delete every column value.
+        self::assertFalse($this->invokePrivate($this->hookWith($pool), 'revertRow', [5, []]));
+        self::assertSame([], $calls);
+    }
+
+    #[Test]
+    public function revertRowRestoresTheCapturedColumnValues(): void
+    {
+        $calls = [];
+        $pool = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
+
+        $reverted = $this->invokePrivate(
+            $this->hookWith($pool),
+            'revertRow',
+            [5, ['owner_uid' => 12, 'frontend_accessible' => 0]],
+        );
+
+        self::assertTrue($reverted);
+        self::assertSame(
+            [['update', self::TABLE, ['owner_uid' => 12, 'frontend_accessible' => 0], ['uid' => 5]]],
+            $calls,
+        );
+    }
+
+    #[Test]
+    public function revertRowReportsFailureWhenTheWriteThrows(): void
+    {
+        $calls = [];
+        $pool = $this->poolWith([
+            self::TABLE => $this->recordingConnection($calls, writeFailure: new RuntimeException('write refused')),
+        ]);
+
+        self::assertFalse($this->invokePrivate($this->hookWith($pool), 'revertRow', [5, ['owner_uid' => 12]]));
+    }
+
+    #[Test]
+    public function metadataAuditFailureReportsTheChangeAsRevertedWhenRowAndRelationsAreRestored(): void
+    {
+        $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
+
+        $calls = [];
+        $connection = $this->recordingConnection($calls);
+        $pool = $this->poolWith([
+            self::TABLE => $connection,
+            self::READ_GROUPS_MM => $connection,
+            self::WRITE_GROUPS_MM => $connection,
+        ]);
+
+        $messages = [];
+        $this->invokePrivate($this->hookWith($pool), 'auditMetadataUpdateOrCompensate', [
+            'api/token',
+            5,
+            ['allowed_groups', 'write_groups'],
+            ['allowed_groups' => 1, 'write_groups' => 0],
+            [
+                self::READ_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
+                self::WRITE_GROUPS_MM => [],
+            ],
+            $this->capturingDataHandler($messages),
+        ]);
+
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('audit sink down', $messages[0]);
+        self::assertStringContainsString('was reverted (no mutation may persist without an audit entry).', $messages[0]);
+    }
+
+    #[Test]
+    public function metadataAuditFailureIsNotRevertibleWhenAChangedAclTierIsMissingFromTheSnapshot(): void
+    {
+        $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
+
+        $calls = [];
+        $pool = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
+
+        $messages = [];
+        $this->invokePrivate($this->hookWith($pool), 'auditMetadataUpdateOrCompensate', [
+            'api/token',
+            5,
+            ['allowed_groups'],
+            ['allowed_groups' => 1],
+            // Snapshot read failed for the changed tier: no entry at all.
+            [],
+            $this->capturingDataHandler($messages),
+        ]);
+
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('NOT revertible; manual reconciliation required.', $messages[0]);
+        // The row half DID succeed — proving the verdict comes from the
+        // missing relation snapshot, not from a failed row revert.
+        self::assertSame(
+            [['update', self::TABLE, ['allowed_groups' => 1], ['uid' => 5]]],
+            $calls,
+        );
+    }
+
+    #[Test]
+    public function metadataAuditFailureIsNotRevertibleWhenARelationTierCannotBeRestored(): void
+    {
+        $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
+
+        $rowCalls = [];
+        $pool = $this->poolWith([
+            self::TABLE => $this->recordingConnection($rowCalls),
+            self::READ_GROUPS_MM => $this->recordingConnection(
+                $rowCalls,
+                transactionFailure: new RuntimeException('transaction rolled back'),
+            ),
+        ]);
+
+        $messages = [];
+        $this->invokePrivate($this->hookWith($pool), 'auditMetadataUpdateOrCompensate', [
+            'api/token',
+            5,
+            ['allowed_groups'],
+            ['allowed_groups' => 1],
+            [self::READ_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]]],
+            $this->capturingDataHandler($messages),
+        ]);
+
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('NOT revertible; manual reconciliation required.', $messages[0]);
+    }
+
+    #[Test]
+    public function afterAllOperationsPurgesTheRelationsOfARevertedCreationSilently(): void
+    {
+        $calls = [];
+        $connection = $this->recordingConnection($calls);
+        $hook = $this->hookWith($this->poolWith([
+            self::READ_GROUPS_MM => $connection,
+            self::WRITE_GROUPS_MM => $connection,
+        ]));
+        $this->queueRevertedCreation($hook, 5);
+
+        $messages = [];
+        $hook->processDatamap_afterAllOperations($this->capturingDataHandler($messages));
+
+        self::assertSame([
+            ['delete', self::READ_GROUPS_MM, ['uid_local' => 5]],
+            ['delete', self::WRITE_GROUPS_MM, ['uid_local' => 5]],
+        ], $calls);
+        self::assertSame([], $messages);
+    }
+
+    #[Test]
+    public function afterAllOperationsLogsAnUnpurgeableRevertedCreationOnce(): void
+    {
+        $calls = [];
+        $hook = $this->hookWith($this->poolWith([
+            self::READ_GROUPS_MM => $this->recordingConnection($calls, writeFailure: new RuntimeException('delete refused')),
+            self::WRITE_GROUPS_MM => $this->recordingConnection($calls),
+        ]));
+        $this->queueRevertedCreation($hook, 5);
+
+        $messages = [];
+        $hook->processDatamap_afterAllOperations($this->capturingDataHandler($messages));
+
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('could not be purged; manual reconciliation required.', $messages[0]);
+
+        // The queue is consumed: a second run of a DI-shared instance must not
+        // re-log the same uid.
+        $secondRun = [];
+        $hook->processDatamap_afterAllOperations($this->capturingDataHandler($secondRun));
+        self::assertSame([], $secondRun);
+    }
+
+    #[Test]
+    public function creationAuditFailureRevertsTheRowAndQueuesItsRelationsForPurging(): void
+    {
+        $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
+
+        $calls = [];
+        $connection = $this->recordingConnection($calls);
+        $hook = $this->hookWith($this->poolWith([
+            self::TABLE => $connection,
+            self::READ_GROUPS_MM => $connection,
+            self::WRITE_GROUPS_MM => $connection,
+        ]));
+
+        $messages = [];
+        $this->invokePrivate($hook, 'auditRecordCreationOrCompensate', [
+            'api/token',
+            5,
+            ['identifier' => 'api/token'],
+            $this->capturingDataHandler($messages),
+        ]);
+
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('was reverted', $messages[0]);
+
+        // DataHandler writes the record's MM rows only after this hook has
+        // run, so the purge is queued rather than performed here.
+        self::assertSame([5 => true], $this->readPrivate($hook, 'revertedCreations'));
+
+        $purgeMessages = [];
+        $hook->processDatamap_afterAllOperations($this->capturingDataHandler($purgeMessages));
+        self::assertSame([], $purgeMessages);
+        self::assertSame([
+            ['delete', self::TABLE, ['uid' => 5]],
+            ['delete', self::READ_GROUPS_MM, ['uid_local' => 5]],
+            ['delete', self::WRITE_GROUPS_MM, ['uid_local' => 5]],
+        ], $calls);
+    }
+
+    #[Test]
+    public function creationAuditFailureQueuesNoPurgeWhenTheRowSurvives(): void
+    {
+        $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
+
+        $calls = [];
+        $pool = $this->poolWith([
+            self::TABLE => $this->recordingConnection($calls, writeFailure: new RuntimeException('delete refused')),
+        ]);
+        $hook = $this->hookWith($pool);
+
+        $messages = [];
+        $this->invokePrivate($hook, 'auditRecordCreationOrCompensate', [
+            'api/token',
+            5,
+            ['identifier' => 'api/token'],
+            $this->capturingDataHandler($messages),
+        ]);
+
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('NOT revertible', $messages[0]);
+
+        // The record still exists, so its relations rightfully belong to it
+        // and nothing is queued for purging.
+        self::assertSame([], $this->readPrivate($hook, 'revertedCreations'));
+
+        $purgeMessages = [];
+        $hook->processDatamap_afterAllOperations($this->capturingDataHandler($purgeMessages));
+        self::assertSame([], $purgeMessages);
+        self::assertSame([], $calls);
+    }
+
+    #[Test]
+    public function preProcessSnapshotsTheRelationsOfEverySubmittedAclTier(): void
+    {
+        $this->stubBackendRecords([['allowed_groups' => 2]]);
+
+        $queryCalls = [];
+        $hook = $this->hookWith($this->queryBuilderPool([
+            self::READ_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
+        ], $queryCalls));
+
+        $fieldArray = ['allowed_groups' => '3,4'];
+        $dataHandler = $this->createMock(DataHandler::class);
+        $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $dataHandler);
+
+        // DataHandler replaces the MM rows during checkValue(), i.e. before
+        // afterDatabaseOperations() — only a snapshot taken here can restore
+        // the pre-change ACL.
+        self::assertSame(
+            [self::READ_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]]],
+            $this->readPrivate($hook, 'originalMmRelations')['5'] ?? null,
+        );
+    }
+
+    #[Test]
+    public function preProcessDropsAnMmBackedAclChangeSubmittedByANonOwner(): void
+    {
+        $this->stubBackendRecords([['owner_uid' => 99, 'frontend_accessible' => 0, 'scope_pid' => 0]]);
+
+        $hook = $this->hookForNonAdmin(7);
+
+        $fieldArray = ['allowed_groups' => '3,4'];
+        $messages = [];
+        $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
+
+        // Dropped, not reverted: the row column holds only the relation count,
+        // so leaving it out makes DataHandler keep the existing MM rows.
+        self::assertSame([], $fieldArray);
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('can only be changed by an administrator', $messages[0]);
+    }
+
+    #[Test]
+    public function preProcessRevertsAScalarAclChangeSubmittedByANonOwner(): void
+    {
+        // Two reads: the ACL gate, then the pre-change metadata capture.
+        $this->stubBackendRecords([
+            ['owner_uid' => 99, 'frontend_accessible' => 0, 'scope_pid' => 0],
+            ['owner_uid' => 99],
+        ]);
+
+        $hook = $this->hookForNonAdmin(7);
+
+        $fieldArray = ['owner_uid' => 'be_users_7'];
+        $messages = [];
+        $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
+
+        self::assertSame(['owner_uid' => 99], $fieldArray);
+        self::assertCount(1, $messages);
+    }
+
+    #[Test]
+    public function preProcessLeavesAnUnchangedScalarAclColumnAlone(): void
+    {
+        // An ordinary save by a non-owner resubmits the stored owner in group
+        // notation — that is not tampering and must not be logged as such.
+        $this->stubBackendRecords([
+            ['owner_uid' => 99, 'frontend_accessible' => 0, 'scope_pid' => 0],
+            ['owner_uid' => 99],
+        ]);
+
+        $hook = $this->hookForNonAdmin(7);
+
+        $fieldArray = ['owner_uid' => 'be_users_99'];
+        $messages = [];
+        $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
+
+        self::assertSame(99, $fieldArray['owner_uid']);
+        self::assertSame([], $messages);
+    }
+
+    #[Test]
+    public function preProcessLetsTheOwnerWithTheManagePolicyGrantChangeTheAcl(): void
+    {
+        $this->stubBackendRecords([
+            ['owner_uid' => 7, 'frontend_accessible' => 0, 'scope_pid' => 0],
+            ['allowed_groups' => 1],
+        ]);
+
+        $queryCalls = [];
+        $hook = $this->hookForNonAdmin(7, canManagePolicy: true, connectionPool: $this->queryBuilderPool(
+            [self::READ_GROUPS_MM => []],
+            $queryCalls,
+        ));
+
+        $fieldArray = ['allowed_groups' => '3,4'];
+        $messages = [];
+        $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
+
+        self::assertSame(['allowed_groups' => '3,4'], $fieldArray);
+        self::assertSame([], $messages);
+    }
+
+    #[Test]
+    public function afterDatabaseOperationsAuditsAMetadataOnlyChange(): void
+    {
+        $this->stubBackendRecords([['identifier' => 'api/token', 'owner_uid' => 1, 'allowed_groups' => 1, 'scope_pid' => 0]]);
+
+        $this->auditService
+            ->expects(self::once())
+            ->method('log')
+            ->with('api/token', 'metadata_update', true, null, 'FormEngine edit: allowed_groups, frontend_accessible');
+
+        $this->hook->processDatamap_afterDatabaseOperations(
+            'update',
+            self::TABLE,
+            5,
+            ['allowed_groups' => 2, 'frontend_accessible' => 1],
+            $this->createMock(DataHandler::class),
+        );
+    }
+
+    #[Test]
+    public function afterDatabaseOperationsSkipsTheAuditWhenNoColumnWasSubmitted(): void
+    {
+        $this->stubBackendRecords([['identifier' => 'api/token']]);
+
+        $this->auditService->expects(self::never())->method('log');
+
+        $this->hook->processDatamap_afterDatabaseOperations(
+            'update',
+            self::TABLE,
+            5,
+            [],
+            $this->createMock(DataHandler::class),
+        );
+    }
+
+    #[Test]
+    public function afterDatabaseOperationsStopsWhenTheRecordIsGone(): void
+    {
+        $this->stubBackendRecords([false]);
+
+        $this->auditService->expects(self::never())->method('log');
+
+        $this->hook->processDatamap_afterDatabaseOperations(
+            'update',
+            self::TABLE,
+            5,
+            ['allowed_groups' => 2],
+            $this->createMock(DataHandler::class),
+        );
+    }
+
+    #[Test]
+    public function afterDatabaseOperationsCompensatesAFailedMetadataAuditWithTheCapturedState(): void
+    {
+        // One read for the pre-change capture, one for the post-write lookup.
+        $this->stubBackendRecords([
+            ['allowed_groups' => 1],
+            ['identifier' => 'api/token', 'owner_uid' => 1, 'allowed_groups' => 2, 'scope_pid' => 0],
+        ]);
+        $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
+
+        $writes = [];
+        $reads = [];
+        $connection = $this->recordingConnection($writes);
+        $pool = self::createStub(ConnectionPool::class);
+        $pool->method('getConnectionForTable')->willReturn($connection);
+        $pool->method('getQueryBuilderForTable')->willReturnCallback($this->queryBuilderFactory(
+            [self::READ_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]]],
+            $reads,
+        ));
+        $hook = $this->hookWith($pool);
+
+        $fieldArray = ['allowed_groups' => '3,4'];
+        $dataHandler = $this->createMock(DataHandler::class);
+        $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $dataHandler);
+
+        $messages = [];
+        $hook->processDatamap_afterDatabaseOperations(
+            'update',
+            self::TABLE,
+            5,
+            $fieldArray,
+            $this->capturingDataHandler($messages),
+        );
+
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('was reverted', $messages[0]);
+        // Both halves of the rollback ran: the row columns AND the MM rows the
+        // widened ACL replaced.
+        self::assertSame([
+            ['update', self::TABLE, ['allowed_groups' => 1], ['uid' => 5]],
+            ['transactional'],
+            ['delete', self::READ_GROUPS_MM, ['uid_local' => 5]],
+            ['insert', self::READ_GROUPS_MM, ['uid_local' => 5, 'uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
+        ], $writes);
+    }
+
+    /**
+     * Build the hook with the optional ConnectionPool wired, leaving the
+     * services from setUp() in place.
+     */
+    private function hookWith(ConnectionPool $connectionPool): SecretTcaHook
+    {
+        return new SecretTcaHook(
+            $this->vaultService,
+            $this->auditService,
+            $this->accessControlService,
+            $this->secretRepository,
+            $connectionPool,
+        );
+    }
+
+    /**
+     * @param list<mixed> $arguments
+     */
+    private function invokePrivate(SecretTcaHook $hook, string $method, array $arguments): mixed
+    {
+        return (new ReflectionClass($hook))->getMethod($method)->invokeArgs($hook, $arguments);
+    }
+
+    /**
+     * Queue $uid as a creation this hook rolled back, the state
+     * processDatamap_afterAllOperations() acts on.
+     */
+    private function queueRevertedCreation(SecretTcaHook $hook, int $uid): void
+    {
+        $property = (new ReflectionClass($hook))->getProperty('revertedCreations');
+        $property->setValue($hook, [$uid => true]);
+    }
+
+    /**
+     * A connection that appends every write to $calls, so a test can assert
+     * what was written and in which order — not merely that something was.
+     *
+     * @param list<array<int, mixed>> $calls
+     */
+    private function recordingConnection(
+        array &$calls,
+        ?Throwable $transactionFailure = null,
+        ?Throwable $writeFailure = null,
+    ): Connection&MockObject {
+        $connection = $this->createMock(Connection::class);
+
+        $connection->method('transactional')->willReturnCallback(
+            static function (Closure $callback) use (&$calls, $transactionFailure): mixed {
+                $calls[] = ['transactional'];
+                if ($transactionFailure instanceof Throwable) {
+                    throw $transactionFailure;
+                }
+
+                return $callback();
+            },
+        );
+
+        $connection->method('delete')->willReturnCallback(
+            static function (string $table, array $identifier) use (&$calls, $writeFailure): int {
+                if ($writeFailure instanceof Throwable) {
+                    throw $writeFailure;
+                }
+                $calls[] = ['delete', $table, $identifier];
+
+                return 1;
+            },
+        );
+
+        $connection->method('insert')->willReturnCallback(
+            static function (string $table, array $data) use (&$calls, $writeFailure): int {
+                if ($writeFailure instanceof Throwable) {
+                    throw $writeFailure;
+                }
+                $calls[] = ['insert', $table, $data];
+
+                return 1;
+            },
+        );
+
+        $connection->method('update')->willReturnCallback(
+            static function (string $table, array $data, array $identifier) use (&$calls, $writeFailure): int {
+                if ($writeFailure instanceof Throwable) {
+                    throw $writeFailure;
+                }
+                $calls[] = ['update', $table, $data, $identifier];
+
+                return 1;
+            },
+        );
+
+        return $connection;
+    }
+
+    /**
+     * @param array<string, Connection> $connections table => connection; a request for any
+     *                                               other table fails the test
+     */
+    private function poolWith(array $connections): ConnectionPool
+    {
+        $pool = self::createStub(ConnectionPool::class);
+        $pool->method('getConnectionForTable')->willReturnCallback(
+            static function (string $table) use ($connections): Connection {
+                self::assertArrayHasKey($table, $connections, 'unexpected connection request for ' . $table);
+
+                return $connections[$table];
+            },
+        );
+
+        return $pool;
+    }
+
+    /**
+     * A pool whose query builders return the configured rows per table (or
+     * raise the configured failure), recording the query shape into $calls.
+     *
+     * @param array<string, list<array<string, mixed>>|Throwable> $outcomes
+     * @param list<array<int, mixed>> $calls
+     */
+    private function queryBuilderPool(array $outcomes, array &$calls): ConnectionPool
+    {
+        $pool = self::createStub(ConnectionPool::class);
+        $pool->method('getQueryBuilderForTable')->willReturnCallback($this->queryBuilderFactory($outcomes, $calls));
+
+        return $pool;
+    }
+
+    /**
+     * The `getQueryBuilderForTable()` implementation behind
+     * {@see queryBuilderPool()}, reusable where the pool also has to serve
+     * connections.
+     *
+     * @param array<string, list<array<string, mixed>>|Throwable> $outcomes
+     * @param list<array<int, mixed>> $calls
+     *
+     * @return Closure(string): QueryBuilder
+     */
+    private function queryBuilderFactory(array $outcomes, array &$calls): Closure
+    {
+        return function (string $table) use ($outcomes, &$calls): QueryBuilder {
+            self::assertArrayHasKey($table, $outcomes, 'unexpected query builder request for ' . $table);
+            $outcome = $outcomes[$table];
+
+            $result = self::createStub(Result::class);
+            if (!$outcome instanceof Throwable) {
+                $result->method('fetchAllAssociative')->willReturn($outcome);
+            }
+
+            $expression = self::createStub(ExpressionBuilder::class);
+            $expression->method('eq')->willReturn('uid_local = :p');
+
+            $queryBuilder = $this->createMock(QueryBuilder::class);
+            $queryBuilder->method('expr')->willReturn($expression);
+            $queryBuilder->method('where')->willReturnSelf();
+            $queryBuilder->method('createNamedParameter')->willReturnCallback(
+                static function (mixed $value, mixed $type) use (&$calls): string {
+                    $calls[] = ['createNamedParameter', $value, $type];
+
+                    return ':p';
+                },
+            );
+            $queryBuilder->method('select')->willReturnCallback(
+                static function (string ...$fields) use ($queryBuilder, &$calls): QueryBuilder {
+                    $calls[] = ['select', $fields];
+
+                    return $queryBuilder;
+                },
+            );
+            $queryBuilder->method('from')->willReturnCallback(
+                static function (string $from) use ($queryBuilder, &$calls): QueryBuilder {
+                    $calls[] = ['from', $from];
+
+                    return $queryBuilder;
+                },
+            );
+            $queryBuilder->method('orderBy')->willReturnCallback(
+                static function (string $fieldName, ?string $order) use ($queryBuilder, &$calls): QueryBuilder {
+                    $calls[] = ['orderBy', $fieldName, $order];
+
+                    return $queryBuilder;
+                },
+            );
+            $queryBuilder->method('executeQuery')->willReturnCallback(
+                static function () use ($outcome, $result): Result {
+                    if ($outcome instanceof Throwable) {
+                        throw $outcome;
+                    }
+
+                    return $result;
+                },
+            );
+
+            return $queryBuilder;
+        };
+    }
+
+    /**
+     * Make the next `BackendUtility::getRecord()` calls resolve to the given
+     * rows (`false` = record gone). Each row consumes one instance from the
+     * `GeneralUtility::makeInstance()` stack, so the count must match the
+     * number of reads the exercised path performs — the testing framework
+     * fails the test on leftovers.
+     *
+     * @param list<array<string, mixed>|false> $rows
+     */
+    private function stubBackendRecords(array $rows): void
+    {
+        foreach ($rows as $row) {
+            // Twice per read: BackendUtility::getRecord() resolves the schema
+            // itself, and the DeletedRestriction it adds resolves another one
+            // in its constructor.
+            for ($i = 0; $i < 2; $i++) {
+                $schemaFactory = $this->createMock(TcaSchemaFactory::class);
+                $schemaFactory->method('has')->willReturn(true);
+                $schemaFactory->method('get')->willReturn($this->createMock(TcaSchema::class));
+                GeneralUtility::addInstance(TcaSchemaFactory::class, $schemaFactory);
+            }
+
+            $result = self::createStub(Result::class);
+            $result->method('fetchAssociative')->willReturn($row);
+
+            $expression = self::createStub(ExpressionBuilder::class);
+            $expression->method('eq')->willReturn('uid = :p');
+
+            $queryBuilder = $this->createMock(QueryBuilder::class);
+            $queryBuilder->method('getRestrictions')
+                ->willReturn(self::createStub(QueryRestrictionContainerInterface::class));
+            $queryBuilder->method('expr')->willReturn($expression);
+            $queryBuilder->method('createNamedParameter')->willReturn(':p');
+            $queryBuilder->method('select')->willReturnSelf();
+            $queryBuilder->method('from')->willReturnSelf();
+            $queryBuilder->method('where')->willReturnSelf();
+            $queryBuilder->method('executeQuery')->willReturn($result);
+
+            $pool = self::createStub(ConnectionPool::class);
+            $pool->method('getQueryBuilderForTable')->willReturn($queryBuilder);
+            GeneralUtility::addInstance(ConnectionPool::class, $pool);
+        }
+    }
+
+    /**
+     * A hook whose actor is a plain backend user — setUp() defaults to an
+     * admin, which short-circuits the privileged-column policy.
+     */
+    private function hookForNonAdmin(
+        int $actorUid,
+        bool $canManagePolicy = false,
+        ?ConnectionPool $connectionPool = null,
+    ): SecretTcaHook {
+        $accessControl = $this->createMock(AccessControlServiceInterface::class);
+        $accessControl->method('isCurrentActorAdmin')->willReturn(false);
+        $accessControl->method('getCurrentActorUid')->willReturn($actorUid);
+        $accessControl->method('isGranted')->willReturnCallback(
+            static function (VaultPermission $permission) use ($canManagePolicy): bool {
+                self::assertSame(VaultPermission::SecretManagePolicy, $permission);
+
+                return $canManagePolicy;
+            },
+        );
+
+        return new SecretTcaHook(
+            $this->vaultService,
+            $this->auditService,
+            $accessControl,
+            $this->secretRepository,
+            $connectionPool,
+        );
+    }
+
+    /**
+     * @return array<array-key, mixed>
+     */
+    private function readPrivate(SecretTcaHook $hook, string $property): array
+    {
+        $value = (new ReflectionClass($hook))->getProperty($property)->getValue($hook);
+        self::assertIsArray($value);
+
+        return $value;
+    }
+
+    /**
+     * A DataHandler whose log() messages are collected for assertion.
+     *
+     * @param list<string> $messages
+     */
+    private function capturingDataHandler(array &$messages): DataHandler&MockObject
+    {
+        $dataHandler = $this->createMock(DataHandler::class);
+        $dataHandler->method('log')->willReturnCallback(
+            static function (
+                string $table,
+                int $recordUid,
+                int $action,
+                ?int $recordPid,
+                int $error,
+                string $details,
+            ) use (&$messages): int {
+                $messages[] = $details;
+
+                return 0;
+            },
+        );
+
+        return $dataHandler;
     }
 }
