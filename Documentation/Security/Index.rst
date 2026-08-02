@@ -476,7 +476,7 @@ only filesystem access can change it:
    $GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['disableAdminOverride'] = true;
 
 The pinned value wins in both directions and is the same mechanism
-:ref:`auditReads <ext-nrvault-auditReads>` uses.
+:confval:`auditReads <ext-nrvault-auditReads>` uses.
 
 .. _security-break-glass:
 
@@ -511,7 +511,7 @@ operator in a real CLI context. Break-glass is deliberately **not**
 gated on a ``VaultPermission``: it exists to recover from a state where
 the granular grants are what is missing, so gating it on one would make
 it unreachable exactly when it is needed. CLI is likewise not gated on
-:ref:`allowCliAccess <ext-nrvault-allowCliAccess>` — a shell on the host
+:confval:`allowCliAccess <ext-nrvault-allowCliAccess>` — a shell on the host
 already reaches the master key.
 
 A ``TechnicalActorContext::runAs()`` scope may **never** open a window,

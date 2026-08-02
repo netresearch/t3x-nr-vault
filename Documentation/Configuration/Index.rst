@@ -52,7 +52,7 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
       auto-detection and any fallback to the TYPO3 encryption key, and
       makes vault operations refuse to run on a misconfigured or
       unavailable provider. It is also the prerequisite for
-      :ref:`disableAdminOverride <ext-nrvault-disableAdminOverride>`.
+      :confval:`disableAdminOverride <ext-nrvault-disableAdminOverride>`.
 
    An unrecognised value throws rather than degrading to ``standard`` — a
    typo in a hardened deployment must never weaken the effective policy.
@@ -269,7 +269,7 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    groups were granted and reach only the secrets they own or share a
    group with.
 
-   **Only effective when** :ref:`securityProfile
+   **Only effective when** :confval:`securityProfile
    <ext-nrvault-securityProfile>` **is** ``hardened``. In the standard
    profile the flag is inert — a lockout guard, since setting it without
    the rest of the hardened policy is more likely a misunderstanding than
