@@ -178,6 +178,25 @@ OWASP ASVS v4: chapter 2 (Authentication), chapter 4 (Access Control).*
         -   ``allowCliAccess`` defaults to ``0``
         -   Configuration; :ref:`configuration`
 
+    *   -   Frontend placeholder resolution restricted to published
+            identifiers
+        -   :php:`FrontendPlaceholderPolicy` — a ``%vault(id)%`` placeholder
+            resolves only if the identifier was published from an admin-only
+            source (TypoScript setup, site configuration,
+            ``frontendResolvableIdentifiers``, or an explicit
+            ``allowIdentifier()`` grant). ``frontend_accessible`` alone is no
+            longer sufficient, and the rule is strict on the CLI too unless
+            ``frontendPlaceholderLegacyCli`` opts out
+        -   :ref:`adr-035-frontend-placeholder-allow-set`
+
+    *   -   Record copy and delete fail closed across vault fields
+        -   :php:`DataHandlerHook` — a record delete asserts every vault
+            field's delete gate before removing the first secret and is
+            cancelled outright if any fails; a copy that cannot clone every
+            secret deletes the ones it made and blanks every vault field, so a
+            copy never shares the source record's secrets
+        -   :ref:`tca-integration`; :ref:`adr-018-flexform-secret-lifecycle`
+
     *   -   CLI grant narrowed to low-risk operations
         -   ``cliAllowedOperations`` defaults to
             ``secret.use,secret.create,secret.rotate``; reveal, delete,
@@ -397,11 +416,20 @@ v4: chapter 10 (Malicious Code), chapter 14 (Configuration).*
             **Opengrep** SAST on registry rules, blocking on WARNING+),
             ``codeql.yml``, ``license-check.yml``,
             ``dependency-review.yml``, ``fuzz.yml``. The in-repo
-            :file:`semgrep.yml` and :file:`.gitleaks.toml` are **not**
-            referenced by any workflow — see
+            :file:`semgrep.yml` is **not** referenced by any workflow — see
             :ref:`auditor-evidence-ci`
         -   :file:`.github/workflows/checks.yml`;
             :ref:`auditor-evidence-collection`
+
+    *   -   Secret scanning on every pull request
+        -   ``gitleaks`` job against the in-repo :file:`.gitleaks.toml`,
+            reporting to GitHub code scanning
+        -   :file:`.github/workflows/checks.yml`
+
+    *   -   Workflow-definition auditing
+        -   ``zizmor`` job over :file:`.github/workflows/`, configured by
+            :file:`.github/zizmor.yml`
+        -   :file:`.github/workflows/checks.yml`
 
     *   -   Broad compatibility test matrix
         -   PHP 8.2–8.5 × TYPO3 ``^13.4`` and ``^14.3``, unit and functional,

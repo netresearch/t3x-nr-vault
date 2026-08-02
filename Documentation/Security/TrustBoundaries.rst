@@ -207,7 +207,12 @@ which the vault deliberately refuses to act.
     for any visitor carrying a valid backend session, and frontend output is
     shared with anonymous visitors through the page cache.
 *   **Frontend reads are a property of the secret, not of the visitor.** Only
-    the secret's own ``frontend_accessible`` flag governs them.
+    the secret's own ``frontend_accessible`` flag governs them — and for
+    :typoscript:`%vault(id)%` placeholders, additionally the request's
+    FrontendPlaceholderPolicy allow-set
+    (:ref:`adr-035-frontend-placeholder-allow-set`): being
+    ``frontend_accessible`` no longer makes an identifier resolvable from
+    editor-authored content.
 *   **Anything rendered into a cached page is public.** A secret resolved into
     frontend output is cached alongside it and served to everyone. Vault
     values belong in server-side integrations — HTTP clients, API calls, and

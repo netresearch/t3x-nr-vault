@@ -200,6 +200,10 @@ profile changes enforced behaviour. Record at minimum:
     grants per backend group;
 *   ``frontendPlaceholderLegacyCli``, which decides whether command-line
     placeholder resolution is bound by the same allow-set as a frontend
-    request.
+    request;
+*   ``encryptionAlgorithm``, which records the AEAD used for new secrets —
+    empty means XChaCha20-Poly1305;
+*   ``auditSinkStaleDeliveryHours``, the window after which an enabled sink's
+    last successful delivery counts as stale.
 
 :ref:`auditor-evidence-collection` produces all of this as artefacts.

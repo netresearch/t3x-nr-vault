@@ -101,7 +101,10 @@ Actors
             frontend visitor grants nothing extra:
             :php:`AccessControlService::isGranted()` returns ``false`` for
             any frontend request, because frontend output is shared with
-            anonymous visitors through the page cache.
+            anonymous visitors through the page cache. Placeholder
+            resolution additionally requires the identifier to be in the
+            request's allow-set
+            (:ref:`adr-035-frontend-placeholder-allow-set`).
 
     *   -   Backend editor
         -   Whatever their groups were granted (see

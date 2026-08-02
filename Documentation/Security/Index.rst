@@ -90,13 +90,16 @@ Benefits
 Algorithms
 ==========
 
-AES-256-GCM (default)
-   Advanced Encryption Standard with 256-bit keys in Galois/Counter Mode.
-   Provides authenticated encryption with hardware acceleration on modern CPUs.
+XChaCha20-Poly1305 (default)
+   ChaCha20 stream cipher with extended nonce and Poly1305 MAC. The deliberate
+   default for new secrets: available in every libsodium build, and its
+   24-byte nonce makes random-nonce collisions a non-concern, so vault
+   contents stay portable across hosts with differing CPU capabilities.
 
-XChaCha20-Poly1305 (optional)
-   ChaCha20 stream cipher with extended nonce and Poly1305 MAC.
-   Recommended when hardware AES is not available.
+AES-256-GCM (opt-in)
+   Advanced Encryption Standard with 256-bit keys in Galois/Counter Mode.
+   Selected per installation via :confval:`ext-nrvault-encryptionAlgorithm`,
+   and only worth choosing on hosts with hardware AES support.
 
 Both algorithms provide:
 
@@ -344,7 +347,8 @@ Permission                          Governs
                                     hash chain.
 ``tx_nrvault:audit.export``         Downloading the audit log (JSON / CSV).
 ``tx_nrvault:master_key.rotate``    Rotating the master key.
-``tx_nrvault:vault.configure``      Running the migration wizard.
+``tx_nrvault:vault.configure``      Running the migration wizard, and seeing the detailed
+                                    ``vault:doctor`` finding list in the Overview module.
 =================================== ==============================================================
 
 Notes on the model:
@@ -396,7 +400,12 @@ Notes on the model:
    ``TechnicalActorContext::runAs()``.
 -  **Frontend requests never hold operation permissions**, regardless of
    any backend session the visitor carries — frontend visibility remains
-   a property of the secret (``frontend_accessible``) alone.
+   a property of the secret (``frontend_accessible``) alone. For
+   :typoscript:`%vault(id)%` **placeholder** resolution there is a second
+   gate on top: the identifier must also be in the request's
+   FrontendPlaceholderPolicy allow-set
+   (:ref:`adr-035-frontend-placeholder-allow-set`), which the CLI enforces
+   too unless :confval:`ext-nrvault-frontendPlaceholderLegacyCli` is set.
 
 .. _security-disable-admin-override:
 
