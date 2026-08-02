@@ -12,6 +12,10 @@ namespace Netresearch\NrVault\Tests\Unit\Service\Doctor\Check;
 use Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
+use Netresearch\NrVault\Audit\AuditChainAnchor;
+use Netresearch\NrVault\Audit\AuditChainAnchorLoad;
+use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
@@ -26,6 +30,8 @@ use Netresearch\NrVault\Tests\Unit\Traits\DoctorFindingTrait;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Database\Connection;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 
 #[CoversClass(AuditCheck::class)]
 final class AuditCheckTest extends TestCase
@@ -67,6 +73,8 @@ final class AuditCheckTest extends TestCase
                 'audit.reads_logged',
                 'audit.retention',
                 'audit.hash_chain',
+                'audit.hmac_epoch',
+                'audit.db_anchor',
                 'audit.external_sink',
                 'audit.anchor',
                 'audit.sink_delivery',
@@ -393,6 +401,241 @@ final class AuditCheckTest extends TestCase
     }
 
     /**
+     * The lowest epoch that still keys the chain. Epoch 1 must pass, so a
+     * relaxed `>= 1` boundary in the check cannot go unnoticed.
+     */
+    #[Test]
+    public function theLowestKeyedEpochPasses(): void
+    {
+        $finding = $this->findingById(
+            $this->check(epoch: 1)->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.hmac_epoch',
+        );
+
+        self::assertTrue($finding->isPass(), $finding->summary);
+        self::assertSame(1, $finding->details['auditHmacEpoch']);
+    }
+
+    /**
+     * Epoch 0 switches off three controls with one integer, and the standard
+     * profile promises a tamper-evident chain just as much as the hardened one —
+     * so this is critical in both, not an escalation.
+     */
+    #[DataProvider('keylessEpochProvider')]
+    #[Test]
+    public function aKeylessEpochIsCriticalUnderBothProfiles(int $epoch): void
+    {
+        foreach ([SecurityProfile::Standard, SecurityProfile::Hardened] as $profile) {
+            $finding = $this->assertFindingSeverity(
+                FindingSeverity::Critical,
+                $this->check(epoch: $epoch)->run($this->doctorContext($profile)),
+                'audit.hmac_epoch',
+            );
+
+            self::assertSame($epoch, $finding->details['auditHmacEpoch']);
+        }
+    }
+
+    /**
+     * @return iterable<string, array{int}>
+     */
+    public static function keylessEpochProvider(): iterable
+    {
+        yield 'zero' => [0];
+        yield 'negative' => [-1];
+    }
+
+    /**
+     * The finding is only actionable if it says WHICH controls went inert — an
+     * operator reading "epoch is 0" alone has no reason to treat it as critical.
+     */
+    #[Test]
+    public function theKeylessEpochFindingNamesAllThreeDisabledControls(): void
+    {
+        $finding = $this->findingById(
+            $this->check(epoch: 0, anchorRequired: true)
+                ->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.hmac_epoch',
+        );
+
+        self::assertStringContainsString('SHA-256', $finding->risk);
+        self::assertStringContainsString('downgrade', $finding->risk);
+        self::assertStringContainsString('sys_registry', $finding->risk);
+        self::assertStringContainsString('vault:audit-migrate-hmac', $finding->remediation);
+
+        // The epoch finding carries the anchor requirement too: the two settings
+        // are only readable as a contradiction when both values are in the JSON.
+        self::assertTrue($finding->details['auditAnchorRequired']);
+    }
+
+    /**
+     * `auditAnchorRequired` + epoch 0 is the silent contradiction: the store is
+     * disabled, so verification returns `Disabled` before the requirement is
+     * ever consulted and the strict-looking setting protects nothing.
+     */
+    #[Test]
+    public function requiringTheAnchorAtEpochZeroIsReportedAsAContradiction(): void
+    {
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Critical,
+            $this->check(epoch: 0, anchorRequired: true)
+                ->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.db_anchor',
+        );
+
+        self::assertStringContainsString('auditAnchorRequired', $finding->summary);
+        self::assertStringContainsString('auditHmacEpoch', $finding->summary);
+        self::assertSame(AuditChainAnchorStatus::Disabled->value, $finding->details['anchorStatus']);
+        self::assertTrue($finding->details['auditAnchorRequired']);
+    }
+
+    /**
+     * Without the requirement the disabled anchor is still not a pass: the
+     * control was not evaluated, and a gate must not read that as satisfied.
+     */
+    #[Test]
+    public function aDisabledAnchorWarnsThatTheControlWasNotEvaluated(): void
+    {
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Warning,
+            $this->check(epoch: 0)->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.db_anchor',
+        );
+
+        self::assertStringContainsString('auditHmacEpoch', $finding->summary);
+        self::assertSame(0, $finding->details['auditHmacEpoch']);
+    }
+
+    /**
+     * The case the doctor was blind to: at the default epoch the anchor row is
+     * simply gone, and no bounded chain pass evaluates the anchor at all.
+     */
+    #[Test]
+    public function aMissingAnchorOnAPopulatedChainIsAWarning(): void
+    {
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Warning,
+            $this->check(dbAnchorStatus: AuditChainAnchorStatus::Unanchored)
+                ->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.db_anchor',
+        );
+
+        self::assertStringContainsString((string) self::CHAIN_TIP, $finding->summary);
+    }
+
+    /**
+     * With the operator's "this install is anchored" assertion in place, an
+     * absent anchor is a removed anchor — and ordinary audit writes deliberately
+     * refuse to re-arm it, so it does not heal on its own.
+     */
+    #[Test]
+    public function aMissingAnchorIsCriticalWhenItIsRequired(): void
+    {
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Critical,
+            $this->check(anchorRequired: true, dbAnchorStatus: AuditChainAnchorStatus::Unanchored)
+                ->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.db_anchor',
+        );
+
+        self::assertStringContainsString('vault:audit --reset-anchor', $finding->remediation);
+    }
+
+    /**
+     * A chain with no rows has nothing to anchor yet, and the anchor arms itself
+     * on the first audit write — flagging a fresh installation would train
+     * operators to ignore the finding that matters.
+     */
+    #[Test]
+    public function aMissingAnchorOnAnEmptyChainPasses(): void
+    {
+        $finding = $this->findingById(
+            $this->check(chainTip: 0, dbAnchorStatus: AuditChainAnchorStatus::Unanchored)
+                ->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.db_anchor',
+        );
+
+        self::assertTrue($finding->isPass(), $finding->summary);
+        self::assertSame(0, $finding->details['currentSequence']);
+    }
+
+    /**
+     * Two connections is a deployment fact no vault-side action fixes, so it
+     * stays a warning even under the requirement — otherwise the gate demands
+     * something the operator cannot do from here.
+     */
+    #[Test]
+    public function aSplitConnectionStaysAWarningEvenWhenTheAnchorIsRequired(): void
+    {
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Warning,
+            $this->check(
+                anchorRequired: true,
+                dbAnchorStatus: AuditChainAnchorStatus::Unanchored,
+                sharesConnection: false,
+            )->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.db_anchor',
+        );
+
+        self::assertStringContainsString('different database connections', $finding->summary);
+    }
+
+    /**
+     * A present-but-unauthentic anchor is never the pre-anchor state, so it is
+     * critical regardless of profile and of `auditAnchorRequired` — the same
+     * verdict `AuditLogService::verifyAnchor()` reaches.
+     */
+    #[Test]
+    public function anUnreadableAnchorIsCriticalWhetherOrNotItIsRequired(): void
+    {
+        foreach ([true, false] as $required) {
+            $finding = $this->assertFindingSeverity(
+                FindingSeverity::Critical,
+                $this->check(
+                    anchorRequired: $required,
+                    dbAnchorStatus: AuditChainAnchorStatus::Unreadable,
+                )->run($this->doctorContext(SecurityProfile::Standard)),
+                'audit.db_anchor',
+            );
+
+            self::assertStringContainsString('unreadable', $finding->summary);
+        }
+    }
+
+    /**
+     * A status `load()` cannot currently produce must not fall through to a
+     * pass: a gate that never saw the value would read silence as health.
+     */
+    #[Test]
+    public function anUnexpectedAnchorStatusIsReportedRatherThanPassed(): void
+    {
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Warning,
+            $this->check(dbAnchorStatus: AuditChainAnchorStatus::Violated)
+                ->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.db_anchor',
+        );
+
+        self::assertSame(AuditChainAnchorStatus::Violated->value, $finding->details['anchorStatus']);
+    }
+
+    /**
+     * A pass has to admit its scope: the MAC verifies, which is not the same as
+     * the anchored ROW still carrying the anchored hash.
+     */
+    #[Test]
+    public function aHealthyAnchorPassesAndNamesTheDeeperVerifier(): void
+    {
+        $finding = $this->findingById(
+            $this->check()->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.db_anchor',
+        );
+
+        self::assertTrue($finding->isPass(), $finding->summary);
+        self::assertStringContainsString('vault:audit-verify', $finding->summary);
+    }
+
+    /**
      * A check wired with a healthy audit configuration, overridable per test.
      *
      * @param list<string> $sinks Enabled sink identifiers
@@ -401,6 +644,15 @@ final class AuditCheckTest extends TestCase
      *                                    healthy default (ignored when
      *                                    `$withoutAnchor` is true)
      * @param bool $withoutAnchor No anchor could be read at all
+     * @param int $epoch Configured `auditHmacEpoch`
+     * @param bool $anchorRequired Configured `auditAnchorRequired`
+     * @param AuditChainAnchorStatus|null $dbAnchorStatus Status the in-DB anchor
+     *                                                    store reports; null
+     *                                                    derives it from
+     *                                                    `$epoch`, exactly as
+     *                                                    the real store does
+     * @param bool $sharesConnection Whether `sys_registry` resolves to the audit
+     *                               connection
      */
     private function check(
         bool $auditReads = true,
@@ -413,11 +665,17 @@ final class AuditCheckTest extends TestCase
         bool $withoutAnchor = false,
         ?AuditLogServiceInterface $auditLogService = null,
         ?SinkDeliveryStateRepositoryInterface $deliveryState = null,
+        int $epoch = 3,
+        bool $anchorRequired = false,
+        ?AuditChainAnchorStatus $dbAnchorStatus = null,
+        bool $sharesConnection = true,
     ): AuditCheck {
         $configuration = self::createStub(ExtensionConfigurationInterface::class);
         $configuration->method('isAuditReadsEnabled')->willReturn($auditReads);
         $configuration->method('getAuditLogRetention')->willReturn($retention);
         $configuration->method('getAuditSinkStaleDeliveryHours')->willReturn(24);
+        $configuration->method('getAuditHmacEpoch')->willReturn($epoch);
+        $configuration->method('isAuditAnchorRequired')->willReturn($anchorRequired);
 
         if (!$auditLogService instanceof AuditLogServiceInterface) {
             $stub = self::createStub(AuditLogServiceInterface::class);
@@ -459,8 +717,49 @@ final class AuditCheckTest extends TestCase
             $registry,
             $anchorService,
             $anchorReader,
+            $this->anchorStore($epoch, $dbAnchorStatus, $sharesConnection),
+            $this->connectionPool(),
             $deliveryState,
         );
+    }
+
+    /**
+     * The in-DB anchor store, wired to report `$status`.
+     *
+     * When no status is given it is derived from the epoch the same way
+     * `AuditChainAnchorStore::isEnabled()` does (`epoch >= 1`), so a test that
+     * only lowers the epoch cannot accidentally assert against a store that
+     * still claims to be armed.
+     */
+    private function anchorStore(
+        int $epoch,
+        ?AuditChainAnchorStatus $status,
+        bool $sharesConnection,
+    ): AuditChainAnchorStoreInterface {
+        $status ??= $epoch >= 1 ? AuditChainAnchorStatus::Ok : AuditChainAnchorStatus::Disabled;
+
+        $load = new AuditChainAnchorLoad(
+            status: $status,
+            anchor: $status === AuditChainAnchorStatus::Ok
+                ? new AuditChainAnchor(self::CHAIN_TIP, str_repeat('a', 64), 1_700_000_000)
+                : null,
+            raw: $status === AuditChainAnchorStatus::Ok ? 'nrvault-audit-tip.v1|…' : '',
+        );
+
+        $store = self::createStub(AuditChainAnchorStoreInterface::class);
+        $store->method('isEnabled')->willReturn($epoch >= 1);
+        $store->method('sharesConnection')->willReturn($sharesConnection);
+        $store->method('load')->willReturn($load);
+
+        return $store;
+    }
+
+    private function connectionPool(): ConnectionPool
+    {
+        $pool = self::createStub(ConnectionPool::class);
+        $pool->method('getConnectionForTable')->willReturn(self::createStub(Connection::class));
+
+        return $pool;
     }
 
     /**
