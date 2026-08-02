@@ -36,6 +36,10 @@ final class DocsLink
 
     public const AUDIT_HASH_CHAIN = self::BASE . 'Security/Index.html#security-hash-chain';
 
+    public const AUDIT_HMAC_EPOCH = self::BASE . 'Security/Index.html#security-hmac-audit-chain';
+
+    public const AUDIT_TIP_ANCHOR = self::BASE . 'Security/Index.html#security-audit-chain-anchor';
+
     public const AUDIT_SINKS = self::BASE . 'Configuration/Index.html#configuration-audit-sinks';
 
     public const AUDIT_SINK_SCHEDULING = self::BASE . 'Configuration/Index.html#configuration-audit-sink-scheduling';

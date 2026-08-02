@@ -12,7 +12,10 @@ namespace Netresearch\NrVault\Service\Doctor\Check;
 use Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
+use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditIntegrityReason;
+use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
 use Netresearch\NrVault\Audit\Sink\SinkDeliveryState;
@@ -24,6 +27,8 @@ use Netresearch\NrVault\Service\Doctor\DoctorContext;
 use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\FindingSeverity;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
+use TYPO3\CMS\Core\Database\Connection;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 
 /**
  * Is the audit trail being written, kept, verifiable, and witnessed externally?
@@ -66,6 +71,15 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         private ChainTipAnchorServiceInterface $anchorService,
         private AnchorReaderInterface $anchorReader,
         /**
+         * The IN-DATABASE tip anchor (`sys_registry`), which is a different
+         * control from the sink-published one {@see $anchorReader} reads. Only
+         * `load()` is ever called: the store's mutators are for the audit write
+         * path, and a check that repaired what it inspects would report a pass
+         * it had just created.
+         */
+        private AuditChainAnchorStoreInterface $anchorStore,
+        private ConnectionPool $connectionPool,
+        /**
          * Persisted per-sink delivery health. Optional so pre-existing test
          * constructions keep working; absent means the persisted-state
          * findings are simply not emitted.
@@ -92,6 +106,8 @@ final readonly class AuditCheck implements ReadinessCheckInterface
             $this->checkReadsLogged($context),
             $this->checkRetention(),
             $this->checkHashChain($currentSequence),
+            $this->checkHmacEpoch(),
+            $this->checkDatabaseAnchor($currentSequence),
             $this->checkExternalSink($context),
             $this->checkAnchor($context, $anchor, $currentSequence),
             $this->checkSinkFailures(),
@@ -380,6 +396,286 @@ final readonly class AuditCheck implements ReadinessCheckInterface
                 $currentSequence,
             ),
             docsUrl: DocsLink::AUDIT_HASH_CHAIN,
+            details: $details,
+        );
+    }
+
+    /**
+     * Is the chain keyed at all?
+     *
+     * `auditHmacEpoch = 0` is a single integer that switches off three separate
+     * controls, and until this finding existed none of them said so:
+     *
+     *  1. rows are hashed with plain SHA-256 instead of HMAC-SHA256, so the
+     *     chain needs no key to recompute;
+     *  2. the epoch-downgrade floor in
+     *     {@see AuditLogServiceInterface::verifyHashChain()} defaults to the
+     *     CONFIGURED epoch, so at 0 no chain can fall below it;
+     *  3. {@see AuditChainAnchorStoreInterface::isEnabled()} is `epoch >= 1`, so
+     *     the in-DB tip anchor is never read, written or verified.
+     *
+     * Critical under both profiles: the standard profile does not promise an
+     * external witness, but it does promise a tamper-evident chain, and at
+     * epoch 0 there is none. The shipped default is 3.
+     */
+    private function checkHmacEpoch(): Finding
+    {
+        $id = 'audit.hmac_epoch';
+        $epoch = $this->configuration->getAuditHmacEpoch();
+        $details = [
+            'auditHmacEpoch' => $epoch,
+            'auditAnchorRequired' => $this->configuration->isAuditAnchorRequired(),
+        ];
+
+        if ($epoch >= 1) {
+            return Finding::pass(
+                id: $id,
+                summary: \sprintf(
+                    'Audit chain HMAC epoch is %d: rows are HMAC-signed, the epoch-downgrade floor '
+                    . 'is armed, and the in-DB tip anchor is active.',
+                    $epoch,
+                ),
+                docsUrl: DocsLink::AUDIT_HMAC_EPOCH,
+                details: $details,
+            );
+        }
+
+        return Finding::critical(
+            id: $id,
+            summary: \sprintf(
+                'Audit HMAC epoch is %d: the audit log hash chain is keyless.',
+                $epoch,
+            ),
+            risk: 'One setting disables three controls at once. (1) Audit rows carry a plain SHA-256 '
+                . 'hash instead of an HMAC, so anyone with database write access can alter entries and '
+                . 'recompute a fully self-consistent chain without holding any key. (2) The '
+                . 'epoch-downgrade floor equals the configured epoch, so at 0 there is nothing left for '
+                . 'a relabelled chain to fall below and the downgrade check can never fire. (3) The '
+                . 'in-DB chain-tip anchor in sys_registry is switched off, so a tail truncation or a '
+                . 'full wipe of tx_nrvault_audit_log leaves a chain that still verifies as valid.',
+            remediation: 'Set "auditHmacEpoch" to 3, re-sign the existing entries with '
+                . 'vendor/bin/typo3 vault:audit-migrate-hmac (or the install-tool "Migrate audit hash '
+                . 'chain" wizard), then arm the anchor with vendor/bin/typo3 vault:audit '
+                . '--reset-anchor.',
+            docsUrl: DocsLink::AUDIT_HMAC_EPOCH,
+            details: $details,
+        );
+    }
+
+    /**
+     * Is the IN-DATABASE tip anchor there, and does it authenticate?
+     *
+     * Distinct from `audit.anchor`, which covers the anchor published to the
+     * external sinks. This one is the `sys_registry` assertion that commits in
+     * the same transaction as the audit row it describes — and no doctor control
+     * looked at it before: `audit.hash_chain` verifies a BOUNDED range, and
+     * {@see AuditLogServiceInterface::verifyHashChain()} evaluates the anchor
+     * only on a full-range pass, so the anchor status reaching this check via
+     * the chain result is permanently `NotChecked`. A deleted anchor row was
+     * therefore invisible to `vault:doctor` even at the default epoch.
+     *
+     * Scope, stated the same way `audit.hash_chain` states its own: a pass here
+     * means the anchor exists and its MAC verifies under the current master key.
+     * Whether the anchored ROW still carries the anchored hash is the deep
+     * comparison in `vault:audit-verify`; duplicating it here would put a second
+     * implementation of it on a page load.
+     */
+    private function checkDatabaseAnchor(int $currentSequence): Finding
+    {
+        $id = 'audit.db_anchor';
+        $required = $this->configuration->isAuditAnchorRequired();
+        $epoch = $this->configuration->getAuditHmacEpoch();
+        $connection = $this->connectionPool->getConnectionForTable(AuditLogService::TABLE_NAME);
+        $load = $this->anchorStore->load($connection);
+        $details = [
+            'anchorStatus' => $load->status->value,
+            'auditAnchorRequired' => $required,
+            'auditHmacEpoch' => $epoch,
+            'currentSequence' => $currentSequence,
+        ];
+
+        if ($load->status === AuditChainAnchorStatus::Disabled) {
+            return $this->anchorDisabledFinding($id, $required, $epoch, $details);
+        }
+
+        if ($load->status === AuditChainAnchorStatus::Unanchored) {
+            return $this->unanchoredFinding($id, $connection, $required, $currentSequence, $details);
+        }
+
+        if ($load->status === AuditChainAnchorStatus::Unreadable) {
+            // Critical whatever "auditAnchorRequired" says, matching
+            // AuditLogService::verifyAnchor(): a row that is present but does
+            // not authenticate is not a pre-anchor installation, it is an
+            // anchor that was written over or a key that changed.
+            return Finding::critical(
+                id: $id,
+                summary: 'The in-DB audit chain tip anchor is unreadable: malformed value or invalid MAC.',
+                risk: 'The anchor was tampered with — blanking its value is the documented way to try to '
+                    . 'get back to silent truncation — or the master key changed without the chain being '
+                    . 're-sealed. Either way the tip is currently not pinned by anything.',
+                remediation: 'Run vendor/bin/typo3 vault:audit-verify first and treat a chain error as an '
+                    . 'incident. If the master key was rotated or the chain re-keyed without a re-seal, '
+                    . 're-arm with vendor/bin/typo3 vault:audit --reset-anchor, which records the reset '
+                    . 'in the chain itself. Do NOT re-arm before verifying — it would sign whatever the '
+                    . 'chain has been cut down to.',
+                docsUrl: DocsLink::AUDIT_TIP_ANCHOR,
+                details: $details,
+            );
+        }
+
+        if ($load->status === AuditChainAnchorStatus::Ok) {
+            return Finding::pass(
+                id: $id,
+                summary: 'The in-DB audit chain tip anchor is present and authenticates. Tip-hash '
+                    . 'comparison against the anchored row is vault:audit-verify.',
+                docsUrl: DocsLink::AUDIT_TIP_ANCHOR,
+                details: $details,
+            );
+        }
+
+        // No load() path produces the remaining statuses today. Reporting the
+        // unknown one rather than falling through to a pass keeps a future
+        // status from being read as healthy by a gate that never saw it.
+        return Finding::warning(
+            id: $id,
+            summary: \sprintf(
+                'The in-DB audit chain tip anchor reported an unexpected status: %s.',
+                $load->status->value,
+            ),
+            risk: 'The control was not conclusively evaluated. Treat it as unknown, not as satisfied.',
+            remediation: 'Run vendor/bin/typo3 vault:audit-verify for the authoritative anchor verdict.',
+            docsUrl: DocsLink::AUDIT_TIP_ANCHOR,
+            details: $details,
+        );
+    }
+
+    /**
+     * The anchor is off because the epoch is below 1.
+     *
+     * With `auditAnchorRequired` on this is a contradiction the rest of the
+     * system cannot report: `verifyAnchor()` returns on `Disabled` BEFORE the
+     * requirement is consulted, so the operator's assertion "this installation
+     * is anchored" is satisfied by an anchor that is switched off.
+     *
+     * @param array<string, bool|int|string> $details
+     */
+    private function anchorDisabledFinding(string $id, bool $required, int $epoch, array $details): Finding
+    {
+        if ($required) {
+            return Finding::critical(
+                id: $id,
+                summary: \sprintf(
+                    'Contradictory configuration: "auditAnchorRequired" is enabled while '
+                    . '"auditHmacEpoch" is %d, which disables the in-DB tip anchor entirely.',
+                    $epoch,
+                ),
+                risk: 'The configuration asserts that this installation is anchored, and the anchor is '
+                    . 'switched off at the source: at epoch 0 the store never reads, writes or verifies '
+                    . 'one. Verification reports "disabled" and returns before the requirement is ever '
+                    . 'consulted, so the setting produces neither a warning nor an error — it silently '
+                    . 'protects nothing while reading as the stricter configuration.',
+                remediation: 'Raise "auditHmacEpoch" to 3 and migrate the chain with vendor/bin/typo3 '
+                    . 'vault:audit-migrate-hmac, then arm the anchor with vendor/bin/typo3 vault:audit '
+                    . '--reset-anchor. If keyless operation is genuinely intended, turn '
+                    . '"auditAnchorRequired" off so the configuration stops claiming a control it does '
+                    . 'not have.',
+                docsUrl: DocsLink::AUDIT_TIP_ANCHOR,
+                details: $details,
+            );
+        }
+
+        return Finding::warning(
+            id: $id,
+            summary: \sprintf(
+                'The in-DB audit chain tip anchor is disabled ("auditHmacEpoch" is %d) and was not '
+                . 'evaluated.',
+                $epoch,
+            ),
+            risk: 'Nothing outside tx_nrvault_audit_log pins how far the chain had grown, so a tail '
+                . 'truncation or a full wipe leaves a chain that still verifies. This is one of the '
+                . 'three consequences reported by audit.hmac_epoch.',
+            remediation: 'Raise "auditHmacEpoch" to 3 and run vendor/bin/typo3 vault:audit-migrate-hmac; '
+                . 'the anchor arms itself on the next audit write.',
+            docsUrl: DocsLink::AUDIT_TIP_ANCHOR,
+            details: $details,
+        );
+    }
+
+    /**
+     * No anchor is readable at the current epoch.
+     *
+     * Three different situations, and they do not deserve the same severity:
+     * `sys_registry` on a foreign connection is a deployment fact no operator
+     * action inside the vault can fix; an empty chain has simply not armed the
+     * anchor yet; a populated chain with no anchor is either that same
+     * pre-anchor state or an anchor someone removed, which is exactly what
+     * `auditAnchorRequired` exists to disambiguate.
+     *
+     * @param array<string, bool|int|string> $details
+     */
+    private function unanchoredFinding(
+        string $id,
+        Connection $connection,
+        bool $required,
+        int $currentSequence,
+        array $details,
+    ): Finding {
+        if (!$this->anchorStore->sharesConnection($connection)) {
+            return Finding::warning(
+                id: $id,
+                summary: 'The in-DB audit chain tip anchor is unavailable: sys_registry and '
+                    . 'tx_nrvault_audit_log are mapped to different database connections.',
+                risk: 'The anchor cannot commit atomically with an audit write across two connections, '
+                    . 'so it is not armed at all and truncation of the audit table stays undetectable '
+                    . 'by this control.',
+                remediation: 'Map both tables to the same connection in '
+                    . '$GLOBALS[TYPO3_CONF_VARS][DB][TableMapping], or rely on an external audit sink '
+                    . 'plus vendor/bin/typo3 vault:audit-anchor for truncation evidence.',
+                docsUrl: DocsLink::AUDIT_TIP_ANCHOR,
+                details: $details,
+            );
+        }
+
+        if ($required) {
+            return Finding::critical(
+                id: $id,
+                summary: 'No in-DB audit chain tip anchor is recorded, although "auditAnchorRequired" '
+                    . 'is enabled.',
+                risk: 'The configuration asserts this installation is already anchored, so an absent '
+                    . 'anchor is not the pre-anchor state — it is an anchor that was removed, the step '
+                    . 'that precedes a truncation. Ordinary audit writes deliberately refuse to re-arm '
+                    . 'it, so this does not heal on its own.',
+                remediation: 'Verify the chain first with vendor/bin/typo3 vault:audit-verify. Only once '
+                    . 'it is clean, arm the anchor with vendor/bin/typo3 vault:audit --reset-anchor, '
+                    . 'which records the reset as an audit entry in the same transaction.',
+                docsUrl: DocsLink::AUDIT_TIP_ANCHOR,
+                details: $details,
+            );
+        }
+
+        if ($currentSequence === 0) {
+            return Finding::pass(
+                id: $id,
+                summary: 'The audit log is empty; the in-DB tip anchor arms itself on the first audit '
+                    . 'write.',
+                docsUrl: DocsLink::AUDIT_TIP_ANCHOR,
+                details: $details,
+            );
+        }
+
+        return Finding::warning(
+            id: $id,
+            summary: \sprintf(
+                'No in-DB audit chain tip anchor is recorded, although the chain has grown to uid %d.',
+                $currentSequence,
+            ),
+            risk: 'Tail truncation and full wipes of tx_nrvault_audit_log are not detectable until the '
+                . 'anchor is armed. A never-armed anchor and a deleted one are indistinguishable from '
+                . 'database state alone, which is why this is a warning rather than an error.',
+            remediation: 'The next audit write arms it. Once it is armed, enable "auditAnchorRequired" '
+                . 'so a later deletion of the anchor row becomes an error instead of this warning — the '
+                . 'setting lives in a settings file and is out of a database-write attacker\'s reach.',
+            docsUrl: DocsLink::AUDIT_TIP_ANCHOR,
             details: $details,
         );
     }
