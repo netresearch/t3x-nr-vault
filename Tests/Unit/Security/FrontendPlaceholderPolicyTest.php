@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Security;
 
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\EventListener\TypoScriptVaultListener;
 use Netresearch\NrVault\Security\FrontendPlaceholderPolicy;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -35,8 +36,9 @@ use TYPO3\CMS\Frontend\ContentObject\Event\AfterStdWrapFunctionsExecutedEvent;
  * memoisation, the log latch, and the regex parity that makes the gate
  * un-bypassable.
  *
- * Environment is re-initialised as a non-CLI web context, because the policy
- * treats CLI as LEGACY and would otherwise answer "resolvable" everywhere.
+ * Environment is re-initialised as a non-CLI web context so each case states
+ * the SAPI it is about; the cases that are about the CLI switch it back
+ * themselves.
  */
 #[CoversClass(FrontendPlaceholderPolicy::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -58,7 +60,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
         // blanket unset() here would put them on the branch that cannot fail.
         unset($GLOBALS['TYPO3_REQUEST']);
 
-        $this->subject = new FrontendPlaceholderPolicy();
+        $this->subject = $this->policy();
     }
 
     protected function tearDown(): void
@@ -538,15 +540,130 @@ final class FrontendPlaceholderPolicyTest extends TestCase
         self::assertTrue($this->subject->isResolvable('anything_at_all', $cObj));
     }
 
+    /**
+     * The CLI is strict at the default setting. `scheduler:run` authenticates
+     * the `_cli_` admin user, so the admin bypass grants the read and this
+     * allow-set is the only gate left on editor-authored content that a
+     * scheduled newsletter or export job renders.
+     */
     #[Test]
-    public function cliKeepsLegacyBehaviour(): void
+    public function cliEnforcesTheAllowSet(): void
+    {
+        $this->initializeWebEnvironment(cli: true);
+
+        $cObj = $this->contentObjectRenderer($this->frontendRequest([
+            'lib.' => ['apiKey.' => ['value' => '%vault(' . self::IDENTIFIER . ')%']],
+        ]));
+
+        self::assertTrue($this->subject->isResolvable(self::IDENTIFIER, $cObj), 'a published identifier still resolves');
+        self::assertFalse($this->subject->isResolvable('anything_at_all', $cObj));
+    }
+
+    /**
+     * A CLI-typed request is what the console application actually carries.
+     * `ApplicationType::isFrontend()` reports false for it, so a rule that
+     * asked only the request would put every scheduled render back into
+     * legacy — the CLI question has to be asked separately.
+     */
+    #[Test]
+    public function cliTypedRequestIsStrictRatherThanLegacy(): void
     {
         $this->initializeWebEnvironment(cli: true);
 
         $request = (new ServerRequest('https://example.com/'))
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_CLI);
+
+        self::assertFalse($this->subject->isResolvable('anything_at_all', $this->contentObjectRenderer($request)));
+    }
+
+    #[Test]
+    public function cliWithoutAnyRequestResolvesNothing(): void
+    {
+        $this->initializeWebEnvironment(cli: true);
+
+        $cObj = $this->createMock(ContentObjectRenderer::class);
+        $cObj->method('getRequest')->willThrowException(new RuntimeException('no request', 1607172972));
+
+        self::assertFalse($this->subject->isResolvable('anything_at_all', $cObj));
+    }
+
+    /**
+     * The documented escape hatch for an operator whose internal render jobs
+     * genuinely need the old behaviour: `frontendPlaceholderLegacyCli = 1`
+     * restores the pre-ADR-035 CLI bypass byte for byte.
+     */
+    #[Test]
+    public function legacyCliOptInRestoresTheBypass(): void
+    {
+        $this->initializeWebEnvironment(cli: true);
+
+        $subject = $this->policy(legacyCli: true);
+        $request = (new ServerRequest('https://example.com/'))
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
 
-        self::assertTrue($this->subject->isResolvable('anything_at_all', $this->contentObjectRenderer($request)));
+        self::assertTrue($subject->isResolvable('anything_at_all', $this->contentObjectRenderer($request)));
+    }
+
+    /**
+     * The opt-in is a CLI-only escape hatch. Turning it on must not weaken a
+     * web frontend request, which is the surface ADR-035 is about.
+     */
+    #[Test]
+    public function legacyCliOptInDoesNotWeakenAWebFrontendRequest(): void
+    {
+        $subject = $this->policy(legacyCli: true);
+
+        self::assertFalse(
+            $subject->isResolvable('anything_at_all', $this->contentObjectRenderer($this->frontendRequest())),
+        );
+    }
+
+    /**
+     * Reading the setting must not be able to open the gate through a failure,
+     * and no exception may escape into `stdWrap()`.
+     */
+    #[Test]
+    public function anUnreadableLegacyCliSettingFailsClosed(): void
+    {
+        $this->initializeWebEnvironment(cli: true);
+
+        $extensionConfiguration = $this->createMock(ExtensionConfigurationInterface::class);
+        $extensionConfiguration->method('isFrontendPlaceholderLegacyCliEnabled')
+            ->willThrowException(new RuntimeException('configuration unavailable', 1754000001));
+
+        $subject = new FrontendPlaceholderPolicy($extensionConfiguration);
+        $request = (new ServerRequest('https://example.com/'))
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
+
+        self::assertFalse($subject->isResolvable('anything_at_all', $this->contentObjectRenderer($request)));
+    }
+
+    /**
+     * The latch stays off on the CLI whatever the opt-in says. A long-running
+     * `scheduler:run` handles many renders under one request object, so a latch
+     * keyed on that object would be a process-wide log blackout an attacker
+     * triggers with one planted placeholder.
+     */
+    #[Test]
+    #[DataProvider('legacyCliSettingProvider')]
+    public function cliNeverLatchesTheLogSlot(bool $legacyCli): void
+    {
+        $this->initializeWebEnvironment(cli: true);
+
+        $subject = $this->policy(legacyCli: $legacyCli);
+        $cObj = $this->contentObjectRenderer($this->frontendRequest());
+
+        self::assertTrue($subject->claimLogSlot($cObj));
+        self::assertTrue($subject->claimLogSlot($cObj), 'the CLI must keep every warning of a long-running process');
+    }
+
+    /**
+     * @return iterable<string, array{bool}>
+     */
+    public static function legacyCliSettingProvider(): iterable
+    {
+        yield 'strict CLI' => [false];
+        yield 'legacy CLI opt-in' => [true];
     }
 
     #[Test]
@@ -604,6 +721,18 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     // -----------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------
+
+    /**
+     * A policy wired to an extension configuration that reports the given
+     * `frontendPlaceholderLegacyCli` value — the real opt-in, not a test seam.
+     */
+    private function policy(bool $legacyCli = false): FrontendPlaceholderPolicy
+    {
+        $extensionConfiguration = $this->createMock(ExtensionConfigurationInterface::class);
+        $extensionConfiguration->method('isFrontendPlaceholderLegacyCliEnabled')->willReturn($legacyCli);
+
+        return new FrontendPlaceholderPolicy($extensionConfiguration);
+    }
 
     /**
      * @param array<mixed> $setup
