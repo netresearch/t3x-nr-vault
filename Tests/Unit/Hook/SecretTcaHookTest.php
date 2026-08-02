@@ -31,9 +31,6 @@ use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
-use TYPO3\CMS\Core\Schema\TcaSchema;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 #[CoversClass(SecretTcaHook::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -55,6 +52,20 @@ final class SecretTcaHookTest extends TestCase
 
     private SecretTcaHook $hook;
 
+    /**
+     * Rows the hook's record reads resolve to, consumed in order.
+     *
+     * @var list<array<string, mixed>|false>
+     */
+    private array $backendRecords = [];
+
+    /**
+     * The shape of every record read performed so far.
+     *
+     * @var list<array<int, mixed>>
+     */
+    private array $recordReads = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -75,6 +86,15 @@ final class SecretTcaHookTest extends TestCase
             $this->accessControlService,
             $this->secretRepository,
         );
+    }
+
+    protected function tearDown(): void
+    {
+        // A path that performs fewer reads than the test queued would
+        // otherwise pass silently.
+        self::assertSame([], $this->backendRecords, 'queued record reads left unconsumed');
+
+        parent::tearDown();
     }
 
     #[Test]
@@ -959,7 +979,7 @@ final class SecretTcaHookTest extends TestCase
     {
         $this->stubBackendRecords([['owner_uid' => 99, 'frontend_accessible' => 0, 'scope_pid' => 0]]);
 
-        $hook = $this->hookForNonAdmin(7);
+        $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
 
         $fieldArray = ['allowed_groups' => '3,4'];
         $messages = [];
@@ -981,7 +1001,7 @@ final class SecretTcaHookTest extends TestCase
             ['owner_uid' => 99],
         ]);
 
-        $hook = $this->hookForNonAdmin(7);
+        $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
 
         $fieldArray = ['owner_uid' => 'be_users_7'];
         $messages = [];
@@ -1001,7 +1021,7 @@ final class SecretTcaHookTest extends TestCase
             ['owner_uid' => 99],
         ]);
 
-        $hook = $this->hookForNonAdmin(7);
+        $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
 
         $fieldArray = ['owner_uid' => 'be_users_99'];
         $messages = [];
@@ -1043,7 +1063,7 @@ final class SecretTcaHookTest extends TestCase
             ->method('log')
             ->with('api/token', 'metadata_update', true, null, 'FormEngine edit: allowed_groups, frontend_accessible');
 
-        $this->hook->processDatamap_afterDatabaseOperations(
+        $this->hookWith($this->recordPool())->processDatamap_afterDatabaseOperations(
             'update',
             self::TABLE,
             5,
@@ -1059,7 +1079,7 @@ final class SecretTcaHookTest extends TestCase
 
         $this->auditService->expects(self::never())->method('log');
 
-        $this->hook->processDatamap_afterDatabaseOperations(
+        $this->hookWith($this->recordPool())->processDatamap_afterDatabaseOperations(
             'update',
             self::TABLE,
             5,
@@ -1075,13 +1095,39 @@ final class SecretTcaHookTest extends TestCase
 
         $this->auditService->expects(self::never())->method('log');
 
-        $this->hook->processDatamap_afterDatabaseOperations(
+        $this->hookWith($this->recordPool())->processDatamap_afterDatabaseOperations(
             'update',
             self::TABLE,
             5,
             ['allowed_groups' => 2],
             $this->createMock(DataHandler::class),
         );
+    }
+
+    #[Test]
+    public function recordReadsSelectTheRequestedColumnsOfOneLiveRecord(): void
+    {
+        $this->stubBackendRecords([['identifier' => 'api/token']]);
+
+        $this->hookWith($this->recordPool())->processDatamap_afterDatabaseOperations(
+            'update',
+            self::TABLE,
+            5,
+            [],
+            $this->createMock(DataHandler::class),
+        );
+
+        // BackendUtility::getRecord() semantics, spelled out so they hold on
+        // every supported core version: all restrictions dropped, soft-deleted
+        // rows excluded by an explicit predicate, one uid, bound as integers.
+        self::assertSame([
+            ['removeAll'],
+            ['select', ['identifier', 'owner_uid', 'allowed_groups', 'scope_pid']],
+            ['from', self::TABLE],
+            ['createNamedParameter', 5, Connection::PARAM_INT],
+            ['createNamedParameter', 0, Connection::PARAM_INT],
+            ['where', ['uid = 5', 'deleted = 0']],
+        ], $this->recordReads);
     }
 
     #[Test]
@@ -1269,6 +1315,13 @@ final class SecretTcaHookTest extends TestCase
     private function queryBuilderFactory(array $outcomes, array &$calls): Closure
     {
         return function (string $table) use ($outcomes, &$calls): QueryBuilder {
+            // The secret table is only ever queried by the hook's record read;
+            // the MM tables these outcomes describe are queried by the
+            // relation snapshot.
+            if ($table === self::TABLE) {
+                return $this->recordQueryBuilder();
+            }
+
             self::assertArrayHasKey($table, $outcomes, 'unexpected query builder request for ' . $table);
             $outcome = $outcomes[$table];
 
@@ -1326,47 +1379,100 @@ final class SecretTcaHookTest extends TestCase
     }
 
     /**
-     * Make the next `BackendUtility::getRecord()` calls resolve to the given
-     * rows (`false` = record gone). Each row consumes one instance from the
-     * `GeneralUtility::makeInstance()` stack, so the count must match the
-     * number of reads the exercised path performs — the testing framework
-     * fails the test on leftovers.
+     * Queue the rows the hook's record reads resolve to, in the order the
+     * exercised path performs them (`false` = record gone). The queue is
+     * served through the hook's injected ConnectionPool, so the stub is
+     * independent of which TYPO3 version's `BackendUtility` internals are
+     * installed. tearDown() fails a test that queues more reads than the
+     * path performs.
      *
      * @param list<array<string, mixed>|false> $rows
      */
     private function stubBackendRecords(array $rows): void
     {
-        foreach ($rows as $row) {
-            // Twice per read: BackendUtility::getRecord() resolves the schema
-            // itself, and the DeletedRestriction it adds resolves another one
-            // in its constructor.
-            for ($i = 0; $i < 2; $i++) {
-                $schemaFactory = $this->createMock(TcaSchemaFactory::class);
-                $schemaFactory->method('has')->willReturn(true);
-                $schemaFactory->method('get')->willReturn($this->createMock(TcaSchema::class));
-                GeneralUtility::addInstance(TcaSchemaFactory::class, $schemaFactory);
-            }
+        $this->backendRecords = [...$this->backendRecords, ...$rows];
+    }
 
-            $result = self::createStub(Result::class);
-            $result->method('fetchAssociative')->willReturn($row);
+    /**
+     * A pool that serves nothing but the hook's record reads.
+     */
+    private function recordPool(): ConnectionPool
+    {
+        $pool = self::createStub(ConnectionPool::class);
+        $pool->method('getQueryBuilderForTable')->willReturnCallback(
+            function (string $table): QueryBuilder {
+                self::assertSame(self::TABLE, $table, 'unexpected query builder request for ' . $table);
 
-            $expression = self::createStub(ExpressionBuilder::class);
-            $expression->method('eq')->willReturn('uid = :p');
+                return $this->recordQueryBuilder();
+            },
+        );
 
-            $queryBuilder = $this->createMock(QueryBuilder::class);
-            $queryBuilder->method('getRestrictions')
-                ->willReturn(self::createStub(QueryRestrictionContainerInterface::class));
-            $queryBuilder->method('expr')->willReturn($expression);
-            $queryBuilder->method('createNamedParameter')->willReturn(':p');
-            $queryBuilder->method('select')->willReturnSelf();
-            $queryBuilder->method('from')->willReturnSelf();
-            $queryBuilder->method('where')->willReturnSelf();
-            $queryBuilder->method('executeQuery')->willReturn($result);
+        return $pool;
+    }
 
-            $pool = self::createStub(ConnectionPool::class);
-            $pool->method('getQueryBuilderForTable')->willReturn($queryBuilder);
-            GeneralUtility::addInstance(ConnectionPool::class, $pool);
-        }
+    /**
+     * A query builder for the secret table answering with the next row
+     * {@see stubBackendRecords()} queued, recording the query shape into
+     * $recordReads so a test can pin the read itself, not merely its result.
+     */
+    private function recordQueryBuilder(): QueryBuilder
+    {
+        self::assertNotSame([], $this->backendRecords, 'unexpected record read on ' . self::TABLE);
+        $row = array_shift($this->backendRecords);
+
+        $result = self::createStub(Result::class);
+        $result->method('fetchAssociative')->willReturn($row);
+
+        $restrictions = $this->createMock(QueryRestrictionContainerInterface::class);
+        $restrictions->method('removeAll')->willReturnCallback(
+            function () use ($restrictions): QueryRestrictionContainerInterface {
+                $this->recordReads[] = ['removeAll'];
+
+                return $restrictions;
+            },
+        );
+
+        // Render the placeholder as the bound value so the recorded
+        // predicates read as `uid = 5` / `deleted = 0`.
+        $expression = self::createStub(ExpressionBuilder::class);
+        $expression->method('eq')->willReturnCallback(
+            static fn (string $fieldName, string $value): string => $fieldName . ' = ' . $value,
+        );
+
+        $queryBuilder = $this->createMock(QueryBuilder::class);
+        $queryBuilder->method('getRestrictions')->willReturn($restrictions);
+        $queryBuilder->method('expr')->willReturn($expression);
+        $queryBuilder->method('executeQuery')->willReturn($result);
+        $queryBuilder->method('createNamedParameter')->willReturnCallback(
+            function (int $value, mixed $type): string {
+                $this->recordReads[] = ['createNamedParameter', $value, $type];
+
+                return (string) $value;
+            },
+        );
+        $queryBuilder->method('select')->willReturnCallback(
+            function (string ...$fields) use ($queryBuilder): QueryBuilder {
+                $this->recordReads[] = ['select', $fields];
+
+                return $queryBuilder;
+            },
+        );
+        $queryBuilder->method('from')->willReturnCallback(
+            function (string $from) use ($queryBuilder): QueryBuilder {
+                $this->recordReads[] = ['from', $from];
+
+                return $queryBuilder;
+            },
+        );
+        $queryBuilder->method('where')->willReturnCallback(
+            function (string ...$predicates) use ($queryBuilder): QueryBuilder {
+                $this->recordReads[] = ['where', $predicates];
+
+                return $queryBuilder;
+            },
+        );
+
+        return $queryBuilder;
     }
 
     /**
