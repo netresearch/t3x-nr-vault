@@ -320,6 +320,16 @@ final class SecretTcaHookCreateAclTest extends AbstractVaultFunctionalTestCase
         /** @phpstan-ignore property.internal */
         $errorLog = $dataHandler->errorLog;
 
-        return implode("\n", array_map(static fn (mixed $line): string => (string) $line, $errorLog));
+        // Explicit narrowing rather than a cast: the v13 stubs type errorLog
+        // as a plain array, so its entries are mixed there and casting them
+        // fails PHPStan on that matrix leg only.
+        $lines = [];
+        foreach ($errorLog as $line) {
+            if (\is_scalar($line)) {
+                $lines[] = (string) $line;
+            }
+        }
+
+        return implode("\n", $lines);
     }
 }
