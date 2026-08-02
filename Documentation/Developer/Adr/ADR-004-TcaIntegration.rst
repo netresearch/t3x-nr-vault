@@ -274,7 +274,7 @@ Data flow
    2. Retrieves source secrets by UUID
    3. Creates new secrets with new UUIDs for copied record
    4. On failure: the secrets already cloned are deleted again and every
-      vault field of the new record is blanked; both steps are best effort,
+      vault field of the new record is blanked; both steps are best-effort,
       so a failed rollback delete leaves an orphaned clone and a failed
       blanking leaves the copy referencing the source record's secrets
 

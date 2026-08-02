@@ -409,12 +409,12 @@ the audit write fails.
 
 A **copy** clones every field or none: if one secret cannot be cloned, the
 secrets already cloned for that copy are deleted again and *all* vault fields
-of the new record are cleared, so the copy does not end up holding the source
+of the new record are cleared, so the copy should not end up holding the source
 record's identifiers — it would otherwise share the original's secrets, and
 rotating or deleting one record would silently change the other. The editor
 gets an error message and re-enters the values.
 
-Both halves of that rollback are best effort. If a rollback delete fails, the
+Both halves of that rollback are best-effort. If a rollback delete fails, the
 clone it should have removed survives as an orphan that nothing references any
 more; the failure is logged for the administrator rather than shown to the
 editor. If the blanking write fails, the copy keeps the source record's
