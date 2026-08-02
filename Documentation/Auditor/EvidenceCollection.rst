@@ -122,13 +122,15 @@ Finding ids worth citing directly in an assessment:
             ``provider.key_permissions``
 
     *   -   Audit evidence
-        -   ``audit.hash_chain``, ``audit.anchor``,
+        -   ``audit.hash_chain``, ``audit.hmac_epoch``,
+            ``audit.db_anchor``, ``audit.anchor``,
             ``audit.external_sink``, ``audit.sink_delivery``,
             ``audit.sink_state.<sink>``,
             ``audit.reads_logged``, ``audit.retention``
 
     *   -   CLI exposure
-        -   ``cli.access``, ``cli.access_groups``
+        -   ``cli.access``, ``cli.access_groups``,
+            ``cli.allowed_operations``
 
     *   -   Emergency access
         -   ``breakglass.window_open``
@@ -191,9 +193,10 @@ carry the stable reason codes from
 
     vendor/bin/typo3 vault:audit --verify > evidence/audit-chain.txt
 
-``vault:audit --verify`` verifies the chain without the anchor comparison.
-Useful for isolating a finding: a chain that verifies here but fails
-``vault:audit-verify`` points at the anchor, not at the rows.
+``vault:audit --verify`` verifies the chain and reports the in-database tip
+anchor (``Tip anchor: …``), but performs no comparison against the *external*
+anchor. Useful for isolating a finding: a chain that verifies here but fails
+``vault:audit-verify`` points at the external anchor, not at the rows.
 
 ..  note::
 
