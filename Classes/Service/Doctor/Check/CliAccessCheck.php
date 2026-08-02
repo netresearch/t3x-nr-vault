@@ -15,6 +15,7 @@ use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\Doctor\DocsLink;
 use Netresearch\NrVault\Service\Doctor\DoctorContext;
 use Netresearch\NrVault\Service\Doctor\Finding;
+use Netresearch\NrVault\Service\Doctor\FindingSeverity;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
 
 /**
@@ -29,6 +30,11 @@ use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
  * Off by default, so the finding here is about a deliberate opt-in that may have
  * outlived the deployment step it was added for — and about the second, easier
  * mistake: turning it on and leaving the group restriction empty.
+ *
+ * The group also carries `frontendPlaceholderLegacyCli`, the other command-line
+ * opt-in that widens what a shell reaches. It is INDEPENDENT of `allowCliAccess`
+ * — {@see \Netresearch\NrVault\Security\FrontendPlaceholderPolicy} consults only
+ * its own flag — so it is reported whether or not CLI access is granted.
  */
 final readonly class CliAccessCheck implements ReadinessCheckInterface
 {
@@ -58,6 +64,13 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
                     docsUrl: DocsLink::ACCESS_CONTROL,
                     details: ['allowCliAccess' => false],
                 ),
+                // Reported here too, not only below: the two settings are
+                // independent. FrontendPlaceholderPolicy::isLegacyContext()
+                // consults isLegacyCliEnabled() and nothing else, so the legacy
+                // bypass is fully live on an installation with allowCliAccess
+                // off — which is the default, i.e. exactly the installations
+                // this branch serves.
+                $this->checkFrontendPlaceholderLegacy($context),
             ];
         }
 
@@ -65,7 +78,70 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
             $this->checkAccessEnabled($context),
             $this->checkAccessGroups(),
             $this->checkAllowedOperations(),
+            $this->checkFrontendPlaceholderLegacy($context),
         ];
+    }
+
+    /**
+     * Does a command-line render still resolve any placeholder an editor wrote?
+     *
+     * `frontendPlaceholderLegacyCli` is not part of the `allowCliAccess` grant
+     * and is not gated by it — it selects the pre-ADR-035 CLI *mode*, in which
+     * the frontend placeholder allow-set is not enforced at all. What it
+     * re-opens is concrete: `scheduler:run` authenticates the `_cli_`
+     * administrator, so the admin bypass already grants the read, and the
+     * allow-set is the only remaining gate between an editor-authored
+     * `tt_content` field and a secret in a newsletter or export job's output.
+     *
+     * Warning under the standard profile rather than a pass: unlike
+     * `allowCliAccess` there is no workflow that needs this and cannot be served
+     * by publishing the identifier instead, so it is a genuine finding wherever
+     * it is on. Critical under hardened, where an editor-reachable resolution
+     * site is a broken promise rather than a documented trade-off.
+     */
+    private function checkFrontendPlaceholderLegacy(DoctorContext $context): Finding
+    {
+        $id = 'cli.frontend_placeholder_legacy';
+        $enabled = $this->configuration->isFrontendPlaceholderLegacyCliEnabled();
+        $details = ['frontendPlaceholderLegacyCli' => $enabled];
+
+        if (!$enabled) {
+            return Finding::pass(
+                id: $id,
+                summary: 'Command-line renders enforce the frontend placeholder allow-set.',
+                docsUrl: DocsLink::FRONTEND_PLACEHOLDER_LEGACY_CLI,
+                details: $details,
+            );
+        }
+
+        $finding = Finding::warning(
+            id: $id,
+            summary: 'Legacy CLI placeholder resolution is enabled, so command-line renders resolve '
+                . 'every frontend-accessible %vault(id)% placeholder regardless of who authored it.',
+            risk: 'The allow-set is switched off for command-line renders, which restores the exposure '
+                . 'it was added to close. "scheduler:run" authenticates the _cli_ administrator, so the '
+                . 'admin bypass grants the read whatever the per-secret tiers say, and a scheduled '
+                . 'newsletter or export job that renders editor-authored tt_content through stdWrap() '
+                . 'then substitutes any frontend-accessible secret an editor can name. Where that '
+                . 'output goes — a subscriber mail, a file, an HTTP callback — is outside the vault\'s '
+                . 'knowledge, so the setting has to be read as re-opening the path, not as narrowing '
+                . 'it to a safe one.',
+            remediation: 'Publish the identifiers the render jobs legitimately need — one '
+                . 'plugin.tx_nrvault.frontendResolvableIdentifiers line, an entry in site configuration, '
+                . 'or one FrontendPlaceholderPolicyInterface::allowIdentifier() call in the job — then '
+                . 'turn "frontendPlaceholderLegacyCli" off and pin it in config/system/additional.php '
+                . 'via $GLOBALS[TYPO3_CONF_VARS][SYS][nrVault][frontendPlaceholderLegacyCli] so a '
+                . 'backend admin cannot tick it back on.',
+            docsUrl: DocsLink::FRONTEND_PLACEHOLDER_LEGACY_CLI,
+            details: $details,
+        );
+
+        // Same observation, same wording, one severity apart — so a
+        // `--profile=hardened` dry run is comparable to the live report line
+        // for line, which is what escalatedTo() exists for.
+        return $context->isHardened()
+            ? $finding->escalatedTo(FindingSeverity::Critical)
+            : $finding;
     }
 
     /**

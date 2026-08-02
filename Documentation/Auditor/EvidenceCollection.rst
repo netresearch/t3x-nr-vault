@@ -60,11 +60,13 @@ The JSON body carries ``profile``, ``configuredProfile``,
 ``summary`` object (``total``, ``pass``, ``warning``, ``critical``) and a
 ``findings`` array.
 
-**``findings`` lists every control, including the ones that passed** — 23 are
+**``findings`` lists every control, including the ones that passed** — 24 are
 always emitted, plus four conditional families:
 
 *   ``cli.access_groups`` and ``cli.allowed_operations``, only when
-    ``allowCliAccess`` is on;
+    ``allowCliAccess`` is on. ``cli.frontend_placeholder_legacy`` is **not** in
+    this family despite the shared ``cli.`` prefix — it reports a setting that
+    is independent of ``allowCliAccess`` and is therefore always emitted;
 *   ``provider.key_permissions``, only for the ``file`` master-key provider;
 *   ``audit.sink_state.<sink>``, one per enabled audit sink;
 *   ``audit.sink_probe.<sink>``, one per enabled sink and only under
@@ -147,7 +149,8 @@ Finding ids worth citing directly in an assessment:
 
     *   -   CLI exposure
         -   ``cli.access``, ``cli.access_groups``,
-            ``cli.allowed_operations``
+            ``cli.allowed_operations``,
+            ``cli.frontend_placeholder_legacy``
 
     *   -   Emergency access
         -   ``breakglass.window_open``

@@ -46,6 +46,14 @@ final class DocsLink
 
     public const ACCESS_CONTROL = self::BASE . 'Configuration/Index.html#configuration-access-control';
 
+    /**
+     * A `confval` `:name:` rather than a `.. _label:` target — the two are the
+     * same kind of anchor (explicitly written, not derived from heading text),
+     * and the setting's own entry is where an operator reading this finding
+     * needs to land.
+     */
+    public const FRONTEND_PLACEHOLDER_LEGACY_CLI = self::BASE . 'Configuration/Index.html#ext-nrvault-frontendPlaceholderLegacyCli';
+
     public const DEPLOYMENT_GATE = self::BASE . 'Security/Index.html#security-deployment-gate';
 
     public const COMMANDS = self::BASE . 'Developer/Commands.html#developer-commands';

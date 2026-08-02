@@ -16,6 +16,7 @@ use Netresearch\NrVault\Service\Doctor\FindingSeverity;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use Netresearch\NrVault\Tests\Unit\Traits\DoctorFindingTrait;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
 #[CoversClass(CliAccessCheck::class)]
@@ -33,16 +34,32 @@ final class CliAccessCheckTest extends TestCase
     }
 
     /**
-     * Off is the default and the safe state — and there is then no group scope to
-     * assess, so only one control is emitted rather than a vacuous pass.
+     * Off is the default and the safe state — and there is then no group scope
+     * nor operation allowlist to assess, so those two controls are dropped
+     * rather than emitted as vacuous passes. The legacy-CLI control stays,
+     * because that setting is not part of the `allowCliAccess` grant.
      */
     #[Test]
-    public function disabledCliAccessEmitsOnlyThePassingAccessControl(): void
+    public function disabledCliAccessEmitsOnlyTheAccessAndLegacyControls(): void
     {
         $findings = $this->check(false)->run($this->doctorContext(SecurityProfile::Hardened));
 
-        self::assertSame(['cli.access'], $this->findingIds($findings));
+        self::assertSame(
+            ['cli.access', 'cli.frontend_placeholder_legacy'],
+            $this->findingIds($findings),
+        );
         self::assertTrue($findings[0]->isPass());
+    }
+
+    #[Test]
+    public function enabledCliAccessEmitsAllFourControls(): void
+    {
+        $findings = $this->check(true, [42])->run($this->doctorContext(SecurityProfile::Standard));
+
+        self::assertSame(
+            ['cli.access', 'cli.access_groups', 'cli.allowed_operations', 'cli.frontend_placeholder_legacy'],
+            $this->findingIds($findings),
+        );
     }
 
     /**
@@ -153,6 +170,128 @@ final class CliAccessCheckTest extends TestCase
     }
 
     /**
+     * The default: the CLI enforces the same allow-set as a frontend request.
+     */
+    #[Test]
+    #[DataProvider('cliAccessStateProvider')]
+    public function theStrictDefaultPassesUnderBothProfiles(bool $cliAccessAllowed): void
+    {
+        foreach (SecurityProfile::cases() as $profile) {
+            $finding = $this->findingById(
+                $this->check($cliAccessAllowed, [42], legacyCli: false)->run($this->doctorContext($profile)),
+                'cli.frontend_placeholder_legacy',
+            );
+
+            self::assertTrue($finding->isPass(), $profile->value . ' must pass with the flag off');
+            self::assertFalse($finding->details['frontendPlaceholderLegacyCli']);
+        }
+    }
+
+    /**
+     * The trap this control exists for: `frontendPlaceholderLegacyCli` is NOT
+     * gated by `allowCliAccess`. `FrontendPlaceholderPolicy::isLegacyContext()`
+     * consults only its own flag, so the bypass is fully live on a default
+     * installation with CLI access off — and a finding appended to the
+     * "CLI access is on" branch alone would be skipped on exactly those
+     * installations.
+     */
+    #[Test]
+    #[DataProvider('cliAccessStateProvider')]
+    public function theLegacyOptInIsAWarningUnderTheStandardProfileRegardlessOfCliAccess(
+        bool $cliAccessAllowed,
+    ): void {
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Warning,
+            $this->check($cliAccessAllowed, [42], legacyCli: true)
+                ->run($this->doctorContext(SecurityProfile::Standard)),
+            'cli.frontend_placeholder_legacy',
+        );
+
+        self::assertTrue($finding->details['frontendPlaceholderLegacyCli']);
+        // The concrete path, not a generic "less strict" phrasing: scheduler:run
+        // authenticates the _cli_ admin, so the admin bypass already grants the
+        // read and this allow-set is the only remaining gate.
+        self::assertStringContainsString('scheduler:run', $finding->risk);
+        self::assertStringContainsString('_cli_', $finding->risk);
+    }
+
+    #[Test]
+    #[DataProvider('cliAccessStateProvider')]
+    public function theLegacyOptInIsCriticalUnderTheHardenedProfileRegardlessOfCliAccess(
+        bool $cliAccessAllowed,
+    ): void {
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Critical,
+            $this->check($cliAccessAllowed, [42], legacyCli: true)
+                ->run($this->doctorContext(SecurityProfile::Hardened)),
+            'cli.frontend_placeholder_legacy',
+        );
+
+        self::assertTrue($finding->details['frontendPlaceholderLegacyCli']);
+    }
+
+    /**
+     * Escalating must keep every text field, so a `--profile=hardened` dry run
+     * is comparable to the live report line for line.
+     */
+    #[Test]
+    public function theHardenedEscalationKeepsTheStandardWording(): void
+    {
+        $standard = $this->findingById(
+            $this->check(false, legacyCli: true)->run($this->doctorContext(SecurityProfile::Standard)),
+            'cli.frontend_placeholder_legacy',
+        );
+        $hardened = $this->findingById(
+            $this->check(false, legacyCli: true)->run($this->doctorContext(SecurityProfile::Hardened)),
+            'cli.frontend_placeholder_legacy',
+        );
+
+        self::assertSame($standard->summary, $hardened->summary);
+        self::assertSame($standard->risk, $hardened->risk);
+        self::assertSame($standard->remediation, $hardened->remediation);
+        self::assertSame($standard->docsUrl, $hardened->docsUrl);
+        self::assertNotSame($standard->severity, $hardened->severity);
+    }
+
+    /**
+     * The remediation has to name the narrower fix (publish the identifier) and
+     * the pin, not just "turn it off" — an operator who only flips the setting
+     * leaves it flippable from the backend Settings module.
+     */
+    #[Test]
+    public function theLegacyRemediationNamesThePublishingRouteAndThePin(): void
+    {
+        $finding = $this->findingById(
+            $this->check(false, legacyCli: true)->run($this->doctorContext(SecurityProfile::Standard)),
+            'cli.frontend_placeholder_legacy',
+        );
+
+        self::assertStringContainsString('frontendResolvableIdentifiers', $finding->remediation);
+        self::assertStringContainsString('allowIdentifier()', $finding->remediation);
+        self::assertStringContainsString('additional.php', $finding->remediation);
+    }
+
+    #[Test]
+    public function theLegacyFindingLinksToTheSettingsOwnConfval(): void
+    {
+        $finding = $this->findingById(
+            $this->check(false, legacyCli: true)->run($this->doctorContext(SecurityProfile::Standard)),
+            'cli.frontend_placeholder_legacy',
+        );
+
+        self::assertStringContainsString('ext-nrvault-frontendPlaceholderLegacyCli', $finding->docsUrl);
+    }
+
+    /**
+     * @return iterable<string, array{bool}>
+     */
+    public static function cliAccessStateProvider(): iterable
+    {
+        yield 'allowCliAccess off (the default branch)' => [false];
+        yield 'allowCliAccess on' => [true];
+    }
+
+    /**
      * @param list<int> $groups
      * @param list<string> $operations
      */
@@ -160,11 +299,13 @@ final class CliAccessCheckTest extends TestCase
         bool $allowed,
         array $groups = [],
         array $operations = ['secret.use', 'secret.create', 'secret.rotate'],
+        bool $legacyCli = false,
     ): CliAccessCheck {
         $configuration = self::createStub(ExtensionConfigurationInterface::class);
         $configuration->method('isCliAccessAllowed')->willReturn($allowed);
         $configuration->method('getCliAccessGroups')->willReturn($groups);
         $configuration->method('getCliAllowedOperations')->willReturn($operations);
+        $configuration->method('isFrontendPlaceholderLegacyCliEnabled')->willReturn($legacyCli);
 
         return new CliAccessCheck($configuration);
     }

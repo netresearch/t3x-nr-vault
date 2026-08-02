@@ -1220,6 +1220,28 @@ cli.allowed_operations
    here, because the allowlist is the record of what the CLI actor has been
    granted, not only of what it can currently reach.
 
+cli.frontend_placeholder_legacy
+   :confval:`ext-nrvault-frontendPlaceholderLegacyCli`. Pass when off — the
+   command line then enforces the same frontend placeholder allow-set as a web
+   request. *Warning* / **critical** (hardened) when on.
+
+   **Always emitted, unlike the two controls above.** The setting is not part
+   of the ``allowCliAccess`` grant and is not gated by it:
+   ``FrontendPlaceholderPolicy`` consults this flag and nothing else, so the
+   bypass is fully live on a default installation with CLI access off. It
+   shares the ``cli.`` prefix because it widens what a shell reaches, not
+   because it belongs to that grant.
+
+   Warning rather than pass under ``standard``, which is where it differs from
+   ``cli.access``: a deployment pipeline genuinely needs ``allowCliAccess``,
+   whereas there is no workflow that needs this flag and cannot be served by
+   publishing the identifier instead. What it re-opens is concrete —
+   :bash:`scheduler:run` authenticates the ``_cli_`` administrator, so the admin
+   bypass grants the read whatever the per-secret tiers say, and a scheduled
+   newsletter or export job rendering editor-authored ``tt_content`` through
+   ``stdWrap()`` substitutes any frontend-accessible secret an editor can name.
+   See :ref:`adr-035-frontend-placeholder-allow-set`.
+
 secrets.expired
    No stored secret is past its expiry. Warning with the count otherwise: an
    expired secret still decrypts, so the credential stays recoverable from a
