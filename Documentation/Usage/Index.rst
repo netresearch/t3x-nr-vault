@@ -263,8 +263,9 @@ restriction, anyone who can type into a content element — or append a query
 string — could name any frontend-accessible secret and have it expanded into
 the (cacheable) page.
 
-In a frontend request the extension therefore resolves an identifier only when
-it was **published** through a source an editor cannot write:
+In a frontend request — and on the command line — the extension therefore
+resolves an identifier only when it was **published** through a source an editor
+cannot write:
 
 **A1 — frontend TypoScript.** The identifier appears in the setup array, i.e.
 somewhere in the site's TypoScript. ``sys_template`` is admin-only and site
@@ -339,14 +340,23 @@ cannot drive log volume.
    ``%vault(`` in rendered output. This is a deliberate trade: emitting a record
    per rejection is exactly the amplification an anonymous visitor could drive.
 
-**Scope of the restriction.** It applies to frontend requests and to any web
+**Scope of the restriction.** It applies to frontend requests, to any web
 request whose type cannot be established (eID among them, where
-:php:`$GLOBALS['TYPO3_REQUEST']` does not exist). CLI — scheduler, Symfony
-Messenger, console commands — and backend requests are unaffected, a backend
-request being recognised by the request the renderer itself carries and never by
-what an earlier request left in :php:`$GLOBALS['TYPO3_REQUEST']`. The check is
-on the *identifier*, not on where the placeholder sits: an identifier this site
-already publishes stays resolvable wherever it appears.
+:php:`$GLOBALS['TYPO3_REQUEST']` does not exist), **and to the command line** —
+scheduler, Symfony Messenger, console commands. Backend requests are
+unaffected, a backend request being recognised by the request the renderer
+itself carries and never by what an earlier request left in
+:php:`$GLOBALS['TYPO3_REQUEST']`. The check is on the *identifier*, not on where
+the placeholder sits: an identifier this site already publishes stays resolvable
+wherever it appears.
+
+The command line is covered because :bash:`scheduler:run` authenticates the
+``_cli_`` administrator: the admin bypass grants the read, so this allow-set is
+the only gate left on editor-authored content that a scheduled newsletter or
+export job renders. A deployment whose internal render jobs genuinely need the
+old behaviour opts back into it with :confval:`frontendPlaceholderLegacyCli
+<ext-nrvault-frontendPlaceholderLegacyCli>`; publishing the identifiers is the
+narrower remedy.
 
 One further case is worth naming: on a **fully cached page hit with no**
 ``USER_INT`` **or** ``COA_INT`` **object**, core's frontend TypoScript factory

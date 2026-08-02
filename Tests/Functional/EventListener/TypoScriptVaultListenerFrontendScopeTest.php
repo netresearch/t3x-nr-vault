@@ -34,11 +34,10 @@ use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
  * path — not a hand-built event — to pin which %vault()% placeholders resolve in
  * which context.
  *
- * The two pre-existing listener test files hand-build the event under PHPUnit,
- * where `Environment::isCli()` is true, so the policy reports LEGACY and those
- * files stay green without covering anything below. Every strict-mode case here
- * therefore re-initialises `Environment` with `cli = false` for the duration of
- * one closure.
+ * PHPUnit itself runs on the CLI SAPI, and the CLI is strict too, so each case
+ * has to state the SAPI it is about: the web-context cases re-initialise
+ * `Environment` with `cli = false` for the duration of one closure, and the CLI
+ * cases run without that wrapper.
  *
  * @see FrontendPlaceholderPolicy
  */
@@ -404,18 +403,101 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     }
 
     /**
-     * T-B2 — CLI (scheduler, Messenger, PHPUnit) keeps today's behaviour.
+     * T-B2 — the CLI (scheduler, Messenger, PHPUnit) enforces the allow-set
+     * exactly as a frontend request does.
+     *
+     * This is the case the CLI carve-out used to leave open: `scheduler:run`
+     * authenticates the `_cli_` admin user, so the admin bypass grants the read
+     * and nothing but this allow-set stands between an editor-authored
+     * `tt_content` field and a secret in a newsletter or export job's output.
      */
     #[Test]
-    public function cliContextResolvesAsBefore(): void
+    public function cliContextEnforcesTheAllowSet(): void
     {
         $identifier = $this->storeSecret('cli_key_', self::FRONTEND_ACCESSIBLE);
         $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $auditRowsBefore = $this->countAuditRows($identifier);
 
         // No inWebContext() wrapper: Environment::isCli() is true under PHPUnit.
         $output = $this->renderText(['field' => 'bodytext'], $this->frontendRequest(), ['bodytext' => $placeholder]);
 
+        self::assertSame($placeholder, $output, 'Editor content is not a resolution site on the CLI either');
+        self::assertSame($auditRowsBefore, $this->countAuditRows($identifier), 'The vault must not be reached at all');
+    }
+
+    /**
+     * T-B2b — an identifier the integrator published is still resolvable on
+     * the CLI. The allow-set is what changed there, not the ability to resolve.
+     */
+    #[Test]
+    public function cliContextResolvesAPublishedIdentifier(): void
+    {
+        $identifier = $this->storeSecret('cli_published_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+
+        $output = $this->renderText(
+            ['field' => 'bodytext'],
+            $this->frontendRequest(['lib.' => ['apiKey.' => ['value' => $placeholder]]]),
+            ['bodytext' => $placeholder],
+        );
+
         self::assertSame(self::SECRET_VALUE, $output);
+    }
+
+    /**
+     * T-B2c — the documented escape hatch. `frontendPlaceholderLegacyCli`
+     * restores the pre-ADR-035 CLI bypass for an operator whose internal render
+     * jobs genuinely need it.
+     *
+     * Set through the filesystem-pinned override rather than the extension
+     * configuration array, because that is the resolution path an operator is
+     * told to use for a security-relevant flag — and it is read per call, so
+     * one test can exercise both settings of a singleton policy.
+     */
+    #[Test]
+    public function legacyCliOptInRestoresResolutionOnTheCli(): void
+    {
+        $identifier = $this->storeSecret('cli_optin_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+
+        $this->pinLegacyCli(true);
+
+        try {
+            $output = $this->renderText(
+                ['field' => 'bodytext'],
+                $this->frontendRequest(),
+                ['bodytext' => $placeholder],
+            );
+        } finally {
+            $this->pinLegacyCli(null);
+        }
+
+        self::assertSame(self::SECRET_VALUE, $output);
+    }
+
+    /**
+     * The opt-in is a CLI-only hatch: it must not re-open the frontend request
+     * that ADR-035 is actually about.
+     */
+    #[Test]
+    public function legacyCliOptInDoesNotReopenTheFrontendRequest(): void
+    {
+        $identifier = $this->storeSecret('optin_frontend_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+
+        $this->pinLegacyCli(true);
+
+        try {
+            $output = $this->inWebContext(fn (): string => $this->renderText(
+                ['field' => 'bodytext'],
+                $this->frontendRequest(),
+                ['bodytext' => $placeholder],
+            ));
+        } finally {
+            $this->pinLegacyCli(null);
+        }
+
+        self::assertSame($placeholder, $output, 'The CLI opt-in must not weaken a web frontend request');
     }
 
     // -----------------------------------------------------------------
@@ -594,6 +676,32 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     {
         return $this->webRequest('https://example.com/', self::APPLICATION_FRONTEND)
             ->withAttribute('frontend.cache.instruction', new CacheInstruction());
+    }
+
+    /**
+     * Set (or clear) the filesystem-pinned
+     * `$TYPO3_CONF_VARS[SYS][nrVault][frontendPlaceholderLegacyCli]` override —
+     * the resolution path an operator is told to use for a security-relevant
+     * flag, and the one the policy reads per call.
+     */
+    private function pinLegacyCli(?bool $enabled): void
+    {
+        /** @var array<string, mixed> $configuration */
+        $configuration = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
+        /** @var array<string, mixed> $system */
+        $system = \is_array($configuration['SYS'] ?? null) ? $configuration['SYS'] : [];
+        /** @var array<string, mixed> $nrVault */
+        $nrVault = \is_array($system['nrVault'] ?? null) ? $system['nrVault'] : [];
+
+        if ($enabled === null) {
+            unset($nrVault['frontendPlaceholderLegacyCli']);
+        } else {
+            $nrVault['frontendPlaceholderLegacyCli'] = $enabled;
+        }
+
+        $system['nrVault'] = $nrVault;
+        $configuration['SYS'] = $system;
+        $GLOBALS['TYPO3_CONF_VARS'] = $configuration;
     }
 
     /**

@@ -16,9 +16,10 @@ use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
  * Decides which %vault(identifier)% placeholders TypoScriptVaultListener may
  * resolve in a frontend request.
  *
- * In a frontend (or any not-positively-identified web) context the listener
- * resolves an identifier only when the integrator published it through an
- * admin-only source: frontend TypoScript, site configuration / settings, the
+ * In a frontend context, on the CLI, and in any not-positively-identified web
+ * context the listener resolves an identifier only when the integrator
+ * published it through an admin-only source: frontend TypoScript, site
+ * configuration / settings, the
  * `plugin.tx_nrvault.frontendResolvableIdentifiers` list, or
  * {@see self::allowIdentifier()}. Everything else keeps the literal
  * placeholder. See ADR-035.
@@ -72,9 +73,13 @@ interface FrontendPlaceholderPolicyInterface
      * keyed on the request object, so a rejection in one render can never
      * silence a record in the next one.
      *
-     * In LEGACY context (CLI, backend) it always returns true: there the whole
-     * policy is a no-op and logging must stay byte-for-byte as it was before
-     * ADR-035. A long-running `scheduler:run` therefore keeps every warning.
+     * On the CLI, and in LEGACY context (a positively backend-typed request),
+     * it always returns true. Logging there stays byte-for-byte as it was
+     * before ADR-035, so a long-running `scheduler:run` keeps every warning:
+     * such a process handles many renders under one request object, and a latch
+     * keyed on that object would be a process-wide log blackout an attacker
+     * could trigger with a single planted placeholder. That holds on the CLI
+     * whether or not the allow-set is enforced there.
      *
      * @internal consumed by TypoScriptVaultListener
      */

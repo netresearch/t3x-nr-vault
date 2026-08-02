@@ -10,10 +10,14 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Functional\EventListener;
 
 use Netresearch\NrVault\EventListener\TypoScriptVaultListener;
+use Netresearch\NrVault\Security\FrontendPlaceholderPolicyInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\ContentObject\Event\AfterStdWrapFunctionsExecutedEvent;
 
@@ -52,7 +56,7 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
         $vaultService->store($identifier, 'resolved-typoscript-secret', self::FRONTEND_ACCESSIBLE);
 
         $listener = $this->get(TypoScriptVaultListener::class);
-        $event = $this->createEvent(\sprintf('%%vault(%s)%%', $identifier));
+        $event = $this->createEvent(\sprintf('%%vault(%s)%%', $identifier), $identifier);
 
         $listener($event);
 
@@ -71,7 +75,7 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
 
         $listener = $this->get(TypoScriptVaultListener::class);
         $content = \sprintf('Bearer %%vault(%s)%%', $identifier);
-        $event = $this->createEvent($content);
+        $event = $this->createEvent($content, $identifier);
 
         $listener($event);
 
@@ -94,7 +98,7 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
 
         $listener = $this->get(TypoScriptVaultListener::class);
         $placeholder = \sprintf('%%vault(%s)%%', $identifier);
-        $event = $this->createEvent($placeholder);
+        $event = $this->createEvent($placeholder, $identifier);
 
         $listener($event);
 
@@ -125,7 +129,7 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
     {
         $listener = $this->get(TypoScriptVaultListener::class);
         $placeholder = '%vault(nonexistent/identifier/xyz)%';
-        $event = $this->createEvent($placeholder);
+        $event = $this->createEvent($placeholder, 'nonexistent/identifier/xyz');
 
         $listener($event);
 
@@ -145,7 +149,7 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
 
         $listener = $this->get(TypoScriptVaultListener::class);
         $content = \sprintf('%%vault(%s)%%:%%vault(%s)%%', $id1, $id2);
-        $event = $this->createEvent($content);
+        $event = $this->createEvent($content, $id1, $id2);
 
         $listener($event);
 
@@ -168,14 +172,33 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
     }
 
     /**
-     * Create an AfterStdWrapFunctionsExecutedEvent with the given content.
+     * Create an AfterStdWrapFunctionsExecutedEvent with the given content,
+     * rendering in a frontend request that publishes the named identifiers.
+     *
+     * PHPUnit runs on the CLI, which enforces the ADR-035 allow-set like any
+     * frontend request, so an identifier has to be published for the listener
+     * to reach the vault at all. The grant goes through `allowIdentifier()` —
+     * the documented A4 escape hatch, keyed on the request the renderer
+     * carries. What these cases are about is the listener's own behaviour once
+     * the gate has opened; the gate is
+     * {@see TypoScriptVaultListenerFrontendScopeTest}'s subject.
      */
-    private function createEvent(?string $content): AfterStdWrapFunctionsExecutedEvent
+    private function createEvent(?string $content, string ...$publishedIdentifiers): AfterStdWrapFunctionsExecutedEvent
     {
         /** @phpstan-ignore new.internalClass */
-        $cObj = $this->createStub(ContentObjectRenderer::class);
+        $request = (new ServerRequest('https://example.com/'))
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
+
+        $policy = $this->get(FrontendPlaceholderPolicyInterface::class);
+        foreach ($publishedIdentifiers as $identifier) {
+            $policy->allowIdentifier($identifier, $request);
+        }
+
+        $contentObjectRenderer = GeneralUtility::makeInstance(ContentObjectRenderer::class);
+        /** @phpstan-ignore method.internal */
+        $contentObjectRenderer->setRequest($request);
 
         /** @phpstan-ignore new.internalClass */
-        return new AfterStdWrapFunctionsExecutedEvent($content, [], $cObj);
+        return new AfterStdWrapFunctionsExecutedEvent($content, [], $contentObjectRenderer);
     }
 }

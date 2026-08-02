@@ -13,12 +13,54 @@ ADR-035: Per-request allow-set of frontend-resolvable identifiers
 Status
 ======
 
-Accepted
+Accepted (amended 2026-08-02 — the CLI is strict too)
 
 Date
 ====
 
-2026-07-30
+2026-07-30, amended 2026-08-02
+
+Amendment 2026-08-02 — the CLI carve-out is gone
+================================================
+
+The original decision exempted the CLI unconditionally: ``Environment::isCli()``
+put every command-line render into LEGACY, on the reasoning that the CLI is not
+an unauthenticated surface. That reasoning does not survive contact with
+``scheduler:run``.
+
+A scheduled task authenticates the ``_cli_`` administrator, and an administrator
+holds the admin bypass, so the read is granted whatever the per-secret tiers say.
+The plain unauthenticated CLI is fail-closed for a different reason
+(``allowCliAccess`` defaults to ``0``), so it was never the exposure — the
+*authenticated* one is. A newsletter or export job that renders editor-authored
+``tt_content`` through ``stdWrap`` is a resolution site with no gate left on it
+at all, which is exactly the shape this ADR set out to close on the frontend.
+
+The allow-set therefore applies on the CLI as it does in a frontend request. An
+installation whose internal render jobs genuinely need the old behaviour opts
+back into it with the extension-configuration key
+``frontendPlaceholderLegacyCli`` (default ``0``), which restores the removed
+branch byte for byte. The narrower remedy — publishing the identifiers through
+A1/A3 or one ``allowIdentifier()`` call — stays the recommended one.
+
+Two details of the original design carry over unchanged and are worth stating,
+because both look like oversights otherwise:
+
+*  **The question is asked of the SAPI, not of the request.** A CLI process
+   usually carries a CLI-typed request, and ``ApplicationType::isFrontend()``
+   reports ``false`` for it — so the "positively not a frontend request" rule
+   alone would classify every scheduled render as LEGACY and close nothing.
+   ``isCli()`` stays in the rule; only its answer changed from "legacy" to "the
+   opt-in decides".
+*  **The log latch still never engages on the CLI**, whatever the opt-in says.
+   A long-running ``scheduler:run`` or Messenger consumer handles many renders
+   under one request object, so a latch keyed on that object is effectively
+   process-wide, and one planted placeholder would black out every later warning
+   of the run — the attacker-triggered blackout this ADR rejects elsewhere.
+   Unlatched CLI logging is the pre-ADR-035 volume, so making resolution strict
+   there adds no capability on the logging side.
+
+The rest of this document describes the decision as amended.
 
 Context
 =======
@@ -46,10 +88,10 @@ provenance of a byte is gone. What can be authorised is the *identifier*.
 Decision
 ========
 
-In a frontend request — and in any web request whose type cannot be established
-— resolve an identifier only if the integrator published it through a source an
-editor cannot write. ``FrontendPlaceholderPolicy`` builds that allow-set per
-request, lazily, in memory.
+In a frontend request, on the command line, and in any web request whose type
+cannot be established — resolve an identifier only if the integrator published
+it through a source an editor cannot write. ``FrontendPlaceholderPolicy`` builds
+that allow-set per request, lazily, in memory.
 
 The gate
 --------
@@ -71,9 +113,11 @@ Context rule — fail-closed
 
 .. code-block:: text
 
-   LEGACY (today's behaviour, byte for byte) iff
-           Environment::isCli() === true
-        or a request is obtainable AND ApplicationType::fromRequest($r)->isFrontend() === false
+   LEGACY (pre-ADR-035 behaviour, byte for byte) iff
+           Environment::isCli() === true AND frontendPlaceholderLegacyCli === true
+        or Environment::isCli() === false
+           AND a request is obtainable
+           AND ApplicationType::fromRequest($r)->isFrontend() === false
 
    STRICT (allow-set enforced) in every other case
 
@@ -102,9 +146,18 @@ ever calling ``$handler->handle()``. In an eID request the global does not
 exist, so a "no request means legacy" rule would resolve *everything* there.
 Core states the constraint itself in ``ApplicationType``'s class docblock.
 
-``Environment::isCli()`` is therefore the positive discriminator: it keeps CLI,
-the scheduler, Symfony Messenger and PHPUnit byte-for-byte unchanged, and
-everything else that is not positively non-frontend fails closed.
+``Environment::isCli()`` is therefore asked separately from the request, but it
+is no longer a carve-out: at the shipped default the CLI — the scheduler,
+Symfony Messenger, console commands, PHPUnit — enforces the allow-set exactly as
+a frontend request does, and everything else that is not positively non-frontend
+fails closed. The SAPI has to be asked separately precisely *because* a CLI
+process usually carries a CLI-typed request that ``isFrontend()`` reports as
+``false``: routing that answer through the request rule would put every
+scheduled render back into LEGACY.
+
+Only the extension-configuration key ``frontendPlaceholderLegacyCli`` (default
+``0``) restores the removed branch, and it restores it byte for byte. It is
+CLI-scoped: setting it changes nothing about a web request.
 
 Allow-set sources (union)
 -------------------------
@@ -214,10 +267,14 @@ Two consequences follow from the choice:
 *  **A4 now requires a request.** In strict context with no request obtainable
    anywhere, nothing is resolvable at all — previously A4 answered there. This
    is the fail-closed direction, and it is what makes the grant un-shareable.
-*  **The latch never engages in legacy context.** On the CLI and in backend
-   requests ``claimLogSlot()`` always returns ``true``, so logging is
-   byte-for-byte what it was before this ADR — which is what the CLI-unchanged
-   claim requires.
+*  **The latch never engages on the CLI, or in legacy context.**
+   ``claimLogSlot()`` always returns ``true`` on the command line — whatever
+   ``frontendPlaceholderLegacyCli`` says — and in a positively backend-typed
+   request, so logging in both is byte-for-byte what it was before this ADR. On
+   the CLI that is a security property, not a compatibility one: a long-running
+   ``scheduler:run`` handles many renders under one request object, so a latch
+   keyed on that object would be a process-wide log blackout an attacker
+   triggers with a single planted placeholder.
 
 Regex parity and hardening
 --------------------------
@@ -271,10 +328,17 @@ Consequences
 -  A bare ``%vault(id)%`` typed into a Fluid template file, on a site whose
    integrator adds neither A3 nor A4, stops resolving. It fails loud, and the
    remedy is one TypoScript line.
--  No schema change, no TCA change, no extension-configuration key, no new
-   dependency, no database access added, zero new writes. A half-migrated
-   install cannot fatal: a rejected identifier never touches the database, an
-   accepted one takes exactly today's path.
+-  A scheduled job that renders editor-authored content and relied on the CLI
+   carve-out stops resolving unpublished identifiers. It fails loud, and the
+   remedy is one ``frontendResolvableIdentifiers`` line, one
+   ``allowIdentifier()`` call, or — for a deployment that genuinely cannot do
+   either — ``frontendPlaceholderLegacyCli = 1``.
+-  No schema change, no TCA change, no new dependency, no database access added,
+   zero new writes. One extension-configuration key
+   (``frontendPlaceholderLegacyCli``, default ``0``), added by the 2026-08-02
+   amendment; the original decision added none. A half-migrated install cannot
+   fatal: a rejected identifier never touches the database, an accepted one
+   takes exactly today's path, and an absent key reads as its secure default.
 
 Rejected alternatives
 =====================
@@ -299,7 +363,9 @@ identifier-scoped.
 
 **An extension-configuration key** instead of A3's TypoScript path. Same trust
 domain, but per-installation instead of per-site, and it needs an Install Tool
-round-trip plus new ``ext_conf_template.txt`` surface.
+round-trip plus new ``ext_conf_template.txt`` surface. (Still rejected as an
+*allow-set source*. ``frontendPlaceholderLegacyCli`` is not one: it selects a
+context rule, and it publishes no identifier.)
 
 **A per-request resolution cap.** An arbitrary constant that degrades a
 legitimate page in production, for a case the code already handles:
@@ -308,9 +374,19 @@ on by default. Memoising resolved values inside the listener is likewise
 rejected — an operator who disables that cache has deliberately chosen per-read
 auditing, and the listener must not override that choice.
 
-**A** ``legacy`` **opt-out switch.** One config key that restores the vulnerable
-behaviour is one edit away from being set everywhere and never removed. The fix
-already fails loud with a one-line per-site remedy.
+**A** ``legacy`` **opt-out switch for the whole policy.** One config key that
+restores the vulnerable behaviour everywhere is one edit away from being set
+everywhere and never removed. The fix already fails loud with a one-line
+per-site remedy.
+
+The 2026-08-02 amendment adds ``frontendPlaceholderLegacyCli``, and this
+rejection is the reason it is shaped the way it is rather than a reversal of it.
+It is not that switch: it is scoped to the CLI, so no web request — the surface
+this ADR is about — can be weakened with it; it defaults to ``0``; it honours the
+``$TYPO3_CONF_VARS[SYS][nrVault]`` pin, so an operator can put the weakening out
+of reach of a compromised admin; and it exists because removing the CLI carve-out
+is a *behaviour change to working installations*, which the original decision
+never had to offer a migration path for. A blanket opt-out remains rejected.
 
 Residual risk
 =============
@@ -333,6 +409,38 @@ Residual risk
    non-admins, A2 must be dropped. Pinned as a comment at the A2 collector.
 -  **A4 is a trust primitive.** An integrator who passes request-derived data to
    ``allowIdentifier()`` re-opens the hole in their own installation.
+-  **The CLI opt-in restores the exposure it was added to close.**
+   ``frontendPlaceholderLegacyCli = 1`` puts every command-line render back into
+   LEGACY, and what that re-opens is not academic: ``scheduler:run``
+   authenticates the ``_cli_`` administrator, so the admin bypass grants the
+   read regardless of the per-secret tiers, and a scheduled newsletter or export
+   job that renders editor-authored ``tt_content`` through ``stdWrap`` then
+   substitutes any frontend-accessible secret an editor can name. Whether the
+   result is *disclosure* depends on where that job's output goes — a mail to a
+   subscriber list, a file on disk, an HTTP callback — which is outside this
+   extension's knowledge, so the flag has to be read as re-opening the hole, not
+   as narrowing it to a safe context. Three things keep it from being the
+   blanket opt-out this ADR rejects: it is CLI-scoped and cannot weaken a web
+   request, it defaults to ``0``, and it honours the
+   ``$TYPO3_CONF_VARS[SYS][nrVault][frontendPlaceholderLegacyCli]`` pin, so an
+   operator can put the weakening out of reach of the backend Settings module —
+   which matters here, because the flag's only effect is to open a gate.
+   ``vault:doctor`` does not report it; an operator who sets it has to remember
+   it themselves.
+-  **A CLI render that carries no request of its own resolves nothing**, because
+   A4 needs a request to be keyed on and the console application's own request
+   is not automatically the renderer's. This is the fail-closed direction and
+   the same state a bare renderer is in on the web (see the entry below), but on
+   the CLI it is newly reachable: before the amendment every CLI render was
+   LEGACY, so the question never arose. An integrator's render job publishes
+   through A1/A3 on the request it renders with, or calls ``allowIdentifier()``
+   with the request it then passes to ``setRequest()``.
+-  **The Development notice is unbounded on the CLI.** The latch deliberately
+   never engages there (a per-run latch would be an attacker-triggered log
+   blackout — see :ref:`adr-035-request-scoping`), so a planted placeholder can
+   drive one ``notice`` per occurrence in a :guilabel:`Development` context.
+   That is the pre-ADR-035 warning volume rather than a new capability, and
+   production writes nothing on this path.
 -  **Rejection is silent, so probing leaves no trace.** This is the cost of the
    "0 audit rows, 0 log records" property, and it is a real loss, not only a
    win. Before this ADR, a placeholder naming a withheld secret reached

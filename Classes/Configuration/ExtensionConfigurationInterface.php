@@ -90,6 +90,18 @@ interface ExtensionConfigurationInterface
     public function isAdminOverrideDisabled(): bool;
 
     /**
+     * Does the CLI keep the pre-ADR-035 behaviour of resolving every
+     * frontend-accessible `%vault(id)%` placeholder, whoever authored it?
+     *
+     * Off by default — the CLI enforces the same allow-set as a frontend
+     * request. Honours a
+     * `$TYPO3_CONF_VARS[SYS][nrVault][frontendPlaceholderLegacyCli]`
+     * filesystem override ahead of the BE-editable extension configuration, so
+     * a compromised admin cannot re-open the gate from the Settings module.
+     */
+    public function isFrontendPlaceholderLegacyCliEnabled(): bool;
+
+    /**
      * Check if XChaCha20-Poly1305 should be preferred over AES-256-GCM.
      *
      * Only consulted for legacy (encryption version 1) envelopes without a

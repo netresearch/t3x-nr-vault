@@ -47,6 +47,12 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
 
     public const DEFAULT_DISABLE_ADMIN_OVERRIDE = false;
 
+    /**
+     * The allow-set of ADR-035 applies on the CLI exactly as it does in a web
+     * frontend request. Opting out restores the pre-hardening CLI bypass.
+     */
+    public const DEFAULT_FRONTEND_PLACEHOLDER_LEGACY_CLI = false;
+
     public const DEFAULT_PREFER_XCHACHA20 = false;
 
     /**
@@ -285,6 +291,31 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     {
         return $this->pinnedOverride('disableAdminOverride')
             ?? (bool) ($this->configuration['disableAdminOverride'] ?? self::DEFAULT_DISABLE_ADMIN_OVERRIDE);
+    }
+
+    /**
+     * Does the CLI keep the pre-ADR-035 behaviour of resolving every
+     * frontend-accessible `%vault(id)%` placeholder, whoever authored it?
+     *
+     * Off by default: `scheduler:run` authenticates the `_cli_` admin user, so
+     * the admin bypass grants the read and the allow-set is the only effective
+     * gate on editor content rendered by a scheduled job. Turn it on only for a
+     * deployment whose internal render jobs genuinely need the old behaviour
+     * and cannot publish their identifiers through TypoScript, site
+     * configuration or `FrontendPlaceholderPolicyInterface::allowIdentifier()`.
+     *
+     * Resolution order is that of {@see self::isAuditReadsEnabled()}: the
+     * `$TYPO3_CONF_VARS[SYS][nrVault][frontendPlaceholderLegacyCli]` override
+     * wins over the BE-editable extension configuration. Pinning it to `false`
+     * in `config/system/additional.php` puts the weakening out of reach of a
+     * compromised admin — the direction that matters for a flag whose only
+     * effect is to re-open a gate.
+     */
+    public function isFrontendPlaceholderLegacyCliEnabled(): bool
+    {
+        return $this->pinnedOverride('frontendPlaceholderLegacyCli')
+            ?? (bool) ($this->configuration['frontendPlaceholderLegacyCli']
+                ?? self::DEFAULT_FRONTEND_PLACEHOLDER_LEGACY_CLI);
     }
 
     /**

@@ -308,6 +308,73 @@ final class ExtensionConfigurationTest extends TestCase
     }
 
     #[Test]
+    public function isFrontendPlaceholderLegacyCliEnabledReturnsFalseByDefault(): void
+    {
+        // The CLI enforces the ADR-035 allow-set unless a deployment opts back
+        // out. An install that never heard of the setting must be strict.
+        $this->typo3Config->method('get')->willReturn([]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertFalse($config->isFrontendPlaceholderLegacyCliEnabled());
+    }
+
+    #[Test]
+    public function isFrontendPlaceholderLegacyCliEnabledReturnsTrueWhenConfigured(): void
+    {
+        $this->typo3Config->method('get')->willReturn(['frontendPlaceholderLegacyCli' => true]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertTrue($config->isFrontendPlaceholderLegacyCliEnabled());
+    }
+
+    #[Test]
+    public function isFrontendPlaceholderLegacyCliEnabledRespectsFilesystemOverrideFalse(): void
+    {
+        // The direction that matters: an admin who ticks the box in the BE
+        // Settings module must not thereby re-open the CLI gate an operator
+        // pinned shut on the filesystem.
+        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['frontendPlaceholderLegacyCli' => false]]];
+
+        $this->typo3Config->method('get')->willReturn(['frontendPlaceholderLegacyCli' => true]);
+
+        try {
+            $config = new ExtensionConfiguration($this->typo3Config);
+            self::assertFalse($config->isFrontendPlaceholderLegacyCliEnabled());
+        } finally {
+            if ($original !== null) {
+                $GLOBALS['TYPO3_CONF_VARS'] = $original;
+            } else {
+                unset($GLOBALS['TYPO3_CONF_VARS']);
+            }
+        }
+    }
+
+    #[Test]
+    public function isFrontendPlaceholderLegacyCliEnabledRespectsFilesystemOverrideTrue(): void
+    {
+        // The pin is the authority in both directions, as for every other
+        // pinned flag — an operator can also pin the opt-in on.
+        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['frontendPlaceholderLegacyCli' => true]]];
+
+        $this->typo3Config->method('get')->willReturn(['frontendPlaceholderLegacyCli' => false]);
+
+        try {
+            $config = new ExtensionConfiguration($this->typo3Config);
+            self::assertTrue($config->isFrontendPlaceholderLegacyCliEnabled());
+        } finally {
+            if ($original !== null) {
+                $GLOBALS['TYPO3_CONF_VARS'] = $original;
+            } else {
+                unset($GLOBALS['TYPO3_CONF_VARS']);
+            }
+        }
+    }
+
+    #[Test]
     public function isAdminOverrideDisabledReturnsFalseByDefault(): void
     {
         // The admin bypass is on unless a deployment explicitly removes it —
