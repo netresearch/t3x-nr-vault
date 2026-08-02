@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Security;
 
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Throwable;
 use TYPO3\CMS\Core\Core\Environment;
@@ -35,10 +36,12 @@ use WeakMap;
  *
  * Context rule (fail-closed):
  *
- *   LEGACY (today's behaviour, byte for byte) iff CLI, or a request is
- *          obtainable and is positively *not* a frontend request.
+ *   LEGACY (pre-ADR-035 behaviour, byte for byte) iff the CLI opt-in
+ *          `frontendPlaceholderLegacyCli` is on and this is the CLI, or a
+ *          request is obtainable and is positively *not* a frontend request.
  *   STRICT (allow-set enforced) in every other case — frontend render, eID,
- *          and any web context that cannot be positively identified.
+ *          the CLI at its default setting, and any web context that cannot be
+ *          positively identified.
  *
  * `$GLOBALS['TYPO3_REQUEST']` is deliberately not the only source: it is
  * assigned in `cms-frontend`'s `RequestHandler`, i.e. the innermost handler,
@@ -125,8 +128,9 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
      */
     private WeakMap $logClaimed;
 
-    public function __construct()
-    {
+    public function __construct(
+        private readonly ExtensionConfigurationInterface $extensionConfiguration,
+    ) {
         /** @var WeakMap<FrontendTypoScript, array<string, true>> $setupIdentifiers */
         $setupIdentifiers = new WeakMap();
         $this->setupIdentifiers = $setupIdentifiers;
@@ -184,11 +188,21 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
 
     public function claimLogSlot(ContentObjectRenderer $contentObjectRenderer): bool
     {
+        // The CLI never latches, whether or not the allow-set is enforced
+        // there. A long-running `scheduler:run` or Messenger consumer handles
+        // many renders under one request object, so a latch keyed on that
+        // object is effectively process-wide: one placeholder planted in an
+        // early-rendered `tt_content` field would silence every later warning
+        // of that run — the attacker-triggered log blackout ADR-035 rejects.
+        // Unlatched CLI logging is exactly the pre-ADR-035 volume, so making
+        // resolution strict here adds no capability on the logging side.
+        if ($this->isCli()) {
+            return true;
+        }
+
         $scope = $this->scopeRequest($contentObjectRenderer);
 
         // LEGACY is byte-for-byte the pre-ADR-035 behaviour, logging included.
-        // Latching here is what would blank out every later warning of a
-        // long-running `scheduler:run` or Messenger consumer.
         if ($this->isLegacyContext($scope)) {
             return true;
         }
@@ -250,9 +264,21 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
     }
 
     /**
-     * CLI (scheduler, Symfony Messenger, PHPUnit) and every positively
-     * non-frontend request keep today's behaviour unchanged. Anything else —
-     * including "no request at all" in a web SAPI — is strict.
+     * Every positively non-frontend request keeps the pre-ADR-035 behaviour
+     * unchanged. Anything else — including "no request at all", and including
+     * the CLI — is strict.
+     *
+     * The CLI is *not* legacy by default. `scheduler:run` authenticates the
+     * `_cli_` admin user, so the admin bypass grants the read and the allow-set
+     * is the only remaining gate on editor-authored content rendered by a
+     * scheduled job (newsletter, export). An installation whose internal render
+     * jobs genuinely need the old behaviour opts back into it with
+     * `frontendPlaceholderLegacyCli`, which restores this branch byte for byte.
+     *
+     * The question is answered here rather than through the request rule
+     * because a CLI process usually carries a CLI-typed request, which
+     * `isFrontend()` reports as false — i.e. the request rule alone would put
+     * every scheduled render back into legacy and close nothing.
      *
      * The argument is the *scope* request and nothing else. An earlier revision
      * fell back to `$GLOBALS['TYPO3_REQUEST']` for this decision alone, on the
@@ -268,7 +294,7 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
     private function isLegacyContext(?ServerRequestInterface $request): bool
     {
         if ($this->isCli()) {
-            return true;
+            return $this->isLegacyCliEnabled();
         }
 
         if (!$request instanceof ServerRequestInterface) {
@@ -296,6 +322,26 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
             return Environment::isCli();
         } catch (Throwable) {
             return \PHP_SAPI === 'cli';
+        }
+    }
+
+    /**
+     * The explicit opt-in that restores the pre-ADR-035 CLI bypass.
+     *
+     * Read on every call rather than memoised in the constructor: this is a
+     * container singleton, and a cached "the gate is open" is one process
+     * restart away from outliving the configuration change that closed it.
+     * Reading a settings array the wrapper already holds costs nothing.
+     *
+     * Fails closed on any error — an unreadable configuration must not open the
+     * gate, and no exception may escape into `stdWrap()`.
+     */
+    private function isLegacyCliEnabled(): bool
+    {
+        try {
+            return $this->extensionConfiguration->isFrontendPlaceholderLegacyCliEnabled();
+        } catch (Throwable) {
+            return false;
         }
     }
 

@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\EventListener;
 
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\EventListener\TypoScriptVaultListener;
 use Netresearch\NrVault\Exception\AccessDeniedException;
 use Netresearch\NrVault\Security\FrontendPlaceholderPolicy;
@@ -20,6 +21,8 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
 use RuntimeException;
+use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\ContentObject\Event\AfterStdWrapFunctionsExecutedEvent;
 
@@ -31,6 +34,8 @@ final class TypoScriptVaultListenerTest extends TestCase
 
     private LoggerInterface&MockObject $logger;
 
+    private FrontendPlaceholderPolicy $policy;
+
     private TypoScriptVaultListener $listener;
 
     protected function setUp(): void
@@ -39,14 +44,21 @@ final class TypoScriptVaultListenerTest extends TestCase
 
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
         $this->logger = $this->createMock(LoggerInterface::class);
-        // A real policy: under PHPUnit Environment::isCli() is true, so the
-        // policy reports LEGACY and every assertion below still describes
-        // today's behaviour. That is also why these tests prove nothing about
-        // the frontend path — see FrontendPlaceholderPolicyTest for that.
+
+        // A real policy, at its shipped defaults — including a strict CLI,
+        // which is what PHPUnit runs as. Every case below therefore publishes
+        // the identifiers it expects to resolve through the real A4 grant
+        // (`allowIdentifier()`); see createEvent(). What is under test here is
+        // the listener's own behaviour once the gate has opened — the gate
+        // itself is FrontendPlaceholderPolicyTest's subject.
+        $extensionConfiguration = $this->createMock(ExtensionConfigurationInterface::class);
+        $extensionConfiguration->method('isFrontendPlaceholderLegacyCliEnabled')->willReturn(false);
+
+        $this->policy = new FrontendPlaceholderPolicy($extensionConfiguration);
         $this->listener = new TypoScriptVaultListener(
             $this->vaultService,
             $this->logger,
-            new FrontendPlaceholderPolicy(),
+            $this->policy,
         );
     }
 
@@ -78,7 +90,7 @@ final class TypoScriptVaultListenerTest extends TestCase
     #[Test]
     public function resolvesSimpleVaultReference(): void
     {
-        $event = $this->createEvent('%vault(api_key)%');
+        $event = $this->createEvent('%vault(api_key)%', 'api_key');
 
         // retrieve() decides against the ambient actor, so a request carrying a
         // backend session would resolve secrets withheld from the frontend.
@@ -98,7 +110,7 @@ final class TypoScriptVaultListenerTest extends TestCase
     #[Test]
     public function preservesPlaceholderWhenSecretIsNotFrontendAccessible(): void
     {
-        $event = $this->createEvent('%vault(smtp_password)%');
+        $event = $this->createEvent('%vault(smtp_password)%', 'smtp_password');
 
         $this->vaultService
             ->method('retrieveForFrontend')
@@ -112,7 +124,7 @@ final class TypoScriptVaultListenerTest extends TestCase
     #[Test]
     public function resolvesMultipleVaultReferences(): void
     {
-        $event = $this->createEvent('Key: %vault(key1)%, Token: %vault(key2)%');
+        $event = $this->createEvent('Key: %vault(key1)%, Token: %vault(key2)%', 'key1', 'key2');
 
         $this->vaultService
             ->method('retrieveForFrontend')
@@ -129,7 +141,7 @@ final class TypoScriptVaultListenerTest extends TestCase
     #[Test]
     public function preservesUnresolvedPlaceholderOnError(): void
     {
-        $event = $this->createEvent('%vault(missing_key)%');
+        $event = $this->createEvent('%vault(missing_key)%', 'missing_key');
 
         $this->vaultService
             ->method('retrieveForFrontend')
@@ -153,7 +165,7 @@ final class TypoScriptVaultListenerTest extends TestCase
     #[Test]
     public function handlesMixedContentWithVaultReferences(): void
     {
-        $event = $this->createEvent('Bearer %vault(auth_token)%');
+        $event = $this->createEvent('Bearer %vault(auth_token)%', 'auth_token');
 
         $this->vaultService
             ->method('retrieveForFrontend')
@@ -168,7 +180,7 @@ final class TypoScriptVaultListenerTest extends TestCase
     #[Test]
     public function handlesIdentifiersWithSpecialCharacters(): void
     {
-        $event = $this->createEvent('%vault(my-api_key.v2)%');
+        $event = $this->createEvent('%vault(my-api_key.v2)%', 'my-api_key.v2');
 
         $this->vaultService
             ->method('retrieveForFrontend')
@@ -196,7 +208,7 @@ final class TypoScriptVaultListenerTest extends TestCase
     #[Test]
     public function resolvesPartiallyFailingReferences(): void
     {
-        $event = $this->createEvent('%vault(good_key)% and %vault(bad_key)%');
+        $event = $this->createEvent('%vault(good_key)% and %vault(bad_key)%', 'good_key', 'bad_key');
 
         $this->vaultService
             ->method('retrieveForFrontend')
@@ -215,11 +227,42 @@ final class TypoScriptVaultListenerTest extends TestCase
     }
 
     /**
-     * Create a mock AfterStdWrapFunctionsExecutedEvent with the given content.
+     * The CLI is strict at the shipped defaults, and PHPUnit *is* the CLI: an
+     * identifier nobody published stays literal and never reaches the vault,
+     * so it produces no audit row either.
      */
-    private function createEvent(?string $content): AfterStdWrapFunctionsExecutedEvent
+    #[Test]
+    public function unpublishedIdentifierStaysLiteralAndNeverReachesTheVault(): void
     {
+        $event = $this->createEvent('%vault(editor_planted_key)%');
+
+        $this->vaultService->expects($this->never())->method('retrieveForFrontend');
+
+        ($this->listener)($event);
+
+        $this->assertSame('%vault(editor_planted_key)%', $event->getContent());
+    }
+
+    /**
+     * Create an AfterStdWrapFunctionsExecutedEvent with the given content,
+     * rendering in a frontend request that publishes the named identifiers.
+     *
+     * The grant goes through `allowIdentifier()` — the documented A4 escape
+     * hatch, keyed on the very request the renderer carries. No test-only seam
+     * is involved: an identifier this method does not name is rejected by the
+     * same gate a production render applies.
+     */
+    private function createEvent(?string $content, string ...$publishedIdentifiers): AfterStdWrapFunctionsExecutedEvent
+    {
+        $request = (new ServerRequest('https://example.com/'))
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
+
+        foreach ($publishedIdentifiers as $identifier) {
+            $this->policy->allowIdentifier($identifier, $request);
+        }
+
         $cObj = $this->createMock(ContentObjectRenderer::class);
+        $cObj->method('getRequest')->willReturn($request);
 
         return new AfterStdWrapFunctionsExecutedEvent(
             content: $content,
