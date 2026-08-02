@@ -14,12 +14,14 @@ namespace Netresearch\NrVault\Controller;
 
 use Exception;
 use JsonException;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\AccessDeniedException;
 use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Exception\SecretExpiredException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -41,27 +43,41 @@ final readonly class AjaxController
     public function __construct(
         private VaultServiceInterface $vaultService,
         private AccessControlServiceInterface $accessControlService,
+        private ExtensionConfigurationInterface $configuration,
     ) {}
 
     /**
      * Reveal a secret value.
      *
      * Accepts POST requests with a JSON body containing `identifier`.
-     * Admin-only and server-side re-checked (see SEC-ACCESS-6).
+     * Requires the `secret.reveal` operation permission, re-checked
+     * server-side (see SEC-ACCESS-6).
+     *
+     * A non-admin needs BOTH `secret.reveal` (asserted here — displaying
+     * plaintext to a human) AND `secret.use` (asserted in
+     * `VaultService::retrieve()` — consuming the plaintext at all), on top of
+     * per-secret read access. That is intentional: the two permissions answer
+     * different questions and neither implies the other.
+     *
+     * The response carries the plaintext secret and therefore must never be
+     * stored by any cache (browser, proxy, service worker): every reveal
+     * response is marked `Cache-Control: no-store`.
      *
      * @return ResponseInterface JSON response with secret or error
      */
     public function revealAction(ServerRequestInterface $request): ResponseInterface
     {
         // SEC-ACCESS-6: defense-in-depth — do not rely solely on the route's
-        // `methods => ['POST']` / `access => admin` config. Re-assert the POST
-        // method (mirroring rotateAction) and re-check admin server-side, so
-        // authorization holds even if the route config is later loosened.
+        // `methods => ['POST']` / `access` config. Re-assert the POST method
+        // (mirroring rotateAction) and re-check the operation permission
+        // server-side, so authorization holds even if the route config is
+        // later loosened. The route is `access => user` precisely because this
+        // check, not the route, is the authority.
         if ($request->getMethod() !== 'POST') {
             return $this->jsonError('Method not allowed', 405);
         }
 
-        if (!$this->accessControlService->isCurrentActorAdmin()) {
+        if (!$this->accessControlService->isGranted(VaultPermission::SecretReveal)) {
             return $this->jsonError(self::ERROR_ACCESS_DENIED, 403);
         }
 
@@ -80,10 +96,16 @@ final readonly class AjaxController
             }
 
             /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new JsonResponse([
+            $response = new JsonResponse([
                 'success' => true,
                 'secret' => $secret,
+                // The hardened profile disables copy-to-clipboard: the
+                // clipboard outlives the reveal dialog and cannot be
+                // reliably cleared from JavaScript.
+                'copyAllowed' => !$this->configuration->getSecurityProfile()->isHardened(),
             ]);
+
+            return $this->withNoStore($response);
         } catch (AccessDeniedException) {
             return $this->jsonError(self::ERROR_ACCESS_DENIED, 403);
         } catch (SecretExpiredException) {
@@ -111,8 +133,10 @@ final readonly class AjaxController
             return $this->jsonError('Method not allowed', 405);
         }
 
-        // SEC-ACCESS-6: defense-in-depth admin re-check (see revealAction).
-        if (!$this->accessControlService->isCurrentActorAdmin()) {
+        // SEC-ACCESS-6: defense-in-depth operation-permission re-check
+        // (see revealAction). Per-secret write access is asserted by
+        // VaultService::rotate() on top of this.
+        if (!$this->accessControlService->isGranted(VaultPermission::SecretRotate)) {
             return $this->jsonError(self::ERROR_ACCESS_DENIED, 403);
         }
 
@@ -164,10 +188,25 @@ final readonly class AjaxController
     private function jsonError(string $message, int $status): ResponseInterface
     {
         /** @phpstan-ignore new.internalClass, method.internalClass */
-        return new JsonResponse([
+        $response = new JsonResponse([
             'success' => false,
             'error' => $message,
         ], $status);
+
+        return $this->withNoStore($response);
+    }
+
+    /**
+     * Forbid caching of a response on every layer.
+     *
+     * Reveal traffic (success and error envelopes alike) must never be
+     * persisted by browsers, proxies, or service workers.
+     */
+    private function withNoStore(ResponseInterface $response): ResponseInterface
+    {
+        return $response
+            ->withHeader('Cache-Control', 'no-store')
+            ->withHeader('Pragma', 'no-cache');
     }
 
     /**

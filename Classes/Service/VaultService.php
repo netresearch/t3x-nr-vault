@@ -37,6 +37,7 @@ use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Http\VaultHttpClientFactoryInterface;
 use Netresearch\NrVault\Http\VaultHttpClientInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
@@ -47,26 +48,18 @@ use TYPO3\CMS\Core\SingletonInterface;
 /**
  * Main vault service implementation.
  */
-final class VaultService implements VaultServiceInterface, SingletonInterface
+final readonly class VaultService implements VaultServiceInterface, SingletonInterface
 {
-    /** @var array<string, string> Request-scoped cache */
-    private array $cache = [];
-
     public function __construct(
-        private readonly VaultAdapterInterface $adapter,
-        private readonly EncryptionServiceInterface $encryptionService,
-        private readonly AccessControlServiceInterface $accessControlService,
-        private readonly AuditLogServiceInterface $auditLogService,
-        private readonly ExtensionConfigurationInterface $configuration,
-        private readonly VaultHttpClientFactoryInterface $httpClientFactory,
-        private readonly ?EventDispatcherInterface $eventDispatcher = null,
-        private readonly ?LoggerInterface $logger = null,
+        private VaultAdapterInterface $adapter,
+        private EncryptionServiceInterface $encryptionService,
+        private AccessControlServiceInterface $accessControlService,
+        private AuditLogServiceInterface $auditLogService,
+        private ExtensionConfigurationInterface $configuration,
+        private VaultHttpClientFactoryInterface $httpClientFactory,
+        private ?EventDispatcherInterface $eventDispatcher = null,
+        private ?LoggerInterface $logger = null,
     ) {}
-
-    public function __destruct()
-    {
-        $this->clearCache();
-    }
 
     /**
      * @param array<string, mixed> $options
@@ -82,6 +75,30 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             $existing = $this->adapter->retrieve($identifier);
 
             $this->assertWritePermission($identifier, $existing);
+
+            // A record that exists but carries no encrypted value is a
+            // creation in progress, not a rotation target: the FormEngine
+            // path inserts the tx_nrvault_secret row first (DataHandler) and
+            // hands the value to store() afterwards. Classify by the VALUE,
+            // so that path faces secret.create — like the module controller —
+            // and is audited as the creation it is.
+            $isCreation = !$existing instanceof Secret
+                || ($existing->getEncryptedValue() ?? '') === '';
+
+            // Separation of duties: the per-secret ACL above answers "may this
+            // actor touch THIS secret", the operation permission answers "may
+            // this actor perform this KIND of operation at all". Both gates
+            // must pass at this business boundary — controller checks are UX,
+            // not the security boundary (a DataHandler request or programmatic
+            // caller never passes through them).
+            if ($isCreation) {
+                $this->assertOperationGranted(VaultPermission::SecretCreate, $identifier, 'Create');
+            } else {
+                $this->assertOperationGranted(VaultPermission::SecretRotate, $identifier, 'Update');
+            }
+            if ($existing instanceof Secret && !$isCreation) {
+                $this->assertPolicyChangeGranted($identifier, $options, $existing);
+            }
 
             $encrypted = $this->encryptionService->encrypt($secret, $identifier);
             $secretEntity = $this->buildSecretEntity($identifier, $encrypted, $options, $existing);
@@ -103,7 +120,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             try {
                 $this->auditLogService->log(
                     $identifier,
-                    $existing instanceof Secret ? AuditAction::Update->value : AuditAction::Create->value,
+                    $isCreation ? AuditAction::Create->value : AuditAction::Update->value,
                     true,
                     null,
                     null,
@@ -126,9 +143,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
                 );
             }
 
-            $this->dispatchStoreEvent($identifier, $secretEntity, !$existing instanceof Secret);
-
-            unset($this->cache[$identifier]);
+            $this->dispatchStoreEvent($identifier, $secretEntity, $isCreation);
         } finally {
             // Securely wipe the plaintext even if an exception occurred
             sodium_memzero($secret);
@@ -137,71 +152,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
     public function retrieve(string $identifier): ?string
     {
-        // Check request-scoped cache
-        if ($this->configuration->isCacheEnabled() && isset($this->cache[$identifier])) {
-            return $this->cache[$identifier];
-        }
-
-        $secret = $this->adapter->retrieve($identifier);
-        if (!$secret instanceof Secret) {
-            return null;
-        }
-
-        // Check access
-        if (!$this->accessControlService->canRead($secret)) {
-            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Read access denied');
-
-            throw AccessDeniedException::forIdentifier($identifier, 'insufficient permissions');
-        }
-
-        // Check expiration
-        if ($secret->isExpired()) {
-            $this->auditLogService->log($identifier, AuditAction::Read->value, false, 'Secret has expired');
-
-            throw SecretExpiredException::forIdentifier($identifier, $secret->getExpiresAt());
-        }
-
-        // Decrypt
-        try {
-            $plaintext = $this->encryptionService->decrypt(
-                $secret->getEncryptedValue() ?? '',
-                $secret->getEncryptedDek(),
-                $secret->getDekNonce(),
-                $secret->getValueNonce(),
-                $identifier,
-                $secret->getEncryptionVersion(),
-                $secret->getEncryptionAlgorithm(),
-            );
-        } catch (EncryptionException $e) {
-            $this->auditLogService->log($identifier, AuditAction::Read->value, false, 'Decryption failed: ' . $e->getMessage());
-
-            throw $e;
-        }
-
-        // Update read statistics atomically (avoids full entity save + MM table churn)
-        $uid = $secret->getUid();
-        if ($uid !== null) {
-            $this->adapter->incrementReadCount($uid);
-        }
-
-        // Log success (can be disabled for high-throughput scenarios)
-        if ($this->configuration->isAuditReadsEnabled()) {
-            $this->auditLogService->log($identifier, AuditAction::Read->value, true);
-        }
-
-        // Dispatch PSR-14 event
-        $this->eventDispatcher?->dispatch(new SecretAccessedEvent(
-            $identifier,
-            $this->accessControlService->getCurrentActorUid(),
-            $secret->getContext(),
-        ));
-
-        // Cache for this request
-        if ($this->configuration->isCacheEnabled()) {
-            $this->cache[$identifier] = $plaintext;
-        }
-
-        return $plaintext;
+        return $this->doRetrieve($identifier, enforceSecretUse: true);
     }
 
     public function retrieveForFrontend(string $identifier): ?string
@@ -230,8 +181,9 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         }
 
         // The remaining checks (read permission, expiry), the audit trail and
-        // the decryption stay with the single read path.
-        return $this->retrieve($identifier);
+        // the decryption stay with the single read path — minus the
+        // interactive `secret.use` gate, see doRetrieve().
+        return $this->doRetrieve($identifier, enforceSecretUse: false);
     }
 
     public function exists(string $identifier): bool
@@ -252,6 +204,9 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
             throw AccessDeniedException::forIdentifier($identifier, 'delete permission denied');
         }
+
+        // Separation of duties: per-secret ACL AND operation permission.
+        $this->assertOperationGranted(VaultPermission::SecretDelete, $identifier, 'Delete');
 
         $hashBefore = $secret->getValueChecksum();
 
@@ -286,9 +241,6 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             $this->accessControlService->getCurrentActorUid(),
             $reason,
         ));
-
-        // Clear cache
-        unset($this->cache[$identifier]);
     }
 
     public function rotate(string $identifier, #[SensitiveParameter] string $newSecret, string $reason = ''): void
@@ -304,6 +256,9 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
             throw AccessDeniedException::forIdentifier($identifier, 'rotate permission denied');
         }
+
+        // Separation of duties: per-secret ACL AND operation permission.
+        $this->assertOperationGranted(VaultPermission::SecretRotate, $identifier, 'Rotate');
 
         if ($newSecret === '') {
             throw ValidationException::emptySecret();
@@ -357,9 +312,6 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
                 $this->accessControlService->getCurrentActorUid(),
                 $reason,
             ));
-
-            // Clear cache
-            unset($this->cache[$identifier]);
         } finally {
             // Securely wipe the plaintext even if an exception occurred
             sodium_memzero($newSecret);
@@ -419,16 +371,189 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
     }
 
     /**
-     * Clear the request-scoped cache.
+     * The single read path shared by `retrieve()` and `retrieveForFrontend()`.
+     *
+     * `$enforceSecretUse` toggles ONLY the interactive-backend-user operation
+     * gate: the frontend path must not be subjected to it, because a frontend
+     * request's visibility is a property of the secret (`frontend_accessible`),
+     * never of whichever backend user happens to hold a session while
+     * rendering a page whose output is shared via the page cache. Every other
+     * check (per-secret ACL, expiry, audit trail, decryption) is identical for
+     * both entry points.
      */
-    public function clearCache(): void
+    private function doRetrieve(string $identifier, bool $enforceSecretUse): ?string
     {
-        // Securely wipe cached values via reference to avoid copy-on-write
-        foreach ($this->cache as &$value) {
-            sodium_memzero($value);
+        $secret = $this->adapter->retrieve($identifier);
+        if (!$secret instanceof Secret) {
+            return null;
         }
-        unset($value);
-        $this->cache = [];
+
+        // Check access
+        if (!$this->accessControlService->canRead($secret)) {
+            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Read access denied');
+
+            throw AccessDeniedException::forIdentifier($identifier, 'insufficient permissions');
+        }
+
+        if ($enforceSecretUse) {
+            $this->assertInteractiveUseGranted($identifier);
+        }
+
+        // Check expiration
+        if ($secret->isExpired()) {
+            $this->auditLogService->log($identifier, AuditAction::Read->value, false, 'Secret has expired');
+
+            throw SecretExpiredException::forIdentifier($identifier, $secret->getExpiresAt());
+        }
+
+        // Decrypt
+        try {
+            $plaintext = $this->encryptionService->decrypt(
+                $secret->getEncryptedValue() ?? '',
+                $secret->getEncryptedDek(),
+                $secret->getDekNonce(),
+                $secret->getValueNonce(),
+                $identifier,
+                $secret->getEncryptionVersion(),
+                $secret->getEncryptionAlgorithm(),
+            );
+        } catch (EncryptionException $e) {
+            $this->auditLogService->log($identifier, AuditAction::Read->value, false, 'Decryption failed: ' . $e->getMessage());
+
+            throw $e;
+        }
+
+        // Update read statistics atomically (avoids full entity save + MM table churn)
+        $uid = $secret->getUid();
+        if ($uid !== null) {
+            $this->adapter->incrementReadCount($uid);
+        }
+
+        // Log success (can be disabled for high-throughput scenarios)
+        if ($this->configuration->isAuditReadsEnabled()) {
+            $this->auditLogService->log($identifier, AuditAction::Read->value, true);
+        }
+
+        // Dispatch PSR-14 event
+        $this->eventDispatcher?->dispatch(new SecretAccessedEvent(
+            $identifier,
+            $this->accessControlService->getCurrentActorUid(),
+            $secret->getContext(),
+        ));
+
+        return $plaintext;
+    }
+
+    /**
+     * Assert the `secret.use` operation permission for an interactively
+     * authenticated NON-ADMIN backend user.
+     *
+     * Applies on top of the per-secret `canRead()` tiers and only to actor type
+     * `backend`: CLI, technical actors, the frontend and admins keep exactly
+     * the behaviour they had. Non-admin backend users therefore need
+     * `secret.use` for every plaintext read — the FormEngine vault widget,
+     * FlexForm/TCA placeholder resolution and the reveal endpoint alike.
+     *
+     * The admin exemption is deliberately expressed through
+     * `isCurrentActorAdmin()` (mirroring `resolveOwnerUid()` /
+     * `resolveFrontendAccessible()`) rather than by relying on `isGranted()`
+     * returning true for admins, so this stays readable as "admins are not
+     * gated here".
+     */
+    private function assertInteractiveUseGranted(string $identifier): void
+    {
+        if ($this->accessControlService->getCurrentActorType() !== 'backend') {
+            return;
+        }
+
+        if ($this->accessControlService->isCurrentActorAdmin()) {
+            return;
+        }
+
+        if ($this->accessControlService->isGranted(VaultPermission::SecretUse)) {
+            return;
+        }
+
+        $this->auditLogService->log(
+            $identifier,
+            AuditAction::AccessDenied->value,
+            false,
+            'Read access denied: missing ' . VaultPermission::SecretUse->value . ' permission',
+        );
+
+        throw AccessDeniedException::forIdentifier(
+            $identifier,
+            'missing ' . VaultPermission::SecretUse->value . ' permission',
+        );
+    }
+
+    /**
+     * Assert an operation-level vault permission for the current actor, on
+     * top of the per-secret ACL tier the caller already verified.
+     *
+     * `isGranted()` resolves the actor-appropriate grant source: custom
+     * permission options for interactive backend users (admins pass via the
+     * central bypass seam), group-provisioned grants for technical actors,
+     * the CLI trust switch for unauthenticated CLI, and a hard deny for
+     * frontend requests — which never mutate the vault.
+     */
+    private function assertOperationGranted(
+        VaultPermission $permission,
+        string $identifier,
+        string $operation,
+    ): void {
+        if ($this->accessControlService->isGranted($permission)) {
+            return;
+        }
+
+        $this->auditLogService->log(
+            $identifier,
+            AuditAction::AccessDenied->value,
+            false,
+            $operation . ' denied: missing ' . $permission->value . ' permission',
+        );
+
+        throw AccessDeniedException::forIdentifier(
+            $identifier,
+            'missing ' . $permission->value . ' permission',
+        );
+    }
+
+    /**
+     * A `store()` over an existing secret that changes its access policy
+     * (owner, group tiers, frontend availability) additionally requires
+     * `secret.manage_policy` — widening who can read or write a secret is
+     * vault administration, not day-to-day secret handling.
+     *
+     * The comparison uses the EFFECTIVE values (after the owner /
+     * frontend-accessible coercions below): a submitted change that the
+     * coercion silently reverts for a non-admin backend user is not a policy
+     * change and must not start requiring an additional permission.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function assertPolicyChangeGranted(string $identifier, array $options, Secret $existing): void
+    {
+        $optional = $this->collectOptionalFields($options, $existing);
+
+        $ownerChanges = $this->resolveOwnerUid($options, $existing) !== $existing->getOwnerUid();
+        $frontendChanges = $this->resolveFrontendAccessible($optional['frontendAccessible'], $existing)
+            !== $existing->isFrontendAccessible();
+
+        $groupsChange = false;
+        if (isset($options['groups'])) {
+            $submittedGroups = $optional['allowedGroups'];
+            $existingGroups = $existing->getAllowedGroups();
+            sort($submittedGroups);
+            sort($existingGroups);
+            $groupsChange = $submittedGroups !== $existingGroups;
+        }
+
+        if (!$ownerChanges && !$frontendChanges && !$groupsChange) {
+            return;
+        }
+
+        $this->assertOperationGranted(VaultPermission::SecretManagePolicy, $identifier, 'Policy change');
     }
 
     /**
@@ -464,16 +589,12 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
                 ],
             );
 
-            unset($this->cache[$identifier]);
-
             throw new AuditWriteException(
                 $auditException->getMessage(),
                 $auditException->getCode(),
                 $revertFailure,
             );
         }
-
-        unset($this->cache[$identifier]);
 
         throw $auditException;
     }
@@ -507,7 +628,16 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
      * Assemble the `Secret` aggregate from the encryption output + options.
      *
      * `$existing === null` → create path (new entity, new crdate/cruserId).
-     * `$existing !== null` → update path (preserve uid/crdate/version).
+     * `$existing !== null` → update path (preserve uid/crdate/version — and
+     * every metadata field the caller did NOT explicitly submit). The
+     * preserve semantics matter twice over: the FormEngine path persists the
+     * metadata columns via DataHandler BEFORE handing the value to store(),
+     * so replace-with-defaults would wipe what the editor just entered; and
+     * a programmatic `store('id', $value)` on an existing secret must not
+     * silently reset description, ACL group tiers, write_groups, expiry or
+     * frontend availability — those are policy fields whose CHANGE is gated
+     * by secret.manage_policy, so an accidental reset is a policy change
+     * without its permission.
      *
      * @param array<string, mixed> $options
      */
@@ -517,7 +647,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
         array $options,
         ?Secret $existing,
     ): Secret {
-        $optional = $this->collectOptionalFields($options);
+        $optional = $this->collectOptionalFields($options, $existing);
 
         return new Secret(
             identifier: $identifier,
@@ -533,6 +663,7 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
             valueChecksum: $encrypted->valueChecksum,
             ownerUid: $this->resolveOwnerUid($options, $existing),
             allowedGroups: $optional['allowedGroups'],
+            writeGroups: $existing instanceof Secret ? $existing->getWriteGroups() : [],
             context: $optional['context'],
             frontendAccessible: $this->resolveFrontendAccessible($optional['frontendAccessible'], $existing),
             version: $existing instanceof Secret ? $existing->getVersion() : 1,
@@ -598,10 +729,10 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
 
     /**
      * Collect the value-type-flexible options from the `store($options)`
-     * array into a typed bundle. Each option is defensively coerced to
-     * its expected type; options not supplied get the Secret-default
-     * value (matching the previous mutator-based behaviour where unset
-     * options left the constructed entity at its default).
+     * array into a typed bundle. Each option is defensively coerced to its
+     * expected type. An option NOT supplied keeps the existing secret's
+     * value on update (preserve semantics — see buildSecretEntity()) and
+     * gets the Secret-default value on create.
      *
      * @param array<string, mixed> $options
      *
@@ -615,21 +746,33 @@ final class VaultService implements VaultServiceInterface, SingletonInterface
      *     metadata: array<string, mixed>,
      * }
      */
-    private function collectOptionalFields(array $options): array
+    private function collectOptionalFields(array $options, ?Secret $existing): array
     {
-        $metadata = [];
+        $metadata = $existing?->getMetadata() ?? [];
         if (isset($options['metadata'])) {
             /** @var array<string, mixed> $metadata */
             $metadata = (array) $options['metadata'];
         }
 
         return [
-            'scopePid' => (isset($options['scopePid']) && is_numeric($options['scopePid'])) ? (int) $options['scopePid'] : 0,
-            'description' => isset($options['description']) ? $this->coerceToString($options['description']) : '',
-            'allowedGroups' => isset($options['groups']) ? $this->coerceGroupList($options['groups']) : [],
-            'context' => isset($options['context']) ? $this->coerceToString($options['context']) : '',
-            'frontendAccessible' => isset($options['frontendAccessible']) && (bool) $options['frontendAccessible'],
-            'expiresAt' => isset($options['expiresAt']) ? $this->coerceTimestamp($options['expiresAt']) : 0,
+            'scopePid' => (isset($options['scopePid']) && is_numeric($options['scopePid']))
+                ? (int) $options['scopePid']
+                : ($existing?->getScopePid() ?? 0),
+            'description' => isset($options['description'])
+                ? $this->coerceToString($options['description'])
+                : ($existing?->getDescription() ?? ''),
+            'allowedGroups' => isset($options['groups'])
+                ? $this->coerceGroupList($options['groups'])
+                : array_values($existing?->getAllowedGroups() ?? []),
+            'context' => isset($options['context'])
+                ? $this->coerceToString($options['context'])
+                : ($existing?->getContext() ?? ''),
+            'frontendAccessible' => isset($options['frontendAccessible'])
+                ? (bool) $options['frontendAccessible']
+                : ($existing instanceof Secret && $existing->isFrontendAccessible()),
+            'expiresAt' => isset($options['expiresAt'])
+                ? $this->coerceTimestamp($options['expiresAt'])
+                : ($existing?->getExpiresAt() ?? 0),
             'metadata' => $metadata,
         ];
     }

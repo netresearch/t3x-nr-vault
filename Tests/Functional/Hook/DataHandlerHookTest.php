@@ -109,7 +109,6 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
             $dataHandler = $this->createDataHandler();
             $hook->processDatamap_afterDatabaseOperations('update', 'tx_test', 99, $fieldArray, $dataHandler);
 
-            $vaultService->clearCache();
             $retrieved = $vaultService->retrieve($vaultIdentifier);
             self::assertSame($newValue, $retrieved, 'Vault must contain rotated secret value');
         } finally {
@@ -149,7 +148,6 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
 
             $hook->processDatamap_afterDatabaseOperations('update', 'tx_test', 99, $fieldArray, $this->createDataHandler());
 
-            $vaultService->clearCache();
             $retrieved = $vaultService->retrieve($vaultIdentifier);
             self::assertSame($originalValue, $retrieved, 'Vault secret must survive an untouched save (issue #223)');
         } finally {
@@ -229,7 +227,6 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
 
             $hook->processDatamap_afterDatabaseOperations('update', 'tx_test', 99, $fieldArray, $dataHandler);
 
-            $vaultService->clearCache();
             self::assertSame(
                 $originalValue,
                 $vaultService->retrieve($vaultIdentifier),
@@ -276,7 +273,6 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
 
             $hook->processDatamap_afterDatabaseOperations('update', 'tx_test', 99, $fieldArray, $dataHandler);
 
-            $vaultService->clearCache();
             self::assertSame(
                 $newValue,
                 $vaultService->retrieve($vaultIdentifier),
@@ -336,9 +332,64 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         $hook->processCmdmap_preProcess('delete', 'tx_nrvault_hooktest2', $recordUid, null, $dataHandler, false);
 
         // Secret must be deleted
-        $vaultService->clearCache();
         $retrieved = $vaultService->retrieve($vaultIdentifier);
         self::assertNull($retrieved, 'Vault secret must be deleted when its record is deleted');
+
+        // The successful cleanup must NOT cancel the record delete.
+        $commandIsProcessed = false;
+        $hook->processCmdmap('delete', 'tx_nrvault_hooktest2', $recordUid, null, $commandIsProcessed, $dataHandler, false);
+        self::assertFalse($commandIsProcessed, 'A successful vault cleanup must let core delete the record.');
+    }
+
+    #[Test]
+    public function recordDeleteIsCancelledWhenVaultDeleteFails(): void
+    {
+        $this->skipIfNotSqlite();
+
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $connectionPool = $this->get(ConnectionPool::class);
+        $hook = $this->createHookWithVaultFields('tx_nrvault_hooktest3', ['api_key']);
+
+        $connection = $connectionPool->getConnectionForTable('tx_nrvault_hooktest3');
+        $connection->executeStatement(
+            'CREATE TABLE IF NOT EXISTS tx_nrvault_hooktest3 (
+                uid INTEGER PRIMARY KEY AUTOINCREMENT,
+                pid INTEGER DEFAULT 0,
+                api_key VARCHAR(255) DEFAULT \'\'
+            )',
+        );
+
+        $vaultIdentifier = $this->generateUuidV7();
+        $vaultService->store($vaultIdentifier, 'cancel-test-secret');
+
+        $connection->insert('tx_nrvault_hooktest3', [
+            'pid' => 0,
+            'api_key' => $vaultIdentifier,
+        ]);
+        $recordUid = (int) $connection->lastInsertId();
+
+        // Break the audit chain for real: the vault delete's audit write
+        // fails, VaultService compensates (the secret survives), and the
+        // hook must cancel the record delete — deleting the record while its
+        // secret survives would orphan the secret and mask the failure.
+        $connectionPool
+            ->getConnectionForTable('tx_nrvault_audit_log')
+            ->executeStatement('DROP TABLE tx_nrvault_audit_log');
+
+        $dataHandler = $this->createDataHandler();
+        $hook->processCmdmap_preProcess('delete', 'tx_nrvault_hooktest3', $recordUid, null, $dataHandler, false);
+
+        $commandIsProcessed = false;
+        $hook->processCmdmap('delete', 'tx_nrvault_hooktest3', $recordUid, null, $commandIsProcessed, $dataHandler, false);
+
+        self::assertTrue(
+            $commandIsProcessed,
+            'A failed vault delete must cancel the record delete (fail closed).',
+        );
+        self::assertTrue(
+            $vaultService->exists($vaultIdentifier),
+            'The secret must survive its failed (compensated) delete.',
+        );
     }
 
     /**

@@ -75,10 +75,26 @@ and audit logging.
 
    .. card:: 🔒 Security
 
-      Understand the encryption architecture, audit logging, and security
-      best practices.
+      Encryption architecture, access control, audit logging, the threat model,
+      the two security profiles, and the known limitations.
 
       .. card-footer:: :ref:`Read more <security>`
+         :button-style: btn btn-secondary stretched-link
+
+   .. card:: 🚀 Operations
+
+      Hardened deployment, key custody, backup and restore, key rotation,
+      monitoring, incident response, and decommissioning.
+
+      .. card-footer:: :ref:`Read more <operations>`
+         :button-style: btn btn-secondary stretched-link
+
+   .. card:: 📋 Auditor
+
+      Target of evaluation, control mapping, evidence collection, and
+      reproducible verification procedures.
+
+      .. card-footer:: :ref:`Read more <auditor>`
          :button-style: btn btn-secondary stretched-link
 
    .. card:: 👨‍💻 Developer
@@ -106,6 +122,8 @@ and audit logging.
    Configuration/Index
    Usage/Index
    Security/Index
+   Operations/Index
+   Auditor/Index
    Developer/Index
    Troubleshooting/Index
 

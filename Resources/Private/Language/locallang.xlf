@@ -31,6 +31,28 @@
             <trans-unit id="task.orphanCleanup.tableFilter.description">
                 <source>Optional: Only check secrets from this specific table. Leave empty to check all tables.</source>
             </trans-unit>
+
+            <!-- Scheduler Task: Audit Chain Anchoring -->
+            <trans-unit id="task.auditAnchor.title">
+                <source>Vault Audit Chain Anchoring</source>
+            </trans-unit>
+            <trans-unit id="task.auditAnchor.description">
+                <source>Publishes the current audit log chain tip to the enabled external audit sinks. Each run records outside the database that the chain had reached a given sequence, which is what makes a later full audit table reset detectable. The scheduling interval is the window an attacker could still hide.</source>
+            </trans-unit>
+
+            <!-- Scheduler Task: Audit Integrity Verification -->
+            <trans-unit id="task.auditVerify.title">
+                <source>Vault Audit Integrity Verification</source>
+            </trans-unit>
+            <trans-unit id="task.auditVerify.description">
+                <source>Verifies the audit log hash chain and compares it against the last published chain-tip anchor. Reports hash mismatches, uid gaps, table resets and epoch downgrades, and dispatches an integrity alert event for SIEM or notification listeners.</source>
+            </trans-unit>
+            <trans-unit id="task.auditVerify.tamperOnly">
+                <source>Fail on tamper evidence only</source>
+            </trans-unit>
+            <trans-unit id="task.auditVerify.tamperOnly.description">
+                <source>When enabled, the task only fails on tamper evidence (hash mismatch, uid gap, table reset, epoch downgrade) and treats configuration or delivery findings (no external sink, sink failure) as warnings. Useful while external sinks are still being rolled out, so a pending integration does not keep the task permanently red and mask a real alarm.</source>
+            </trans-unit>
         </body>
     </file>
 </xliff>

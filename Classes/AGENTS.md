@@ -16,7 +16,9 @@ Strict types, final classes, readonly properties, constructor promotion. DI via 
 | `Classes/Crypto/FileMasterKeyProvider.php` | Reads master key from filesystem (config-driven) |
 | `Classes/Crypto/EnvironmentMasterKeyProvider.php` | Reads master key from env var |
 | `Classes/Crypto/Typo3MasterKeyProvider.php` | Uses TYPO3 encryptionKey as fallback |
-| `Classes/Audit/AuditLogService.php` | Tamper-evident audit log (HMAC hash chain) |
+| `Classes/Audit/AuditLogService.php` | Tamper-evident audit log (HMAC hash chain); fans out to external sinks after the chain write |
+| `Classes/Audit/Sink/AuditSinkRegistry.php` | Fan-out to external sinks; contains + counts per-sink failures |
+| `Classes/Audit/Anchor/ChainTipAnchorService.php` | Publishes + verifies external chain-tip anchors (detects a full table reset) |
 | `Classes/Controller/SecretsController.php` | Backend module: list/create/rotate UI |
 | `Classes/Controller/AjaxController.php` | AJAX reveal/copy endpoints |
 | `Classes/Hook/FlexFormVaultHook.php` | Rewrites vault placeholders in FlexForms |
@@ -45,7 +47,9 @@ Strict types, final classes, readonly properties, constructor promotion. DI via 
 ```
 Classes/
 ├── Adapter/       # Vault backend adapters (LocalEncryptionAdapter, external)
-├── Audit/         # AuditLogService, HashChainVerificationResult
+├── Audit/         # AuditLogService, HashChainVerificationResult, AuditIntegrityReport
+│   ├── Anchor/     # External chain-tip anchoring (ChainTipAnchorService, AnchorFileReader)
+│   └── Sink/       # External audit sinks (syslog, NDJSON file, webhook) + registry
 ├── Command/       # Symfony Console commands (vault:*)
 ├── Configuration/ # ExtensionConfiguration wrapper
 ├── Controller/    # Backend module + AJAX controllers

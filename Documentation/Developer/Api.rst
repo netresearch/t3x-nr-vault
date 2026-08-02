@@ -90,11 +90,6 @@ The main service for interacting with the vault.
       :throws SecretNotFoundException: If secret doesn't exist.
       :throws AccessDeniedException: If user lacks permission.
 
-   .. php:method:: clearCache(): void
-
-      Clear the request-scoped cache of decrypted secrets, securely
-      wiping cached plaintext from memory.
-
    .. php:method:: http(): VaultHttpClientInterface
 
       Get an HTTP client that can inject secrets into requests.

@@ -10,7 +10,9 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Configuration;
 
 use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
+use Netresearch\NrVault\Configuration\Dto\TransitConfig;
 use Netresearch\NrVault\Configuration\Dto\VaultServerConfig;
+use Netresearch\NrVault\Exception\ConfigurationException;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration as Typo3ExtensionConfiguration;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\SingletonInterface;
@@ -21,6 +23,8 @@ use TYPO3\CMS\Core\SingletonInterface;
 final class ExtensionConfiguration implements ExtensionConfigurationInterface, SingletonInterface
 {
     // Default values as constants for maintainability
+    public const DEFAULT_SECURITY_PROFILE = 'standard';
+
     public const DEFAULT_STORAGE_ADAPTER = 'local';
 
     public const DEFAULT_MASTER_KEY_PROVIDER = 'typo3';
@@ -31,9 +35,17 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
 
     public const DEFAULT_ALLOW_CLI_ACCESS = false;
 
-    public const DEFAULT_CACHE_ENABLED = true;
+    /**
+     * Operation permissions the unattributed CLI actor may hold when
+     * `allowCliAccess` is on. High-risk operations (secret.reveal,
+     * secret.delete, audit.export, master_key.rotate, vault.configure) are
+     * deliberately absent — they must be opted into explicitly.
+     */
+    public const DEFAULT_CLI_ALLOWED_OPERATIONS = 'secret.use,secret.create,secret.rotate';
 
     public const DEFAULT_AUDIT_READS = true;
+
+    public const DEFAULT_DISABLE_ADMIN_OVERRIDE = false;
 
     public const DEFAULT_PREFER_XCHACHA20 = false;
 
@@ -64,6 +76,28 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
      */
     public const DEFAULT_AUDIT_HMAC_EPOCH = 3;
 
+    public const DEFAULT_AUDIT_SINK_SYSLOG_ENABLED = false;
+
+    public const DEFAULT_AUDIT_SINK_SYSLOG_IDENT = 'nr-vault';
+
+    public const DEFAULT_AUDIT_SINK_FILE_ENABLED = false;
+
+    /** Basename appended to `Environment::getVarPath() . '/log'` when no path is configured. */
+    public const DEFAULT_AUDIT_SINK_FILE_BASENAME = 'nr-vault-audit.ndjson';
+
+    /** Basename appended to `Environment::getVarPath() . '/log'` when no anchor path is configured. */
+    public const DEFAULT_AUDIT_SINK_ANCHOR_BASENAME = 'nr-vault-audit-anchor.ndjson';
+
+    public const DEFAULT_AUDIT_SINK_WEBHOOK_ENABLED = false;
+
+    /**
+     * Hours after which the last successful external delivery of an enabled
+     * sink counts as stale for `vault:doctor` (hardened: critical).
+     */
+    public const DEFAULT_AUDIT_SINK_STALE_DELIVERY_HOURS = 24;
+
+    public const DEFAULT_AUDIT_SINK_WEBHOOK_URL = '';
+
     public const DEFAULT_STALE_NEVER_READ_DAYS = 30;
 
     public const DEFAULT_STALE_NOT_READ_DAYS = 90;
@@ -85,6 +119,26 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
+     * Get the configured security profile.
+     *
+     * Fail-closed: an unknown profile value throws instead of silently
+     * degrading to Standard — a typo in a hardened deployment must never
+     * weaken the effective policy.
+     *
+     * @throws ConfigurationException
+     */
+    public function getSecurityProfile(): SecurityProfile
+    {
+        $val = $this->configuration['securityProfile'] ?? self::DEFAULT_SECURITY_PROFILE;
+        if (!\is_string($val) || $val === '') {
+            $val = self::DEFAULT_SECURITY_PROFILE;
+        }
+
+        return SecurityProfile::tryFrom($val)
+            ?? throw ConfigurationException::invalidSecurityProfile($val);
+    }
+
+    /**
      * Get storage adapter identifier (local, hashicorp, aws).
      */
     public function getStorageAdapter(): string
@@ -95,7 +149,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
-     * Get master key provider identifier (typo3, file, env, derived).
+     * Get master key provider identifier (typo3, file, env, transit).
      */
     public function getMasterKeyProvider(): string
     {
@@ -158,11 +212,25 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
-     * Check if request-scoped caching is enabled.
+     * The operation permissions the unattributed CLI actor may hold when
+     * `allowCliAccess` is on (see DEFAULT_CLI_ALLOWED_OPERATIONS for the
+     * default and its rationale). Entries are trimmed; unknown values are
+     * kept as-is here — `vault:doctor` reports them, and the grant lookup
+     * compares against real permission values so junk simply never matches.
+     *
+     * @return list<string>
      */
-    public function isCacheEnabled(): bool
+    public function getCliAllowedOperations(): array
     {
-        return (bool) ($this->configuration['cacheEnabled'] ?? self::DEFAULT_CACHE_ENABLED);
+        $raw = $this->configuration['cliAllowedOperations'] ?? self::DEFAULT_CLI_ALLOWED_OPERATIONS;
+        if (!\is_string($raw)) {
+            $raw = self::DEFAULT_CLI_ALLOWED_OPERATIONS;
+        }
+
+        return array_values(array_filter(array_map(
+            trim(...),
+            explode(',', $raw),
+        ), static fn (string $value): bool => $value !== ''));
     }
 
     /**
@@ -182,15 +250,31 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
      */
     public function isAuditReadsEnabled(): bool
     {
-        $sys = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null)
-            && \is_array($GLOBALS['TYPO3_CONF_VARS']['SYS'] ?? null)
-                ? $GLOBALS['TYPO3_CONF_VARS']['SYS'] : [];
-        $nrVault = \is_array($sys['nrVault'] ?? null) ? $sys['nrVault'] : [];
-        if (\array_key_exists('auditReads', $nrVault)) {
-            return (bool) $nrVault['auditReads'];
-        }
+        return $this->pinnedOverride('auditReads')
+            ?? (bool) ($this->configuration['auditReads'] ?? self::DEFAULT_AUDIT_READS);
+    }
 
-        return (bool) ($this->configuration['auditReads'] ?? self::DEFAULT_AUDIT_READS);
+    /**
+     * Is the admin / system-maintainer bypass disabled?
+     *
+     * Resolution order is identical to {@see self::isAuditReadsEnabled()} —
+     * the `$TYPO3_CONF_VARS[SYS][nrVault][disableAdminOverride]` override wins
+     * over the BE-editable extension configuration — and for the same reason,
+     * only sharper here: a compromised admin must not be able to silently
+     * re-enable their own bypass from the backend Settings module. Pin the
+     * value in `config/system/additional.php` and the only way back is
+     * filesystem access (or a time-boxed, audited break-glass session).
+     *
+     * The flag is only EFFECTIVE in the Hardened security profile — see
+     * {@see \Netresearch\NrVault\Security\AccessControlService} for the
+     * footgun-lockout rationale. This getter reports the raw configuration, so
+     * a diagnostic tool can pair it with {@see self::getSecurityProfile()} and
+     * report the "flag set but profile is standard" mismatch.
+     */
+    public function isAdminOverrideDisabled(): bool
+    {
+        return $this->pinnedOverride('disableAdminOverride')
+            ?? (bool) ($this->configuration['disableAdminOverride'] ?? self::DEFAULT_DISABLE_ADMIN_OVERRIDE);
     }
 
     /**
@@ -227,6 +311,98 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
         $val = $this->configuration['auditHmacEpoch'] ?? self::DEFAULT_AUDIT_HMAC_EPOCH;
 
         return is_numeric($val) ? (int) $val : self::DEFAULT_AUDIT_HMAC_EPOCH;
+    }
+
+    /**
+     * Whether the syslog audit sink is enabled.
+     */
+    public function isAuditSinkSyslogEnabled(): bool
+    {
+        return (bool) ($this->configuration['auditSinkSyslogEnabled'] ?? self::DEFAULT_AUDIT_SINK_SYSLOG_ENABLED);
+    }
+
+    /**
+     * `openlog()` ident for the syslog audit sink.
+     *
+     * Falls back to the default for an empty or non-string value: an empty
+     * ident makes syslog lines unattributable, which defeats the point of the
+     * sink.
+     */
+    public function getAuditSinkSyslogIdent(): string
+    {
+        $val = $this->configuration['auditSinkSyslogIdent'] ?? null;
+        if (!\is_string($val) || trim($val) === '') {
+            return self::DEFAULT_AUDIT_SINK_SYSLOG_IDENT;
+        }
+
+        return trim($val);
+    }
+
+    /**
+     * Whether the append-only NDJSON file audit sink is enabled.
+     */
+    public function isAuditSinkFileEnabled(): bool
+    {
+        return (bool) ($this->configuration['auditSinkFileEnabled'] ?? self::DEFAULT_AUDIT_SINK_FILE_ENABLED);
+    }
+
+    /**
+     * Absolute path of the append-only NDJSON audit file.
+     *
+     * An unset/empty value resolves to `<var>/log/nr-vault-audit.ndjson`, which
+     * is outside the public web root on every standard TYPO3 layout.
+     */
+    public function getAuditSinkFilePath(): string
+    {
+        return $this->resolveLogPath(
+            $this->configuration['auditSinkFilePath'] ?? null,
+            self::DEFAULT_AUDIT_SINK_FILE_BASENAME,
+        );
+    }
+
+    /**
+     * Absolute path of the append-only chain-tip anchor file.
+     *
+     * Deliberately a separate setting rather than a name derived from the
+     * NDJSON path: the anchor file is the external evidence that survives a
+     * full audit-table reset, so operators must be able to point it at a
+     * different (ideally append-only or off-host) location than the bulk
+     * entry stream.
+     */
+    public function getAuditSinkAnchorPath(): string
+    {
+        return $this->resolveLogPath(
+            $this->configuration['auditSinkAnchorPath'] ?? null,
+            self::DEFAULT_AUDIT_SINK_ANCHOR_BASENAME,
+        );
+    }
+
+    /**
+     * Whether the webhook audit sink is enabled.
+     */
+    public function isAuditSinkWebhookEnabled(): bool
+    {
+        return (bool) ($this->configuration['auditSinkWebhookEnabled'] ?? self::DEFAULT_AUDIT_SINK_WEBHOOK_ENABLED);
+    }
+
+    public function getAuditSinkStaleDeliveryHours(): int
+    {
+        $value = $this->configuration['auditSinkStaleDeliveryHours'] ?? null;
+        if (!is_numeric($value) || (int) $value < 1) {
+            return self::DEFAULT_AUDIT_SINK_STALE_DELIVERY_HOURS;
+        }
+
+        return (int) $value;
+    }
+
+    /**
+     * Endpoint the webhook audit sink POSTs to ('' = unconfigured).
+     */
+    public function getAuditSinkWebhookUrl(): string
+    {
+        $val = $this->configuration['auditSinkWebhookUrl'] ?? self::DEFAULT_AUDIT_SINK_WEBHOOK_URL;
+
+        return \is_string($val) ? trim($val) : self::DEFAULT_AUDIT_SINK_WEBHOOK_URL;
     }
 
     /**
@@ -275,6 +451,35 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
+     * Get the HashiCorp Vault Transit master-key provider configuration.
+     *
+     * Shares the `hashicorp.*` group with the (planned) storage adapter so an
+     * installation configures the Vault address once. The wrapped-key path
+     * falls back to the var path when unset, mirroring
+     * {@see self::getAutoKeyPath()} for the file provider.
+     */
+    public function getTransitConfig(): TransitConfig
+    {
+        $config = $this->configuration['hashicorp'] ?? [];
+
+        if (!\is_array($config)) {
+            $config = [];
+        }
+
+        /** @var array{address?: string, authMethod?: string, token?: string, transitMount?: string, transitKeyName?: string, transitWrappedKeyPath?: string, tokenEnvVar?: string} $config */
+        $configuredPath = \is_string($config['transitWrappedKeyPath'] ?? null)
+            ? trim($config['transitWrappedKeyPath'])
+            : '';
+
+        // Resolve the var-path default lazily: it touches Environment, which an
+        // explicitly configured path makes unnecessary.
+        return TransitConfig::fromArray(
+            $config,
+            $configuredPath === '' ? $this->getTransitWrappedKeyPathDefault() : '',
+        );
+    }
+
+    /**
      * Get AWS Secrets Manager configuration.
      */
     public function getAwsConfig(): AwsSecretsConfig
@@ -295,5 +500,54 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     public function getAutoKeyPath(): string
     {
         return Environment::getVarPath() . '/secrets/vault-master.key';
+    }
+
+    /**
+     * Resolve a configured audit-sink file path, falling back to
+     * `<var>/log/<basename>` when unset or empty.
+     *
+     * Only whitespace is trimmed here; whether the resulting path is *safe*
+     * (outside the public web root, writable) is decided by the sink, which is
+     * the layer that can disable itself and report the reason.
+     */
+    private function resolveLogPath(mixed $configured, string $defaultBasename): string
+    {
+        if (\is_string($configured) && trim($configured) !== '') {
+            return trim($configured);
+        }
+
+        return Environment::getVarPath() . '/log/' . $defaultBasename;
+    }
+
+    /**
+     * Read a boolean setting pinned in
+     * `$TYPO3_CONF_VARS[SYS][nrVault][<key>]` — typically set in
+     * `LocalConfiguration.php` / `additional.php`, where it is NOT reachable
+     * from the BE Settings module. (Other `ext_localconf.php` files can
+     * technically write it too; treat the override as filesystem-bound only
+     * when the rest of the bootstrap is trusted.)
+     *
+     * Returns null when the key is absent, so callers fall through to the
+     * BE-editable extension configuration.
+     */
+    private function pinnedOverride(string $key): ?bool
+    {
+        $sys = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null)
+            && \is_array($GLOBALS['TYPO3_CONF_VARS']['SYS'] ?? null)
+                ? $GLOBALS['TYPO3_CONF_VARS']['SYS'] : [];
+        $nrVault = \is_array($sys['nrVault'] ?? null) ? $sys['nrVault'] : [];
+
+        return \array_key_exists($key, $nrVault) ? (bool) $nrVault[$key] : null;
+    }
+
+    /**
+     * Default location of the Vault-wrapped master key.
+     *
+     * The stored blob is Transit ciphertext (`vault:v1:…`), never key material,
+     * so it lives next to the auto key path rather than in a separate store.
+     */
+    private function getTransitWrappedKeyPathDefault(): string
+    {
+        return $this->getAutoKeyPath() . '.transit';
     }
 }

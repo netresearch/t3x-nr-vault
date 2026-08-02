@@ -2,6 +2,12 @@
 
 **Reviewer:** Frontend Architect agent
 **Date:** 2026-05-23
+> **Update 2026-07-31 (reveal-lifecycle hardening):** `Resources/Public/JavaScript/SecretReveal.js` was
+> deleted — it was orphaned dead code (its DOM ids appeared in no template, PHP or config) and it
+> embodied the insecure lifecycle described below. Findings that cite that file are obsolete; the live
+> reveal surfaces are `SecretsList.js`, `vault-secret-element.js` and `vault-secret-input.js`, which now
+> share the auto-hide/wipe guard in `vault-reveal-lifecycle.js`.
+
 **Scope:** `Resources/Public/JavaScript/`, `Resources/Public/Css/`, `Resources/Private/{Templates,Partials,Layouts}/`, `Resources/Private/Language/`, `Classes/Controller/{SecretsController,AjaxController}.php`, `Classes/Form/Element/VaultSecret*Element.php`, plus verification reads in `Classes/Service/VaultService.php` and `Configuration/Backend/AjaxRoutes.php`.
 
 ## Executive summary

@@ -1,0 +1,107 @@
+<html xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+      xmlns:core="http://typo3.org/ns/TYPO3/CMS/Core/ViewHelpers"
+      data-namespace-typo3-fluid="true">
+
+<!--
+    Security readiness panel — the backend face of `vault:doctor`.
+
+    Expects `securityStatus` as shaped by
+    Classes/Controller/SecurityStatusProvider::forView(): every key is always
+    present, including when the run failed (`available: false`), so no branch
+    here can render a blank box where a warning belongs.
+
+    Two audiences in one partial: the profile badge and the pass ratio are for
+    anyone who can open the module; `securityStatus.detailed` is true only for
+    actors holding `vault.configure`, and gates the finding list that names this
+    installation's concrete weak points. The gate is decided in the provider —
+    do NOT add a permission check here, and do not render `findings` outside the
+    `detailed` branch.
+-->
+<div class="mb-4" data-testid="vault-security-status">
+    <h2>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.title')}</h2>
+
+    <f:if condition="{securityStatus.available}">
+        <f:then>
+            <p class="mb-3">
+                <span class="badge bg-secondary" data-testid="vault-security-profile">
+                    <core:icon identifier="actions-shield" size="small" />
+                    <!--
+                        Two explicit branches rather than a translation key built by
+                        string interpolation: an interpolated key silently falls back
+                        to printing the key itself when the profile value is anything
+                        unexpected, which puts a raw LLL path on the landing page.
+                    -->
+                    <f:if condition="{securityStatus.profile} == 'hardened'">
+                        <f:then>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.profile.hardened')}</f:then>
+                        <f:else>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.profile.standard')}</f:else>
+                    </f:if>
+                </span>
+                <span class="badge bg-{securityStatus.context}" data-testid="vault-security-ratio">
+                    {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.controlsPassed', arguments: {0: securityStatus.passed, 1: securityStatus.total})}
+                </span>
+            </p>
+
+            <f:if condition="{securityStatus.auditReady}">
+                <f:then>
+                    <div class="alert alert-success" role="alert" data-testid="vault-security-ready">
+                        <core:icon identifier="actions-check" size="small" />
+                        {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.auditReady')}
+                    </div>
+                </f:then>
+                <f:else>
+                    <f:if condition="{securityStatus.detailed}">
+                        <f:then>
+                            <f:for each="{securityStatus.findings}" as="finding">
+                                <div class="alert alert-{finding.context}" role="alert" data-testid="vault-security-finding">
+                                    <h3 class="alert-heading h5">
+                                        <core:icon identifier="actions-exclamation-triangle" size="small" />
+                                        <code>{finding.id}</code>
+                                    </h3>
+                                    <p class="mb-2">{finding.summary}</p>
+                                    <f:if condition="{finding.risk}">
+                                        <p class="mb-2 small">
+                                            <strong>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.risk')}</strong>
+                                            {finding.risk}
+                                        </p>
+                                    </f:if>
+                                    <f:if condition="{finding.remediation}">
+                                        <p class="mb-2 small">
+                                            <strong>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.fix')}</strong>
+                                            {finding.remediation}
+                                        </p>
+                                    </f:if>
+                                    <f:if condition="{finding.docsUrl}">
+                                        <p class="mb-0 small">
+                                            <a href="{finding.docsUrl}" target="_blank" rel="noopener" class="text-decoration-underline">
+                                                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.docs')}
+                                            </a>
+                                        </p>
+                                    </f:if>
+                                </div>
+                            </f:for>
+                            <p class="text-body-secondary small mb-0">
+                                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.cliHint')}
+                                <code>vendor/bin/typo3 vault:doctor</code>
+                            </p>
+                        </f:then>
+                        <f:else>
+                            <div class="alert alert-warning" role="alert" data-testid="vault-security-restricted">
+                                <core:icon identifier="actions-exclamation-triangle" size="small" />
+                                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.restricted', arguments: {0: securityStatus.criticalCount, 1: securityStatus.warningCount})}
+                            </div>
+                        </f:else>
+                    </f:if>
+                </f:else>
+            </f:if>
+        </f:then>
+        <f:else>
+            <div class="alert alert-warning" role="alert" data-testid="vault-security-unavailable">
+                <core:icon identifier="actions-exclamation-triangle" size="small" />
+                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.unavailable')}
+                <code>vendor/bin/typo3 vault:doctor</code>
+            </div>
+        </f:else>
+    </f:if>
+</div>
+
+</html>

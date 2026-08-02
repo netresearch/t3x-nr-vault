@@ -128,6 +128,50 @@ final class EncryptionServiceTest extends TestCase
     }
 
     #[Test]
+    public function decryptRefusesAnUnimplementedEncryptionVersion(): void
+    {
+        $plaintext = 'version-guard';
+        $identifier = 'version-guard-test';
+
+        $encrypted = $this->subject->encrypt($plaintext, $identifier);
+
+        // A version above the current one may change framing, KDF or AAD; the
+        // reader must refuse it rather than decrypt under version-2 rules.
+        $this->expectException(EncryptionException::class);
+
+        $this->subject->decrypt(
+            $encrypted->encryptedValue,
+            $encrypted->encryptedDek,
+            $encrypted->dekNonce,
+            $encrypted->valueNonce,
+            $identifier,
+            $encrypted->encryptionVersion + 1,
+            $encrypted->encryptionAlgorithm->value,
+        );
+    }
+
+    #[Test]
+    public function decryptRefusesAnEncryptionVersionBelowLegacy(): void
+    {
+        $plaintext = 'version-floor';
+        $identifier = 'version-floor-test';
+
+        $encrypted = $this->subject->encrypt($plaintext, $identifier);
+
+        $this->expectException(EncryptionException::class);
+
+        $this->subject->decrypt(
+            $encrypted->encryptedValue,
+            $encrypted->encryptedDek,
+            $encrypted->dekNonce,
+            $encrypted->valueNonce,
+            $identifier,
+            0,
+            $encrypted->encryptionAlgorithm->value,
+        );
+    }
+
+    #[Test]
     public function decryptWithWrongIdentifierThrowsException(): void
     {
         $plaintext = 'secret-with-aad';

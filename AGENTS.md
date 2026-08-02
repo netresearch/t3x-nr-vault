@@ -98,6 +98,11 @@ This extension handles sensitive data. Non-negotiable rules:
 5. **Audit every access** — reads/writes/rotations/deletes all create audit log entries.
 6. **Access control** — respect backend user groups & ownership via `AccessControlServiceInterface`.
 7. **Tamper-evident audit log** — HMAC hash chain; verify on schedule (see `VaultAuditCommand`).
+8. **One admin-bypass seam** — every "admins may do anything" decision goes through the private
+   `AccessControlService::adminBypassActive()`. Never inline `isAdmin()`/`isSystemMaintainer()` in a
+   caller, and never route a grant lookup through `BackendUserAuthentication::check()` (core
+   short-circuits it to `true` for admins). The hardened profile can disable the bypass
+   (`disableAdminOverride`); a half-disabled override is worse than none.
 
 ## Key Interfaces
 > Authoritative source: the `*Interface.php` files. This is a cheat-sheet — read the PHP for full docblocks.
@@ -111,7 +116,6 @@ VaultServiceInterface::delete(string $identifier, string $reason = ''): void
 VaultServiceInterface::rotate(string $identifier, string $newSecret, string $reason = ''): void
 VaultServiceInterface::list(?string $pattern = null): array
 VaultServiceInterface::getMetadata(string $identifier): SecretDetails
-VaultServiceInterface::clearCache(): void
 VaultServiceInterface::http(): VaultHttpClientInterface
 
 // Encryption — Classes/Crypto/EncryptionServiceInterface.php
@@ -130,6 +134,13 @@ MasterKeyProviderInterface::getMasterKey(): string
 TechnicalActorContextInterface::runAs(int $beUserUid, callable $fn): mixed
 TechnicalActorContextInterface::getCurrentActor(): ?TechnicalActor
 
+// Break-glass (time-boxed restore of the admin override) — Classes/Security/BreakGlassServiceInterface.php
+BreakGlassServiceInterface::activate(string $reason, int $minutes = 15): BreakGlassSession
+BreakGlassServiceInterface::deactivate(string $reason): void
+// Read-only seam consumed by AccessControlService — Classes/Security/BreakGlassStateInterface.php
+BreakGlassStateInterface::getActiveSession(): ?BreakGlassSession
+BreakGlassStateInterface::isActive(): bool
+
 // Audit logging — Classes/Audit/AuditLogServiceInterface.php
 AuditLogServiceInterface::log(
     string $secretIdentifier, string $action, bool $success,
@@ -142,7 +153,7 @@ AuditLogServiceInterface::verifyHashChain(?int $fromUid = null, ?int $toUid = nu
 ```
 
 ## CLI Commands (TYPO3 `vendor/bin/typo3`)
-> All 13 registered `vault:*` commands. Full options/examples in
+> All 17 registered `vault:*` commands. Full options/examples in
 > `Documentation/Developer/Commands.rst`.
 ```
 vault:init                 # Initialize the vault (generate master key, verify configuration)
@@ -154,9 +165,13 @@ vault:delete               # Delete a secret from the vault
 vault:scan                 # Scan database content for exposed secrets
 vault:migrate-field        # Migrate a database field value into the vault
 vault:audit                # View / verify audit log entries
+vault:audit-anchor         # Publish the audit chain tip to the external audit sinks (scheduled task wrapper)
+vault:audit-verify         # Verify the hash chain AND the external chain-tip anchor (scheduled task wrapper)
 vault:audit-migrate-hmac   # Migrate audit log hash chain from SHA-256 to HMAC-SHA256
 vault:rotate-master-key    # Re-encrypt all secrets with a new master key
 vault:cleanup-orphans      # Clean up orphaned vault entries (scheduled task wrapper)
+vault:break-glass          # Open/close/inspect a time-boxed break-glass window (restores the admin override)
+vault:doctor               # Check the configuration for deployment/audit readiness (exit 0 clean / 1 warnings / 2 critical)
 vault:seed-demo            # Seed demo secrets + audit history (development only)
 ```
 
@@ -177,7 +192,7 @@ vault:seed-demo            # Seed demo secrets + audit history (development only
 - Rotating / regenerating cryptographic keys in fixtures.
 
 ### Never Do
-- Commit secrets, credentials, or real master keys (test fixtures only — allowlisted in `.gitleaks.toml`).
+- Commit secrets, credentials, or real master keys (test fixtures only — synthetic values, reviewed by hand; `.gitleaks.toml` is present but not enforced by any CI job).
 - Commit `composer.lock` (extension, not application).
 - Push directly to `main` — open a PR.
 - Merge a PR before all review threads are resolved.

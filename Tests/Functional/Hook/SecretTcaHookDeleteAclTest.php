@@ -37,8 +37,11 @@ final class SecretTcaHookDeleteAclTest extends AbstractVaultFunctionalTestCase
     /** Admin backend user (uid 1 in the fixture). */
     private const ADMIN_UID = 1;
 
-    /** Non-admin editor (uid 2 in the fixture). */
+    /** Non-admin editor (uid 2 in the fixture), no operation permissions. */
     private const EDITOR_UID = 2;
+
+    /** Non-admin user (uid 3) whose group grants tx_nrvault:secret.delete. */
+    private const DELETER_UID = 3;
 
     protected ?string $backendUserFixture = __DIR__ . '/Fixtures/be_users_acl.csv';
 
@@ -77,14 +80,50 @@ final class SecretTcaHookDeleteAclTest extends AbstractVaultFunctionalTestCase
     }
 
     #[Test]
-    public function nonAdminOwnerDeleteIsAllowedByVaultGate(): void
+    public function ownerWithoutDeletePermissionIsBlocked(): void
     {
+        // Separation of duties: owning the secret satisfies the per-secret
+        // tier, but without the secret.delete operation permission the delete
+        // must still be cancelled.
         $this->setUpBackendUser(self::EDITOR_UID);
         [$uid, $identifier] = $this->seedSecret(self::EDITOR_UID);
 
         $commandIsProcessed = $this->runDeleteHook($uid);
 
-        self::assertFalse($commandIsProcessed, 'The owner must not be blocked by the vault delete gate.');
+        self::assertTrue(
+            $commandIsProcessed,
+            'An owner without the secret.delete permission must be blocked (commandIsProcessed=true).',
+        );
+        self::assertSame(
+            1,
+            $this->countAudit($identifier, AuditAction::AccessDenied->value, 0),
+            'A failed access_denied audit entry must be recorded for the denied delete.',
+        );
+        self::assertSame(
+            0,
+            $this->countAudit($identifier, AuditAction::Delete->value, 1),
+            'No successful delete audit entry may be written for a denied delete.',
+        );
+    }
+
+    #[Test]
+    public function ownerWithDeletePermissionIsAllowedByVaultGate(): void
+    {
+        // Both gates hold: per-secret tier (owner) AND the secret.delete
+        // operation permission via the group custom permission option. The
+        // delete runs THROUGH VaultService (audit with compensating
+        // rollback), so the hook marks the command processed and core's own
+        // deleteAction is skipped.
+        $this->setUpBackendUser(self::DELETER_UID);
+        [$uid, $identifier] = $this->seedSecret(self::DELETER_UID);
+
+        $commandIsProcessed = $this->runDeleteHook($uid);
+
+        self::assertTrue(
+            $commandIsProcessed,
+            'The service-performed delete must mark the command processed (core skips deleteAction).',
+        );
+        self::assertSame(1, $this->readDeletedFlag($uid), 'The record must be soft-deleted by the service.');
         self::assertSame(
             1,
             $this->countAudit($identifier, AuditAction::Delete->value, 1),
@@ -100,7 +139,11 @@ final class SecretTcaHookDeleteAclTest extends AbstractVaultFunctionalTestCase
 
         $commandIsProcessed = $this->runDeleteHook($uid);
 
-        self::assertFalse($commandIsProcessed, 'An admin must not be blocked by the vault delete gate.');
+        self::assertTrue(
+            $commandIsProcessed,
+            'The service-performed delete must mark the command processed (core skips deleteAction).',
+        );
+        self::assertSame(1, $this->readDeletedFlag($uid), 'The record must be soft-deleted by the service.');
         self::assertSame(
             1,
             $this->countAudit($identifier, AuditAction::Delete->value, 1),
@@ -146,6 +189,20 @@ final class SecretTcaHookDeleteAclTest extends AbstractVaultFunctionalTestCase
         ]);
 
         return [(int) $connection->lastInsertId(), $identifier];
+    }
+
+    private function readDeletedFlag(int $uid): int
+    {
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable(self::SECRET_TABLE);
+        $queryBuilder->getRestrictions()->removeAll();
+        $deleted = $queryBuilder
+            ->select('deleted')
+            ->from(self::SECRET_TABLE)
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
+            ->executeQuery()
+            ->fetchOne();
+
+        return is_numeric($deleted) ? (int) $deleted : -1;
     }
 
     private function countAudit(string $identifier, string $action, int $success): int

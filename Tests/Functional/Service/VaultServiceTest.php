@@ -9,6 +9,9 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Service;
 
+use Netresearch\NrVault\Audit\AuditLogEntry;
+use Netresearch\NrVault\Audit\AuditLogFilter;
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Service\VaultService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -55,7 +58,6 @@ final class VaultServiceTest extends FunctionalTestCase
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = [
             'masterKeySource' => $this->masterKeyPath,
             'autoKeyPath' => $this->masterKeyPath,
-            'enableCache' => false,
         ];
 
         // Import backend user for access control
@@ -231,22 +233,29 @@ final class VaultServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function clearCacheDoesNotAffectStoredSecrets(): void
+    public function repeatedRetrieveAlwaysDecryptsFromTheDatabase(): void
     {
-        $identifier = 'cache_test';
-        $secretValue = 'cache-test-value';
+        $identifier = 'no_cache_test';
+        $secretValue = 'no-cache-test-value';
 
         $subject = $this->getSubject();
         $subject->store($identifier, $secretValue);
 
-        // clearCache is implementation detail - only available on VaultService
-        if ($subject instanceof VaultService) {
-            $subject->clearCache();
-        }
+        // No plaintext cache exists: every retrieve() re-runs the full read
+        // path against the database.
+        self::assertSame($secretValue, $subject->retrieve($identifier));
+        self::assertSame($secretValue, $subject->retrieve($identifier));
 
-        // Should still be retrievable from database
-        $retrieved = $subject->retrieve($identifier);
-        self::assertEquals($secretValue, $retrieved);
+        // The distinguishing side effect: two reads produce two read audit
+        // entries. A cache would have collapsed the second read into a
+        // silent, unaudited hit (value equality alone cannot tell the two
+        // apart).
+        $auditService = $this->get(AuditLogServiceInterface::class);
+        $readEntries = array_filter(
+            $auditService->query(AuditLogFilter::forSecret($identifier)),
+            static fn (AuditLogEntry $entry): bool => $entry->action === 'read' && $entry->success,
+        );
+        self::assertCount(2, $readEntries, 'each retrieve() must write its own read audit entry');
     }
 
     private function getSubject(): VaultServiceInterface

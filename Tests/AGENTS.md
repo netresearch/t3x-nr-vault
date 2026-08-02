@@ -84,7 +84,7 @@ Tests/
 - Functional fixtures: `Tests/.../Fixtures/*.csv`, loaded via `$this->importCSVDataSet()`.
 
 ## Security
-- **Never commit real secrets** — fixtures use clearly synthetic values. `.gitleaks.toml` allowlists only a narrow set of specific paths (see the `[allowlist] paths` list) for known synthetic tokens; new files are scanned by default.
+- **Never commit real secrets** — fixtures use clearly synthetic values. `.gitleaks.toml` exists at the repository root, but **no CI job runs gitleaks** (or any other secret scanner), so there is no automated scanning: treat every fixture as unscanned and review it by hand before committing.
 - **Master keys in tests** are generated per-test (`sodium_crypto_secretbox_keygen()`), never hard-coded.
 - **Do not** test against production vault backends.
 - **Audit logs** in tests must still verify HMAC chain integrity when the code path produces entries.
@@ -139,7 +139,11 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
 | `Tests/Unit/TestCase.php` | Project base composing the two mock traits below |
 | `Tests/Unit/Traits/TcaSchemaMockTrait.php` | `mockTcaSchemaForTable()` (was duplicated 4x) |
 | `Tests/Unit/Traits/BackendUserMockTrait.php` | `createMockBackendUser()` (was duplicated 3x) |
+| `Tests/Unit/Traits/EnvironmentSandboxTrait.php` | Throwaway project layout + initialised `Environment` for tests that resolve paths via `getVarPath()` / check the `getPublicPath()` boundary (audit file sink, extension-config path defaults) |
+| `Tests/Unit/Traits/ErrorSuppressionTrait.php` | `withoutPhpDiagnostics()` — run one call with PHP diagnostics silenced, for code that handles a native failure by checking the return value (`fopen`/`mkdir` returning false) instead of using `@`, where the genuine warning would otherwise trip `failOnWarning` |
 | `Tests/Unit/Fixtures/SecretFixtureBuilder.php` | Fluent builder for `SecretDetails` / `SecretMetadata` / `Secret` DTOs (replaces ~6 hand-rolled factory methods) |
+| `Tests/Unit/Fixtures/FailingStreamWrapper.php` | Stream wrapper that stats as a healthy writable file but fails at a chosen point (`fopen` refused/throwing, `flock` refused, short write) — the audit-sink write layers a real filesystem cannot reach |
+| `Tests/Unit/Fixtures/AuditChainLockHost.php` | Host exposing `AuditChainLockTrait`'s private lock primitives so the raw-vs-savepoint lock protocol can be tested without a consumer's write path |
 | `Tests/scripts/check-test-base-class.php` | Architecture check enforcing the project base on new unit tests |
 
 ## When Stuck

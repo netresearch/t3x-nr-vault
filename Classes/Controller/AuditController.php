@@ -15,6 +15,7 @@ use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Utility\CsvFormulaSanitizer;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -24,7 +25,6 @@ use TYPO3\CMS\Backend\Template\Components\ButtonBar;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Http\JsonResponse;
-use TYPO3\CMS\Core\Http\RedirectResponse;
 use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
@@ -49,6 +49,7 @@ final readonly class AuditController
         private PageRenderer $pageRenderer,
         private AuditLogServiceInterface $auditLogService,
         private UriBuilder $uriBuilder,
+        private ModuleAccessGuard $accessGuard,
     ) {}
 
     /**
@@ -56,6 +57,10 @@ final readonly class AuditController
      */
     public function listAction(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->accessGuard->isGranted(VaultPermission::AuditView)) {
+            return $this->accessGuard->deniedResponse($request, VaultPermission::AuditView);
+        }
+
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
         /** @phpstan-ignore function.alreadyNarrowedType (v14-only method, not available in v13) */
@@ -144,7 +149,7 @@ final readonly class AuditController
             'totalPages' => $totalPages,
             'filters' => ['_form' => $formData],
             'pagination' => $pagination,
-            'isAdmin' => $this->isAdmin(),
+            'canExport' => $this->accessGuard->isGranted(VaultPermission::AuditExport),
             // Derive the action-filter list from the AuditAction enum so the UI
             // can never drift from the actions actually written to the chain
             // (the previous hard-coded list silently omitted master_key_* and
@@ -166,11 +171,11 @@ final readonly class AuditController
      */
     public function verifyChainAction(ServerRequestInterface $request): ResponseInterface
     {
-        if (!$this->isAdmin()) {
-            /** @phpstan-ignore new.internalClass, method.internalClass */
-            return new RedirectResponse(
-                (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME),
-            );
+        // Verification is a read of the chain, so it shares `audit.view` with
+        // the listing. Replaces the previous silent redirect-on-non-admin with
+        // an explicit 403 that names the missing permission.
+        if (!$this->accessGuard->isGranted(VaultPermission::AuditView)) {
+            return $this->accessGuard->deniedResponse($request, VaultPermission::AuditView);
         }
 
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
@@ -210,7 +215,10 @@ final readonly class AuditController
      */
     public function exportAction(ServerRequestInterface $request): ResponseInterface
     {
-        if (!$this->isAdmin()) {
+        // Export needs its own permission: the downloaded copy leaves the
+        // tamper-evident storage behind (no hash chain, no retention, no
+        // access control), which `audit.view` deliberately does not cover.
+        if (!$this->accessGuard->isGranted(VaultPermission::AuditExport)) {
             /** @phpstan-ignore new.internalClass, method.internalClass */
             return new JsonResponse(['success' => false, 'error' => 'Access denied'], 403);
         }
@@ -381,14 +389,18 @@ final readonly class AuditController
         $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
         $lang = $this->getLanguageService();
 
-        if ($this->isAdmin()) {
+        // The buttons follow the same permissions the actions enforce, so the
+        // UI never offers an operation that would answer 403.
+        if ($this->accessGuard->isGranted(VaultPermission::AuditView)) {
             // Verify Chain button
             $verifyButton = $buttonBar->makeLinkButton()
                 ->setHref((string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.verifyChain'))
                 ->setTitle($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.verify_chain'))
                 ->setIcon($this->iconFactory->getIcon('actions-check', IconSize::SMALL));
             $buttonBar->addButton($verifyButton, ButtonBar::BUTTON_POSITION_LEFT, 1);
+        }
 
+        if ($this->accessGuard->isGranted(VaultPermission::AuditExport)) {
             // Export JSON button
             $exportJsonButton = $buttonBar->makeLinkButton()
                 ->setHref((string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.export', ['format' => 'json']))
@@ -416,18 +428,12 @@ final readonly class AuditController
             'delete' => 'danger',
             'rotate' => 'info',
             'access_denied' => 'danger',
+            // A break-glass activation is the most review-worthy row in the
+            // log; it must not blend into the grey default.
+            'break_glass_activated' => 'danger',
+            'break_glass_deactivated' => 'success',
             default => 'secondary',
         };
-    }
-
-    private function isAdmin(): bool
-    {
-        $backendUser = $GLOBALS['BE_USER'] ?? null;
-        if (!\is_object($backendUser) || !method_exists($backendUser, 'isAdmin')) {
-            return false;
-        }
-
-        return (bool) $backendUser->isAdmin();
     }
 
     private function getLanguageService(): LanguageService

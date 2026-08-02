@@ -29,6 +29,14 @@ use Netresearch\NrVault\Controller\SecretsController;
  * v13 compatibility: 'admin_vault_overview' is registered as first submodule so that
  * v13 (which redirects to the first submodule) shows the overview page.
  * v14 uses 'showSubmoduleOverview' on the parent module for the same effect.
+ *
+ * Access: every module is `'access' => 'user'` — the modules are reachable by
+ * any authenticated backend user, and each controller action then asserts the
+ * operation permission it actually needs (`Netresearch\NrVault\Security\
+ * VaultPermission`) via `ModuleAccessGuard`, answering 403 otherwise. The
+ * module registration is a routing convenience; the controller is the
+ * authority. Do NOT re-tighten this to 'admin' — that would silently make the
+ * granular permissions unusable for non-admins.
  */
 $indexAction = '::indexAction';
 $helpAction = '::helpAction';
@@ -40,7 +48,7 @@ return [
     'admin_vault' => [
         'parent' => 'tools',
         'position' => ['after' => 'admin_sites'],
-        'access' => 'admin',
+        'access' => 'user',
         'workspaces' => 'live',
         'path' => '/module/admin/vault',
         'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/overview.xlf',
@@ -67,7 +75,7 @@ return [
     'admin_vault_overview' => [
         'parent' => 'admin_vault',
         'position' => ['before' => '*'],
-        'access' => 'admin',
+        'access' => 'user',
         'workspaces' => 'live',
         'path' => '/module/admin/vault/overview',
         'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/overview_submodule.xlf',
@@ -85,7 +93,7 @@ return [
     // Secrets submodule
     'admin_vault_secrets' => [
         'parent' => 'admin_vault',
-        'access' => 'admin',
+        'access' => 'user',
         'workspaces' => 'live',
         'path' => '/module/admin/vault/secrets',
         'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/secrets.xlf',
@@ -114,7 +122,7 @@ return [
     // Analytics submodule
     'admin_vault_analytics' => [
         'parent' => 'admin_vault',
-        'access' => 'admin',
+        'access' => 'user',
         'workspaces' => 'live',
         'path' => '/module/admin/vault/analytics',
         'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/analytics.xlf',
@@ -129,7 +137,7 @@ return [
     // Audit submodule
     'admin_vault_audit' => [
         'parent' => 'admin_vault',
-        'access' => 'admin',
+        'access' => 'user',
         'workspaces' => 'live',
         'path' => '/module/admin/vault/audit',
         'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/audit.xlf',
@@ -151,7 +159,7 @@ return [
     // Uses handleRequest pattern like TYPO3 core - dispatches based on ?action= query param
     'admin_vault_migration' => [
         'parent' => 'admin_vault',
-        'access' => 'admin',
+        'access' => 'user',
         'workspaces' => 'live',
         'path' => '/module/admin/vault/migration',
         'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/migration.xlf',

@@ -1,0 +1,207 @@
+<?php
+
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
+declare(strict_types=1);
+
+namespace Netresearch\NrVault\Service\Doctor\Check;
+
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Configuration\SecurityProfile;
+use Netresearch\NrVault\Security\VaultPermission;
+use Netresearch\NrVault\Service\Doctor\DocsLink;
+use Netresearch\NrVault\Service\Doctor\DoctorContext;
+use Netresearch\NrVault\Service\Doctor\Finding;
+use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
+
+/**
+ * Who can read secrets from a shell?
+ *
+ * `allowCliAccess` is the one switch that grants vault permissions to an actor
+ * with no backend user behind it. It exists because deployment scripts need to
+ * store credentials, but it is also the widest grant in the extension: a shell on
+ * the box becomes read access to every secret whose per-secret ACL admits the CLI
+ * actor.
+ *
+ * Off by default, so the finding here is about a deliberate opt-in that may have
+ * outlived the deployment step it was added for — and about the second, easier
+ * mistake: turning it on and leaving the group restriction empty.
+ */
+final readonly class CliAccessCheck implements ReadinessCheckInterface
+{
+    public function __construct(
+        private ExtensionConfigurationInterface $configuration,
+    ) {}
+
+    public function getId(): string
+    {
+        return 'cli';
+    }
+
+    public function appliesTo(SecurityProfile $profile): bool
+    {
+        return true;
+    }
+
+    public function run(DoctorContext $context): array
+    {
+        $allowed = $this->configuration->isCliAccessAllowed();
+
+        if (!$allowed) {
+            return [
+                Finding::pass(
+                    id: 'cli.access',
+                    summary: 'CLI access to secrets is disabled.',
+                    docsUrl: DocsLink::ACCESS_CONTROL,
+                    details: ['allowCliAccess' => false],
+                ),
+            ];
+        }
+
+        return [
+            $this->checkAccessEnabled($context),
+            $this->checkAccessGroups(),
+            $this->checkAllowedOperations(),
+        ];
+    }
+
+    /**
+     * CLI access is on — is that acceptable for the target profile?
+     *
+     * A pass under the standard profile: a deployment pipeline that stores
+     * credentials needs this, and calling it a defect would make the check noise.
+     * A CRITICAL under hardened: that profile promises every operation is
+     * attributable to a named actor, and a bare CLI actor is by construction
+     * not — the promise is broken as long as the switch is on.
+     */
+    private function checkAccessEnabled(DoctorContext $context): Finding
+    {
+        $id = 'cli.access';
+        $details = ['allowCliAccess' => true];
+
+        if (!$context->isHardened()) {
+            return Finding::pass(
+                id: $id,
+                summary: 'CLI access to secrets is enabled (required for deployment automation).',
+                docsUrl: DocsLink::ACCESS_CONTROL,
+                details: $details,
+            );
+        }
+
+        return Finding::critical(
+            id: $id,
+            summary: 'Unattributed CLI access to secrets is enabled under the hardened profile.',
+            risk: 'Anyone with a shell on the host can use secrets without authenticating as a backend '
+                . 'user. The audit trail records the operation but attributes it to the anonymous CLI '
+                . 'actor, so it cannot name the human responsible — the hardened profile\'s '
+                . 'attributability promise does not hold while this switch is on.',
+            remediation: 'Use the technical-actor API (TechnicalActorContext::runAs()) so headless '
+                . 'operations are attributed to a named backend user, then disable "allowCliAccess". '
+                . 'While migrating, restrict "cliAccessGroups" and keep "cliAllowedOperations" minimal.',
+            docsUrl: DocsLink::ACCESS_CONTROL,
+            details: $details,
+        );
+    }
+
+    /**
+     * Which operations does the unattributed CLI actor actually hold?
+     *
+     * The allowlist defaults to store/rotate/use. Every high-risk operation
+     * present is called out; unknown tokens are reported too — a typo in the
+     * list silently revokes the grant the operator believes is configured.
+     */
+    private function checkAllowedOperations(): Finding
+    {
+        $id = 'cli.allowed_operations';
+        $operations = $this->configuration->getCliAllowedOperations();
+
+        $known = array_map(
+            static fn (VaultPermission $permission): string => $permission->value,
+            VaultPermission::cases(),
+        );
+        $highRisk = ['secret.reveal', 'secret.delete', 'audit.export', 'master_key.rotate', 'vault.configure'];
+
+        $unknown = array_values(array_diff($operations, $known));
+        $risky = array_values(array_intersect($operations, $highRisk));
+
+        $details = [
+            'cliAllowedOperations' => implode(',', $operations),
+            'highRisk' => implode(',', $risky),
+            'unknown' => implode(',', $unknown),
+        ];
+
+        if ($risky === [] && $unknown === []) {
+            return Finding::pass(
+                id: $id,
+                summary: \sprintf(
+                    'The CLI operation allowlist is scoped to %d low-risk operation(s): %s.',
+                    \count($operations),
+                    implode(', ', $operations),
+                ),
+                docsUrl: DocsLink::ACCESS_CONTROL,
+                details: $details,
+            );
+        }
+
+        $summaryParts = [];
+        if ($risky !== []) {
+            $summaryParts[] = \sprintf('grants high-risk operation(s) %s to the unattributed CLI actor', implode(', ', $risky));
+        }
+        if ($unknown !== []) {
+            $summaryParts[] = \sprintf('contains unknown value(s) %s', implode(', ', $unknown));
+        }
+
+        return Finding::warning(
+            id: $id,
+            summary: 'The "cliAllowedOperations" list ' . implode(' and ', $summaryParts) . '.',
+            risk: 'High-risk operations let anyone with a shell reveal plaintext, delete secrets, walk '
+                . 'off with the audit history or rewrite every key envelope — without a named actor in '
+                . 'the audit trail. Unknown values do nothing: the grant the operator believes is '
+                . 'configured is silently absent.',
+            remediation: 'Remove the high-risk operations from "cliAllowedOperations" (use a named '
+                . 'technical actor for those workflows) and fix any typo — valid values are the '
+                . 'tx_nrvault permission identifiers, e.g. secret.use, secret.create, secret.rotate.',
+            docsUrl: DocsLink::ACCESS_CONTROL,
+            details: $details,
+        );
+    }
+
+    /**
+     * Is the CLI grant scoped to specific groups?
+     */
+    private function checkAccessGroups(): Finding
+    {
+        $id = 'cli.access_groups';
+        // Drop 0 entries: getCliAccessGroups() maps unparseable values to 0, and
+        // group uid 0 does not exist — counting them would report a scoped grant
+        // where the configuration actually holds junk.
+        $groups = array_values(array_filter(
+            $this->configuration->getCliAccessGroups(),
+            static fn (int $groupUid): bool => $groupUid > 0,
+        ));
+
+        if ($groups === []) {
+            return Finding::warning(
+                id: $id,
+                summary: 'CLI access is enabled but "cliAccessGroups" is empty, so the grant is unscoped.',
+                risk: 'The CLI actor is not narrowed to any backend group, so its reach is whatever the '
+                    . 'per-secret ACLs happen to allow the CLI context — in practice every secret that is '
+                    . 'not owner-restricted. There is no group boundary left to review.',
+                remediation: 'List the specific backend group UIDs the deployment identity belongs to in '
+                    . '"cliAccessGroups", so an unrelated secret cannot be read from a shell.',
+                docsUrl: DocsLink::ACCESS_CONTROL,
+                details: ['cliAccessGroupCount' => 0],
+            );
+        }
+
+        return Finding::pass(
+            id: $id,
+            summary: \sprintf('CLI access is scoped to %d backend group(s).', \count($groups)),
+            docsUrl: DocsLink::ACCESS_CONTROL,
+            details: ['cliAccessGroupCount' => \count($groups)],
+        );
+    }
+}

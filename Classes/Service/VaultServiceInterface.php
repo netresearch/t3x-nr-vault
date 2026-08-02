@@ -113,13 +113,6 @@ interface VaultServiceInterface
     public function getMetadata(string $identifier): SecretDetails;
 
     /**
-     * Clear the request-scoped cache of decrypted secrets.
-     *
-     * Securely wipes cached plaintext values from memory.
-     */
-    public function clearCache(): void;
-
-    /**
      * Get the Vault HTTP Client for making authenticated API calls.
      *
      * Returns a PSR-18 compatible client. Use withAuthentication() to configure
