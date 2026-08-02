@@ -49,6 +49,22 @@ The main service for interacting with the vault.
       :throws AccessDeniedException: If user lacks read permission.
       :throws SecretExpiredException: If the secret has expired.
 
+   .. php:method:: retrieveForFrontend(string $identifier)
+
+      Frontend-scoped counterpart of ``retrieve()``. Only secrets flagged
+      ``frontend_accessible`` resolve here, and that requirement holds for
+      every caller — including a request that happens to carry a backend
+      session, whose ambient privileges would otherwise widen
+      ``retrieve()``'s access decision. Expiry, decryption, audit logging
+      and read statistics behave as in ``retrieve()``. See
+      :ref:`adr-035-frontend-placeholder-allow-set`.
+
+      :param string $identifier: The secret identifier.
+      :returns: The decrypted secret value or null if not found.
+      :returntype: string|null
+      :throws AccessDeniedException: If the secret is not frontend-accessible, or the actor lacks read permission.
+      :throws SecretExpiredException: If the secret has expired.
+
    .. php:method:: exists(string $identifier): bool
 
       Check if a secret exists.
@@ -64,6 +80,25 @@ The main service for interacting with the vault.
       :param string $reason: Optional reason for deletion (logged).
       :throws SecretNotFoundException: If secret doesn't exist.
       :throws AccessDeniedException: If user lacks delete permission.
+
+   .. php:method:: assertDeletable(string $identifier): void
+
+      Assert that ``delete()`` is permitted for this identifier — without
+      deleting. Exists for callers that delete several secrets as one
+      logical unit, such as a record delete spanning multiple vault fields:
+      a vault delete is a hard delete with no restore, so a partially
+      applied batch cannot be compensated, and the only way to keep it
+      all-or-nothing is to run every permission gate up front and abort
+      before the first deletion.
+
+      A secret that does not exist returns without throwing — the goal state
+      is already reached. Ask ``exists()`` to distinguish absent from
+      present. Passing does **not** guarantee the subsequent delete
+      succeeds: an audit-write failure, or a permission revoked in between,
+      can still abort it.
+
+      :param string $identifier: The secret identifier.
+      :throws AccessDeniedException: If the current actor lacks delete permission.
 
    .. php:method:: rotate(string $identifier, string $newSecret, string $reason = ''): void
 
