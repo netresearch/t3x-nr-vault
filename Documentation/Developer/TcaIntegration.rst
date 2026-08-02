@@ -346,8 +346,23 @@ Record operations
 
 -  **Create**: New vault secret is stored automatically.
 -  **Update**: Secret is rotated (maintains audit trail).
--  **Delete**: Vault secret is removed when record is deleted.
--  **Copy**: Vault secret is copied to new record.
+-  **Delete**: Vault secrets are removed when the record is deleted.
+-  **Copy**: Vault secrets are cloned to the new record under fresh
+   identifiers.
+
+Records with several vault fields are handled all-or-nothing.
+
+A **copy** clones every field or none: if one secret cannot be cloned, the
+secrets already cloned for that copy are deleted again and *all* vault fields
+of the new record are cleared. They are never left holding the source record's
+identifiers — the copy would otherwise share the original's secrets, and
+rotating or deleting one record would silently change the other. The editor
+gets an error message and re-enters the values.
+
+A **delete** checks the delete permission of every vault field *before*
+removing the first secret, because a vault delete cannot be undone. If any
+field is denied, no secret is removed and the record delete is cancelled. A
+field pointing at a secret that no longer exists does not block the delete.
 
 
 .. _tca-security:

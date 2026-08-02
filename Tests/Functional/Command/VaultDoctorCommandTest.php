@@ -122,6 +122,8 @@ final class VaultDoctorCommandTest extends AbstractVaultFunctionalTestCase
             'audit.reads_logged',
             'audit.retention',
             'audit.hash_chain',
+            'audit.hmac_epoch',
+            'audit.db_anchor',
             'audit.external_sink',
             'audit.anchor',
             'audit.sink_delivery',

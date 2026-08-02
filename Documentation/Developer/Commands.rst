@@ -1073,6 +1073,33 @@ audit.hash_chain
    tail verifies", never "the chain is intact". :ref:`command-audit-verify` is
    the authoritative full-range verifier and belongs on a schedule.
 
+audit.hmac_epoch
+   :confval:`ext-nrvault-auditHmacEpoch` is at least 1. **Critical** in both
+   profiles below that: the one integer switches off three controls at once —
+   rows are hashed with keyless SHA-256, the epoch-downgrade floor equals the
+   configured epoch and so can never be undercut, and the in-DB tip anchor is
+   disabled. The finding names all three, because "epoch is 0" on its own reads
+   like a version marker rather than a disabled chain. The shipped default is 3.
+
+audit.db_anchor
+   The IN-DATABASE tip anchor in ``sys_registry`` — a different control from
+   ``audit.anchor``, which covers the copy published to the external sinks. Pass
+   when the anchor is present and its MAC verifies; *warning* when it is not
+   armed yet on a non-empty chain, when ``sys_registry`` and
+   ``tx_nrvault_audit_log`` are mapped to different database connections (no
+   vault-side action fixes that), and when the anchor is disabled by
+   ``auditHmacEpoch = 0``. **Critical** when it is missing while
+   :confval:`ext-nrvault-auditAnchorRequired` is enabled, when the stored anchor
+   is present but unreadable (tampered value or a master key changed without a
+   re-seal), and for the contradiction ``auditAnchorRequired = 1`` together with
+   ``auditHmacEpoch = 0`` — verification reports ``Disabled`` and returns before
+   the requirement is ever consulted, so that combination protects nothing while
+   reading as the stricter configuration. An empty audit log is a pass: the
+   anchor arms itself on the first audit write. Like ``audit.hash_chain`` this
+   control states its scope — a pass means the anchor authenticates, not that
+   the anchored row still carries the anchored hash; that comparison is
+   :ref:`command-audit-verify`.
+
 audit.external_sink
    At least one external audit sink is enabled. *Pass* / *critical*: sinks are
    documented as opt-in under ``standard``, and flagging a default installation

@@ -1,0 +1,6 @@
+"be_users",,,,,,,
+,"uid","username","admin","disable","starttime","endtime","usergroup"
+,3,"vault_deleter",0,0,0,0,"21"
+"be_groups",,,,
+,"uid","pid","title","custom_options"
+,21,0,"vault-deleters","tx_nrvault:secret.delete"
