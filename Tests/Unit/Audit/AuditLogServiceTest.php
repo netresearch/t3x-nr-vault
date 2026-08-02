@@ -3515,7 +3515,6 @@ final class AuditLogServiceTest extends TestCase
             $this->extensionConfigurationMock(),
             $this->anchorStore,
             $sinkRegistry,
-            null,
         );
 
         $captured = [];
