@@ -288,9 +288,11 @@ final class DataHandlerHook
             }
         }
 
+        $deletedCount = 0;
         foreach ($identifiers as $fieldName => $vaultIdentifier) {
             try {
                 $this->vaultService->delete($vaultIdentifier, 'Record deleted');
+                ++$deletedCount;
             } catch (SecretNotFoundException) {
                 // Idempotent: the goal state — no secret under this identifier
                 // — already holds, so a dangling reference must not make the
@@ -308,7 +310,9 @@ final class DataHandlerHook
                     $vaultIdentifier,
                     $e,
                     $dataHandler,
-                    'Secrets of preceding fields were already deleted and cannot be restored.',
+                    $deletedCount === 0
+                        ? 'No secret of this record was deleted.'
+                        : $deletedCount . ' secret(s) of preceding fields were already deleted and cannot be restored.',
                 );
 
                 return;
@@ -546,7 +550,7 @@ final class DataHandlerHook
             }
         }
 
-        $this->blankVaultFields($connection, $table, $newId, $vaultFields);
+        $blanked = $this->blankVaultFields($connection, $table, $newId, $vaultFields);
 
         $userMessage = $this->failureReporter->report($error, [
             'table' => $table,
@@ -564,29 +568,37 @@ final class DataHandlerHook
             null,
             2,
             'Vault error during copy for field "' . $failedField . '": ' . $userMessage
-            . ' No secret was copied; all vault fields of the new record are empty and must be filled in again.',
+            . ($blanked
+                ? ' No secret was copied; all vault fields of the new record were cleared and must be filled in again.'
+                : ' No secret was copied, but clearing the vault fields of the new record FAILED — it may still'
+                    . ' reference the secrets of the source record and needs manual review.'),
         );
     }
 
     /**
      * Clear every vault field of a record.
      *
-     * Best-effort: if this write fails the copy keeps the source identifiers,
-     * which the DataHandler log entry written by the caller already flags. There
-     * is nothing better to fall back to — the copy exists either way.
+     * Best-effort: if this write fails the copy keeps the source identifiers —
+     * the caller's DataHandler log entry states which of the two end states was
+     * reached. There is nothing better to fall back to; the copy exists either
+     * way.
      *
      * @param list<string> $vaultFields
+     *
+     * @return bool True when the fields were cleared, false when the write failed
      */
-    private function blankVaultFields(Connection $connection, string $table, int $uid, array $vaultFields): void
+    private function blankVaultFields(Connection $connection, string $table, int $uid, array $vaultFields): bool
     {
         if ($uid <= 0 || $vaultFields === []) {
-            return;
+            return false;
         }
 
         try {
             $connection->update($table, array_fill_keys($vaultFields, ''), ['uid' => $uid]);
+
+            return true;
         } catch (Exception) {
-            // Documented by the caller's DataHandler log entry.
+            return false;
         }
     }
 

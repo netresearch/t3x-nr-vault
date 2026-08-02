@@ -1753,7 +1753,7 @@ final class DataHandlerHookTest extends TestCase
                     return 'the-secret-value';
                 }
 
-                throw new VaultException(self::RETRIEVE_FAILED);
+                throw new VaultException(self::RETRIEVE_FAILED, 5457412304);
             });
 
         $clonedIdentifier = null;
@@ -1822,7 +1822,7 @@ final class DataHandlerHookTest extends TestCase
                     return 'the-secret-value';
                 }
 
-                throw new VaultException(self::RETRIEVE_FAILED);
+                throw new VaultException(self::RETRIEVE_FAILED, 4012154927);
             });
 
         $this->vaultService
@@ -1878,7 +1878,7 @@ final class DataHandlerHookTest extends TestCase
             ->method('assertDeletable')
             ->willReturnCallback(static function (string $identifier): void {
                 if ($identifier === self::SECOND_UUID) {
-                    throw new VaultException('Delete permission denied');
+                    throw new VaultException('Delete permission denied', 9660657200);
                 }
             });
 
@@ -2003,7 +2003,7 @@ final class DataHandlerHookTest extends TestCase
             ->method('delete')
             ->willReturnCallback(static function (string $identifier) use (&$deleted): void {
                 if ($identifier === self::SECOND_UUID) {
-                    throw new VaultException('Audit write failed');
+                    throw new VaultException('Audit write failed', 9781844315);
                 }
 
                 $deleted[] = $identifier;
