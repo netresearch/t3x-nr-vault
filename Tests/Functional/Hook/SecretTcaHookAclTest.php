@@ -252,7 +252,7 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
      *
      * @return array<string, mixed>
      */
-    private static function seededRow(): array
+    private function seededRow(): array
     {
         return [
             'description' => 'seeded description',
@@ -271,7 +271,7 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
      */
     private function seededValue(string $column): string
     {
-        $value = self::seededRow()[$column];
+        $value = $this->seededRow()[$column];
 
         return \is_scalar($value) ? (string) $value : '';
     }
@@ -314,7 +314,7 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
         $identifier = 'acl_secret_' . bin2hex(random_bytes(4));
         $connection = $this->getConnectionPool()->getConnectionForTable(self::SECRET_TABLE);
         $connection->insert(self::SECRET_TABLE, [
-            ...self::seededRow(),
+            ...$this->seededRow(),
             'pid' => self::PAGE_UID,
             'identifier' => $identifier,
             'owner_uid' => self::OWNER_UID,
