@@ -210,10 +210,14 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
 
       Pin the value out of admin reach in
       :file:`config/system/additional.php`, or a compromised admin can
-      simply tick the box in the backend Settings module:
+      simply tick the box in the backend Settings module. The example pins
+      the flag **off** — the recommended state; a deployment that
+      deliberately runs with the legacy behaviour pins ``true`` instead,
+      which keeps the *decision* out of admin reach either way:
 
       .. code-block:: php
 
+         // Pin the strict default so no backend admin can enable the bypass.
          $GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['frontendPlaceholderLegacyCli'] = false;
 
    Enable it only for a deployment whose internal render jobs genuinely
