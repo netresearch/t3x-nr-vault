@@ -178,6 +178,13 @@ OWASP ASVS v4: chapter 2 (Authentication), chapter 4 (Access Control).*
         -   ``allowCliAccess`` defaults to ``0``
         -   Configuration; :ref:`configuration`
 
+    *   -   CLI grant narrowed to low-risk operations
+        -   ``cliAllowedOperations`` defaults to
+            ``secret.use,secret.create,secret.rotate``; reveal, delete,
+            audit export, master-key rotation and vault configuration must
+            be added explicitly
+        -   ``vault:doctor`` finding ``cli.allowed_operations``
+
 .. _auditor-control-mapping-logging:
 
 Logging and audit
@@ -242,6 +249,16 @@ and Logging).*
         -   Per-row epoch comparison, chain-level epoch floor, and the epoch
             bound into the hash from epoch 3
         -   ``EPOCH_DOWNGRADE`` findings
+
+    *   -   Reset detection without external evidence
+        -   :php:`AuditChainAnchorStore` — MAC-signed tip in ``sys_registry``
+            under a key derived from the master key, so truncating the audit
+            table alone leaves an anchor naming a row that is gone.
+            ``auditAnchorRequired`` promotes a missing anchor from warning to
+            critical from a configuration file
+        -   ``vault:doctor`` finding ``audit.db_anchor``;
+            ``vault:audit --verify`` tip-anchor line;
+            :ref:`adr-034-audit-chain-tip-anchor`
 
     *   -   Reset detection through external evidence
         -   :php:`ChainTipAnchorService` — shrinkage, substitution and epoch
