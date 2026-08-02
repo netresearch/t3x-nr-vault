@@ -397,8 +397,6 @@ Notes on the model:
 -  **Frontend requests never hold operation permissions**, regardless of
    any backend session the visitor carries — frontend visibility remains
    a property of the secret (``frontend_accessible``) alone.
--  **Non-admin technical actors** (``runAs()`` scopes) hold only
-   ``secret.use``; their reach stays bounded by the per-secret tiers.
 
 .. _security-disable-admin-override:
 
