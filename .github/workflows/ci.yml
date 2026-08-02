@@ -22,6 +22,7 @@ jobs:
       typo3-versions: '["^13.4","^14.3"]'
       run-functional-tests: true
       upload-coverage: true
+      upload-test-results: true
       coverage-tool: 'xdebug'
       php-extensions: 'intl, mbstring, xml, sodium, json'
     secrets:
