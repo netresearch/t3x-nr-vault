@@ -1128,12 +1128,37 @@ audit.hash_chain
    the authoritative full-range verifier and belongs on a schedule.
 
 audit.hmac_epoch
-   :confval:`ext-nrvault-auditHmacEpoch` is at least 1. **Critical** in both
-   profiles below that: the one integer switches off three controls at once —
+   :confval:`ext-nrvault-auditHmacEpoch` is at least 3 — the shipped default,
+   and the only epoch whose HMAC spans the whole audit row. Three-way, because
+   the epoch integer selects which payload ``AuditLogService`` signs, and
+   "keyed" and "trustworthy" are not the same state:
+
+   **Critical** at 0. The one integer switches off three controls at once —
    rows are hashed with keyless SHA-256, the epoch-downgrade floor equals the
    configured epoch and so can never be undercut, and the in-DB tip anchor is
    disabled. The finding names all three, because "epoch is 0" on its own reads
-   like a version marker rather than a disabled chain. The shipped default is 3.
+   like a version marker rather than a disabled chain.
+
+   **Warning** at 1 and 2. The chain is keyed there, so entries cannot be
+   rewritten wholesale — but the MAC does not cover the whole row, and the
+   finding names the columns it leaves out (also as
+   ``details.unsignedFields``). At **epoch 1** the payload is six identity
+   fields only (uid, secret_identifier, action, actor_uid, crdate,
+   previous_hash), so ``success`` itself is forgeable: a recorded denial can be
+   flipped into a recorded grant, and ``error_message``, ``reason``,
+   ``ip_address``, ``user_agent``, ``hash_before``, ``hash_after`` and
+   ``context`` can be rewritten the same way. At **epoch 2** the forensic
+   columns are signed, but ``hmac_key_epoch`` — the algorithm selector itself —
+   is not, so a row can be relabelled to a lower epoch and re-signed under the
+   weaker algorithm without the key; neither are ``actor_type``,
+   ``actor_username``, ``actor_role`` and ``request_id``, the fields the backend
+   audit list and the CSV export present as the responsible actor, so blame can
+   be reassigned on any row.
+
+   Both intermediate epochs are live states, not hypotheticals: a stalled or
+   partial :ref:`command-audit-migrate-hmac` run (or its install-tool wizard)
+   leaves an installation exactly there, which is why the remediation says to
+   check that the migration completed rather than only raising the setting.
 
 audit.db_anchor
    The IN-DATABASE tip anchor in ``sys_registry`` — a different control from
@@ -1219,6 +1244,28 @@ cli.allowed_operations
    asserts no operation permission of its own. They are still called out
    here, because the allowlist is the record of what the CLI actor has been
    granted, not only of what it can currently reach.
+
+cli.frontend_placeholder_legacy
+   :confval:`ext-nrvault-frontendPlaceholderLegacyCli`. Pass when off — the
+   command line then enforces the same frontend placeholder allow-set as a web
+   request. *Warning* / **critical** (hardened) when on.
+
+   **Always emitted, unlike the two controls above.** The setting is not part
+   of the ``allowCliAccess`` grant and is not gated by it:
+   ``FrontendPlaceholderPolicy`` consults this flag and nothing else, so the
+   bypass is fully live on a default installation with CLI access off. It
+   shares the ``cli.`` prefix because it widens what a shell reaches, not
+   because it belongs to that grant.
+
+   Warning rather than pass under ``standard``, which is where it differs from
+   ``cli.access``: a deployment pipeline genuinely needs ``allowCliAccess``,
+   whereas there is no workflow that needs this flag and cannot be served by
+   publishing the identifier instead. What it re-opens is concrete —
+   :bash:`scheduler:run` authenticates the ``_cli_`` administrator, so the admin
+   bypass grants the read whatever the per-secret tiers say, and a scheduled
+   newsletter or export job rendering editor-authored ``tt_content`` through
+   ``stdWrap()`` substitutes any frontend-accessible secret an editor can name.
+   See :ref:`adr-035-frontend-placeholder-allow-set`.
 
 secrets.expired
    No stored secret is past its expiry. Warning with the count otherwise: an

@@ -378,6 +378,13 @@ CLI access
    command) to re-hash existing rows. See
    :ref:`adr-023-audit-hash-chain-hmac`.
 
+   :bash:`vault:doctor` grades the three states apart under
+   ``audit.hmac_epoch``: pass at 3 and above, **warning** at 1 and 2 naming the
+   columns that epoch leaves outside the MAC, and **critical** at 0. A stalled
+   or partially applied migration is the usual way an installation ends up at
+   1 or 2, so treat that warning as "the migration did not finish", not as a
+   pending nice-to-have.
+
 .. confval:: auditAnchorRequired
    :name: ext-nrvault-auditAnchorRequired
    :type: boolean

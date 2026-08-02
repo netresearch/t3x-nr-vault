@@ -16,6 +16,7 @@ use Netresearch\NrVault\Audit\AuditChainAnchor;
 use Netresearch\NrVault\Audit\AuditChainAnchorLoad;
 use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
 use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
+use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
@@ -46,13 +47,20 @@ final class AuditCheckTest extends TestCase
      */
     private const CHAIN_TIP = 2500;
 
+    /** Synthetic HMAC key for the payload-drift tests — never a derived key. */
+    private const HMAC_KEY = 'unit-test-hmac-key-0123456789abcdef';
+
+    /** Stands in for the preceding entry's hash in the drift tests. */
+    private const PREVIOUS_HASH = 'previous-entry-hash';
+
     #[Test]
-    public function appliesToBothProfiles(): void
+    public function appliesToEveryProfile(): void
     {
         $check = $this->check();
 
-        self::assertTrue($check->appliesTo(SecurityProfile::Standard));
-        self::assertTrue($check->appliesTo(SecurityProfile::Hardened));
+        foreach (SecurityProfile::cases() as $profile) {
+            self::assertTrue($check->appliesTo($profile), $profile->value);
+        }
     }
 
     #[Test]
@@ -401,19 +409,185 @@ final class AuditCheckTest extends TestCase
     }
 
     /**
-     * The lowest epoch that still keys the chain. Epoch 1 must pass, so a
-     * relaxed `>= 1` boundary in the check cannot go unnoticed.
+     * The shipped default, and the only epoch whose MAC spans the whole row —
+     * so it is the only one that may pass. Pinned at the boundary so a relaxed
+     * `>= 1` or `>= 2` cannot go unnoticed.
      */
     #[Test]
-    public function theLowestKeyedEpochPasses(): void
+    public function onlyTheFullySignedEpochPasses(): void
+    {
+        foreach (SecurityProfile::cases() as $profile) {
+            $finding = $this->findingById(
+                $this->check(epoch: 3)->run($this->doctorContext($profile)),
+                'audit.hmac_epoch',
+            );
+
+            self::assertTrue($finding->isPass(), $finding->summary);
+            self::assertSame(3, $finding->details['auditHmacEpoch']);
+        }
+    }
+
+    /**
+     * A future epoch is still fully signed — the dispatch in `AuditLogService`
+     * routes everything above 2 to `calculateHashV3()`, so `> 3` must not
+     * regress into the partial-signature warning.
+     */
+    #[Test]
+    public function anEpochAboveTheDefaultPasses(): void
+    {
+        $finding = $this->findingById(
+            $this->check(epoch: 4)->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.hmac_epoch',
+        );
+
+        self::assertTrue($finding->isPass(), $finding->summary);
+    }
+
+    /**
+     * Epochs 1 and 2 key the chain but do not sign the whole row, and reporting
+     * them as equivalent to 3 is what let a stalled `vault:audit-migrate-hmac`
+     * run read as clean. Warning, not critical: the entries still cannot be
+     * rewritten wholesale without the key.
+     */
+    #[DataProvider('partiallySignedEpochProvider')]
+    #[Test]
+    public function aPartiallySignedEpochWarnsUnderBothProfiles(int $epoch): void
+    {
+        foreach (SecurityProfile::cases() as $profile) {
+            $finding = $this->assertFindingSeverity(
+                FindingSeverity::Warning,
+                $this->check(epoch: $epoch)->run($this->doctorContext($profile)),
+                'audit.hmac_epoch',
+            );
+
+            self::assertSame($epoch, $finding->details['auditHmacEpoch']);
+            self::assertStringContainsString('vault:audit-migrate-hmac', $finding->remediation);
+        }
+    }
+
+    /**
+     * @return iterable<string, array{int}>
+     */
+    public static function partiallySignedEpochProvider(): iterable
+    {
+        yield 'identity fields only' => [1];
+        yield 'forensic payload without the epoch selector' => [2];
+    }
+
+    /**
+     * At epoch 1 the MAC covers six identity fields, so `success` itself is
+     * forgeable — a recorded denial can be flipped into a recorded grant. The
+     * finding has to name that concretely; "not the latest epoch" is not
+     * something an operator can weigh.
+     */
+    #[Test]
+    public function theEpochOneFindingNamesSuccessAsForgeable(): void
     {
         $finding = $this->findingById(
             $this->check(epoch: 1)->run($this->doctorContext(SecurityProfile::Standard)),
             'audit.hmac_epoch',
         );
 
-        self::assertTrue($finding->isPass(), $finding->summary);
-        self::assertSame(1, $finding->details['auditHmacEpoch']);
+        self::assertStringContainsString('success', $finding->summary);
+        self::assertStringContainsString('"success" itself', $finding->risk);
+        self::assertSame(
+            'success,error_message,reason,ip_address,user_agent,hash_before,hash_after,context,'
+            . 'hmac_key_epoch,actor_type,actor_username,actor_role,request_id',
+            $finding->details['unsignedFields'],
+        );
+    }
+
+    /**
+     * At epoch 2 the forensic columns ARE signed — naming them here would send
+     * the operator after a problem that does not exist. What is left unbound is
+     * the epoch selector and the attribution fields.
+     */
+    #[Test]
+    public function theEpochTwoFindingNamesOnlyTheStillUnboundFields(): void
+    {
+        $finding = $this->findingById(
+            $this->check(epoch: 2)->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.hmac_epoch',
+        );
+
+        self::assertSame(
+            'hmac_key_epoch,actor_type,actor_username,actor_role,request_id',
+            $finding->details['unsignedFields'],
+        );
+        self::assertStringNotContainsString('success', $finding->summary);
+        self::assertStringContainsString('hmac_key_epoch', $finding->risk);
+        self::assertStringContainsString('actor_username', $finding->risk);
+    }
+
+    /**
+     * The per-epoch unsigned-column lists in `AuditCheck` are a second copy of a
+     * fact owned by `AuditLogService`'s hash builders: add a column to the v2 or
+     * v3 payload and the finding starts naming a field that is in fact signed.
+     *
+     * Guarded by a drift test rather than by a shared definition on purpose. The
+     * check needs the COMPLEMENT of each payload, so a shared constant would
+     * still be a hand-maintained second list unless the builders themselves
+     * consumed it — and making the signed payload data-driven inside a signing
+     * routine trades a reviewable literal for indirection where a bad map
+     * silently re-signs every row. This asserts the claim against the real
+     * builders instead: change one column at a time and see whether the epoch's
+     * hash actually moves.
+     *
+     * `previous_hash` is signed at every epoch but is not part of the row the
+     * builders read — it arrives as its own argument — so it has no entry here.
+     */
+    #[DataProvider('partiallySignedEpochProvider')]
+    #[Test]
+    public function theDeclaredUnsignedFieldsMatchWhatTheHashBuildersSign(int $epoch): void
+    {
+        $finding = $this->findingById(
+            $this->check(epoch: $epoch)->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.hmac_epoch',
+        );
+        $declaredUnsigned = explode(',', (string) $finding->details['unsignedFields']);
+        $baseline = $this->hashForEpoch($epoch, $this->hashRowFixture());
+
+        foreach ($this->columnMutations() as $column => $mutatedValue) {
+            $row = $this->hashRowFixture();
+            $row[$column] = $mutatedValue;
+
+            $declaredSigned = !\in_array($column, $declaredUnsigned, true);
+            $hashMoved = $this->hashForEpoch($epoch, $row) !== $baseline;
+
+            self::assertSame(
+                $declaredSigned,
+                $hashMoved,
+                \sprintf(
+                    'Epoch %d declares "%s" %s, but changing it %s the entry hash.',
+                    $epoch,
+                    $column,
+                    $declaredSigned ? 'signed' : 'unsigned',
+                    $hashMoved ? 'moves' : 'leaves',
+                ),
+            );
+        }
+    }
+
+    /**
+     * The epoch-3 finding passes on the promise that nothing is left outside the
+     * MAC, so hold the v3 payload to it from the same direction: a future
+     * payload that drops a column must not keep the pass text.
+     */
+    #[Test]
+    public function theFullySignedEpochLeavesNoColumnOutsideTheMac(): void
+    {
+        $baseline = $this->hashForEpoch(3, $this->hashRowFixture());
+
+        foreach ($this->columnMutations() as $column => $mutatedValue) {
+            $row = $this->hashRowFixture();
+            $row[$column] = $mutatedValue;
+
+            self::assertNotSame(
+                $baseline,
+                $this->hashForEpoch(3, $row),
+                \sprintf('Column "%s" is outside the epoch-3 payload.', $column),
+            );
+        }
     }
 
     /**
@@ -425,7 +599,7 @@ final class AuditCheckTest extends TestCase
     #[Test]
     public function aKeylessEpochIsCriticalUnderBothProfiles(int $epoch): void
     {
-        foreach ([SecurityProfile::Standard, SecurityProfile::Hardened] as $profile) {
+        foreach (SecurityProfile::cases() as $profile) {
             $finding = $this->assertFindingSeverity(
                 FindingSeverity::Critical,
                 $this->check(epoch: $epoch)->run($this->doctorContext($profile)),
@@ -633,6 +807,97 @@ final class AuditCheckTest extends TestCase
 
         self::assertTrue($finding->isPass(), $finding->summary);
         self::assertStringContainsString('vault:audit-verify', $finding->summary);
+    }
+
+    /**
+     * A complete audit row, as the hash builders receive it.
+     *
+     * @return array<string, int|string>
+     */
+    private function hashRowFixture(): array
+    {
+        return [
+            'uid' => 42,
+            'secret_identifier' => 'api/deploy-token',
+            'action' => 'read',
+            'success' => 1,
+            'actor_uid' => 7,
+            'crdate' => 1_700_000_000,
+            'error_message' => '',
+            'reason' => 'scheduled rotation',
+            'ip_address' => '192.0.2.10',
+            'user_agent' => 'phpunit',
+            'hash_before' => 'hash-before',
+            'hash_after' => 'hash-after',
+            'context' => '{"source":"cli"}',
+            'hmac_key_epoch' => 3,
+            'actor_type' => 'backend',
+            'actor_username' => 'editor',
+            'actor_role' => 'maintainer',
+            'request_id' => 'request-1',
+        ];
+    }
+
+    /**
+     * One differing value per column of {@see $this->hashRowFixture()}. `success`
+     * flips 1 -> 0 because the extractor coerces it through `bool`, so any other
+     * truthy value would leave the payload unchanged and read as "unsigned".
+     *
+     * @return array<string, int|string>
+     */
+    private function columnMutations(): array
+    {
+        return [
+            'uid' => 43,
+            'secret_identifier' => 'api/other-token',
+            'action' => 'write',
+            'success' => 0,
+            'actor_uid' => 8,
+            'crdate' => 1_700_000_001,
+            'error_message' => 'permission denied',
+            'reason' => 'manual rotation',
+            'ip_address' => '192.0.2.11',
+            'user_agent' => 'curl/8.0',
+            'hash_before' => 'hash-before-forged',
+            'hash_after' => 'hash-after-forged',
+            'context' => '{"source":"backend"}',
+            'hmac_key_epoch' => 2,
+            'actor_type' => 'technical',
+            'actor_username' => 'someone-else',
+            'actor_role' => 'admin',
+            'request_id' => 'request-2',
+        ];
+    }
+
+    /**
+     * Mirror of the epoch dispatch in
+     * {@see AuditLogService::verifyHashChain()}.
+     *
+     * @param array<string, int|string> $row
+     */
+    private function hashForEpoch(int $epoch, array $row): string
+    {
+        return match ($epoch) {
+            1 => AuditLogService::calculateHash(
+                (int) $row['uid'],
+                (string) $row['secret_identifier'],
+                (string) $row['action'],
+                (int) $row['actor_uid'],
+                (int) $row['crdate'],
+                self::PREVIOUS_HASH,
+                self::HMAC_KEY,
+            ),
+            2 => AuditLogService::calculateHashV2(
+                AuditLogService::extractV2HashRow($row),
+                self::PREVIOUS_HASH,
+                self::HMAC_KEY,
+            ),
+            default => AuditLogService::calculateHashV3(
+                AuditLogService::extractV3HashRow($row),
+                self::PREVIOUS_HASH,
+                self::HMAC_KEY,
+            ),
+        };
     }
 
     /**
