@@ -314,10 +314,10 @@ View the audit log.
 Options
 -------
 
---identifier, -i =ID
+--identifier=ID, -i ID
    Filter by secret identifier.
 
---action, -a =ACTION
+--action=ACTION, -a ACTION
    Filter by action — any :php:`AuditAction` value. The common ones are
    ``create``, ``read``, ``update``, ``delete``, ``rotate`` and
    ``access_denied``; the enum also covers ``metadata_update``, ``http_call``,
@@ -337,10 +337,10 @@ Options
 --success=BOOL
    Filter by success status (``true``/``false``).
 
---limit, -l =N
+--limit=N, -l N
    Maximum number of results (default: 50).
 
---format, -f =FORMAT
+--format=FORMAT, -f FORMAT
    Output format: ``table`` (default), ``json``, ``csv``.
 
 --verify
@@ -361,7 +361,7 @@ Options
 --force
    Skip the interactive confirmation of ``--reset-anchor`` (for unattended runs).
 
---export, -e =FILE
+--export=FILE, -e FILE
    Export results to a file (format taken from ``--format``).
 
 .. _command-audit-example:
@@ -425,7 +425,7 @@ Options
 --dry-run
    Show the anchor that would be published without writing it to any sink.
 
---format, -f =FORMAT
+--format=FORMAT, -f FORMAT
    Output format: ``text`` (default) or ``json``.
 
 .. _command-audit-anchor-exit-codes:
@@ -483,7 +483,7 @@ finding under a machine-readable reason code.
 Options
 -------
 
---format, -f =FORMAT
+--format=FORMAT, -f FORMAT
    Output format: ``text`` (default) or ``json``. The JSON form carries the full
    finding list, the compared anchor, the enabled sinks and their failure counts.
 
@@ -1017,7 +1017,7 @@ See :ref:`security-deployment-gate` for how to wire it in.
 Options
 -------
 
---profile, -p =PROFILE
+--profile=PROFILE, -p PROFILE
    Security profile to check against: ``standard`` or ``hardened``. Defaults to
    the configured profile.
 
@@ -1027,7 +1027,7 @@ Options
    switch on production and seeing what breaks. The report states both the profile
    it checked and the profile actually in force.
 
---format, -f =FORMAT
+--format=FORMAT, -f FORMAT
    Output format: ``text`` (default) or ``json``. The JSON form carries every
    control — passing ones included — under stable ids.
 

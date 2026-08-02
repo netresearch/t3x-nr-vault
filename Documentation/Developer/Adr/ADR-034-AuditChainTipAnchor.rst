@@ -98,9 +98,9 @@ the hash comparison catches it: the refilled row ``A`` carries a different
 -------------------------------------------
 
 The anchor lives in the core table ``sys_registry``
-(``entry_namespace = 'tx_nrvault_audit_anchor'``, ``entry_key =
-'auditChainTip'``), reached exclusively through our own Doctrine QueryBuilder in
-``Classes/Audit/AuditChainAnchorStore.php``.
+(``entry_namespace = 'tx_nrvault_audit_anchor'``,
+``entry_key = 'auditChainTip'``), reached exclusively through our own
+Doctrine QueryBuilder in ``Classes/Audit/AuditChainAnchorStore.php``.
 
 It gets its **own** namespace, never ``tx_nrvault``. The anchor value is
 deliberately raw rather than PHP-serialized, while core's ``Registry::get()``
