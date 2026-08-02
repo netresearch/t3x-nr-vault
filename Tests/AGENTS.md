@@ -1,5 +1,5 @@
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-04-21 | Last verified: 2026-04-21 -->
+<!-- Last updated: 2026-08-02 | Last verified: 2026-08-02 -->
 
 # AGENTS.md — Tests
 
@@ -84,7 +84,7 @@ Tests/
 - Functional fixtures: `Tests/.../Fixtures/*.csv`, loaded via `$this->importCSVDataSet()`.
 
 ## Security
-- **Never commit real secrets** — fixtures use clearly synthetic values. `.gitleaks.toml` exists at the repository root, but **no CI job runs gitleaks** (or any other secret scanner), so there is no automated scanning: treat every fixture as unscanned and review it by hand before committing.
+- **Never commit real secrets** — fixtures use clearly synthetic values. The `gitleaks` job in `.github/workflows/checks.yml` scans every PR against the root `.gitleaks.toml`, so a fixture that trips a rule fails CI. Automated scanning is a backstop, not a substitute: a synthetic value the config happens to allow is still your responsibility to review.
 - **Master keys in tests** are generated per-test (`sodium_crypto_secretbox_keygen()`), never hard-coded.
 - **Do not** test against production vault backends.
 - **Audit logs** in tests must still verify HMAC chain integrity when the code path produces entries.

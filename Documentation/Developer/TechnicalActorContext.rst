@@ -49,6 +49,20 @@ filtering).
 Groups are resolved exactly like a real login, including subgroup
 expansion.
 
+:ref:`Operation permissions <security-operation-permissions>` resolve
+differently, because a technical actor has no authenticated session whose
+``groupData`` could be consulted. A non-admin actor holds exactly what the
+``tx_nrvault`` custom permission options on its (subgroup-expanded)
+``be_groups`` rows grant, read directly from the database. This is
+fail-closed: no groups means no grant.
+
+The one implicit grant is ``secret.use``. Headless consumption is the whole
+purpose of a technical actor, and gating it on a group-level option would
+break every existing :php:`runAs()` caller while adding nothing — the
+per-secret tier already decides which secrets the actor may read. Every other
+operation, including ``secret.create``, ``secret.rotate``, ``secret.delete``
+and ``secret.manage_policy``, must be granted explicitly.
+
 Validation is fail-closed and happens **before** the callable runs.
 :php:`runAs()` throws a typed
 :php:`Netresearch\NrVault\Exception\TechnicalActorException` for:

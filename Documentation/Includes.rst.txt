@@ -1,11 +1,12 @@
 .. This file contains global includes for all documentation files.
-   Add common substitutions, links, and other reusable content here.
+   Add common links and other reusable content here.
 
-.. |extension_key| replace:: nr_vault
-.. |extension_name| replace:: nr-vault
-.. |vendor| replace:: Netresearch DTT GmbH
-.. |typo3_version| replace:: 13.4 / 14
-.. |php_version| replace:: 8.2
+.. Do NOT define |substitutions| here. render-guides does not register
+   substitution definitions that come from an included file, so every use
+   renders as the literal |name| — and where the theme happens to ship a
+   built-in of the same name it silently wins instead (|typo3_version| used
+   to render as "main"). Write the value out in the page, or define the
+   substitution in that page itself.
 
 .. _Netresearch: https://www.netresearch.de/
 .. _GitHub: https://github.com/netresearch/t3x-nr-vault

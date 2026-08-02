@@ -143,8 +143,9 @@ The design assumes, without verifying:
     restoration, and honest audit attribution.
 #.  **A CLI shell is trusted.** A shell on the host reaches
     :file:`settings.php`, the key file and the environment. Secret *reads*
-    over CLI remain gated on ``allowCliAccess`` (off by default), but
-    break-glass deliberately is not.
+    over CLI remain gated on ``allowCliAccess`` (off by default) and, when
+    that is on, narrowed further by ``cliAllowedOperations``, but break-glass
+    deliberately is not.
 #.  **The filesystem enforces its permissions**, and the PHP user is not
     shared with untrusted workloads.
 #.  **The database is honest about what it stores.** A database *writer* is
@@ -192,6 +193,17 @@ profile changes enforced behaviour. Record at minimum:
 *   ``auditHmacEpoch``, and the lowest epoch actually present in the chain;
 *   which audit sinks are enabled, and whether anchoring and verification are
     scheduled;
-*   ``allowCliAccess``, and the ``tx_nrvault:*`` grants per backend group.
+*   ``auditAnchorRequired``, and whether the in-database tip anchor is armed
+    (``vault:audit --verify`` reports it) — an install with the anchor
+    unarmed cannot detect a full reset of the audit table;
+*   ``allowCliAccess``, ``cliAllowedOperations``, and the ``tx_nrvault:*``
+    grants per backend group;
+*   ``frontendPlaceholderLegacyCli``, which decides whether command-line
+    placeholder resolution is bound by the same allow-set as a frontend
+    request;
+*   ``encryptionAlgorithm``, which records the AEAD used for new secrets —
+    empty means XChaCha20-Poly1305;
+*   ``auditSinkStaleDeliveryHours``, the window after which an enabled sink's
+    last successful delivery counts as stale.
 
 :ref:`auditor-evidence-collection` produces all of this as artefacts.

@@ -61,6 +61,23 @@ Creating secrets
 
 3. Click :guilabel:`Save`.
 
+..  note::
+
+    **A refused save leaves nothing behind.** If the vault declines the value
+    — a missing permission, an audit write that fails — the record row is
+    removed again, the field is rolled back and no success audit entry
+    survives. You will not find a half-created secret to clean up, and the
+    audit log will not later read as though the create succeeded.
+
+    The same holds for the other two lifecycle operations. Copying a record
+    clones its secrets under fresh identifiers; if any clone fails, the ones
+    already made are deleted and every vault field of the copy is blanked, so
+    a copy never quietly shares the original's secrets. Deleting a record
+    checks every vault field's delete permission *before* removing the first
+    secret, and cancels the record delete outright if the cleanup fails —
+    a vault delete cannot be undone, so the record is kept rather than
+    orphaning a secret.
+
 .. _usage-viewing-secrets:
 
 Viewing and editing secrets
@@ -154,7 +171,10 @@ Automation-stale
    active. Reads in TYPO3 CLI context (console commands, scheduled jobs, queue
    workers) are recorded with actor type ``cli`` and count as automated, even
    though the CLI bootstrap authenticates the ``_cli_`` backend user. The day
-   thresholds are configurable - see :ref:`usage-extension-settings`.
+   thresholds are configurable — see
+   :confval:`ext-nrvault-staleNeverReadDays`,
+   :confval:`ext-nrvault-staleNotReadDays` and
+   :confval:`ext-nrvault-staleNeverRotatedDays`.
 
 .. tip::
 
@@ -506,6 +526,18 @@ chain walk alone cannot see it (see :ref:`security-audit-chain-anchor`).
 ``VIOLATED``
    The anchored entry is gone or was replaced — the log was truncated or wiped.
    Snapshot the table before changing anything else.
+
+``UNREADABLE``
+   The stored anchor is malformed or its MAC does not verify — a tampered
+   value, or a master key changed without a re-seal. Treated as critical
+   regardless of ``auditAnchorRequired``, and never resolved by clearing the
+   anchor before you know which of the two it was.
+
+Three further states appear in narrower situations: ``not checked`` (a
+range-bounded verification, which does not evaluate the anchor at all),
+``disabled`` (``auditHmacEpoch = 0``, where the anchor does not run), and
+``inconclusive`` (a re-seal committed while verification was reading — re-run
+it).
 
 After a wipe or purge you performed deliberately, clear the anchor so it can
 arm again. The reset is itself written into the chain:

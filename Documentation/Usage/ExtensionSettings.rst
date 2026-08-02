@@ -165,7 +165,8 @@ For maximum security and a proper backend UI, create a configuration record.
 
 **Advantages of Approach 3:**
 
--  Full vault UI with masked input, reveal, copy buttons
+-  Full vault UI with masked input and reveal — plus copy, outside the
+   hardened profile, which disables it deliberately
 -  Proper access control (owner, groups)
 -  Audit logging of configuration access
 -  Multiple configurations possible (e.g., per site)

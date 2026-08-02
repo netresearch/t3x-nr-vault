@@ -135,12 +135,22 @@ Restore procedure
 
         vendor/bin/typo3 vault:audit-verify
 
-#.  **Re-anchor.** The restored chain needs a current anchor, or the next
-    verification has a stale baseline:
+#.  **Re-anchor — both anchors.** A point-in-time restore rolls the audit
+    table back, so the external baseline is stale *and* the in-database tip
+    anchor now names a row the restored table no longer has, which reports as
+    ``VIOLATED``.
 
     ..  code-block:: bash
 
+        # External baseline
         vendor/bin/typo3 vault:audit-anchor
+
+        # In-database anchor. Verify FIRST that the violation is explained by
+        # the restore you just performed — clearing the anchor discards the
+        # very evidence that would show a truncation, so never run this to
+        # make a finding go away.
+        vendor/bin/typo3 vault:audit --verify
+        vendor/bin/typo3 vault:audit --reset-anchor
 
 ..  warning::
 
@@ -168,10 +178,12 @@ master key. Verification means decrypting.
 
 ..  note::
 
-    ``vault:retrieve`` needs ``allowCliAccess = 1``, which is off by default.
-    Enable it for the verification and turn it off again, or perform the probe
-    through a reveal in the backend module instead — a reveal exercises exactly
-    the same decrypt path.
+    ``vault:retrieve`` needs **two** things on the CLI, both off by default:
+    ``allowCliAccess = 1``, and ``secret.reveal`` present in
+    :confval:`ext-nrvault-cliAllowedOperations`, which excludes it. Enable both
+    for the verification and revert afterwards, or — simpler and with nothing
+    to revert — perform the probe through a reveal in the backend module
+    instead. A reveal exercises exactly the same decrypt path.
 
 Probe **more than one secret**, and pick them deliberately: at least one
 written recently (encryption version 2, with an algorithm marker) and, if the

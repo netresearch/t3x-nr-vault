@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-04-20 | Last verified: 2026-04-20 -->
+<!-- Last updated: 2026-08-02 | Last verified: 2026-08-02 -->
 
 # AGENTS.md — nr-vault
 
@@ -54,7 +54,9 @@ Direct composer (without make):
 
 ## File Map
 ```
-Classes/         → PHP sources (Adapter, Audit, Command, Controller, Crypto, Domain, Hook, Http, Service, Task, Upgrades, Utility)
+Classes/         → PHP sources (Adapter, Audit, Command, Configuration, Controller, Crypto, Domain,
+                   Event, EventListener, Exception, Form, Hook, Http, Secret, Security, Seeder,
+                   Service, TCA, Task, Upgrades, Utility, Widgets)
 Configuration/   → TYPO3 config (TCA, Backend routes, Services.yaml)
 Documentation/   → reStructuredText docs + ADRs
 Resources/       → Templates (Fluid), JS/CSS, XLIFF language files
@@ -97,7 +99,10 @@ This extension handles sensitive data. Non-negotiable rules:
 4. **No plaintext storage** — all secrets via envelope encryption (master key wraps per-secret DEK).
 5. **Audit every access** — reads/writes/rotations/deletes all create audit log entries.
 6. **Access control** — respect backend user groups & ownership via `AccessControlServiceInterface`.
-7. **Tamper-evident audit log** — HMAC hash chain; verify on schedule (see `VaultAuditCommand`).
+7. **Tamper-evident audit log** — HMAC hash chain plus an in-DB tip anchor (ADR-034); verify
+   on schedule (`vault:audit-verify` / `AuditVerifyTask`, `vault:audit --verify` interactively).
+   A mutation and its audit entry are all-or-nothing — a write that cannot be audited must not
+   land, and that includes the MM ACL tiers written alongside it.
 8. **One admin-bypass seam** — every "admins may do anything" decision goes through the private
    `AccessControlService::adminBypassActive()`. Never inline `isAdmin()`/`isSystemMaintainer()` in a
    caller, and never route a grant lookup through `BackendUserAuthentication::check()` (core
@@ -111,8 +116,13 @@ This extension handles sensitive data. Non-negotiable rules:
 // Core vault operations — Classes/Service/VaultServiceInterface.php
 VaultServiceInterface::store(string $identifier, string $secret, array $options = []): void
 VaultServiceInterface::retrieve(string $identifier): ?string
+VaultServiceInterface::retrieveForFrontend(string $identifier): ?string
 VaultServiceInterface::exists(string $identifier): bool
 VaultServiceInterface::delete(string $identifier, string $reason = ''): void
+// Runs delete()'s permission gates WITHOUT deleting, so a record delete spanning
+// several vault fields can fail closed before the first (unrestorable) deletion.
+// An absent secret passes.
+VaultServiceInterface::assertDeletable(string $identifier): void
 VaultServiceInterface::rotate(string $identifier, string $newSecret, string $reason = ''): void
 VaultServiceInterface::list(?string $pattern = null): array
 VaultServiceInterface::getMetadata(string $identifier): SecretDetails
@@ -129,6 +139,22 @@ EncryptionServiceInterface::calculateChecksum(string $plaintext): string
 
 // Master key — Classes/Crypto/MasterKeyProviderInterface.php
 MasterKeyProviderInterface::getMasterKey(): string
+// Static: wipes the request-lifetime key cache (ADR-020). Long-running processes
+// (workers, scheduler tasks) must call it to bound key residency.
+MasterKeyProviderInterface::clearCachedKey(): void
+
+// Operation permissions — Classes/Security/AccessControlServiceInterface.php
+// Every privileged operation resolves through isGranted(); the VaultPermission
+// enum (Classes/Security/VaultPermission.php) is the single list of operations
+// (secret.create, secret.rotate, secret.delete, secret.manage_policy, …).
+// A technical actor has no live session, so its grants are read straight from
+// the `tx_nrvault:<permission>` custom options on its be_groups rows — never
+// from BackendUserAuthentication::check(). Fail-closed: no groups, no grant.
+AccessControlServiceInterface::isGranted(VaultPermission $permission): bool
+AccessControlServiceInterface::canRead(Secret $secret): bool
+AccessControlServiceInterface::canWrite(Secret $secret): bool
+AccessControlServiceInterface::canDelete(Secret $secret): bool
+AccessControlServiceInterface::canCreate(): bool
 
 // Technical actor (headless runAs) — Classes/Security/TechnicalActorContextInterface.php
 TechnicalActorContextInterface::runAs(int $beUserUid, callable $fn): mixed
@@ -149,7 +175,17 @@ AuditLogServiceInterface::log(
     ?AuditContextInterface $context = null,
 ): void
 AuditLogServiceInterface::query(?AuditLogFilter $filter = null, int $limit = 100, int $offset = 0): array
-AuditLogServiceInterface::verifyHashChain(?int $fromUid = null, ?int $toUid = null): HashChainVerificationResult
+AuditLogServiceInterface::count(?AuditLogFilter $filter = null): int
+AuditLogServiceInterface::export(?AuditLogFilter $filter = null): array
+AuditLogServiceInterface::verifyHashChain(
+    ?int $fromUid = null, ?int $toUid = null, ?int $minEpoch = null,
+): HashChainVerificationResult
+AuditLogServiceInterface::getLatestHash(): ?string
+
+// In-DB chain-tip anchor (ADR-034) — Classes/Audit/AuditChainAnchorStoreInterface.php
+// Persists the tip in sys_registry under `tx_nrvault_audit_anchor`, so a full
+// truncation of the audit table is still detected. `auditAnchorRequired` decides
+// whether a missing anchor is a warning or a critical finding.
 ```
 
 ## CLI Commands (TYPO3 `vendor/bin/typo3`)
@@ -164,7 +200,7 @@ vault:rotate               # Rotate (replace) a secret value
 vault:delete               # Delete a secret from the vault
 vault:scan                 # Scan database content for exposed secrets
 vault:migrate-field        # Migrate a database field value into the vault
-vault:audit                # View / verify audit log entries
+vault:audit                # View / export audit entries; --verify checks the hash chain and the in-DB anchor, --reset-anchor clears the anchor after a legitimate wipe
 vault:audit-anchor         # Publish the audit chain tip to the external audit sinks (scheduled task wrapper)
 vault:audit-verify         # Verify the hash chain AND the external chain-tip anchor (scheduled task wrapper)
 vault:audit-migrate-hmac   # Migrate audit log hash chain from SHA-256 to HMAC-SHA256
@@ -192,7 +228,7 @@ vault:seed-demo            # Seed demo secrets + audit history (development only
 - Rotating / regenerating cryptographic keys in fixtures.
 
 ### Never Do
-- Commit secrets, credentials, or real master keys (test fixtures only — synthetic values, reviewed by hand; `.gitleaks.toml` is present but not enforced by any CI job).
+- Commit secrets, credentials, or real master keys (test fixtures only — synthetic values; `.gitleaks.toml` tunes the `gitleaks` job in `.github/workflows/checks.yml`, so a new fixture that trips a rule fails CI).
 - Commit `composer.lock` (extension, not application).
 - Push directly to `main` — open a PR.
 - Merge a PR before all review threads are resolved.

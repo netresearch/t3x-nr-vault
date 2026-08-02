@@ -64,9 +64,16 @@ Vault owns the impersonation seam:
    including on exceptions.
 -  ``AccessControlService`` consults the active technical actor **before**
    its BE_USER/CLI branches and evaluates it with the same user-based
-   semantics an authenticated backend user gets: admin override, owner
-   check, ADR-005 group tiers with stale-group filtering.
-   ``$GLOBALS['BE_USER']`` is never touched.
+   semantics an authenticated backend user gets: admin override — itself
+   removable under the hardened profile, since it routes through the same
+   ``adminBypassActive()`` seam — owner check, ADR-005 group tiers with
+   stale-group filtering. ``$GLOBALS['BE_USER']`` is never touched.
+-  Operation permissions resolve separately, because a technical actor has
+   no session whose ``groupData`` could be consulted: ``secret.use`` is
+   granted implicitly, and every other permission only if one of the
+   actor's subgroup-expanded ``be_groups`` rows carries the matching
+   ``tx_nrvault:<permission>`` custom option. Fail-closed on a missing
+   group, a missing ``ConnectionPool`` or any database error.
 -  Without an active scope every check falls through unchanged — ambient
    web/CLI behaviour is bit-identical (guarded by characterization
    tests).

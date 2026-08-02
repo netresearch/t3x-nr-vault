@@ -101,7 +101,10 @@ Actors
             frontend visitor grants nothing extra:
             :php:`AccessControlService::isGranted()` returns ``false`` for
             any frontend request, because frontend output is shared with
-            anonymous visitors through the page cache.
+            anonymous visitors through the page cache. Placeholder
+            resolution additionally requires the identifier to be in the
+            request's allow-set
+            (:ref:`adr-035-frontend-placeholder-allow-set`).
 
     *   -   Backend editor
         -   Whatever their groups were granted (see
@@ -284,22 +287,31 @@ Full audit-table reset
 ----------------------
 
 **Attack.** ``TRUNCATE TABLE tx_nrvault_audit_log``, then let the service
-build a fresh, internally consistent chain from uid 1. Nothing inside the
-database distinguishes that from a young installation.
+build a fresh, internally consistent chain from uid 1. The chain itself
+cannot distinguish that from a young installation.
 
-**Control.** Chain-tip anchoring. An anchor records outside the database that
-sequence *N* once carried entry hash *H*, plus the HMAC epoch in force.
-Verification then checks that the chain did not shrink, that the row at *N*
-still hashes to *H*, and that its epoch did not regress — reported as
-``TABLE_RESET`` and ``EPOCH_DOWNGRADE``.
+**Control.** Chain-tip anchoring at two distances.
 
-**Residual risk.** The anchor is only as trustworthy as its storage. An
-anchor file on the same host that the attacker owns can be rewritten;
-:php:`AnchorFileReader` takes the *highest* anchored sequence rather than the
-last line, so appending a weaker anchor is useless, but truncating the file is
-not. Ship anchors off-host (syslog or webhook) for the property to hold. Under
-the hardened profile a missing sink or missing anchor is itself reported, as
-``NO_EXTERNAL_SINK``.
+Inside the database, ``sys_registry`` holds a MACed anchor
+(:ref:`adr-034-audit-chain-tip-anchor`) under a key derived from the master
+key, so an attacker limited to the audit table cannot forge or explain it
+away: the anchored row is simply gone, reported as a violation.
+
+Outside the database, an anchor records that sequence *N* once carried entry
+hash *H*, plus the HMAC epoch in force. Verification then checks that the
+chain did not shrink, that the row at *N* still hashes to *H*, and that its
+epoch did not regress — reported as ``TABLE_RESET`` and ``EPOCH_DOWNGRADE``.
+
+**Residual risk.** Each anchor is only as trustworthy as its storage. An
+attacker who also holds ``DELETE`` on ``sys_registry`` can drop the in-database
+anchor, which then reads as "not armed" rather than as a violation —
+:confval:`ext-nrvault-auditAnchorRequired` promotes that state to critical from
+a configuration file the database cannot reach. An anchor file on the same host
+that the attacker owns can be rewritten; :php:`AnchorFileReader` takes the
+*highest* anchored sequence rather than the last line, so appending a weaker
+anchor is useless, but truncating the file is not. Ship anchors off-host
+(syslog or webhook) for the property to hold. Under the hardened profile a
+missing sink or missing anchor is itself reported, as ``NO_EXTERNAL_SINK``.
 
 Algorithm downgrade of the audit chain
 --------------------------------------

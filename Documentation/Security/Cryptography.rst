@@ -138,8 +138,8 @@ not choose, and refusing to decrypt beats silently trying the wrong primitive.
 HKDF usages
 ===========
 
-Three derivations, each with its own ``info`` string so no two outputs can
-collide even though two of them start from the same master key.
+Four derivations, each with its own ``info`` string so no two outputs can
+collide even though three of them start from the same master key.
 
 ..  list-table::
     :header-rows: 1
@@ -158,6 +158,11 @@ collide even though two of them start from the same master key.
     *   -   Audit chain HMAC key
         -   Master key
         -   ``nr-vault-audit-hmac-v1``
+        -   32 bytes
+
+    *   -   Chain-tip anchor MAC key
+        -   Master key
+        -   ``nr-vault-audit-anchor-v1``
         -   32 bytes
 
     *   -   Per-secret checksum MAC key
@@ -223,6 +228,10 @@ Key and nonce lengths
     *   -   Audit HMAC key
         -   32 bytes
         -   HKDF-SHA256 from the master key
+
+    *   -   Chain-tip anchor MAC key
+        -   32 bytes
+        -   HKDF-SHA256 from the master key, under a distinct ``info`` string
 
 Nonces are random per operation and never reused across the DEK envelope and
 the value envelope — two independent nonces are drawn for every ``encrypt()``

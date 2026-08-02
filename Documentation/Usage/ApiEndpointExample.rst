@@ -37,7 +37,9 @@ Step 1: Define the TCA table
 
 The token field uses ``renderType: 'vaultSecret'`` which:
 
-- Shows a masked password field with reveal/copy buttons
+- Shows a masked password field with a reveal button — and a copy button
+  outside the hardened profile, which disables copying because the clipboard
+  outlives the dialog
 - Automatically stores the secret in the vault on save
 - Stores only a UUID v7 reference in the database
 
@@ -116,4 +118,5 @@ This pattern provides several security advantages:
 **No CLI or file access required**
    Editors and admins can manage API endpoints entirely through the TYPO3
    backend. The vault secret field provides a secure password input with
-   reveal and copy functionality - no command line needed.
+   reveal — and copy, outside the hardened profile — with no command line
+   needed.

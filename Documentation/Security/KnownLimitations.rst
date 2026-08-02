@@ -96,20 +96,36 @@ The hash chain does not prevent a database reset
 
 **The limitation.** The HMAC chain proves that no row was altered *within* the
 stored chain. It cannot prove that the chain is still the same chain. An
-attacker with ``DELETE`` rights can truncate ``tx_nrvault_audit_log`` and let
-the service build a fresh, internally consistent chain from uid 1 — and
-nothing inside the database distinguishes that from a genuinely young
-installation.
+attacker with ``DELETE`` rights on ``tx_nrvault_audit_log`` can truncate it and
+let the service build a fresh, internally consistent chain from uid 1 — the
+chain itself cannot distinguish that from a genuinely young installation.
 
-**What closes the gap, partially.** Chain-tip anchoring published to a store
-the database owner does not control. Verification then has two external facts
-to check: the chain cannot have shrunk, and the row at the anchored sequence
+**What closes the gap, partially.** Two chain-tip anchors, at different
+distances from the attacker.
+
+The in-database anchor (:ref:`adr-034-audit-chain-tip-anchor`) records "row
+uid=A still exists with entry_hash=H" in ``sys_registry``, MACed under a key
+derived from the master key — which is not in the database. Truncating the
+audit table alone therefore no longer looks like a young installation: the
+anchor still names a row that is gone, and verification reports a violation.
+
+The external anchor is published to a store the database owner does not
+control at all, giving verification two facts to check that no database write
+can reach: the chain cannot have shrunk, and the row at the anchored sequence
 must still hash to the anchored tip.
 
-**What remains.** Detection, and only as far as the anchor's storage is
-trustworthy. An anchor file on a host the attacker owns can be truncated.
-Anchors shipped off-host through syslog or a webhook are what makes the
-property real. And in every case: **tamper-evident, not tamper-proof.**
+**What remains.** Detection, not prevention — and each anchor only as far as
+its storage is trustworthy. An attacker who also holds ``DELETE`` on
+``sys_registry`` can remove the in-database anchor, which then reads as "not
+armed" rather than as a violation; :confval:`ext-nrvault-auditAnchorRequired`
+is what closes that, turning a missing anchor into a critical finding a
+database writer cannot silence. It lives in the extension configuration, so a
+database-write attacker cannot reach it — but unlike ``disableAdminOverride``
+it accepts no ``$TYPO3_CONF_VARS`` pin, so a compromised administrator can
+still clear it from the Settings module. An anchor
+file on a host the attacker owns can likewise be truncated, so anchors shipped
+off-host through syslog or a webhook are what makes the external property
+real. And in every case: **tamper-evident, not tamper-proof.**
 
 .. _security-known-limitations-kms:
 

@@ -40,9 +40,13 @@ What the log proves — and against whom
         -   A writer who also rewrites ``uid`` values *and* holds the key.
 
     *   -   The chain is the same chain as before
-        -   A database writer — **only if** an external anchor exists.
-        -   A truncate-and-rebuild with no anchor published. The rebuilt chain
-            is perfectly self-consistent.
+        -   A writer limited to ``tx_nrvault_audit_log``: the in-database tip
+            anchor in ``sys_registry`` still names a row that is gone. A
+            writer who reaches ``sys_registry`` too: **only if** an external
+            anchor exists.
+        -   A truncate-and-rebuild by a writer who deletes both anchors, with
+            no external anchor published. The rebuilt chain is perfectly
+            self-consistent.
 
     *   -   The protection level was never lowered
         -   A database writer relabelling ``hmac_key_epoch``: caught per row,
@@ -129,6 +133,53 @@ Two epoch checks sit on top:
 
 Anchoring
 =========
+
+Two anchors record the chain tip, at different distances from an attacker.
+They are complementary: the in-database one works with no sink configured at
+all, the external one survives an attacker who owns the whole database.
+
+.. _security-audit-evidence-db-anchor:
+
+In-database anchor
+------------------
+
+A MAC-signed assertion in the core table ``sys_registry``, namespace
+``tx_nrvault_audit_anchor``, under a key HKDF-derived from the master key —
+which is not in the database. It advances inside the same transaction as the
+audit row it anchors. Full design in
+:ref:`adr-034-audit-chain-tip-anchor`; the operator-facing summary is
+:ref:`security-audit-chain-anchor`.
+
+``vault:audit --verify`` reports its verdict on a ``Tip anchor:`` line, and
+``vault:doctor`` as ``audit.db_anchor``:
+
+``ok``
+   The anchored row exists and its hash still matches.
+
+``NOT ARMED``
+   No anchor recorded yet. A warning by default — an installation that has
+   never written an audit entry is indistinguishable from one whose anchor was
+   deleted. :confval:`ext-nrvault-auditAnchorRequired` turns this into a
+   critical finding, and because that setting lives in the extension
+   configuration rather than in a table, a database-write attacker cannot
+   silence the control by deleting the row. A backend administrator still can,
+   from the Settings module.
+
+``VIOLATED``
+   The anchored entry is gone or was replaced. This is the truncation case.
+
+``UNREADABLE``
+   Malformed value or an invalid MAC — a tampered anchor, or a master key
+   changed without a re-seal. Critical regardless of ``auditAnchorRequired``.
+
+After a *legitimate* wipe of the audit log, ``vault:audit --reset-anchor``
+clears the anchor and records the reset inside the chain. Without it a
+deliberately truncated log reports a violation forever.
+
+.. _security-audit-evidence-external-anchor:
+
+External anchor
+---------------
 
 An anchor records, outside the database, that sequence *N* once carried entry
 hash *H* under HMAC epoch *E*:

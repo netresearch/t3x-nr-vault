@@ -52,7 +52,7 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
       auto-detection and any fallback to the TYPO3 encryption key, and
       makes vault operations refuse to run on a misconfigured or
       unavailable provider. It is also the prerequisite for
-      :ref:`disableAdminOverride <ext-nrvault-disableAdminOverride>`.
+      :confval:`disableAdminOverride <ext-nrvault-disableAdminOverride>`.
 
    An unrecognised value throws rather than degrading to ``standard`` — a
    typo in a hardened deployment must never weaken the effective policy.
@@ -151,6 +151,46 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    :file:`<var-path>/secrets/vault-master.key.transit`. The file contains
    ciphertext only, never key material.
 
+.. confval:: hashicorp.path
+   :name: ext-nrvault-hashicorp-path
+   :type: string
+   :Default: secret/data/typo3
+
+   Path prefix for secrets in Vault. **Reserved** — it belongs to the
+   not-yet-implemented HashiCorp storage adapter and has no effect on the
+   transit master-key provider, which uses the ``transit*`` settings above.
+
+.. _configuration-aws:
+
+AWS Secrets Manager
+===================
+
+..  note::
+
+    The AWS Secrets Manager adapter is **planned but not implemented**. Both
+    settings below are reserved; setting them changes nothing today. They are
+    documented so an operator who finds them in the Settings module knows they
+    are inert rather than misconfigured.
+
+.. confval:: aws.region
+   :name: ext-nrvault-aws-region
+   :type: string
+   :Default: (empty)
+
+   AWS region for Secrets Manager, for example ``eu-central-1``.
+
+.. confval:: aws.secretPrefix
+   :name: ext-nrvault-aws-secretPrefix
+   :type: string
+   :Default: typo3/
+
+   Prefix for secret names in AWS Secrets Manager.
+
+.. _configuration-cli:
+
+CLI access
+==========
+
 .. confval:: allowCliAccess
    :name: ext-nrvault-allowCliAccess
    :type: boolean
@@ -183,6 +223,15 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    this list: the audit trail then names the responsible identity.
    Note that the scheduled orphan cleanup deletes secrets and therefore
    needs ``secret.delete`` when it runs as the bare CLI actor.
+
+   Three of those five change what a CLI command can do today:
+   ``secret.reveal``, ``secret.delete`` and ``master_key.rotate``.
+   ``audit.export`` and ``vault.configure`` gate the corresponding **backend**
+   actions — the audit module's export and the migration wizard —
+   and :bash:`vault:audit --export` asserts no operation permission of its
+   own. Withholding them here still matters: the list is the record of what
+   the unattributed CLI actor has been granted, and a CLI surface for either
+   would inherit it.
 
 .. confval:: frontendPlaceholderLegacyCli
    :name: ext-nrvault-frontendPlaceholderLegacyCli
@@ -269,7 +318,7 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    groups were granted and reach only the secrets they own or share a
    group with.
 
-   **Only effective when** :ref:`securityProfile
+   **Only effective when** :confval:`securityProfile
    <ext-nrvault-securityProfile>` **is** ``hardened``. In the standard
    profile the flag is inert — a lockout guard, since setting it without
    the rest of the hardened policy is more likely a misunderstanding than
@@ -297,7 +346,7 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
 .. confval:: auditHmacEpoch
    :name: ext-nrvault-auditHmacEpoch
    :type: integer
-   :Default: 2
+   :Default: 3
 
    Hash-algorithm version marker for the audit log hash chain:
 
@@ -312,11 +361,20 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
       ``error_message``, ``reason``, ``ip_address``, ``user_agent``,
       ``context``).
 
-   The default (``2``) binds the forensic surface into the chain so a
-   DB-write attacker cannot flip ``success`` or rewrite
-   ``error_message`` without breaking the chain. After raising this
-   value, run the Install Tool wizard *Migrate audit hash chain* (or
-   the :ref:`vault:audit-migrate-hmac <command-audit-migrate-hmac>`
+   3
+      Additionally binds the epoch selector ``hmac_key_epoch`` itself plus the
+      attribution fields ``actor_type``, ``actor_username``, ``actor_role``
+      and ``request_id``.
+
+   Epoch 2 binds the forensic surface into the chain, so a DB-write attacker
+   cannot flip ``success`` or rewrite ``error_message`` without breaking it.
+   The shipped default (``3``) additionally closes the algorithm-downgrade
+   forgery — with the epoch selector inside the hash, an attacker can no
+   longer relabel a row to epoch 0, re-sign it with keyless SHA-256 and keep
+   the chain consistent — and makes actor attribution tamper-evident.
+
+   After raising this value, run the Install Tool wizard *Migrate audit hash
+   chain* (or the :ref:`vault:audit-migrate-hmac <command-audit-migrate-hmac>`
    command) to re-hash existing rows. See
    :ref:`adr-023-audit-hash-chain-hmac`.
 
@@ -364,13 +422,31 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    Requires :confval:`ext-nrvault-auditHmacEpoch` >= 1; at epoch 0 the
    chain is keyless and the anchor is disabled.
 
+.. confval:: encryptionAlgorithm
+   :name: ext-nrvault-encryptionAlgorithm
+   :type: string
+   :Default: (empty)
+
+   AEAD algorithm recorded per secret at encrypt time. Empty selects
+   XChaCha20-Poly1305, which is the recommended value: it is available in
+   every libsodium build, and its 24-byte nonce makes random-nonce collisions
+   a non-concern, so vault contents stay portable across hosts with differing
+   CPU capabilities.
+
+   Set it to ``aes256gcm`` only on hosts with hardware AES support. An unknown
+   or host-unavailable value makes encryption fail loudly at the crypto
+   boundary rather than silently falling back.
+
 .. confval:: preferXChaCha20
    :name: ext-nrvault-preferXChaCha20
    :type: boolean
    :Default: false
 
-   Prefer XChaCha20-Poly1305 over AES-256-GCM. XChaCha20 is recommended
-   when hardware AES acceleration is not available.
+   Prefer XChaCha20-Poly1305 over AES-256-GCM **for legacy secrets only** —
+   those stored under encryption version 1, before the per-secret algorithm
+   marker existed. New secrets record their algorithm explicitly and take it
+   from :confval:`ext-nrvault-encryptionAlgorithm`; this setting has no effect
+   on them.
 
 .. _configuration-audit-sinks:
 
@@ -730,9 +806,53 @@ Access control
 Access to secrets is controlled by:
 
 1. **Ownership**: The user who created the secret has full access.
-2. **Group membership**: Secrets can be shared with backend user groups.
-3. **Admin access**: Backend administrators have access to all secrets.
-4. **CLI access**: Configurable via :confval:`allowCliAccess <ext-nrvault-allowCliAccess>`.
+2. **Group membership**: Secrets can be shared with backend user groups, in
+   two tiers — ``allowed_groups`` grants read, ``write_groups`` grants read
+   and write. Neither grants delete.
+3. **Admin access**: Backend administrators have access to all secrets —
+   unless the hardened profile withdrew that bypass via
+   :confval:`disableAdminOverride <ext-nrvault-disableAdminOverride>`, after
+   which an administrator holds only what their own groups grant.
+4. **CLI access**: Configurable via :confval:`allowCliAccess <ext-nrvault-allowCliAccess>`,
+   narrowed by :confval:`cliAllowedOperations <ext-nrvault-cliAllowedOperations>`.
+5. **Operation permissions**: independently of all of the above, every
+   privileged operation (``secret.create``, ``secret.rotate``,
+   ``secret.delete``, ``secret.manage_policy``, …) is granted per backend user
+   group and asserted centrally. Passing the per-secret tiers never implies
+   holding the operation. See :ref:`security-operation-permissions`.
+
+.. _configuration-analytics:
+
+Analytics thresholds
+====================
+
+These decide when the usage-analytics dashboard and the ``secrets.dead`` /
+``secrets.never_rotated`` readiness controls flag a secret. They are
+reporting thresholds only — nothing expires or is deleted because of them.
+
+.. confval:: staleNeverReadDays
+   :name: ext-nrvault-staleNeverReadDays
+   :type: integer
+   :Default: 30
+
+   A secret that has **never** been read and is older than this many days is
+   flagged *dead* — a strong candidate for redaction, since nothing has ever
+   consumed it.
+
+.. confval:: staleNotReadDays
+   :name: ext-nrvault-staleNotReadDays
+   :type: integer
+   :Default: 90
+
+   A secret not read for this many days is flagged *dead*.
+
+.. confval:: staleNeverRotatedDays
+   :name: ext-nrvault-staleNeverRotatedDays
+   :type: integer
+   :Default: 180
+
+   A secret not rotated — or, if it never was, not created — within this many
+   days is flagged *never rotated*.
 
 .. _configuration-context:
 

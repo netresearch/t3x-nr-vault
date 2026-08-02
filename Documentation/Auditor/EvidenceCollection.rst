@@ -60,9 +60,21 @@ The JSON body carries ``profile``, ``configuredProfile``,
 ``summary`` object (``total``, ``pass``, ``warning``, ``critical``) and a
 ``findings`` array.
 
-**``findings`` lists every control, including the ones that passed** — 23
-controls in total (22 always emitted, plus ``cli.access_groups`` only when
-``allowCliAccess`` is on). Each entry carries a stable dotted ``id`` plus
+**``findings`` lists every control, including the ones that passed** — 23 are
+always emitted, plus four conditional families:
+
+*   ``cli.access_groups`` and ``cli.allowed_operations``, only when
+    ``allowCliAccess`` is on;
+*   ``provider.key_permissions``, only for the ``file`` master-key provider;
+*   ``audit.sink_state.<sink>``, one per enabled audit sink;
+*   ``audit.sink_probe.<sink>``, one per enabled sink and only under
+    ``--active-probes`` — or the single literal ``audit.sink_probe.none`` when
+    no sink is enabled.
+
+A run with fewer findings than another is therefore not a smaller
+installation; check which families were in scope before comparing two runs.
+
+Each entry carries a stable dotted ``id`` plus
 ``severity`` (``pass`` | ``warning`` | ``critical``), ``summary``, ``risk``,
 ``remediation``, ``docsUrl`` and ``details``; for a pass, ``risk`` and
 ``remediation`` are empty strings rather than absent. The ``id`` is what lets
@@ -95,14 +107,19 @@ you diff two runs months apart instead of re-reading prose.
 ..  note::
 
     **A default standard installation has zero criticals by design**, so read
-    a green run in context. Nine controls change severity with the target
-    profile; two of them shift from *pass* to *critical*:
-    ``audit.external_sink`` and a missing ``audit.anchor`` are passes under
-    ``standard`` (sinks and anchoring are opt-in there, matching
-    ``NO_EXTERNAL_SINK``'s documented semantics) and criticals under
-    ``hardened``. ``provider.configured`` and ``audit.reads_logged`` go from
-    warning to critical. This is why the ``--profile=hardened`` run is the
-    informative one even on a standard installation.
+    a green run in context. Eight controls branch on the target profile:
+    ``profile.admin_override``, ``environment.production_context``,
+    ``provider.configured``, ``cli.access``, ``audit.reads_logged``,
+    ``audit.external_sink``, ``audit.anchor`` and
+    ``audit.sink_state.<sink>``.
+
+    Two of them shift from *pass* to *critical*: ``audit.external_sink`` and a
+    missing ``audit.anchor`` are passes under ``standard`` (sinks and
+    anchoring are opt-in there, matching ``NO_EXTERNAL_SINK``'s documented
+    semantics) and criticals under ``hardened``. ``provider.configured`` and
+    ``audit.reads_logged`` go from warning to critical. This is why the
+    ``--profile=hardened`` run is the informative one even on a standard
+    installation.
 
 Finding ids worth citing directly in an assessment:
 
@@ -119,16 +136,18 @@ Finding ids worth citing directly in an assessment:
     *   -   Master-key custody
         -   ``provider.known``, ``provider.configured``,
             ``provider.available``, ``provider.master_key_readable``,
-            ``provider.key_permissions``
+            ``provider.key_permissions`` (``file`` provider only)
 
     *   -   Audit evidence
-        -   ``audit.hash_chain``, ``audit.anchor``,
+        -   ``audit.hash_chain``, ``audit.hmac_epoch``,
+            ``audit.db_anchor``, ``audit.anchor``,
             ``audit.external_sink``, ``audit.sink_delivery``,
             ``audit.sink_state.<sink>``,
             ``audit.reads_logged``, ``audit.retention``
 
     *   -   CLI exposure
-        -   ``cli.access``, ``cli.access_groups``
+        -   ``cli.access``, ``cli.access_groups``,
+            ``cli.allowed_operations``
 
     *   -   Emergency access
         -   ``breakglass.window_open``
@@ -191,9 +210,10 @@ carry the stable reason codes from
 
     vendor/bin/typo3 vault:audit --verify > evidence/audit-chain.txt
 
-``vault:audit --verify`` verifies the chain without the anchor comparison.
-Useful for isolating a finding: a chain that verifies here but fails
-``vault:audit-verify`` points at the anchor, not at the rows.
+``vault:audit --verify`` verifies the chain and reports the in-database tip
+anchor (``Tip anchor: …``), but performs no comparison against the *external*
+anchor. Useful for isolating a finding: a chain that verifies here but fails
+``vault:audit-verify`` points at the external anchor, not at the rows.
 
 ..  note::
 
@@ -351,6 +371,17 @@ the list below is what is actually declared here.
         -   ``checks.yml`` → ``codeql.yml``
         -   CodeQL results in the repository's security tab
 
+    *   -   Secret scanning
+        -   ``checks.yml`` → shared ``gitleaks.yml``
+        -   Scans every pull request against the in-repo
+            :file:`.gitleaks.toml`; findings reported to code scanning
+
+    *   -   Workflow-definition audit
+        -   ``checks.yml`` → shared ``zizmor.yml``
+        -   Audits :file:`.github/workflows/` itself — injection-prone
+            expressions, over-broad permissions, dangerous triggers —
+            configured by :file:`.github/zizmor.yml`
+
     *   -   Fuzz testing
         -   ``checks.yml`` → ``fuzz.yml``
         -   Fuzz suite on every push, pull request, merge group and weekly
@@ -405,17 +436,19 @@ the list below is what is actually declared here.
 
 ..  warning::
 
-    **Two config files in this repository are not wired into CI.**
-    :file:`semgrep.yml` and :file:`.gitleaks.toml` exist at the repository
-    root, but no workflow, ``composer`` script or Makefile target references
-    either — verified by grepping the whole tree. The shared ``security.yml``
-    runs Opengrep with ``--config auto``, i.e. registry rules, **not** the
-    in-repo ruleset; and no job runs gitleaks at all.
+    **One config file in this repository is not wired into CI.**
+    :file:`semgrep.yml` exists at the repository root, but no workflow,
+    ``composer`` script or Makefile target references it — verified by
+    grepping the whole tree. The shared ``security.yml`` runs Opengrep with
+    ``--config auto``, i.e. registry rules, **not** the in-repo ruleset.
 
-    Do not credit them as enforced controls. Their presence is the kind of
-    thing that reads as "custom SAST rules and secret-scanning allowlist are
-    applied in CI" when nothing applies them. Treat them as local or
-    historical tooling unless someone wires them up.
+    Do not credit it as an enforced control. Its presence is the kind of thing
+    that reads as "custom SAST rules are applied in CI" when nothing applies
+    them. Treat it as local or historical tooling unless someone wires it up.
+
+    :file:`.gitleaks.toml` **is** wired: the ``gitleaks`` job in
+    :file:`.github/workflows/checks.yml` scans every pull request against it
+    and reports to code scanning.
 
 ..  important::
 

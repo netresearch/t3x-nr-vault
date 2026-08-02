@@ -31,7 +31,7 @@ Add nr-vault as a dependency in your extension's :file:`composer.json`:
 
    {
        "require": {
-           "netresearch/nr-vault": "^0.4"
+           "netresearch/nr-vault": "^0.13"
        }
    }
 
@@ -93,10 +93,16 @@ Use the :php:`VaultFieldResolver` utility to retrieve actual secret values:
 
    class MyService
    {
+       // VaultFieldResolver is a DI service — inject it, never call it
+       // statically.
+       public function __construct(
+           private readonly VaultFieldResolver $vaultFieldResolver,
+       ) {}
+
        public function callExternalApi(array $settings): void
        {
            // Resolve vault identifiers to actual values
-           $resolved = VaultFieldResolver::resolveFields(
+           $resolved = $this->vaultFieldResolver->resolveFields(
                $settings,
                ['api_key', 'api_secret']
            );
@@ -196,6 +202,7 @@ Resolve FlexForm secrets using :php:`FlexFormVaultResolver`:
    {
        public function __construct(
            private readonly FlexFormService $flexFormService,
+           private readonly FlexFormVaultResolver $flexFormVaultResolver,
        ) {}
 
        public function processSettings(array $contentElement): array
@@ -205,13 +212,13 @@ Resolve FlexForm secrets using :php:`FlexFormVaultResolver`:
            );
 
            // Resolve specific fields
-           return FlexFormVaultResolver::resolveSettings(
+           return $this->flexFormVaultResolver->resolveSettings(
                $settings,
                ['apiKey', 'apiSecret']
            );
 
            // Or resolve all vault identifiers automatically
-           return FlexFormVaultResolver::resolveAll($settings);
+           return $this->flexFormVaultResolver->resolveAll($settings);
        }
    }
 
@@ -224,6 +231,14 @@ VaultFieldResolver API
 The :php:`VaultFieldResolver` class provides utilities for working with
 vault-backed TCA fields.
 
+..  important::
+
+    :php:`VaultFieldResolver` and :php:`FlexFormVaultResolver` are
+    ``final readonly`` DI services with **instance** methods. Inject them via
+    the constructor; calling any of the methods below statically is a fatal
+    error. The examples show the call on an injected
+    ``$this->vaultFieldResolver``.
+
 .. _tca-resolver-resolve-fields:
 
 resolveFields()
@@ -234,7 +249,7 @@ Resolve specific fields in a data array:
 .. code-block:: php
    :caption: VaultFieldResolver::resolveFields()
 
-   $resolved = VaultFieldResolver::resolveFields(
+   $resolved = $this->vaultFieldResolver->resolveFields(
        $data,           // Array with potential vault identifiers
        ['field1'],      // Fields to resolve
        false            // Throw on error (default: false)
@@ -251,7 +266,7 @@ Resolve a single vault identifier (UUID v7 format):
    :caption: VaultFieldResolver::resolve()
 
    // TCA field identifiers use UUID v7 format
-   $secret = VaultFieldResolver::resolve('01937b6e-4b6c-7abc-8def-0123456789ab');
+   $secret = $this->vaultFieldResolver->resolve('01937b6e-4b6c-7abc-8def-0123456789ab');
 
 .. _tca-resolver-resolve-record:
 
@@ -263,7 +278,7 @@ Automatically resolve all vault fields in a record based on TCA:
 .. code-block:: php
    :caption: VaultFieldResolver::resolveRecord()
 
-   $resolved = VaultFieldResolver::resolveRecord('tx_myext_settings', $record);
+   $resolved = $this->vaultFieldResolver->resolveRecord('tx_myext_settings', $record);
 
 .. _tca-resolver-is-identifier:
 
@@ -275,7 +290,7 @@ Check if a value is a vault identifier:
 .. code-block:: php
    :caption: VaultFieldResolver::isVaultIdentifier()
 
-   if (VaultFieldResolver::isVaultIdentifier($value)) {
+   if ($this->vaultFieldResolver->isVaultIdentifier($value)) {
        // This is a vault identifier
    }
 
@@ -289,8 +304,36 @@ Get list of vault field names for a table:
 .. code-block:: php
    :caption: VaultFieldResolver::getVaultFieldsForTable()
 
-   $fields = VaultFieldResolver::getVaultFieldsForTable('tx_myext_settings');
+   $fields = $this->vaultFieldResolver->getVaultFieldsForTable('tx_myext_settings');
    // Returns: ['api_key', 'api_secret']
+
+.. _tca-resolver-has-fields:
+
+hasVaultFields()
+----------------
+
+Cheap check for whether a table has any vault-backed field at all — use it to
+skip resolution work entirely rather than resolving an empty field list:
+
+.. code-block:: php
+   :caption: VaultFieldResolver::hasVaultFields()
+
+   if ($this->vaultFieldResolver->hasVaultFields('tx_myext_settings')) {
+       // ... resolve
+   }
+
+.. _tca-resolver-flex-fields:
+
+getFlexFieldsForTable()
+-----------------------
+
+The FlexForm counterpart, on :php:`FlexFormVaultResolver`: the FlexForm
+columns of a table whose data structure declares ``vaultSecret`` fields.
+
+.. code-block:: php
+   :caption: FlexFormVaultResolver::getFlexFieldsForTable()
+
+   $flexFields = $this->flexFormVaultResolver->getFlexFieldsForTable('tt_content');
 
 
 .. _tca-how-it-works:
@@ -304,7 +347,8 @@ Data flow
 ---------
 
 1. **Form display**: The :php:`VaultSecretElement` renders an obfuscated
-   password field with reveal/copy buttons.
+   password field with a reveal button, plus a copy button outside the
+   hardened profile.
 
 2. **Form submit**: The :php:`DataHandlerHook` intercepts the form data:
 
@@ -352,6 +396,16 @@ Record operations
 
 Records with several vault fields are handled all-or-nothing.
 
+A **create** whose secret value is refused is compensated rather than left
+half-applied: the just-inserted ``tx_nrvault_secret`` row is removed, the
+record's field value is rolled back, and no success audit entry survives — a
+refused create leaves nothing behind that would later read as a successful
+one. Only a genuinely value-less record is audited as created. The mutation
+and its audit entry commit together throughout, including the MM rows behind
+``allowed_groups`` and ``write_groups``: DataHandler writes those *before* the
+completion hook runs, so a snapshot taken beforehand is what restores them if
+the audit write fails.
+
 A **copy** clones every field or none: if one secret cannot be cloned, the
 secrets already cloned for that copy are deleted again and *all* vault fields
 of the new record are cleared. They are never left holding the source record's
@@ -364,6 +418,14 @@ removing the first secret, because a vault delete cannot be undone. If any
 field is denied, no secret is removed and the record delete is cancelled. A
 field pointing at a secret that no longer exists does not block the delete.
 
+The preflight cannot cover a failure it is unable to predict — an audit write
+that fails, a vault outage, a permission revoked between the check and the
+delete. If one of those hits partway through, the loop stops rather than
+enlarging the damage, the record is preserved, and the error names how many
+secrets of preceding fields were already deleted and cannot be restored. That
+count is the signal to re-enter those values; the record still exists, so
+nothing else is lost.
+
 
 .. _tca-security:
 
@@ -375,10 +437,47 @@ Security considerations
 Access control
 --------------
 
-Vault secrets inherit the access control of the record they belong to.
-If a backend user can edit the record, they can update the vault secret.
+Editing the record is necessary but **not** sufficient. Every vault field
+mutation goes through the same two gates as any other vault operation: the
+operation permission (``secret.create`` when the field is first filled,
+``secret.rotate`` on a change, ``secret.delete`` when the record goes) and the
+per-secret owner/group tiers. A backend user who may edit the record but holds
+neither will have the mutation refused, and the refusal is audited — see
+:ref:`security-operation-permissions` and :ref:`security-access-control`.
 
-The reveal button requires explicit user action and is logged.
+The reveal button requires explicit user action and is logged. Revealing also
+asserts ``secret.reveal``, which ``secret.use`` does not imply.
+
+On top of both gates, page TSconfig can narrow what the *widget* offers, per
+table and per field:
+
+.. code-block:: typoscript
+   :caption: Page TSconfig
+
+   vault.permissions {
+       default {
+           reveal = 1
+           copy = 1
+           edit = 1
+       }
+
+       tx_myext_settings {
+           default {
+               reveal = 0
+           }
+
+           api_key {
+               reveal = 1
+               copy = 0
+               edit = 1
+               readOnly = 0
+           }
+       }
+   }
+
+This layer only ever removes affordances from the form; it cannot grant an
+operation the permission gates withheld. Administrators are exempt from it,
+except for ``readOnly``.
 
 .. _tca-security-audit:
 
@@ -401,7 +500,9 @@ No plaintext in database
 ------------------------
 
 Only vault identifiers are stored in your extension's database tables.
-The actual secrets are encrypted with AES-256-GCM in the vault.
+The actual secrets are encrypted with XChaCha20-Poly1305 — or AES-256-GCM when
+:confval:`ext-nrvault-encryptionAlgorithm` selects it — under a per-secret DEK
+that is itself wrapped by the master key.
 
 
 .. _tca-migration:

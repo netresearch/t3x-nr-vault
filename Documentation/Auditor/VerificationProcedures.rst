@@ -117,8 +117,12 @@ that succeeds with only ``secret.reveal`` is a serious finding.
 
 **Frontend check (safe).** With a valid backend session, request a frontend
 page that resolves a vault value. Frontend requests hold no operation
-permission regardless of the session, so only the secret's own
-``frontend_accessible`` flag may govern the outcome.
+permission regardless of the session, so the session may not widen the
+outcome. For a :typoscript:`%vault(id)%` placeholder the flag is necessary but
+not sufficient: the identifier must also be in the request's allow-set
+(:ref:`adr-035-frontend-placeholder-allow-set`). A ``frontend_accessible``
+secret that resolves from editor-authored content it was never published to is
+a finding.
 
 .. _auditor-verify-admin-override:
 
@@ -364,17 +368,22 @@ which is itself the finding, and the reason to migrate.
     TRUNCATE TABLE tx_nrvault_audit_log;
 
 Then perform a few normal vault operations so a fresh chain is built, and
-verify:
+verify with both verifiers:
 
 ..  code-block:: bash
 
+    vendor/bin/typo3 vault:audit --verify
     vendor/bin/typo3 vault:audit-verify --format=json
 
-*Expected:* the internal chain is **valid** — it is perfectly self-consistent —
-**and** a ``TABLE_RESET`` finding is raised from the anchor comparison. This is
-the central procedure of the whole page: it demonstrates that the hash chain
-alone cannot detect a reset, and that the external anchor is what closes the
-gap.
+*Expected:* **both** anchors fire.
+
+``vault:audit --verify`` reports ``Tip anchor: VIOLATED`` and an **invalid**
+chain: the in-database anchor in ``sys_registry`` still names a row the
+truncation removed, and verification raises that as a hard error. This is what
+an attacker limited to ``tx_nrvault_audit_log`` runs into.
+
+``vault:audit-verify`` additionally raises ``TABLE_RESET`` from the external
+anchor comparison.
 
 *Finding if:* no ``TABLE_RESET`` appears. Then either no anchor was published,
 or the anchor file was truncated along with the table — check that
@@ -382,6 +391,39 @@ or the anchor file was truncated along with the table — check that
 it if the sink wrote to a file the truncation also removed. **An anchor stored
 only on the compromised host is not independent evidence**, and this test is
 how that becomes visible.
+
+**Test 6e — full reset with the in-database anchor removed first**
+
+This is the case Test 6c's "the chain alone cannot see a reset" claim actually
+describes, and it is the one worth demonstrating to a sceptical assessor.
+
+..  code-block:: sql
+
+    DELETE FROM sys_registry WHERE entry_namespace = 'tx_nrvault_audit_anchor';
+    TRUNCATE TABLE tx_nrvault_audit_log;
+
+Rebuild a fresh chain as above, then verify.
+
+*Expected:* ``vault:audit --verify`` now reports a **valid**, perfectly
+self-consistent chain with ``Tip anchor: NOT ARMED`` — the internal evidence
+is gone, and only ``vault:audit-verify``'s external ``TABLE_RESET`` still
+detects the reset. This demonstrates both halves at once: what the in-database
+anchor buys, and why it does not remove the need for an off-host one.
+
+**Test 6f —** ``auditAnchorRequired`` **closes the downgrade**
+
+Repeat Test 6e with ``auditAnchorRequired = 1`` in the extension
+configuration.
+
+*Expected:* the missing anchor is now reported as **critical** rather than as
+the ``NOT ARMED`` warning, and ``vault:doctor`` fails on ``audit.db_anchor``.
+Because the setting lives in the extension configuration rather than in a
+table, deleting the ``sys_registry`` row no longer silences the control.
+
+*Finding if:* the run still reports only a warning. Then the setting is not in
+force — confirm it is set, and remember a backend administrator can still
+clear it from the Settings module, since this key is **not** among the three
+that accept a ``$TYPO3_CONF_VARS`` pin.
 
 **Test 6d — algorithm downgrade →** ``EPOCH_DOWNGRADE``
 

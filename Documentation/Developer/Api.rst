@@ -37,7 +37,12 @@ The main service for interacting with the vault.
       :param string $secret: The secret value to store (``#[\SensitiveParameter]``).
       :param array $options: Optional configuration: ``owner`` (int BE-user UID), ``groups`` (int[] BE-group UIDs), ``context`` (string), ``expiresAt`` (int|\DateTimeInterface|null), ``metadata`` (array), ``description`` (string), ``scopePid`` (int).
       :throws ValidationException: If the identifier is invalid.
+      :throws AccessDeniedException: If the per-secret ACL or the operation permission refuses the write — ``secret.create`` on a new secret, ``secret.rotate`` on an existing one, and additionally ``secret.manage_policy`` when the options change the owner or the group tiers.
       :throws EncryptionException: If encryption fails.
+
+      Operation permissions and the per-secret ACL are two independent gates.
+      Holding one never implies the other, and both are asserted before the
+      value is written.
 
    .. php:method:: retrieve(string $identifier)
 
@@ -47,6 +52,22 @@ The main service for interacting with the vault.
       :returns: The decrypted secret value or null if not found.
       :returntype: string|null
       :throws AccessDeniedException: If user lacks read permission.
+      :throws SecretExpiredException: If the secret has expired.
+
+   .. php:method:: retrieveForFrontend(string $identifier)
+
+      Frontend-scoped counterpart of ``retrieve()``. Only secrets flagged
+      ``frontend_accessible`` resolve here, and that requirement holds for
+      every caller — including a request that happens to carry a backend
+      session, whose ambient privileges would otherwise widen
+      ``retrieve()``'s access decision. Expiry, decryption, audit logging
+      and read statistics behave as in ``retrieve()``. See
+      :ref:`adr-035-frontend-placeholder-allow-set`.
+
+      :param string $identifier: The secret identifier.
+      :returns: The decrypted secret value or null if not found.
+      :returntype: string|null
+      :throws AccessDeniedException: If the secret is not frontend-accessible, or the actor lacks read permission.
       :throws SecretExpiredException: If the secret has expired.
 
    .. php:method:: exists(string $identifier): bool
@@ -65,6 +86,25 @@ The main service for interacting with the vault.
       :throws SecretNotFoundException: If secret doesn't exist.
       :throws AccessDeniedException: If user lacks delete permission.
 
+   .. php:method:: assertDeletable(string $identifier): void
+
+      Assert that ``delete()`` is permitted for this identifier — without
+      deleting. Exists for callers that delete several secrets as one
+      logical unit, such as a record delete spanning multiple vault fields:
+      a vault delete is a hard delete with no restore, so a partially
+      applied batch cannot be compensated, and the only way to keep it
+      all-or-nothing is to run every permission gate up front and abort
+      before the first deletion.
+
+      A secret that does not exist returns without throwing — the goal state
+      is already reached. Ask ``exists()`` to distinguish absent from
+      present. Passing does **not** guarantee the subsequent delete
+      succeeds: an audit-write failure, or a permission revoked in between,
+      can still abort it.
+
+      :param string $identifier: The secret identifier.
+      :throws AccessDeniedException: If the current actor lacks delete permission.
+
    .. php:method:: rotate(string $identifier, string $newSecret, string $reason = ''): void
 
       Rotate a secret with a new value. ``$newSecret`` is a
@@ -73,6 +113,9 @@ The main service for interacting with the vault.
       :param string $identifier: The secret identifier.
       :param string $newSecret: The new secret value (``#[\SensitiveParameter]``).
       :param string $reason: Optional reason for rotation (logged).
+      :throws SecretNotFoundException: If the secret does not exist.
+      :throws AccessDeniedException: If the per-secret ACL or the ``secret.rotate`` operation permission refuses it.
+      :throws EncryptionException: If encryption fails.
 
    .. php:method:: list(?string $pattern = null): array
 
@@ -665,6 +708,30 @@ The vault dispatches events during secret operations.
    anything, because both master keys are gone by the time it runs. To have your
    own envelopes rotated, implement :php:`ForeignEnvelopeRotatorInterface`.
 
-   -  :php:`getSecretsReEncrypted()`: Number of secrets re-encrypted.
-   -  :php:`getActorUid()`: User ID who performed the rotation.
-   -  :php:`getRotatedAt()`: DateTimeImmutable of when rotation completed.
+.. php:class:: AuditIntegrityAlertEvent
+
+   Dispatched when audit verification produces a finding.
+
+   -  :php:`getAlert()`: The alert value object.
+   -  :php:`getReason()`: The stable reason code (``TABLE_RESET``,
+      ``EPOCH_DOWNGRADE``, ``SINK_FAILURE``, ``NO_EXTERNAL_SINK``, …).
+   -  :php:`isTamperEvidence()`: Whether this finding is evidence of tampering
+      rather than an availability problem — the discriminator a pager rule
+      should key on.
+
+.. php:class:: BreakGlassActivatedEvent
+
+   Dispatched when a break-glass window opens.
+
+   -  :php:`getActorUid()` / :php:`getActorUsername()`: Who opened it.
+   -  :php:`getReason()`: The mandatory justification.
+   -  :php:`getExpiresAt()`: When the window lapses on its own.
+
+.. php:class:: BreakGlassDeactivatedEvent
+
+   Dispatched when a window is closed deliberately. A window that merely
+   *expires* dispatches nothing — nothing runs at the moment it lapses, so
+   reconstruct the closed interval from the activation event's expiry.
+
+   -  :php:`getActorUid()` / :php:`getActorUsername()`: Who closed it.
+   -  :php:`getReason()`: The closing note.

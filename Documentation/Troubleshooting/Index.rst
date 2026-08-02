@@ -144,10 +144,18 @@ If you manage a large number of secrets, consider these optimizations:
    queries when a context is specified.
 
 **Caching**
-   nr-vault caches decrypted values during a single request. For
-   repeated access across requests, consider caching the decrypted
-   values in your application layer (be mindful of security
-   implications).
+   Decrypted values are **not** cached — not across requests and not
+   within one. Every :php:`retrieve()` decrypts again and writes its own
+   audit row, which is what makes the audit trail a record of actual
+   access rather than of cache misses. Do not add a plaintext cache in
+   your own application layer either: it silently removes both the
+   per-read access check and the audit entry.
+
+   What *is* cached is the master key, for the lifetime of a request that
+   touches a secret (:ref:`adr-020-master-key-request-lifetime-caching`).
+   Long-running processes should call
+   :php:`MasterKeyProviderInterface::clearCachedKey()` to bound its
+   residency.
 
 **Database indexing**
    The ``tx_nrvault_secret`` table includes indexes on commonly queried

@@ -84,17 +84,23 @@ Options
 --value=SECRET
    The secret value (will prompt if not provided).
 
---description=TEXT
-   Optional description.
+--stdin
+   Read the secret value from stdin.
 
---context=CONTEXT
-   Optional context for permission scoping.
+--file=PATH, -f PATH
+   Read the secret value from a file.
 
---expires=TIMESTAMP
-   Expiration timestamp or relative time (e.g., ``+90 days``).
+--metadata=KEY=VALUE, -m KEY=VALUE
+   Additional metadata as ``key=value``. **Repeatable** — pass the option once
+   per pair. Recognised keys: ``description``, ``context``, ``expiresAt``,
+   ``owner``, ``groups``, ``scopePid``. There are no separate
+   ``--description`` / ``--context`` / ``--expires`` options.
 
---groups=GROUPS
-   Comma-separated list of allowed backend user group IDs.
+--groups=UID, -g UID
+   Backend user group ID that may access this secret. **Repeatable** — pass
+   the option once per group (``--groups=1 --groups=2``). A comma-separated
+   ``--groups="1,2"`` is *not* split: it is read as a single non-numeric value
+   and becomes group 0.
 
 .. _command-store-example:
 
@@ -112,7 +118,7 @@ Example
      --value="sk_live_..." \
      --metadata="description=Stripe production key" \
      --metadata="context=payment" \
-     --groups="1,2"
+     --groups=1 --groups=2
 
 .. _command-retrieve:
 
@@ -131,8 +137,23 @@ Retrieve a secret from the vault.
 Options
 -------
 
---quiet, -q
-   Output only the secret value (for scripting).
+--output=PATH, -o PATH
+   Write the secret to a file instead of stdout.
+
+--no-newline
+   Do not append a newline to the output. This is the option to use when
+   capturing into a shell variable.
+
+--reason=TEXT, -r TEXT
+   Reason for retrieving this secret, recorded in the audit log.
+
+.. important::
+
+   This command asserts ``secret.reveal``. For the unattributed CLI actor that
+   means ``allowCliAccess`` must be on **and** ``secret.reveal`` must be in
+   :confval:`ext-nrvault-cliAllowedOperations`, which excludes it by default.
+   Without both, the command exits 1. Prefer a named technical actor
+   (:ref:`developer-technical-actor-context`) over widening the allowlist.
 
 .. _command-retrieve-example:
 
@@ -145,8 +166,9 @@ Example
    # Display with metadata
    vendor/bin/typo3 vault:retrieve stripe_api_key
 
-   # For use in scripts
-   API_KEY=$(vendor/bin/typo3 vault:retrieve -q stripe_api_key)
+   # For use in scripts. Do NOT use -q: that is Symfony's global quiet flag
+   # and suppresses the value entirely, yielding an empty string.
+   API_KEY=$(vendor/bin/typo3 vault:retrieve --no-newline stripe_api_key)
 
 .. _command-list:
 
@@ -165,11 +187,14 @@ List all accessible secrets.
 Options
 -------
 
---pattern=PATTERN
+--pattern=PATTERN, -p PATTERN
    Filter by identifier pattern (supports ``*`` wildcard).
 
 --format=FORMAT
-   Output format: table (default), json, csv.
+   Output format: table (default), json, csv. No short form.
+
+--limit=N, -l N
+   Maximum number of results (default: 100).
 
 .. _command-list-example:
 
@@ -208,8 +233,16 @@ Options
 --value=SECRET
    The new secret value (will prompt if not provided).
 
---reason=TEXT
-   Reason for rotation (logged in audit).
+--stdin
+   Read the new secret value from stdin.
+
+--file=PATH, -f PATH
+   Read the new secret value from a file.
+
+--reason=TEXT, -r TEXT
+   Reason for rotation, logged in the audit trail. Defaults to
+   ``Manual rotation via CLI``, so the field is never empty — pass a real
+   reason rather than relying on the placeholder.
 
 .. _command-rotate-example:
 
@@ -239,11 +272,18 @@ Delete a secret from the vault.
 Options
 -------
 
---reason=TEXT
-   Reason for deletion (logged in audit).
+--reason=TEXT, -r TEXT
+   Reason for deletion, logged in the audit trail. Defaults to
+   ``Manual deletion via CLI``.
 
 --force, -f
    Skip confirmation prompt.
+
+.. important::
+
+   This command asserts ``secret.delete``, which
+   :confval:`ext-nrvault-cliAllowedOperations` excludes by default. On the CLI
+   it needs ``allowCliAccess`` **and** that operation in the allowlist.
 
 .. _command-delete-example:
 
@@ -274,11 +314,16 @@ View the audit log.
 Options
 -------
 
---identifier, -i =ID
+--identifier=ID, -i ID
    Filter by secret identifier.
 
---action, -a =ACTION
-   Filter by action (create, read, update, delete, rotate, access_denied).
+--action=ACTION, -a ACTION
+   Filter by action — any :php:`AuditAction` value. The common ones are
+   ``create``, ``read``, ``update``, ``delete``, ``rotate`` and
+   ``access_denied``; the enum also covers ``metadata_update``, ``http_call``,
+   the master-key and chain lifecycle (``master_key_rotate_start`` /
+   ``_end``, ``audit_chain_rekey``, ``audit_anchor_reset``), break-glass
+   (``break_glass_activated`` / ``_deactivated``) and the OAuth actions.
 
 --actor=UID
    Filter by actor (backend user UID).
@@ -292,10 +337,10 @@ Options
 --success=BOOL
    Filter by success status (``true``/``false``).
 
---limit, -l =N
+--limit=N, -l N
    Maximum number of results (default: 50).
 
---format, -f =FORMAT
+--format=FORMAT, -f FORMAT
    Output format: ``table`` (default), ``json``, ``csv``.
 
 --verify
@@ -316,7 +361,7 @@ Options
 --force
    Skip the interactive confirmation of ``--reset-anchor`` (for unattended runs).
 
---export, -e =FILE
+--export=FILE, -e FILE
    Export results to a file (format taken from ``--format``).
 
 .. _command-audit-example:
@@ -380,7 +425,7 @@ Options
 --dry-run
    Show the anchor that would be published without writing it to any sink.
 
---format, -f =FORMAT
+--format=FORMAT, -f FORMAT
    Output format: ``text`` (default) or ``json``.
 
 .. _command-audit-anchor-exit-codes:
@@ -438,7 +483,7 @@ finding under a machine-readable reason code.
 Options
 -------
 
---format, -f =FORMAT
+--format=FORMAT, -f FORMAT
    Output format: ``text`` (default) or ``json``. The JSON form carries the full
    finding list, the compared anchor, the enabled sinks and their failure counts.
 
@@ -547,6 +592,15 @@ Options
 
 --confirm
    Required for actual execution (safety measure).
+
+.. important::
+
+   This command asserts ``master_key.rotate``, which
+   :confval:`ext-nrvault-cliAllowedOperations` excludes by default. On the CLI
+   it needs ``allowCliAccess`` **and** that operation in the allowlist,
+   otherwise it aborts with exit code 1. Granting it to the unattributed CLI
+   actor hands the whole vault's key envelope to anyone with a shell; a named
+   technical actor is the better carrier.
 
 .. warning::
 
@@ -865,7 +919,7 @@ vault:break-glass
 
 Open, close or inspect a time-boxed break-glass window that temporarily
 restores the administrator override removed by
-:ref:`disableAdminOverride <ext-nrvault-disableAdminOverride>`.
+:confval:`disableAdminOverride <ext-nrvault-disableAdminOverride>`.
 
 Only a real backend administrator or system maintainer — or an operator with
 CLI access to the host — may open or close a window. A justification is
@@ -963,7 +1017,7 @@ See :ref:`security-deployment-gate` for how to wire it in.
 Options
 -------
 
---profile, -p =PROFILE
+--profile=PROFILE, -p PROFILE
    Security profile to check against: ``standard`` or ``hardened``. Defaults to
    the configured profile.
 
@@ -973,7 +1027,7 @@ Options
    switch on production and seeing what breaks. The report states both the profile
    it checked and the profile actually in force.
 
---format, -f =FORMAT
+--format=FORMAT, -f FORMAT
    Output format: ``text`` (default) or ``json``. The JSON form carries every
    control — passing ones included — under stable ids.
 
@@ -1133,6 +1187,11 @@ audit.sink_probe.<sink>
    answer 2xx). A refused probe is **critical** in both profiles — the sink
    is enabled but demonstrably not accepting evidence.
 
+   When ``--active-probes`` runs with **no** sink enabled there is nothing to
+   probe, and a single literal ``audit.sink_probe.none`` finding is emitted
+   instead of the per-sink family, so an empty probe run cannot be mistaken
+   for a clean one.
+
 cli.access
    ``allowCliAccess``. Pass when off. When on: *pass* / **critical**
    (hardened) — deployment automation legitimately needs it under the
@@ -1142,6 +1201,24 @@ cli.access
 cli.access_groups
    Emitted only when CLI access is on. Warning when ``cliAccessGroups`` is empty,
    leaving the grant unscoped with no group boundary left to review.
+
+cli.allowed_operations
+   Emitted only when CLI access is on. Reports which operations
+   :confval:`ext-nrvault-cliAllowedOperations` actually grants the unattributed
+   CLI actor. Warning when the list contains a high-risk operation
+   (``secret.reveal``, ``secret.delete``, ``audit.export``,
+   ``master_key.rotate``, ``vault.configure``) or an unknown value. Unknown
+   values are called out because they are silently inert — a typo revokes the
+   grant the operator believes is configured rather than failing loudly.
+
+   Of the five high-risk entries, three currently change what a CLI command
+   can do: ``secret.reveal`` (``vault:retrieve``), ``secret.delete``
+   (``vault:delete`` and the orphan cleanup) and ``master_key.rotate``
+   (``vault:rotate-master-key``). ``audit.export`` and ``vault.configure``
+   gate the corresponding **backend** actions; ``vault:audit --export``
+   asserts no operation permission of its own. They are still called out
+   here, because the allowlist is the record of what the CLI actor has been
+   granted, not only of what it can currently reach.
 
 secrets.expired
    No stored secret is past its expiry. Warning with the count otherwise: an
