@@ -19,22 +19,26 @@ use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * The review's acceptance scenario for the FormEngine create path: a backend
- * user holding generic TABLE permissions on tx_nrvault_secret but NOT the
- * secret.create operation permission must not be able to store a secret value
- * through a direct DataHandler request — the secrets-module controller check
- * is UX, the enforcement lives in VaultService::store() behind the hook.
+ * The `secret.create` gate on the FormEngine create path.
  *
- * A refusal must leave nothing behind either. The denied create used to keep
- * its row (squatting the identifier under the denied user as owner, which
- * makes every later legitimate non-admin create of that identifier fail
- * canWrite) and to be audited as a SUCCESSFUL creation, because the hook
- * classified the outcome by "no value was stored" — which a deliberately
- * value-less create produces as well.
+ * The gap this pins: both create gates (`canCreate()` and
+ * `isGranted(secret.create)`) live inside `VaultService::store()`, and a
+ * record saved with an EMPTY value never calls store() — `secret_input` is
+ * optional and the table is not adminOnly, so that is an ordinary save. A
+ * backend user holding table rights but not `secret.create` could therefore
+ * create a vault secret record: the row landed, `owner_uid` was forced to the
+ * unauthorized creator by the privileged-column policy, and a SUCCESS `create`
+ * entry went into the tamper-evident HMAC chain for an operation nobody was
+ * allowed to perform. The identifier then stayed squatted — a later legitimate
+ * non-admin creator of the same identifier fails `canWrite()` against the
+ * existing row, not the unique key.
  *
- * The hook contract is driven directly (like SecretTcaHookDeleteAclTest):
- * core's own table-permission system would block the group-less editor before
- * the vault gate runs and mask the result under test.
+ * The gate is a pre-process refusal, not a compensating rollback: it nulls the
+ * by-ref field array in `processDatamap_preProcessFieldArray()`, which makes
+ * core skip the record entirely before `insertDB()`. These tests therefore
+ * drive the REAL DataHandler — the assertion "no row exists" is produced by
+ * core itself, and the fixture gives the denied user the table and page rights
+ * that would otherwise mask the result.
  */
 #[CoversClass(SecretTcaHook::class)]
 final class SecretTcaHookCreateAclTest extends AbstractVaultFunctionalTestCase
@@ -47,130 +51,247 @@ final class SecretTcaHookCreateAclTest extends AbstractVaultFunctionalTestCase
 
     private const WRITE_MM_TABLE = 'tx_nrvault_secret_writegroups_mm';
 
-    /** Non-admin editor (uid 2), no vault operation permissions. */
-    private const EDITOR_UID = 2;
+    /** Storage page both editors may write content to. */
+    private const STORAGE_PID = 1;
 
-    protected ?string $backendUserFixture = __DIR__ . '/Fixtures/be_users_acl.csv';
+    /** Non-admin editor with table rights but WITHOUT secret.create. */
+    private const EDITOR_WITHOUT_CREATE = 2;
 
-    protected ?int $backendUserUid = self::EDITOR_UID;
+    /** Non-admin editor with table rights AND secret.create. */
+    private const EDITOR_WITH_CREATE = 4;
 
+    protected ?string $backendUserFixture = __DIR__ . '/Fixtures/be_users_create_permission.csv';
+
+    /** Each test logs in the user it needs. */
+    protected ?int $backendUserUid = null;
+
+    /**
+     * The finding itself: no value, no store() call, and until now no gate
+     * either.
+     */
     #[Test]
-    public function editorWithoutSecretCreatePermissionCannotStoreViaDataHandler(): void
+    public function valuelessCreateWithoutSecretCreatePermissionInsertsNoRecord(): void
     {
-        $identifier = 'op_create_' . bin2hex(random_bytes(4));
+        $this->setUpBackendUser(self::EDITOR_WITHOUT_CREATE);
+        $identifier = 'valueless_' . bin2hex(random_bytes(4));
 
-        $hook = $this->get(SecretTcaHook::class);
-        self::assertInstanceOf(SecretTcaHook::class, $hook);
-
-        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
-        $dataHandler->BE_USER = $GLOBALS['BE_USER'];
-
-        // Simulate the FormEngine create: preProcess captures the pending
-        // secret value, core writes the row, afterDatabaseOperations hands
-        // the value to VaultService::store() — which must deny.
-        $fieldArray = [
-            'pid' => 0,
+        $dataHandler = $this->processCreate([
+            'pid' => self::STORAGE_PID,
             'identifier' => $identifier,
-            'secret_input' => 'must-not-be-stored',
-        ];
-        $hook->processDatamap_preProcessFieldArray($fieldArray, self::SECRET_TABLE, 'NEW1', $dataHandler);
-
-        $connection = $this->getConnectionPool()->getConnectionForTable(self::SECRET_TABLE);
-        $connection->insert(self::SECRET_TABLE, [
-            'pid' => 0,
-            'identifier' => $identifier,
-            'owner_uid' => self::EDITOR_UID,
-            'deleted' => 0,
+            'description' => 'A record carrying no secret value at all',
         ]);
-        $newUid = (int) $connection->lastInsertId();
 
-        $dataHandler->substNEWwithIDs['NEW1'] = $newUid;
-        $hook->processDatamap_afterDatabaseOperations('new', self::SECRET_TABLE, 'NEW1', $fieldArray, $dataHandler);
-
-        // DataHandler defers a new record's MM writes until every
-        // afterDatabaseOperations() hook has run — stand in for that flush,
-        // so the deferred purge has something to clean up.
-        $this->insertMmRow(self::READ_MM_TABLE, $newUid, 10);
-        $this->insertMmRow(self::WRITE_MM_TABLE, $newUid, 20);
-
-        $hook->processDatamap_afterAllOperations($dataHandler);
-
-        // Nothing was created, so no row may survive: it would hold no secret
-        // and squat the identifier under the denied user as owner.
-        $row = $connection->select(
-            ['uid'],
-            self::SECRET_TABLE,
-            ['uid' => $newUid],
-        )->fetchAssociative();
-        self::assertFalse($row, 'The denied create must not leave a record behind.');
-
-        // ... nor its ACL relations, which DataHandler writes after the row
-        // has already been removed.
-        self::assertSame(
-            [],
-            $this->loadMmGroups(self::READ_MM_TABLE, $newUid),
-            'The denied create must leave no orphaned read-tier ACL relations.',
-        );
-        self::assertSame(
-            [],
-            $this->loadMmGroups(self::WRITE_MM_TABLE, $newUid),
-            'The denied create must leave no orphaned write-tier ACL relations.',
+        self::assertNull(
+            $this->findRecord($identifier),
+            'A creator without secret.create must not get a record — it would squat the identifier.',
         );
 
-        // The denial is recorded in the audit trail.
         self::assertSame(
             1,
             $this->countAuditEntries($identifier, AuditAction::AccessDenied->value, false),
-            'The denied create must be audited as access_denied.',
+            'The refused create must be audited as access_denied.',
         );
-
-        // And nothing else is: a success create entry would be a
-        // verifiable-looking falsehood in the tamper-evident chain, standing
-        // right next to the truthful denial.
         self::assertSame(
             0,
             $this->countAuditEntries($identifier, AuditAction::Create->value, true),
-            'A denied create must not be audited as a successful creation.',
+            'A refused create must never produce a success create entry in the HMAC chain.',
         );
 
-        // The DataHandler log carries the user-facing error.
-        /** @phpstan-ignore property.internal */
-        self::assertNotEmpty($dataHandler->errorLog, 'The denied create must surface in the DataHandler error log.');
-    }
-
-    private function insertMmRow(string $mmTable, int $secretUid, int $groupUid): void
-    {
-        $this->getConnectionPool()->getConnectionForTable($mmTable)->insert($mmTable, [
-            'uid_local' => $secretUid,
-            'uid_foreign' => $groupUid,
-            'sorting' => 0,
-            'sorting_foreign' => 0,
-        ]);
+        self::assertStringContainsString(
+            'secret.create',
+            $this->errorLogText($dataHandler),
+            'FormEngine must tell the editor which permission the save needed.',
+        );
     }
 
     /**
-     * @return list<int>
+     * The same gate catches a value-BEARING create one step earlier than
+     * VaultService::store() would: the row is never inserted, so there is
+     * nothing to revert and nothing to squat in between.
      */
-    private function loadMmGroups(string $mmTable, int $secretUid): array
+    #[Test]
+    public function valueBearingCreateWithoutSecretCreatePermissionInsertsNoRecord(): void
     {
-        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable($mmTable);
+        $this->setUpBackendUser(self::EDITOR_WITHOUT_CREATE);
+        $identifier = 'valuebearing_' . bin2hex(random_bytes(4));
+
+        $this->processCreate([
+            'pid' => self::STORAGE_PID,
+            'identifier' => $identifier,
+            'secret_input' => 'must-not-be-stored',
+        ]);
+
+        self::assertNull($this->findRecord($identifier));
+        self::assertSame(
+            1,
+            $this->countAuditEntries($identifier, AuditAction::AccessDenied->value, false),
+        );
+        self::assertSame(
+            0,
+            $this->countAuditEntries($identifier, AuditAction::Create->value, true),
+        );
+    }
+
+    /**
+     * A refused create must not leave the ACL relations DataHandler would
+     * otherwise queue for it behind either.
+     */
+    #[Test]
+    public function refusedCreateLeavesNoAclRelationRows(): void
+    {
+        $this->setUpBackendUser(self::EDITOR_WITHOUT_CREATE);
+        $identifier = 'acl_refused_' . bin2hex(random_bytes(4));
+
+        $this->processCreate([
+            'pid' => self::STORAGE_PID,
+            'identifier' => $identifier,
+            'allowed_groups' => '30,31',
+            'write_groups' => '31',
+        ]);
+
+        self::assertNull($this->findRecord($identifier));
+        self::assertSame(0, $this->countRows(self::READ_MM_TABLE), 'No read-tier ACL relations may be written.');
+        self::assertSame(0, $this->countRows(self::WRITE_MM_TABLE), 'No write-tier ACL relations may be written.');
+    }
+
+    /**
+     * The gate must not break the legitimate case it guards: a value-less
+     * record is a valid thing to create, and after this change that is the
+     * only thing RecordCreationOutcome::ValueLess can still mean — an
+     * AUTHORIZED creator who deliberately left the value empty.
+     */
+    #[Test]
+    public function creatorHoldingSecretCreateMayCreateAValuelessRecord(): void
+    {
+        $this->setUpBackendUser(self::EDITOR_WITH_CREATE);
+        $identifier = 'granted_valueless_' . bin2hex(random_bytes(4));
+
+        $dataHandler = $this->processCreate([
+            'pid' => self::STORAGE_PID,
+            'identifier' => $identifier,
+            'description' => 'Deliberately created without a value',
+        ]);
+
+        $record = $this->findRecord($identifier);
+        self::assertIsArray(
+            $record,
+            'A creator holding secret.create must still be able to create. DataHandler log: '
+            . $this->errorLogText($dataHandler),
+        );
+        // The creator owns what they created (the privileged-column policy
+        // forces this for non-admins) — the gate runs in front of it, it does
+        // not replace it.
+        self::assertSame(self::EDITOR_WITH_CREATE, (int) $record['owner_uid']);
+
+        self::assertSame(
+            1,
+            $this->countAuditEntries($identifier, AuditAction::Create->value, true),
+            'An authorized value-less create is audited as a creation.',
+        );
+        self::assertSame(
+            0,
+            $this->countAuditEntries($identifier, AuditAction::AccessDenied->value, false),
+        );
+    }
+
+    #[Test]
+    public function creatorHoldingSecretCreateMayCreateAValueBearingRecord(): void
+    {
+        $this->setUpBackendUser(self::EDITOR_WITH_CREATE);
+        $identifier = 'granted_value_' . bin2hex(random_bytes(4));
+
+        $this->processCreate([
+            'pid' => self::STORAGE_PID,
+            'identifier' => $identifier,
+            'secret_input' => 'a-real-value',
+        ]);
+
+        $record = $this->findRecord($identifier);
+        self::assertIsArray($record);
+        $encryptedValue = $record['encrypted_value'];
+        self::assertIsString($encryptedValue);
+        self::assertNotSame(
+            '',
+            $encryptedValue,
+            'The submitted value must have been encrypted and stored.',
+        );
+
+        self::assertSame(
+            1,
+            $this->countAuditEntries($identifier, AuditAction::Create->value, true),
+            'VaultService::store() audits the creation it performed.',
+        );
+        self::assertSame(
+            0,
+            $this->countAuditEntries($identifier, AuditAction::AccessDenied->value, false),
+        );
+    }
+
+    /**
+     * An admin is unaffected: the gate asks AccessControlService, which routes
+     * the admin decision through the single `adminBypassActive()` seam rather
+     * than short-circuiting on the role here.
+     */
+    #[Test]
+    public function adminIsUnaffectedByTheCreateGate(): void
+    {
+        $this->setUpBackendUser(1);
+        $identifier = 'admin_created_' . bin2hex(random_bytes(4));
+
+        $this->processCreate([
+            'pid' => self::STORAGE_PID,
+            'identifier' => $identifier,
+            'description' => 'Created by an administrator',
+        ]);
+
+        self::assertIsArray($this->findRecord($identifier));
+        self::assertSame(
+            0,
+            $this->countAuditEntries($identifier, AuditAction::AccessDenied->value, false),
+        );
+    }
+
+    /**
+     * Run one NEW-record datamap through the real DataHandler.
+     *
+     * @param array<string, mixed> $fieldArray
+     */
+    private function processCreate(array $fieldArray): DataHandler
+    {
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([self::SECRET_TABLE => ['NEW1' => $fieldArray]], []);
+        $dataHandler->process_datamap();
+
+        return $dataHandler;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function findRecord(string $identifier): ?array
+    {
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable(self::SECRET_TABLE);
         $queryBuilder->getRestrictions()->removeAll();
-        $rows = $queryBuilder
-            ->select('uid_foreign')
-            ->from($mmTable)
+        $row = $queryBuilder
+            ->select('uid', 'owner_uid', 'encrypted_value')
+            ->from(self::SECRET_TABLE)
             ->where($queryBuilder->expr()->eq(
-                'uid_local',
-                $queryBuilder->createNamedParameter($secretUid, Connection::PARAM_INT),
+                'identifier',
+                $queryBuilder->createNamedParameter($identifier),
             ))
             ->executeQuery()
-            ->fetchAllAssociative();
+            ->fetchAssociative();
 
-        $groups = [];
-        foreach ($rows as $row) {
-            $groups[] = (int) $row['uid_foreign'];
-        }
+        return $row === false ? null : $row;
+    }
 
-        return $groups;
+    private function countRows(string $table): int
+    {
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()->removeAll();
+        $count = $queryBuilder->count('uid_local')->from($table)->executeQuery()->fetchOne();
+
+        return is_numeric($count) ? (int) $count : 0;
     }
 
     private function countAuditEntries(string $identifier, string $action, bool $success): int
@@ -192,5 +313,13 @@ final class SecretTcaHookCreateAclTest extends AbstractVaultFunctionalTestCase
             ->fetchOne();
 
         return is_numeric($count) ? (int) $count : 0;
+    }
+
+    private function errorLogText(DataHandler $dataHandler): string
+    {
+        /** @phpstan-ignore property.internal */
+        $errorLog = $dataHandler->errorLog;
+
+        return implode("\n", array_map(static fn (mixed $line): string => (string) $line, $errorLog));
     }
 }
