@@ -545,14 +545,14 @@ final class AuditCheckTest extends TestCase
             'audit.hmac_epoch',
         );
         $declaredUnsigned = explode(',', (string) $finding->details['unsignedFields']);
-        $baseline = self::hashForEpoch($epoch, self::hashRowFixture());
+        $baseline = $this->hashForEpoch($epoch, $this->hashRowFixture());
 
-        foreach (self::columnMutations() as $column => $mutatedValue) {
-            $row = self::hashRowFixture();
+        foreach ($this->columnMutations() as $column => $mutatedValue) {
+            $row = $this->hashRowFixture();
             $row[$column] = $mutatedValue;
 
             $declaredSigned = !\in_array($column, $declaredUnsigned, true);
-            $hashMoved = self::hashForEpoch($epoch, $row) !== $baseline;
+            $hashMoved = $this->hashForEpoch($epoch, $row) !== $baseline;
 
             self::assertSame(
                 $declaredSigned,
@@ -576,15 +576,15 @@ final class AuditCheckTest extends TestCase
     #[Test]
     public function theFullySignedEpochLeavesNoColumnOutsideTheMac(): void
     {
-        $baseline = self::hashForEpoch(3, self::hashRowFixture());
+        $baseline = $this->hashForEpoch(3, $this->hashRowFixture());
 
-        foreach (self::columnMutations() as $column => $mutatedValue) {
-            $row = self::hashRowFixture();
+        foreach ($this->columnMutations() as $column => $mutatedValue) {
+            $row = $this->hashRowFixture();
             $row[$column] = $mutatedValue;
 
             self::assertNotSame(
                 $baseline,
-                self::hashForEpoch(3, $row),
+                $this->hashForEpoch(3, $row),
                 \sprintf('Column "%s" is outside the epoch-3 payload.', $column),
             );
         }
@@ -814,7 +814,7 @@ final class AuditCheckTest extends TestCase
      *
      * @return array<string, int|string>
      */
-    private static function hashRowFixture(): array
+    private function hashRowFixture(): array
     {
         return [
             'uid' => 42,
@@ -839,13 +839,13 @@ final class AuditCheckTest extends TestCase
     }
 
     /**
-     * One differing value per column of {@see self::hashRowFixture()}. `success`
+     * One differing value per column of {@see $this->hashRowFixture()}. `success`
      * flips 1 -> 0 because the extractor coerces it through `bool`, so any other
      * truthy value would leave the payload unchanged and read as "unsigned".
      *
      * @return array<string, int|string>
      */
-    private static function columnMutations(): array
+    private function columnMutations(): array
     {
         return [
             'uid' => 43,
@@ -875,7 +875,7 @@ final class AuditCheckTest extends TestCase
      *
      * @param array<string, int|string> $row
      */
-    private static function hashForEpoch(int $epoch, array $row): string
+    private function hashForEpoch(int $epoch, array $row): string
     {
         return match ($epoch) {
             1 => AuditLogService::calculateHash(
