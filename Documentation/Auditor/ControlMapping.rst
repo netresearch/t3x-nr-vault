@@ -137,10 +137,16 @@ OWASP ASVS v4: chapter 2 (Authentication), chapter 4 (Access Control).*
             ``secret.manage_policy``; ``rotate()`` requires
             ``secret.rotate``; ``delete()`` requires ``secret.delete``), so
             DataHandler/FormEngine requests and programmatic callers face the
-            same gate as the module controllers. Controllers and
-            :php:`SecretTcaHook` re-assert the permissions as
-            defense-in-depth.
-        -   :php:`VaultService::assertOperationGranted()`; route
+            same gate as the module controllers. Controllers re-assert the
+            permissions as defense-in-depth. :php:`SecretTcaHook` does so
+            too, and is the *sole* enforcement point for one case the
+            service cannot see: creating a ``tx_nrvault_secret`` record
+            without a value never calls ``store()``, so the hook asserts
+            ``secret.create`` in
+            ``processDatamap_preProcessFieldArray()`` and refuses the
+            record before it is inserted.
+        -   :php:`VaultService::assertOperationGranted()`;
+            :php:`SecretTcaHook::isCreationGranted()`; route
             configuration plus controller code
 
     *   -   No privileged short-circuit in the grant lookup
@@ -193,8 +199,15 @@ OWASP ASVS v4: chapter 2 (Authentication), chapter 4 (Access Control).*
         -   :php:`DataHandlerHook` — a record delete asserts every vault
             field's delete gate before removing the first secret and is
             cancelled outright if any fails; a copy that cannot clone every
-            secret deletes the ones it made and blanks every vault field, so a
-            copy never shares the source record's secrets
+            secret deletes the ones it made and blanks every vault field. The
+            control is a preflight plus best-effort compensation, not
+            atomicity: a failure the preflight cannot predict leaves the
+            secrets already deleted unrestorable, a failed rollback delete
+            leaves an orphaned clone, and a failed blanking leaves the copy
+            still referencing the source record's identifiers. The record is
+            preserved either way, the delete and blanking residuals are named
+            to the editor, and every failure — the orphaned clone included —
+            is logged under a correlation reference
         -   :ref:`tca-integration`; :ref:`adr-018-flexform-secret-lifecycle`
 
     *   -   CLI grant narrowed to low-risk operations

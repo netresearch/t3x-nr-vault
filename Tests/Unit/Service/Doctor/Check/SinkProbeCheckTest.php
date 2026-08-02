@@ -63,7 +63,7 @@ final class SinkProbeCheckTest extends TestCase
         // collector unreachable => the ACTIVE check must report critical.
         $sink = new ProbeSpySink('webhook', throwOnAnchor: new RuntimeException('connection refused'));
 
-        foreach ([SecurityProfile::Standard, SecurityProfile::Hardened] as $profile) {
+        foreach (SecurityProfile::cases() as $profile) {
             $finding = $this->assertFindingSeverity(
                 FindingSeverity::Critical,
                 $this->check([$sink])->run($this->context(activeProbes: true, profile: $profile)),

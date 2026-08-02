@@ -425,9 +425,11 @@ configuration is coherent; these steps say the deployment works.
       still can, the flag is not effective, and ``--status`` will show why.
 *   [ ] The audit module is reachable by a group holding ``audit.view`` and not
       by one without it.
-*   [ ] The strict CLI placeholder policy is in force: put a
-      ``%vault(id)%`` placeholder for a ``frontend_accessible`` secret into an
-      editor-editable field, run a scheduled render over it
+*   [ ] The strict CLI placeholder policy is in force: :bash:`vault:doctor`
+      reports ``cli.frontend_placeholder_legacy`` as a pass (it is critical
+      under this profile when the flag is on). Confirm it empirically as well —
+      put a ``%vault(id)%`` placeholder for a ``frontend_accessible`` secret
+      into an editor-editable field, run a scheduled render over it
       (:bash:`scheduler:run`), and confirm the placeholder does **not**
       resolve. If it does, ``frontendPlaceholderLegacyCli`` is on — check the
       pin.

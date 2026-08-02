@@ -27,6 +27,8 @@ use TYPO3\CMS\Core\DataHandling\DataHandler;
  * DataHandler hook for tx_nrvault_secret TCA operations.
  *
  * Handles:
+ * - Create authorization (secret.create, before the row is inserted)
+ * - Update authorization (the per-secret write ACL, before anything is written)
  * - Identifier immutability (prevent changes after creation)
  * - Secret encryption on save (secret_input field)
  * - Audit logging for metadata changes
@@ -198,18 +200,21 @@ final class SecretTcaHook
 
     /**
      * Called before database operations.
-     * Enforces the per-secret write ACL and prevents identifier changes on
-     * existing records.
+     * Authorizes the creation of a new record, enforces the per-secret write
+     * ACL on an existing one, and prevents identifier changes.
      *
-     * @param array<string, mixed>|null $fieldArray
+     * @param array<string, mixed> $fieldArray
+     *
+     * @param-out array<string, mixed>|null $fieldArray `null` refuses the
+     *            record: core skips it entirely (see both gates below)
      */
     public function processDatamap_preProcessFieldArray(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
-        ?array &$fieldArray,
+        array &$fieldArray,
         string $table,
         string|int $id,
         DataHandler $dataHandler,
     ): void {
-        if ($table !== self::TABLE || $fieldArray === null) {
+        if ($table !== self::TABLE) {
             return;
         }
 
@@ -224,12 +229,46 @@ final class SecretTcaHook
         if (!$this->isUpdateAuthorized($id, $dataHandler)) {
             // Aborting here rather than in afterDatabaseOperations() means
             // nothing is written in the first place, so there is no mutation
-            // to compensate. Core's documented contract: after this hook it
-            // does `if (!is_array($incomingFieldArray)) { continue 2; }`
-            // (DataHandler::process_datamap(), identical on v13.4 and v14.3),
-            // skipping the record before newFieldArray()/insertDB() and
-            // before the MM relations are queued. `$fieldArray = []` would
-            // NOT do this — core would carry on with an empty change set.
+            // to compensate. `null` is what makes core skip the record — see
+            // the create gate below for core's guard and why `[]` is not a
+            // substitute.
+            $fieldArray = null;
+
+            return;
+        }
+
+        // Authorize the CREATION ITSELF before DataHandler inserts anything.
+        // Both create gates (canCreate + secret.create) live inside
+        // VaultService::store(), and a record saved with an empty
+        // secret_input never calls store() — secret_input is optional, so
+        // that is a plain FormEngine save, not an edge case. Without this
+        // gate such a create bypassed secret.create entirely: the row landed,
+        // owner_uid was forced to its unauthorized creator by
+        // enforcePrivilegedColumnPolicy(), and a SUCCESS `create` entry went
+        // into the tamper-evident chain for an operation nobody was allowed
+        // to perform. The identifier stayed squatted, so the next legitimate
+        // non-admin creator failed canWrite() against the row.
+        //
+        // Refusing here rather than compensating afterwards is the point: the
+        // unauthorized row never exists, so there is nothing to squat, no MM
+        // rows to purge and no audit entry to retract.
+        if (str_starts_with((string) $id, 'NEW') && !$this->isCreationGranted($fieldArray, $dataHandler)) {
+            // Invalidating the by-ref array is how a preProcessFieldArray
+            // hook aborts one record: immediately after each hook call
+            // DataHandler re-checks the argument it just passed by reference,
+            //
+            //     if (!is_array($incomingFieldArray)) { continue 2; }
+            //
+            // skipping the record before newFieldArray(), insertDB() and the
+            // deferred MM queuing. Quoted as code rather than by line number,
+            // which moves with every core patch release; the guard is present
+            // verbatim in v12.4, v13.4 and v14.3 alike.
+            //
+            // `[]` is NOT a substitute — core's guard is is_array(), and
+            // newFieldArray() would refill the TCA defaults and insert the row
+            // anyway. Assigning null to a by-ref `array` parameter is legal:
+            // PHP type-checks by-ref parameters at call time, not on
+            // assignment inside the callee.
             $fieldArray = null;
 
             return;
@@ -1071,6 +1110,99 @@ final class SecretTcaHook
         } catch (Throwable) {
             // Deliberately ignored — see the docblock.
         }
+    }
+
+    /**
+     * Both create gates, evaluated before the record exists.
+     *
+     * Mirrors what VaultService::store() applies on the programmatic path —
+     * the per-actor `canCreate()` tier and the `secret.create` operation
+     * permission (separation of duties: being allowed to touch the vault at
+     * all versus being allowed to perform this KIND of operation). The hook
+     * cannot delegate to store(): the whole point of this gate is the create
+     * that never reaches store() because it carries no value.
+     *
+     * Applied to EVERY actor, admins included. Neither gate is an
+     * "is this a non-admin" question — `canCreate()` and `isGranted()` route
+     * the admin decision through AccessControlService::adminBypassActive(),
+     * the single seam the hardened profile can switch off. Short-circuiting
+     * admins here would reintroduce the bypass this extension deliberately
+     * keeps in one place.
+     *
+     * @param array<string, mixed> $fieldArray
+     *
+     * @return bool True when the creation may proceed
+     */
+    private function isCreationGranted(array $fieldArray, DataHandler $dataHandler): bool
+    {
+        if (!$this->accessControlService->canCreate()) {
+            $this->refuseCreation($fieldArray, 'Create access denied', $dataHandler);
+
+            return false;
+        }
+
+        if (!$this->accessControlService->isGranted(VaultPermission::SecretCreate)) {
+            $this->refuseCreation(
+                $fieldArray,
+                'Create denied: missing ' . VaultPermission::SecretCreate->value . ' permission',
+                $dataHandler,
+            );
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Record a refused creation: an `access_denied` audit entry (the same
+     * shape VaultService writes when it refuses a create) plus a DataHandler
+     * log line so FormEngine tells the editor why the save did nothing.
+     *
+     * No `create` entry is written, successful or otherwise — nothing was
+     * created. The audit write is contained: a denial whose audit entry
+     * cannot be written must still deny, so the failure is surfaced in the
+     * DataHandler log rather than allowed to abort the refusal.
+     *
+     * @param array<string, mixed> $fieldArray
+     */
+    private function refuseCreation(array $fieldArray, string $errorMessage, DataHandler $dataHandler): void
+    {
+        $identifier = \is_string($fieldArray['identifier'] ?? null) ? $fieldArray['identifier'] : '';
+
+        try {
+            // Fourth positional argument is $errorMessage, not $reason —
+            // same slot VaultService uses for its own denial entries, so the
+            // two read alike in the audit trail.
+            $this->auditService->log(
+                $identifier,
+                AuditAction::AccessDenied->value,
+                false,
+                $errorMessage,
+            );
+        } catch (Throwable $e) {
+            /** @phpstan-ignore method.internal */
+            $dataHandler->log(
+                self::TABLE,
+                0,
+                1,
+                null,
+                1,
+                'Vault audit logging of the refused secret creation failed: ' . $e->getMessage()
+                . ' — the creation was refused regardless.',
+            );
+        }
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            self::TABLE,
+            0,
+            1,
+            null,
+            1,
+            'Vault secret creation requires the ' . VaultPermission::SecretCreate->value
+            . ' permission (' . $errorMessage . ') — the record was not created.',
+        );
     }
 
     /**

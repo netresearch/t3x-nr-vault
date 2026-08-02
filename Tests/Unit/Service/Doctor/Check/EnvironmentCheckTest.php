@@ -120,7 +120,7 @@ final class EnvironmentCheckTest extends TestCase
     #[Test]
     public function anUnsetLockSslIsAWarningUnderEitherProfile(): void
     {
-        foreach ([SecurityProfile::Standard, SecurityProfile::Hardened] as $profile) {
+        foreach (SecurityProfile::cases() as $profile) {
             $this->assertFindingSeverity(
                 FindingSeverity::Warning,
                 (new EnvironmentCheck())->run($this->doctorContext($profile)),

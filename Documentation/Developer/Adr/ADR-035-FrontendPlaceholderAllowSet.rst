@@ -423,9 +423,11 @@ Residual risk
    request, it defaults to ``0``, and it honours the
    ``$TYPO3_CONF_VARS[SYS][nrVault][frontendPlaceholderLegacyCli]`` pin, so an
    operator can put the weakening out of reach of the backend Settings module —
-   which matters here, because the flag's only effect is to open a gate.
-   ``vault:doctor`` does not report it; an operator who sets it has to remember
-   it themselves.
+   which matters here, because the flag's only effect is to open a gate. It is
+   also visible: ``vault:doctor`` reports it as ``cli.frontend_placeholder_legacy``
+   — warning under ``standard``, critical under ``hardened`` — and emits that
+   control on every run, not only when ``allowCliAccess`` is on, because the two
+   settings are independent.
 -  **A CLI render that carries no request of its own resolves nothing**, because
    A4 needs a request to be keyed on and the console application's own request
    is not automatically the renderer's. This is the fail-closed direction and
