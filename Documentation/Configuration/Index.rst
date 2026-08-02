@@ -757,6 +757,15 @@ To allow a secret to be used in TypoScript:
 1. Create the secret with :php:`frontend_accessible` metadata.
 2. Use the :typoscript:`%vault(identifier)%` syntax in TypoScript.
 
+``frontend_accessible`` says the secret *may* appear in a page; it does not say
+which placeholders get expanded. In a frontend request the identifier must also
+be published through an admin-only source — the TypoScript setup array, the site
+configuration, :typoscript:`plugin.tx_nrvault.frontendResolvableIdentifiers`, or
+:php:`FrontendPlaceholderPolicyInterface::allowIdentifier()`. Step 2 satisfies
+that on its own; an identifier used only in a Fluid template file or an eID
+handler needs one of the last two. See
+:ref:`Which placeholders resolve in the frontend <usage-typoscript-frontend-scope>`.
+
 .. code-block:: php
    :caption: Store frontend-accessible secret
 

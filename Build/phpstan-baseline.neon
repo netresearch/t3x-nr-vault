@@ -623,6 +623,60 @@ parameters:
 			path: ../Tests/Functional/Crypto/MasterKeyRotationTest.php
 
 		-
+			rawMessage: Access to internal constant TYPO3\CMS\Core\Core\SystemEnvironmentBuilder::REQUESTTYPE_BE from outside its root namespace TYPO3.
+			identifier: classConstant.internal
+			count: 1
+			path: ../Tests/Functional/EventListener/TypoScriptVaultListenerFrontendScopeTest.php
+
+		-
+			rawMessage: Access to internal constant TYPO3\CMS\Core\Core\SystemEnvironmentBuilder::REQUESTTYPE_FE from outside its root namespace TYPO3.
+			identifier: classConstant.internal
+			count: 1
+			path: ../Tests/Functional/EventListener/TypoScriptVaultListenerFrontendScopeTest.php
+
+		-
+			rawMessage: 'Call to internal method TYPO3\CMS\Core\TypoScript\FrontendTypoScript::setConfigArray() from outside its root namespace TYPO3.'
+			identifier: method.internal
+			count: 1
+			path: ../Tests/Functional/EventListener/TypoScriptVaultListenerFrontendScopeTest.php
+
+		-
+			rawMessage: 'Call to internal method TYPO3\CMS\Core\TypoScript\FrontendTypoScript::setSetupArray() from outside its root namespace TYPO3.'
+			identifier: method.internal
+			count: 1
+			path: ../Tests/Functional/EventListener/TypoScriptVaultListenerFrontendScopeTest.php
+
+		-
+			rawMessage: 'Call to internal static method TYPO3\CMS\Core\Core\Environment::initialize() from outside its root namespace TYPO3.'
+			identifier: staticMethod.internal
+			count: 2
+			path: ../Tests/Functional/EventListener/TypoScriptVaultListenerFrontendScopeTest.php
+
+		-
+			rawMessage: 'Call to method __construct() of internal class TYPO3\CMS\Core\Http\ServerRequest from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 1
+			path: ../Tests/Functional/EventListener/TypoScriptVaultListenerFrontendScopeTest.php
+
+		-
+			rawMessage: 'Call to method withAttribute() of internal class TYPO3\CMS\Core\Http\ServerRequest from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 1
+			path: ../Tests/Functional/EventListener/TypoScriptVaultListenerFrontendScopeTest.php
+
+		-
+			rawMessage: Instantiation of internal class TYPO3\CMS\Core\Http\ServerRequest.
+			identifier: new.internalClass
+			count: 1
+			path: ../Tests/Functional/EventListener/TypoScriptVaultListenerFrontendScopeTest.php
+
+		-
+			rawMessage: Instantiation of internal class TYPO3\CMS\Core\TypoScript\AST\Node\RootNode.
+			identifier: new.internalClass
+			count: 1
+			path: ../Tests/Functional/EventListener/TypoScriptVaultListenerFrontendScopeTest.php
+
+		-
 			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
 			identifier: staticMethod.dynamicCall
 			count: 1
@@ -2271,6 +2325,54 @@ parameters:
 			identifier: phpunit.assertEquals
 			count: 7
 			path: ../Tests/Unit/Security/AccessControlServiceTest.php
+
+		-
+			rawMessage: Access to internal constant TYPO3\CMS\Core\Core\SystemEnvironmentBuilder::REQUESTTYPE_BE from outside its root namespace TYPO3.
+			identifier: classConstant.internal
+			count: 1
+			path: ../Tests/Unit/Security/FrontendPlaceholderPolicyTest.php
+
+		-
+			rawMessage: Access to internal constant TYPO3\CMS\Core\Core\SystemEnvironmentBuilder::REQUESTTYPE_FE from outside its root namespace TYPO3.
+			identifier: classConstant.internal
+			count: 5
+			path: ../Tests/Unit/Security/FrontendPlaceholderPolicyTest.php
+
+		-
+			rawMessage: 'Call to internal method TYPO3\CMS\Core\TypoScript\FrontendTypoScript::setSetupArray() from outside its root namespace TYPO3.'
+			identifier: method.internal
+			count: 1
+			path: ../Tests/Unit/Security/FrontendPlaceholderPolicyTest.php
+
+		-
+			rawMessage: 'Call to internal static method TYPO3\CMS\Core\Core\Environment::initialize() from outside its root namespace TYPO3.'
+			identifier: staticMethod.internal
+			count: 1
+			path: ../Tests/Unit/Security/FrontendPlaceholderPolicyTest.php
+
+		-
+			rawMessage: 'Call to method __construct() of internal class TYPO3\CMS\Core\Http\ServerRequest from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 6
+			path: ../Tests/Unit/Security/FrontendPlaceholderPolicyTest.php
+
+		-
+			rawMessage: 'Call to method withAttribute() of internal class TYPO3\CMS\Core\Http\ServerRequest from outside its root namespace TYPO3.'
+			identifier: method.internalClass
+			count: 8
+			path: ../Tests/Unit/Security/FrontendPlaceholderPolicyTest.php
+
+		-
+			rawMessage: Instantiation of internal class TYPO3\CMS\Core\Http\ServerRequest.
+			identifier: new.internalClass
+			count: 6
+			path: ../Tests/Unit/Security/FrontendPlaceholderPolicyTest.php
+
+		-
+			rawMessage: Instantiation of internal class TYPO3\CMS\Core\TypoScript\AST\Node\RootNode.
+			identifier: new.internalClass
+			count: 2
+			path: ../Tests/Unit/Security/FrontendPlaceholderPolicyTest.php
 
 		-
 			rawMessage: Access to constant on internal class TYPO3\CMS\Core\Authentication\GroupResolver.

@@ -222,10 +222,24 @@ Use vault references in TypoScript for frontend-accessible secrets:
    :caption: TypoScript vault reference
 
    lib.googleMapsKey = TEXT
-   lib.googleMapsKey.value = %vault(google_maps_api_key)%
+   lib.googleMapsKey {
+     value = %vault(google_maps_api_key)%
+     stdWrap.cache.disable = 1
+   }
 
    page.headerData.10 = TEXT
-   page.headerData.10.value = <script>var API_KEY = '%vault(public_api_key)%';</script>
+   page.headerData.10 {
+     value = <script>var API_KEY = '%vault(public_api_key)%';</script>
+     stdWrap.cache.disable = 1
+   }
+
+.. note::
+
+   The ``stdWrap.`` sub-array is required, not decoration. ``TEXT`` removes
+   ``value`` from its configuration before rendering, so a ``TEXT`` object whose
+   only property is ``value`` never calls ``stdWrap()`` at all — and the
+   placeholder is what reaches the page. Earlier releases of this documentation
+   showed the property-less form; it never resolved.
 
 .. warning::
 
@@ -236,16 +250,109 @@ Use vault references in TypoScript for frontend-accessible secrets:
       secrets that should not be cached.
    -  Consider using ``USER_INT`` for content containing secrets.
 
-Example with caching disabled:
+.. _usage-typoscript-frontend-scope:
+
+Which placeholders resolve in the frontend
+------------------------------------------
+
+The listener that expands :typoscript:`%vault(...)%` runs on the output of
+*every* ``stdWrap`` call. That includes strings the integrator did not author:
+an editor-written ``tt_content`` field rendered with ``stdWrap.field =
+bodytext``, or a request parameter rendered with ``data = GP:q``. Without a
+restriction, anyone who can type into a content element — or append a query
+string — could name any frontend-accessible secret and have it expanded into
+the (cacheable) page.
+
+In a frontend request the extension therefore resolves an identifier only when
+it was **published** through a source an editor cannot write:
+
+**A1 — frontend TypoScript.** The identifier appears in the setup array, i.e.
+somewhere in the site's TypoScript. ``sys_template`` is admin-only and site
+TypoScript lives on disk. This covers every documented example on this page:
+writing ``lib.apiKey.value = %vault(my_api_key)%`` publishes ``my_api_key``.
+
+**A2 — site configuration and site settings.** An identifier used anywhere in
+:file:`config/sites/<site>/config.yaml` or in the site settings is published for
+that site. This is what keeps :ref:`site configuration <configuration-site>`
+values usable in content.
+
+**A3 — the explicit list.** For an identifier that is used only in a Fluid
+template file, a ``userFunc`` or a DataProcessor — that is, nowhere in the setup
+array — name it once per site:
 
 .. code-block:: typoscript
-   :caption: Disable caching for secrets
+   :caption: Publish identifiers that appear nowhere else in TypoScript
 
-   lib.apiKey = TEXT
-   lib.apiKey {
-     value = %vault(my_api_key)%
-     stdWrap.cache.disable = 1
-   }
+   plugin.tx_nrvault.frontendResolvableIdentifiers = my_api_key, public_widget_token
+
+**A4 — integrator PHP.** In an eID handler or any other entry point that has no
+TypoScript and no site attribute, publish the identifier for the current request:
+
+.. code-block:: php
+   :caption: Publish an identifier from PHP
+
+   use Netresearch\NrVault\Security\FrontendPlaceholderPolicyInterface;
+   use TYPO3\CMS\Core\Utility\GeneralUtility;
+
+   // $request is the PSR-7 request your handler received.
+   GeneralUtility::makeInstance(FrontendPlaceholderPolicyInterface::class)
+       ->allowIdentifier('my_api_key', $request);
+
+The request argument is not decoration, and it is not a freshness hint either:
+it *is* the key. The policy is a shared service that lives for the whole PHP
+process, so the grant is stored against that request object in a
+:php:`\WeakMap`, and a later request — an anonymous frontend render in the same
+worker process, possibly on another site — holds a different object and cannot
+address it.
+
+.. important::
+
+   Pass the request you are handling, and call :php:`setRequest()` with **the
+   same object** on the content object renderer you render with. The grant is
+   matched by object identity against the request the renderer carries;
+   :php:`$GLOBALS['TYPO3_REQUEST']` is never consulted for it, because TYPO3
+   sets that global and never unsets it, so in a worker SAPI it outlives the
+   request that set it. A renderer carrying a different request — or none —
+   resolves nothing.
+
+.. warning::
+
+   Never pass request-derived data as the *identifier* — that hands the
+   allow-set back to the caller and re-opens the hole. Where you can, prefer
+   :php:`VaultServiceInterface::retrieveForFrontend()`, which returns the value
+   instead of widening the allow-set.
+
+**Failure is loud, but quiet in production.** An unpublished identifier leaves
+the literal ``%vault(identifier)%`` in the output. In :guilabel:`Development`
+context a single ``notice`` per request names the first rejected identifier; in
+every other context the skip path writes nothing, so unauthenticated input
+cannot drive log volume.
+
+.. warning::
+
+   The flip side is that a rejected identifier leaves **no trace** outside
+   :guilabel:`Development`: no log record and — because the check runs before
+   the vault is touched — no ``AccessDenied`` audit row either. Probing for
+   which identifiers a site publishes is therefore free and invisible; the only
+   signal is whether the literal survives in the page. If you need that signal,
+   run the site in :guilabel:`Development` while investigating, or watch for
+   ``%vault(`` in rendered output. This is a deliberate trade: emitting a record
+   per rejection is exactly the amplification an anonymous visitor could drive.
+
+**Scope of the restriction.** It applies to frontend requests and to any web
+request whose type cannot be established (eID among them, where
+:php:`$GLOBALS['TYPO3_REQUEST']` does not exist). CLI — scheduler, Symfony
+Messenger, console commands — and backend requests are unaffected, a backend
+request being recognised by the request the renderer itself carries and never by
+what an earlier request left in :php:`$GLOBALS['TYPO3_REQUEST']`. The check is
+on the *identifier*, not on where the placeholder sits: an identifier this site
+already publishes stays resolvable wherever it appears.
+
+One further case is worth naming: on a **fully cached page hit with no**
+``USER_INT`` **or** ``COA_INT`` **object**, core's frontend TypoScript factory
+returns before the setup array is built, so A1 and A3 are empty for that request
+and only A2 and A4 apply. No documented example is affected, and the direction is
+fail-closed. See :ref:`ADR-035 <adr-035-frontend-placeholder-allow-set>`.
 
 .. _usage-cli-commands:
 
