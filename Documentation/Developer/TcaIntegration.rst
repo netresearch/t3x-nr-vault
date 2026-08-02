@@ -364,6 +364,14 @@ removing the first secret, because a vault delete cannot be undone. If any
 field is denied, no secret is removed and the record delete is cancelled. A
 field pointing at a secret that no longer exists does not block the delete.
 
+The preflight cannot cover a failure it is unable to predict — an audit write
+that fails, a vault outage, a permission revoked between the check and the
+delete. If one of those hits partway through, the loop stops rather than
+enlarging the damage, the record is preserved, and the error names how many
+secrets of preceding fields were already deleted and cannot be restored. That
+count is the signal to re-enter those values; the record still exists, so
+nothing else is lost.
+
 
 .. _tca-security:
 
@@ -375,8 +383,13 @@ Security considerations
 Access control
 --------------
 
-Vault secrets inherit the access control of the record they belong to.
-If a backend user can edit the record, they can update the vault secret.
+Editing the record is necessary but **not** sufficient. Every vault field
+mutation goes through the same two gates as any other vault operation: the
+operation permission (``secret.create`` when the field is first filled,
+``secret.rotate`` on a change, ``secret.delete`` when the record goes) and the
+per-secret owner/group tiers. A backend user who may edit the record but holds
+neither will have the mutation refused, and the refusal is audited — see
+:ref:`security-operation-permissions` and :ref:`security-access-control`.
 
 The reveal button requires explicit user action and is logged.
 
