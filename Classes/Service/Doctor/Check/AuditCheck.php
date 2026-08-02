@@ -513,17 +513,22 @@ final readonly class AuditCheck implements ReadinessCheckInterface
                 . 'includes "success" itself: a recorded denial can be flipped into a recorded grant, '
                 . 'which inverts the meaning of the entry without touching a signed byte. '
                 . 'error_message, reason, ip_address, user_agent, hash_before, hash_after and context '
-                . 'are forgeable the same way; so is the hmac_key_epoch column, so the algorithm can '
-                . 'be relabelled downwards and re-signed without the key; and so are the attribution '
-                . 'fields the backend audit list and the CSV export present as "who did this", so '
-                . 'blame can be reassigned on any row.'
+                . 'are forgeable the same way; so is the hmac_key_epoch column, which leaves the '
+                . 'algorithm selector resting on verifyHashChain()\'s chain-shape guards rather than '
+                . 'on the MAC; and so are the attribution fields the backend audit list and the CSV '
+                . 'export present as "who did this", so blame can be reassigned on any row.'
             : 'The epoch-2 payload signs the forensic columns but leaves two sets out. The '
-                . 'hmac_key_epoch column — the algorithm selector itself — is unsigned, so a '
-                . 'database-write attacker can relabel a row to a lower epoch and re-sign it under the '
-                . 'weaker algorithm; at epoch 0 that algorithm needs no key at all. The attribution '
-                . 'fields actor_type, actor_username, actor_role and request_id are unsigned too — the '
-                . 'exact fields the backend audit list and the CSV export show as the responsible '
-                . 'actor — so blame can be reassigned on any row without breaking the chain.';
+                . 'hmac_key_epoch column — the algorithm selector itself — is unsigned, so no part of '
+                . 'the row proves which algorithm signed it, and a relabel is caught only by the '
+                . 'chain-shape guards in verifyHashChain(): per-row epoch monotonicity, and a '
+                . 'chain-wide high-water floor read from this very setting. The floor runs on a '
+                . 'full-chain pass only — not on the bounded tail audit.hash_chain verifies — and the '
+                . 'monotonicity check cannot fire on the first row of whatever range is scanned. At '
+                . 'epoch 3 the selector is inside the MAC, so a relabel breaks the stored hash by '
+                . 'itself. The attribution fields actor_type, actor_username, actor_role and '
+                . 'request_id are unsigned too — the exact fields the backend audit list and the CSV '
+                . 'export show as the responsible actor — so blame can be reassigned on any row '
+                . 'without breaking the chain.';
 
         return Finding::warning(
             id: $id,

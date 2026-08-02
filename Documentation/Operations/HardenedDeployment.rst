@@ -427,7 +427,7 @@ configuration is coherent; these steps say the deployment works.
       by one without it.
 *   [ ] The strict CLI placeholder policy is in force: :bash:`vault:doctor`
       reports ``cli.frontend_placeholder_legacy`` as a pass (it is critical
-      under this profile when the flag is on). Confirm it behaviourally too —
+      under this profile when the flag is on). Confirm it empirically as well —
       put a ``%vault(id)%`` placeholder for a ``frontend_accessible`` secret
       into an editor-editable field, run a scheduled render over it
       (:bash:`scheduler:run`), and confirm the placeholder does **not**

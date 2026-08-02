@@ -602,9 +602,12 @@ final readonly class AuditLogService implements AuditLogServiceInterface
      *
      *  1. `hmac_key_epoch` — the algorithm selector itself. At epoch 0-2 the
      *     epoch was read from the row but never bound into any hash, so a
-     *     DB-write attacker could downgrade the (keyless-verifiable) algorithm
-     *     by flipping the column and re-signing without the HMAC key. Binding
-     *     the epoch makes any such re-sign mismatch the stored entry_hash.
+     *     relabel to a lower (keyless-verifiable) algorithm was caught only by
+     *     the chain-shape guards in `verifyHashChain()` — the per-row
+     *     monotonicity check and the chain-wide epoch floor — neither of which
+     *     covers the first row of a scanned range, and the floor only a
+     *     full-chain pass. Binding the epoch makes any such re-sign mismatch
+     *     the stored entry_hash on the row itself, whatever the range.
      *  2. The human-readable attribution fields `actor_type`,
      *     `actor_username`, `actor_role` and the `request_id` — surfaced in the
      *     backend audit list and CSV export but excluded from the v2 payload,
