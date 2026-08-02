@@ -102,11 +102,22 @@ final readonly class SecretRepository implements SecretRepositoryInterface
      * `lastInsertId()`; on UPDATE the original instance is returned
      * unchanged. Callers MUST use the returned value if they need the
      * UID after save (it cannot be set on the readonly input).
+     *
+     * With `$persistGroupRelations = false` the record's two group tiers
+     * are left untouched, MM relation rows and count columns alike. Both
+     * halves matter: writing the count of an entity whose tier list is
+     * incomplete, while skipping the MM write that would make the count
+     * true, produces a row claiming fewer groups than it grants — the
+     * inconsistency this option exists to avoid, not a milder form of it.
      */
-    public function save(Secret $secret): Secret
+    public function save(Secret $secret, bool $persistGroupRelations = true): Secret
     {
         $connection = $this->getConnection();
         $data = $secret->toDatabaseRow();
+
+        if (!$persistGroupRelations) {
+            unset($data['allowed_groups'], $data['write_groups']);
+        }
 
         if ($secret->getUid() === null) {
             // Insert new secret
@@ -124,8 +135,10 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         }
 
         // Update MM tables for the read-tier and write-tier groups.
-        $this->saveGroupsForSecret($secret, self::MM_TABLE_NAME, $secret->getAllowedGroups());
-        $this->saveGroupsForSecret($secret, self::MM_WRITE_TABLE_NAME, $secret->getWriteGroups());
+        if ($persistGroupRelations) {
+            $this->saveGroupsForSecret($secret, self::MM_TABLE_NAME, $secret->getAllowedGroups());
+            $this->saveGroupsForSecret($secret, self::MM_WRITE_TABLE_NAME, $secret->getWriteGroups());
+        }
 
         return $secret;
     }

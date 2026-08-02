@@ -107,7 +107,21 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             // sees the freshly-assigned UID — the readonly entity passed in
             // has uid=null on create, the adapter returns the uid-bearing
             // instance from the repository's INSERT.
-            $secretEntity = $this->adapter->store($secretEntity);
+            //
+            // The group tiers of $secretEntity are authoritative for this
+            // write EXCEPT on the FormEngine completion path — a record that
+            // already exists but holds no value. There DataHandler has
+            // inserted the row and defers its MM writes until after the hook
+            // that calls us has returned, so the read behind $existing saw no
+            // relations for a record that is about to have several. Writing
+            // that back zeroes the count columns while the relation rows land
+            // moments later, leaving a row that claims no groups and grants
+            // some. A caller that submitted `groups` states the tiers itself
+            // and keeps ownership of them.
+            $secretEntity = $this->adapter->store(
+                $secretEntity,
+                !$isCreation || !$existing instanceof Secret || isset($options['groups']),
+            );
 
             // SEC-3 atomicity: the mutation and its tamper-evident audit
             // entry MUST be all-or-nothing. A single shared DB transaction is

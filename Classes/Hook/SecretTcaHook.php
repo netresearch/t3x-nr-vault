@@ -123,9 +123,9 @@ final class SecretTcaHook
     private array $originalMmRelations = [];
 
     /**
-     * UIDs whose record creation was rolled back because the creation audit
-     * write failed, awaiting the MM purge in
-     * processDatamap_afterAllOperations().
+     * UIDs whose record creation was rolled back — because the creation audit
+     * write failed, or because the submitted secret value was refused —
+     * awaiting the MM purge in processDatamap_afterAllOperations().
      *
      * For a 'new' record DataHandler defers the MM writes to
      * $dbAnalysisStore (the uid is unknown during checkValue) and flushes
@@ -274,6 +274,12 @@ final class SecretTcaHook
         }
 
         $identifier = \is_string($record['identifier'] ?? null) ? $record['identifier'] : '';
+
+        // Both flags are needed to tell the three creation outcomes apart:
+        // "no value was stored" alone cannot distinguish a deliberately
+        // value-less record from one whose value was refused (see
+        // RecordCreationOutcome).
+        $valueSubmitted = false;
         $secretStored = false;
 
         // Handle pending secret encryption
@@ -292,6 +298,8 @@ final class SecretTcaHook
             }
 
             if ($secretValue !== '') {
+                $valueSubmitted = true;
+
                 try {
                     // Owner/group/scope ACL is persisted via the tx_nrvault_secret
                     // TCA columns (owner_uid, allowed_groups, scope_pid) by DataHandler
@@ -340,9 +348,13 @@ final class SecretTcaHook
         unset($this->originalMetadata[$originalId], $this->originalMmRelations[$originalId]);
 
         if ($status === 'new') {
-            if (!$secretStored) {
-                $this->auditRecordCreationOrCompensate($identifier, $uid, $fieldArray, $dataHandler);
-            }
+            $this->completeRecordCreation(
+                RecordCreationOutcome::classify($valueSubmitted, $secretStored),
+                $identifier,
+                $uid,
+                $fieldArray,
+                $dataHandler,
+            );
 
             return;
         }
@@ -499,12 +511,83 @@ final class SecretTcaHook
     }
 
     /**
+     * Finish the FormEngine creation of a secret record according to how it
+     * ended. Routing by RecordCreationOutcome rather than by "no value was
+     * stored" is the point of this method: the value-less and the rejected
+     * case are indistinguishable by that fact alone, yet one must keep its
+     * row and be audited as a creation while the other must lose its row and
+     * be audited as nothing.
+     *
+     * @param array<string, mixed> $fieldArray
+     */
+    private function completeRecordCreation(
+        RecordCreationOutcome $outcome,
+        string $identifier,
+        int $uid,
+        array $fieldArray,
+        DataHandler $dataHandler,
+    ): void {
+        switch ($outcome) {
+            case RecordCreationOutcome::ValueLess:
+                $this->auditRecordCreationOrCompensate($identifier, $uid, $fieldArray, $dataHandler);
+                break;
+            case RecordCreationOutcome::Rejected:
+                $this->revertRejectedCreation($uid, $dataHandler);
+                break;
+            case RecordCreationOutcome::Stored:
+                // VaultService::store() wrote the create entry itself, with
+                // its own compensating rollback. Nothing to add.
+                break;
+        }
+    }
+
+    /**
+     * Remove the row DataHandler inserted for a creation whose submitted
+     * secret value VaultService refused (per-secret ACL or operation
+     * permission) or failed to store.
+     *
+     * No secret was created, so no row may be left behind. A surviving row
+     * squats the identifier under an owner_uid that
+     * enforcePrivilegedColumnPolicy() has just forced to the refused
+     * creator, so every later legitimate non-admin create of that identifier
+     * fails canWrite() against it. Its ACL relation rows are purged in
+     * processDatamap_afterAllOperations(), which core calls after the
+     * deferred MM writes (see $revertedCreations).
+     *
+     * No audit entry is written here: VaultService already recorded the
+     * refusal as access_denied, and a success `create` entry for a creation
+     * that never happened would put a verifiable-looking falsehood into the
+     * tamper-evident HMAC chain, right next to the truthful denial.
+     */
+    private function revertRejectedCreation(int $uid, DataHandler $dataHandler): void
+    {
+        $reverted = $this->revertRow($uid, null);
+        if ($reverted) {
+            $this->revertedCreations[$uid] = true;
+        }
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            self::TABLE,
+            $uid,
+            2,
+            null,
+            1,
+            'The submitted secret value was not stored, so no vault secret was created — the record was '
+            . ($reverted
+                ? 'removed again.'
+                : 'NOT removable; it holds no secret and must be deleted manually.'),
+        );
+    }
+
+    /**
      * Audit the FormEngine creation of a record that carries no secret value
-     * (a value-bearing create is audited by VaultService::store()). If the
-     * audit write fails, the just-created row is removed again — a record
-     * must not exist without its audit entry. Its ACL relation rows are
-     * purged in processDatamap_afterAllOperations(), because DataHandler
-     * writes them only after this hook has run.
+     * (a stored value is audited by VaultService::store(), a refused one is
+     * reverted instead — see completeRecordCreation()). If the audit write
+     * fails, the just-created row is removed again — a record must not exist
+     * without its audit entry. Its ACL relation rows are purged in
+     * processDatamap_afterAllOperations(), because DataHandler writes them
+     * only after this hook has run.
      *
      * @param array<string, mixed> $fieldArray
      */

@@ -33,9 +33,9 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
         return true;
     }
 
-    public function store(Secret $secret): Secret
+    public function store(Secret $secret, bool $persistGroupRelations = true): Secret
     {
-        return $this->secretRepository->save($secret);
+        return $this->secretRepository->save($secret, $persistGroupRelations);
     }
 
     public function retrieve(string $identifier): ?Secret

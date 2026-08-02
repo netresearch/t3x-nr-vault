@@ -530,6 +530,102 @@ final class VaultServiceTest extends TestCase
         $subject->store('formCreate', 'first-value');
     }
 
+    /**
+     * Regression: DataHandler inserts the row and defers its MM writes until
+     * after the hook that calls store() has returned, so the read behind
+     * $existing reports no groups for a record that is about to have several.
+     * Persisting those empty tiers zeroed the count columns while the
+     * relation rows landed moments later.
+     */
+    #[Test]
+    public function storeCompletingAFormEngineCreationLeavesTheGroupTiersUntouched(): void
+    {
+        $existing = new Secret(
+            identifier: 'formCreateAcl',
+            uid: 42,
+            ownerUid: 1,
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::isInstanceOf(Secret::class), false)
+            ->willReturnArgument(0);
+
+        $this->subject->store('formCreateAcl', 'first-value');
+    }
+
+    #[Test]
+    public function storeManagesTheGroupTiersWhenTheCallerSubmitsThem(): void
+    {
+        // Same value-less record, but a caller that states the tiers itself
+        // owns them — the option must not be silently dropped.
+        $existing = new Secret(
+            identifier: 'formCreateAcl',
+            uid: 42,
+            ownerUid: 1,
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(
+                self::callback(static fn (Secret $secret): bool => $secret->getAllowedGroups() === [5, 6]),
+                true,
+            )
+            ->willReturnArgument(0);
+
+        $this->subject->store('formCreateAcl', 'first-value', ['groups' => [5, 6]]);
+    }
+
+    #[Test]
+    public function storeManagesTheGroupTiersOnAnOrdinaryUpdate(): void
+    {
+        // A record that already holds a value was read with its relations
+        // complete, so the tiers it carries are authoritative.
+        $existing = new Secret(
+            identifier: 'update',
+            uid: 42,
+            encryptedValue: 'encrypted',
+            encryptedDek: 'dek',
+            dekNonce: 'n1',
+            valueNonce: 'n2',
+            valueChecksum: 'cs',
+            ownerUid: 1,
+            allowedGroups: [5],
+            writeGroups: [6],
+        );
+
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc2', 'dek2', 'n3', 'n4', 'cs2'));
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::isInstanceOf(Secret::class), true)
+            ->willReturnArgument(0);
+
+        $this->subject->store('update', 'new-value');
+    }
+
     #[Test]
     public function storeCoercesOwnerUidForNonAdminBackendActor(): void
     {
