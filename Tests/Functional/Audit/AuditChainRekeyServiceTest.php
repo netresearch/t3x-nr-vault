@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Audit;
 
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditChainRekeyService;
 use Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface;
 use Netresearch\NrVault\Audit\AuditLogService;
@@ -57,6 +58,11 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
         $newKey = sodium_crypto_secretbox_keygen();
         $connection->beginTransaction();
         $rewritten = $rekeyService->rekeyChain($connection, $newKey);
+        // Contract of AuditChainRekeyServiceInterface: the caller re-records the
+        // chain tip anchor under the NEW key in the same transaction. The
+        // rewrite invalidates the anchored hash, so skipping this leaves the
+        // chain reporting a tip-anchor violation (ADR-034).
+        $this->get(AuditChainAnchorStoreInterface::class)->reseal($connection, $newKey);
         $connection->commit();
 
         self::assertSame(3, $rewritten, 'All three HMAC-epoch rows must be rewritten');
@@ -103,6 +109,7 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
         $newKey = sodium_crypto_secretbox_keygen();
         $connection->beginTransaction();
         $rewritten = $rekeyService->rekeyChain($connection, $newKey);
+        $this->get(AuditChainAnchorStoreInterface::class)->reseal($connection, $newKey);
         $connection->commit();
 
         // Only the two HMAC rows change; the keyless prefix is untouched

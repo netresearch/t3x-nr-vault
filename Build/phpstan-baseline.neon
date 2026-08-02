@@ -1273,7 +1273,7 @@ parameters:
 		-
 			rawMessage: 'Parameter #1 $connectionPool of class Netresearch\NrVault\Audit\AuditLogService constructor expects TYPO3\CMS\Core\Database\ConnectionPool, PHPUnit\Framework\MockObject\MockObject given.'
 			identifier: argument.type
-			count: 1
+			count: 3
 			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
 
 		-
@@ -1286,6 +1286,12 @@ parameters:
 			rawMessage: 'Parameter #1 $masterKeyProvider of static method Netresearch\NrVault\Audit\AuditLogService::deriveHmacKey() expects Netresearch\NrVault\Crypto\MasterKeyProviderInterface, PHPUnit\Framework\MockObject\MockObject|null given.'
 			identifier: argument.type
 			count: 1
+			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
+
+		-
+			rawMessage: 'Parameter #2 $accessControlService of class Netresearch\NrVault\Audit\AuditLogService constructor expects Netresearch\NrVault\Security\AccessControlServiceInterface, PHPUnit\Framework\MockObject\MockObject given.'
+			identifier: argument.type
+			count: 2
 			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
 
 		-
@@ -1309,7 +1315,7 @@ parameters:
 		-
 			rawMessage: 'Parameter #3 $masterKeyProvider of class Netresearch\NrVault\Audit\AuditLogService constructor expects Netresearch\NrVault\Crypto\MasterKeyProviderInterface, PHPUnit\Framework\MockObject\MockObject|null given.'
 			identifier: argument.type
-			count: 8
+			count: 10
 			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
 
 		-
@@ -1321,7 +1327,7 @@ parameters:
 		-
 			rawMessage: 'Parameter #4 $extensionConfiguration of class Netresearch\NrVault\Audit\AuditLogService constructor expects Netresearch\NrVault\Configuration\ExtensionConfigurationInterface, PHPUnit\Framework\MockObject\MockObject|null given.'
 			identifier: argument.type
-			count: 2
+			count: 3
 			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
 
 		-

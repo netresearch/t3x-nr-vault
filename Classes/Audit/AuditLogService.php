@@ -55,6 +55,32 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     private const MAX_REQUEST_ID_LENGTH = 100;
 
     /**
+     * Finding keys for the tip-anchor check.
+     *
+     * Negative so they can never collide with a real audit uid, nor with the
+     * chain-level epoch-floor error that already squats on key `0`.
+     */
+    private const ANCHOR_ERROR_UNREADABLE = -1;
+
+    private const ANCHOR_ERROR_ROW_MISSING = -2;
+
+    private const ANCHOR_ERROR_HASH_MISMATCH = -3;
+
+    private const ANCHOR_ERROR_REQUIRED = -4;
+
+    private const ANCHOR_WARNING_UNANCHORED = -1;
+
+    private const ANCHOR_WARNING_SPLIT_CONNECTION = -2;
+
+    private const ANCHOR_WARNING_IN_FLIGHT = -3;
+
+    /**
+     * @param AuditChainAnchorStoreInterface|null $anchorStore In-database
+     *                                                         (sys_registry) MAC-signed tip anchor. Optional for the same
+     *                                                         reason as the sinks below: existing four-argument
+     *                                                         constructions keep working, DI autowires it in production.
+     *                                                         Null means the tip is not pinned — `verifyHashChain()`
+     *                                                         reports the unanchored state per `auditAnchorRequired`.
      * @param AuditSinkRegistryInterface|null $sinkRegistry External audit sinks.
      *                                                      Optional so the many existing callers that construct this
      *                                                      service with four arguments (tests, migration tooling) keep
@@ -69,6 +95,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         private AccessControlServiceInterface $accessControlService,
         private MasterKeyProviderInterface $masterKeyProvider,
         private ExtensionConfigurationInterface $extensionConfiguration,
+        private ?AuditChainAnchorStoreInterface $anchorStore = null,
         private ?AuditSinkRegistryInterface $sinkRegistry = null,
         private ?LoggerInterface $logger = null,
     ) {}
@@ -117,6 +144,25 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 $previousHash,
             );
             $persistedRow = $this->insertAndUpdateHash($connection, $data, $previousHash);
+
+            // Pin the new tip outside this table, inside the SAME lock and
+            // transaction, so anchor and audit row commit or roll back
+            // together. Any failure is re-thrown as AuditWriteException
+            // because that is the type VaultService's compensating path keys
+            // on — a broken anchor write must fail the audited operation
+            // closed, not half-commit it.
+            if ($this->anchorStore instanceof AuditChainAnchorStoreInterface) {
+                try {
+                    $this->anchorStore->advance($connection, $this->anchorFromRow($persistedRow));
+                } catch (Throwable $e) {
+                    throw new AuditWriteException(
+                        'Audit chain tip anchor could not be recorded',
+                        1753900001,
+                        $e,
+                    );
+                }
+            }
+
             $this->commitAuditLock($connection, $isSQLite);
         } catch (Throwable $e) {
             $this->rollbackAuditLock($connection, $isSQLite);
@@ -226,7 +272,8 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // epochs (the HMAC migration) pass 0 to disable the configured floor.
         $epochFloor = $minEpoch ?? $this->getCurrentEpoch();
 
-        $queryBuilder = $this->getConnection()->createQueryBuilder();
+        $connection = $this->getConnection();
+        $queryBuilder = $connection->createQueryBuilder();
         $queryBuilder
             ->select('*')
             ->from(self::TABLE_NAME)
@@ -402,18 +449,40 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             );
         }
 
+        // Tip anchor (finding F2).
+        //
+        // The walk above only ever inspects rows that are still there, so
+        // `DELETE FROM tx_nrvault_audit_log WHERE uid > N` — or a full wipe —
+        // leaves a self-consistent chain that every check so far reports as
+        // valid. The anchor is an assertion about the tip held OUTSIDE this
+        // table and signed with a key that is not in the database, so removing
+        // rows can no longer go unnoticed.
+        //
+        // Restricted to a full-chain pass for the same reason as the epoch
+        // floor above: a bounded sub-range may legitimately exclude the tip.
+        $anchorStatus = AuditChainAnchorStatus::NotChecked;
+        if ($fromUid === null && $toUid === null) {
+            $anchorStatus = $this->verifyAnchor($connection, $errors, $warnings);
+        }
+
         return $errors === []
-            ? HashChainVerificationResult::valid($warnings, $missingUids, $missingUidCount)
-            : HashChainVerificationResult::invalid($errors, $warnings, $missingUids, $missingUidCount);
+            ? HashChainVerificationResult::valid($warnings, $missingUids, $missingUidCount, $anchorStatus)
+            : HashChainVerificationResult::invalid($errors, $warnings, $missingUids, $missingUidCount, $anchorStatus);
     }
 
     public function verifyChainForReseal(): ?HashChainVerificationResult
     {
         // Genuinely-legacy keyless epoch-0 chains carry no tamper evidence to
         // check — re-sealing them is exactly how they FIRST gain HMAC protection,
-        // so there is nothing to launder and nothing to verify. Proceed.
+        // so there is nothing in the ROWS to launder and nothing to verify there.
+        //
+        // The ANCHOR still has to be checked. Its validity does not depend on any
+        // row's epoch, and `UPDATE tx_nrvault_audit_log SET hmac_key_epoch = 0` is
+        // one statement without the master key — so "no HMAC rows" is
+        // attacker-selectable. Skipping the whole gate on it lets a truncation be
+        // laundered through the very migration this gate protects.
         if (!$this->chainHasHmacRows()) {
-            return null;
+            return $this->verifyAnchorForReseal();
         }
 
         // The chain is (at least partly) HMAC-protected. Verify it under its OWN
@@ -734,6 +803,23 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
+     * The anchor half of the re-seal gate, for chains whose rows carry no HMAC
+     * evidence of their own. Returns null when the anchor raises no error —
+     * `Unanchored` (or `Disabled`) is a warning, so a pre-anchor install still
+     * migrates.
+     */
+    private function verifyAnchorForReseal(): ?HashChainVerificationResult
+    {
+        $errors = [];
+        $warnings = [];
+        $status = $this->verifyAnchor($this->getConnection(), $errors, $warnings);
+
+        return $errors === []
+            ? null
+            : HashChainVerificationResult::invalid($errors, $warnings, [], 0, $status);
+    }
+
+    /**
      * Whether any row is already HMAC-protected (epoch >= 1). Distinguishes a
      * genuinely-legacy keyless chain (nothing to authenticate) from one that
      * carries HMAC tamper evidence worth verifying before a re-seal.
@@ -798,6 +884,159 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             'hash_after' => (string) $row['hash_after'],
             'context' => (string) $row['context'],
         ];
+    }
+
+    /**
+     * Check the chain tip against the anchor. Read-only on every path.
+     *
+     * Why no interleaving can raise a false alarm:
+     *
+     *  - *Appends.* The question asked is "does row A still exist and still
+     *    carry hash H" — about ONE already-committed row, never a comparison
+     *    against something the walk observed. An append only adds a row with a
+     *    higher uid; `insertAndUpdateHash()` touches only its own uid. No
+     *    interleaving, before/during/after the walk, can change the answer.
+     *  - *Re-seals.* The only writers that rewrite an existing row's hash
+     *    (master-key rotation, the HMAC wizard, the migrate command) rewrite
+     *    the row AND re-record the anchor in one transaction. So the reads are
+     *    ordered anchor V1 -> row -> anchor V2: if V1 and V2 differ byte-wise a
+     *    re-seal landed mid-read and we retry once, then report `InFlight` as a
+     *    warning; if they are identical, no re-seal committed in that window, so
+     *    a hash mismatch is genuine.
+     *
+     * This needs no transaction, no lock and no isolation level, so it behaves
+     * identically on SQLite, MariaDB/MySQL and PostgreSQL — unlike a
+     * "consistent snapshot" read transaction, which PostgreSQL's default READ
+     * COMMITTED does not provide.
+     *
+     * @param array<int, string> $errors
+     * @param array<int, string> $warnings
+     */
+    private function verifyAnchor(Connection $connection, array &$errors, array &$warnings): AuditChainAnchorStatus
+    {
+        // No store wired (bare test construction): the tip is not pinned.
+        // Report exactly like an unanchored install — auditAnchorRequired
+        // decides whether that is a warning or an error.
+        if (!$this->anchorStore instanceof AuditChainAnchorStoreInterface) {
+            return $this->reportUnanchored($connection, $errors, $warnings);
+        }
+
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            $load = $this->anchorStore->load($connection);
+
+            if ($load->status === AuditChainAnchorStatus::Disabled) {
+                return AuditChainAnchorStatus::Disabled;
+            }
+
+            if ($load->status === AuditChainAnchorStatus::Unanchored) {
+                return $this->reportUnanchored($connection, $errors, $warnings);
+            }
+
+            if (!$load->anchor instanceof AuditChainAnchor) {
+                $errors[self::ANCHOR_ERROR_UNREADABLE] = 'Audit chain tip anchor is unreadable '
+                    . '(malformed value or invalid MAC) - the anchor was tampered with, or the '
+                    . 'master key changed without re-sealing the chain';
+
+                return AuditChainAnchorStatus::Unreadable;
+            }
+
+            $anchor = $load->anchor;
+            $storedHash = $this->fetchEntryHashForUid($connection, $anchor->uid);
+
+            if ($storedHash === null) {
+                // No legitimate path deletes audit rows, so this needs no
+                // stability check: the anchored row is simply gone.
+                $errors[self::ANCHOR_ERROR_ROW_MISSING] = \sprintf(
+                    'Audit chain tip anchor points at uid %d, which no longer exists - the log was '
+                    . 'truncated or wiped',
+                    $anchor->uid,
+                );
+
+                return AuditChainAnchorStatus::Violated;
+            }
+
+            if (hash_equals($anchor->entryHash, $storedHash)) {
+                return AuditChainAnchorStatus::Ok;
+            }
+
+            // Mismatch: decide whether a re-seal committed under us.
+            if ($this->anchorStore->load($connection)->raw === $load->raw) {
+                $errors[self::ANCHOR_ERROR_HASH_MISMATCH] = \sprintf(
+                    'Audit chain tip anchor for uid %d does not match the stored entry hash - the '
+                    . 'anchored row was replaced (e.g. truncation followed by re-inserted entries)',
+                    $anchor->uid,
+                );
+
+                return AuditChainAnchorStatus::Violated;
+            }
+        }
+
+        $warnings[self::ANCHOR_WARNING_IN_FLIGHT] = 'Audit chain tip anchor changed while it was '
+            . 'being verified (concurrent re-seal); re-run the verification';
+
+        return AuditChainAnchorStatus::InFlight;
+    }
+
+    /**
+     * No anchor is readable. Distinguish "sys_registry lives on a different
+     * database connection" (a deployment fact we cannot anchor across, always a
+     * warning) from "no anchor row" (a pre-anchor install, a wiped registry, or
+     * an attacker who deleted the anchor before truncating).
+     *
+     * "Never existed" and "was deleted" are indistinguishable from database
+     * state alone, so the default is a warning — otherwise every install that
+     * has not yet appended an audit entry would false-alarm. Operators who have
+     * confirmed the anchor is armed can promote it with `auditAnchorRequired`,
+     * which lives in a settings FILE and is therefore out of a DB-write
+     * attacker's reach.
+     *
+     * @param array<int, string> $errors
+     * @param array<int, string> $warnings
+     */
+    private function reportUnanchored(Connection $connection, array &$errors, array &$warnings): AuditChainAnchorStatus
+    {
+        if ($this->anchorStore instanceof AuditChainAnchorStoreInterface
+            && !$this->anchorStore->sharesConnection($connection)
+        ) {
+            $warnings[self::ANCHOR_WARNING_SPLIT_CONNECTION] = 'Audit chain tip anchor is not '
+                . 'available: sys_registry and tx_nrvault_audit_log are mapped to different database '
+                . 'connections, so the anchor cannot commit atomically with an audit write';
+
+            return AuditChainAnchorStatus::Unanchored;
+        }
+
+        $message = 'No audit chain tip anchor recorded - tail truncation and full wipes of the '
+            . 'audit log are NOT detectable until the next audit write arms the anchor';
+
+        if ($this->extensionConfiguration->isAuditAnchorRequired()) {
+            $errors[self::ANCHOR_ERROR_REQUIRED] = $message . ' (auditAnchorRequired is enabled)';
+        } else {
+            $warnings[self::ANCHOR_WARNING_UNANCHORED] = $message;
+        }
+
+        return AuditChainAnchorStatus::Unanchored;
+    }
+
+    /**
+     * Read one row's `entry_hash` by uid, or null when the row is gone.
+     */
+    private function fetchEntryHashForUid(Connection $connection, int $uid): ?string
+    {
+        $queryBuilder = $connection->createQueryBuilder();
+        $hash = $queryBuilder
+            ->select('entry_hash')
+            ->from(self::TABLE_NAME)
+            ->where(
+                $queryBuilder->expr()->eq(
+                    'uid',
+                    $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT),
+                ),
+            )
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchOne();
+
+        return \is_string($hash) ? $hash : null;
     }
 
     /**
@@ -953,6 +1192,9 @@ final readonly class AuditLogService implements AuditLogServiceInterface
      * derived from that UID. The reserve-then-hash pattern lets the hash bind
      * its own row (otherwise the hash would need a placeholder UID).
      *
+     * Returns the row it just wrote as the chain's new tip, so the caller can
+     * anchor it without a second read.
+     *
      * @param array<string, mixed> $data
      *
      * @return array<string, mixed> The persisted row, including the assigned
@@ -980,6 +1222,20 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         $data['entry_hash'] = $entryHash;
 
         return $data;
+    }
+
+    /**
+     * Build the in-database tip anchor from the freshly persisted row.
+     *
+     * @param array<string, mixed> $row Persisted audit row (DB column names)
+     */
+    private function anchorFromRow(array $row): AuditChainAnchor
+    {
+        return new AuditChainAnchor(
+            is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
+            \is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '',
+            is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : time(),
+        );
     }
 
     /**

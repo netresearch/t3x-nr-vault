@@ -11,6 +11,9 @@ namespace Netresearch\NrVault\Command;
 
 use DateTimeImmutable;
 use Exception;
+use Netresearch\NrVault\Audit\AuditAction;
+use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -22,6 +25,9 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Throwable;
+use TYPO3\CMS\Core\Database\Connection;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 
 /**
  * CLI command to query and export audit logs.
@@ -32,8 +38,18 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 )]
 final class VaultAuditCommand extends Command
 {
+    private const AUDIT_TABLE = 'tx_nrvault_audit_log';
+
+    /**
+     * Pseudo secret identifier for chain-level events that belong to no single
+     * secret (mirrors `VaultRotateMasterKeyCommand::AUDIT_PSEUDO_IDENTIFIER`).
+     */
+    private const AUDIT_PSEUDO_IDENTIFIER = '__audit_anchor__';
+
     public function __construct(
         private readonly AuditLogServiceInterface $auditLogService,
+        private readonly AuditChainAnchorStoreInterface $anchorStore,
+        private readonly ConnectionPool $connectionPool,
     ) {
         parent::__construct();
     }
@@ -102,12 +118,30 @@ final class VaultAuditCommand extends Command
                 'e',
                 InputOption::VALUE_REQUIRED,
                 'Export to file',
+            )
+            ->addOption(
+                'reset-anchor',
+                null,
+                InputOption::VALUE_NONE,
+                'Clear the audit chain tip anchor after a LEGITIMATE full wipe of the audit log, '
+                . 'and record the reset in the chain. Without this, a deliberately truncated log '
+                . 'reports a violation forever.',
+            )
+            ->addOption(
+                'force',
+                null,
+                InputOption::VALUE_NONE,
+                'Skip the interactive confirmation of --reset-anchor (for unattended runs)',
             );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+
+        if ((bool) $input->getOption('reset-anchor')) {
+            return $this->resetAnchor($io, (bool) $input->getOption('force'));
+        }
 
         // Hash chain verification
         if ($input->getOption('verify')) {
@@ -207,6 +241,8 @@ final class VaultAuditCommand extends Command
 
         $result = $this->auditLogService->verifyHashChain();
 
+        $io->writeln(\sprintf('Tip anchor: %s', $this->describeAnchorStatus($result->anchorStatus)));
+
         if ($result->getWarningCount() > 0) {
             $io->warning(\sprintf('%d warning(s) detected:', $result->getWarningCount()));
             $io->table(
@@ -239,6 +275,96 @@ final class VaultAuditCommand extends Command
         }
 
         return Command::FAILURE;
+    }
+
+    /**
+     * Operator-facing wording for the tip-anchor outcome. The anchor is what
+     * makes tail truncation and full wipes of the audit log detectable, so its
+     * state belongs in the verification output even when the chain is valid.
+     */
+    private function describeAnchorStatus(AuditChainAnchorStatus $status): string
+    {
+        return match ($status) {
+            AuditChainAnchorStatus::NotChecked => 'not checked (bounded range)',
+            AuditChainAnchorStatus::Disabled => 'disabled (audit HMAC epoch 0)',
+            AuditChainAnchorStatus::Unanchored => 'NOT ARMED - truncation of the log is not detectable yet',
+            AuditChainAnchorStatus::Unreadable => 'UNREADABLE - malformed value or invalid MAC',
+            AuditChainAnchorStatus::InFlight => 'inconclusive - a re-seal committed during verification',
+            AuditChainAnchorStatus::Ok => 'ok',
+            AuditChainAnchorStatus::Violated => 'VIOLATED - the anchored entry is gone or was replaced',
+        };
+    }
+
+    /**
+     * Clear the tip anchor and record that fact inside the chain.
+     *
+     * The anchor advances forward-only, so after a legitimate `TRUNCATE` or an
+     * operator purge it can never catch up again and the install would report a
+     * violation forever. Reset and audit entry share one transaction, and the
+     * entry is written AFTER the reset so the fresh row becomes the new anchor:
+     * the reset cannot be performed invisibly.
+     */
+    private function resetAnchor(SymfonyStyle $io, bool $force): int
+    {
+        $io->section('Resetting the audit chain tip anchor');
+        $io->warning([
+            'This clears the tamper-evidence anchor that detects truncation of the audit log.',
+            'Only do this after a wipe or purge you performed deliberately and can account for.',
+        ]);
+
+        if (!$force && !$io->confirm('Reset the audit chain tip anchor?', false)) {
+            $io->note('Aborted - the anchor was left untouched.');
+
+            return Command::SUCCESS;
+        }
+
+        $connection = $this->connectionPool->getConnectionForTable(self::AUDIT_TABLE);
+        if (!$this->anchorStore->sharesConnection($connection)) {
+            $io->error(
+                'sys_registry and tx_nrvault_audit_log are mapped to different database connections; '
+                . 'no anchor is recorded on this installation.',
+            );
+
+            return Command::FAILURE;
+        }
+
+        if (!$this->resetAnchorInTransaction($connection, $io)) {
+            return Command::FAILURE;
+        }
+
+        $io->success('Tip anchor reset and re-armed on the reset entry; the reset is recorded in the chain.');
+
+        return Command::SUCCESS;
+    }
+
+    private function resetAnchorInTransaction(Connection $connection, SymfonyStyle $io): bool
+    {
+        $connection->beginTransaction();
+
+        try {
+            $this->anchorStore->reset($connection);
+            $this->auditLogService->log(
+                self::AUDIT_PSEUDO_IDENTIFIER,
+                AuditAction::AuditAnchorReset->value,
+                true,
+                null,
+                'Audit chain tip anchor reset via vault:audit --reset-anchor',
+            );
+            // Re-arm explicitly on the entry just written. `log()` alone is not
+            // enough: with `auditAnchorRequired` on, `advance()` deliberately
+            // refuses to create an absent anchor at all, because an ordinary
+            // audit write must never do that. This command is the
+            // sanctioned exception — an operator action recorded in the chain.
+            $this->anchorStore->arm($connection);
+            $connection->commit();
+
+            return true;
+        } catch (Throwable $e) {
+            $connection->rollBack();
+            $io->error('Failed to reset the audit chain tip anchor: ' . $e->getMessage());
+
+            return false;
+        }
     }
 
     /**

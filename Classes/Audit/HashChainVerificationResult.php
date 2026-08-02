@@ -32,6 +32,10 @@ final readonly class HashChainVerificationResult
      * @param int $missingUidCount Total number of missing UIDs detected, before the
      *                             per-call cap applied to `$missingUids`. Equals
      *                             count($missingUids) when below the cap.
+     * @param AuditChainAnchorStatus $anchorStatus Outcome of the tip-anchor check, which
+     *                                             detects tail truncation and full wipes
+     *                                             that the walk alone cannot see. Only
+     *                                             evaluated on a full-chain pass.
      */
     public function __construct(
         public bool $valid,
@@ -39,6 +43,7 @@ final readonly class HashChainVerificationResult
         public array $warnings = [],
         public array $missingUids = [],
         public int $missingUidCount = 0,
+        public AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
     ) {}
 
     /**
@@ -47,15 +52,21 @@ final readonly class HashChainVerificationResult
      * @param array<int, string> $warnings Map of UID => warning message
      * @param list<int> $missingUids UID values missing from the chain (may be empty)
      * @param int $missingUidCount Total number of missing UIDs detected
+     * @param AuditChainAnchorStatus $anchorStatus Outcome of the tip-anchor check
      */
-    public static function valid(array $warnings = [], array $missingUids = [], int $missingUidCount = 0): self
-    {
+    public static function valid(
+        array $warnings = [],
+        array $missingUids = [],
+        int $missingUidCount = 0,
+        AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
+    ): self {
         return new self(
             valid: true,
             errors: [],
             warnings: $warnings,
             missingUids: $missingUids,
             missingUidCount: $missingUidCount > 0 ? $missingUidCount : \count($missingUids),
+            anchorStatus: $anchorStatus,
         );
     }
 
@@ -66,15 +77,22 @@ final readonly class HashChainVerificationResult
      * @param array<int, string> $warnings Map of UID => warning message
      * @param list<int> $missingUids UID values missing from the chain
      * @param int $missingUidCount Total number of missing UIDs detected
+     * @param AuditChainAnchorStatus $anchorStatus Outcome of the tip-anchor check
      */
-    public static function invalid(array $errors, array $warnings = [], array $missingUids = [], int $missingUidCount = 0): self
-    {
+    public static function invalid(
+        array $errors,
+        array $warnings = [],
+        array $missingUids = [],
+        int $missingUidCount = 0,
+        AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
+    ): self {
         return new self(
             valid: false,
             errors: $errors,
             warnings: $warnings,
             missingUids: $missingUids,
             missingUidCount: $missingUidCount > 0 ? $missingUidCount : \count($missingUids),
+            anchorStatus: $anchorStatus,
         );
     }
 
@@ -113,7 +131,7 @@ final readonly class HashChainVerificationResult
     /**
      * Convert to array for JSON serialization.
      *
-     * @return array{valid: bool, errors: array<int, string>, warnings: array<int, string>, missingUids: list<int>, missingUidCount: int}
+     * @return array{valid: bool, errors: array<int, string>, warnings: array<int, string>, missingUids: list<int>, missingUidCount: int, anchorStatus: string}
      */
     public function toArray(): array
     {
@@ -123,6 +141,7 @@ final readonly class HashChainVerificationResult
             'warnings' => $this->warnings,
             'missingUids' => $this->missingUids,
             'missingUidCount' => $this->missingUidCount,
+            'anchorStatus' => $this->anchorStatus->value,
         ];
     }
 }

@@ -217,6 +217,35 @@
         <source>Do not delete, edit, or re-run operations on the affected secrets until the cause is understood.</source>
       </trans-unit>
 
+      <!-- Audit chain tip anchor -->
+      <trans-unit id="audit.finding.chain">
+        <source>Chain</source>
+      </trans-unit>
+      <trans-unit id="audit.anchor.label">
+        <source>Tip anchor</source>
+      </trans-unit>
+      <trans-unit id="audit.anchor.notChecked">
+        <source>Not checked (bounded range).</source>
+      </trans-unit>
+      <trans-unit id="audit.anchor.disabled">
+        <source>Disabled — the audit HMAC epoch is 0, so the chain carries no tamper evidence to anchor.</source>
+      </trans-unit>
+      <trans-unit id="audit.anchor.unanchored">
+        <source>Not armed — truncation or a wipe of the audit log is not yet detectable. The anchor arms itself on the next audit log write.</source>
+      </trans-unit>
+      <trans-unit id="audit.anchor.unreadable">
+        <source>Unreadable — the stored anchor is malformed or its signature does not verify.</source>
+      </trans-unit>
+      <trans-unit id="audit.anchor.inFlight">
+        <source>Inconclusive — the anchor changed while it was being verified. Run the verification again.</source>
+      </trans-unit>
+      <trans-unit id="audit.anchor.ok">
+        <source>Verified — the anchored entry still exists and still carries the anchored hash.</source>
+      </trans-unit>
+      <trans-unit id="audit.anchor.violated">
+        <source>Violated — the anchored entry is gone or was replaced. The audit log was truncated or wiped.</source>
+      </trans-unit>
+
       <!-- Migration wizard -->
       <trans-unit id="migration.title">
         <source>Secret Migration Wizard</source>

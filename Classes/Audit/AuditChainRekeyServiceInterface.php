@@ -34,6 +34,11 @@ interface AuditChainRekeyServiceInterface
      *  - have the audit-log table on this connection, and
      *  - commit/roll back secrets re-encryption and chain re-key together.
      *
+     * Re-sealing the audit chain tip anchor under the new key is NOT a caller
+     * obligation: the rewrite invalidates the hash the anchor asserts, so this
+     * method re-signs it itself, on the caller's connection and inside the
+     * caller's transaction (ADR-034).
+     *
      * Per-row `hmac_key_epoch` values are preserved — re-keying changes the
      * key, not the payload format:
      *  - epoch 0 rows are keyless SHA-256 and only change where their

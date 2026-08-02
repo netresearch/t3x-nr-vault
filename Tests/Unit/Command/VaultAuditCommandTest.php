@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
@@ -22,6 +23,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 
 #[CoversClass(VaultAuditCommand::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -34,6 +36,10 @@ final class VaultAuditCommandTest extends TestCase
 
     private AuditLogServiceInterface&MockObject $auditLogService;
 
+    private AuditChainAnchorStoreInterface&MockObject $anchorStore;
+
+    private ConnectionPool&MockObject $connectionPool;
+
     private CommandTester $commandTester;
 
     protected function setUp(): void
@@ -41,8 +47,10 @@ final class VaultAuditCommandTest extends TestCase
         parent::setUp();
 
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        $this->anchorStore = $this->createMock(AuditChainAnchorStoreInterface::class);
+        $this->connectionPool = $this->createMock(ConnectionPool::class);
 
-        $command = new VaultAuditCommand($this->auditLogService);
+        $command = new VaultAuditCommand($this->auditLogService, $this->anchorStore, $this->connectionPool);
 
         $application = new Application();
         $application->addCommand($command);
@@ -53,7 +61,7 @@ final class VaultAuditCommandTest extends TestCase
     #[Test]
     public function hasCorrectName(): void
     {
-        $command = new VaultAuditCommand($this->auditLogService);
+        $command = new VaultAuditCommand($this->auditLogService, $this->anchorStore, $this->connectionPool);
 
         self::assertSame('vault:audit', $command->getName());
     }

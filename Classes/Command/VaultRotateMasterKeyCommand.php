@@ -666,7 +666,11 @@ final class VaultRotateMasterKeyCommand extends Command
                 \sprintf('Successfully rotated master key for %d secret(s)', $successCount),
             );
 
+            // The two log() calls above anchored the tip under the OLD key;
+            // rekeyChain() rewrites those entry hashes and re-signs the tip
+            // anchor under the new key as part of the same operation.
             $rewritten = $this->auditChainRekeyService->rekeyChain($connection, $newKey);
+
             $this->commitAuditLock($connection, $isSQLite);
 
             return $rewritten;

@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Command;
 
 use Doctrine\DBAL\Platforms\SQLitePlatform;
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditChainLockTrait;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -45,6 +46,7 @@ final class VaultAuditMigrateCommand extends Command
         private readonly MasterKeyProviderInterface $masterKeyProvider,
         private readonly ExtensionConfigurationInterface $extensionConfiguration,
         private readonly AuditLogServiceInterface $auditLogService,
+        private readonly AuditChainAnchorStoreInterface $anchorStore,
     ) {
         parent::__construct();
     }
@@ -234,6 +236,13 @@ final class VaultAuditMigrateCommand extends Command
                 }
 
                 $progressBar->advance();
+            }
+
+            if (!$dryRun) {
+                // The re-hash rewrote every entry_hash, so the tip anchor now
+                // asserts a hash that no longer exists. Re-record it in the same
+                // lock and transaction. Skipped on --dry-run, which wrote nothing.
+                $this->anchorStore->reseal($connection);
             }
 
             $this->commitAuditLock($connection, $isSQLite);

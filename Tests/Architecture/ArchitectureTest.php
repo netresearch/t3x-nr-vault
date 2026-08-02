@@ -25,6 +25,7 @@ use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPat\Selector\Selector;
 use PHPat\Test\Builder\BuildStep;
 use PHPat\Test\PHPat;
+use TYPO3\CMS\Core\Registry;
 
 /**
  * Architecture tests for nr-vault extension.
@@ -214,6 +215,39 @@ final class ArchitectureTest
                 'all outbound HTTP must flow through SecureHttpClientFactory; '
                 . 'instantiating GuzzleHttp\Client directly bypasses SSRF + '
                 . 'DNS-rebinding + no-redirect defences (PR #145)',
+            );
+    }
+
+    /**
+     * Nothing in the extension may depend on `TYPO3\CMS\Core\Registry`.
+     *
+     * The audit chain tip anchor is stored in the CORE table `sys_registry`,
+     * but is read and written exclusively through our own Doctrine
+     * QueryBuilder (`AuditChainAnchorStore`). The Registry API is off limits
+     * because `Registry::get()` routes through `loadEntriesByNamespace()`,
+     * which `unserialize()`s every row of a namespace with no
+     * `allowed_classes` — an object-injection sink fed by bytes that a
+     * database-write attacker controls. That is precisely the design an
+     * earlier attempt at this feature was refuted for.
+     *
+     * Our read path is one `SELECT`, one anchored `preg_match()` and one
+     * `hash_equals()`; a regex cannot emit a PHP object. This rule turns a
+     * future "tidy-up" that routes the anchor back through the Registry API
+     * from a hope into a build failure. Same allow-nothing shape as the
+     * `SecureHttpClientFactory` Guzzle lock (ADR-028).
+     */
+    public function testAuditAnchorNeverUsesCoreRegistry(): BuildStep
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace('Netresearch\NrVault'))
+            ->shouldNot()
+            ->dependOn()
+            ->classes(Selector::classname(Registry::class))
+            ->because(
+                'TYPO3\CMS\Core\Registry::get() unserializes attacker-writable '
+                . 'sys_registry bytes with no allowed_classes; the audit chain '
+                . 'tip anchor must reach sys_registry only via our own '
+                . 'QueryBuilder + anchored regex (ADR-034)',
             );
     }
 

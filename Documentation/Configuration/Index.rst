@@ -275,6 +275,50 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    command) to re-hash existing rows. See
    :ref:`adr-023-audit-hash-chain-hmac`.
 
+.. confval:: auditAnchorRequired
+   :name: ext-nrvault-auditAnchorRequired
+   :type: boolean
+   :Default: false
+
+   Treat a missing audit chain tip anchor as an **error** instead of a
+   warning.
+
+   The anchor pins "audit row ``uid = A`` still exists with
+   ``entry_hash = H``" in ``sys_registry``, signed with a key that is not
+   in the database. It is what makes removal of the *end* of the audit
+   log detectable — a truncation leaves no UID gap and no broken link,
+   so the chain walk alone reports it as valid. See
+   :ref:`adr-034-audit-chain-tip-anchor`.
+
+   The anchor arms itself on the next audit log write. Leave this
+   setting off until that has happened: before the first write after the
+   upgrade, an installation that never had an anchor is
+   indistinguishable from one whose anchor an attacker deleted, and
+   every chain would report invalid.
+
+   Once enabled, an attacker with database write access can no longer
+   silence the control by deleting the anchor row, because this setting
+   lives in a configuration file rather than the database. It does two
+   things, not one: verification reports a missing anchor as an error,
+   **and** ordinary audit writes stop arming an anchor that is not
+   there. Without the second half the error would clear itself within
+   seconds — one audited read is enough to mint a fresh anchor on a
+   truncated log.
+
+   The second half applies whatever the log contains, including an empty
+   one. "The log still holds an earlier entry" cannot stand in for "this
+   anchor was never armed": the audit write that would arm the anchor
+   has just inserted the only row the chain has, so a log emptied
+   outright is indistinguishable from a new installation.
+
+   Arming is therefore always explicit while this is on:
+   :ref:`vault:audit --reset-anchor <command-audit>` arms the anchor and
+   writes the reset into the chain. That includes the first arming — one
+   more reason to enable the setting only after the anchor exists.
+
+   Requires :confval:`ext-nrvault-auditHmacEpoch` >= 1; at epoch 0 the
+   chain is keyless and the anchor is disabled.
+
 .. confval:: preferXChaCha20
    :name: ext-nrvault-preferXChaCha20
    :type: boolean

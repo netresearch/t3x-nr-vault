@@ -299,7 +299,22 @@ Options
    Output format: ``table`` (default), ``json``, ``csv``.
 
 --verify
-   Verify hash chain integrity instead of listing entries.
+   Verify hash chain integrity instead of listing entries. The output includes
+   a ``Tip anchor:`` line reporting the state of the truncation anchor (see
+   :ref:`security-audit-chain-anchor`): ``ok``, ``NOT ARMED``, ``VIOLATED``,
+   ``UNREADABLE``, ``disabled`` or ``inconclusive``.
+
+--reset-anchor
+   Clear the audit chain tip anchor, record the reset in the chain, and re-arm
+   the anchor on that entry. Only after a wipe or purge of
+   ``tx_nrvault_audit_log`` that you performed deliberately — the anchor
+   otherwise reports a violation permanently, which is exactly what makes an
+   undeclared truncation visible. Asks for confirmation. This is the only path
+   that arms an anchor at all while
+   :confval:`ext-nrvault-auditAnchorRequired` is enabled.
+
+--force
+   Skip the interactive confirmation of ``--reset-anchor`` (for unattended runs).
 
 --export, -e =FILE
    Export results to a file (format taken from ``--format``).
@@ -320,6 +335,12 @@ Example
 
    # Export to JSON
    vendor/bin/typo3 vault:audit --format=json > audit.json
+
+   # Verify the chain, including the truncation tip anchor
+   vendor/bin/typo3 vault:audit --verify
+
+   # Re-arm the anchor after a deliberate wipe of the audit log
+   vendor/bin/typo3 vault:audit --reset-anchor --force
 
 .. _command-audit-anchor:
 
