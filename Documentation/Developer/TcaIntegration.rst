@@ -394,7 +394,8 @@ Record operations
 -  **Copy**: Vault secrets are cloned to the new record under fresh
    identifiers.
 
-Records with several vault fields are handled all-or-nothing.
+Records with several vault fields are handled as one unit, with the residual
+cases named below.
 
 A **create** whose secret value is refused is compensated rather than left
 half-applied: the just-inserted ``tx_nrvault_secret`` row is removed, the
@@ -408,10 +409,17 @@ the audit write fails.
 
 A **copy** clones every field or none: if one secret cannot be cloned, the
 secrets already cloned for that copy are deleted again and *all* vault fields
-of the new record are cleared. They are never left holding the source record's
-identifiers — the copy would otherwise share the original's secrets, and
+of the new record are cleared, so the copy does not end up holding the source
+record's identifiers — it would otherwise share the original's secrets, and
 rotating or deleting one record would silently change the other. The editor
 gets an error message and re-enters the values.
+
+Both halves of that rollback are best effort. If a rollback delete fails, the
+clone it should have removed survives as an orphan that nothing references any
+more; the failure is logged for the administrator rather than shown to the
+editor. If the blanking write fails, the copy keeps the source record's
+identifiers and does share its secrets — the editor's error message says so
+explicitly, and the record needs manual review.
 
 A **delete** checks the delete permission of every vault field *before*
 removing the first secret, because a vault delete cannot be undone. If any

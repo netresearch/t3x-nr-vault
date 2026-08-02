@@ -193,8 +193,15 @@ OWASP ASVS v4: chapter 2 (Authentication), chapter 4 (Access Control).*
         -   :php:`DataHandlerHook` — a record delete asserts every vault
             field's delete gate before removing the first secret and is
             cancelled outright if any fails; a copy that cannot clone every
-            secret deletes the ones it made and blanks every vault field, so a
-            copy never shares the source record's secrets
+            secret deletes the ones it made and blanks every vault field. The
+            control is a preflight plus best-effort compensation, not
+            atomicity: a failure the preflight cannot predict leaves the
+            secrets already deleted unrestorable, a failed rollback delete
+            leaves an orphaned clone, and a failed blanking leaves the copy
+            still referencing the source record's identifiers. The record is
+            preserved either way, the delete and blanking residuals are named
+            to the editor, and every failure — the orphaned clone included —
+            is logged under a correlation reference
         -   :ref:`tca-integration`; :ref:`adr-018-flexform-secret-lifecycle`
 
     *   -   CLI grant narrowed to low-risk operations
