@@ -45,12 +45,15 @@ final class VaultHttpClientFactoryTest extends TestCase
 
     private VaultServiceInterface&MockObject $vaultService;
 
+    private mixed $originalGlobals = null;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         // No allowed-hosts / proxy configuration: the factory must build a
         // working client from the platform defaults alone.
+        $this->originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['HTTP' => []];
 
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
@@ -65,6 +68,16 @@ final class VaultHttpClientFactoryTest extends TestCase
             $this->auditLogService,
             new SecureHttpClientFactory($dnsResolver),
         );
+    }
+
+    protected function tearDown(): void
+    {
+        parent::tearDown();
+        if ($this->originalGlobals !== null) {
+            $GLOBALS['TYPO3_CONF_VARS'] = $this->originalGlobals;
+        } else {
+            unset($GLOBALS['TYPO3_CONF_VARS']);
+        }
     }
 
     #[Test]
