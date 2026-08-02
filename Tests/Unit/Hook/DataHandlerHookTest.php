@@ -44,6 +44,12 @@ final class DataHandlerHookTest extends TestCase
 
     private const EXISTING_UUID = '01937b6e-4b6c-7abc-8def-0123456789ab';
 
+    private const SECOND_UUID = '01937b6e-4b6c-7abc-8def-0123456789ac';
+
+    private const THIRD_UUID = '01937b6e-4b6c-7abc-8def-0123456789ad';
+
+    private const RETRIEVE_FAILED = 'Retrieve failed';
+
     private const TEST_TITLE = 'Test Title';
 
     private const STORAGE_FAILED = 'Storage failed';
@@ -1349,7 +1355,7 @@ final class DataHandlerHookTest extends TestCase
     }
 
     #[Test]
-    public function cmdmapPostProcessSkipsCopyWhenSourceValueNull(): void
+    public function cmdmapPostProcessBlanksCopiedFieldWhenSourceSecretIsMissing(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
@@ -1379,10 +1385,17 @@ final class DataHandlerHookTest extends TestCase
             ->expects(self::never())
             ->method('store');
 
-        // No update should happen
+        // Leaving the DataHandler-duplicated source UUID in the copy would make
+        // both records share one secret: the field must be cleared instead.
         $connection
-            ->expects(self::never())
-            ->method('update');
+            ->expects(self::once())
+            ->method('update')
+            ->with('tx_test', ['api_key' => ''], ['uid' => 100]);
+
+        $this->dataHandler
+            ->expects(self::once())
+            ->method('log')
+            ->with('tx_test', 100, 1, null, 2, self::stringContains('api_key'));
 
         $this->subject->processCmdmap_postProcess(
             'copy',
@@ -1632,6 +1645,11 @@ final class DataHandlerHookTest extends TestCase
             ->method('retrieve')
             ->willThrowException(new VaultException('Retrieve failed'));
 
+        $connection
+            ->expects(self::once())
+            ->method('update')
+            ->with('tx_test', ['api_key' => ''], ['uid' => 100]);
+
         $this->dataHandler
             ->expects(self::once())
             ->method('log')
@@ -1640,7 +1658,7 @@ final class DataHandlerHookTest extends TestCase
                 100,
                 1,
                 null,
-                1,
+                2,
                 self::stringContains('api_key'),
             );
 
@@ -1652,5 +1670,374 @@ final class DataHandlerHookTest extends TestCase
             $this->dataHandler,
             false,
         );
+    }
+
+    #[Test]
+    public function cmdmapPostProcessBlanksEveryVaultFieldWhenTheFirstFieldFails(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
+
+        $connection = $this->createMock(Connection::class);
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAssociative')->willReturn([
+            'api_key' => self::EXISTING_UUID,
+            'api_secret' => self::SECOND_UUID,
+        ]);
+        $connection->method('select')->willReturn($result);
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($connection);
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willThrowException(new VaultException(self::RETRIEVE_FAILED));
+
+        // Nothing was cloned, so there is nothing to compensate...
+        $this->vaultService
+            ->expects(self::never())
+            ->method('store');
+        $this->vaultService
+            ->expects(self::never())
+            ->method('delete');
+
+        // ...but BOTH fields still carry the source UUIDs DataHandler copied,
+        // including the one this method never reached.
+        $connection
+            ->expects(self::once())
+            ->method('update')
+            ->with('tx_test', ['api_key' => '', 'api_secret' => ''], ['uid' => 100]);
+
+        $this->subject->processCmdmap_postProcess(
+            'copy',
+            'tx_test',
+            42,
+            null,
+            $this->dataHandler,
+            false,
+        );
+    }
+
+    #[Test]
+    public function cmdmapPostProcessDeletesAlreadyClonedSecretWhenALaterFieldFails(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
+
+        $connection = $this->createMock(Connection::class);
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAssociative')->willReturn([
+            'api_key' => self::EXISTING_UUID,
+            'api_secret' => self::SECOND_UUID,
+        ]);
+        $connection->method('select')->willReturn($result);
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($connection);
+
+        // First field clones fine, second one cannot be read.
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(static function (string $identifier): string {
+                if ($identifier === self::EXISTING_UUID) {
+                    return 'the-secret-value';
+                }
+
+                throw new VaultException(self::RETRIEVE_FAILED);
+            });
+
+        $clonedIdentifier = null;
+        $this->vaultService
+            ->expects(self::once())
+            ->method('store')
+            ->willReturnCallback(
+                static function (string $identifier) use (&$clonedIdentifier): void {
+                    $clonedIdentifier = $identifier;
+                },
+            );
+
+        $this->vaultService
+            ->expects(self::once())
+            ->method('delete')
+            ->willReturnCallback(
+                static function (string $identifier, string $reason) use (&$clonedIdentifier): void {
+                    self::assertSame($clonedIdentifier, $identifier, 'Only the clone of THIS copy may be deleted.');
+                    self::assertStringContainsString('copy', $reason);
+                },
+            );
+
+        $connection
+            ->expects(self::once())
+            ->method('update')
+            ->with('tx_test', ['api_key' => '', 'api_secret' => ''], ['uid' => 100]);
+
+        $this->subject->processCmdmap_postProcess(
+            'copy',
+            'tx_test',
+            42,
+            null,
+            $this->dataHandler,
+            false,
+        );
+
+        self::assertNotNull($clonedIdentifier, 'The first field must have been cloned before the failure.');
+    }
+
+    #[Test]
+    public function cmdmapPostProcessBlanksFieldsEvenWhenTheRollbackDeleteFails(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
+
+        $connection = $this->createMock(Connection::class);
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAssociative')->willReturn([
+            'api_key' => self::EXISTING_UUID,
+            'api_secret' => self::SECOND_UUID,
+        ]);
+        $connection->method('select')->willReturn($result);
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($connection);
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(static function (string $identifier): string {
+                if ($identifier === self::EXISTING_UUID) {
+                    return 'the-secret-value';
+                }
+
+                throw new VaultException(self::RETRIEVE_FAILED);
+            });
+
+        $this->vaultService
+            ->method('delete')
+            ->willThrowException(new VaultException('Rollback delete failed'));
+
+        // An orphaned clone is inert; a copy still pointing at the source's
+        // secret is not — so the blanking must happen regardless.
+        $connection
+            ->expects(self::once())
+            ->method('update')
+            ->with('tx_test', ['api_key' => '', 'api_secret' => ''], ['uid' => 100]);
+
+        $this->dataHandler
+            ->expects(self::once())
+            ->method('log')
+            ->with('tx_test', 100, 1, null, 2, self::stringContains('api_secret'));
+
+        $this->subject->processCmdmap_postProcess(
+            'copy',
+            'tx_test',
+            42,
+            null,
+            $this->dataHandler,
+            false,
+        );
+    }
+
+    #[Test]
+    public function cmdmapPreProcessDeletesNoSecretWhenAnyFieldIsNotDeletable(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $connection = $this->createMock(Connection::class);
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAssociative')->willReturn([
+            'api_key' => self::EXISTING_UUID,
+            'api_secret' => self::SECOND_UUID,
+        ]);
+        $connection->method('select')->willReturn($result);
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($connection);
+
+        // The FIRST field is deletable, the second is not: without a preflight
+        // the first secret would already be gone — irrecoverably — by the time
+        // the denial surfaces.
+        $this->vaultService
+            ->method('assertDeletable')
+            ->willReturnCallback(static function (string $identifier): void {
+                if ($identifier === self::SECOND_UUID) {
+                    throw new VaultException('Delete permission denied');
+                }
+            });
+
+        $this->vaultService
+            ->expects(self::never())
+            ->method('delete');
+
+        $this->dataHandler
+            ->expects(self::once())
+            ->method('log')
+            ->with('tx_test', 42, 3, null, 1, self::stringContains('api_secret'));
+
+        $this->subject->processCmdmap_preProcess(
+            'delete',
+            'tx_test',
+            42,
+            null,
+            $this->dataHandler,
+            false,
+        );
+
+        $commandIsProcessed = false;
+        $this->subject->processCmdmap(
+            'delete',
+            'tx_test',
+            42,
+            null,
+            $commandIsProcessed,
+            $this->dataHandler,
+            false,
+        );
+
+        self::assertTrue($commandIsProcessed, 'The record delete must be cancelled.');
+    }
+
+    #[Test]
+    public function cmdmapPreProcessTreatsAnAlreadyMissingSecretAsDeleted(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $connection = $this->createMock(Connection::class);
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAssociative')->willReturn([
+            'api_key' => self::EXISTING_UUID,
+            'api_secret' => self::SECOND_UUID,
+        ]);
+        $connection->method('select')->willReturn($result);
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($connection);
+
+        $deleted = [];
+        $this->vaultService
+            ->method('delete')
+            ->willReturnCallback(static function (string $identifier) use (&$deleted): void {
+                if ($identifier === self::EXISTING_UUID) {
+                    throw SecretNotFoundException::forIdentifier($identifier);
+                }
+
+                $deleted[] = $identifier;
+            });
+
+        $this->dataHandler
+            ->expects(self::never())
+            ->method('log');
+
+        $this->subject->processCmdmap_preProcess(
+            'delete',
+            'tx_test',
+            42,
+            null,
+            $this->dataHandler,
+            false,
+        );
+
+        // A dangling reference must not stop the loop, and must not make the
+        // record undeletable forever.
+        self::assertSame([self::SECOND_UUID], $deleted);
+
+        $commandIsProcessed = false;
+        $this->subject->processCmdmap(
+            'delete',
+            'tx_test',
+            42,
+            null,
+            $commandIsProcessed,
+            $this->dataHandler,
+            false,
+        );
+
+        self::assertFalse($commandIsProcessed, 'A missing secret must not cancel the record delete.');
+    }
+
+    #[Test]
+    public function cmdmapPreProcessStopsDeletingAfterAMidSequenceFailure(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_token' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $connection = $this->createMock(Connection::class);
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAssociative')->willReturn([
+            'api_key' => self::EXISTING_UUID,
+            'api_secret' => self::SECOND_UUID,
+            'api_token' => self::THIRD_UUID,
+        ]);
+        $connection->method('select')->willReturn($result);
+
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($connection);
+
+        $deleted = [];
+        $this->vaultService
+            ->method('delete')
+            ->willReturnCallback(static function (string $identifier) use (&$deleted): void {
+                if ($identifier === self::SECOND_UUID) {
+                    throw new VaultException('Audit write failed');
+                }
+
+                $deleted[] = $identifier;
+            });
+
+        $this->dataHandler
+            ->expects(self::once())
+            ->method('log')
+            ->with('tx_test', 42, 3, null, 1, self::stringContains('api_secret'));
+
+        $this->subject->processCmdmap_preProcess(
+            'delete',
+            'tx_test',
+            42,
+            null,
+            $this->dataHandler,
+            false,
+        );
+
+        // The record survives either way, so deleting the third secret would
+        // only enlarge the unrecoverable damage.
+        self::assertSame([self::EXISTING_UUID], $deleted);
+
+        $commandIsProcessed = false;
+        $this->subject->processCmdmap(
+            'delete',
+            'tx_test',
+            42,
+            null,
+            $commandIsProcessed,
+            $this->dataHandler,
+            false,
+        );
+
+        self::assertTrue($commandIsProcessed, 'The record delete must be cancelled.');
     }
 }

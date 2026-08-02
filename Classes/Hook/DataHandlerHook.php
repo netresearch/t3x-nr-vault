@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Hook;
 
 use Exception;
+use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Hook\Dto\PendingSecret;
 use Netresearch\NrVault\Service\VaultFieldPermission;
 use Netresearch\NrVault\Service\VaultFieldPermissionService;
@@ -18,6 +19,7 @@ use Netresearch\NrVault\Utility\IdentifierValidator;
 use Netresearch\NrVault\Utility\VaultFieldResolver;
 use Throwable;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 
@@ -244,6 +246,10 @@ final class DataHandlerHook
             return;
         }
 
+        $uid = (int) $id;
+
+        /** @var array<string, string> $identifiers field name => vault identifier */
+        $identifiers = [];
         foreach ($vaultFields as $fieldName) {
             $vaultIdentifier = $record[$fieldName] ?? '';
             if (!\is_string($vaultIdentifier)) {
@@ -253,33 +259,59 @@ final class DataHandlerHook
                 continue;
             }
 
+            $identifiers[$fieldName] = $vaultIdentifier;
+        }
+
+        if ($identifiers === []) {
+            return;
+        }
+
+        // Preflight: a vault delete is a HARD delete with no restore path, so a
+        // partially applied multi-field cleanup cannot be compensated. Assert
+        // every field's delete gate BEFORE removing the first secret — a record
+        // whose second field is denied must lose neither secret.
+        foreach ($identifiers as $fieldName => $vaultIdentifier) {
+            try {
+                $this->vaultService->assertDeletable($vaultIdentifier);
+            } catch (Throwable $e) {
+                $this->cancelRecordDeletion(
+                    $table,
+                    $uid,
+                    $fieldName,
+                    $vaultIdentifier,
+                    $e,
+                    $dataHandler,
+                    'No secret of this record was deleted.',
+                );
+
+                return;
+            }
+        }
+
+        foreach ($identifiers as $fieldName => $vaultIdentifier) {
             try {
                 $this->vaultService->delete($vaultIdentifier, 'Record deleted');
+            } catch (SecretNotFoundException) {
+                // Idempotent: the goal state — no secret under this identifier
+                // — already holds, so a dangling reference must not make the
+                // record undeletable forever.
+                continue;
             } catch (Throwable $e) {
-                $userMessage = $this->failureReporter->report($e, [
-                    'table' => $table,
-                    'field' => $fieldName,
-                    'uid' => (int) $id,
-                    'identifier' => $vaultIdentifier,
-                    'operation' => 'delete',
-                ]);
-
-                // Fail closed: if the secret cannot be deleted (denied, audit
-                // write failed, vault error), the record delete is cancelled
-                // in processCmdmap() — otherwise the record removal would
-                // orphan the secret and mask the failure.
-                $this->deniedDeletions[$table][(int) $id] = true;
-
-                /** @phpstan-ignore method.internal */
-                $dataHandler->log(
+                // The preflight passed, so this is a failure the gates cannot
+                // predict (audit write, vault outage, revoked in between).
+                // Stop the loop: every further delete would enlarge the
+                // unrecoverable damage while the record is preserved anyway.
+                $this->cancelRecordDeletion(
                     $table,
-                    (int) $id,
-                    3,
-                    null,
-                    1,
-                    'Vault error during delete for field "' . $fieldName . '": ' . $userMessage
-                    . ' The record was preserved.',
+                    $uid,
+                    $fieldName,
+                    $vaultIdentifier,
+                    $e,
+                    $dataHandler,
+                    'Secrets of preceding fields were already deleted and cannot be restored.',
                 );
+
+                return;
             }
         }
     }
@@ -376,7 +408,10 @@ final class DataHandlerHook
                 // Get source secret
                 $sourceValue = $this->vaultService->retrieve($sourceIdentifier);
                 if ($sourceValue === null) {
-                    continue;
+                    // Not a skippable field: leaving the DataHandler-duplicated
+                    // source identifier in place is precisely the outcome this
+                    // method must prevent, so treat it as a copy failure.
+                    throw SecretNotFoundException::forIdentifier($sourceIdentifier);
                 }
 
                 // Generate new UUID for copied record
@@ -394,23 +429,24 @@ final class DataHandlerHook
                 // Track update for the copied record
                 $updates[$fieldName] = $newIdentifier;
             } catch (Throwable $e) {
-                $userMessage = $this->failureReporter->report($e, [
-                    'table' => $table,
-                    'field' => $fieldName,
-                    'uid' => $newId,
-                    'identifier' => $sourceIdentifier,
-                    'operation' => 'copy',
-                ]);
-
-                /** @phpstan-ignore method.internal */
-                $dataHandler->log(
+                // Fail closed across ALL vault fields: DataHandler has already
+                // duplicated the source identifiers into the copy, so anything
+                // short of clearing them leaves the copy sharing the SOURCE
+                // record's secrets — rotating the copy would mutate the source,
+                // deleting the copy would destroy the source's secret.
+                $this->abandonCopiedSecrets(
+                    $connection,
                     $table,
                     $newId,
-                    1,
-                    null,
-                    1,
-                    'Vault error during copy for field "' . $fieldName . '": ' . $userMessage,
+                    $vaultFields,
+                    $updates,
+                    $fieldName,
+                    $sourceIdentifier,
+                    $e,
+                    $dataHandler,
                 );
+
+                return;
             } finally {
                 // Scrub the decrypted plaintext from memory (success or failure).
                 if ($sourceValue !== null && $sourceValue !== '') {
@@ -422,6 +458,135 @@ final class DataHandlerHook
         // Update copied record with new UUIDs
         if ($updates !== []) {
             $connection->update($table, $updates, ['uid' => $newId]);
+        }
+    }
+
+    /**
+     * Fail closed on a record delete whose vault cleanup did not fully succeed:
+     * remember the cancellation for {@see processCmdmap()}, log the cause
+     * server-side and tell the editor the record was preserved.
+     *
+     * Deleting the record while a secret survives would orphan that secret AND
+     * hide the failed (possibly denied) vault delete behind an apparently
+     * successful record removal.
+     */
+    private function cancelRecordDeletion(
+        string $table,
+        int $uid,
+        string $fieldName,
+        string $vaultIdentifier,
+        Throwable $error,
+        DataHandler $dataHandler,
+        string $scopeNotice,
+    ): void {
+        $userMessage = $this->failureReporter->report($error, [
+            'table' => $table,
+            'field' => $fieldName,
+            'uid' => $uid,
+            'identifier' => $vaultIdentifier,
+            'operation' => 'delete',
+        ]);
+
+        $this->deniedDeletions[$table][$uid] = true;
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            $table,
+            $uid,
+            3,
+            null,
+            1,
+            'Vault error during delete for field "' . $fieldName . '": ' . $userMessage
+            . ' The record was preserved. ' . $scopeNotice,
+        );
+    }
+
+    /**
+     * Undo a partially completed record copy.
+     *
+     * Deletes every secret already cloned for this copy and blanks EVERY vault
+     * field of the copied record — not only the ones that were cloned, because
+     * the untouched ones still carry the source identifiers DataHandler
+     * duplicated. The copy therefore ends up with no secrets at all instead of
+     * silently aliasing the source's.
+     *
+     * The failure is logged as a system error (`error = 2`), one level above
+     * the per-field warning the previous implementation emitted: the editor now
+     * has to re-enter the secrets of the copy, which is not a detail they may
+     * miss in a flash-message list.
+     *
+     * @param list<string> $vaultFields every vault field of the table
+     * @param array<string, string> $clonedUpdates field name => identifier of the secrets cloned so far
+     */
+    private function abandonCopiedSecrets(
+        Connection $connection,
+        string $table,
+        int $newId,
+        array $vaultFields,
+        array $clonedUpdates,
+        string $failedField,
+        string $sourceIdentifier,
+        Throwable $error,
+        DataHandler $dataHandler,
+    ): void {
+        foreach ($clonedUpdates as $clonedField => $clonedIdentifier) {
+            try {
+                $this->vaultService->delete($clonedIdentifier, 'Record copy rolled back');
+            } catch (Throwable $compensationError) {
+                // The clone is orphaned rather than dangerous (nothing
+                // references it any more) — record it for the administrator and
+                // keep rolling back the remaining fields.
+                $this->failureReporter->report($compensationError, [
+                    'table' => $table,
+                    'field' => $clonedField,
+                    'uid' => $newId,
+                    'identifier' => $clonedIdentifier,
+                    'operation' => 'copy_rollback',
+                ]);
+            }
+        }
+
+        $this->blankVaultFields($connection, $table, $newId, $vaultFields);
+
+        $userMessage = $this->failureReporter->report($error, [
+            'table' => $table,
+            'field' => $failedField,
+            'uid' => $newId,
+            'identifier' => $sourceIdentifier,
+            'operation' => 'copy',
+        ]);
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            $table,
+            $newId,
+            1,
+            null,
+            2,
+            'Vault error during copy for field "' . $failedField . '": ' . $userMessage
+            . ' No secret was copied; all vault fields of the new record are empty and must be filled in again.',
+        );
+    }
+
+    /**
+     * Clear every vault field of a record.
+     *
+     * Best-effort: if this write fails the copy keeps the source identifiers,
+     * which the DataHandler log entry written by the caller already flags. There
+     * is nothing better to fall back to — the copy exists either way.
+     *
+     * @param list<string> $vaultFields
+     */
+    private function blankVaultFields(Connection $connection, string $table, int $uid, array $vaultFields): void
+    {
+        if ($uid <= 0 || $vaultFields === []) {
+            return;
+        }
+
+        try {
+            $connection->update($table, array_fill_keys($vaultFields, ''), ['uid' => $uid]);
+        } catch (Exception) {
+            // Documented by the caller's DataHandler log entry.
         }
     }
 
