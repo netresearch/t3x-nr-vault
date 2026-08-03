@@ -48,6 +48,11 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
         return $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
     }
 
+    public function setHidden(int $uid, bool $hidden): void
+    {
+        $this->secretRepository->setHidden($uid, $hidden);
+    }
+
     /**
      * Deleting resolves the record through the disabled-visible lookup: a
      * disabled secret is still a secret, and its owner must be able to remove

@@ -68,6 +68,19 @@ interface VaultAdapterInterface
     public function retrieveIncludingDisabled(string $identifier): ?Secret;
 
     /**
+     * Set a secret's availability, addressed by UID.
+     *
+     * The targeted counterpart of {@see store()} for the availability flag
+     * alone: the backend writes that flag (and its record timestamp), nothing
+     * else. The distinction is not cosmetic — `store()` persists every scalar
+     * field of the entity handed to it, so a value or read-count update that
+     * committed since that entity was read would be overwritten with the stale
+     * copy. An availability change must not do that: it changes nothing but
+     * whether the secret is in service.
+     */
+    public function setHidden(int $uid, bool $hidden): void;
+
+    /**
      * Delete a secret.
      */
     public function delete(string $identifier): void;

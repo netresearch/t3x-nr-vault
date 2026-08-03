@@ -431,38 +431,6 @@ final class SecretTest extends TestCase
         self::assertSame(['b' => 2, 'c' => 3], $merged->getMetadata());
     }
 
-    /**
-     * The only write path for the availability flag outside FormEngine, and
-     * the one `VaultService::setEnabled()` compensates against: the original
-     * instance has to stay untouched, or there would be no prior state to
-     * restore when the audit write fails.
-     */
-    #[Test]
-    public function withHiddenFlipsTheFlagOnACopy(): void
-    {
-        $secret = new Secret(identifier: 't');
-
-        $disabled = $secret->withHidden(true);
-
-        self::assertNotSame($secret, $disabled);
-        self::assertFalse($secret->isHidden());
-        self::assertTrue($disabled->isHidden());
-        self::assertFalse($disabled->withHidden(false)->isHidden());
-    }
-
-    #[Test]
-    public function withHiddenLeavesEveryOtherFieldAlone(): void
-    {
-        $secret = new Secret(identifier: 't', description: 'kept', ownerUid: 9, version: 4);
-
-        $disabled = $secret->withHidden(true);
-
-        self::assertSame('t', $disabled->getIdentifier());
-        self::assertSame('kept', $disabled->getDescription());
-        self::assertSame(9, $disabled->getOwnerUid());
-        self::assertSame(4, $disabled->getVersion());
-    }
-
     // ---------------------------------------------------------------
     // isExpired() boundary conditions.
     // ---------------------------------------------------------------

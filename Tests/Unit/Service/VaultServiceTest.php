@@ -1234,16 +1234,14 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function setEnabledDisablesTheSecretAndAuditsAMetadataUpdate(): void
     {
-        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('availability'));
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('availability', 7));
         $this->accessControlService->method('canWrite')->willReturn(true);
 
-        // Group relations are explicitly not persisted: one column changes,
-        // and the tiers must not be rewritten from a round-tripped read.
-        $this->adapter
-            ->expects(self::once())
-            ->method('store')
-            ->with(self::callback(static fn (Secret $s): bool => $s->isHidden()), false)
-            ->willReturnArgument(0);
+        // The availability column is written on its own, addressed by UID.
+        // `store()` would round-trip every scalar column of the entity read a
+        // moment earlier and undo whatever else committed in between.
+        $this->adapter->expects(self::once())->method('setHidden')->with(7, true);
+        $this->adapter->expects(self::never())->method('store');
 
         // `metadata_update` is the same action the FormEngine path writes for
         // this column, so the two write paths answer one audit query.
@@ -1269,10 +1267,9 @@ final class VaultServiceTest extends TestCase
     public function setEnabledNamesTheDirectionEvenWithoutAReason(): void
     {
         $this->adapter->method('retrieve')->willReturn(
-            $this->createSecretEntity('availability')->withHidden(true),
+            $this->createSecretEntity('availability', hidden: true),
         );
         $this->accessControlService->method('canWrite')->willReturn(true);
-        $this->adapter->method('store')->willReturnArgument(0);
 
         $this->auditLogService
             ->expects(self::once())
@@ -1291,10 +1288,11 @@ final class VaultServiceTest extends TestCase
     public function setEnabledIsANoOpWhenTheSecretIsAlreadyInTheRequestedState(): void
     {
         $this->adapter->method('retrieve')->willReturn(
-            $this->createSecretEntity('availability')->withHidden(true),
+            $this->createSecretEntity('availability', hidden: true),
         );
         $this->accessControlService->method('canWrite')->willReturn(true);
 
+        $this->adapter->expects(self::never())->method('setHidden');
         $this->adapter->expects(self::never())->method('store');
         $this->auditLogService->expects(self::never())->method('log');
 
@@ -1305,7 +1303,7 @@ final class VaultServiceTest extends TestCase
     public function setEnabledThrowsNotFoundForAnUnknownSecret(): void
     {
         $this->adapter->method('retrieve')->willReturn(null);
-        $this->adapter->expects(self::never())->method('store');
+        $this->adapter->expects(self::never())->method('setHidden');
 
         $this->expectException(SecretNotFoundException::class);
 
@@ -1318,7 +1316,7 @@ final class VaultServiceTest extends TestCase
         $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('protected'));
         $this->accessControlService->method('canWrite')->willReturn(false);
 
-        $this->adapter->expects(self::never())->method('store');
+        $this->adapter->expects(self::never())->method('setHidden');
         $this->auditLogService
             ->expects(self::once())
             ->method('log')
@@ -1352,7 +1350,7 @@ final class VaultServiceTest extends TestCase
         );
 
         $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('opGatePolicy'));
-        $this->adapter->expects(self::never())->method('store');
+        $this->adapter->expects(self::never())->method('setHidden');
 
         $this->auditLogService
             ->expects(self::once())
@@ -1377,17 +1375,20 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function setEnabledRollsBackWhenAuditWriteFails(): void
     {
-        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('rollback_availability'));
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('rollback_availability', 7));
         $this->accessControlService->method('canWrite')->willReturn(true);
+
+        // Both the change and its revert go through the targeted write, so the
+        // compensation cannot restore anything but the availability either.
+        $this->adapter->expects(self::never())->method('store');
 
         $storedStates = [];
         $this->adapter
             ->expects(self::exactly(2))
-            ->method('store')
-            ->willReturnCallback(static function (Secret $secret) use (&$storedStates): Secret {
-                $storedStates[] = $secret->isHidden();
-
-                return $secret;
+            ->method('setHidden')
+            ->willReturnCallback(static function (int $uid, bool $hidden) use (&$storedStates): void {
+                self::assertSame(7, $uid);
+                $storedStates[] = $hidden;
             });
 
         $this->auditLogService
@@ -1981,6 +1982,7 @@ final class VaultServiceTest extends TestCase
         string $context = '',
         array $metadata = [],
         bool $frontendAccessible = false,
+        bool $hidden = false,
     ): Secret {
         return new Secret(
             identifier: $identifier,
@@ -1998,6 +2000,7 @@ final class VaultServiceTest extends TestCase
             expiresAt: $expiresAt,
             metadata: $metadata,
             crdate: $crdate,
+            hidden: $hidden,
         );
     }
 }

@@ -295,6 +295,24 @@ final class LocalEncryptionAdapterTest extends TestCase
         $adapter->incrementReadCount(42);
     }
 
+    /**
+     * Availability goes to the repository's targeted write, not through
+     * `store()`: the adapter must not turn a one-column change into a save of
+     * a whole entity it would first have to read.
+     */
+    #[Test]
+    public function setHiddenDelegatesToRepository(): void
+    {
+        $repository = $this->createMock(SecretRepositoryInterface::class);
+        $repository->expects(self::once())
+            ->method('setHidden')
+            ->with(42, true);
+        $repository->expects(self::never())->method('save');
+
+        $adapter = new LocalEncryptionAdapter($repository);
+        $adapter->setHidden(42, true);
+    }
+
     #[Test]
     public function listSecretsDelegatesToRepository(): void
     {

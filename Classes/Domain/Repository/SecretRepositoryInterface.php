@@ -52,6 +52,19 @@ interface SecretRepositoryInterface
      */
     public function save(Secret $secret, bool $persistGroupRelations = true): Secret;
 
+    /**
+     * Set a record's availability (the `hidden` column) without round-tripping
+     * the entity: one targeted UPDATE of that column plus `tstamp`, addressed
+     * by UID.
+     *
+     * Deliberately not expressed as {@see save()} of a Secret whose flag was
+     * flipped. That writes every scalar column from an entity read moments
+     * earlier, so a value rotation or read-count increment committed in
+     * between would be silently restored to its stale state by a call that
+     * only changes availability.
+     */
+    public function setHidden(int $uid, bool $hidden): void;
+
     public function delete(Secret $secret): void;
 
     /**

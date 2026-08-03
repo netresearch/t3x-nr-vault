@@ -378,10 +378,21 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             return;
         }
 
-        // Group relations are deliberately not persisted: this writes one
-        // column, and the tiers must not be rewritten from a round-tripped
-        // read.
-        $this->adapter->store($secret->withHidden(!$enabled), false);
+        $uid = $secret->getUid();
+        if ($uid === null) {
+            // A record resolved from storage always carries its UID. Without
+            // one there is no row to address, and the write below would hit
+            // nothing while the audit entry claimed a change.
+            throw SecretNotFoundException::forIdentifier($identifier);
+        }
+
+        // A targeted write of the availability column — NOT `store()` of the
+        // entity read above with its flag flipped. That would UPDATE every
+        // scalar column from a snapshot taken moments earlier, so a
+        // `retrieve()` that incremented `read_count` or a `rotate()` that
+        // replaced the envelope in the meantime would be silently rolled back
+        // by a call that only changes whether the secret is in service.
+        $this->adapter->setHidden($uid, !$enabled);
 
         // SEC-3 atomicity (compensating rollback — see store() for rationale):
         // if the audit write fails, restore the previous availability so a
@@ -400,8 +411,11 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         } catch (AuditWriteException $auditException) {
             $this->compensateAuditFailure(
                 $identifier,
-                function () use ($secret): void {
-                    $this->adapter->store($secret, false);
+                function () use ($uid, $secret): void {
+                    // The captured prior state, through the same targeted
+                    // write: a revert that restored the whole entity would
+                    // undo everything else that landed in the window too.
+                    $this->adapter->setHidden($uid, $secret->isHidden());
                 },
                 $auditException,
             );

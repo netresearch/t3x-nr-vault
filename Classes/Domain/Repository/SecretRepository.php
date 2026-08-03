@@ -189,6 +189,29 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         return $secret;
     }
 
+    /**
+     * Set a record's availability, addressed by UID.
+     *
+     * The counterpart of {@see incrementReadCount()} for the `hidden` column:
+     * one UPDATE that touches that column and `tstamp`, nothing else. Routing
+     * an availability change through {@see save()} instead would issue an
+     * UPDATE over EVERY scalar column of the passed entity — envelope, DEK,
+     * nonces, checksum, version, read counters, owner — restoring whatever
+     * those held when the entity was read. Anything committed since then (a
+     * `retrieve()` incrementing `read_count`, a `rotate()` replacing the
+     * envelope) would be rolled back by a caller that only meant to flip
+     * availability. `$persistGroupRelations = false` does not help: it only
+     * withholds the two group tiers.
+     */
+    public function setHidden(int $uid, bool $hidden): void
+    {
+        $this->getConnection()->update(
+            self::TABLE_NAME,
+            ['hidden' => $hidden ? 1 : 0, 'tstamp' => time()],
+            ['uid' => $uid],
+        );
+    }
+
     public function delete(Secret $secret): void
     {
         if ($secret->getUid() === null) {

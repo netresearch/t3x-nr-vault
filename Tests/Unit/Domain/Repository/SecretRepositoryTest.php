@@ -384,6 +384,52 @@ final class SecretRepositoryTest extends TestCase
         $this->subject->delete($secret);
     }
 
+    /**
+     * The whole point of the method: the UPDATE carries the availability
+     * column and the record timestamp and NOTHING else. Asserting the exact
+     * key set rather than "hidden is in there" is deliberate — a regression
+     * to a full-row write would still satisfy the weaker check while silently
+     * restoring every other column from a stale entity.
+     */
+    #[Test]
+    public function setHiddenWritesTheAvailabilityColumnAndNothingElse(): void
+    {
+        $connection = $this->useStrictConnectionMock();
+
+        $connection
+            ->expects(self::once())
+            ->method('update')
+            ->with(
+                'tx_nrvault_secret',
+                self::callback(static function (array $data): bool {
+                    $keys = array_keys($data);
+                    sort($keys);
+
+                    return $keys === ['hidden', 'tstamp'] && $data['hidden'] === 1;
+                }),
+                ['uid' => 42],
+            );
+
+        $this->subject->setHidden(42, true);
+    }
+
+    #[Test]
+    public function setHiddenClearsTheColumnWhenTheSecretIsPutBackIntoService(): void
+    {
+        $connection = $this->useStrictConnectionMock();
+
+        $connection
+            ->expects(self::once())
+            ->method('update')
+            ->with(
+                'tx_nrvault_secret',
+                self::callback(static fn (array $data): bool => $data['hidden'] === 0),
+                ['uid' => 7],
+            );
+
+        $this->subject->setHidden(7, false);
+    }
+
     #[Test]
     public function findIdentifiersReturnsEmptyArrayWhenNone(): void
     {
