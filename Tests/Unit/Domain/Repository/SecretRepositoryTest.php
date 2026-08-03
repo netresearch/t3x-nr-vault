@@ -23,6 +23,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
+use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
+use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface;
 
 /**
  * Unit tests for {@see SecretRepository}.
@@ -107,6 +109,122 @@ final class SecretRepositoryTest extends TestCase
 
         self::assertInstanceOf(Secret::class, $secret);
         self::assertSame('test-id', $secret->getIdentifier());
+    }
+
+    /**
+     * The administrative lookup lifts exactly one restriction, by name.
+     * `removeAll()` would also discard `DeletedRestriction` and resurrect
+     * soft-deleted records, so it must not be what happens here.
+     *
+     * The effect on real queries — a disabled secret found here and not by
+     * `findByIdentifier()` — is pinned in
+     * Tests/Functional/Service/SecretAvailabilityTest; a stubbed query builder
+     * has no restrictions to apply. What this test can pin is which
+     * restriction the code asks to drop, and that it drops no other.
+     */
+    #[Test]
+    public function findByIdentifierIncludingDisabledDropsOnlyTheHiddenRestriction(): void
+    {
+        $restrictions = $this->createMock(QueryRestrictionContainerInterface::class);
+        $restrictions->expects(self::never())->method('removeAll');
+        $restrictions
+            ->expects(self::once())
+            ->method('removeByType')
+            ->with(HiddenRestriction::class)
+            ->willReturnSelf();
+        $this->queryBuilder->method('getRestrictions')->willReturn($restrictions);
+
+        $result = $this->createStub(Result::class);
+        $result->method('fetchAssociative')->willReturn(false);
+        $this->setupQueryBuilderForSelect($result);
+
+        self::assertNull($this->subject->findByIdentifierIncludingDisabled('nonexistent'));
+    }
+
+    #[Test]
+    public function findByIdentifierIncludingDisabledHydratesTheSecret(): void
+    {
+        $restrictions = $this->createStub(QueryRestrictionContainerInterface::class);
+        $restrictions->method('removeByType')->willReturnSelf();
+        $this->queryBuilder->method('getRestrictions')->willReturn($restrictions);
+
+        $result = $this->createStub(Result::class);
+        $result->method('fetchAssociative')->willReturn($this->createSecretRow('disabled-id'));
+        $readGroupResult = $this->createStub(Result::class);
+        $readGroupResult->method('fetchAllAssociative')->willReturn([]);
+        $writeGroupResult = $this->createStub(Result::class);
+        $writeGroupResult->method('fetchAllAssociative')->willReturn([]);
+
+        $this->setupQueryBuilderForSelect($result);
+        $this->queryBuilder->method('executeQuery')
+            ->willReturnOnConsecutiveCalls($result, $readGroupResult, $writeGroupResult);
+
+        $secret = $this->subject->findByIdentifierIncludingDisabled('disabled-id');
+
+        self::assertInstanceOf(Secret::class, $secret);
+        self::assertSame('disabled-id', $secret->getIdentifier());
+    }
+
+    /**
+     * The listing widening is opt-in and must stay so: without the flag the
+     * restrictions are left exactly as the query builder supplied them, which
+     * is what keeps every existing caller's result unchanged.
+     */
+    #[Test]
+    public function findAllWithFiltersOnlyWidensTheRestrictionsWhenAsked(): void
+    {
+        $restrictions = $this->createMock(QueryRestrictionContainerInterface::class);
+        $restrictions->expects(self::never())->method('removeByType');
+        $this->queryBuilder->method('getRestrictions')->willReturn($restrictions);
+
+        $result = $this->createStub(Result::class);
+        $result->method('fetchAllAssociative')->willReturn([]);
+        $this->setupQueryBuilderForSelect($result);
+
+        self::assertSame([], $this->subject->findAllWithFilters(new SecretFilters(prefix: 'app_')));
+    }
+
+    #[Test]
+    public function findAllWithFiltersWidensTheRestrictionsWhenIncludingDisabled(): void
+    {
+        $restrictions = $this->createMock(QueryRestrictionContainerInterface::class);
+        $restrictions->expects(self::never())->method('removeAll');
+        $restrictions
+            ->expects(self::once())
+            ->method('removeByType')
+            ->with(HiddenRestriction::class)
+            ->willReturnSelf();
+        $this->queryBuilder->method('getRestrictions')->willReturn($restrictions);
+
+        $result = $this->createStub(Result::class);
+        $result->method('fetchAllAssociative')->willReturn([]);
+        $this->setupQueryBuilderForSelect($result);
+
+        self::assertSame([], $this->subject->findAllWithFilters(new SecretFilters(includeDisabled: true)));
+    }
+
+    /**
+     * The identifier-only listing takes the same filters, so it has to honour
+     * the same flag — a filter silently ignored by one of two sibling methods
+     * is a trap for the next caller.
+     */
+    #[Test]
+    public function findIdentifiersWidensTheRestrictionsWhenIncludingDisabled(): void
+    {
+        $restrictions = $this->createMock(QueryRestrictionContainerInterface::class);
+        $restrictions->expects(self::never())->method('removeAll');
+        $restrictions
+            ->expects(self::once())
+            ->method('removeByType')
+            ->with(HiddenRestriction::class)
+            ->willReturnSelf();
+        $this->queryBuilder->method('getRestrictions')->willReturn($restrictions);
+
+        $result = $this->createStub(Result::class);
+        $result->method('fetchAssociative')->willReturn(false);
+        $this->setupQueryBuilderForSelect($result);
+
+        self::assertSame([], $this->subject->findIdentifiers(new SecretFilters(includeDisabled: true)));
     }
 
     #[Test]
@@ -264,6 +382,52 @@ final class SecretRepositoryTest extends TestCase
             );
 
         $this->subject->delete($secret);
+    }
+
+    /**
+     * The whole point of the method: the UPDATE carries the availability
+     * column and the record timestamp and NOTHING else. Asserting the exact
+     * key set rather than "hidden is in there" is deliberate — a regression
+     * to a full-row write would still satisfy the weaker check while silently
+     * restoring every other column from a stale entity.
+     */
+    #[Test]
+    public function setHiddenWritesTheAvailabilityColumnAndNothingElse(): void
+    {
+        $connection = $this->useStrictConnectionMock();
+
+        $connection
+            ->expects(self::once())
+            ->method('update')
+            ->with(
+                'tx_nrvault_secret',
+                self::callback(static function (array $data): bool {
+                    $keys = array_keys($data);
+                    sort($keys);
+
+                    return $keys === ['hidden', 'tstamp'] && $data['hidden'] === 1;
+                }),
+                ['uid' => 42],
+            );
+
+        $this->subject->setHidden(42, true);
+    }
+
+    #[Test]
+    public function setHiddenClearsTheColumnWhenTheSecretIsPutBackIntoService(): void
+    {
+        $connection = $this->useStrictConnectionMock();
+
+        $connection
+            ->expects(self::once())
+            ->method('update')
+            ->with(
+                'tx_nrvault_secret',
+                self::callback(static fn (array $data): bool => $data['hidden'] === 0),
+                ['uid' => 7],
+            );
+
+        $this->subject->setHidden(7, false);
     }
 
     #[Test]

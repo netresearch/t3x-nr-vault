@@ -1,0 +1,8 @@
+"be_groups",,,,
+,"uid","pid","title","custom_options"
+,20,0,"vault-policy-managers","tx_nrvault:secret.manage_policy"
+"be_users",,,,,,,
+,"uid","username","password","admin","disable","starttime","endtime","usergroup"
+,7,"policy_without_secret","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"20"
+,8,"owner_with_policy","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"20"
+,9,"owner_without_policy","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,""

@@ -119,13 +119,54 @@ interface VaultServiceInterface
     public function rotate(string $identifier, #[SensitiveParameter] string $newSecret, string $reason = ''): void;
 
     /**
+     * Enable or disable a secret — the single write path for its availability.
+     *
+     * Disabling withdraws the secret from every read path at once (the record
+     * carries TCA's `disabled` enable column, so a disabled secret resolves to
+     * nothing in `retrieve()`, `retrieveForFrontend()` and every placeholder
+     * that goes through them). That makes it an access-control decision, not a
+     * display preference, and it is gated accordingly: the per-secret
+     * `canWrite()` tier AND the `secret.manage_policy` operation permission,
+     * exactly as `rotate()` and `delete()` gate theirs.
+     *
+     * The state is ABSOLUTE, not a toggle. Two concurrent toggles cancel out
+     * and leave two audit entries claiming opposite outcomes; two concurrent
+     * `setEnabled($id, false)` calls converge on the state their caller asked
+     * for. Whether a button flips the state is the caller's concern.
+     *
+     * Setting the state a secret already has is a no-op: no write, and no
+     * audit entry, because nothing changed. A refused call is still audited
+     * (`access_denied`) whether or not it would have changed anything.
+     *
+     * The change and its audit entry are all-or-nothing (ADR-036): if the
+     * audit write fails, the previous availability is restored and the
+     * `AuditWriteException` surfaces. A revert that itself fails is logged at
+     * CRITICAL for manual reconciliation.
+     *
+     * @param string $reason Operator-supplied justification, recorded in the
+     *                       audit entry alongside the direction of the change
+     *
+     * @throws SecretNotFoundException If secret doesn't exist
+     * @throws AccessDeniedException If current user lacks permission
+     */
+    public function setEnabled(string $identifier, bool $enabled, string $reason = ''): void;
+
+    /**
      * List all accessible secrets with metadata.
      *
      * @param string|null $pattern Optional pattern to filter identifiers (supports * wildcard)
+     * @param bool $includeDisabled Also return secrets that are currently
+     *                              disabled. Off by default, so a consumer
+     *                              asking "which secrets are available" keeps
+     *                              the answer it had; the management surfaces
+     *                              pass `true`, because a disabled secret that
+     *                              never appears in a listing cannot be
+     *                              re-enabled. Each entry reports its state in
+     *                              `SecretMetadata::$enabled`.
      *
      * @return list<SecretMetadata>
      */
-    public function list(?string $pattern = null): array;
+    public function list(?string $pattern = null, bool $includeDisabled = false): array;
 
     /**
      * Get detailed metadata about a secret.

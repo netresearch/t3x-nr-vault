@@ -19,6 +19,19 @@ interface SecretRepositoryInterface
 {
     public function findByIdentifier(string $identifier): ?Secret;
 
+    /**
+     * Resolve a secret by identifier INCLUDING one that is disabled
+     * (`hidden = 1`), which {@see findByIdentifier()} deliberately cannot see.
+     *
+     * Reserved for administrative operations that must still reach a disabled
+     * record — re-enabling, rotation, deletion, metadata display. Soft-deleted
+     * records stay invisible here; only the enable columns are given up. Never
+     * use this on a path that returns plaintext: disabling a secret revokes
+     * access precisely because the enable-column restriction removes it from
+     * the read path's query.
+     */
+    public function findByIdentifierIncludingDisabled(string $identifier): ?Secret;
+
     public function findByUid(int $uid): ?Secret;
 
     public function exists(string $identifier): bool;
@@ -38,6 +51,19 @@ interface SecretRepositoryInterface
      * from a read that may not have seen the record's complete relations.
      */
     public function save(Secret $secret, bool $persistGroupRelations = true): Secret;
+
+    /**
+     * Set a record's availability (the `hidden` column) without round-tripping
+     * the entity: one targeted UPDATE of that column plus `tstamp`, addressed
+     * by UID.
+     *
+     * Deliberately not expressed as {@see save()} of a Secret whose flag was
+     * flipped. That writes every scalar column from an entity read moments
+     * earlier, so a value rotation or read-count increment committed in
+     * between would be silently restored to its stale state by a call that
+     * only changes availability.
+     */
+    public function setHidden(int $uid, bool $hidden): void;
 
     public function delete(Secret $secret): void;
 

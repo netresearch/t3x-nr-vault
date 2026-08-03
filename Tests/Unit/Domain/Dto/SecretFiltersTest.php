@@ -175,10 +175,35 @@ final class SecretFiltersTest extends TestCase
             'prefix' => 'test/',
             'context' => 'backend',
             'scopePid' => 5,
+            'includeDisabled' => true,
         ];
 
         $subject = SecretFilters::fromArray($original);
 
         self::assertSame($original, $subject->toArray());
+    }
+
+    /**
+     * `includeDisabled` widens the result set instead of restricting it, so it
+     * must not count as a filter — a query carrying only that flag is an
+     * unfiltered listing that happens to include disabled secrets. Counting it
+     * would make callers that branch on `hasFilters()` treat the widest
+     * possible query as the narrowest.
+     */
+    #[Test]
+    public function includeDisabledDoesNotCountAsAFilter(): void
+    {
+        $subject = new SecretFilters(includeDisabled: true);
+
+        self::assertTrue($subject->includeDisabled);
+        self::assertFalse($subject->hasFilters());
+    }
+
+    #[Test]
+    public function includeDisabledDefaultsToOff(): void
+    {
+        self::assertFalse((new SecretFilters())->includeDisabled);
+        self::assertFalse(SecretFilters::fromArray([])->includeDisabled);
+        self::assertArrayNotHasKey('includeDisabled', (new SecretFilters())->toArray());
     }
 }

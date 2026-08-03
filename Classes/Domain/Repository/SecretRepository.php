@@ -13,6 +13,7 @@ use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
 
 /**
  * Repository for secret entities.
@@ -32,6 +33,51 @@ final readonly class SecretRepository implements SecretRepositoryInterface
     public function findByIdentifier(string $identifier): ?Secret
     {
         $queryBuilder = $this->getConnection()->createQueryBuilder();
+        $row = $queryBuilder
+            ->select('*')
+            ->from(self::TABLE_NAME)
+            ->where(
+                $queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier)),
+                $queryBuilder->expr()->eq('deleted', 0),
+            )
+            ->executeQuery()
+            ->fetchAssociative();
+
+        if ($row === false) {
+            return null;
+        }
+
+        $uid = $row['uid'] ?? 0;
+        $intUid = is_numeric($uid) ? (int) $uid : 0;
+
+        return Secret::fromDatabaseRow(
+            $row,
+            $this->loadGroupsForSecret($intUid),
+            $this->loadGroupsForSecret($intUid, self::MM_WRITE_TABLE_NAME),
+        );
+    }
+
+    /**
+     * Resolve a secret by identifier INCLUDING one that is disabled.
+     *
+     * The counterpart of {@see findByIdentifier()} for the administrative
+     * operations that must still reach a disabled record — re-enabling it,
+     * rotating it, deleting it, reading its metadata. Everything else, the
+     * plaintext read path above all, keeps using `findByIdentifier()`.
+     *
+     * That split is the whole point, so exactly one restriction is lifted and
+     * named: `HiddenRestriction`, the one TCA's `enablecolumns.disabled`
+     * mapping binds to the `hidden` column. `removeAll()` is deliberately NOT
+     * used — it would also discard `DeletedRestriction` and resurrect
+     * soft-deleted records, turning a narrow administrative lookup into a
+     * general one. The change is confined to this method: widening
+     * `findByIdentifier()` instead would silently disable the access control
+     * that disabling a secret exists to apply.
+     */
+    public function findByIdentifierIncludingDisabled(string $identifier): ?Secret
+    {
+        $queryBuilder = $this->getConnection()->createQueryBuilder();
+        $queryBuilder->getRestrictions()->removeByType(HiddenRestriction::class);
         $row = $queryBuilder
             ->select('*')
             ->from(self::TABLE_NAME)
@@ -143,6 +189,29 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         return $secret;
     }
 
+    /**
+     * Set a record's availability, addressed by UID.
+     *
+     * The counterpart of {@see incrementReadCount()} for the `hidden` column:
+     * one UPDATE that touches that column and `tstamp`, nothing else. Routing
+     * an availability change through {@see save()} instead would issue an
+     * UPDATE over EVERY scalar column of the passed entity — envelope, DEK,
+     * nonces, checksum, version, read counters, owner — restoring whatever
+     * those held when the entity was read. Anything committed since then (a
+     * `retrieve()` incrementing `read_count`, a `rotate()` replacing the
+     * envelope) would be rolled back by a caller that only meant to flip
+     * availability. `$persistGroupRelations = false` does not help: it only
+     * withholds the two group tiers.
+     */
+    public function setHidden(int $uid, bool $hidden): void
+    {
+        $this->getConnection()->update(
+            self::TABLE_NAME,
+            ['hidden' => $hidden ? 1 : 0, 'tstamp' => time()],
+            ['uid' => $uid],
+        );
+    }
+
     public function delete(Secret $secret): void
     {
         if ($secret->getUid() === null) {
@@ -165,6 +234,9 @@ final readonly class SecretRepository implements SecretRepositoryInterface
     public function findIdentifiers(?SecretFilters $filters = null): array
     {
         $queryBuilder = $this->getConnection()->createQueryBuilder();
+        if ($filters instanceof SecretFilters && $filters->includeDisabled) {
+            $queryBuilder->getRestrictions()->removeByType(HiddenRestriction::class);
+        }
         $queryBuilder
             ->select('identifier')
             ->from(self::TABLE_NAME)
@@ -348,6 +420,9 @@ final readonly class SecretRepository implements SecretRepositoryInterface
     public function findAllWithFilters(?SecretFilters $filters = null): array
     {
         $queryBuilder = $this->getConnection()->createQueryBuilder();
+        if ($filters instanceof SecretFilters && $filters->includeDisabled) {
+            $queryBuilder->getRestrictions()->removeByType(HiddenRestriction::class);
+        }
         $queryBuilder
             ->select('*')
             ->from(self::TABLE_NAME)

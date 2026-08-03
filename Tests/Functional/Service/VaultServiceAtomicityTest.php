@@ -23,6 +23,8 @@ use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Service\VaultService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
+use Netresearch\NrVault\Tests\Functional\Fixtures\ConcurrentReadAdapter;
+use Netresearch\NrVault\Tests\Functional\Traits\SecretRowTrait;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -38,6 +40,8 @@ use PHPUnit\Framework\Attributes\Test;
  */
 final class VaultServiceAtomicityTest extends AbstractVaultFunctionalTestCase
 {
+    use SecretRowTrait;
+
     protected ?string $backendUserFixture = __DIR__ . '/Fixtures/be_users_permissions.csv';
 
     #[Test]
@@ -128,6 +132,107 @@ final class VaultServiceAtomicityTest extends AbstractVaultFunctionalTestCase
     }
 
     /**
+     * An availability change is a mutation like any other, and the one whose
+     * loss is hardest to notice: an unaudited disable silently revokes access
+     * to a secret with nothing in the chain to say who did it or when.
+     */
+    #[Test]
+    public function setEnabledIsRolledBackWhenAuditWriteFails(): void
+    {
+        $this->getVaultService()->store('atomic_disable', 'still-available');
+
+        $service = $this->buildServiceWithFailingAudit();
+
+        // The failure must surface; `finally` runs the read-back before it
+        // propagates into the expectation declared here. That read-back is the
+        // assertion that matters — it is the path a disable would have closed.
+        $this->expectException(AuditWriteException::class);
+
+        try {
+            $service->setEnabled('atomic_disable', false, 'because');
+        } finally {
+            self::assertSame(
+                'still-available',
+                $this->getVaultService()->retrieve('atomic_disable'),
+                'A disable that could not be audited must not take effect.',
+            );
+        }
+    }
+
+    /**
+     * The other direction, because the compensation restores a captured state
+     * rather than a fixed one: a re-enable that cannot be audited must leave
+     * the secret disabled instead of quietly putting it back into service.
+     */
+    #[Test]
+    public function setEnabledIsRolledBackInBothDirectionsWhenAuditWriteFails(): void
+    {
+        $vault = $this->getVaultService();
+        $vault->store('atomic_enable', 'out-of-service');
+        $vault->setEnabled('atomic_enable', false);
+
+        $service = $this->buildServiceWithFailingAudit();
+
+        $this->expectException(AuditWriteException::class);
+
+        try {
+            $service->setEnabled('atomic_enable', true);
+        } finally {
+            self::assertNull(
+                $vault->retrieve('atomic_enable'),
+                'A re-enable that could not be audited must not take effect.',
+            );
+        }
+    }
+
+    /**
+     * The revert is a write like the one it undoes, so it is narrow like it
+     * too. With a read committed inside the window (see
+     * {@see ConcurrentReadAdapter}), a compensation that restored the whole
+     * entity would put the availability back AND roll that read off the
+     * record — repairing one control by breaking the accounting of another.
+     */
+    #[Test]
+    public function setEnabledRevertRestoresAvailabilityWithoutTouchingAnythingElse(): void
+    {
+        $vault = $this->getVaultService();
+        $vault->store('atomic_narrow', 'still-available');
+        self::assertSame('still-available', $vault->retrieve('atomic_narrow'));
+
+        $before = $this->readSecretRow('atomic_narrow');
+
+        $service = new VaultService(
+            new ConcurrentReadAdapter($this->getAdapter()),
+            $this->getEncryptionService(),
+            $this->get(AccessControlServiceInterface::class),
+            $this->createFailingAuditLogService(),
+            $this->get(ExtensionConfigurationInterface::class),
+            $this->get(VaultHttpClientFactoryInterface::class),
+        );
+
+        $this->expectException(AuditWriteException::class);
+
+        try {
+            $service->setEnabled('atomic_narrow', false, 'because');
+        } finally {
+            $after = $this->readSecretRow('atomic_narrow');
+
+            self::assertSame(0, (int) $after['hidden'], 'The unauditable disable must have been reverted.');
+            self::assertSame(
+                (int) $before['read_count'] + 1,
+                (int) $after['read_count'],
+                'The compensation must not roll back a read that committed in the window.',
+            );
+
+            foreach (['hidden', 'tstamp', 'read_count', 'last_read_at'] as $expected) {
+                unset($before[$expected], $after[$expected]);
+            }
+
+            self::assertSame($before, $after, 'The compensation must restore availability and nothing else.');
+        }
+    }
+
+    /**
      * Build a VaultService wired with the real container dependencies except
      * for an audit log service that throws on every successful mutation log,
      * exercising the compensating-rollback path. Access checks pass because
@@ -195,6 +300,8 @@ final class VaultServiceAtomicityTest extends AbstractVaultFunctionalTestCase
                     AuditAction::Update->value,
                     AuditAction::Delete->value,
                     AuditAction::Rotate->value,
+                    // The action an availability change writes.
+                    AuditAction::MetadataUpdate->value,
                 ];
                 if ($success && \in_array($action, $mutating, true)) {
                     throw new AuditWriteException('Simulated audit write failure', 9334453097);
