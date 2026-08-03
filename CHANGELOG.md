@@ -7,69 +7,157 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **Every audit CLI entry point now asserts an operation permission
-  (breaking).** `vault:audit`, `vault:audit-verify` and `vault:audit-anchor`
-  gated nothing at all, while the same capabilities were gated in the backend
-  module all along: anyone who could invoke them could read the audit log — who
-  touched which secret when, which maps out the credential topology — carry an
-  unchained copy of it off with `--export`, clear the tamper-evidence tip
-  anchor, or re-attest a truncated chain to the external sinks. The permission
-  now follows the operation's effect, so the same operation answers to the same
-  permission through every entry point:
-
-  | Operation | Permission | Entry points |
-  |---|---|---|
-  | Read audit entries | `audit.view` | audit module, `vault:audit` |
-  | Verify the chain | `audit.view` | audit module, `vault:audit --verify`, `vault:audit-verify`, `AuditVerifyTask` |
-  | Export to a file | `audit.export` | audit module, `vault:audit --export` |
-  | Publish the chain tip | `vault.configure` | `vault:audit-anchor`, `AuditAnchorTask` |
-  | Reset the tip anchor | `vault.configure` | `vault:audit --reset-anchor` |
-
-  Verification is a read of the chain — it recomputes and compares, it mutates
-  nothing — so it shares `audit.view` with the listing rather than taking the
-  administrative permission. Anchoring and resetting the anchor do mutate
-  tamper evidence: an actor who truncates the log and then anchors makes the
-  external sink attest the truncated chain, which is the laundering the anchor
-  exists to prevent. A refusal exits 1 before any query, file write, chain read
-  or anchor change happens, and writes no `access_denied` entry — the same
-  shape as every other operation-permission gate (`vault:retrieve`,
-  `vault:rotate-master-key`, the backend modules). In `--format=json` a refused
-  `vault:audit-verify` reports `valid: false`, so a monitor never reads it as a
-  clean chain.
-- **Migration.** All three permissions are excluded from the
-  `cliAllowedOperations` default, so any of these commands run from a shell now
-  needs `allowCliAccess = 1` **and** the operation added to that list. Prefer a
-  named technical actor (`TechnicalActorContext::runAs()`) holding exactly
-  those permissions: the audit trail then names the identity that read,
-  exported or anchored. A backend user needs the matching
-  `tx_nrvault:<permission>` custom option on one of their groups; admins are
-  unaffected unless the admin override is disabled. **Scheduled operation is
-  unaffected on a default installation** — `scheduler:run` authenticates the
-  `_cli_` administrator, who passes through the admin bypass. Under
-  `disableAdminOverride` that bypass is gone by design, so the identity running
-  the scheduler needs a group carrying `tx_nrvault:audit.view` (verify) and
-  `tx_nrvault:vault.configure` (anchor); without it both tasks fail loudly
-  rather than skipping quietly.
-
-### Security
-
-- **Truncating the audit log is no longer invisible** (ADR-034). The hash chain
-  only ever checked rows that were still present, so `DELETE FROM
-  tx_nrvault_audit_log WHERE uid > N` — or a full `TRUNCATE` — left a
-  self-consistent chain that every tamper-evidence control reported as valid.
-  nr_vault now records one signed assertion outside that table, in the core
-  table `sys_registry`: "row `uid = A` still exists and its `entry_hash` is
-  still `H`", authenticated with a key derived from the master key under its own
-  HKDF context. Tail truncation, deletion of the last row, a full wipe, and a
-  wipe followed by refilling the same UIDs are all reported as an invalid chain
-  now. There is no database schema change.
+Forty-eight merged pull requests since 0.13.0, most of them a hardening
+programme carried out in four rounds of adversarial review: a technically
+enforced security profile, ten grantable operation permissions in place of the
+admin-only model, a tamper-evidence anchor inside and outside the database, and
+a readiness command an operator or a pipeline can gate on. Several changes are
+breaking, and several close paths that produced *successful-looking* audit
+entries for operations that were never authorised — in an extension whose
+promise is auditability, that is the part to read first. Start with **Changed**
+and end with **Migration**, which collects everything you actually have to do.
 
 ### Added
 
+- **Security profiles** (#236). `securityProfile` (`standard` | `hardened`,
+  default `standard`) is a technically enforced policy, not a documentation
+  label. Under `hardened`, `masterKeyProvider = typo3` is a configuration error
+  — vault secrets must not be protected by the same key TYPO3 uses for
+  everything else — and provider selection stops auto-detecting: the configured
+  provider is returned even when it is unavailable, so `getMasterKey()` fails
+  loudly instead of silently degrading down the old `typo3 → env → file` chain.
+  An unknown profile value throws rather than falling back to `standard`,
+  because a typo must never be able to weaken the effective policy.
+  `VaultHealthService` and `vault:rotate-master-key` resolve through the same
+  factory, so a misconfiguration surfaces in the system status and blocks
+  rotation instead of being discovered at decryption time.
+- **Ten grantable operation permissions** (#238) replace the coarse admin-only
+  model: `secret.use`, `secret.reveal`, `secret.create`, `secret.rotate`,
+  `secret.delete`, `secret.manage_policy`, `audit.view`, `audit.export`,
+  `master_key.rotate`, `vault.configure`. They are carried as TYPO3 custom
+  permission options (`be_groups.custom_options`, namespace `tx_nrvault`) and
+  granted per group in the Backend Users module, and they compose with — never
+  replace — the per-secret owner/group ACL tiers: both must hold. The split that
+  matters operationally is **use ≠ reveal**: `secret.use` gates every
+  interactive plaintext read, while displaying a secret additionally needs
+  `secret.reveal`, so an application or a technical actor can consume a
+  credential no human is allowed to look at. Audit viewing is separated from
+  secret access entirely (`audit.view` / `audit.export`), and the "admins may do
+  anything" override lives in exactly one seam so it can be switched off as a
+  whole (see break-glass, below).
+- **The admin override can be switched off, with an audited break-glass window
+  as the way back in** (#241). `disableAdminOverride` (hardened profile only;
+  inert under `standard` as a lockout guard) removes the admin and
+  system-maintainer bypass from *both* layers — the operation permissions and
+  the per-secret read/write/delete tiers — and can be pinned out of admin reach
+  in `config/system/additional.php` via
+  `$GLOBALS['TYPO3_CONF_VARS']['SYS']['nrVault']['disableAdminOverride']`.
+  `vault:break-glass --activate --reason "…" [--minutes N]` (1–60, default 15)
+  opens a time-boxed window; the audit row is written **before** the power is
+  granted, so an open window without evidence is impossible, and a logged failed
+  opening is harmless. While a window is open the vault backend modules carry a
+  danger banner, `--status` is machine-readable, and PSR-14
+  `BreakGlassActivatedEvent` / `BreakGlassDeactivatedEvent` fire for SIEM
+  pickup. A `runAs()` technical actor may not open one — break-glass is not an
+  authentication boundary.
+- **HashiCorp Vault Transit master key provider** (#239). The 32-byte master key
+  is generated once, wrapped by Transit, and only the `vault:v1:…` ciphertext is
+  stored locally (`0600`, atomic write); every unwrap is a live, centrally
+  audited Vault call, so revoking the token or its policy locks the vault out
+  immediately and a stolen database plus webroot is useless on its own. Token
+  auth only — `approle` and `kubernetes` are rejected rather than silently
+  downgraded. New settings `hashicorp.transitMount`, `hashicorp.transitKeyName`,
+  `hashicorp.transitWrappedKeyPath`, `hashicorp.tokenEnvVar`. The trust model is
+  documented honestly: Transit protects custody, rotation and central
+  auditability; it does not stop a fully compromised PHP process from calling
+  `decrypt` with the token it legitimately holds.
+- **The audit log can be anchored outside the database** (#240).
+  `AuditSinkInterface` plus three sinks — syslog (RFC 5424 structured data,
+  control characters stripped against log forging), an append-only NDJSON file
+  (`0600`, `LOCK_EX`, refuses any path inside the public web root, resolved
+  against the nearest existing ancestor so `..` and symlinks cannot bypass it)
+  and an SSRF-guarded HTTP webhook. Fan-out happens after commit and after the
+  advisory lock is released, so a slow sink can never serialize vault operations
+  behind the lock and a sink failure never rolls back the audited operation.
+  `vault:audit-anchor` publishes `{sequence, chainTip, timestamp, hmacEpoch}`
+  through every enabled sink and the reader takes the **highest** anchored
+  sequence, so appending a low anchor cannot weaken the baseline;
+  `vault:audit-verify` then checks the chain *and* compares it against that
+  anchor, reporting a table that was truncated and re-seeded with a
+  valid-but-different chain as `TABLE_RESET`. Machine-readable reason codes
+  (`HASH_MISMATCH`, `UID_GAP`, `TABLE_RESET`, `EPOCH_DOWNGRADE`, `SINK_FAILURE`,
+  `NO_EXTERNAL_SINK`, `BREAK_GLASS`), scheduler tasks for both commands, and a
+  PSR-14 `AuditIntegrityAlertEvent` forwarded through the sinks. Seven new
+  settings under "Audit Sinks", all off by default.
+- **`vault:doctor`** (#244) — one readiness check across the whole security
+  posture, with exit codes a pipeline can gate on: **0** clean, **1** warnings,
+  **2** any critical. One class per control (provider explicitness, availability
+  and key-file permissions; profile consistency; break-glass window; audit
+  reads, retention, chain, external sink and anchor; CLI exposure; secret expiry
+  and rotation hygiene; production context and HTTPS; version sanity), each
+  declaring which profiles it applies to, each producing a typed `Finding` with
+  id, severity, risk, remediation and a documentation link. A crashing check is
+  contained as a `check.crashed` critical finding rather than taking the run
+  down with it. `--profile=hardened` asks "would this installation pass as
+  hardened?" without changing any configuration, which is what makes it usable
+  as a deployment gate. The backend overview shows a profile badge and "N/M
+  controls passed" to any vault user; the detailed findings are gated behind
+  `vault.configure`.
+- **Audit sinks are now checked by delivery, not by configuration** (#255).
+  "Enabled" used to mean a switch plus a syntactically valid URL, and the only
+  telemetry was a per-process failure counter — so a freshly started
+  `vault:doctor` always saw zero failures and reported a collector that had been
+  unreachable for days as healthy. Per-sink delivery state (last success, last
+  failure, consecutive failures, lifetime failures, last error) is now persisted
+  in `sys_registry`, written fail-safe on every dispatch outcome and throttled
+  to one healthy write per minute per sink, so the bookkeeping can never fail or
+  slow the audited operation. New `audit.sink_state.<sink>` findings grade
+  consecutive failures and a last success older than
+  `auditSinkStaleDeliveryHours` (new setting, default 24) as a warning under
+  `standard` and **critical** under `hardened`. `vault:doctor --active-probes`
+  goes further and pushes the current chain tip through every enabled sink end
+  to end — a refused probe is critical in **both** profiles. Probes never run
+  implicitly: not from the passive checks, not from the backend status panel.
+  The anchor is re-publishable evidence by design, so a probe pollutes nothing
+  and even refreshes the external anchor.
+- **Four further doctor controls**, each closing a case where the runtime was
+  correct and the readiness report was not. `audit.hmac_epoch` (#260, graded
+  further in #268 and #277): critical at epoch 0 — one setting that
+  simultaneously drops row hashes to keyless SHA-256, makes the chain-level
+  downgrade guard vacuous and disables the in-DB anchor, silently overriding
+  `auditAnchorRequired`; warning at epochs 1–2, where 13 and 5 columns
+  respectively sit outside the signed payload (at epoch 1 `success` itself is
+  forgeable, so a recorded denial can be flipped into a recorded grant without
+  touching a signed byte); pass only at ≥ 3. The check now reads the **stored**
+  minimum epoch from the oldest row rather than grading the configuration alone,
+  and reports it as `details.storedMinEpoch` for CI. `audit.db_anchor` (#260)
+  loads the `sys_registry` anchor directly, which no check did before at any
+  epoch. `cli.frontend_placeholder_legacy` (#268) reports the
+  `frontendPlaceholderLegacyCli` opt-in — emitted from both return paths of the
+  CLI check, because the obvious placement would have skipped it on exactly the
+  default installations where the bypass is fully live. And
+  `cli.allowed_operations` (#277) stops calling `secret.manage_policy` and
+  `audit.view` harmless: the first governs the permissions themselves, so a
+  shell can widen its own per-secret reach; the second maps out the credential
+  topology and is where that shell's own activity is recorded.
+- **A secret's availability is a vault operation with a name** (#278).
+  `VaultServiceInterface::setEnabled(string $identifier, bool $enabled, string
+  $reason = ''): void` — absolute, not a toggle, so two concurrent disables
+  converge instead of cancelling out and leaving two audit entries claiming
+  opposite outcomes. It resolves the secret through a disabled-visible lookup,
+  asserts `canWrite()` **and** `secret.manage_policy`, no-ops when the state
+  already matches (the gates run first, so a *refused* no-op is still audited),
+  and reverts on `AuditWriteException` exactly as the other compensating paths
+  do, including the CRITICAL escalation when the revert itself fails. It is
+  audited as `metadata_update`, matching what the FormEngine path already writes
+  for the same column, so "who disabled this secret" has one answer regardless
+  of the write path. `list()` and the repository filters gained
+  `$includeDisabled` (default `false`) so the management surfaces can see what
+  the read paths no longer return.
 - `vault:audit --verify` reports the anchor state on a `Tip anchor:` line, and
-  the backend verification view shows it too.
+  the backend verification view shows it too. `vault:audit-verify` additionally
+  reports the `Stored HMAC epochs` distribution in text and JSON (#277) — the
+  count is free, since `verifyHashChain()` already walks every row.
 - `vault:audit --reset-anchor` clears the anchor after a wipe or purge you
   performed deliberately, writes the reset into the chain so it cannot be done
   invisibly, and re-arms the anchor on that entry. New audit action
@@ -81,69 +169,210 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   laundered back to a valid verdict by ordinary traffic. Enable it after the
   first audit write following the upgrade; while it is on, `vault:audit
   --reset-anchor` is the only way to arm the anchor.
+- **Security, operations and auditor documentation** (#243) — 17 new pages that
+  turn the implemented hardening into an auditable, reproducible state.
+  `Documentation/Security/` gains a threat model, the profile comparison, the
+  trust boundaries, the cryptography chapter, what the audit chain does and does
+  not prove, and a prominent `KnownLimitations` page.
+  `Documentation/Operations/` covers hardened deployment, key custody, backup
+  and restore, key rotation, monitoring and alerting, incident response and
+  decommissioning. `Documentation/Auditor/` states the target of evaluation,
+  maps controls to BSI IT-Grundschutz and OWASP ASVS **with a declared-gaps
+  table** so an assessment credits no absent control, and gives reproducible
+  evidence and verification procedures (the staging-only ones marked as such).
+  The language is deliberately unmarketed throughout — *tamper-evident*, not
+  tamper-proof; *minimized exposure*, not secure deletion.
+- **ADR-036** (#272) records the rule four hardening rounds had been
+  implementing without writing down: a mutation and its audit entry commit
+  together, and a change that cannot be audited must not persist. It exists
+  because two of its mechanics are non-obvious enough that a future refactor
+  would plausibly break them silently — why the ACL MM relations need a snapshot
+  captured in `processDatamap_preProcessFieldArray()` (DataHandler writes them
+  during `checkValue()`, before any audit hook runs, and the row's
+  `allowed_groups` column holds only a relation *count*, so restoring the column
+  restores nothing), and why the create path is asymmetric (for a `NEW` record
+  the MM writes are deferred past the hook, so a reverted creation deletes the
+  row before its relations exist and leaves orphans to purge). It also states
+  where the guarantee stops rather than leaving the boundary implied.
+- **A release evidence bundle** (#245). `Build/Scripts/collect-evidence.php`
+  assembles whatever exists at release time — test results, line and
+  security-directory coverage, whole-codebase and security-scoped mutation
+  summaries, PHPStan level, `composer audit`, `vault:doctor --format=json` —
+  into a flat, stable `evidence-manifest.json` plus a human-readable
+  `EVIDENCE.md`. An absent producer is `absent` and exit 0; only a
+  present-but-malformed artifact is an error.
+  `.github/workflows/release-evidence.yml` runs it on a tag and publishes the
+  bundle as a run artifact with a build-provenance attestation over the tarball,
+  verifiable with `gh attestation verify`. `CONTRIBUTING.md` now requires
+  two-person review for `Classes/Crypto|Security|Audit` (the author cannot
+  approve; one approver must be a code owner) plus a threat-model delta, and
+  `SECURITY.md` carries a 7-day Critical/High patch SLA, down from 30.
+- **Quality gates that block rather than inform.** Codecov is blocking at 90%
+  patch coverage for `Classes/Crypto|Security|Audit` and 80% by default, with
+  the ignore list mirroring the PHPUnit excludes so the reported number is the
+  one the suite actually measures (#242, #258). A security-scoped mutation gate
+  ships as `infection-security.json5` with a raise-only ratchet, now at **MSI
+  86** after a pass that killed 273 escaped mutants by pinning previously
+  unasserted semantics across the audit, crypto and security trees — test-only,
+  no production code touched (#242, #257). The gate treats its own inputs as
+  security-critical, so a pull request lowering the ratchet is measured rather
+  than waved through. Alongside: PHPStan now analyses the whole `Tests` tree
+  instead of `Tests/Architecture` only (#233), the CLI documentation guard
+  checks each command's **option lists** against the real `addOption()` calls
+  and not merely the shell examples (#273), sixteen previously untested classes
+  reached full line coverage (#258), and the envelope fuzz probe spans two full
+  base64 block periods and reports every observed length when it fails (#256).
 
 ### Changed
 
+- **The request-scoped plaintext cache is gone, and
+  `VaultServiceInterface::clearCache()` with it (breaking)** (#250). See
+  **Security** for what the cache did; what changes for integrators is that the
+  method no longer exists — there is nothing left to clear — and the
+  `cacheEnabled` extension setting,
+  `ExtensionConfiguration(Interface)::isCacheEnabled()` and the
+  `ext_conf_template.txt` entry are removed too. The saved work was a single-row
+  `SELECT` plus one decrypt; an actor-keyed cache was considered and rejected,
+  because permission state, break-glass windows and expiry all change within a
+  request and a cache that has to track them is a second authorization
+  implementation.
+- **`allowCliAccess` no longer grants every operation (breaking)** (#254). With
+  the switch on — which deployment automation genuinely requires — a shell on
+  the host implicitly held `secret.reveal`, `secret.delete`, `audit.export`,
+  `master_key.rotate` and `vault.configure`, because `isGranted()` returned the
+  trust switch regardless of which permission was asked for. The new
+  `cliAllowedOperations` setting defaults to
+  `secret.use,secret.create,secret.rotate`, and both CLI branches now require
+  the trust switch **and** the allowlist. Everything else needs an explicit
+  opt-in, so `vault:retrieve`, `vault:delete`, the scheduled orphan cleanup,
+  `vault:audit --export` and `vault:rotate-master-key` stop working on
+  installations that relied on the blanket grant. Under the hardened profile,
+  unattributed CLI access is now a **critical** doctor finding rather than a
+  warning.
+- **The frontend placeholder allow-set applies on the CLI too (breaking)**
+  (#262). ADR-035 scoped `%vault()%` resolution to published identifiers in web
+  requests, but the CLI branch returned early with a blanket `true`. That looked
+  defensible while plain unauthenticated CLI still failed closed on the
+  `allowCliAccess = 0` default — except `scheduler:run` authenticates the
+  `_cli_` **admin** user, so the admin bypass grants vault reads regardless of
+  that switch. For editor-authored content rendered by a scheduled job — a
+  newsletter, a static export, a search indexer — the allow-set was therefore
+  the only remaining gate, and it was the one being skipped. The CLI is now
+  strict like everything else. `frontendPlaceholderLegacyCli` (default `0`)
+  restores the previous behaviour byte for byte; it is CLI-scoped so it cannot
+  weaken a web request, read per call rather than memoised, fails closed on
+  unreadable configuration, and honours the `$TYPO3_CONF_VARS` pin.
+  Installations whose scheduler jobs resolve unpublished `frontend_accessible`
+  identifiers must publish those identifiers or set the flag.
+- **Every audit CLI entry point now asserts an operation permission (breaking)**
+  (#274). `vault:audit`, `vault:audit-verify` and `vault:audit-anchor` gated
+  nothing at all, while the same capabilities were gated in the backend module
+  all along: anyone who could invoke them could read the audit log — who touched
+  which secret when, which maps out the credential topology — carry an unchained
+  copy of it off with `--export`, clear the tamper-evidence tip anchor, or
+  re-attest a truncated chain to the external sinks. The permission now follows
+  the operation's effect, so the same operation answers to the same permission
+  through every entry point:
+
+  | Operation | Permission | Entry points |
+  |---|---|---|
+  | Read audit entries | `audit.view` | audit module, `vault:audit` |
+  | Verify the chain | `audit.view` | audit module, `vault:audit --verify`, `vault:audit-verify`, `AuditVerifyTask` |
+  | Export to a file | `audit.export` | audit module, `vault:audit --export` |
+  | Publish the chain tip | `vault.configure` | `vault:audit-anchor`, `AuditAnchorTask` |
+  | Reset the tip anchor | `vault.configure` | `vault:audit --reset-anchor` |
+
+  Verification is a read of the chain — it recomputes and compares, it mutates
+  nothing — so it shares `audit.view` with the listing rather than taking the
+  administrative permission. Anchoring and resetting the anchor do mutate tamper
+  evidence: an actor who truncates the log and then anchors makes the external
+  sink attest the truncated chain, which is the laundering the anchor exists to
+  prevent. A refusal exits 1 before any query, file write, chain read or anchor
+  change happens, and writes no `access_denied` entry — the same shape as every
+  other operation-permission gate (`vault:retrieve`, `vault:rotate-master-key`,
+  the backend modules), and for `--verify` and `--reset-anchor` the deciding
+  argument is recursion: a denial entry would append a row and advance the tip
+  anchor, mutating the very state the operator is about to inspect. In
+  `--format=json` a refused `vault:audit-verify` reports `valid: false`, so a
+  monitor never reads it as a clean chain. `OrphanCleanupTask` is deliberately
+  *not* gated at task level: its effect already answers to `secret.delete` one
+  layer deeper.
+- **`undelete`, `copy` and `move` are refused for `tx_nrvault_secret`
+  (breaking)** (#276). Each is marked handled so core never reaches its cmdmap
+  branch, writes an `access_denied` audit entry and emits a DataHandler error
+  naming the reason. `localize`, `copyToLanguage`, `inlineLocalizeSynchronize`,
+  `discard` and `version` are deliberately left alone — each was verified inert
+  for this schema, and a gate with nothing behind it is noise. **Administrators
+  are refused too**, and that is a product rule rather than a permission tier:
+  an exemption would make "the vault cannot restore it" mean "unless an
+  administrator says otherwise", and would write a restore into the HMAC chain
+  that the vault never performed. An operator who must resurrect a row still has
+  the database, where the change is visible as what it is. The user-facing
+  wording follows: the confirm dialogs, the TCA field clear and `vault:delete`
+  now all say *"The vault cannot restore it. The encrypted record is retained in
+  the database until it is removed there."*, replacing a documentation passage
+  that called the soft delete "auditable and reversible".
+- **The `ext_emconf.php` TYPO3 constraint is capped at `14.3.99` (breaking for
+  anyone installing via the Extension Manager against a future 14.x)** (#271).
+  The previous `13.4.0-14.99.99` claimed compatibility with 14.4 through 14.99,
+  which do not exist as supported releases — v14.3 *is* the LTS. This does not
+  reopen the 0.7.0 decision to keep a coarse range: that reasoning was about the
+  **gap** a single continuous range cannot express (the unsupported 14.0–14.2
+  sprint releases, still spanned), not about the ceiling. `composer.json`
+  remains authoritative for a Composer-based installation.
+- **Six interfaces gained members, which is breaking for third-party
+  implementations** (#259, #263, #278, #280, #281). Each addition exists because
+  a caller needed a narrower or a wider operation than the interface could
+  express; none changes an existing signature's meaning, and the two optional
+  parameters default to today's behaviour so existing callers and test doubles
+  bind unchanged.
+
+  | Interface | Addition | Why |
+  |---|---|---|
+  | `VaultServiceInterface` | `assertDeletable(string $identifier): void` | runs `delete()`'s gates without deleting, so a record spanning several vault fields fails closed before the first irreversible deletion |
+  | `VaultServiceInterface` | `setEnabled(string $identifier, bool $enabled, string $reason = ''): void` | the single audited write path for a secret's availability |
+  | `VaultServiceInterface` | `list(?string $pattern = null, bool $includeDisabled = false): array` | lets the management surfaces see secrets the read paths no longer return |
+  | `SecretRepositoryInterface` | `findByIdentifierIncludingDisabled()`, `findByUidIncludingDisabled()` | lift `HiddenRestriction` **by name** for administrative lookups; `removeAll()` was rejected because it would also discard `DeletedRestriction` and resurrect soft-deleted rows |
+  | `SecretRepositoryInterface` | `setHidden(int $uid, bool $hidden): void`, `setMetadata(int $uid, array $metadata): void` | column-scoped writes, so a metadata or availability change stops rewriting the whole row |
+  | `SecretRepositoryInterface`, `VaultAdapterInterface` | `save()` and `store()` gain `bool $persistGroupRelations = true` | lets the FormEngine completion path keep MM rows and their count columns consistent instead of zeroing the tiers |
+  | `VaultDoctorServiceInterface` | `run()` gains `bool $activeProbes = false` | required by `--active-probes` |
+
+- **The backend modules and AJAX routes moved from `admin` to `user`** (#238),
+  and every controller action asserts its own operation instead: the overview
+  filters its submodule cards by permission and the templates render only the
+  actions the user holds. Non-admin editors working with vault-backed FormEngine
+  or FlexForm fields therefore need `secret.use`, which they did not need
+  before. `vault:rotate-master-key` now needs `allowCliAccess = 1` like every
+  other secret command — the `_cli_` user is never logged in, so group grants
+  cannot apply to it — and, since #254, `master_key.rotate` in
+  `cliAllowedOperations` as well.
+- **Technical actors resolve their grants from their backend groups** (#251).
+  They were previously hard-coded to an implicit `secret.use`, which central
+  enforcement would have turned into "no `runAs()` worker can ever mutate
+  anything". The other operation permissions are now read straight from the
+  `tx_nrvault:<permission>` custom options on the actor's `be_groups` rows —
+  never through `BackendUserAuthentication::check()`, which core short-circuits
+  to `true` for admins — and fail closed: no groups, no grant. `secret.use`
+  stays implicit.
 - **A truncated audit log now verifies as INVALID.** This also blocks
   `vault:rotate-master-key` and both HMAC re-seal paths, which already refuse to
   run on any other chain error — re-sealing a truncated chain would launder it.
   Use `vault:audit --reset-anchor` for a truncation you performed on purpose.
-- Installations upgrade into a populated chain with no anchor row. That is a
+  Installations upgrade into a populated chain with no anchor row; that is a
   warning, not an error, and the anchor arms itself on the next audit write.
-
-### Security
-
-- **Frontend `%vault()%` placeholders are now scoped to published identifiers**
-  (ADR-035). `TypoScriptVaultListener` runs on the output of every `stdWrap()`
-  call, so an editor-written `tt_content` field (`stdWrap.field = bodytext`) or a
-  reflected request parameter (`data = GP:q`) was a resolution site for any
-  secret flagged `frontend_accessible` — the plaintext landed in output shared
-  through the page cache. In a frontend request the extension now resolves an
-  identifier only when it was published through a source an editor cannot write:
-  the TypoScript setup array, the site configuration or settings,
-  `plugin.tx_nrvault.frontendResolvableIdentifiers`, or
-  `FrontendPlaceholderPolicyInterface::allowIdentifier()`. The check runs before
-  the vault is touched, so a rejected identifier reaches neither the vault nor
-  the audit log.
-
-### Changed
-
-- The restriction above applies to frontend requests and to any web request
-  whose type cannot be established — eID among them, where
-  `$GLOBALS['TYPO3_REQUEST']` does not exist. CLI (scheduler, Symfony Messenger,
-  console commands) and backend requests are unchanged — a backend request being
-  recognised by the request the content object renderer carries, never by what an
-  earlier request left in `$GLOBALS['TYPO3_REQUEST']`. A renderer built without a
-  request of its own is restricted wherever it runs.
-- **Migration.** Every documented TypoScript and site-configuration form keeps
-  working: writing `lib.apiKey.value = %vault(my_api_key)%` publishes
-  `my_api_key`. An identifier used *only* in a Fluid template file, a `userFunc`
-  or a DataProcessor is not in the setup array — publish it once per site with
-  `plugin.tx_nrvault.frontendResolvableIdentifiers = my_api_key`. In an eID
-  handler, call
-  `GeneralUtility::makeInstance(FrontendPlaceholderPolicyInterface::class)->allowIdentifier('my_api_key', $request)`.
-  A rejected placeholder is left literal in the output, and Development context
-  emits one `notice` per request naming it.
-- **Migration (eID).** `allowIdentifier()` takes the PSR-7 request as its second
-  argument:
-  `GeneralUtility::makeInstance(FrontendPlaceholderPolicyInterface::class)->allowIdentifier('my_api_key', $request)`.
-  The policy is a shared service that outlives a request, so the grant is stored
-  against that request object in a `WeakMap` — it is unreachable from any later
-  request, which in a worker SAPI (FrankenPHP, RoadRunner) is what stops one
-  request's grant from authorising the next one's anonymous, page-cached render.
-  Pass the request you are handling and `setRequest()` the same object on the
-  content object renderer you render with: the grant is matched by object
-  identity against the renderer's request. `$GLOBALS['TYPO3_REQUEST']` is never
-  used for it — TYPO3 sets that global and never unsets it, so in a worker it
-  outlives its own request. A renderer carrying a different request, or none,
-  resolves nothing.
-- Log volume on the rejection path is now bounded by a latch that is per request
-  and only applies in a frontend/unknown web context: 100 injected placeholders
-  naming a withheld secret produced 100 warnings and 100 `AccessDenied` audit
-  rows, and now produce at most one record and no rows. The latch cannot carry
-  into the next request, and it never engages on the CLI or in a backend
-  request, so a long-running `scheduler:run` or Messenger consumer keeps every
-  warning it emitted before.
+- **Frontend `%vault()%` resolution is restricted to frontend requests and to
+  any web request whose type cannot be established** — eID among them, where
+  `$GLOBALS['TYPO3_REQUEST']` does not exist. CLI and backend requests were
+  unchanged by ADR-035 and are now covered separately (see the CLI entry above);
+  a backend request is recognised by the request the content object renderer
+  carries, never by what an earlier request left in the superglobal, and a
+  renderer built without a request of its own is restricted wherever it runs.
+  Log volume on the rejection path is bounded by a latch that is per request and
+  only engages in a frontend or unknown web context: 100 injected placeholders
+  naming a withheld secret used to produce 100 warnings and 100 `AccessDenied`
+  audit rows, and now produce at most one record and no rows. The latch cannot
+  carry into the next request and never engages on the CLI, so a long-running
+  `scheduler:run` or Messenger consumer keeps every warning it emitted.
 - **Detection trade-off.** Because a rejected identifier is refused before the
   vault is touched, it no longer produces the `AccessDenied` audit row it used
   to. Outside Development a rejection is written nowhere, so probing for a
@@ -151,14 +380,400 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `%vault(...)%` surviving in the output. This is deliberate — any per-rejection
   record is a write an anonymous visitor can drive — and is recorded as a
   residual in ADR-035.
+- **The documentation was audited against the shipped code and roughly seventy
+  drift items corrected** (#266, #267, #246, #264). The corrections worth naming
+  are the ones that ran the wrong way: the auditor documentation claimed a
+  secret-scanning control *does not exist* when it runs on every pull request,
+  while both `AGENTS.md` files claimed a gitleaks scan that did not run at all —
+  a false control claim in a secrets extension changes behaviour, because a
+  contributor adding fixtures relaxes their own care trusting a scan that never
+  happens. Verification procedure 6c expected a `TRUNCATE` to leave a valid
+  chain, which the ADR-034 anchor now correctly reports as invalid. ADR-034
+  prescribed the one `entry_namespace` value the code deliberately avoids,
+  ADR-005's code sample taught the inlined `isAdmin()` pattern the codebase
+  forbids, `vault:store` and `vault:retrieve` documented options that do not
+  exist, and `TcaIntegration.rst`'s resolver examples were fatal errors. Three
+  passages claimed multi-field copy and delete are *atomic*, where the real
+  guarantee is preflight plus best-effort compensation with three named
+  residuals; the code was honest about this in its own log messages, only the
+  prose said "never".
+- **Dependencies and CI**, grouped: `actions/upload-artifact` to v7 (#247), the
+  zizmor policy first added locally and then removed once the shared reusable
+  started serving it centrally (#253, #265), the labeler moved into its own
+  `pull_request_target` workflow so fork pull requests stop failing with
+  `Resource not accessible by integration` (#275), and the unit tests moved off
+  `expectExceptionMessage()`, which PHPUnit 13.2 deprecated — via a trait
+  routing to `expectExceptionMessageMatches()` with a `preg_quote`d needle,
+  because the official replacement landed in 13.2.0 and four of eight matrix
+  cells resolve PHPUnit below that (#279).
 
 ### Fixed
 
+- **A rotated secret read as never rotated** (#281). `store()` carried
+  `version`, `crdate` and `cruser_id` forward from the existing record but not
+  `last_rotated_at`, `read_count` or `last_read_at`, so all three fell back to
+  their `0` constructor defaults and were written on **every** update — from the
+  module's edit form, `vault:store`, `vault:migrate-field`, the FormEngine
+  completion path and any programmatic call alike. `rotate()` was never
+  affected. This is not cosmetic: those are the columns the module's Reads and
+  Last read display, that rotation-age reporting consults, that the
+  orphan-cleanup heuristics act on, and that an audit reads. The whole suite was
+  green while the bug was live, which is itself part of the finding.
+- **`updateMetadata()` wrote the whole row** (#281), carrying the same
+  concurrency exposure `setEnabled()` was fixed for, while its own docblock
+  promised a write "without changing the secret value". It is narrowed rather
+  than removed — there is no production caller, but it is declared on
+  `VaultAdapterInterface`, the documented extension point for third-party
+  adapters (ADR-007), so deleting it would be a public-API break for a defect
+  that is fixable in place. The merge stays in the adapter; the new
+  `setMetadata()` primitive writes the metadata column and `tstamp` and nothing
+  else.
+- **Two fail-open lookups on the FormEngine write path** (#280).
+  `isUpdateAuthorized()` and `enforcePrivilegedColumnPolicy()` both treated
+  "record not found" as "allowed". A null lookup is not hypothetical: core reads
+  its datamap target with the delete clause **off** and skips only on an empty
+  record, so a soft-deleted tombstone has a pid, is processed by core, and was
+  waved straight through by the vault. Both now refuse. They report differently,
+  because only one of them has an identifier — a tombstone gets an
+  `access_denied` entry under its own identifier plus a DataHandler error, an
+  absent record gets the error alone, so nothing enters the tamper-evident chain
+  anonymously. `enforcePrivilegedColumnPolicy()` returns a bool and the caller
+  nulls `$fieldArray` rather than dropping the privileged columns: the read that
+  failed is the same read that would supply the stored values to compare
+  against, so dropping columns is not fail-closed there.
+- **Disabling a secret was a one-way door** (#278). A disabled secret vanished
+  from every repository query, so the row left the list, the re-enable button —
+  rendered per listed row — became unreachable, `editAction` threw
+  `SecretNotFoundException`, and a fresh `store()` classified as a creation and
+  collided with the unique key as a raw database error. Administrative
+  operations (`delete()`, `assertDeletable()`, `rotate()`, `store()`,
+  `getMetadata()`) now use the disabled-visible lookup, and
+  `buildSecretEntity()` carries `hidden` forward — without which routing
+  `store()` through the wider lookup would have silently re-enabled a disabled
+  secret on any value write. `findByIdentifier()` itself is untouched, so the
+  read path is unchanged. The list template's "Disabled" badge, row class and
+  active/disabled filter had been dead against a hardcoded `'hidden' => false`
+  and a comment claiming secrets have no hidden state; both are gone.
+- **`LocalEncryptionAdapter::delete()` did nothing at all for a disabled
+  secret** (#278) — a silent no-op, because it went through the
+  restriction-honouring lookup.
+- **An update replaced unsubmitted options with defaults** (#252), wiping
+  description, context, `allowed_groups`, `write_groups`, expiry, scope and
+  frontend availability that DataHandler had just persisted; a plain
+  programmatic `store('id', $value)` silently reset policy fields whose *change*
+  is gated by `secret.manage_policy`. Updates preserve unsubmitted fields now.
+  In the same area, a FormEngine create was classified as an update because the
+  row exists before `store()` is called, so it was gated by `secret.rotate` and
+  audited as `update`; creation is now classified by the **value** — a record
+  without an encrypted value is a creation in progress.
+- **`Secret` parsed the `allowed_groups` / `write_groups` count columns as a
+  list of group uids** when the MM load came back empty (#261), so a count of 3
+  would have read as "group 3 is allowed". The fallback had no legitimate
+  producer and is gone; the write side emits the relation count consistently.
+- **`EncryptionService::resolveAlgorithm()` accepted any `encryption_version >=
+  2`** and opened it under version-2 rules (#242) — forward compatibility by
+  accident, so an envelope claiming version 99 decrypted "successfully".
+  Unimplemented versions are refused loudly; versions 1 and 2 are unchanged.
+- **`wipeCredentials()` raised instead of being idempotent** (#258).
+  `sodium_memzero()` nulls the zval after zeroing, so a second call threw
+  `SodiumException` — on a failure path, where it replaced the real error with
+  its own. A guard flag makes repeat calls the no-ops the docblock always
+  promised.
 - The TypoScript examples in `Documentation/Usage/Index.rst` showed `TEXT`
   objects whose only property was `value`. `TEXT` removes `value` from its
   configuration before rendering, so such an object never calls `stdWrap()` and
-  the placeholder never resolved. The examples now carry the `stdWrap.` sub-array
-  that makes them work.
+  the placeholder never resolved. The examples now carry the `stdWrap.`
+  sub-array that makes them work.
+
+### Security
+
+- **The plaintext read cache bypassed every control on the read path** (#250,
+  High). `VaultService` held a request-scoped plaintext cache consulted *before*
+  the record load, the per-secret `canRead()` tier, the interactive `secret.use`
+  gate, the expiry check and the read audit entry — and `VaultService` is a
+  shared singleton. In a long-running worker the concrete failure is three
+  steps: technical actor A reads secret X and the plaintext lands in the cache;
+  the `runAs()` scope switches to actor B; actor B retrieves the same identifier
+  and gets the plaintext back with no authorization, no expiry check and **no
+  audit row**. The cache key carried neither actor nor context nor permission
+  state, and the cache was only reliably emptied in the destructor. It is
+  removed entirely; see **Changed** for the API consequence.
+- **The operation permissions could be bypassed through the paths that matter
+  most** (#251, High). Only the module controllers checked them.
+  `VaultService::store()`, `rotate()` and `delete()` checked the per-secret
+  tiers alone, and `tx_nrvault_secret` is an ordinary visible TCA table — so a
+  backend user with generic table rights could create, rotate or delete secrets
+  through a direct FormEngine or DataHandler request without ever meeting
+  `secret.create`, `secret.rotate` or `secret.delete`, and change policy columns
+  without `secret.manage_policy`. Enforcement now sits at the business boundary
+  with audited denials: `store()` requires `secret.create` for a new identifier
+  and `secret.rotate` for an existing one, plus `secret.manage_policy` when the
+  call actually changes owner, group tiers or frontend availability — compared
+  on the **effective** values after the existing coercions, not on what was
+  submitted. `SecretTcaHook` carries the same gates for the two FormEngine paths
+  that do not pass through the service.
+- **FormEngine mutations were fail-open on audit errors** (#252, High for audit
+  purposes). The delete success entry was written *before* core deleted the
+  record and a failing audit write was swallowed outright (`catch (Throwable)
+  {}`); a metadata update kept its database change when the audit write failed,
+  on a "don't fail the save" rationale. The auditor documentation's claims —
+  every mutation logged, delete and store compensate a failed audit write —
+  simply did not hold for the DataHandler path. The honest failure contract came
+  first: `AuditLogService::log()` now wraps *any* chain-write failure in
+  `AuditWriteException`, where previously only the advisory-lock timeout was
+  wrapped, so a genuine INSERT failure bypassed every compensating rollback that
+  catches that type. On top of it, the `tx_nrvault_secret` delete command runs
+  through `VaultService::delete()` and core's `deleteAction` is skipped in every
+  outcome; metadata changes revert their captured pre-change values when the
+  audit write fails; and a failed vault delete now **cancels** the record delete
+  on foreign tables instead of proceeding and orphaning the secret behind an
+  apparently successful removal.
+- **The rollback restored the row but not the ACL relations** (#261, High).
+  `SecretRepository` loads effective groups from the MM tables, and the
+  audit-failure rollback only restored the `tx_nrvault_secret` row — so an ACL
+  widening whose audit write failed persisted unaudited, while the restored
+  count column actively contradicted the MM state. Both tiers are now
+  snapshotted in `processDatamap_preProcessFieldArray()`, which is the only
+  viable moment because DataHandler's `writeMM()` runs inside `checkValue()`,
+  before the audit hook exists to fail. A tier that legitimately had no groups
+  is restored to empty, and if a tier cannot be repaired the DataHandler log
+  says **NOT revertible** instead of falsely reporting success. For
+  `status='new'` the MM writes are deferred past the hook, so the revert used to
+  leave orphaned rows against the deleted uid; a new
+  `processDatamap_afterAllOperations()` pass purges them.
+- **A refused create left a squatted row and a false success entry in the HMAC
+  chain** (#263). The hook classified creates by outcome — "was a value stored"
+  — so "no value submitted" and "value submitted but refused" were
+  indistinguishable, and a create by a user lacking `secret.create` fell into
+  the value-less branch: the row survived with `owner_uid` forced to the denied
+  user, the identifier was reserved against later legitimate creators, and a
+  `create success=1` entry went into the tamper-evident chain next to the
+  truthful `access_denied` one. Classification is now explicit
+  (`RecordCreationOutcome::classify()` → `ValueLess` / `Stored` / `Rejected`), a
+  rejected create deletes the fresh row and joins the MM purge, and **no success
+  entry is written** — the `access_denied` entry is the record.
+- **Value-less creates bypassed `secret.create` entirely** (#270). Both create
+  gates live inside `VaultService::store()`, and the value-less path is by
+  definition the one where `store()` is never called; `secret_input` is optional
+  in the TCA, so a backend user with `tables_modify` but without `secret.create`
+  could deliberately leave the value empty, create a vault record, become its
+  owner, reserve the identifier, and produce a successful `create` entry in the
+  chain for an operation they were not permitted to perform. No race, no
+  misconfiguration. The gate now sits in `processDatamap_preProcessFieldArray()`
+  and refuses **before the row exists**, using core's documented abort contract
+  (`$fieldArray = null` → `if (!is_array($incomingFieldArray)) { continue 2; }`,
+  present in v12.4, v13.4 and v14.3), so nothing is inserted and nothing needs
+  compensating.
+- **Every non-privileged update to an existing secret went through with no
+  per-secret ACL check** (#269, High), and the hook then audited it as a
+  *successful* `metadata_update` attributed to the editor — the log asserting
+  that a change was authorised when it was not. Two concrete abuses followed.
+  Backdating `expires_at` takes a foreign secret out of service for every
+  consumer, and setting it to `0` revives a retired one. Writing `metadata` is
+  worse: `OrphanCleanupTask` reads table and uid straight out of that column and
+  `recordExists()` answered **false for a table that does not exist**, which the
+  caller reads as "source record gone, retire the secret" — so a crafted payload
+  on a secret past the retention cutoff made the scheduler delete it, with the
+  task as the recorded actor. That is destruction, not denial of service. The
+  hook now resolves the `Secret` and requires `canWrite()` before anything is
+  written, refusing the whole record; `expires_at` and `metadata` join the
+  privileged column set; orphan cleanup fails closed, so only a successful
+  lookup against an existing table returning no row may answer "gone"; and
+  `SecretsController::toggleAction`, which gated the operation permission alone
+  and let any holder hide or unhide any secret, checks `canWrite()` too.
+  Reachability was narrower than "any editor" — vault-created secrets live at
+  `pid 0`, which core refuses to non-admins before the hook runs, so the defect
+  needed a secret row on a real page — and the control gap and the false audit
+  entry are real regardless.
+- **Record copy and delete were not fail-closed across multiple vault fields**
+  (#259). A failed per-field clone was only logged, so the copied record kept
+  the DataHandler-duplicated **source identifier** and silently aliased the
+  source's secret: rotating the copy mutated the source, deleting the copy
+  destroyed it. A unit test had pinned that as expected behaviour. Deletes ran
+  sequentially with no break, so a mid-sequence failure still deleted the
+  remaining fields and left the record pointing at dead secrets — and
+  `SecretNotFoundException` counted as failure, which made a record referencing
+  a missing secret **permanently undeletable** through the backend,
+  self-reinforcing with the copy bug. Copy now compensates every already-cloned
+  secret and blanks all vault fields of the copy on any failure; delete
+  pre-flights every field through the new non-mutating `assertDeletable()`,
+  which shares `delete()`'s private gate so the two cannot drift, and a missing
+  secret counts as success. The residual is stated rather than implied: this is
+  preflight plus best-effort compensation, not atomicity (#267).
+- **`undelete` restored a soft-deleted secret with no vault check of any kind**
+  (#276) — no ACL, no operation permission, no audit entry. The vault delete
+  writes only `deleted = 1`, so ciphertext, DEK, `frontend_accessible`, `hidden`
+  and both MM ACL tiers survive intact, and restoring the row brings all of it
+  back; a previously frontend-accessible secret is immediately resolvable again.
+  The prerequisites were an authenticated **non-admin** with `tables_modify`,
+  workspace 0 and one uid — zero vault permissions — because core's
+  `undeleteRecord()` gates page permissions behind `if ($recordPid > 0)`,
+  skipped entirely at `pid 0`, and `SimpleDataHandlerController` passes `cmd`
+  through with no allow-list. Core does write `sys_log` and `sys_history`, so
+  the restore was invisible specifically to the chain auditors are pointed at.
+  `copy` and `move` are refused alongside it: a copied secret is always
+  value-less while carrying the original's identifier, and `findByIdentifier()`
+  has no `ORDER BY`, so the empty clone can win the lookup and break an intact
+  secret; `move` is the only command that takes a secret off root level into the
+  page tree, where `deleteSpecificPage()` removes records by pid through a path
+  that reaches neither the vault ACL nor the audit log.
+- **Truncating the audit log is no longer invisible** (ADR-034, #234). The hash
+  chain only ever checked rows that were still present, so `DELETE FROM
+  tx_nrvault_audit_log WHERE uid > N` — or a full `TRUNCATE` — left a
+  self-consistent chain that every tamper-evidence control reported as valid.
+  nr_vault now records one signed assertion outside that table, in the core
+  table `sys_registry`: "row `uid = A` still exists and its `entry_hash` is
+  still `H`", authenticated with a key derived from the master key under its own
+  HKDF context. Tail truncation, deletion of the last row, a full wipe, and a
+  wipe followed by refilling the same UIDs are all reported as an invalid chain
+  now. There is no database schema change. What an attacker without the master
+  key cannot do is forge the assertion, so the one-statement invisible
+  truncation becomes a two-target attack whose second target can only be
+  destroyed — and destruction changes the reported verdict.
+- **Frontend `%vault()%` placeholders are now scoped to published identifiers**
+  (ADR-035, #235). `TypoScriptVaultListener` runs on the output of every
+  `stdWrap()` call, so an editor-written `tt_content` field (`stdWrap.field =
+  bodytext`) or a reflected request parameter (`data = GP:q`) was a resolution
+  site for any secret flagged `frontend_accessible` — the plaintext landed in
+  output shared through the page cache. In a frontend request the extension now
+  resolves an identifier only when it was published through a source an editor
+  cannot write: the TypoScript setup array, the site configuration or settings,
+  `plugin.tx_nrvault.frontendResolvableIdentifiers`, or
+  `FrontendPlaceholderPolicyInterface::allowIdentifier()`. The check runs before
+  the vault is touched, so a rejected identifier reaches neither the vault nor
+  the audit log.
+- **Nine findings from a security scan of the extension** (#232). Secrets
+  entered into a `vaultSecret` **FlexForm** field were stored in cleartext
+  (HIGH): the hook resolved the data structure with an empty table name, an
+  empty field name and the submitted array where the record row belongs, which
+  throws on both v13 and v14 — and the exception was swallowed, so the editor's
+  plaintext fell through to DataHandler and into the record XML with no vault
+  ACL and no audit entry. Frontend authorization was inferred from the *absence*
+  of `$GLOBALS['BE_USER']`, which TYPO3 populates for any visitor carrying a
+  backend session, so an editor could put a placeholder for a secret they cannot
+  read into a published page, have an admin review it in the frontend, and the
+  decrypted value went into the shared page cache and out to anonymous visitors.
+  The SSRF DNS-pinning middleware returned "allowed, nothing to pin" for
+  canonical IP literals, trusting a caller-side check that redirect hops never
+  pass, so a `302` to `169.254.169.254` reached cloud metadata. An unbounded
+  `X-Request-Id` went into a `varchar(100)` column while the HMAC covered the
+  untruncated value, which either aborted the audit write or left a row
+  permanently disagreeing with its own hash. Both CSV exports emitted the
+  proprietary `fputcsv` escape, letting an attacker-controlled field close its
+  own cell and synthesize a formula cell past the sanitizer; both now emit
+  strict RFC 4180. And vault exception text reached editors through the flash
+  message and `DataHandler::log()`, giving an existence oracle for secrets
+  outside their ACL — failures now report a generic message plus a correlation
+  reference, with the cause logged server-side, while the TSconfig `edit` /
+  `readOnly` field permissions are re-checked on the write path instead of only
+  rendered as a `readonly` attribute.
+- **The plaintext exposure window in the browser is bounded, and the reveal
+  endpoint is uncacheable** (#237). A shared reveal lifecycle auto-hides after
+  30 seconds with a visible countdown and wipes immediately on
+  `visibilitychange` and `pagehide`; the reveal modal wipes its input on every
+  close path, including ESC and backdrop. `AjaxController::revealAction` sends
+  `Cache-Control: no-store` on success **and** error. Under the hardened profile
+  copy-to-clipboard is disabled outright, because the clipboard outlives the
+  dialog and cannot be reliably cleared from JavaScript. The guarantee is
+  documented for what it is — a bounded exposure window, not memory clearing,
+  since JavaScript strings cannot be zeroized. An orphaned `SecretReveal.js`,
+  whose DOM ids appeared in no template, PHP file, configuration or test, was
+  deleted rather than hardened.
+
+### Migration
+
+Everything below is something an operator has to do; nothing here happens by
+itself.
+
+- **Grant the operation permissions before upgrading, not after.** Backend users
+  need the matching `tx_nrvault:<permission>` custom option on one of their
+  groups (Backend Users module). The one that bites quietly: non-admin editors
+  who work with vault-backed FormEngine or FlexForm fields now need
+  `secret.use`. Admins are unaffected unless you also set
+  `disableAdminOverride`.
+- **Re-check every CLI workflow against `cliAllowedOperations`.** The default is
+  `secret.use,secret.create,secret.rotate`. Anything that reveals
+  (`vault:retrieve`), deletes (`vault:delete`, the scheduled orphan cleanup),
+  exports (`vault:audit --export`), rotates the master key, reads or verifies
+  the audit log (`vault:audit`, `vault:audit-verify`), or publishes the tip
+  anchor (`vault:audit-anchor`) needs `allowCliAccess = 1` **and** the operation
+  added to that list. Prefer a named technical actor via
+  `TechnicalActorContext::runAs()`: grants then come from its provisioned groups
+  and the audit trail names the identity that read, exported or anchored, rather
+  than recording an unattributable shell.
+- **Scheduled operation is unaffected on a default installation** —
+  `scheduler:run` authenticates the `_cli_` administrator, who passes through
+  the admin bypass. Under `disableAdminOverride` that bypass is gone by design,
+  so the identity running the scheduler needs a group carrying
+  `tx_nrvault:audit.view` (verify) and `tx_nrvault:vault.configure` (anchor);
+  without it both tasks fail loudly rather than skipping quietly. That is the
+  intended trade: a red scheduler entry is recoverable, an anchoring run that
+  did not happen but looks like one that did is exactly what the anchor exists
+  to rule out.
+- **Publish any frontend identifier that is not already in TypoScript or site
+  configuration.** Every documented TypoScript and site-configuration form keeps
+  working: writing `lib.apiKey.value = %vault(my_api_key)%` publishes
+  `my_api_key`. An identifier used *only* in a Fluid template file, a `userFunc`
+  or a DataProcessor is not in the setup array — publish it once per site with
+  `plugin.tx_nrvault.frontendResolvableIdentifiers = my_api_key`. A rejected
+  placeholder is left literal in the output, and the Development context emits
+  one `notice` per request naming it.
+- **In an eID handler, call `allowIdentifier()` with the PSR-7 request as its
+  second argument**:
+  `GeneralUtility::makeInstance(FrontendPlaceholderPolicyInterface::class)->allowIdentifier('my_api_key',
+  $request)`. The policy is a shared service that outlives a request, so the
+  grant is stored against that request object in a `WeakMap` — unreachable from
+  any later request, which in a worker SAPI (FrankenPHP, RoadRunner) is what
+  stops one request's grant from authorising the next one's anonymous,
+  page-cached render. Pass the request you are handling and `setRequest()` the
+  same object on the content object renderer you render with; the grant is
+  matched by object identity. `$GLOBALS['TYPO3_REQUEST']` is never used for it.
+  A renderer carrying a different request, or none, resolves nothing.
+- **Check your scheduled render jobs before upgrading if any of them resolve
+  placeholders.** A newsletter, static export or indexing job that renders
+  editor-authored content now enforces the same allow-set as a frontend request.
+  Publish the identifiers it needs, or set `frontendPlaceholderLegacyCli = 1` to
+  restore the old CLI behaviour — and expect `vault:doctor` to report that flag
+  as a warning under `standard` and a critical under `hardened`, because no
+  workflow needs it that publishing the identifier would not also serve.
+- **Drop any `VaultServiceInterface::clearCache()` call and any `cacheEnabled`
+  configuration.** Both are gone. Reads are no longer cached at all, so a
+  consumer that read the same identifier in a tight loop now performs one
+  `SELECT` and one decrypt per read — and produces one audit row per read, which
+  is the point.
+- **Third-party implementations of `VaultServiceInterface`,
+  `SecretRepositoryInterface`, `VaultAdapterInterface` or
+  `VaultDoctorServiceInterface` need the new members** listed in the interface
+  table under **Changed**. The two new parameters are optional and default to
+  today's behaviour, so only the new methods are a hard break.
+- **`undelete` is no longer available for `tx_nrvault_secret`, for anyone,
+  administrators included.** If you rely on restoring soft-deleted secrets, that
+  path is now the database — where the change is visible as what it is. Update
+  any runbook that promised the delete was reversible.
+- **Enable `auditAnchorRequired` after the first audit write following the
+  upgrade**, not before: installations arrive with a populated chain and no
+  anchor row, which is a warning while the flag is off and an error once it is
+  on. While it is on, `vault:audit --reset-anchor` is the only way to arm the
+  anchor, and it writes the reset into the chain so the operation cannot be
+  performed invisibly.
+- **If you configure the webhook audit sink against an on-premises RFC 1918
+  collector, add an explicit `HTTP.allowed_hosts` entry.** The sink uses the
+  SSRF-guarded client and the refusal is loud — logged, counted and raised as a
+  finding — but it is a refusal.
+- **Run `vault:doctor --profile=hardened` before switching a profile, and
+  `vault:doctor --active-probes` after configuring sinks.** The first tells you
+  what would fail without changing any configuration; the second is the only
+  check that proves records actually arrive rather than that a URL parses. Exit
+  codes are stable (0 clean, 1 warnings, 2 critical), so both are usable as
+  pipeline gates.
+- **If `auditHmacEpoch` is below 3, raise it and run the migration — in that
+  order matters less than doing both.** Raising the setting without running
+  `vault:audit-migrate-hmac` leaves older rows signed at the lower epoch and is
+  the silent case doctor now reports as a warning; at epoch 1 the `success`
+  column itself is outside the signed payload, so a recorded denial can be
+  flipped to a recorded grant without touching a signed byte. Epoch 0 is
+  critical: it drops row hashes to keyless SHA-256, makes the downgrade guard
+  vacuous, and disables the in-DB anchor even when `auditAnchorRequired` is set.
 
 ## [0.13.0] - 2026-07-30
 
