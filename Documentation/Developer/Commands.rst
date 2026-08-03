@@ -1297,19 +1297,29 @@ cli.allowed_operations
    Emitted only when CLI access is on. Reports which operations
    :confval:`ext-nrvault-cliAllowedOperations` actually grants the unattributed
    CLI actor. Warning when the list contains a high-risk operation
-   (``secret.reveal``, ``secret.delete``, ``audit.export``,
-   ``master_key.rotate``, ``vault.configure``) or an unknown value. Unknown
+   (``secret.reveal``, ``secret.delete``, ``secret.manage_policy``,
+   ``audit.view``, ``audit.export``, ``master_key.rotate``,
+   ``vault.configure``) or an unknown value. Unknown
    values are called out because they are silently inert — a typo revokes the
    grant the operator believes is configured rather than failing loudly.
 
-   Of the five high-risk entries, three currently change what a CLI command
+   Of the seven high-risk entries, four currently change what a CLI command
    can do: ``secret.reveal`` (``vault:retrieve``), ``secret.delete``
-   (``vault:delete`` and the orphan cleanup) and ``master_key.rotate``
-   (``vault:rotate-master-key``). ``audit.export`` and ``vault.configure``
+   (``vault:delete`` and the orphan cleanup), ``master_key.rotate``
+   (``vault:rotate-master-key``) and ``audit.view`` (``vault:audit``,
+   ``vault:audit --verify``, ``vault:audit-verify``). ``secret.manage_policy``,
+   ``audit.export`` and ``vault.configure``
    gate the corresponding **backend** actions; ``vault:audit --export``
    asserts no operation permission of its own. They are still called out
    here, because the allowlist is the record of what the CLI actor has been
    granted, not only of what it can currently reach.
+
+   The pass wording is deliberately not "low-risk operation(s)". What remains
+   after the seven are excluded is the deployment-automation default, and it
+   is not inert either: ``secret.create`` makes the CLI actor the *owner* of
+   what it creates, and ``secret.rotate`` substitutes a credential the
+   operator's own systems then use. The pass states that nothing in the list
+   needs an explicit opt-in — not that the list is harmless.
 
 cli.frontend_placeholder_legacy
    :confval:`ext-nrvault-frontendPlaceholderLegacyCli`. Pass when off — the

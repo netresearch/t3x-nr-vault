@@ -215,24 +215,29 @@ CLI access
    :confval:`allowCliAccess <ext-nrvault-allowCliAccess>` is on.
    The default covers deployment automation (store, rotate, consume).
    High-risk operations — ``secret.reveal`` (:bash:`vault:retrieve`
-   printing plaintext), ``secret.delete``, ``audit.export``,
-   ``master_key.rotate`` (:bash:`vault:rotate-master-key`),
-   ``vault.configure`` — are **excluded by default** and must be added
-   explicitly where a workflow genuinely needs them. Prefer a named
+   printing plaintext), ``secret.delete``, ``secret.manage_policy``,
+   ``audit.view``, ``audit.export``, ``master_key.rotate``
+   (:bash:`vault:rotate-master-key`), ``vault.configure`` — are
+   **excluded by default** and must be added explicitly where a workflow
+   genuinely needs them. Prefer a named
    technical actor (``TechnicalActorContext::runAs()``) over widening
    this list: the audit trail then names the responsible identity.
    Note that the scheduled orphan cleanup deletes secrets and therefore
    needs ``secret.delete`` when it runs as the bare CLI actor.
 
-   All five change what a CLI command can do: ``secret.reveal``
+   Five of the seven change what a CLI command can do: ``secret.reveal``
    (:bash:`vault:retrieve`), ``secret.delete`` (:bash:`vault:delete`),
    ``master_key.rotate`` (:bash:`vault:rotate-master-key`), ``audit.export``
    (:bash:`vault:audit --export`) and ``vault.configure``
    (:bash:`vault:audit-anchor` and :bash:`vault:audit --reset-anchor`).
-   ``audit.view`` is excluded as well, and it now covers three commands —
-   :bash:`vault:audit` for plain listing, :bash:`vault:audit --verify` and
-   :bash:`vault:audit-verify` — so reading or verifying the audit log from an
-   unattributed shell needs it added here too.
+   ``audit.view`` covers three more — :bash:`vault:audit` for plain
+   listing, :bash:`vault:audit --verify` and :bash:`vault:audit-verify` —
+   so reading or verifying the audit log from an unattributed shell needs
+   it added here. ``secret.manage_policy`` gates the **backend** policy
+   edit rather than a command, and it is listed because it is the widest
+   entry over time: it edits ``allowed_groups`` and ``write_groups``, so a
+   shell holding it can widen its own per-secret reach and the widened
+   tiers read as ordinary configuration afterwards.
 
    The scheduler is a different actor and is not affected by this allowlist:
    :bash:`scheduler:run` authenticates the ``_cli_`` administrator, so the
