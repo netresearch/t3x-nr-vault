@@ -48,7 +48,7 @@
         <source>Delete Secret</source>
       </trans-unit>
       <trans-unit id="nrvault.delete.confirm">
-        <source>Are you sure you want to delete the secret "{0}"? This action cannot be undone.</source>
+        <source>Are you sure you want to delete the secret "{0}"? The vault cannot restore it. The encrypted record is retained in the database until it is removed there.</source>
       </trans-unit>
 
       <!-- Reveal modal -->
@@ -132,7 +132,7 @@
 
       <!-- Clear secret (TCA form element) -->
       <trans-unit id="nrvault.clear.confirm">
-        <source>Are you sure you want to clear this secret? This action cannot be undone.</source>
+        <source>Are you sure you want to clear this secret? Saving the record deletes it, and the vault cannot restore it.</source>
       </trans-unit>
 
       <!-- Hash chain verification (vault-backend.js) -->

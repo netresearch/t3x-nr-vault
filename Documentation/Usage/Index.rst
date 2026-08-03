@@ -75,8 +75,53 @@ Creating secrets
     a copy never quietly shares the original's secrets. Deleting a record
     checks every vault field's delete permission *before* removing the first
     secret, and cancels the record delete outright if the cleanup fails —
-    a vault delete cannot be undone, so the record is kept rather than
-    orphaning a secret.
+    the vault will not give a deleted secret back, so the record is kept
+    rather than orphaning a secret.
+
+.. _usage-record-operations-refused:
+
+What the backend will not do to a secret record
+-----------------------------------------------
+
+TYPO3's record commands are not all meaningful for a vault secret, and three
+of them are refused outright. Each refusal cancels the command, tells you why
+in the backend, and records an ``access_denied`` entry in the audit chain.
+The refusals apply to everyone, administrators included: they express what the
+product guarantees about a secret, not who is trusted with it.
+
+..  list-table::
+    :header-rows: 1
+    :widths: 15 85
+
+    *   -   Command
+        -   Why it is refused
+    *   -   Restore (``undelete``)
+        -   The vault has no restore operation. A delete is a *soft* delete —
+            the row keeps its ciphertext, its wrapped DEK,
+            ``frontend_accessible`` and both ACL tiers — so a restore would
+            hand the working secret straight back, and TYPO3's own restore
+            applies no vault check to do it. Recovering a deleted secret is a
+            deliberate database operation, not a button. See
+            :ref:`operations-decommissioning-secrets`.
+    *   -   Copy
+        -   A copied secret would carry no value: the encrypted columns are not
+            part of the record's editable fields, so the copy is created empty.
+            It would, however, claim the original's identifier and can shadow
+            it — breaking a secret that was never touched.
+    *   -   Move
+        -   Secrets live on the root level of the page tree. A secret moved
+            onto a page is deleted along with that page, through a code path
+            that applies no vault permission check and writes no audit entry.
+            The page a secret sits on grants nothing — the access scope is the
+            record's own :guilabel:`Scope page` field.
+
+..  note::
+
+    **"Deleted" means unreachable, not erased.** The encrypted row is retained
+    in the database until it is removed there or the master key is destroyed.
+    That is deliberate — it keeps the delete auditable — but do not read a
+    deleted secret as a disposed one. :ref:`operations-decommissioning` covers
+    actual disposal.
 
 .. _usage-viewing-secrets:
 
