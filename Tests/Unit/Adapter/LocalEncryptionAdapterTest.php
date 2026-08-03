@@ -253,28 +253,48 @@ final class LocalEncryptionAdapterTest extends TestCase
     {
         $repository = $this->createMock(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')->willReturn(null);
+        $repository->expects(self::never())->method('setMetadata');
         $repository->expects(self::never())->method('save');
 
         $adapter = new LocalEncryptionAdapter($repository);
         $adapter->updateMetadata('nonexistent', ['key' => 'value']);
     }
 
+    /**
+     * A record without a UID cannot be addressed by the targeted write, and
+     * the fallback of saving the entity instead is precisely what this method
+     * must not do. Refusing is the only correct answer: an unsaved entity has
+     * no persisted metadata to merge into either.
+     */
     #[Test]
-    public function updateMetadataMergesAndSaves(): void
+    public function updateMetadataDoesNothingWhenTheRecordHasNoUid(): void
     {
-        $secret = new Secret(identifier: 'test', metadata: ['existing' => 'value']);
+        $repository = $this->createMock(SecretRepositoryInterface::class);
+        $repository->method('findByIdentifier')->willReturn(new Secret(identifier: 'test'));
+        $repository->expects(self::never())->method('setMetadata');
+        $repository->expects(self::never())->method('save');
+
+        $adapter = new LocalEncryptionAdapter($repository);
+        $adapter->updateMetadata('test', ['key' => 'value']);
+    }
+
+    /**
+     * The merge is the adapter's; the write is one column. Asserting the
+     * absence of `save()` is the load-bearing half — a full entity save would
+     * produce the same metadata while restoring every other column to the
+     * state the `findByIdentifier()` above saw.
+     */
+    #[Test]
+    public function updateMetadataMergesAndWritesOnlyTheMetadataColumn(): void
+    {
+        $secret = new Secret(identifier: 'test', uid: 42, metadata: ['existing' => 'value']);
 
         $repository = $this->createMock(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')->willReturn($secret);
-
-        // The adapter calls `withMetadata($merged)` (returning a NEW Secret)
-        // and persists that — so we assert on the saved-instance metadata,
-        // not on `$secret` (which is now immutable and unchanged).
         $repository->expects(self::once())
-            ->method('save')
-            ->with(self::callback(static fn (Secret $s): bool => $s->getMetadata() === ['existing' => 'value', 'new' => 'data']
-                && $s->getIdentifier() === 'test'))
-            ->willReturnArgument(0);
+            ->method('setMetadata')
+            ->with(42, ['existing' => 'value', 'new' => 'data']);
+        $repository->expects(self::never())->method('save');
 
         $adapter = new LocalEncryptionAdapter($repository);
         $adapter->updateMetadata('test', ['new' => 'data']);

@@ -80,6 +80,21 @@ interface SecretRepositoryInterface
      */
     public function setHidden(int $uid, bool $hidden): void;
 
+    /**
+     * Set a record's metadata (the `metadata` column) without round-tripping
+     * the entity: one targeted UPDATE of that column plus `tstamp`, addressed
+     * by UID. Absolute, not merging — the caller decides what the column ends
+     * up holding.
+     *
+     * The sibling of {@see setHidden()}, and for the same reason: routing a
+     * metadata change through {@see save()} would write the envelope, the
+     * version and the read counters back from an entity read moments earlier,
+     * discarding whatever committed in between.
+     *
+     * @param array<string, mixed> $metadata
+     */
+    public function setMetadata(int $uid, array $metadata): void;
+
     public function delete(Secret $secret): void;
 
     /**

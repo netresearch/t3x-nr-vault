@@ -13,6 +13,7 @@ use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepository;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
+use Netresearch\NrVault\Tests\Functional\Traits\SecretRowTrait;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -30,6 +31,8 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 #[CoversClass(SecretFilters::class)]
 final class SecretRepositoryTest extends FunctionalTestCase
 {
+    use SecretRowTrait;
+
     protected array $testExtensionsToLoad = [
         'netresearch/nr-vault',
     ];
@@ -233,15 +236,58 @@ final class SecretRepositoryTest extends FunctionalTestCase
     }
 
     /**
-     * Persist a disabled secret and return its UID.
+     * The column set of the primitive itself: `metadata` and the record
+     * timestamp, nothing else. Whether the write is narrow ENOUGH — that it
+     * cannot roll back a change committed inside a caller's read-then-write
+     * window — is a property of the caller and is pinned where that window
+     * exists, in
+     * `Tests/Functional/Adapter/LocalEncryptionAdapterMetadataTest.php`.
      */
-    private function saveDisabledSecret(string $identifier): int
+    #[Test]
+    public function setMetadataWritesNothingButTheMetadataColumn(): void
     {
-        $saved = $this->subject->save($this->newSecret($identifier, hidden: true));
+        $uid = $this->saveSecretReturningUid('metadata_narrow');
+        $this->subject->incrementReadCount($uid);
+
+        $before = $this->readSecretRow('metadata_narrow');
+
+        $this->subject->setMetadata($uid, ['source' => 'cron']);
+
+        $after = $this->readSecretRow('metadata_narrow');
+
+        self::assertIsString($after['metadata']);
+        self::assertSame('{"source":"cron"}', $after['metadata'], 'The change itself must have landed.');
+        // `tstamp` moves by design (the record changed); `metadata` is the
+        // change and is asserted above.
+        foreach (['metadata', 'tstamp'] as $expected) {
+            unset($before[$expected], $after[$expected]);
+        }
+
+        self::assertSame(
+            $before,
+            $after,
+            'A metadata change must leave every other column exactly as it found it.',
+        );
+    }
+
+    /**
+     * Persist a secret and return its UID.
+     */
+    private function saveSecretReturningUid(string $identifier, bool $hidden = false): int
+    {
+        $saved = $this->subject->save($this->newSecret($identifier, hidden: $hidden));
         $uid = $saved->getUid();
         self::assertNotNull($uid);
 
         return $uid;
+    }
+
+    /**
+     * Persist a disabled secret and return its UID.
+     */
+    private function saveDisabledSecret(string $identifier): int
+    {
+        return $this->saveSecretReturningUid($identifier, hidden: true);
     }
 
     /**
