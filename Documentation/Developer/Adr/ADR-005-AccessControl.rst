@@ -231,8 +231,9 @@ implementation.
 Enforcement points
 ------------------
 
-Access checks are enforced in :php:`VaultService`, and every enforcement point
-combines **both** gates rather than either one alone.
+Access checks are enforced in :php:`VaultService` and, for the FormEngine
+path, in :php:`SecretTcaHook`. Every enforcement point combines **both** gates
+rather than either one alone.
 
 A read asserts the per-secret tier via :php:`canRead()` and the
 ``secret.use`` operation permission; a reveal additionally asserts
@@ -244,6 +245,43 @@ group tiers. A delete asserts :php:`canDelete()` plus ``secret.delete``.
 Every denial writes an ``access_denied`` audit row before the
 :php:`AccessDeniedException` leaves the service, so a refusal is evidence
 rather than a silent gap.
+
+A FormEngine edit of a ``tx_nrvault_secret`` record never reaches
+:php:`VaultService` for its metadata columns, so :php:`SecretTcaHook` applies
+the same two gates in ``processDatamap_preProcessFieldArray()``, before
+DataHandler writes anything. Core's ``tables_modify`` grant is a *table*
+permission and is not the vault ACL: without this the holder of that grant
+could change any secret's columns. The hook therefore refuses the whole
+record — by nulling the by-ref field array, which makes DataHandler skip it —
+unless :php:`canWrite()` passes, and it drops the **privileged columns** from
+an otherwise authorized save unless the actor is an administrator or the
+owner holding ``secret.manage_policy``:
+
+``owner_uid``, ``scope_pid``, ``allowed_groups``, ``write_groups``
+   Who may reach the secret, and under which page scope.
+
+``frontend_accessible``
+   Flips the secret from ACL-gated to readable by any frontend request.
+
+``hidden``
+   The same column ``SecretsController::toggleAction()`` gates on
+   ``secret.manage_policy``; leaving the record path open would make that
+   gate bypassable.
+
+``expires_at``
+   Honoured at runtime, so backdating denies the secret to every consumer
+   and clearing it revives a retired one.
+
+``metadata``
+   Machine-consumed provenance that :php:`OrphanCleanupTask` reads to decide
+   whether a secret is an orphan to delete.
+
+``context``
+   The inventory dimension the listing and analytics filter on.
+
+``description`` is deliberately not privileged: it is free-text documentation
+with no machine consumer, and write access to a secret should carry the right
+to document it.
 
 TCA configuration
 -----------------

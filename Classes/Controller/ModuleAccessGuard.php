@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Controller;
 
+use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Psr\Http\Message\ResponseInterface;
@@ -47,6 +48,20 @@ final readonly class ModuleAccessGuard
     }
 
     /**
+     * May the actor change THIS secret?
+     *
+     * An operation permission answers "may this actor ever do X"; it says
+     * nothing about which secrets X may be done to. Module actions that
+     * mutate one named secret need both, so the per-secret tier is exposed
+     * here alongside isGranted() rather than reached for through a second
+     * injected service in every controller.
+     */
+    public function canWrite(Secret $secret): bool
+    {
+        return $this->accessControlService->canWrite($secret);
+    }
+
+    /**
      * Is the actor granted at least ONE of these operation permissions?
      *
      * Used for the "may this actor enter the module at all" gates, where any
@@ -75,12 +90,39 @@ final readonly class ModuleAccessGuard
         ServerRequestInterface $request,
         VaultPermission $required,
     ): ResponseInterface {
+        return $this->renderDenied($request, $required->value);
+    }
+
+    /**
+     * Render the module-shaped 403 for an action refused on ONE secret.
+     *
+     * The actor passed the operation permission gate — the refusal comes from
+     * the secret's own tiers (owner / write groups). Reusing deniedResponse()
+     * here would name a permission the actor demonstrably holds, sending both
+     * the operator and whoever picks up the ticket after a grant that is
+     * already in place. Deliberately says nothing about WHICH secret: the page
+     * carries no identifier, so it cannot become a disclosure channel, and the
+     * audit entry the caller writes is where the identifier belongs.
+     */
+    public function deniedForSecretResponse(ServerRequestInterface $request): ResponseInterface
+    {
+        return $this->renderDenied($request, null);
+    }
+
+    /**
+     * @param string|null $requiredPermission the missing permission, or null
+     *                                        when the refusal is per-secret
+     */
+    private function renderDenied(
+        ServerRequestInterface $request,
+        ?string $requiredPermission,
+    ): ResponseInterface {
         $lang = $this->getLanguageService();
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
         $moduleTemplate->setTitle($lang->sL(self::LL_PREFIX . 'accessDenied.title'));
         $moduleTemplate->assignMultiple([
-            'requiredPermission' => $required->value,
+            'requiredPermission' => $requiredPermission,
         ]);
 
         return $moduleTemplate->renderResponse('AccessDenied')->withStatus(403);

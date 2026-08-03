@@ -28,6 +28,7 @@ use TYPO3\CMS\Core\DataHandling\DataHandler;
  *
  * Handles:
  * - Create authorization (secret.create, before the row is inserted)
+ * - Update authorization (the per-secret write ACL, before anything is written)
  * - Identifier immutability (prevent changes after creation)
  * - Secret encryption on save (secret_input field)
  * - Audit logging for metadata changes
@@ -38,16 +39,60 @@ final class SecretTcaHook
     private const TABLE = 'tx_nrvault_secret';
 
     /**
-     * Scalar ACL columns whose submitted value is reverted to the stored
-     * value for a non-owner, non-admin editor (CWE-639/CWE-269). These are
-     * plain row columns, so the prior value can be read back and re-written.
+     * Privileged scalar columns submitted as a FormEngine group reference
+     * ("be_users_12", "pages_100"), so the comparison against the stored
+     * integer has to extract the uid first.
      *
      * @var list<string>
      */
-    private const PRIVILEGED_SCALAR_COLUMNS = [
+    private const PRIVILEGED_GROUP_COLUMNS = [
         'owner_uid',
-        'frontend_accessible',
         'scope_pid',
+    ];
+
+    /**
+     * The remaining privileged scalar columns. Kept apart from the group
+     * references only because they normalise differently for the
+     * change comparison (see normalizeForComparison()); the policy applied
+     * to them is identical.
+     *
+     * Why each one is privileged — i.e. needs `secret.manage_policy` on top
+     * of write access to the secret — rather than merely write-gated:
+     *
+     *  - `frontend_accessible` flips a secret from ACL-gated to readable by
+     *    any frontend request.
+     *  - `hidden` is the column `SecretsController::toggleAction()` already
+     *    gates on secret.manage_policy; leaving the FormEngine path open
+     *    would make that gate bypassable by editing the record instead of
+     *    pressing the button.
+     *  - `expires_at` is honoured at runtime (`Secret::isExpired()` →
+     *    `VaultService` throws `SecretExpiredException`), so backdating it
+     *    denies the secret to every consumer and zeroing it revives a
+     *    deliberately retired one. Availability, not content.
+     *  - `metadata` is machine-consumed provenance: `OrphanCleanupTask`
+     *    reads table/field/uid straight out of it to decide whether a secret
+     *    is an orphan it should DELETE. Editor-writable text must never be
+     *    able to nominate a secret for deletion.
+     *  - `context` is the weakest member of the set and is included on
+     *    inventory-integrity grounds rather than access-control ones: it
+     *    grants nothing, but it is the only `SecretFilters` dimension
+     *    besides the identifier prefix and it drives the analytics
+     *    distribution, so silently re-bucketing someone else's secret hides
+     *    it from the filtered views its owner uses to review their
+     *    inventory. Rotating a value never requires changing it.
+     *
+     * `description` is deliberately NOT here: it is free-text documentation
+     * with no machine consumer, and someone trusted with write access to a
+     * secret should be able to document it.
+     *
+     * @var list<string>
+     */
+    private const PRIVILEGED_VALUE_COLUMNS = [
+        'frontend_accessible',
+        'hidden',
+        'expires_at',
+        'metadata',
+        'context',
     ];
 
     /**
@@ -155,12 +200,13 @@ final class SecretTcaHook
 
     /**
      * Called before database operations.
-     * Prevents identifier changes on existing records.
+     * Authorizes the creation of a new record, enforces the per-secret write
+     * ACL on an existing one, and prevents identifier changes.
      *
      * @param array<string, mixed> $fieldArray
      *
      * @param-out array<string, mixed>|null $fieldArray `null` refuses the
-     *            record: core skips it entirely (see the create gate below)
+     *            record: core skips it entirely (see both gates below)
      */
     public function processDatamap_preProcessFieldArray(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         array &$fieldArray,
@@ -169,6 +215,25 @@ final class SecretTcaHook
         DataHandler $dataHandler,
     ): void {
         if ($table !== self::TABLE) {
+            return;
+        }
+
+        // Object ACL (CWE-862): DataHandler's tables_modify grant is a TABLE
+        // permission, not the vault's per-secret one. Without this gate any
+        // backend user who may edit tx_nrvault_secret at all could change
+        // ANY secret's description, context, expiry or metadata — and the
+        // hook would then audit it as a successful metadata_update in their
+        // name. The gate covers every column, not just the privileged ones,
+        // because "may this actor change this secret at all" precedes "which
+        // columns may they change".
+        if (!$this->isUpdateAuthorized($id, $dataHandler)) {
+            // Aborting here rather than in afterDatabaseOperations() means
+            // nothing is written in the first place, so there is no mutation
+            // to compensate. `null` is what makes core skip the record — see
+            // the create gate below for core's guard and why `[]` is not a
+            // substitute.
+            $fieldArray = null;
+
             return;
         }
 
@@ -984,6 +1049,70 @@ final class SecretTcaHook
     }
 
     /**
+     * May the current actor change this existing secret at all?
+     *
+     * The per-secret write tier (owner / write-group member / admin /
+     * system maintainer, ADR-005) asserted through the same
+     * `canWrite()` the programmatic path uses in
+     * `VaultService::assertWritePermission()`, so a FormEngine edit and a
+     * `store()` on an existing secret answer to one authorization rule.
+     *
+     * A creation is not gated here: it has no existing secret to authorize
+     * against, and its own gates (`canCreate()`, `secret.create`) live on
+     * the VaultService path. A datamap for a uid with no secret row is left
+     * to core, which refuses a nonexistent record on its own.
+     */
+    private function isUpdateAuthorized(string|int $id, DataHandler $dataHandler): bool
+    {
+        if (str_starts_with((string) $id, 'NEW')) {
+            return true;
+        }
+
+        $uid = is_numeric($id) ? (int) $id : 0;
+        $secret = $this->secretRepository->findByUid($uid);
+        if (!$secret instanceof Secret) {
+            return true;
+        }
+
+        if ($this->accessControlService->canWrite($secret)) {
+            return true;
+        }
+
+        $this->auditDenial($secret->getIdentifier(), 'Update access denied');
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            self::TABLE,
+            $uid,
+            2,
+            null,
+            1,
+            'Changing this vault secret requires being its owner, a member of one of its write groups, or an administrator',
+        );
+
+        return false;
+    }
+
+    /**
+     * Record a refused write as an `access_denied` audit entry, mirroring
+     * `VaultService`'s denial entries so both paths land the same shape in
+     * the tamper-evident chain.
+     *
+     * A failing audit write must not turn the refusal into a grant, so the
+     * exception is swallowed: unlike the compensating rollbacks elsewhere in
+     * this hook there is no mutation to undo — the change was already
+     * refused, and the caller returns false either way.
+     */
+    private function auditDenial(string $identifier, string $reason): void
+    {
+        try {
+            $this->auditService->log($identifier, AuditAction::AccessDenied->value, false, $reason);
+        } catch (Throwable) {
+            // Deliberately ignored — see the docblock.
+        }
+    }
+
+    /**
      * Both create gates, evaluated before the record exists.
      *
      * Mirrors what VaultService::store() applies on the programmatic path —
@@ -1077,12 +1206,24 @@ final class SecretTcaHook
     }
 
     /**
-     * Enforce that only the secret's owner (or an admin/system maintainer)
-     * may set or change the privileged ACL columns: owner_uid,
-     * frontend_accessible, scope_pid (scalar) and allowed_groups, write_groups
-     * (MM relations). This is the write-path authorization layer for
-     * CWE-639/CWE-269 — the TCA `exclude` flag is the complementary
-     * form-permission layer.
+     * Enforce that the privileged columns may only be changed by an
+     * admin/system maintainer, or by the secret's owner while holding
+     * `secret.manage_policy`. Runs on top of the per-secret write ACL
+     * asserted in isUpdateAuthorized(): passing canWrite() buys the right to
+     * rotate a value and document it, not to re-scope, re-own, expire, hide
+     * or re-provenance the secret (separation of duties).
+     *
+     * This is the write-path authorization layer for CWE-639/CWE-269 — the
+     * TCA `exclude` flag is the complementary form-permission layer.
+     *
+     * The remedy for an unauthorized change is to DROP the column from
+     * $fieldArray rather than to write the stored value back. Dropping is
+     * what the MM columns always required (their row column holds only a
+     * relation count), and it is the safer primitive for the scalar columns
+     * too: it needs no second write, and it preserves the stored value even
+     * when the submitted value cannot be normalised confidently enough to
+     * prove it changed. The comparison below therefore only decides whether
+     * to REPORT an attempt, never whether the column is protected.
      *
      * Policy (default-DENY for the ambiguous delegation case):
      *  - Admin / system maintainer: unrestricted (no coercion).
@@ -1090,10 +1231,10 @@ final class SecretTcaHook
      *    user (the submitted value is not trusted); the other privileged
      *    columns are left as submitted (a creator legitimately scopes the
      *    secret they own).
-     *  - EXISTING record edited by the owner: unrestricted.
-     *  - EXISTING record edited by a non-owner non-admin: every privileged
-     *    column change is reverted (scalar columns) or dropped (MM columns),
-     *    and the attempt is logged.
+     *  - EXISTING record edited by the owner holding secret.manage_policy:
+     *    unrestricted.
+     *  - Anyone else: every privileged column is dropped and, when it
+     *    differed from the stored value, the attempt is logged and audited.
      *
      * @param array<string, mixed> $fieldArray
      */
@@ -1124,7 +1265,10 @@ final class SecretTcaHook
         }
 
         $uid = is_numeric($id) ? (int) $id : 0;
-        $original = $this->readRecord($uid, ['owner_uid', 'frontend_accessible', 'scope_pid']);
+        // `identifier` is read alongside the privileged columns — the denial
+        // audit entry needs it — but it is NOT one of them: its immutability
+        // is enforced separately, further down the calling method.
+        $original = $this->readRecord($uid, [...$this->privilegedScalarColumns(), 'identifier']);
         if ($original === null) {
             return;
         }
@@ -1143,31 +1287,25 @@ final class SecretTcaHook
             return;
         }
 
-        // Non-owner, non-admin: revert any privileged change. Scalar columns
-        // are restored to their stored value; MM columns are dropped so
-        // DataHandler leaves the existing relation rows untouched.
-        $reverted = false;
+        // Not authorized to manage this secret's policy: drop every
+        // privileged column so DataHandler writes none of them, and leaves
+        // the MM relation rows alone rather than replacing them.
+        $attempted = [];
 
-        foreach (self::PRIVILEGED_SCALAR_COLUMNS as $column) {
+        foreach ($this->privilegedScalarColumns() as $column) {
             if (!\array_key_exists($column, $fieldArray)) {
                 continue;
             }
-            // Group fields (owner_uid, scope_pid) arrive as "be_users_12" /
-            // "pages_100" strings while the stored value is an int; normalise
-            // before comparing so an unchanged ACL on an ordinary save by a
-            // non-owner is not treated as tampering (which would revert it and
-            // log a spurious warning). frontend_accessible is already 0/1.
-            $submitted = $fieldArray[$column];
-            $submittedStr = \is_scalar($submitted) ? (string) $submitted : '';
-            $submittedUid = ($column === 'owner_uid' || $column === 'scope_pid')
-                ? $this->extractUidFromGroupValue($submittedStr)
-                : (int) $submittedStr;
-            $storedUid = is_numeric($original[$column] ?? null) ? (int) $original[$column] : 0;
-            if ($submittedUid === $storedUid) {
-                continue;
+            // Compare before dropping, so an ordinary save that merely
+            // round-trips the unchanged value does not report tampering.
+            // A comparison that cannot prove equality counts as an attempt:
+            // over-reporting costs a log line, under-reporting would hide one.
+            if ($this->normalizeForComparison($column, $fieldArray[$column])
+                !== $this->normalizeForComparison($column, $original[$column] ?? null)
+            ) {
+                $attempted[] = $column;
             }
-            $fieldArray[$column] = $original[$column] ?? null;
-            $reverted = true;
+            unset($fieldArray[$column]);
         }
 
         foreach (array_keys(self::PRIVILEGED_MM_COLUMNS) as $column) {
@@ -1175,24 +1313,100 @@ final class SecretTcaHook
                 continue;
             }
             // MM-backed group field: the row column holds only the relation
-            // count, so it cannot be reverted by writing a value back. Drop the
-            // submitted value entirely — DataHandler then preserves the
-            // existing MM relations instead of replacing them.
+            // count, so the submitted value carries no comparable state —
+            // its mere presence is the attempt.
             unset($fieldArray[$column]);
-            $reverted = true;
+            $attempted[] = $column;
         }
 
-        if ($reverted) {
-            /** @phpstan-ignore method.internal */
-            $dataHandler->log(
-                self::TABLE,
-                $uid,
-                2,
-                null,
-                1,
-                'Vault secret ACL columns can only be changed by an administrator or by the secret owner holding the secret.manage_policy permission',
+        if ($attempted === []) {
+            return;
+        }
+
+        $identifier = \is_string($original['identifier'] ?? null) ? $original['identifier'] : '';
+        if ($identifier !== '') {
+            $this->auditDenial(
+                $identifier,
+                'Policy change denied: ' . implode(', ', $attempted),
             );
         }
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            self::TABLE,
+            $uid,
+            2,
+            null,
+            1,
+            'Vault secret ACL columns can only be changed by an administrator or by the secret owner holding the secret.manage_policy permission',
+        );
+    }
+
+    /**
+     * Every privileged column stored directly on the secret row, in a stable
+     * order. Assembled from the two lists so the policy has a single source
+     * of truth and a column can never be protected in one loop and forgotten
+     * in the record read that feeds it.
+     *
+     * @return list<string>
+     */
+    private function privilegedScalarColumns(): array
+    {
+        return [...self::PRIVILEGED_GROUP_COLUMNS, ...self::PRIVILEGED_VALUE_COLUMNS];
+    }
+
+    /**
+     * Reduce a submitted and a stored value of the same column to comparable
+     * strings, so "did this save actually change the column" can be answered
+     * across the type differences the FormEngine introduces.
+     *
+     * Only ever used to decide whether to REPORT an attempt — the column is
+     * dropped either way — so returning a value that compares unequal is the
+     * safe direction when normalisation is uncertain.
+     */
+    private function normalizeForComparison(string $column, mixed $value): string
+    {
+        if (\in_array($column, self::PRIVILEGED_GROUP_COLUMNS, true)) {
+            // "be_users_12" / "pages_100" from the group field vs an int in
+            // the row.
+            return (string) $this->extractUidFromGroupValue(\is_scalar($value) ? (string) $value : '');
+        }
+
+        if ($column === 'expires_at') {
+            return (string) $this->normalizeTimestamp($value);
+        }
+
+        if ($column === 'frontend_accessible' || $column === 'hidden') {
+            return \is_scalar($value) ? (string) (int) $value : '0';
+        }
+
+        // context, metadata, identifier: free text, compared verbatim.
+        return \is_scalar($value) ? (string) $value : '';
+    }
+
+    /**
+     * A datetime column reaches this hook as the raw form value — an ISO-8601
+     * string on the FormEngine path, an integer on the programmatic one —
+     * while the stored value is always a Unix timestamp, because DataHandler
+     * only converts it later in checkValue(). Both are reduced to a timestamp
+     * so an unchanged expiry is recognised as unchanged.
+     *
+     * An unparseable value yields -1, which matches no stored timestamp and
+     * so counts as a change (see normalizeForComparison()).
+     */
+    private function normalizeTimestamp(mixed $value): int
+    {
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+
+        if (!\is_string($value) || trim($value) === '') {
+            return 0;
+        }
+
+        $timestamp = strtotime($value);
+
+        return $timestamp === false ? -1 : $timestamp;
     }
 
     /**

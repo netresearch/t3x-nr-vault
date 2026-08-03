@@ -10,9 +10,12 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Controller;
 
 use Exception;
+use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Domain\Dto\SecretMetadata;
+use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\AccessDeniedException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Security\VaultPermission;
@@ -62,6 +65,7 @@ final readonly class SecretsController
         private AuditLogServiceInterface $auditLogService,
         private ModuleAccessGuard $accessGuard,
         private BreakGlassBannerProvider $breakGlassBanner,
+        private SecretRepositoryInterface $secretRepository,
     ) {}
 
     /**
@@ -287,6 +291,27 @@ final readonly class SecretsController
 
         if ($identifier === '') {
             return $this->toggleMissingIdentifierResponse($isAjax, $lang);
+        }
+
+        // Holding secret.manage_policy says the actor may manage policy at
+        // all; it does not say WHICH secrets. Without this second, per-secret
+        // gate any holder could disable every colleague's secret. A secret
+        // that cannot be found is left to performToggle()'s not-found path.
+        $secret = $this->secretRepository->findByIdentifier($identifier);
+        if ($secret instanceof Secret && !$this->accessGuard->canWrite($secret)) {
+            $this->auditLogService->log(
+                $identifier,
+                AuditAction::AccessDenied->value,
+                false,
+                'Toggle access denied',
+            );
+
+            if ($isAjax) {
+                /** @phpstan-ignore new.internalClass, method.internalClass */
+                return new JsonResponse(['success' => false, 'error' => 'Access denied'], 403);
+            }
+
+            return $this->accessGuard->deniedForSecretResponse($request);
         }
 
         try {
