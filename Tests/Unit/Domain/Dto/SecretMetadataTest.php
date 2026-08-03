@@ -135,7 +135,37 @@ final class SecretMetadataTest extends TestCase
             'description' => self::TEST_SECRET_DESCRIPTION,
             'version' => 2,
             'metadata' => ['key' => 'value'],
+            'enabled' => true,
         ], $array);
+    }
+
+    /**
+     * The listing needs to tell an available secret from one that has been
+     * taken out of service, so the flag has to survive the DTO. The row speaks
+     * the TCA column's negative form (`hidden`), the DTO the positive one.
+     */
+    #[Test]
+    public function aDisabledRowBecomesADisabledDto(): void
+    {
+        $metadata = SecretMetadata::fromArray([
+            'identifier' => 'retired-key',
+            'hidden' => 1,
+        ]);
+
+        self::assertFalse($metadata->enabled);
+        self::assertFalse($metadata->toArray()['enabled']);
+    }
+
+    /**
+     * The counterpart, so the mapping is shown to distinguish rather than
+     * always report the same answer — and so a row that carries no `hidden`
+     * key at all still reads as available.
+     */
+    #[Test]
+    public function aRowWithoutTheHiddenFlagIsEnabled(): void
+    {
+        self::assertTrue(SecretMetadata::fromArray(['identifier' => 'live-key'])->enabled);
+        self::assertTrue(SecretMetadata::fromArray(['identifier' => 'live-key', 'hidden' => 0])->enabled);
     }
 
     #[Test]
@@ -151,9 +181,24 @@ final class SecretMetadataTest extends TestCase
             'description' => 'Test',
             'version' => 1,
             'metadata' => [],
+            'enabled' => true,
         ];
 
-        $metadata = SecretMetadata::fromArray($original);
+        // `fromArray()` reads the row's `hidden` column, `toArray()` emits the
+        // DTO's `enabled` property, so the round trip is over the DTO's own
+        // shape with the row's negative form supplied alongside.
+        $metadata = SecretMetadata::fromArray([
+            'identifier' => 'roundtrip-test',
+            'owner_uid' => 42,
+            'crdate' => 1704067200,
+            'tstamp' => 1704153600,
+            'read_count' => 5,
+            'last_read_at' => null,
+            'description' => 'Test',
+            'version' => 1,
+            'metadata' => [],
+            'hidden' => 0,
+        ]);
         $result = $metadata->toArray();
 
         self::assertEquals($original, $result);

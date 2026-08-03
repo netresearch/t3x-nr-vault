@@ -39,6 +39,9 @@ readonly class SecretDetails
      * @param int|null $lastReadAt Unix timestamp of last read
      * @param array<string, mixed> $metadata Custom metadata
      * @param int $scopePid Page ID for multi-site scoping
+     * @param bool $enabled Whether the secret is available to consumers — a
+     *                      disabled one exists and can be administered, but
+     *                      resolves to nothing on every read path
      */
     public function __construct(
         public int $uid,
@@ -57,6 +60,7 @@ readonly class SecretDetails
         public ?int $lastReadAt,
         public array $metadata,
         public int $scopePid,
+        public bool $enabled = true,
     ) {}
 
     /**
@@ -84,6 +88,7 @@ readonly class SecretDetails
             lastReadAt: $secret->getLastReadAt() ?: null,
             metadata: $secret->getMetadata(),
             scopePid: $secret->getScopePid(),
+            enabled: !$secret->isHidden(),
         );
     }
 
@@ -135,6 +140,7 @@ readonly class SecretDetails
      *     last_read_at: int|null,
      *     metadata: array<string, mixed>,
      *     scopePid: int,
+     *     enabled: bool,
      * }
      */
     public function toArray(): array
@@ -158,6 +164,7 @@ readonly class SecretDetails
             'last_read_at' => $this->lastReadAt,
             'metadata' => $this->metadata,
             'scopePid' => $this->scopePid,
+            'enabled' => $this->enabled,
         ];
     }
 }
