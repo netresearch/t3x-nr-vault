@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Unit\Service;
 
 use DateTimeImmutable;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
+use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\EncryptedData;
@@ -66,6 +67,16 @@ final class VaultServiceTest extends TestCase
         // default the mock to pass the input through. Per-test `expects()->with(...)`
         // assertions still apply because the more specific matcher takes precedence.
         $this->adapter->method('store')->willReturnArgument(0);
+        // The two adapter lookups differ only in which database restrictions
+        // they honour — a distinction a mock cannot express, and one that is
+        // pinned where it is real: Tests/Functional/Service/SecretAvailabilityTest.
+        // Here the double answers both identically, so a test stubbing
+        // `retrieve()` also describes what the administrative paths see. The
+        // callback resolves lazily, so the per-test stub set after setUp() is
+        // the one that answers.
+        $this->adapter
+            ->method('retrieveIncludingDisabled')
+            ->willReturnCallback(fn (string $identifier): ?Secret => $this->adapter->retrieve($identifier));
         $this->encryptionService = $this->createMock(EncryptionServiceInterface::class);
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
@@ -1218,6 +1229,184 @@ final class VaultServiceTest extends TestCase
         $this->expectException(ValidationException::class);
 
         $this->subject->rotate('mySecret', '');
+    }
+
+    #[Test]
+    public function setEnabledDisablesTheSecretAndAuditsAMetadataUpdate(): void
+    {
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('availability'));
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        // Group relations are explicitly not persisted: one column changes,
+        // and the tiers must not be rewritten from a round-tripped read.
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::callback(static fn (Secret $s): bool => $s->isHidden()), false)
+            ->willReturnArgument(0);
+
+        // `metadata_update` is the same action the FormEngine path writes for
+        // this column, so the two write paths answer one audit query.
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with(
+                'availability',
+                AuditAction::MetadataUpdate->value,
+                true,
+                null,
+                'Secret disabled: key leaked',
+            );
+
+        $this->subject->setEnabled('availability', false, 'key leaked');
+    }
+
+    /**
+     * The reason is optional, and its absence must not leave the entry
+     * without the direction of the change.
+     */
+    #[Test]
+    public function setEnabledNamesTheDirectionEvenWithoutAReason(): void
+    {
+        $this->adapter->method('retrieve')->willReturn(
+            $this->createSecretEntity('availability')->withHidden(true),
+        );
+        $this->accessControlService->method('canWrite')->willReturn(true);
+        $this->adapter->method('store')->willReturnArgument(0);
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('availability', AuditAction::MetadataUpdate->value, true, null, 'Secret enabled');
+
+        $this->subject->setEnabled('availability', true);
+    }
+
+    /**
+     * Availability is set, not toggled. Asking for the state a secret already
+     * has changes nothing, so nothing is written and nothing is audited — an
+     * entry would put a mutation into the chain that never happened.
+     */
+    #[Test]
+    public function setEnabledIsANoOpWhenTheSecretIsAlreadyInTheRequestedState(): void
+    {
+        $this->adapter->method('retrieve')->willReturn(
+            $this->createSecretEntity('availability')->withHidden(true),
+        );
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        $this->adapter->expects(self::never())->method('store');
+        $this->auditLogService->expects(self::never())->method('log');
+
+        $this->subject->setEnabled('availability', false);
+    }
+
+    #[Test]
+    public function setEnabledThrowsNotFoundForAnUnknownSecret(): void
+    {
+        $this->adapter->method('retrieve')->willReturn(null);
+        $this->adapter->expects(self::never())->method('store');
+
+        $this->expectException(SecretNotFoundException::class);
+
+        $this->subject->setEnabled('nonexistent', false);
+    }
+
+    #[Test]
+    public function setEnabledDeniesAnActorWithoutWriteAccessToTheSecret(): void
+    {
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('protected'));
+        $this->accessControlService->method('canWrite')->willReturn(false);
+
+        $this->adapter->expects(self::never())->method('store');
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('protected', AuditAction::AccessDenied->value, false, 'Availability change access denied');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $this->subject->setEnabled('protected', false);
+    }
+
+    /**
+     * The second gate, refusing on its own: this actor may write the secret
+     * but holds no `secret.manage_policy`.
+     */
+    #[Test]
+    public function setEnabledDeniesAnActorWithoutTheManagePolicyPermission(): void
+    {
+        $noGrantAccess = $this->createMock(AccessControlServiceInterface::class);
+        $noGrantAccess->method('getCurrentActorUid')->willReturn(1);
+        $noGrantAccess->method('getCurrentActorType')->willReturn('cli');
+        $noGrantAccess->method('canWrite')->willReturn(true);
+        $noGrantAccess->method('isGranted')->willReturn(false);
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $noGrantAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('opGatePolicy'));
+        $this->adapter->expects(self::never())->method('store');
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with(
+                'opGatePolicy',
+                AuditAction::AccessDenied->value,
+                false,
+                'Availability change denied: missing secret.manage_policy permission',
+            );
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->setEnabled('opGatePolicy', false);
+    }
+
+    /**
+     * SEC-3 atomicity: an availability change whose audit write fails must be
+     * reverted to the state captured before it, so a silent revocation of
+     * access never persists with nothing in the chain to explain it.
+     */
+    #[Test]
+    public function setEnabledRollsBackWhenAuditWriteFails(): void
+    {
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('rollback_availability'));
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        $storedStates = [];
+        $this->adapter
+            ->expects(self::exactly(2))
+            ->method('store')
+            ->willReturnCallback(static function (Secret $secret) use (&$storedStates): Secret {
+                $storedStates[] = $secret->isHidden();
+
+                return $secret;
+            });
+
+        $this->auditLogService
+            ->method('log')
+            ->willThrowException(new AuditWriteException('audit down', 1234567890));
+
+        // The failure must surface; `finally` runs the state assertion before
+        // it propagates into the expectation declared above.
+        $this->expectException(AuditWriteException::class);
+
+        try {
+            $this->subject->setEnabled('rollback_availability', false);
+        } finally {
+            self::assertSame(
+                [true, false],
+                $storedStates,
+                'The change must be applied and then reverted to the captured prior state.',
+            );
+        }
     }
 
     #[Test]

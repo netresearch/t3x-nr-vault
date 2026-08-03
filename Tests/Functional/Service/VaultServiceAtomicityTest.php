@@ -128,6 +128,60 @@ final class VaultServiceAtomicityTest extends AbstractVaultFunctionalTestCase
     }
 
     /**
+     * An availability change is a mutation like any other, and the one whose
+     * loss is hardest to notice: an unaudited disable silently revokes access
+     * to a secret with nothing in the chain to say who did it or when.
+     */
+    #[Test]
+    public function setEnabledIsRolledBackWhenAuditWriteFails(): void
+    {
+        $this->getVaultService()->store('atomic_disable', 'still-available');
+
+        $service = $this->buildServiceWithFailingAudit();
+
+        // The failure must surface; `finally` runs the read-back before it
+        // propagates into the expectation declared here. That read-back is the
+        // assertion that matters — it is the path a disable would have closed.
+        $this->expectException(AuditWriteException::class);
+
+        try {
+            $service->setEnabled('atomic_disable', false, 'because');
+        } finally {
+            self::assertSame(
+                'still-available',
+                $this->getVaultService()->retrieve('atomic_disable'),
+                'A disable that could not be audited must not take effect.',
+            );
+        }
+    }
+
+    /**
+     * The other direction, because the compensation restores a captured state
+     * rather than a fixed one: a re-enable that cannot be audited must leave
+     * the secret disabled instead of quietly putting it back into service.
+     */
+    #[Test]
+    public function setEnabledIsRolledBackInBothDirectionsWhenAuditWriteFails(): void
+    {
+        $vault = $this->getVaultService();
+        $vault->store('atomic_enable', 'out-of-service');
+        $vault->setEnabled('atomic_enable', false);
+
+        $service = $this->buildServiceWithFailingAudit();
+
+        $this->expectException(AuditWriteException::class);
+
+        try {
+            $service->setEnabled('atomic_enable', true);
+        } finally {
+            self::assertNull(
+                $vault->retrieve('atomic_enable'),
+                'A re-enable that could not be audited must not take effect.',
+            );
+        }
+    }
+
+    /**
      * Build a VaultService wired with the real container dependencies except
      * for an audit log service that throws on every successful mutation log,
      * exercising the compensating-rollback path. Access checks pass because
@@ -195,6 +249,8 @@ final class VaultServiceAtomicityTest extends AbstractVaultFunctionalTestCase
                     AuditAction::Update->value,
                     AuditAction::Delete->value,
                     AuditAction::Rotate->value,
+                    // The action an availability change writes.
+                    AuditAction::MetadataUpdate->value,
                 ];
                 if ($success && \in_array($action, $mutating, true)) {
                     throw new AuditWriteException('Simulated audit write failure', 9334453097);
