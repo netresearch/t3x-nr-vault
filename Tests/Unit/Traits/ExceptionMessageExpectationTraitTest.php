@@ -68,7 +68,7 @@ final class ExceptionMessageExpectationTraitTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageToContain($needle);
 
-        throw new RuntimeException($thrown);
+        throw new RuntimeException($thrown, 2734202747);
     }
 
     #[Test]
@@ -77,6 +77,6 @@ final class ExceptionMessageExpectationTraitTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageToContain('');
 
-        throw new RuntimeException('');
+        throw new RuntimeException('', 1183658049);
     }
 }
