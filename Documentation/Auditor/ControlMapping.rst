@@ -210,11 +210,11 @@ OWASP ASVS v4: chapter 2 (Authentication), chapter 4 (Access Control).*
             is logged under a correlation reference
         -   :ref:`tca-integration`; :ref:`adr-018-flexform-secret-lifecycle`
 
-    *   -   CLI grant narrowed to low-risk operations
+    *   -   CLI grant narrowed to automation operations
         -   ``cliAllowedOperations`` defaults to
             ``secret.use,secret.create,secret.rotate``; reveal, delete,
-            audit export, master-key rotation and vault configuration must
-            be added explicitly
+            policy management, audit viewing, audit export, master-key
+            rotation and vault configuration must be added explicitly
         -   ``vault:doctor`` finding ``cli.allowed_operations``
 
 .. _auditor-control-mapping-logging:

@@ -36,6 +36,16 @@ final readonly class HashChainVerificationResult
      *                                             detects tail truncation and full wipes
      *                                             that the walk alone cannot see. Only
      *                                             evaluated on a full-chain pass.
+     * @param array<int, int> $epochCounts How many rows in the verified range carry each
+     *                                     `hmac_key_epoch`, keyed by epoch and sorted
+     *                                     ascending. Free: the walk already visits every
+     *                                     row and already reads the epoch to pick the hash
+     *                                     algorithm. Empty for an empty range. Reported by
+     *                                     `vault:audit-verify`, where "the chain is valid"
+     *                                     and "every row is signed at the configured epoch"
+     *                                     are separate questions — a chain of epoch-1 rows
+     *                                     verifies perfectly and is still missing the MAC
+     *                                     over `success` and the attribution fields.
      */
     public function __construct(
         public bool $valid,
@@ -44,6 +54,7 @@ final readonly class HashChainVerificationResult
         public array $missingUids = [],
         public int $missingUidCount = 0,
         public AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
+        public array $epochCounts = [],
     ) {}
 
     /**
@@ -53,12 +64,14 @@ final readonly class HashChainVerificationResult
      * @param list<int> $missingUids UID values missing from the chain (may be empty)
      * @param int $missingUidCount Total number of missing UIDs detected
      * @param AuditChainAnchorStatus $anchorStatus Outcome of the tip-anchor check
+     * @param array<int, int> $epochCounts Row count per `hmac_key_epoch` in the range
      */
     public static function valid(
         array $warnings = [],
         array $missingUids = [],
         int $missingUidCount = 0,
         AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
+        array $epochCounts = [],
     ): self {
         return new self(
             valid: true,
@@ -67,6 +80,7 @@ final readonly class HashChainVerificationResult
             missingUids: $missingUids,
             missingUidCount: $missingUidCount > 0 ? $missingUidCount : \count($missingUids),
             anchorStatus: $anchorStatus,
+            epochCounts: $epochCounts,
         );
     }
 
@@ -78,6 +92,7 @@ final readonly class HashChainVerificationResult
      * @param list<int> $missingUids UID values missing from the chain
      * @param int $missingUidCount Total number of missing UIDs detected
      * @param AuditChainAnchorStatus $anchorStatus Outcome of the tip-anchor check
+     * @param array<int, int> $epochCounts Row count per `hmac_key_epoch` in the range
      */
     public static function invalid(
         array $errors,
@@ -85,6 +100,7 @@ final readonly class HashChainVerificationResult
         array $missingUids = [],
         int $missingUidCount = 0,
         AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
+        array $epochCounts = [],
     ): self {
         return new self(
             valid: false,
@@ -93,6 +109,7 @@ final readonly class HashChainVerificationResult
             missingUids: $missingUids,
             missingUidCount: $missingUidCount > 0 ? $missingUidCount : \count($missingUids),
             anchorStatus: $anchorStatus,
+            epochCounts: $epochCounts,
         );
     }
 
@@ -129,9 +146,46 @@ final readonly class HashChainVerificationResult
     }
 
     /**
+     * Lowest `hmac_key_epoch` any row in the verified range carries, or null
+     * for an empty range.
+     *
+     * The number an operator actually has to act on: raising `auditHmacEpoch`
+     * changes what NEW rows are signed with and nothing else, so this is the
+     * protection level the OLDEST evidence still rests on.
+     */
+    public function getMinEpoch(): ?int
+    {
+        // min()/max() over the keys rather than array_key_first()/_last(), so a
+        // caller that hands in an unordered map still gets the right answer —
+        // the getters must not depend on how the producer happened to insert.
+        return $this->epochCounts === [] ? null : min(array_keys($this->epochCounts));
+    }
+
+    /**
+     * Highest `hmac_key_epoch` in the verified range, or null for an empty
+     * range.
+     *
+     * The high-water mark the chain-wide downgrade floor is compared against
+     * on a full-chain pass, exposed so a caller can see the value behind that
+     * verdict instead of only its outcome.
+     */
+    public function getMaxEpoch(): ?int
+    {
+        return $this->epochCounts === [] ? null : max(array_keys($this->epochCounts));
+    }
+
+    /**
+     * Whether the range mixes epochs, i.e. a migration covered part of it.
+     */
+    public function hasMixedEpochs(): bool
+    {
+        return \count($this->epochCounts) > 1;
+    }
+
+    /**
      * Convert to array for JSON serialization.
      *
-     * @return array{valid: bool, errors: array<int, string>, warnings: array<int, string>, missingUids: list<int>, missingUidCount: int, anchorStatus: string}
+     * @return array{valid: bool, errors: array<int, string>, warnings: array<int, string>, missingUids: list<int>, missingUidCount: int, anchorStatus: string, epochCounts: array<int, int>, minEpoch: int|null, maxEpoch: int|null}
      */
     public function toArray(): array
     {
@@ -142,6 +196,9 @@ final readonly class HashChainVerificationResult
             'missingUids' => $this->missingUids,
             'missingUidCount' => $this->missingUidCount,
             'anchorStatus' => $this->anchorStatus->value,
+            'epochCounts' => $this->epochCounts,
+            'minEpoch' => $this->getMinEpoch(),
+            'maxEpoch' => $this->getMaxEpoch(),
         ];
     }
 }

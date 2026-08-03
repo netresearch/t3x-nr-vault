@@ -38,8 +38,9 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     /**
      * Operation permissions the unattributed CLI actor may hold when
      * `allowCliAccess` is on. High-risk operations (secret.reveal,
-     * secret.delete, audit.export, master_key.rotate, vault.configure) are
-     * deliberately absent — they must be opted into explicitly.
+     * secret.delete, secret.manage_policy, audit.view, audit.export,
+     * master_key.rotate, vault.configure) are deliberately absent — they must
+     * be opted into explicitly.
      */
     public const DEFAULT_CLI_ALLOWED_OPERATIONS = 'secret.use,secret.create,secret.rotate';
 

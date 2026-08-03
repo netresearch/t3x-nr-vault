@@ -185,9 +185,24 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
     /**
      * Which operations does the unattributed CLI actor actually hold?
      *
-     * The allowlist defaults to store/rotate/use. Every high-risk operation
-     * present is called out; unknown tokens are reported too — a typo in the
-     * list silently revokes the grant the operator believes is configured.
+     * The allowlist defaults to `secret.use,secret.create,secret.rotate`. Every
+     * high-risk operation present is called out; unknown tokens are reported too
+     * — a typo in the list silently revokes the grant the operator believes is
+     * configured.
+     *
+     * "High-risk" is the set that hands a shell more than the deployment step
+     * the switch exists for. Two of them are less obvious than the rest and were
+     * missing here while being listed as `$known`, so an allowlist containing
+     * them read as a clean pass:
+     *
+     *  - `secret.manage_policy` edits `allowed_groups` / `write_groups`, i.e.
+     *    the permission that governs the permissions
+     *    ({@see VaultPermission::SecretManagePolicy}). A shell holding it can
+     *    widen its own per-secret reach and the widening looks like ordinary
+     *    configuration afterwards.
+     *  - `audit.view` reads the trail rather than the secrets, but the trail
+     *    maps the credential topology ({@see VaultPermission::AuditView}) and
+     *    the hardened deployment guide already treats it as an explicit opt-in.
      */
     private function checkAllowedOperations(): Finding
     {
@@ -198,7 +213,15 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
             static fn (VaultPermission $permission): string => $permission->value,
             VaultPermission::cases(),
         );
-        $highRisk = ['secret.reveal', 'secret.delete', 'audit.export', 'master_key.rotate', 'vault.configure'];
+        $highRisk = [
+            'secret.reveal',
+            'secret.delete',
+            'secret.manage_policy',
+            'audit.view',
+            'audit.export',
+            'master_key.rotate',
+            'vault.configure',
+        ];
 
         $unknown = array_values(array_diff($operations, $known));
         $risky = array_values(array_intersect($operations, $highRisk));
@@ -212,8 +235,17 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
         if ($risky === [] && $unknown === []) {
             return Finding::pass(
                 id: $id,
+                // Not "low-risk": the remaining defaults are not harmless
+                // writes. secret.create makes the CLI actor the OWNER of what
+                // it creates, which is privilege-widening, and secret.rotate
+                // substitutes a credential the operator's own systems then
+                // use. The pass says the list holds nothing that needs an
+                // explicit opt-in — not that its contents are inert.
                 summary: \sprintf(
-                    'The CLI operation allowlist is scoped to %d low-risk operation(s): %s.',
+                    'The CLI operation allowlist holds no operation that needs an explicit opt-in: '
+                    . '%d automation operation(s) (%s). That is a scoped grant, not a harmless one — '
+                    . 'everything listed is available to anyone with a shell on this host, under an '
+                    . 'actor the audit trail cannot name.',
                     \count($operations),
                     implode(', ', $operations),
                 ),
@@ -235,11 +267,21 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
             summary: 'The "cliAllowedOperations" list ' . implode(' and ', $summaryParts) . '.',
             risk: 'High-risk operations let anyone with a shell reveal plaintext, delete secrets, walk '
                 . 'off with the audit history or rewrite every key envelope — without a named actor in '
-                . 'the audit trail. Unknown values do nothing: the grant the operator believes is '
+                . 'the audit trail. "secret.manage_policy" is the widest of them in the long run: it '
+                . 'edits allowed_groups and write_groups, so it is the permission that governs the '
+                . 'permissions — a shell can widen its own per-secret reach to secrets the current ACLs '
+                . 'do not admit it to, and the widened tiers read as ordinary configuration afterwards. '
+                . '"audit.view" grants no secret access at all, but the trail it opens names who touched '
+                . 'which identifier when: it maps the credential topology, and it is also where the '
+                . 'shell\'s own activity is recorded, so it is reconnaissance handed to the actor the '
+                . 'log exists to catch. Unknown values do nothing: the grant the operator believes is '
                 . 'configured is silently absent.',
             remediation: 'Remove the high-risk operations from "cliAllowedOperations" (use a named '
                 . 'technical actor for those workflows) and fix any typo — valid values are the '
-                . 'tx_nrvault permission identifiers, e.g. secret.use, secret.create, secret.rotate.',
+                . 'tx_nrvault permission identifiers, e.g. secret.use, secret.create, secret.rotate. '
+                . 'Where a scheduled control genuinely needs one — vault:audit-verify asserts '
+                . 'audit.view, the orphan cleanup asserts secret.delete — grant it to a named backend '
+                . 'group and run the job as a technical actor instead of widening this list.',
             docsUrl: DocsLink::ACCESS_CONTROL,
             details: $details,
         );

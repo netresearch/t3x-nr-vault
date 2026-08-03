@@ -111,8 +111,9 @@ remove over-broad grants (an editor holding ``secret.reveal`` who only needs
 ``secret.use`` is the common finding); withdraw the admin override and pin it
 (:ref:`security-disable-admin-override`); switch off ``allowCliAccess`` if it
 was enabled for a one-off and never turned back off, and where it must stay on,
-narrow :confval:`ext-nrvault-cliAllowedOperations` back to the low-risk default
-— a pipeline that was granted ``secret.reveal`` or ``master_key.rotate`` for one
+narrow :confval:`ext-nrvault-cliAllowedOperations` back to the automation
+default — a pipeline that was granted ``secret.reveal``, ``master_key.rotate``
+or ``secret.manage_policy`` for one
 task and kept it is the same class of finding as the over-broad editor grant;
 consider the hardened profile (:ref:`security-profiles-migration`).
 

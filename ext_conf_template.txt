@@ -39,7 +39,7 @@ allowCliAccess = 0
 # cat=Security; type=string; label=CLI Access Groups: Comma-separated list of backend user group IDs allowed CLI access
 cliAccessGroups =
 
-# cat=Security; type=string; label=CLI Allowed Operations: Comma-separated operation permissions the unattributed CLI actor may hold when "allowCliAccess" is on. High-risk operations (secret.reveal, secret.delete, audit.export, master_key.rotate, vault.configure) are excluded by default - add them explicitly only where the deployment genuinely needs them, or prefer a named technical actor (TechnicalActorContext::runAs()).
+# cat=Security; type=string; label=CLI Allowed Operations: Comma-separated operation permissions the unattributed CLI actor may hold when "allowCliAccess" is on. High-risk operations (secret.reveal, secret.delete, secret.manage_policy, audit.view, audit.export, master_key.rotate, vault.configure) are excluded by default - add them explicitly only where the deployment genuinely needs them, or prefer a named technical actor (TechnicalActorContext::runAs()).
 cliAllowedOperations = secret.use,secret.create,secret.rotate
 
 # cat=Security; type=int+; label=Audit Log Retention (days): Number of days to keep audit log entries (0 = forever)
