@@ -99,6 +99,14 @@ final class SecretTcaHookTest extends TestCase
         $this->accessControlService->method('canCreate')->willReturn(true);
         $this->accessControlService->method('isGranted')->willReturn(true);
 
+        // ... and let that actor write an existing secret, for the same
+        // reason: the per-secret write gate refuses the record outright (the
+        // field array is nulled and core skips it), so an update test that
+        // does not opt into a writable target would assert against a record
+        // the hook never processed. The gate has its own tests, each building
+        // its own access-control mock.
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
         $this->hook = new SecretTcaHook(
             $this->vaultService,
             $this->auditService,
@@ -673,9 +681,13 @@ final class SecretTcaHookTest extends TestCase
         // Would refuse if it were consulted — an update must not consult it.
         $accessControl->method('canCreate')->willReturn(false);
         $accessControl->expects($this->never())->method('isGranted');
+        // The gate this test IS about sits behind the per-secret write tier,
+        // so the actor has to clear that one first.
+        $accessControl->method('canWrite')->willReturn(true);
 
         // The update path snapshots the pre-change column values for the
         // compensating rollback, so it needs a readable record.
+        $this->stubResolvableSecret();
         $this->stubBackendRecords([['description' => 'stored']]);
 
         $hook = new SecretTcaHook(
@@ -1486,6 +1498,7 @@ final class SecretTcaHookTest extends TestCase
     #[Test]
     public function preProcessSnapshotsTheRelationsOfEverySubmittedAclTier(): void
     {
+        $this->stubResolvableSecret();
         $this->stubBackendRecords([['allowed_groups' => 2]]);
 
         $queryCalls = [];
@@ -1509,6 +1522,7 @@ final class SecretTcaHookTest extends TestCase
     #[Test]
     public function preProcessDropsAnMmBackedAclChangeSubmittedByANonOwner(): void
     {
+        $this->stubResolvableSecret('acl-secret');
         $this->stubBackendRecords([['owner_uid' => 99, 'frontend_accessible' => 0, 'scope_pid' => 0]]);
 
         $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
@@ -1529,6 +1543,7 @@ final class SecretTcaHookTest extends TestCase
     {
         // Only one read: dropping owner_uid empties $fieldArray, so the
         // pre-change metadata capture has no submitted column left to snapshot.
+        $this->stubResolvableSecret('acl-secret');
         $this->stubBackendRecords([
             ['owner_uid' => 99, 'identifier' => 'acl-secret'],
         ]);
@@ -1558,6 +1573,7 @@ final class SecretTcaHookTest extends TestCase
         // An ordinary save by a non-owner resubmits the stored owner in group
         // notation. The column is still dropped — that is what protects it —
         // but nothing changed, so this must be neither logged nor audited.
+        $this->stubResolvableSecret('acl-secret');
         $this->stubBackendRecords([
             ['owner_uid' => 99, 'identifier' => 'acl-secret'],
         ]);
@@ -1591,6 +1607,7 @@ final class SecretTcaHookTest extends TestCase
         mixed $submitted,
         mixed $stored,
     ): void {
+        $this->stubResolvableSecret('acl-secret');
         $this->stubBackendRecords([
             [$column => $stored, 'identifier' => 'acl-secret'],
         ]);
@@ -1635,6 +1652,7 @@ final class SecretTcaHookTest extends TestCase
         mixed $submitted,
         mixed $stored,
     ): void {
+        $this->stubResolvableSecret('acl-secret');
         $this->stubBackendRecords([
             [$column => $stored, 'identifier' => 'acl-secret'],
         ]);
@@ -1672,9 +1690,150 @@ final class SecretTcaHookTest extends TestCase
         yield 'hidden enabled' => ['hidden', '1', 0];
     }
 
+    /**
+     * The write gate's lookup excludes soft-deleted rows, so a datamap
+     * against a tombstone resolves to nothing — and core does NOT stop there:
+     * it reads its UPDATE target with the delete clause off and only skips a
+     * row it cannot find at all. Waving the record through was therefore an
+     * ungated, unaudited write to a deleted secret's columns.
+     */
+    #[Test]
+    public function preProcessRefusesAnUpdateAgainstASoftDeletedSecret(): void
+    {
+        // The gate's lookup finds nothing; the deleted-inclusive probe that
+        // classifies the refusal does, which is what makes it a tombstone
+        // rather than an absent record.
+        $this->stubBackendRecords([['identifier' => 'deleted-secret']]);
+
+        $this->auditService->expects($this->once())->method('log')->with(
+            'deleted-secret',
+            'access_denied',
+            false,
+            self::stringContains('deleted'),
+        );
+
+        $fieldArray = ['description' => 'edited', 'frontend_accessible' => 1];
+        $messages = [];
+        $this->hookWith($this->recordPool())->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            self::TABLE,
+            5,
+            $this->capturingDataHandler($messages),
+        );
+
+        // Nulling the array is what makes core skip the record entirely — not
+        // merely filtering the privileged column out of it.
+        self::assertNull($fieldArray);
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('deleted', $messages[0]);
+    }
+
+    /**
+     * Core skips a genuinely absent record one guard further on, but the gate
+     * refuses it here rather than relying on that: "the vault cannot identify
+     * the record it is asked to authorize" is a refusal on its own terms. The
+     * probe finds no row, so there is no identifier to audit under and the
+     * refusal is reported in the DataHandler log alone.
+     */
+    #[Test]
+    public function preProcessRefusesAnUpdateAgainstAnAbsentRecordWithoutAnAnonymousAuditEntry(): void
+    {
+        $this->stubBackendRecords([false]);
+
+        $this->auditService->expects($this->never())->method('log');
+
+        $fieldArray = ['description' => 'edited'];
+        $messages = [];
+        $this->hookWith($this->recordPool())->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            self::TABLE,
+            404,
+            $this->capturingDataHandler($messages),
+        );
+
+        self::assertNull($fieldArray);
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('No vault secret exists', $messages[0]);
+    }
+
+    /**
+     * The two gates resolve their target through different reads — the
+     * repository lookup and this hook's own record read — so they can
+     * disagree, and the privileged-column policy must fail closed on its own
+     * read rather than trusting that the ACL gate already vouched for the
+     * record. Dropping the privileged columns would not do: the read that
+     * failed is the one supplying the stored values, so the policy cannot be
+     * applied at all.
+     */
+    #[Test]
+    public function preProcessRefusesTheRecordWhenThePolicyReadCannotResolveIt(): void
+    {
+        // The ACL gate passes (a resolvable secret, writable actor), then the
+        // policy's own read comes back empty, as does the classifying probe.
+        $this->stubResolvableSecret();
+        $this->stubBackendRecords([false, false]);
+
+        $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
+
+        $fieldArray = ['description' => 'edited'];
+        $messages = [];
+        $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
+
+        self::assertNull($fieldArray);
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('No vault secret exists', $messages[0]);
+    }
+
+    /**
+     * A refused record must not leave the hook holding state for a write that
+     * will never happen: no pre-change snapshot to "restore" onto a row this
+     * save never touched, and no parked plaintext for
+     * afterDatabaseOperations() to store.
+     */
+    #[Test]
+    public function preProcessKeepsNoStateForARefusedUnresolvableRecord(): void
+    {
+        $this->stubBackendRecords([false]);
+
+        $hook = $this->hookWith($this->recordPool());
+
+        $fieldArray = ['description' => 'edited', 'secret_input' => 'plaintext'];
+        $messages = [];
+        $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
+
+        self::assertNull($fieldArray);
+        self::assertSame([], $this->readPrivate($hook, 'pendingSecrets'));
+        self::assertSame([], $this->readPrivate($hook, 'originalMetadata'));
+        self::assertSame([], $this->readPrivate($hook, 'originalMmRelations'));
+    }
+
+    /**
+     * The refusal is scoped to an existing record: a creation has no stored
+     * secret to resolve, and its own gates (canCreate, secret.create) live on
+     * the create path. A NEW record must not be caught by it.
+     */
+    #[Test]
+    public function preProcessDoesNotApplyTheUnresolvableRefusalToANewRecord(): void
+    {
+        $this->secretRepository->expects($this->never())->method('findByUidIncludingDisabled');
+
+        $fieldArray = ['identifier' => 'api/token'];
+        $messages = [];
+        $this->hook->processDatamap_preProcessFieldArray(
+            $fieldArray,
+            self::TABLE,
+            'NEW123',
+            $this->capturingDataHandler($messages),
+        );
+
+        self::assertSame(['identifier' => 'api/token'], $fieldArray);
+        self::assertSame([], $messages);
+    }
+
     #[Test]
     public function preProcessLetsTheOwnerWithTheManagePolicyGrantChangeTheAcl(): void
     {
+        $this->stubResolvableSecret();
         $this->stubBackendRecords([
             ['owner_uid' => 7, 'frontend_accessible' => 0, 'scope_pid' => 0],
             ['allowed_groups' => 1],
@@ -1775,6 +1934,7 @@ final class SecretTcaHookTest extends TestCase
     public function afterDatabaseOperationsCompensatesAFailedMetadataAuditWithTheCapturedState(): void
     {
         // One read for the pre-change capture, one for the post-write lookup.
+        $this->stubResolvableSecret();
         $this->stubBackendRecords([
             ['allowed_groups' => 1],
             ['identifier' => 'api/token', 'owner_uid' => 1, 'allowed_groups' => 2, 'scope_pid' => 0],
@@ -2021,6 +2181,25 @@ final class SecretTcaHookTest extends TestCase
     }
 
     /**
+     * State the precondition every datamap UPDATE test needs: uid $uid is a
+     * secret the vault can still resolve.
+     *
+     * The hook's write gate resolves its target through
+     * `findByUidIncludingDisabled()` and refuses the record when that yields
+     * nothing — a soft-deleted row or no row at all. An update test that did
+     * not say its target exists would therefore be asserting against a
+     * refused record, so the target is declared rather than defaulted: the
+     * lookup is also what the cmdmap tests stub for their own purposes, and a
+     * blanket setUp() stub would shadow theirs.
+     */
+    private function stubResolvableSecret(string $identifier = 'api/token', int $uid = 5): void
+    {
+        $this->secretRepository->method('findByUidIncludingDisabled')->willReturn(
+            SecretFixtureBuilder::create($identifier)->withUid($uid)->buildSecret(),
+        );
+    }
+
+    /**
      * Queue the rows the hook's record reads resolve to, in the order the
      * exercised path performs them (`false` = record gone). The queue is
      * served through the hook's injected ConnectionPool, so the stub is
@@ -2131,6 +2310,9 @@ final class SecretTcaHookTest extends TestCase
         $accessControl->method('isCurrentActorAdmin')->willReturn(false);
         $accessControl->method('getCurrentActorUid')->willReturn($actorUid);
         $accessControl->method('canCreate')->willReturn($canCreate);
+        // The privileged-column policy runs on top of the per-secret write
+        // tier, so these tests are about an actor who already passed it.
+        $accessControl->method('canWrite')->willReturn(true);
         // Each gate answers for its own permission — a path that asked for the
         // wrong one falls to `false` and fails the test that expects it to
         // pass, so the permission identity stays asserted.
