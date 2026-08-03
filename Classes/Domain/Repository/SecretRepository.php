@@ -13,6 +13,7 @@ use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
 
 /**
  * Repository for secret entities.
@@ -59,6 +60,47 @@ final readonly class SecretRepository implements SecretRepositoryInterface
     public function findByUid(int $uid): ?Secret
     {
         $queryBuilder = $this->getConnection()->createQueryBuilder();
+        $row = $queryBuilder
+            ->select('*')
+            ->from(self::TABLE_NAME)
+            ->where(
+                $queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)),
+                $queryBuilder->expr()->eq('deleted', 0),
+            )
+            ->executeQuery()
+            ->fetchAssociative();
+
+        if ($row === false) {
+            return null;
+        }
+
+        return Secret::fromDatabaseRow(
+            $row,
+            $this->loadGroupsForSecret($uid),
+            $this->loadGroupsForSecret($uid, self::MM_WRITE_TABLE_NAME),
+        );
+    }
+
+    /**
+     * Resolve a secret by UID INCLUDING one that is disabled.
+     *
+     * The counterpart of {@see findByUid()} for the write-path guards that
+     * must judge a record they are about to change or remove. Everything
+     * else, the plaintext read path above all, keeps using `findByUid()`.
+     *
+     * That split is the whole point, so exactly one restriction is lifted and
+     * named: `HiddenRestriction`, the one TCA's `enablecolumns.disabled`
+     * mapping binds to the `hidden` column. `removeAll()` is deliberately NOT
+     * used — it would also discard `DeletedRestriction`, and a lookup that
+     * hands back soft-deleted rows would turn an `undelete` guard into the
+     * thing that resurrects them. `findByUid()` is left untouched for the
+     * same reason: widening it would switch the control off rather than work
+     * around it.
+     */
+    public function findByUidIncludingDisabled(int $uid): ?Secret
+    {
+        $queryBuilder = $this->getConnection()->createQueryBuilder();
+        $queryBuilder->getRestrictions()->removeByType(HiddenRestriction::class);
         $row = $queryBuilder
             ->select('*')
             ->from(self::TABLE_NAME)
