@@ -598,6 +598,13 @@ final class SecretTcaHook
      * The extra $value/$dataHandler parameters are supplied by core
      * (DataHandler passes six positional args); they are optional so the
      * pre-existing three-argument unit-test calls still bind.
+     *
+     * The target is resolved through the disabled-visible lookup. The
+     * restricted one skips a disabled secret, and skipping here does not
+     * refuse the delete — it hands the command back to core, which
+     * soft-deletes the row with no per-secret ACL, no `secret.delete` and no
+     * audit entry. Disabling a secret must not be the way to strip it of its
+     * guard.
      */
     public function processCmdmap_preProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
@@ -621,7 +628,7 @@ final class SecretTcaHook
         }
 
         $uid = is_numeric($id) ? (int) $id : 0;
-        $secret = $this->secretRepository->findByUid($uid);
+        $secret = $this->secretRepository->findByUidIncludingDisabled($uid);
         if (!$secret instanceof Secret) {
             return;
         }
@@ -1194,8 +1201,22 @@ final class SecretTcaHook
      *
      * A creation is not gated here: it has no existing secret to authorize
      * against, and its own gates (`canCreate()`, `secret.create`) live on
-     * the VaultService path. A datamap for a uid with no secret row is left
-     * to core, which refuses a nonexistent record on its own.
+     * the VaultService path.
+     *
+     * The record is resolved through the disabled-visible lookup, for the
+     * same reason as the delete gate: the restricted one cannot see a
+     * disabled secret, and a gate that cannot see its subject does not refuse
+     * the write — it lets core perform it without ever consulting
+     * `canWrite()`. Disabling a secret must not be the way to strip it of its
+     * guard.
+     *
+     * With that lookup in place, an unresolved uid no longer means "possibly
+     * a disabled secret". It means no row for this uid — left to core, which
+     * refuses a nonexistent record on its own — or a soft-deleted one, whose
+     * columns no read path reaches and which this table's refused `undelete`
+     * keeps that way. Passing those through stays what it was: the vault
+     * declining to answer for a record it no longer holds, not a grant over
+     * one it does.
      */
     private function isUpdateAuthorized(string|int $id, DataHandler $dataHandler): bool
     {
@@ -1204,7 +1225,7 @@ final class SecretTcaHook
         }
 
         $uid = is_numeric($id) ? (int) $id : 0;
-        $secret = $this->secretRepository->findByUid($uid);
+        $secret = $this->secretRepository->findByUidIncludingDisabled($uid);
         if (!$secret instanceof Secret) {
             return true;
         }

@@ -250,7 +250,7 @@ final class SecretTcaHookTest extends TestCase
     {
         // A resolvable secret, so the test proves the command is dropped by
         // the command filter rather than by an empty repository lookup.
-        $this->secretRepository->method('findByUid')->willReturn(
+        $this->secretRepository->method('findByUidIncludingDisabled')->willReturn(
             SecretFixtureBuilder::create('api/token')->withUid(1)->buildSecret(),
         );
         $this->vaultService->expects($this->never())->method('delete');
@@ -276,7 +276,7 @@ final class SecretTcaHookTest extends TestCase
     #[Test]
     public function cmdmapPreProcessStillRoutesDeleteThroughTheVaultService(): void
     {
-        $this->secretRepository->method('findByUid')->willReturn(
+        $this->secretRepository->method('findByUidIncludingDisabled')->willReturn(
             SecretFixtureBuilder::create('api/token')->withUid(1)->buildSecret(),
         );
         $this->vaultService->expects($this->once())->method('delete')->with('api/token', 'Deleted via FormEngine');
@@ -824,7 +824,7 @@ final class SecretTcaHookTest extends TestCase
         );
         // The vault is never asked whether the actor may do this — the
         // refusal is a product rule, not a permission tier.
-        $this->secretRepository->expects($this->never())->method('findByUid');
+        $this->secretRepository->expects($this->never())->method('findByUidIncludingDisabled');
         $this->vaultService->expects($this->never())->method('delete');
 
         $hook = $this->hookWith($this->recordPool());
