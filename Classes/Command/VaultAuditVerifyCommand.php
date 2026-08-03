@@ -14,6 +14,8 @@ use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditIntegrityAlert;
 use Netresearch\NrVault\Audit\AuditIntegrityReport;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -43,6 +45,15 @@ use Throwable;
  * {@see \Netresearch\NrVault\Event\AuditIntegrityAlertEvent}, so SIEM listeners
  * fire whether or not anyone reads this output.
  *
+ * Gated on `audit.view`: verification recomputes and compares, it mutates
+ * nothing, so it is a read of the chain — the same permission
+ * `vault:audit --verify` and `AuditController::verifyChainAction()` assert for
+ * the same operation. Without the gate this command would be the way around
+ * theirs, and it checks strictly more (the external anchor as well as the
+ * chain). A refusal exits non-zero without running any verification, and in
+ * `--format=json` it reports `valid: false` — a verifier that was not allowed
+ * to run must never read as a verifier that found nothing.
+ *
  * Usage:
  *   vendor/bin/typo3 vault:audit-verify
  *   vendor/bin/typo3 vault:audit-verify --format=json
@@ -57,6 +68,7 @@ final class VaultAuditVerifyCommand extends Command
     public function __construct(
         private readonly ChainTipAnchorServiceInterface $anchorService,
         private readonly AuditSinkRegistryInterface $sinkRegistry,
+        private readonly AccessControlServiceInterface $accessControlService,
     ) {
         parent::__construct();
     }
@@ -86,6 +98,14 @@ final class VaultAuditVerifyCommand extends Command
         $formatOption = $input->getOption('format');
         $json = \is_string($formatOption) && strtolower($formatOption) === 'json';
         $tamperOnly = (bool) $input->getOption('tamper-only');
+
+        // Before the verification runs, and before anything is written to the
+        // output a monitoring wrapper might parse.
+        if (!$this->accessControlService->isGranted(VaultPermission::AuditView)) {
+            $this->refuse($io, $output, $json);
+
+            return Command::FAILURE;
+        }
 
         try {
             $report = $this->anchorService->verify();
@@ -123,6 +143,32 @@ final class VaultAuditVerifyCommand extends Command
         $this->renderText($io, $report, $failed);
 
         return $failed ? Command::FAILURE : Command::SUCCESS;
+    }
+
+    /**
+     * Report the refusal in the shape the caller asked for.
+     *
+     * The JSON body carries `valid: false` alongside the reason, so a monitor
+     * that only reads that field treats a refused verification as a failed one
+     * rather than as a clean chain.
+     */
+    private function refuse(SymfonyStyle $io, OutputInterface $output, bool $json): void
+    {
+        $message = \sprintf(
+            'Access denied: the "%s" permission is required to verify the audit log integrity.',
+            VaultPermission::AuditView->value,
+        );
+
+        if ($json) {
+            $output->writeln(json_encode(
+                ['valid' => false, 'error' => $message],
+                JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR,
+            ));
+
+            return;
+        }
+
+        $io->error($message);
     }
 
     private function renderText(SymfonyStyle $io, AuditIntegrityReport $report, bool $failed): void

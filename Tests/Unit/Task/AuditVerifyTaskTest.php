@@ -13,6 +13,8 @@ use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditIntegrityAlert;
 use Netresearch\NrVault\Audit\AuditIntegrityReason;
 use Netresearch\NrVault\Audit\AuditIntegrityReport;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Task\AuditVerifyTask;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -110,7 +112,7 @@ final class AuditVerifyTaskTest extends TestCase
         $service = self::createStub(ChainTipAnchorServiceInterface::class);
         $service->method('verify')->willThrowException(new RuntimeException('database unavailable'));
 
-        self::assertFalse((new AuditVerifyTask($service))->execute());
+        self::assertFalse($this->task($service)->execute());
     }
 
     #[Test]
@@ -119,7 +121,7 @@ final class AuditVerifyTaskTest extends TestCase
         $service = self::createStub(ChainTipAnchorServiceInterface::class);
         $service->method('verify')->willThrowException(new RuntimeException('database unavailable'));
 
-        $task = new AuditVerifyTask($service);
+        $task = $this->task($service);
         $task->setTaskParameters(['nr_vault_tamper_only' => 1]);
 
         self::assertFalse($task->execute());
@@ -159,12 +161,58 @@ final class AuditVerifyTaskTest extends TestCase
         self::assertNotSame($strict, $task->getAdditionalInformation());
     }
 
+    /**
+     * Verification is a read of the chain, so it answers to `audit.view` from
+     * the scheduler exactly as it does from `vault:audit-verify`,
+     * `vault:audit --verify` and the backend module.
+     */
+    #[Test]
+    public function verificationIsRefusedWithoutAuditView(): void
+    {
+        $service = $this->createMock(ChainTipAnchorServiceInterface::class);
+        $service->expects($this->never())->method('verify');
+
+        self::assertFalse(
+            $this->task($service, granted: false)->execute(),
+            'a verification that was not allowed to run must not report success',
+        );
+    }
+
+    /**
+     * `--tamper-only` downgrades configuration findings to warnings. A refusal
+     * is not a finding about the chain, so it must not be downgraded with them.
+     */
+    #[Test]
+    public function refusalFailsEvenInTamperOnlyMode(): void
+    {
+        $service = $this->createMock(ChainTipAnchorServiceInterface::class);
+        $service->expects($this->never())->method('verify');
+
+        $task = $this->task($service, granted: false);
+        $task->setTaskParameters(['nr_vault_tamper_only' => 1]);
+
+        self::assertFalse($task->execute());
+    }
+
+    private function task(ChainTipAnchorServiceInterface $service, bool $granted = true): AuditVerifyTask
+    {
+        $accessControlService = self::createStub(AccessControlServiceInterface::class);
+        $accessControlService
+            ->method('isGranted')
+            ->willReturnCallback(
+                static fn (VaultPermission $permission): bool => $granted
+                    && $permission === VaultPermission::AuditView,
+            );
+
+        return new AuditVerifyTask($service, null, $accessControlService);
+    }
+
     private function createTask(AuditIntegrityReport $report): AuditVerifyTask
     {
         $service = self::createStub(ChainTipAnchorServiceInterface::class);
         $service->method('verify')->willReturn($report);
 
-        return new AuditVerifyTask($service);
+        return $this->task($service);
     }
 
     private function report(?AuditIntegrityReason $reason = null): AuditIntegrityReport

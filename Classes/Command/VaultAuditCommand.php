@@ -18,6 +18,8 @@ use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Utility\CsvFormulaSanitizer;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -31,6 +33,20 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 
 /**
  * CLI command to query and export audit logs.
+ *
+ * Every mode is gated on an operation permission: listing and `--verify` on
+ * `audit.view`, `--export` on `audit.export`, and `--reset-anchor` on
+ * `vault.configure`. A refusal exits non-zero before any query, file write or
+ * anchor change happens.
+ *
+ * A refusal deliberately writes NO `access_denied` entry. Every sibling
+ * operation-permission gate refuses the same way — `VaultRetrieveCommand`,
+ * `VaultRotateMasterKeyCommand`, `ModuleAccessGuard` — and only the
+ * *per-secret* tiers audit their denials. Auditing here would also let anyone
+ * with a shell append rows to the tamper-evident table without holding a
+ * single permission, and, worse, `--verify` / `--reset-anchor` are the tools
+ * for a chain that is already suspect: their denial path must not append to,
+ * and re-anchor, the very chain the operator is about to inspect or reset.
  */
 #[AsCommand(
     name: 'vault:audit',
@@ -50,6 +66,7 @@ final class VaultAuditCommand extends Command
         private readonly AuditLogServiceInterface $auditLogService,
         private readonly AuditChainAnchorStoreInterface $anchorStore,
         private readonly ConnectionPool $connectionPool,
+        private readonly AccessControlServiceInterface $accessControlService,
     ) {
         parent::__construct();
     }
@@ -139,12 +156,34 @@ final class VaultAuditCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
 
-        if ((bool) $input->getOption('reset-anchor')) {
+        $resetAnchor = (bool) $input->getOption('reset-anchor');
+        $verify = (bool) $input->getOption('verify');
+        $exportFile = $this->exportTarget($input);
+
+        // One gate for the whole command, resolved from the mode the
+        // invocation selects — the same mode the dispatch below uses, so no
+        // branch can reach its work through an unasserted permission. The
+        // audit log names who touched which secret when, which is a sensitive
+        // derivative of the secrets themselves; before this gate existed,
+        // `vault:audit` was the one privileged vault command that asserted
+        // nothing at all.
+        [$required, $operation] = $this->gate($resetAnchor, $verify, $exportFile);
+        if (!$this->accessControlService->isGranted($required)) {
+            $io->error(\sprintf(
+                'Access denied: the "%s" permission is required to %s.',
+                $required->value,
+                $operation,
+            ));
+
+            return Command::FAILURE;
+        }
+
+        if ($resetAnchor) {
             return $this->resetAnchor($io, (bool) $input->getOption('force'));
         }
 
         // Hash chain verification
-        if ($input->getOption('verify')) {
+        if ($verify) {
             return $this->verifyHashChain($io);
         }
 
@@ -167,8 +206,7 @@ final class VaultAuditCommand extends Command
             }
 
             // Export to file
-            $exportFile = $input->getOption('export');
-            if (\is_string($exportFile) && $exportFile !== '') {
+            if ($exportFile !== null) {
                 return $this->exportToFile($io, $entries, $exportFile, $format);
             }
 
@@ -185,6 +223,47 @@ final class VaultAuditCommand extends Command
 
             return Command::FAILURE;
         }
+    }
+
+    /**
+     * The file `--export` writes to, or null when the entries stay on stdout.
+     *
+     * Resolved once and reused by both the permission gate and the dispatch:
+     * two separate readings of the option could disagree, and the one that
+     * disagreed would be an export performed under `audit.view`.
+     */
+    private function exportTarget(InputInterface $input): ?string
+    {
+        $exportFile = $input->getOption('export');
+
+        return \is_string($exportFile) && $exportFile !== '' ? $exportFile : null;
+    }
+
+    /**
+     * The permission this invocation needs, and the operation it guards.
+     *
+     * Resolved as one value so a refusal can never name a permission belonging
+     * to a different mode than the one it gated, and so the operator learns
+     * which grant to ask for AND what for.
+     *
+     * `--verify` recomputes and compares — it mutates nothing, so it is a read
+     * of the chain and shares `audit.view` with the listing, exactly as
+     * `AuditController::verifyChainAction()` does. `--reset-anchor` is the
+     * outlier: it clears the truncation anchor and writes into the chain, so
+     * it stays vault administration. Export takes `audit.export` on its own —
+     * same rule as `AuditController::exportAction()`, because the exported
+     * copy leaves the tamper-evident storage behind.
+     *
+     * @return array{VaultPermission, string}
+     */
+    private function gate(bool $resetAnchor, bool $verify, ?string $exportFile): array
+    {
+        return match (true) {
+            $resetAnchor => [VaultPermission::VaultConfigure, 'reset the audit chain tip anchor'],
+            $verify => [VaultPermission::AuditView, 'verify the audit hash chain'],
+            $exportFile !== null => [VaultPermission::AuditExport, 'export audit entries to a file'],
+            default => [VaultPermission::AuditView, 'read the audit log'],
+        };
     }
 
     private function buildFilters(InputInterface $input): ?AuditLogFilter

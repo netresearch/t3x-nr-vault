@@ -30,7 +30,16 @@ final class VaultAuditAnchorCommandTest extends AbstractVaultFunctionalTestCase
 {
     use AuditSinkSandboxTrait;
 
-    protected ?string $backendUserFixture = __DIR__ . '/../Fixtures/Users/be_users.csv';
+    /** Non-admin whose group carries no vault permission at all. */
+    private const NO_PERMISSIONS = 2;
+
+    /** Non-admin holding `audit.view` only. */
+    private const AUDIT_VIEWER = 3;
+
+    /** Non-admin holding `vault.configure` only. */
+    private const VAULT_CONFIGURATOR = 5;
+
+    protected ?string $backendUserFixture = __DIR__ . '/Fixtures/be_users_audit_permission.csv';
 
     /** @var array<string, mixed> */
     protected array $extensionConfiguration = [
@@ -134,6 +143,83 @@ final class VaultAuditAnchorCommandTest extends AbstractVaultFunctionalTestCase
         // the installation — which is worth recording, not an error.
         self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
         self::assertStringContainsString('empty chain', $tester->getDisplay());
+    }
+
+    /**
+     * The gate this pins: the wrapper asserted no permission at all, so an
+     * actor who could not run `vault:audit --reset-anchor` could still re-attest
+     * the chain from here. A refusal must publish nothing — an anchor written on
+     * an unauthorized run is exactly the laundering the anchor guards against.
+     */
+    #[Test]
+    public function anchoringIsRefusedWithoutVaultConfigure(): void
+    {
+        $this->get(AuditLogServiceInterface::class)->log('anchor_cmd_secret', 'create', true);
+        $this->setUpBackendUser(self::NO_PERMISSIONS);
+
+        $tester = new CommandTester($this->get(VaultAuditAnchorCommand::class));
+        $exitCode = $tester->execute([]);
+
+        self::assertSame(Command::FAILURE, $exitCode);
+        self::assertStringContainsString(
+            'Access denied: the "vault.configure" permission is required to publish the audit chain tip.',
+            $this->normalize($tester),
+        );
+        self::assertFileDoesNotExist($this->auditSinkAnchorPath);
+    }
+
+    /**
+     * Reading the audit log is not re-attesting it to an external observer.
+     */
+    #[Test]
+    public function anchoringIsRefusedForAnActorHoldingOnlyAuditView(): void
+    {
+        $this->get(AuditLogServiceInterface::class)->log('anchor_cmd_secret', 'create', true);
+        $this->setUpBackendUser(self::AUDIT_VIEWER);
+
+        $tester = new CommandTester($this->get(VaultAuditAnchorCommand::class));
+
+        self::assertSame(Command::FAILURE, $tester->execute([]));
+        self::assertFileDoesNotExist($this->auditSinkAnchorPath);
+    }
+
+    /**
+     * `--dry-run` publishes nothing, but it prints the current chain tip — the
+     * value a forged anchor has to reproduce — so it is gated identically.
+     */
+    #[Test]
+    public function dryRunIsRefusedWithoutVaultConfigure(): void
+    {
+        $this->get(AuditLogServiceInterface::class)->log('anchor_cmd_secret', 'create', true);
+        $this->setUpBackendUser(self::AUDIT_VIEWER);
+
+        $tester = new CommandTester($this->get(VaultAuditAnchorCommand::class));
+        $exitCode = $tester->execute(['--dry-run' => true]);
+
+        self::assertSame(Command::FAILURE, $exitCode);
+        self::assertStringNotContainsString('Chain tip', $tester->getDisplay());
+    }
+
+    #[Test]
+    public function anchoringIsAllowedWithVaultConfigurePermission(): void
+    {
+        $this->get(AuditLogServiceInterface::class)->log('anchor_cmd_secret', 'create', true);
+        $this->setUpBackendUser(self::VAULT_CONFIGURATOR);
+
+        $tester = new CommandTester($this->get(VaultAuditAnchorCommand::class));
+        $exitCode = $tester->execute([]);
+
+        self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
+        self::assertFileExists($this->auditSinkAnchorPath);
+    }
+
+    /**
+     * SymfonyStyle wraps its error block to the terminal width; collapsing
+     * whitespace lets the assertions pin the whole refusal sentence.
+     */
+    private function normalize(CommandTester $tester): string
+    {
+        return (string) preg_replace('/\s+/', ' ', $tester->getDisplay());
     }
 
     /**

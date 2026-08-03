@@ -224,14 +224,22 @@ CLI access
    Note that the scheduled orphan cleanup deletes secrets and therefore
    needs ``secret.delete`` when it runs as the bare CLI actor.
 
-   Three of those five change what a CLI command can do today:
-   ``secret.reveal``, ``secret.delete`` and ``master_key.rotate``.
-   ``audit.export`` and ``vault.configure`` gate the corresponding **backend**
-   actions — the audit module's export and the migration wizard —
-   and :bash:`vault:audit --export` asserts no operation permission of its
-   own. Withholding them here still matters: the list is the record of what
-   the unattributed CLI actor has been granted, and a CLI surface for either
-   would inherit it.
+   All five change what a CLI command can do: ``secret.reveal``
+   (:bash:`vault:retrieve`), ``secret.delete`` (:bash:`vault:delete`),
+   ``master_key.rotate`` (:bash:`vault:rotate-master-key`), ``audit.export``
+   (:bash:`vault:audit --export`) and ``vault.configure``
+   (:bash:`vault:audit-anchor` and :bash:`vault:audit --reset-anchor`).
+   ``audit.view`` is excluded as well, and it now covers three commands —
+   :bash:`vault:audit` for plain listing, :bash:`vault:audit --verify` and
+   :bash:`vault:audit-verify` — so reading or verifying the audit log from an
+   unattributed shell needs it added here too.
+
+   The scheduler is a different actor and is not affected by this allowlist:
+   :bash:`scheduler:run` authenticates the ``_cli_`` administrator, so the
+   ``AuditVerifyTask`` / ``AuditAnchorTask`` gates resolve through the admin
+   bypass instead. They bite only under ``disableAdminOverride``, where that
+   identity needs the permissions on one of its groups — see
+   :ref:`operations-hardened-deployment-step6`.
 
 .. confval:: frontendPlaceholderLegacyCli
    :name: ext-nrvault-frontendPlaceholderLegacyCli
@@ -608,12 +616,24 @@ Vault Audit Chain Anchoring
    Publishes the current chain tip (``vault:audit-anchor``). The interval is the
    blind window — entries written since the last anchor are what an attacker who
    resets the table can still hide. Hourly is a reasonable starting point.
+   Asserts ``vault.configure``, the same permission as the command.
 
 Vault Audit Integrity Verification
    Verifies the chain against the anchor (``vault:audit-verify``) and dispatches
    an integrity alert event per finding. Set *Fail on tamper evidence only*
    while sinks are still being rolled out, so a pending integration does not keep
-   the task permanently red and train operators to ignore it.
+   the task permanently red and train operators to ignore it. Asserts
+   ``audit.view``, the same permission as the command.
+
+..  note::
+
+    Both tasks run under :bash:`scheduler:run`, which authenticates the
+    ``_cli_`` administrator, so on a default installation the admin bypass
+    grants them and nothing needs configuring. Under
+    :confval:`ext-nrvault-disableAdminOverride` there is no bypass by design:
+    give the identity the scheduler runs as a group carrying
+    ``tx_nrvault:vault.configure`` and ``tx_nrvault:audit.view``, or both tasks
+    fail — loudly, but they fail.
 
 .. _configuration-master-key-providers:
 

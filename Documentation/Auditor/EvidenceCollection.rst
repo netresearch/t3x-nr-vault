@@ -16,11 +16,22 @@ artefact is the evidence, not the terminal.
 
 ..  note::
 
-    Two of these commands need a permission that a CLI operator only holds when
-    ``allowCliAccess = 1`` (``vault:retrieve`` and ``vault:rotate-master-key``).
-    Everything in this section works without it. If a read-only command reports
-    access denied, that is itself a finding worth recording — with an
-    ``access_denied`` audit row to match.
+    Several of these commands assert an operation permission that the
+    unattributed CLI actor holds only when ``allowCliAccess = 1`` **and** the
+    operation appears in :confval:`ext-nrvault-cliAllowedOperations`:
+    ``vault:retrieve`` (``secret.reveal``), ``vault:rotate-master-key``
+    (``master_key.rotate``), ``vault:audit`` — ``audit.view`` to list and to
+    ``--verify``, ``audit.export`` for ``--export``, ``vault.configure`` for
+    ``--reset-anchor`` — and the two scheduler-task wrappers,
+    ``vault:audit-verify`` (``audit.view``) and ``vault:audit-anchor``
+    (``vault.configure``).
+    The cleanest arrangement for an assessment is a named technical actor
+    holding exactly those, so every evidence command appears in the audit trail
+    under its own identity rather than as the anonymous CLI operator.
+
+    A refusal is not evidence about the vault's contents: the command exits 1
+    before doing any work, and writes no audit row. Record it as a gap in the
+    evidence run, then re-run with the grant in place.
 
 .. _auditor-evidence-configuration:
 
@@ -271,6 +282,8 @@ Audit log export
 ..  code-block:: bash
     :caption: Period export, with the hash columns
 
+    # --export asserts audit.export, which is a permission of its own: the
+    # exported copy leaves the tamper-evident storage behind.
     vendor/bin/typo3 vault:audit \
         --since="2026-01-01" --until="2026-06-30" \
         --format=json --limit=100000 \

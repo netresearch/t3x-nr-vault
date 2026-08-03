@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Every audit CLI entry point now asserts an operation permission
+  (breaking).** `vault:audit`, `vault:audit-verify` and `vault:audit-anchor`
+  gated nothing at all, while the same capabilities were gated in the backend
+  module all along: anyone who could invoke them could read the audit log — who
+  touched which secret when, which maps out the credential topology — carry an
+  unchained copy of it off with `--export`, clear the tamper-evidence tip
+  anchor, or re-attest a truncated chain to the external sinks. The permission
+  now follows the operation's effect, so the same operation answers to the same
+  permission through every entry point:
+
+  | Operation | Permission | Entry points |
+  |---|---|---|
+  | Read audit entries | `audit.view` | audit module, `vault:audit` |
+  | Verify the chain | `audit.view` | audit module, `vault:audit --verify`, `vault:audit-verify`, `AuditVerifyTask` |
+  | Export to a file | `audit.export` | audit module, `vault:audit --export` |
+  | Publish the chain tip | `vault.configure` | `vault:audit-anchor`, `AuditAnchorTask` |
+  | Reset the tip anchor | `vault.configure` | `vault:audit --reset-anchor` |
+
+  Verification is a read of the chain — it recomputes and compares, it mutates
+  nothing — so it shares `audit.view` with the listing rather than taking the
+  administrative permission. Anchoring and resetting the anchor do mutate
+  tamper evidence: an actor who truncates the log and then anchors makes the
+  external sink attest the truncated chain, which is the laundering the anchor
+  exists to prevent. A refusal exits 1 before any query, file write, chain read
+  or anchor change happens, and writes no `access_denied` entry — the same
+  shape as every other operation-permission gate (`vault:retrieve`,
+  `vault:rotate-master-key`, the backend modules). In `--format=json` a refused
+  `vault:audit-verify` reports `valid: false`, so a monitor never reads it as a
+  clean chain.
+- **Migration.** All three permissions are excluded from the
+  `cliAllowedOperations` default, so any of these commands run from a shell now
+  needs `allowCliAccess = 1` **and** the operation added to that list. Prefer a
+  named technical actor (`TechnicalActorContext::runAs()`) holding exactly
+  those permissions: the audit trail then names the identity that read,
+  exported or anchored. A backend user needs the matching
+  `tx_nrvault:<permission>` custom option on one of their groups; admins are
+  unaffected unless the admin override is disabled. **Scheduled operation is
+  unaffected on a default installation** — `scheduler:run` authenticates the
+  `_cli_` administrator, who passes through the admin bypass. Under
+  `disableAdminOverride` that bypass is gone by design, so the identity running
+  the scheduler needs a group carrying `tx_nrvault:audit.view` (verify) and
+  `tx_nrvault:vault.configure` (anchor); without it both tasks fail loudly
+  rather than skipping quietly.
+
 ### Security
 
 - **Truncating the audit log is no longer invisible** (ADR-034). The hash chain

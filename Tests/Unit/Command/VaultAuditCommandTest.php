@@ -15,14 +15,18 @@ use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Command\VaultAuditCommand;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use org\bovigo\vfs\vfsStream;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 #[CoversClass(VaultAuditCommand::class)]
@@ -40,6 +44,16 @@ final class VaultAuditCommandTest extends TestCase
 
     private ConnectionPool&MockObject $connectionPool;
 
+    private AccessControlServiceInterface&MockObject $accessControlService;
+
+    /**
+     * Permissions the mocked actor holds. Tests that exercise the gate narrow
+     * this before executing; every other test runs fully granted.
+     *
+     * @var list<VaultPermission>
+     */
+    private array $grantedPermissions = [];
+
     private CommandTester $commandTester;
 
     protected function setUp(): void
@@ -49,8 +63,15 @@ final class VaultAuditCommandTest extends TestCase
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
         $this->anchorStore = $this->createMock(AuditChainAnchorStoreInterface::class);
         $this->connectionPool = $this->createMock(ConnectionPool::class);
+        $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $this->grantedPermissions = VaultPermission::cases();
+        $this->accessControlService
+            ->method('isGranted')
+            ->willReturnCallback(
+                fn (VaultPermission $permission): bool => \in_array($permission, $this->grantedPermissions, true),
+            );
 
-        $command = new VaultAuditCommand($this->auditLogService, $this->anchorStore, $this->connectionPool);
+        $command = $this->createCommand();
 
         $application = new Application();
         $application->addCommand($command);
@@ -61,9 +82,200 @@ final class VaultAuditCommandTest extends TestCase
     #[Test]
     public function hasCorrectName(): void
     {
-        $command = new VaultAuditCommand($this->auditLogService, $this->anchorStore, $this->connectionPool);
+        self::assertSame('vault:audit', $this->createCommand()->getName());
+    }
 
-        self::assertSame('vault:audit', $command->getName());
+    /**
+     * One entry per gated mode: the arguments that select it, the permission
+     * it must assert, and the exact refusal the operator gets.
+     *
+     * @return iterable<string, array{0: array<string, string|bool>, 1: VaultPermission, 2: string}>
+     */
+    public static function gatedModeProvider(): iterable
+    {
+        yield 'listing' => [
+            [],
+            VaultPermission::AuditView,
+            'Access denied: the "audit.view" permission is required to read the audit log.',
+        ];
+
+        yield 'export' => [
+            ['--export' => 'vfs://exports/audit.json'],
+            VaultPermission::AuditExport,
+            'Access denied: the "audit.export" permission is required to export audit entries to a file.',
+        ];
+
+        yield 'verify' => [
+            ['--verify' => true],
+            VaultPermission::AuditView,
+            'Access denied: the "audit.view" permission is required to verify the audit hash chain.',
+        ];
+
+        yield 'reset-anchor' => [
+            ['--reset-anchor' => true, '--force' => true],
+            VaultPermission::VaultConfigure,
+            'Access denied: the "vault.configure" permission is required to reset the audit chain tip anchor.',
+        ];
+    }
+
+    /**
+     * Verification recomputes and compares; it mutates nothing. The same
+     * operation therefore answers to the same permission at every entry point —
+     * `AuditController::verifyChainAction()`, `vault:audit-verify`,
+     * `AuditVerifyTask` and here — so an actor who may read the audit log in
+     * the module may also check whether it has been tampered with from a shell.
+     */
+    #[Test]
+    public function verifyIsSatisfiedByAuditViewAloneAndDoesNotAcceptVaultConfigure(): void
+    {
+        $this->grantedPermissions = [VaultPermission::VaultConfigure];
+
+        $this->auditLogService->expects($this->never())->method('verifyHashChain');
+
+        $exitCode = $this->commandTester->execute(['--verify' => true]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString(
+            'Access denied: the "audit.view" permission is required to verify the audit hash chain.',
+            $this->normalizedDisplay(),
+        );
+    }
+
+    /**
+     * The converse, and the reason `--reset-anchor` did not move with
+     * `--verify`: resetting clears the truncation anchor and writes into the
+     * chain, so it stays vault administration and `audit.view` is not enough.
+     */
+    #[Test]
+    public function resetAnchorIsNotSatisfiedByAuditView(): void
+    {
+        $this->grantedPermissions = [VaultPermission::AuditView];
+
+        $this->anchorStore->expects($this->never())->method('reset');
+        $this->auditLogService->expects($this->never())->method('log');
+
+        $exitCode = $this->commandTester->execute(['--reset-anchor' => true, '--force' => true]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString(
+            'Access denied: the "vault.configure" permission is required to reset the audit chain tip anchor.',
+            $this->normalizedDisplay(),
+        );
+    }
+
+    /**
+     * The gap this pins: `vault:audit` asserted no permission whatsoever, so
+     * any actor that reached the command could read the credential topology,
+     * carry a copy of it off, or clear the truncation anchor.
+     *
+     * @param array<string, string|bool> $arguments
+     */
+    #[Test]
+    #[DataProvider('gatedModeProvider')]
+    public function refusesModeWithoutItsPermission(
+        array $arguments,
+        VaultPermission $required,
+        string $expectedMessage,
+    ): void {
+        $this->grantedPermissions = array_values(array_filter(
+            VaultPermission::cases(),
+            static fn (VaultPermission $permission): bool => $permission !== $required,
+        ));
+
+        // A refusal must do no work at all — not even the read that would
+        // feed the display, and not the audit write that would let an
+        // unauthorized shell append to the tamper-evident chain.
+        $this->auditLogService->expects($this->never())->method('query');
+        $this->auditLogService->expects($this->never())->method('verifyHashChain');
+        $this->auditLogService->expects($this->never())->method('log');
+        $this->anchorStore->expects($this->never())->method('reset');
+        $this->anchorStore->expects($this->never())->method('arm');
+        $this->connectionPool->expects($this->never())->method('getConnectionForTable');
+
+        $exitCode = $this->commandTester->execute($arguments);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString($expectedMessage, $this->normalizedDisplay());
+    }
+
+    /**
+     * Holding every OTHER permission is not a substitute: the mode's own
+     * permission is the one asserted.
+     *
+     * This asserts the GATE lets the mode through, not that the mode then
+     * succeeds — a passing mode may still fail later on its own
+     * preconditions (a reset-anchor with no anchor to reset, say). The
+     * functional suite covers the outcomes.
+     *
+     * @param array<string, string|bool> $arguments
+     */
+    #[Test]
+    #[DataProvider('gatedModeProvider')]
+    public function passesTheGateWithOnlyItsPermission(
+        array $arguments,
+        VaultPermission $required,
+        string $refusalMessage,
+    ): void {
+        $this->grantedPermissions = [$required];
+        vfsStream::setup('exports');
+
+        $this->auditLogService->method('query')->willReturn([]);
+        $this->auditLogService->method('verifyHashChain')->willReturn(HashChainVerificationResult::valid());
+        $this->anchorStore->method('sharesConnection')->willReturn(false);
+        $this->connectionPool->method('getConnectionForTable')->willReturn($this->createMock(Connection::class));
+
+        $this->commandTester->execute($arguments);
+
+        self::assertStringNotContainsString(
+            'Access denied',
+            $this->normalizedDisplay(),
+            \sprintf('Holding %s alone must satisfy this mode, but got: %s', $required->value, $refusalMessage),
+        );
+    }
+
+    /**
+     * The export gate is asserted before the query, so a refused export leaves
+     * no file behind — not even an empty or partial one.
+     */
+    #[Test]
+    public function refusedExportWritesNoFile(): void
+    {
+        vfsStream::setup('exports');
+        $exportFile = vfsStream::url(self::EXPORT_PATH);
+
+        $this->grantedPermissions = [VaultPermission::AuditView];
+
+        $exitCode = $this->commandTester->execute([
+            '--export' => $exportFile,
+            '--format' => 'csv',
+        ]);
+
+        self::assertSame(1, $exitCode);
+        self::assertFileDoesNotExist($exportFile);
+        self::assertStringContainsString(
+            'Access denied: the "audit.export" permission is required to export audit entries to a file.',
+            $this->normalizedDisplay(),
+        );
+    }
+
+    /**
+     * An empty `--export=` is not an export — it falls through to the console
+     * display, so it must be gated on `audit.view`, not `audit.export`.
+     */
+    #[Test]
+    public function emptyExportOptionIsGatedAsDisplay(): void
+    {
+        $this->grantedPermissions = [VaultPermission::AuditView];
+
+        $this->auditLogService
+            ->expects($this->once())
+            ->method('query')
+            ->willReturn([]);
+
+        $exitCode = $this->commandTester->execute(['--export' => '']);
+
+        self::assertSame(0, $exitCode);
+        self::assertStringNotContainsString('Access denied', $this->normalizedDisplay());
     }
 
     #[Test]
@@ -688,6 +900,27 @@ final class VaultAuditCommandTest extends TestCase
         foreach ($rows[1] as $cell) {
             self::assertStringStartsNotWith('=', (string) $cell);
         }
+    }
+
+    private function createCommand(): VaultAuditCommand
+    {
+        return new VaultAuditCommand(
+            $this->auditLogService,
+            $this->anchorStore,
+            $this->connectionPool,
+            $this->accessControlService,
+        );
+    }
+
+    /**
+     * SymfonyStyle word-wraps its error block to the terminal width, so the
+     * raw display carries line breaks in the middle of the sentence being
+     * asserted. Collapsing runs of whitespace lets the tests pin the FULL
+     * message instead of a fragment that survives the wrap.
+     */
+    private function normalizedDisplay(): string
+    {
+        return (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
     }
 
     /**

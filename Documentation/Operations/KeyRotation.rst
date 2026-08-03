@@ -125,6 +125,8 @@ Your own preflight, before running any of it:
 
       ..  code-block:: bash
 
+          # Asserts audit.view; on the CLI that needs allowCliAccess = 1 AND
+          # audit.view in cliAllowedOperations, or a named technical actor.
           vendor/bin/typo3 vault:audit-verify
 
 *   [ ] **A maintenance window.** Vault reads fail between the commit and the
@@ -226,15 +228,20 @@ Verification
     #    a reveal in the backend module proves the same decrypt path.
     vendor/bin/typo3 vault:retrieve <a-known-identifier>
 
-    # 3. The chain verifies under the new key, end to end.
+    # 3. The chain verifies under the new key, end to end. Needs audit.view:
+    #    on the CLI that is allowCliAccess = 1 AND audit.view in
+    #    cliAllowedOperations, or a named technical actor.
     vendor/bin/typo3 vault:audit-verify
 
-    # 4. Anchor the new tip; the old anchor's baseline is now stale.
+    # 4. Anchor the new tip; the old anchor's baseline is now stale. Needs
+    #    vault.configure, on the same terms as step 5 below.
     vendor/bin/typo3 vault:audit-anchor
 
     # 5. The in-database anchor is re-sealed by the rotation itself. Confirm
     #    it reads "Tip anchor: ok" — a re-key that left it UNREADABLE means
     #    the re-seal did not complete, and that is a finding, not a nuisance.
+    #    Needs vault.configure: on the CLI that is allowCliAccess = 1 AND
+    #    vault.configure in cliAllowedOperations, or a named technical actor.
     vendor/bin/typo3 vault:audit --verify
 
 Probe at least two secrets, and pick them from different encryption versions

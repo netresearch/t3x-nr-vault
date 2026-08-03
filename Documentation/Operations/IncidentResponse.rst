@@ -37,6 +37,17 @@ Step 1 — preserve, before you change anything
     # Snapshot the external anchor file as it stands now.
     cp <auditSinkAnchorPath> incident-anchor-before.ndjson
 
+..  important::
+
+    Every vault command in this runbook asserts an operation permission, and
+    :confval:`ext-nrvault-cliAllowedOperations` excludes all of them:
+    ``audit.view`` for reading and verifying (``vault:audit``,
+    ``vault:audit-verify``), ``audit.export`` for ``--export``, and
+    ``vault.configure`` for re-anchoring (``vault:audit-anchor``) in step 5.
+    Under time pressure this is the moment the command exits 1 — sort the grant
+    out before the incident, not during it. A named technical actor for the
+    response runbook is the clean answer: the trail then names who responded.
+
 Copy the audit rows for the affected identifiers and the suspected time window
 out of the system as well (see :ref:`auditor-evidence-collection` for the
 export). A rotation in step 3 changes ``hash_before`` / ``hash_after`` and adds
@@ -49,6 +60,13 @@ Step 2 — determine scope from the audit log
 
     # Everything that happened to one identifier.
     vendor/bin/typo3 vault:audit --identifier=<identifier>
+
+..  note::
+
+    Reading the audit log asserts ``audit.view`` — the same permission the
+    verification in step 1 needs — and ``--export`` asserts ``audit.export``;
+    :confval:`ext-nrvault-cliAllowedOperations` excludes both. The audit module
+    in the backend needs the same two permissions and no CLI allowlist entry.
 
 Answer these, and write down the answers:
 

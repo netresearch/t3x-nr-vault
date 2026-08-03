@@ -228,6 +228,16 @@ Two separate jobs, doing different things (see
 Register :php:`AuditAnchorTask` and :php:`AuditVerifyTask` in
 :guilabel:`Scheduler > Add task`, or run the commands from cron.
 
+..  note::
+
+    Anchoring asserts ``vault.configure`` and verification asserts
+    ``audit.view``, at both entry points — the command and the task. The
+    scheduler form is granted through the ``_cli_`` administrator until step 6
+    withdraws that bypass; the **cron** form is not, because it runs as the
+    unattributed CLI actor and
+    :confval:`ext-nrvault-cliAllowedOperations` excludes both permissions.
+    Prefer the scheduler tasks here, and read step 6 before you choose cron.
+
 Publish the first anchor by hand now, so verification has a baseline
 immediately rather than after the first scheduled run:
 
@@ -249,6 +259,26 @@ arms itself on the next audit write; confirm it did, then require it:
 ..  code-block:: bash
 
     vendor/bin/typo3 vault:audit --verify   # "Tip anchor: ok" — not "NOT ARMED"
+
+..  note::
+
+    ``vault:audit --verify`` asserts ``audit.view``, the same permission as the
+    listing form used further down — verification is a read of the chain.
+    ``audit.view`` is not in the :confval:`ext-nrvault-cliAllowedOperations`
+    default, and with the admin override disabled an admin no longer holds it
+    implicitly — grant it to the group these checks run as, or run them as a
+    named technical actor.
+
+    The same applies to the two scheduled controls, and this is the profile
+    where it bites. :bash:`scheduler:run` authenticates the ``_cli_``
+    administrator, so on a default installation the admin bypass grants both
+    tasks; once the override is withdrawn it does not. Give the identity the
+    scheduler runs as a group carrying ``tx_nrvault:audit.view`` (*Vault Audit
+    Integrity Verification*) and ``tx_nrvault:vault.configure`` (*Vault Audit
+    Chain Anchoring*) as part of this step. Both tasks fail loudly on a refusal
+    rather than skipping quietly, so a missed grant shows up as a red scheduler
+    entry — but a red anchoring task is a blind window that grows, so treat it
+    as urgent.
 
 ..  code-block:: none
     :caption: Extension configuration — only after the anchor reports ``ok``

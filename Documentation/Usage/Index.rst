@@ -506,6 +506,16 @@ View the audit log:
    # Export to JSON
    vendor/bin/typo3 vault:audit --format=json > audit.json
 
+.. important::
+
+   Listing and ``--verify`` assert ``audit.view`` — verification recomputes and
+   compares, which is a read of the chain. ``--export`` asserts
+   ``audit.export``, and ``--reset-anchor`` asserts ``vault.configure``,
+   because it mutates tamper evidence. On the CLI all three additionally need
+   ``allowCliAccess`` plus the operation in
+   :confval:`ext-nrvault-cliAllowedOperations`, which excludes them by default
+   — see :ref:`command-audit`.
+
 Verify the tamper-evident chain:
 
 .. code-block:: bash

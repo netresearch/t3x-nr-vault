@@ -62,6 +62,32 @@ Alternatively, run the commands from cron:
     can still hide. Hourly is a reasonable starting point; daily is the loosest
     defensible setting for a vault under audit.
 
+..  important::
+
+    **Both entry points assert an operation permission** (breaking change; they
+    previously asserted nothing). ``vault:audit-verify`` and
+    :php:`AuditVerifyTask` assert ``audit.view`` — verification recomputes and
+    compares, so it is a read of the chain. ``vault:audit-anchor`` and
+    :php:`AuditAnchorTask` assert ``vault.configure`` — publishing an anchor
+    mutates tamper evidence, and an actor who truncates the log and then
+    anchors makes the external sink attest the truncated chain.
+
+    **Scheduler tasks are unaffected on a default installation**:
+    :bash:`scheduler:run` authenticates the ``_cli_`` administrator, who passes
+    through the admin bypass. **The cron form above is affected**: it runs as
+    the unattributed CLI actor, which holds neither permission unless
+    ``allowCliAccess = 1`` **and** the operation is listed in
+    :confval:`ext-nrvault-cliAllowedOperations`. Prefer the scheduler tasks, or
+    run the cron entries as a named technical actor
+    (:ref:`developer-technical-actor-context`) so the audit trail names the
+    identity that anchored. A refusal exits non-zero, and the JSON form of
+    ``vault:audit-verify`` reports ``valid: false`` — so an alert fires rather
+    than the check quietly reading as clean.
+
+    Under ``disableAdminOverride`` the scheduler loses the bypass too; see
+    :ref:`operations-hardened-deployment-step6` for the group grant that keeps
+    both tasks running.
+
 ``nr_vault_tamper_only``
 ------------------------
 
