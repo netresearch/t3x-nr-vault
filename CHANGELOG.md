@@ -334,8 +334,8 @@ and end with **Migration**, which collects everything you actually have to do.
   | `VaultServiceInterface` | `list(?string $pattern = null, bool $includeDisabled = false): array` | lets the management surfaces see secrets the read paths no longer return |
   | `SecretRepositoryInterface` | `findByIdentifierIncludingDisabled()`, `findByUidIncludingDisabled()` | lift `HiddenRestriction` **by name** for administrative lookups; `removeAll()` was rejected because it would also discard `DeletedRestriction` and resurrect soft-deleted rows |
   | `SecretRepositoryInterface` | `setHidden(int $uid, bool $hidden): void`, `setMetadata(int $uid, array $metadata): void` | column-scoped writes, so a metadata or availability change stops rewriting the whole row |
-  | `SecretRepositoryInterface::save()`, `VaultAdapterInterface::store()` | `bool $persistGroupRelations = true` | lets the FormEngine completion path keep MM rows and their count columns consistent instead of zeroing the tiers |
-  | `VaultDoctorServiceInterface::run()` | `bool $activeProbes = false` | required by `--active-probes` |
+  | `SecretRepositoryInterface`, `VaultAdapterInterface` | `save()` and `store()` gain `bool $persistGroupRelations = true` | lets the FormEngine completion path keep MM rows and their count columns consistent instead of zeroing the tiers |
+  | `VaultDoctorServiceInterface` | `run()` gains `bool $activeProbes = false` | required by `--active-probes` |
 
 - **The backend modules and AJAX routes moved from `admin` to `user`** (#238),
   and every controller action asserts its own operation instead: the overview
