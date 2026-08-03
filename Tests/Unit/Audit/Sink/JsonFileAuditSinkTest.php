@@ -381,7 +381,7 @@ final class JsonFileAuditSinkTest extends TestCase
     public function unencodablePayloadThrowsAnEncodingFailure(): void
     {
         $this->expectException(AuditSinkException::class);
-        $this->expectExceptionMessage('could not encode the record');
+        $this->expectExceptionMessageToContain('could not encode the record');
 
         $this->createSubject()->publish(
             $this->createEntry(context: $this->deeplyNestedContext()),

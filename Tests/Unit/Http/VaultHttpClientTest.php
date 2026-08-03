@@ -813,7 +813,7 @@ final class VaultHttpClientTest extends TestCase
         ], json_encode([1, 2, 3]));
 
         $this->expectException(VaultException::class);
-        $this->expectExceptionMessage(self::NON_OBJECT_BODY_MESSAGE);
+        $this->expectExceptionMessageToContain(self::NON_OBJECT_BODY_MESSAGE);
 
         $authenticatedClient->sendRequest($request);
     }
@@ -848,7 +848,7 @@ final class VaultHttpClientTest extends TestCase
         ], json_encode('just-a-string'));
 
         $this->expectException(VaultException::class);
-        $this->expectExceptionMessage(self::NON_OBJECT_BODY_MESSAGE);
+        $this->expectExceptionMessageToContain(self::NON_OBJECT_BODY_MESSAGE);
 
         $authenticatedClient->sendRequest($request);
     }
@@ -884,7 +884,7 @@ final class VaultHttpClientTest extends TestCase
         ], '[]');
 
         $this->expectException(VaultException::class);
-        $this->expectExceptionMessage(self::NON_OBJECT_BODY_MESSAGE);
+        $this->expectExceptionMessageToContain(self::NON_OBJECT_BODY_MESSAGE);
 
         $authenticatedClient->sendRequest($request);
     }
@@ -921,7 +921,7 @@ final class VaultHttpClientTest extends TestCase
         ], '{"broken": ');
 
         $this->expectException(VaultException::class);
-        $this->expectExceptionMessage('request body is not valid JSON');
+        $this->expectExceptionMessageToContain('request body is not valid JSON');
 
         $authenticatedClient->sendRequest($request);
     }

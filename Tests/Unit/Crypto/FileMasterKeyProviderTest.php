@@ -140,7 +140,7 @@ final class FileMasterKeyProviderTest extends TestCase
         $provider = new FileMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('not found');
+        $this->expectExceptionMessageToContain('not found');
 
         $provider->getMasterKey();
     }
@@ -174,7 +174,7 @@ final class FileMasterKeyProviderTest extends TestCase
         $provider = new FileMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage(self::INVALID_KEY_LENGTH_MESSAGE);
+        $this->expectExceptionMessageToContain(self::INVALID_KEY_LENGTH_MESSAGE);
 
         $provider->getMasterKey();
     }
@@ -218,7 +218,7 @@ final class FileMasterKeyProviderTest extends TestCase
         $provider = new FileMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage(self::INVALID_KEY_LENGTH_MESSAGE);
+        $this->expectExceptionMessageToContain(self::INVALID_KEY_LENGTH_MESSAGE);
 
         $provider->storeMasterKey('tooshort');
     }
@@ -249,7 +249,7 @@ final class FileMasterKeyProviderTest extends TestCase
         $provider = new FileMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('not found');
+        $this->expectExceptionMessageToContain('not found');
 
         $provider->getMasterKey();
     }
@@ -268,7 +268,7 @@ final class FileMasterKeyProviderTest extends TestCase
         $provider = new FileMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage(self::INVALID_KEY_LENGTH_MESSAGE);
+        $this->expectExceptionMessageToContain(self::INVALID_KEY_LENGTH_MESSAGE);
 
         $provider->getMasterKey();
     }
@@ -430,7 +430,7 @@ final class FileMasterKeyProviderTest extends TestCase
         $provider = new FileMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('Master key not found at: No path configured');
+        $this->expectExceptionMessageToContain('Master key not found at: No path configured');
 
         $provider->getMasterKey();
     }

@@ -51,7 +51,7 @@ final class IdentifierValidatorTest extends TestCase
     public function validateRejectsEmptyIdentifier(): void
     {
         $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('empty');
+        $this->expectExceptionMessageToContain('empty');
 
         IdentifierValidator::validate('');
     }
@@ -60,7 +60,7 @@ final class IdentifierValidatorTest extends TestCase
     public function validateRejectsTooShortIdentifier(): void
     {
         $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('at least');
+        $this->expectExceptionMessageToContain('at least');
 
         IdentifierValidator::validate('ab');
     }
@@ -69,7 +69,7 @@ final class IdentifierValidatorTest extends TestCase
     public function validateRejectsTooLongIdentifier(): void
     {
         $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('exceed');
+        $this->expectExceptionMessageToContain('exceed');
 
         IdentifierValidator::validate(str_repeat('a', 256));
     }

@@ -147,7 +147,7 @@ final class VaultServiceTest extends TestCase
     public function storeRejectsEmptySecret(): void
     {
         $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('empty');
+        $this->expectExceptionMessageToContain('empty');
 
         $this->subject->store('validIdentifier', '');
     }

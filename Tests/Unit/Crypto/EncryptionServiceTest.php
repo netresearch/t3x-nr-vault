@@ -260,7 +260,7 @@ final class EncryptionServiceTest extends TestCase
         $arguments[$field] = '!!!not-base64!!!';
 
         $this->expectException(EncryptionException::class);
-        $this->expectExceptionMessage('Invalid base64 encoding');
+        $this->expectExceptionMessageToContain('Invalid base64 encoding');
 
         $this->subject->decrypt(
             $arguments['encryptedValue'],
@@ -290,7 +290,7 @@ final class EncryptionServiceTest extends TestCase
         $encrypted = $this->subject->encrypt('rewrap', 'rewrap-test');
 
         $this->expectException(EncryptionException::class);
-        $this->expectExceptionMessage('Invalid base64 encoding');
+        $this->expectExceptionMessageToContain('Invalid base64 encoding');
 
         $this->subject->reEncryptDek(
             '!!!not-base64!!!',
@@ -309,7 +309,7 @@ final class EncryptionServiceTest extends TestCase
         $encrypted = $this->subject->encrypt('rewrap', 'rewrap-test');
 
         $this->expectException(EncryptionException::class);
-        $this->expectExceptionMessage('Invalid base64 encoding');
+        $this->expectExceptionMessageToContain('Invalid base64 encoding');
 
         $this->subject->reEncryptDek(
             $encrypted->encryptedDek,
@@ -716,7 +716,7 @@ final class EncryptionServiceTest extends TestCase
         $subject = new EncryptionService($this->masterKeyProvider, $brokenConfig);
 
         $this->expectException(EncryptionException::class);
-        $this->expectExceptionMessage('Unknown encryptionAlgorithm');
+        $this->expectExceptionMessageToContain('Unknown encryptionAlgorithm');
 
         $subject->encrypt('value', 'id');
     }
@@ -764,7 +764,7 @@ final class EncryptionServiceTest extends TestCase
         $encrypted = $this->subject->encrypt('v2-no-marker', 'v2-no-marker-id');
 
         $this->expectException(EncryptionException::class);
-        $this->expectExceptionMessage('Unknown encryption algorithm marker');
+        $this->expectExceptionMessageToContain('Unknown encryption algorithm marker');
 
         $this->subject->decrypt(
             $encrypted->encryptedValue,
@@ -783,7 +783,7 @@ final class EncryptionServiceTest extends TestCase
         $encrypted = $this->subject->encrypt('v2-bad-marker', 'v2-bad-marker-id');
 
         $this->expectException(EncryptionException::class);
-        $this->expectExceptionMessage('Unknown encryption algorithm marker');
+        $this->expectExceptionMessageToContain('Unknown encryption algorithm marker');
 
         $this->subject->decrypt(
             $encrypted->encryptedValue,

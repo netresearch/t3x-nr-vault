@@ -343,7 +343,7 @@ final class VaultHttpResponseTest extends TestCase
         $response = new VaultHttpResponse($psrResponse);
 
         $this->expectException(VaultException::class);
-        $this->expectExceptionMessage('HTTP request failed with status 404: Not Found');
+        $this->expectExceptionMessageToContain('HTTP request failed with status 404: Not Found');
 
         $response->throwIfError();
     }

@@ -112,7 +112,7 @@ final class TransitMasterKeyProviderTest extends TestCase
 
         $this->expectException(MasterKeyException::class);
         $this->expectExceptionCode(1703800009);
-        $this->expectExceptionMessage('Invalid master key length');
+        $this->expectExceptionMessageToContain('Invalid master key length');
 
         $provider->getMasterKey();
     }
@@ -207,7 +207,7 @@ final class TransitMasterKeyProviderTest extends TestCase
         $provider = $this->createProvider($this->createMock(ClientInterface::class));
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('Master key not found');
+        $this->expectExceptionMessageToContain('Master key not found');
 
         $provider->getMasterKey();
     }
