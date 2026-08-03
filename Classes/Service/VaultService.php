@@ -800,13 +800,13 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             expiresAt: $optional['expiresAt'],
             metadata: $optional['metadata'],
             adapter: 'local',
+            crdate: $existing instanceof Secret ? $existing->getCrdate() : time(),
+            cruserId: $existing instanceof Secret ? $existing->getCruserId() : $this->accessControlService->getCurrentActorUid(),
             // Availability is not a value field and `store()` has no option
             // for it: writing a new value to a disabled secret must not
             // quietly put it back into service. `setEnabled()` is the only
             // path that changes this, and it asserts secret.manage_policy.
             hidden: $existing instanceof Secret && $existing->isHidden(),
-            crdate: $existing instanceof Secret ? $existing->getCrdate() : time(),
-            cruserId: $existing instanceof Secret ? $existing->getCruserId() : $this->accessControlService->getCurrentActorUid(),
         );
     }
 
