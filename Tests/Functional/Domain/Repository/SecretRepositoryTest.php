@@ -96,6 +96,50 @@ final class SecretRepositoryTest extends FunctionalTestCase
         self::assertNull($result);
     }
 
+    /**
+     * The control this pair implements: `hidden` is TCA's `disabled` enable
+     * column, so every restriction-honouring query drops the record. Pinning
+     * the blind side is the point — a later "fix" that widened `findByUid()`
+     * itself would switch the control off wholesale, and this test is what
+     * says so.
+     */
+    #[Test]
+    public function findByUidDoesNotSeeADisabledSecret(): void
+    {
+        $uid = $this->saveDisabledSecret('disabled_uid_secret');
+
+        self::assertNull($this->subject->findByUid($uid));
+    }
+
+    #[Test]
+    public function findByUidIncludingDisabledSeesADisabledSecret(): void
+    {
+        $uid = $this->saveDisabledSecret('disabled_uid_secret_visible');
+
+        $retrieved = $this->subject->findByUidIncludingDisabled($uid);
+
+        self::assertNotNull($retrieved);
+        self::assertSame('disabled_uid_secret_visible', $retrieved->getIdentifier());
+    }
+
+    /**
+     * Only `HiddenRestriction` is lifted. A soft-deleted record must stay
+     * invisible to the widened lookup too — the write-path guards built on it
+     * decide `undelete` among other things, and a lookup that resurrected
+     * deleted rows would answer that question with the wrong record.
+     */
+    #[Test]
+    public function findByUidIncludingDisabledDoesNotSeeADeletedSecret(): void
+    {
+        $saved = $this->subject->save($this->newSecret('deleted_uid_secret'));
+        $uid = $saved->getUid();
+        self::assertNotNull($uid);
+
+        $this->subject->delete($saved);
+
+        self::assertNull($this->subject->findByUidIncludingDisabled($uid));
+    }
+
     #[Test]
     public function existsReturnsTrueForExistingSecret(): void
     {
@@ -189,6 +233,18 @@ final class SecretRepositoryTest extends FunctionalTestCase
     }
 
     /**
+     * Persist a disabled secret and return its UID.
+     */
+    private function saveDisabledSecret(string $identifier): int
+    {
+        $saved = $this->subject->save($this->newSecret($identifier, hidden: true));
+        $uid = $saved->getUid();
+        self::assertNotNull($uid);
+
+        return $uid;
+    }
+
+    /**
      * Build a Secret with sensible defaults for repository round-trip tests.
      */
     private function newSecret(
@@ -196,6 +252,7 @@ final class SecretRepositoryTest extends FunctionalTestCase
         string $encryptedValue = 'encrypted',
         string $context = '',
         int $version = 1,
+        bool $hidden = false,
     ): Secret {
         return new Secret(
             identifier: $identifier,
@@ -207,6 +264,7 @@ final class SecretRepositoryTest extends FunctionalTestCase
             context: $context,
             version: $version,
             cruserId: 1,
+            hidden: $hidden,
         );
     }
 }

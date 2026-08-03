@@ -422,9 +422,13 @@ identifiers and does share its secrets — the editor's error message says so
 explicitly, and the record needs manual review.
 
 A **delete** checks the delete permission of every vault field *before*
-removing the first secret, because a vault delete cannot be undone. If any
-field is denied, no secret is removed and the record delete is cancelled. A
-field pointing at a secret that no longer exists does not block the delete.
+removing the first secret, because the vault will not give a deleted secret
+back: the delete is a soft delete, so the encrypted row is retained, but the
+vault has no restore operation and the backend refuses TYPO3's ``undelete``
+command on ``tx_nrvault_secret`` (see
+:ref:`usage-record-operations-refused`). If any field is denied, no secret is
+removed and the record delete is cancelled. A field pointing at a secret that
+no longer exists does not block the delete.
 
 The preflight cannot cover a failure it is unable to predict — an audit write
 that fails, a vault outage, a permission revoked between the check and the

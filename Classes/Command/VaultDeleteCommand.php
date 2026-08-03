@@ -90,7 +90,11 @@ final class VaultDeleteCommand extends Command
         // Confirm unless --force
         if (!$input->getOption('force')) {
             $confirmed = $io->confirm(
-                \sprintf('Are you sure you want to delete secret "%s"? This action cannot be undone.', $identifier),
+                \sprintf(
+                    'Are you sure you want to delete secret "%s"? The vault cannot restore it. '
+                    . 'The encrypted row is retained in the database until it is removed there.',
+                    $identifier,
+                ),
                 false,
             );
 

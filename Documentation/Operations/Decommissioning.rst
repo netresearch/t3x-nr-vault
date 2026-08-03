@@ -26,10 +26,18 @@ Secret disposal
     There is no hard-delete path in the extension. Do not read "deleted" as
     "gone".
 
-That is the right default for a live system: it keeps the operation auditable
-and reversible, and the row is unreadable to anyone without the master key
-anyway. It is the wrong assumption when decommissioning. For actual disposal
-you have two options, and they compose:
+That is the right default for a live system: it keeps the operation auditable,
+and the row is unreadable to anyone without the master key anyway. It does
+**not** make the delete reversible. The vault has no restore operation, and
+the backend refuses TYPO3's ``undelete`` command on ``tx_nrvault_secret`` — a
+restore would hand back the ciphertext, the wrapped DEK, ``frontend_accessible``
+and both ACL tiers with no vault check at all, and nothing in the audit chain
+would say it happened. Recovering a deleted secret means acting on the database
+directly, deliberately and visibly. See
+:ref:`usage-record-operations-refused`.
+
+The soft delete is the wrong assumption when decommissioning. For actual
+disposal you have two options, and they compose:
 
 **Crypto-erasure (recommended).** Destroy the master key and every secret in
 the vault becomes permanently unreadable in one step — including soft-deleted

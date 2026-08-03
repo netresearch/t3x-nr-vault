@@ -23,6 +23,7 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
+use TYPO3\CMS\Core\Database\Query\Restriction\DefaultRestrictionContainer;
 use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface;
 
@@ -259,6 +260,109 @@ final class SecretRepositoryTest extends TestCase
 
         self::assertInstanceOf(Secret::class, $secret);
         self::assertSame(42, $secret->getUid());
+    }
+
+    /**
+     * The widened lookup lifts exactly ONE restriction, by type:
+     * `HiddenRestriction`, the one bound to TCA's `enablecolumns.disabled`
+     * mapping. `removeAll()` would additionally discard `DeletedRestriction`,
+     * turning a guard that decides `undelete` into the thing that resurrects
+     * soft-deleted rows — so it must never be called.
+     */
+    #[Test]
+    public function findByUidIncludingDisabledLiftsOnlyTheHiddenRestriction(): void
+    {
+        $predicates = [];
+        $restrictions = $this->wireIncludingDisabledLookup($this->createMissingRowResult(), $predicates);
+
+        $restrictions
+            ->expects(self::once())
+            ->method('removeByType')
+            ->with(HiddenRestriction::class)
+            ->willReturnSelf();
+
+        $restrictions
+            ->expects(self::never())
+            ->method('removeAll');
+
+        $this->subject->findByUidIncludingDisabled(7);
+    }
+
+    /**
+     * The `deleted = 0` predicate stays in the WHERE clause. It is the second
+     * half of the control above: even with the restriction container widened,
+     * a soft-deleted row must not come back.
+     */
+    #[Test]
+    public function findByUidIncludingDisabledKeepsTheDeletedPredicate(): void
+    {
+        $predicates = [];
+        $restrictions = $this->wireIncludingDisabledLookup($this->createMissingRowResult(), $predicates);
+
+        $restrictions
+            ->expects(self::atMost(1))
+            ->method('removeByType')
+            ->willReturnSelf();
+
+        $this->subject->findByUidIncludingDisabled(7);
+
+        self::assertContains(
+            ['deleted', 0],
+            $predicates,
+            'findByUidIncludingDisabled() must keep the explicit deleted = 0 predicate',
+        );
+    }
+
+    #[Test]
+    public function findByUidIncludingDisabledReturnsNullWhenNotFound(): void
+    {
+        $this->setupQueryBuilderForSelect($this->createMissingRowResult());
+
+        self::assertNull($this->subject->findByUidIncludingDisabled(999));
+    }
+
+    #[Test]
+    public function findByUidIncludingDisabledReturnsSecretWhenFound(): void
+    {
+        $secretRow = $this->createSecretRow('disabled-uid-test', 42);
+        $secretRow['hidden'] = 1;
+        $result = $this->createStub(Result::class);
+        $result->method('fetchAssociative')->willReturn($secretRow);
+
+        // Read tier + write tier MM lookups follow the secret-row fetch.
+        $readGroupResult = $this->createStub(Result::class);
+        $readGroupResult->method('fetchAllAssociative')->willReturn([]);
+        $writeGroupResult = $this->createStub(Result::class);
+        $writeGroupResult->method('fetchAllAssociative')->willReturn([]);
+
+        $this->setupQueryBuilderForSelect($result);
+        $this->queryBuilder->method('executeQuery')
+            ->willReturnOnConsecutiveCalls($result, $readGroupResult, $writeGroupResult);
+
+        $secret = $this->subject->findByUidIncludingDisabled(42);
+
+        self::assertInstanceOf(Secret::class, $secret);
+        self::assertSame(42, $secret->getUid());
+        self::assertTrue($secret->isHidden(), 'the disabled row is returned as the disabled record it is');
+    }
+
+    /**
+     * Guard against the widening leaking sideways: the restricted finders
+     * must never reach for the restriction container at all. Widening one of
+     * them would switch the control off instead of working around it.
+     */
+    #[Test]
+    public function theRestrictedFindersLiftNoRestriction(): void
+    {
+        $queryBuilder = $this->useStrictQueryBuilderMock();
+        $queryBuilder
+            ->expects(self::never())
+            ->method('getRestrictions');
+
+        $this->setupQueryBuilderForSelect($this->createMissingRowResult());
+
+        self::assertNull($this->subject->findByUid(999), 'findByUid() stays fully restricted');
+        self::assertNull($this->subject->findByIdentifier('nonexistent'), 'findByIdentifier() stays fully restricted');
     }
 
     #[Test]
@@ -1175,6 +1279,58 @@ final class SecretRepositoryTest extends TestCase
         $qb->method('executeQuery')->willReturn($result);
 
         return $qb;
+    }
+
+    /**
+     * A Result whose row fetch misses — the shared "not found" shape.
+     */
+    private function createMissingRowResult(): Result
+    {
+        $result = $this->createStub(Result::class);
+        $result->method('fetchAssociative')->willReturn(false);
+
+        return $result;
+    }
+
+    /**
+     * Wire the strict QueryBuilder/ExpressionBuilder pair for a
+     * `findByUidIncludingDisabled()` call and hand back the restriction
+     * container the repository reaches for, so the caller can pin what is
+     * lifted. Every `expr()->eq()` predicate the query builds is appended to
+     * `$predicates` as `[field, value]`, so the caller can pin what is kept.
+     *
+     * @param array<int, array{0: string, 1: mixed}> $predicates
+     *
+     * @return DefaultRestrictionContainer&MockObject
+     */
+    private function wireIncludingDisabledLookup(Result $result, array &$predicates): DefaultRestrictionContainer
+    {
+        [$queryBuilder, $expressionBuilder] = $this->useStrictQueryBuilderAndExpressionBuilderMocks();
+
+        $restrictions = $this->createMock(DefaultRestrictionContainer::class);
+
+        $queryBuilder
+            ->expects(self::once())
+            ->method('getRestrictions')
+            ->willReturn($restrictions);
+        $queryBuilder->method('select')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('where')->willReturnSelf();
+        $queryBuilder->method('createNamedParameter')->willReturn('?');
+        $queryBuilder->method('executeQuery')->willReturn($result);
+
+        $expressionBuilder
+            ->expects(self::atLeastOnce())
+            ->method('eq')
+            ->willReturnCallback(
+                static function (string $fieldName, mixed $value) use (&$predicates): string {
+                    $predicates[] = [$fieldName, $value];
+
+                    return $fieldName . ' = ?';
+                },
+            );
+
+        return $restrictions;
     }
 
     private function setupQueryBuilderForSelect(Result $result): void

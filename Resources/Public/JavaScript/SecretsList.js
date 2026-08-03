@@ -80,7 +80,8 @@ class SecretsList {
             lang('nrvault.delete.title', 'Delete Secret'),
             lang(
                 'nrvault.delete.confirm',
-                'Are you sure you want to delete the secret "{0}"? This action cannot be undone.',
+                'Are you sure you want to delete the secret "{0}"? The vault cannot restore it. '
+                + 'The encrypted record is retained in the database until it is removed there.',
                 this.escapeHtml(identifier),
             ),
             Severity.warning,

@@ -17,6 +17,7 @@ use Netresearch\NrVault\Hook\SecretTcaHook;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Tests\Unit\Fixtures\SecretFixtureBuilder;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -236,12 +237,69 @@ final class SecretTcaHookTest extends TestCase
         $this->hook->processCmdmap_preProcess('delete', 'other_table', 1);
     }
 
+    /**
+     * The commands core cannot carry out on this table anyway — it has no
+     * languageField and no versioningWS, so localize()/versionizeRecord()
+     * refuse before touching anything — are left alone deliberately, so the
+     * refusal list stays the short list of commands that would otherwise do
+     * real damage.
+     */
     #[Test]
-    public function cmdmapPreProcessIgnoresNonDeleteCommands(): void
+    #[DataProvider('inertCommandProvider')]
+    public function cmdmapPreProcessLeavesTheCommandsCoreAlreadyRefusesAlone(string $command): void
     {
+        // A resolvable secret, so the test proves the command is dropped by
+        // the command filter rather than by an empty repository lookup.
+        $this->secretRepository->method('findByUidIncludingDisabled')->willReturn(
+            SecretFixtureBuilder::create('api/token')->withUid(1)->buildSecret(),
+        );
+        $this->vaultService->expects($this->never())->method('delete');
         $this->auditService->expects($this->never())->method('log');
 
-        $this->hook->processCmdmap_preProcess('copy', 'tx_nrvault_secret', 1);
+        $dataHandler = $this->createMock(DataHandler::class);
+        $dataHandler->expects($this->never())->method('log');
+
+        $this->hook->processCmdmap_preProcess($command, self::TABLE, 1, null, $dataHandler);
+
+        $commandIsProcessed = false;
+        $this->hook->processCmdmap($command, self::TABLE, 1, null, $commandIsProcessed, $dataHandler, false);
+
+        self::assertFalse($commandIsProcessed, $command . ' must be left to core');
+    }
+
+    /**
+     * The counterpart of the two tests above: `delete` is neither refused nor
+     * ignored — it is performed through VaultService, which is what carries
+     * the per-secret ACL, the operation permission and the compensated audit
+     * entry.
+     */
+    #[Test]
+    public function cmdmapPreProcessStillRoutesDeleteThroughTheVaultService(): void
+    {
+        $this->secretRepository->method('findByUidIncludingDisabled')->willReturn(
+            SecretFixtureBuilder::create('api/token')->withUid(1)->buildSecret(),
+        );
+        $this->vaultService->expects($this->once())->method('delete')->with('api/token', 'Deleted via FormEngine');
+
+        $dataHandler = $this->createMock(DataHandler::class);
+        $this->hook->processCmdmap_preProcess('delete', self::TABLE, 1, null, $dataHandler);
+
+        $commandIsProcessed = false;
+        $this->hook->processCmdmap('delete', self::TABLE, 1, null, $commandIsProcessed, $dataHandler, false);
+
+        self::assertTrue($commandIsProcessed, 'core must skip its own deleteAction()');
+    }
+
+    /**
+     * @return iterable<string, array{0: string}>
+     */
+    public static function inertCommandProvider(): iterable
+    {
+        yield 'localize' => ['localize'];
+        yield 'copyToLanguage' => ['copyToLanguage'];
+        yield 'inlineLocalizeSynchronize' => ['inlineLocalizeSynchronize'];
+        yield 'discard' => ['discard'];
+        yield 'version' => ['version'];
     }
 
     #[Test]
@@ -745,20 +803,173 @@ final class SecretTcaHookTest extends TestCase
         );
     }
 
+    /**
+     * Each refused command is cancelled, audited as a denial and explained to
+     * the editor. The reason text is asserted verbatim rather than by
+     * substring: it is the only thing the backend user ever sees, and a
+     * command that borrowed another one's message would still pass a
+     * looser check.
+     */
     #[Test]
-    public function cmdmapPreProcessIgnoresUndeleteCommand(): void
+    #[DataProvider('refusedCommandProvider')]
+    public function cmdmapPreProcessRefusesTheCommand(string $command, string $reason): void
     {
-        $this->auditService->expects($this->never())->method('log');
+        $this->stubBackendRecords([['identifier' => 'api/token']]);
 
-        $this->hook->processCmdmap_preProcess('undelete', 'tx_nrvault_secret', 1);
+        $this->auditService->expects($this->once())->method('log')->with(
+            'api/token',
+            'access_denied',
+            false,
+            'Command refused: ' . $command,
+        );
+        // The vault is never asked whether the actor may do this — the
+        // refusal is a product rule, not a permission tier.
+        $this->secretRepository->expects($this->never())->method('findByUidIncludingDisabled');
+        $this->vaultService->expects($this->never())->method('delete');
+
+        $hook = $this->hookWith($this->recordPool());
+        $messages = [];
+        $dataHandler = $this->capturingDataHandler($messages);
+
+        $hook->processCmdmap_preProcess($command, self::TABLE, 5, null, $dataHandler);
+
+        $commandIsProcessed = false;
+        $hook->processCmdmap($command, self::TABLE, 5, null, $commandIsProcessed, $dataHandler, false);
+
+        self::assertTrue($commandIsProcessed, 'core must skip its own ' . $command . ' branch');
+        self::assertSame([$reason], $messages);
     }
 
-    #[Test]
-    public function cmdmapPreProcessIgnoresMoveCommand(): void
+    /**
+     * @return iterable<string, array{0: string, 1: string}>
+     */
+    public static function refusedCommandProvider(): iterable
     {
+        yield 'undelete' => [
+            'undelete',
+            'A deleted vault secret cannot be restored: the vault has no restore operation, '
+            . 'and its delete is documented as not reversible.',
+        ];
+        yield 'copy' => [
+            'copy',
+            'A vault secret cannot be copied: the copy would carry no encrypted value and would '
+            . 'claim the original identifier, shadowing it.',
+        ];
+        yield 'move' => [
+            'move',
+            'A vault secret cannot be moved: it belongs on the root level, where no page '
+            . 'operation can delete it unaudited.',
+        ];
+    }
+
+    /**
+     * An `undelete` target is soft-deleted by definition, so the read that
+     * fetches its identifier for the denial entry must not carry the
+     * `deleted = 0` predicate every other read in this hook does — otherwise
+     * the refusal lands in the tamper-evident chain without naming the secret
+     * it is about.
+     */
+    #[Test]
+    public function cmdmapPreProcessReadsTheUndeleteTargetIncludingSoftDeletedRows(): void
+    {
+        $this->stubBackendRecords([['identifier' => 'api/token']]);
+
+        $this->hookWith($this->recordPool())->processCmdmap_preProcess(
+            'undelete',
+            self::TABLE,
+            5,
+            null,
+            $this->createMock(DataHandler::class),
+        );
+
+        self::assertSame([
+            ['removeAll'],
+            ['select', ['identifier']],
+            ['from', self::TABLE],
+            ['createNamedParameter', 5, Connection::PARAM_INT],
+            ['where', ['uid = 5']],
+        ], $this->recordReads);
+    }
+
+    /**
+     * The cancellation is what makes the refusal real, so it must survive an
+     * unreadable row: the audit entry is the only thing that degrades.
+     */
+    #[Test]
+    public function cmdmapPreProcessRefusesEvenWhenTheRecordCannotBeRead(): void
+    {
+        $this->stubBackendRecords([false]);
         $this->auditService->expects($this->never())->method('log');
 
-        $this->hook->processCmdmap_preProcess('move', 'tx_nrvault_secret', 1);
+        $hook = $this->hookWith($this->recordPool());
+        $messages = [];
+        $dataHandler = $this->capturingDataHandler($messages);
+
+        $hook->processCmdmap_preProcess('undelete', self::TABLE, 5, null, $dataHandler);
+
+        $commandIsProcessed = false;
+        $hook->processCmdmap('undelete', self::TABLE, 5, null, $commandIsProcessed, $dataHandler, false);
+
+        self::assertTrue($commandIsProcessed, 'an unreadable row must still be refused');
+        self::assertCount(1, $messages);
+    }
+
+    /**
+     * Core hands processCmdmap_preProcess() six positional arguments, but the
+     * signature keeps the last two optional so the pre-existing three-argument
+     * call shape still binds. The refusal must survive that shape: no
+     * DataHandler means no explanation for the editor, never a crash and never
+     * a command that slips through.
+     */
+    #[Test]
+    public function cmdmapPreProcessRefusesWithoutADataHandler(): void
+    {
+        $this->stubBackendRecords([['identifier' => 'api/token']]);
+        $this->auditService->expects($this->once())->method('log');
+
+        $hook = $this->hookWith($this->recordPool());
+        $hook->processCmdmap_preProcess('undelete', self::TABLE, 5);
+
+        $commandIsProcessed = false;
+        $hook->processCmdmap(
+            'undelete',
+            self::TABLE,
+            5,
+            null,
+            $commandIsProcessed,
+            $this->createMock(DataHandler::class),
+            false,
+        );
+
+        self::assertTrue($commandIsProcessed);
+    }
+
+    /**
+     * One cmdmap may carry several commands for the same record, so the
+     * handled-command flag is keyed by command as well as uid. A uid-only key
+     * would let the refused command cancel an unrelated one.
+     */
+    #[Test]
+    public function cmdmapCancelsOnlyTheCommandItRefused(): void
+    {
+        $this->stubBackendRecords([['identifier' => 'api/token']]);
+
+        $hook = $this->hookWith($this->recordPool());
+        $dataHandler = $this->createMock(DataHandler::class);
+
+        $hook->processCmdmap_preProcess('undelete', self::TABLE, 5, null, $dataHandler);
+
+        $otherIsProcessed = false;
+        $hook->processCmdmap('localize', self::TABLE, 5, null, $otherIsProcessed, $dataHandler, false);
+        self::assertFalse($otherIsProcessed, 'a refused undelete must not cancel another command');
+
+        $sameUidOtherRecord = false;
+        $hook->processCmdmap('undelete', self::TABLE, 6, null, $sameUidOtherRecord, $dataHandler, false);
+        self::assertFalse($sameUidOtherRecord, 'a refused undelete must not cancel another record');
+
+        $undeleteIsProcessed = false;
+        $hook->processCmdmap('undelete', self::TABLE, 5, null, $undeleteIsProcessed, $dataHandler, false);
+        self::assertTrue($undeleteIsProcessed);
     }
 
     #[Test]

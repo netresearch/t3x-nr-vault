@@ -1849,7 +1849,7 @@ parameters:
 		-
 			rawMessage: 'Call to an undefined method TYPO3\CMS\Core\Database\Query\QueryBuilder::method().'
 			identifier: method.notFound
-			count: 20
+			count: 21
 			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
 
 		-
@@ -1861,7 +1861,7 @@ parameters:
 		-
 			rawMessage: 'Cannot call method willReturnOnConsecutiveCalls() on mixed.'
 			identifier: method.nonObject
-			count: 3
+			count: 4
 			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
 
 		-
@@ -1879,7 +1879,7 @@ parameters:
 		-
 			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
 			identifier: staticMethod.dynamicCall
-			count: 72
+			count: 76
 			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
 
 		-

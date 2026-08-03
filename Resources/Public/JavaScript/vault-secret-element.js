@@ -269,7 +269,11 @@ class VaultSecretElement {
 
         Modal.confirm(
             lang('nrvault.delete.title', 'Delete Secret'),
-            lang('nrvault.clear.confirm', 'Are you sure you want to clear this secret? This action cannot be undone.'),
+            lang(
+                'nrvault.clear.confirm',
+                'Are you sure you want to clear this secret? Saving the record deletes it, '
+                + 'and the vault cannot restore it.',
+            ),
             Severity.warning,
             [
                 {

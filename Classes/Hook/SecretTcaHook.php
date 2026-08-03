@@ -32,6 +32,9 @@ use TYPO3\CMS\Core\DataHandling\DataHandler;
  * - Identifier immutability (prevent changes after creation)
  * - Secret encryption on save (secret_input field)
  * - Audit logging for metadata changes
+ * - Delete authorization (the vault delete ACL, performed through VaultService)
+ * - Refusal of the cmdmap commands this table does not support (see
+ *   REFUSED_COMMANDS: undelete, copy, move)
  * - FormEngine integration with VaultService
  */
 final class SecretTcaHook
@@ -122,6 +125,64 @@ final class SecretTcaHook
     ];
 
     /**
+     * Cmdmap commands refused outright for this table, mapped to the reason
+     * the editor is shown. Core supports nine; the other six need no entry:
+     *
+     *  - `delete` is performed THROUGH VaultService further down, gates,
+     *    audit entry and compensating rollback included.
+     *  - `localize` and `copyToLanguage` both call DataHandler::localize(),
+     *    which refuses a table whose schema is not language-aware
+     *    ("Localization failed; languageField and transOrigPointerField must
+     *    be defined"). The TCA declares neither, by design — a secret has no
+     *    translations.
+     *  - `inlineLocalizeSynchronize` acts on the children of an inline field;
+     *    this table has none, and the command returns early for a language id
+     *    of 0.
+     *  - `discard` returns unless the schema is workspace-aware AND the actor
+     *    is in a workspace; `version` logs "Versioning is not supported for
+     *    this table". The TCA sets no `versioningWS`.
+     *
+     * That leaves three, refused here:
+     *
+     *  - `undelete` restored a soft-deleted secret with no vault check of any
+     *    kind. Core's undeleteRecord() asks checkModifyAccessList() and
+     *    checkRecordEditAccess(), and skips the page-permission branch
+     *    entirely for a record at pid 0 — which every vault secret is
+     *    (`rootLevel => -1`, and the module creates them there). Because the
+     *    vault delete is a SOFT delete — SecretRepository::delete() writes
+     *    only `deleted`/`tstamp` — the ciphertext, the wrapped DEK,
+     *    `frontend_accessible`, `hidden` and both MM ACL tiers survive it and
+     *    come back with the row. The vault has no restore operation, and the
+     *    product tells the editor it cannot give a deleted secret back, so
+     *    the TCA path must not quietly offer one.
+     *  - `copy` cannot produce a working secret. The crypto columns
+     *    (`encrypted_value`, `encrypted_dek`, both nonces, `value_checksum`)
+     *    have no TCA definition, and DataHandler::fillInFieldArray() only
+     *    processes fields the schema knows — so the clone is value-less. What
+     *    it does carry is the ORIGINAL identifier, and
+     *    SecretRepository::findByIdentifier() has no ORDER BY: the empty
+     *    clone can win the lookup and make retrieve() fail for every
+     *    consumer of a secret that is still perfectly intact.
+     *  - `move` is the only command that can take a secret off the root level
+     *    and into the page tree. A record on a page is deleted by
+     *    DataHandler::deleteSpecificPage(), which calls deleteRecord()
+     *    directly — that path never reaches this hook, so the per-secret ACL
+     *    and the audit entry are both skipped. `pid` carries no vault meaning
+     *    (the ACL scope is the separate `scope_pid` column), so the move buys
+     *    nothing and costs the record its protection.
+     *
+     * @var array<string, string>
+     */
+    private const REFUSED_COMMANDS = [
+        'undelete' => 'A deleted vault secret cannot be restored: the vault has no restore operation, '
+            . 'and its delete is documented as not reversible.',
+        'copy' => 'A vault secret cannot be copied: the copy would carry no encrypted value and would '
+            . 'claim the original identifier, shadowing it.',
+        'move' => 'A vault secret cannot be moved: it belongs on the root level, where no page '
+            . 'operation can delete it unaudited.',
+    ];
+
+    /**
      * Pending secrets to store after database operations.
      *
      * @var array<string, mixed> Map of temporary ID => secret value
@@ -129,17 +190,21 @@ final class SecretTcaHook
     private array $pendingSecrets = [];
 
     /**
-     * Record UIDs whose delete command was fully handled in
-     * processCmdmap_preProcess() — either performed through
-     * VaultService::delete() (ACL, operation permission and compensated audit
-     * included) or refused. Both outcomes must make core skip its own
-     * deleteAction in processCmdmap(). Entries are consumed (unset) when the
-     * cancel is applied so a DI-shared hook instance cannot leak a stale
-     * entry across DataHandler runs.
+     * Commands fully handled in processCmdmap_preProcess(), keyed
+     * "<command>:<uid>" — a `delete` performed through VaultService (ACL,
+     * operation permission and compensated audit included) or refused by it,
+     * and every command in REFUSED_COMMANDS. All of those must make core skip
+     * its own branch of the cmdmap switch in processCmdmap(). Entries are
+     * consumed (unset) when the cancel is applied so a DI-shared hook
+     * instance cannot leak a stale entry across DataHandler runs.
      *
-     * @var array<int, true>
+     * Keyed by command as well as uid because one cmdmap may legitimately
+     * carry several commands for the same record; a uid-only key would let
+     * the first of them cancel the second.
+     *
+     * @var array<string, true>
      */
-    private array $handledDeletions = [];
+    private array $handledCommands = [];
 
     /**
      * Original values of the real columns a datamap UPDATE submits, captured
@@ -519,8 +584,10 @@ final class SecretTcaHook
     }
 
     /**
-     * Called before a command (here: delete) is processed. Enforces the vault
-     * delete ACL (F5 / CWE-862) and records the audit entry.
+     * Called before a command is processed. Refuses the commands this table
+     * does not support at all (see REFUSED_COMMANDS) and enforces the vault
+     * delete ACL (F5 / CWE-862) on the one it does, recording the audit entry
+     * either way.
      *
      * DataHandler's own table permissions are NOT the vault ACL, so the gate
      * lives here — mirroring VaultService::delete()'s canDelete() check (the
@@ -531,6 +598,13 @@ final class SecretTcaHook
      * The extra $value/$dataHandler parameters are supplied by core
      * (DataHandler passes six positional args); they are optional so the
      * pre-existing three-argument unit-test calls still bind.
+     *
+     * The target is resolved through the disabled-visible lookup. The
+     * restricted one skips a disabled secret, and skipping here does not
+     * refuse the delete — it hands the command back to core, which
+     * soft-deletes the row with no per-secret ACL, no `secret.delete` and no
+     * audit entry. Disabling a secret must not be the way to strip it of its
+     * guard.
      */
     public function processCmdmap_preProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
@@ -539,12 +613,22 @@ final class SecretTcaHook
         mixed $value = null,
         ?DataHandler $dataHandler = null,
     ): void {
-        if ($table !== self::TABLE || $command !== 'delete') {
+        if ($table !== self::TABLE) {
+            return;
+        }
+
+        if (\array_key_exists($command, self::REFUSED_COMMANDS)) {
+            $this->refuseCommand($command, $id, $dataHandler);
+
+            return;
+        }
+
+        if ($command !== 'delete') {
             return;
         }
 
         $uid = is_numeric($id) ? (int) $id : 0;
-        $secret = $this->secretRepository->findByUid($uid);
+        $secret = $this->secretRepository->findByUidIncludingDisabled($uid);
         if (!$secret instanceof Secret) {
             return;
         }
@@ -556,7 +640,7 @@ final class SecretTcaHook
         // exactly as on the programmatic path. Core's own deleteAction is
         // skipped in processCmdmap() in every outcome: on success the service
         // already soft-deleted the record, on refusal it must survive.
-        $this->handledDeletions[$uid] = true;
+        $this->handledCommands[$command . ':' . $uid] = true;
 
         try {
             $this->vaultService->delete($secret->getIdentifier(), 'Deleted via FormEngine');
@@ -587,10 +671,11 @@ final class SecretTcaHook
     }
 
     /**
-     * Makes core skip its own deleteAction() for every delete command the
-     * hook handled in processCmdmap_preProcess() — a successful service
-     * delete already soft-deleted the record, a refused one must leave it
-     * untouched. (DataHandler runs this hook before the command switch.)
+     * Makes core skip its own branch of the cmdmap switch for every command
+     * the hook handled in processCmdmap_preProcess() — a successful service
+     * delete already soft-deleted the record, a refused delete must leave it
+     * untouched, and a refused command must not be carried out at all.
+     * (DataHandler runs this hook before the command switch.)
      *
      * The flag is consumed so a DI-shared hook instance cannot leak a stale
      * entry into a later DataHandler run (same discipline as
@@ -605,15 +690,59 @@ final class SecretTcaHook
         DataHandler $dataHandler,
         mixed $pasteUpdate,
     ): void {
-        if ($table !== self::TABLE || $command !== 'delete') {
+        if ($table !== self::TABLE) {
             return;
         }
 
         $uid = is_numeric($id) ? (int) $id : 0;
-        if (($this->handledDeletions[$uid] ?? false) === true) {
-            unset($this->handledDeletions[$uid]);
+        $key = $command . ':' . $uid;
+        if (($this->handledCommands[$key] ?? false) === true) {
+            unset($this->handledCommands[$key]);
             $commandIsProcessed = true;
         }
+    }
+
+    /**
+     * Refuse a command this table does not support: cancel it, tell the
+     * editor why, and record the refusal in the tamper-evident chain.
+     *
+     * The refusal is unconditional — it is a property of the command on this
+     * table, not of the actor or of the row. An admin exemption would make
+     * "a vault delete cannot be undone" mean "unless an administrator says
+     * otherwise", and the chain auditors read would carry a restore the vault
+     * never performed. An operator who genuinely must resurrect a row still
+     * can, at the database, where the change is visible as one.
+     *
+     * The record read includes soft-deleted rows: an `undelete` target is by
+     * definition deleted, so the default read would find nothing and the
+     * denial would land in the chain without the identifier it is about.
+     * An unreadable row still gets refused — only its audit entry is
+     * necessarily anonymous, and the DataHandler log carries the uid.
+     */
+    private function refuseCommand(string $command, string|int $id, ?DataHandler $dataHandler): void
+    {
+        $uid = is_numeric($id) ? (int) $id : 0;
+
+        // Flagged before anything can fail, and for uid 0 as well: the
+        // cancellation is what makes the refusal real, so it must not depend
+        // on the record read or the audit write below succeeding.
+        $this->handledCommands[$command . ':' . $uid] = true;
+
+        $record = $this->readRecord($uid, ['identifier'], true);
+        $identifier = \is_string($record['identifier'] ?? null) ? $record['identifier'] : '';
+        if ($identifier !== '') {
+            $this->auditDenial($identifier, 'Command refused: ' . $command);
+        }
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler?->log(
+            self::TABLE,
+            $uid,
+            2,
+            null,
+            1,
+            self::REFUSED_COMMANDS[$command],
+        );
     }
 
     /**
@@ -838,18 +967,22 @@ final class SecretTcaHook
      * Without a ConnectionPool (construction without DI) the static call is
      * kept so those callers keep working unchanged.
      *
+     * $includeDeleted drops that predicate, for the one caller that needs a
+     * soft-deleted row: refuseCommand() has to name the identifier of an
+     * `undelete` target, which is deleted by definition.
+     *
      * @param list<string> $columns
      *
      * @return array<string, mixed>|null
      */
-    private function readRecord(int $uid, array $columns): ?array
+    private function readRecord(int $uid, array $columns, bool $includeDeleted = false): ?array
     {
         if ($uid < 1) {
             return null;
         }
 
         if (!$this->connectionPool instanceof ConnectionPool) {
-            $record = BackendUtility::getRecord(self::TABLE, $uid, implode(',', $columns));
+            $record = BackendUtility::getRecord(self::TABLE, $uid, implode(',', $columns), '', !$includeDeleted);
             if ($record === null) {
                 return null;
             }
@@ -868,19 +1001,28 @@ final class SecretTcaHook
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
         $queryBuilder->getRestrictions()->removeAll();
 
-        $row = $queryBuilder
+        // Built after select()/from() so the parameter binding keeps the
+        // order the read has always had — the shape unit tests pin it.
+        $query = $queryBuilder
             ->select(...$columns)
-            ->from(self::TABLE)
-            ->where(
-                $queryBuilder->expr()->eq(
-                    'uid',
-                    $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT),
-                ),
-                $queryBuilder->expr()->eq(
-                    'deleted',
-                    $queryBuilder->createNamedParameter(0, Connection::PARAM_INT),
-                ),
-            )
+            ->from(self::TABLE);
+
+        $predicates = [
+            $queryBuilder->expr()->eq(
+                'uid',
+                $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT),
+            ),
+        ];
+
+        if (!$includeDeleted) {
+            $predicates[] = $queryBuilder->expr()->eq(
+                'deleted',
+                $queryBuilder->createNamedParameter(0, Connection::PARAM_INT),
+            );
+        }
+
+        $row = $query
+            ->where(...$predicates)
             ->executeQuery()
             ->fetchAssociative();
 
@@ -1059,8 +1201,22 @@ final class SecretTcaHook
      *
      * A creation is not gated here: it has no existing secret to authorize
      * against, and its own gates (`canCreate()`, `secret.create`) live on
-     * the VaultService path. A datamap for a uid with no secret row is left
-     * to core, which refuses a nonexistent record on its own.
+     * the VaultService path.
+     *
+     * The record is resolved through the disabled-visible lookup, for the
+     * same reason as the delete gate: the restricted one cannot see a
+     * disabled secret, and a gate that cannot see its subject does not refuse
+     * the write — it lets core perform it without ever consulting
+     * `canWrite()`. Disabling a secret must not be the way to strip it of its
+     * guard.
+     *
+     * With that lookup in place, an unresolved uid no longer means "possibly
+     * a disabled secret". It means no row for this uid — left to core, which
+     * refuses a nonexistent record on its own — or a soft-deleted one, whose
+     * columns no read path reaches and which this table's refused `undelete`
+     * keeps that way. Passing those through stays what it was: the vault
+     * declining to answer for a record it no longer holds, not a grant over
+     * one it does.
      */
     private function isUpdateAuthorized(string|int $id, DataHandler $dataHandler): bool
     {
@@ -1069,7 +1225,7 @@ final class SecretTcaHook
         }
 
         $uid = is_numeric($id) ? (int) $id : 0;
-        $secret = $this->secretRepository->findByUid($uid);
+        $secret = $this->secretRepository->findByUidIncludingDisabled($uid);
         if (!$secret instanceof Secret) {
             return true;
         }

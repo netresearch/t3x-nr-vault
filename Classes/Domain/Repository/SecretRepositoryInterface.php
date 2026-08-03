@@ -34,6 +34,21 @@ interface SecretRepositoryInterface
 
     public function findByUid(int $uid): ?Secret;
 
+    /**
+     * Resolve a secret by UID INCLUDING one that is disabled (`hidden = 1`),
+     * which {@see findByUid()} deliberately cannot see.
+     *
+     * Reserved for the write-path guards that must judge a record they are
+     * about to change or remove — `SecretTcaHook` resolves its DataHandler
+     * target through this method, because a guard blind to a disabled record
+     * does not refuse the operation, it lets core perform it ungated.
+     * Soft-deleted records stay invisible here; only the enable columns are
+     * given up. Never use this on a path that returns plaintext: disabling a
+     * secret revokes access precisely because the enable-column restriction
+     * removes it from the read path's query.
+     */
+    public function findByUidIncludingDisabled(int $uid): ?Secret;
+
     public function exists(string $identifier): bool;
 
     /**
