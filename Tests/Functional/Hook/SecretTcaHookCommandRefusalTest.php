@@ -221,8 +221,14 @@ final class SecretTcaHookCommandRefusalTest extends AbstractVaultFunctionalTestC
         // DataHandler::log() call the hook made is observable — and what the
         // editor is told is exactly what this test is about.
         /** @phpstan-ignore property.internal */
-        foreach ($dataHandler->errorLog as $entry) {
-            $messages[] = (string) $entry;
+        $errorLog = $dataHandler->errorLog;
+
+        // Explicit narrowing rather than a cast: the v13 stubs type errorLog
+        // as a plain array, so its entries are mixed on that matrix leg only.
+        foreach ($errorLog as $entry) {
+            if (\is_scalar($entry)) {
+                $messages[] = (string) $entry;
+            }
         }
 
         return $commandIsProcessed;
