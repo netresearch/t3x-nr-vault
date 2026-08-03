@@ -28,7 +28,9 @@ use TYPO3\CMS\Core\DataHandling\DataHandler;
  *
  * Handles:
  * - Create authorization (secret.create, before the row is inserted)
- * - Update authorization (the per-secret write ACL, before anything is written)
+ * - Update authorization (the per-secret write ACL, before anything is written),
+ *   refusing outright a datamap whose target the vault cannot resolve — a
+ *   soft-deleted secret or none at all (see refuseUnresolvableTarget())
  * - Identifier immutability (prevent changes after creation)
  * - Secret encryption on save (secret_input field)
  * - Audit logging for metadata changes
@@ -343,7 +345,17 @@ final class SecretTcaHook
         // The VaultService coercion (resolveOwnerUid/resolveFrontendAccessible)
         // only runs on the programmatic store($options) path; the FormEngine
         // path writes the raw columns directly, so the gate must live here.
-        $this->enforcePrivilegedColumnPolicy($fieldArray, $id, $dataHandler);
+        //
+        // Normally the policy filters the record and it proceeds; it refuses
+        // the record outright only when the target could not be resolved at
+        // all, which the ACL gate above should already have caught — the two
+        // resolve through different reads, so this closes the case where they
+        // disagree rather than trusting one of them for both.
+        if (!$this->enforcePrivilegedColumnPolicy($fieldArray, $id, $dataHandler)) {
+            $fieldArray = null;
+
+            return;
+        }
 
         // For existing records, prevent identifier changes
         if (!str_starts_with((string) $id, 'NEW') && isset($fieldArray['identifier'])) {
@@ -1211,12 +1223,10 @@ final class SecretTcaHook
      * guard.
      *
      * With that lookup in place, an unresolved uid no longer means "possibly
-     * a disabled secret". It means no row for this uid — left to core, which
-     * refuses a nonexistent record on its own — or a soft-deleted one, whose
-     * columns no read path reaches and which this table's refused `undelete`
-     * keeps that way. Passing those through stays what it was: the vault
-     * declining to answer for a record it no longer holds, not a grant over
-     * one it does.
+     * a disabled secret" — it means the vault holds no live record for this
+     * uid, and the write is refused rather than waved through
+     * (see refuseUnresolvableTarget() for what the two remaining causes are
+     * and why both are refused).
      */
     private function isUpdateAuthorized(string|int $id, DataHandler $dataHandler): bool
     {
@@ -1227,7 +1237,9 @@ final class SecretTcaHook
         $uid = is_numeric($id) ? (int) $id : 0;
         $secret = $this->secretRepository->findByUidIncludingDisabled($uid);
         if (!$secret instanceof Secret) {
-            return true;
+            $this->refuseUnresolvableTarget($uid, 'Update', $dataHandler);
+
+            return false;
         }
 
         if ($this->accessControlService->canWrite($secret)) {
@@ -1247,6 +1259,67 @@ final class SecretTcaHook
         );
 
         return false;
+    }
+
+    /**
+     * Refuse a datamap write whose target this hook could not resolve, and
+     * say as precisely as the data allows what was not resolvable.
+     *
+     * Shared by both write gates — the per-secret ACL (isUpdateAuthorized())
+     * and the privileged-column policy (enforcePrivilegedColumnPolicy()) —
+     * because they guard the same write from two angles and must not disagree
+     * about what "the record is not there" means. Both resolve through a
+     * lookup that excludes soft-deleted rows, so both reach this method for
+     * the same two causes:
+     *
+     *  - **Soft-deleted (a tombstone).** The live one. Core reads its datamap
+     *    UPDATE target with `BackendUtility::getRecord($table, $id, '*', '',
+     *    false)` — delete clause OFF — and skips only a row it cannot find at
+     *    all, so it processes a deleted secret's datamap perfectly happily.
+     *    The gates cannot see the row, so before this refusal the columns of a
+     *    deleted secret were writable by anyone DataHandler let near the
+     *    table, with no per-secret tier and no policy gate. `deleted` has no
+     *    TCA column and this table refuses `undelete`, so the row cannot be
+     *    resurrected that way — but rewriting a tombstone is still an
+     *    unaudited, ungated write to vault state, and the identifier it
+     *    carries is what a later legitimate creation collides with.
+     *  - **Genuinely absent.** Core skips such a record itself, one guard
+     *    further on. Refused here anyway rather than special-cased: the gate
+     *    would otherwise have to prove core's later guard still exists to stay
+     *    correct, and "the vault could not identify the record it is being
+     *    asked to authorize" is a refusal on its own terms.
+     *
+     * Reported differently because they differ for the editor, and because
+     * only one of them HAS an identifier: the deleted-inclusive probe below
+     * is what tells them apart, and it runs only on this path — a resolvable
+     * target never pays for it. A tombstone is audited as `access_denied`
+     * under its identifier, exactly like the hook's other refusals; an absent
+     * record has no identifier to audit under, so it is reported in the
+     * DataHandler log alone (the same concession refuseCommand() makes for an
+     * unreadable row).
+     */
+    private function refuseUnresolvableTarget(int $uid, string $gate, DataHandler $dataHandler): void
+    {
+        $record = $this->readRecord($uid, ['identifier'], true);
+        $identifier = \is_string($record['identifier'] ?? null) ? $record['identifier'] : '';
+
+        if ($identifier !== '') {
+            $this->auditDenial($identifier, $gate . ' denied: the vault secret is deleted');
+            $message = 'This vault secret is deleted and can no longer be changed; '
+                . 'the vault has no restore operation.';
+        } else {
+            $message = 'No vault secret exists for this record, so the change cannot be authorized.';
+        }
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            self::TABLE,
+            $uid,
+            2,
+            null,
+            1,
+            $message,
+        );
     }
 
     /**
@@ -1392,19 +1465,30 @@ final class SecretTcaHook
      *  - Anyone else: every privileged column is dropped and, when it
      *    differed from the stored value, the attempt is logged and audited.
      *
+     * Returns false when the record must be refused outright rather than
+     * merely filtered — see refuseUnresolvableTarget(). Dropping the
+     * privileged columns would NOT be the fail-closed answer there: the read
+     * that failed is the same read that supplies the stored values, so the
+     * policy cannot be applied at all, and letting the non-privileged columns
+     * through would still be an ungated write to a record the vault cannot
+     * identify. The caller nulls $fieldArray, because that is what makes core
+     * skip a record and this method holds it only by reference.
+     *
      * @param array<string, mixed> $fieldArray
+     *
+     * @return bool True when the record may proceed
      */
     private function enforcePrivilegedColumnPolicy(
         array &$fieldArray,
         string|int $id,
         DataHandler $dataHandler,
-    ): void {
+    ): bool {
         // Admins and system maintainers are trusted on this path. Non-backend
         // actors (CLI/scheduler/api) do not reach DataHandler form edits with a
         // BE user, so they are treated as non-privileged here and fall through
         // to the owner check (which yields actor UID 0 => not owner).
         if ($this->accessControlService->isCurrentActorAdmin()) {
-            return;
+            return true;
         }
 
         $isNew = str_starts_with((string) $id, 'NEW');
@@ -1417,7 +1501,7 @@ final class SecretTcaHook
             // locking the creator out of managing their own new secret.
             $fieldArray['owner_uid'] = $this->accessControlService->getCurrentActorUid();
 
-            return;
+            return true;
         }
 
         $uid = is_numeric($id) ? (int) $id : 0;
@@ -1426,7 +1510,9 @@ final class SecretTcaHook
         // is enforced separately, further down the calling method.
         $original = $this->readRecord($uid, [...$this->privilegedScalarColumns(), 'identifier']);
         if ($original === null) {
-            return;
+            $this->refuseUnresolvableTarget($uid, 'Policy change', $dataHandler);
+
+            return false;
         }
 
         $storedOwner = is_numeric($original['owner_uid'] ?? null) ? (int) $original['owner_uid'] : 0;
@@ -1440,7 +1526,7 @@ final class SecretTcaHook
         if ($actorUid !== 0 && $actorUid === $storedOwner
             && $this->accessControlService->isGranted(VaultPermission::SecretManagePolicy)
         ) {
-            return;
+            return true;
         }
 
         // Not authorized to manage this secret's policy: drop every
@@ -1476,7 +1562,7 @@ final class SecretTcaHook
         }
 
         if ($attempted === []) {
-            return;
+            return true;
         }
 
         $identifier = \is_string($original['identifier'] ?? null) ? $original['identifier'] : '';
@@ -1496,6 +1582,10 @@ final class SecretTcaHook
             1,
             'Vault secret ACL columns can only be changed by an administrator or by the secret owner holding the secret.manage_policy permission',
         );
+
+        // The unauthorized columns are gone; the rest of the save is a
+        // legitimate edit by someone who passed canWrite(), so it proceeds.
+        return true;
     }
 
     /**
