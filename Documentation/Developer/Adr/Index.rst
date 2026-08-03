@@ -60,6 +60,7 @@ ADR      Title                                                    Status
 033      :ref:`adr-033-foreign-envelope-rotation`                 Accepted
 034      :ref:`adr-034-audit-chain-tip-anchor`                    Accepted
 035      :ref:`adr-035-frontend-placeholder-allow-set`            Amended
+036      :ref:`adr-036-mutation-audit-atomicity`                  Accepted
 =======  =======================================================  ========
 
 .. toctree::
@@ -101,3 +102,4 @@ ADR      Title                                                    Status
    ADR-033-ForeignEnvelopeRotation
    ADR-034-AuditChainTipAnchor
    ADR-035-FrontendPlaceholderAllowSet
+   ADR-036-MutationAuditAtomicity
