@@ -10,7 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Traits;
 
 use Netresearch\NrVault\Tests\Unit\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
@@ -25,7 +25,7 @@ use RuntimeException;
  * expected-message regular expression. They fail loudly here if the quoting is
  * ever dropped.
  */
-#[CoversClass(ExceptionMessageExpectationTrait::class)]
+#[CoversNothing]
 final class ExceptionMessageExpectationTraitTest extends TestCase
 {
     /**
