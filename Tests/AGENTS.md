@@ -115,7 +115,7 @@ final class IdentifierValidatorTest extends TestCase
     #[DataProvider('invalidIdentifierProvider')]
     public function testRejectsInvalidIdentifier(string $input, string $reason): void
     {
-        $this->expectExceptionMessage($reason);
+        $this->expectExceptionMessageToContain($reason);
         (new IdentifierValidator())->validate($input);
     }
 
