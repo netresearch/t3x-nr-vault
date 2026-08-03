@@ -557,7 +557,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         // free counter against it proves the walk agrees with the database,
         // without pinning the epoch the test environment happens to run at.
         $expected = array_map(
-            'intval',
+            intval(...),
             $this->getConnectionPool()
                 ->getConnectionForTable('tx_nrvault_audit_log')
                 ->createQueryBuilder()
