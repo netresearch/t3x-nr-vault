@@ -10,6 +10,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Task;
 
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Throwable;
@@ -25,6 +27,18 @@ use TYPO3\CMS\Scheduler\Task\AbstractTask;
  * {@see \Netresearch\NrVault\Event\AuditIntegrityAlertEvent} by the anchor
  * service itself, so SIEM and notification listeners fire from a scheduled run
  * exactly as they do from the CLI — nobody has to be watching the scheduler log.
+ *
+ * Gated on `audit.view`, the same permission `vault:audit-verify`,
+ * `vault:audit --verify` and `AuditController::verifyChainAction()` assert:
+ * verification recomputes and compares, it mutates nothing, so it is a read of
+ * the chain wherever it is invoked from.
+ *
+ * On a default installation the gate is inert — :bash:`scheduler:run`
+ * authenticates the `_cli_` administrator, who passes through the admin bypass.
+ * It bites under `disableAdminOverride`, where the identity running the
+ * scheduler needs a group carrying `tx_nrvault:audit.view`. A refusal fails the
+ * task, for the same reason a verification that threw does: a check that did
+ * not run must never report success.
  *
  * Configuration (TCA field on `tx_scheduler_task`):
  * - `nr_vault_tamper_only`: when set, the task only fails on tamper evidence
@@ -42,6 +56,7 @@ final class AuditVerifyTask extends AbstractTask
     public function __construct(
         private readonly ?ChainTipAnchorServiceInterface $anchorService = null,
         private readonly ?LogManager $logManager = null,
+        private readonly ?AccessControlServiceInterface $accessControlService = null,
     ) {
         parent::__construct();
     }
@@ -71,6 +86,14 @@ final class AuditVerifyTask extends AbstractTask
     public function execute(): bool
     {
         $logger = $this->getLogger();
+
+        if (!$this->isGranted()) {
+            $logger->error('Vault audit integrity verification denied', [
+                'missingPermission' => VaultPermission::AuditView->value,
+            ]);
+
+            return false;
+        }
 
         try {
             $report = $this->getAnchorService()->verify();
@@ -117,6 +140,14 @@ final class AuditVerifyTask extends AbstractTask
         return $this->tamperOnly
             ? 'Verifies the audit hash chain and external anchor (fails on tamper evidence only)'
             : 'Verifies the audit hash chain and external anchor (fails on any finding)';
+    }
+
+    private function isGranted(): bool
+    {
+        $accessControlService = $this->accessControlService
+            ?? GeneralUtility::makeInstance(AccessControlServiceInterface::class);
+
+        return $accessControlService->isGranted(VaultPermission::AuditView);
     }
 
     private function getAnchorService(): ChainTipAnchorServiceInterface

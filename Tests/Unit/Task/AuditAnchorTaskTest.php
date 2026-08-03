@@ -11,6 +11,8 @@ namespace Netresearch\NrVault\Tests\Unit\Task;
 
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Task\AuditAnchorTask;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -43,7 +45,7 @@ final class AuditAnchorTaskTest extends TestCase
         $service->method('capture')->willReturn(new ChainTipAnchor(10, 'tip', 1_750_000_000, 3));
         $service->method('publish')->willReturn(2);
 
-        self::assertTrue((new AuditAnchorTask($service))->execute());
+        self::assertTrue($this->task($service)->execute());
     }
 
     /**
@@ -58,7 +60,7 @@ final class AuditAnchorTaskTest extends TestCase
         $service->method('capture')->willReturn(new ChainTipAnchor(10, 'tip', 1_750_000_000, 3));
         $service->method('publish')->willReturn(0);
 
-        self::assertFalse((new AuditAnchorTask($service))->execute());
+        self::assertFalse($this->task($service)->execute());
     }
 
     #[Test]
@@ -67,7 +69,7 @@ final class AuditAnchorTaskTest extends TestCase
         $service = self::createStub(ChainTipAnchorServiceInterface::class);
         $service->method('capture')->willThrowException(new RuntimeException('database unavailable'));
 
-        self::assertFalse((new AuditAnchorTask($service))->execute());
+        self::assertFalse($this->task($service)->execute());
     }
 
     #[Test]
@@ -77,7 +79,7 @@ final class AuditAnchorTaskTest extends TestCase
         $service->method('capture')->willReturn(new ChainTipAnchor(10, 'tip', 1_750_000_000, 3));
         $service->method('publish')->willThrowException(new RuntimeException('sink exploded'));
 
-        self::assertFalse((new AuditAnchorTask($service))->execute());
+        self::assertFalse($this->task($service)->execute());
     }
 
     #[Test]
@@ -86,7 +88,7 @@ final class AuditAnchorTaskTest extends TestCase
         $service = self::createStub(ChainTipAnchorServiceInterface::class);
         $service->method('capture')->willReturn(new ChainTipAnchor(128, 'tip', 1_750_000_000, 3));
 
-        self::assertStringContainsString('128', (new AuditAnchorTask($service))->getAdditionalInformation());
+        self::assertStringContainsString('128', $this->task($service)->getAdditionalInformation());
     }
 
     /**
@@ -99,6 +101,53 @@ final class AuditAnchorTaskTest extends TestCase
         $service = self::createStub(ChainTipAnchorServiceInterface::class);
         $service->method('capture')->willThrowException(new RuntimeException('no master key'));
 
-        self::assertNotSame('', (new AuditAnchorTask($service))->getAdditionalInformation());
+        self::assertNotSame('', $this->task($service)->getAdditionalInformation());
+    }
+
+    /**
+     * The permission follows the operation, not the entry point: publishing an
+     * anchor asserts `vault.configure` whether it is reached through
+     * `vault:audit-anchor` or through the scheduler. Otherwise the gate on the
+     * command is advisory — an actor refused there registers the task instead.
+     */
+    #[Test]
+    public function anchoringIsRefusedWithoutVaultConfigure(): void
+    {
+        $service = $this->createMock(ChainTipAnchorServiceInterface::class);
+        $service->expects($this->never())->method('capture');
+        $service->expects($this->never())->method('publish');
+
+        $task = $this->task($service, granted: false);
+
+        self::assertFalse($task->execute(), 'a refused anchoring run must not report success');
+    }
+
+    /**
+     * The sequence is chain state; the scheduler list view must still render so
+     * an operator who cannot see it can still reach the task.
+     */
+    #[Test]
+    public function additionalInformationWithholdsTheSequenceWithoutVaultConfigure(): void
+    {
+        $service = $this->createMock(ChainTipAnchorServiceInterface::class);
+        $service->expects($this->never())->method('capture');
+
+        $information = $this->task($service, granted: false)->getAdditionalInformation();
+
+        self::assertNotSame('', $information);
+        self::assertStringNotContainsString('sequence', $information);
+    }
+
+    private function task(ChainTipAnchorServiceInterface $service, bool $granted = true): AuditAnchorTask
+    {
+        $accessControlService = self::createStub(AccessControlServiceInterface::class);
+        $accessControlService
+            ->method('isGranted')
+            ->willReturnCallback(
+                static fn (VaultPermission $permission): bool => $granted
+                    && $permission === VaultPermission::VaultConfigure,
+            );
+
+        return new AuditAnchorTask($service, null, $accessControlService);
     }
 }

@@ -10,6 +10,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Task;
 
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Throwable;
@@ -30,6 +32,20 @@ use TYPO3\CMS\Scheduler\Task\AbstractTask;
  * run that reached nothing outside the database provides no reset protection, and
  * a green scheduler entry would misreport that as working tamper evidence.
  *
+ * Gated on `vault.configure`, the same permission the `vault:audit-anchor`
+ * wrapper and `vault:audit --reset-anchor` assert. Publishing an anchor mutates
+ * tamper evidence, and the permission has to follow the operation through every
+ * entry point or the gate on the others is advisory: without this one, an actor
+ * who may not run the command registers the task instead.
+ *
+ * On a default installation the gate is inert — :bash:`scheduler:run`
+ * authenticates the `_cli_` administrator, who passes through the admin bypass.
+ * It bites under `disableAdminOverride`, which is precisely the profile that
+ * withdrew "administrator implies vault operator"; there the identity running
+ * the scheduler needs a group carrying `tx_nrvault:vault.configure`. A refusal
+ * fails the task loudly rather than skipping quietly: an anchoring run that did
+ * not happen must never look like one that did.
+ *
  * Constructor arguments are nullable and lazily resolved via
  * `GeneralUtility::makeInstance()` because the scheduler unserializes task
  * objects without going through the DI container — the same pattern as
@@ -40,6 +56,7 @@ final class AuditAnchorTask extends AbstractTask
     public function __construct(
         private readonly ?ChainTipAnchorServiceInterface $anchorService = null,
         private readonly ?LogManager $logManager = null,
+        private readonly ?AccessControlServiceInterface $accessControlService = null,
     ) {
         parent::__construct();
     }
@@ -47,6 +64,14 @@ final class AuditAnchorTask extends AbstractTask
     public function execute(): bool
     {
         $logger = $this->getLogger();
+
+        if (!$this->isGranted()) {
+            $logger->error('Vault audit anchoring denied', [
+                'missingPermission' => VaultPermission::VaultConfigure->value,
+            ]);
+
+            return false;
+        }
 
         try {
             $anchorService = $this->getAnchorService();
@@ -79,6 +104,14 @@ final class AuditAnchorTask extends AbstractTask
      */
     public function getAdditionalInformation(): string
     {
+        // The sequence is chain state, so it is withheld from a viewer the
+        // operation itself would refuse. The list view still renders — an
+        // operator who cannot see the detail must still be able to reach the
+        // task to disable it.
+        if (!$this->isGranted()) {
+            return 'Publishes the audit chain tip to the external audit sinks';
+        }
+
         try {
             $anchor = $this->getAnchorService()->capture();
         } catch (Throwable) {
@@ -91,6 +124,14 @@ final class AuditAnchorTask extends AbstractTask
             'Publishes the audit chain tip to the external audit sinks (current sequence: %d)',
             $anchor->sequence,
         );
+    }
+
+    private function isGranted(): bool
+    {
+        $accessControlService = $this->accessControlService
+            ?? GeneralUtility::makeInstance(AccessControlServiceInterface::class);
+
+        return $accessControlService->isGranted(VaultPermission::VaultConfigure);
     }
 
     private function getAnchorService(): ChainTipAnchorServiceInterface
