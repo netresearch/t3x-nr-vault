@@ -9,11 +9,20 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Service;
 
+use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditAction;
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Domain\Dto\SecretMetadata;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
+use Netresearch\NrVault\Http\VaultHttpClientFactoryInterface;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Service\VaultService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
+use Netresearch\NrVault\Tests\Functional\Fixtures\ConcurrentReadAdapter;
+use Netresearch\NrVault\Tests\Functional\Traits\SecretRowTrait;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\Connection;
 
@@ -40,6 +49,8 @@ use TYPO3\CMS\Core\Database\Connection;
  */
 final class SecretAvailabilityTest extends AbstractVaultFunctionalTestCase
 {
+    use SecretRowTrait;
+
     private const AUDIT_TABLE = 'tx_nrvault_audit_log';
 
     /** Admin, so the gates pass and the tests are about availability only. */
@@ -240,6 +251,76 @@ final class SecretAvailabilityTest extends AbstractVaultFunctionalTestCase
             'Secret disabled: key leaked',
             $this->latestReasonFor('availability_audited'),
             'The entry must name the direction and carry the operator reason.',
+        );
+    }
+
+    /**
+     * An availability change writes the availability column and nothing else.
+     *
+     * The claim only has teeth under interleaving, so the test creates it:
+     * `ConcurrentReadAdapter` commits a read-count increment inside the window
+     * between the lookup `setEnabled()` opens with and the write it ends with
+     * — the same thing a `retrieve()` from another request does. A write that
+     * persists every scalar column of the entity read at the top would restore
+     * that counter to its stale value, silently discarding a committed change;
+     * the same mechanism loses a `rotate()` that lands in the window, which is
+     * a rollback of a re-encryption by a call that only meant to flip a flag.
+     *
+     * Hence two assertions: the concurrent commit survived, and every column
+     * the change does not concern is byte-identical.
+     */
+    #[Test]
+    public function disablingASecretWritesNothingButItsAvailability(): void
+    {
+        $vault = $this->getVaultService();
+        $vault->store('availability_narrow', 'the-plaintext');
+
+        // A read of its own first, so the counter under test starts non-zero
+        // and a reset to the column default is distinguishable from a value
+        // it was always going to have.
+        self::assertSame('the-plaintext', $vault->retrieve('availability_narrow'));
+
+        $before = $this->readSecretRow('availability_narrow');
+
+        $this->buildServiceWithConcurrentRead()->setEnabled('availability_narrow', false, 'key leaked');
+
+        $after = $this->readSecretRow('availability_narrow');
+
+        self::assertSame(1, (int) $after['hidden'], 'The change itself must have landed.');
+        self::assertSame(
+            (int) $before['read_count'] + 1,
+            (int) $after['read_count'],
+            'A read committed while the availability change was in flight must survive it.',
+        );
+
+        // `tstamp` moves by design (the record changed), `last_read_at` and
+        // `read_count` were moved by the concurrent read and asserted above.
+        foreach (['hidden', 'tstamp', 'read_count', 'last_read_at'] as $expected) {
+            unset($before[$expected], $after[$expected]);
+        }
+
+        self::assertSame(
+            $before,
+            $after,
+            'An availability change must leave every other column exactly as it found it.',
+        );
+    }
+
+    /**
+     * The real service, wired to the real adapter through the decorator that
+     * commits a concurrent read inside the read-then-write window. Everything
+     * else — encryption, access control, the genuine audit writer — is the
+     * container's.
+     */
+    private function buildServiceWithConcurrentRead(): VaultService
+    {
+        return new VaultService(
+            new ConcurrentReadAdapter($this->get(VaultAdapterInterface::class)),
+            $this->get(EncryptionServiceInterface::class),
+            $this->get(AccessControlServiceInterface::class),
+            $this->get(AuditLogServiceInterface::class),
+            $this->get(ExtensionConfigurationInterface::class),
+            $this->get(VaultHttpClientFactoryInterface::class),
         );
     }
 

@@ -23,6 +23,8 @@ use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Service\VaultService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
+use Netresearch\NrVault\Tests\Functional\Fixtures\ConcurrentReadAdapter;
+use Netresearch\NrVault\Tests\Functional\Traits\SecretRowTrait;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -38,6 +40,8 @@ use PHPUnit\Framework\Attributes\Test;
  */
 final class VaultServiceAtomicityTest extends AbstractVaultFunctionalTestCase
 {
+    use SecretRowTrait;
+
     protected ?string $backendUserFixture = __DIR__ . '/Fixtures/be_users_permissions.csv';
 
     #[Test]
@@ -178,6 +182,53 @@ final class VaultServiceAtomicityTest extends AbstractVaultFunctionalTestCase
                 $vault->retrieve('atomic_enable'),
                 'A re-enable that could not be audited must not take effect.',
             );
+        }
+    }
+
+    /**
+     * The revert is a write like the one it undoes, so it is narrow like it
+     * too. With a read committed inside the window (see
+     * {@see ConcurrentReadAdapter}), a compensation that restored the whole
+     * entity would put the availability back AND roll that read off the
+     * record — repairing one control by breaking the accounting of another.
+     */
+    #[Test]
+    public function setEnabledRevertRestoresAvailabilityWithoutTouchingAnythingElse(): void
+    {
+        $vault = $this->getVaultService();
+        $vault->store('atomic_narrow', 'still-available');
+        self::assertSame('still-available', $vault->retrieve('atomic_narrow'));
+
+        $before = $this->readSecretRow('atomic_narrow');
+
+        $service = new VaultService(
+            new ConcurrentReadAdapter($this->getAdapter()),
+            $this->getEncryptionService(),
+            $this->get(AccessControlServiceInterface::class),
+            $this->createFailingAuditLogService(),
+            $this->get(ExtensionConfigurationInterface::class),
+            $this->get(VaultHttpClientFactoryInterface::class),
+        );
+
+        $this->expectException(AuditWriteException::class);
+
+        try {
+            $service->setEnabled('atomic_narrow', false, 'because');
+        } finally {
+            $after = $this->readSecretRow('atomic_narrow');
+
+            self::assertSame(0, (int) $after['hidden'], 'The unauditable disable must have been reverted.');
+            self::assertSame(
+                (int) $before['read_count'] + 1,
+                (int) $after['read_count'],
+                'The compensation must not roll back a read that committed in the window.',
+            );
+
+            foreach (['hidden', 'tstamp', 'read_count', 'last_read_at'] as $expected) {
+                unset($before[$expected], $after[$expected]);
+            }
+
+            self::assertSame($before, $after, 'The compensation must restore availability and nothing else.');
         }
     }
 
