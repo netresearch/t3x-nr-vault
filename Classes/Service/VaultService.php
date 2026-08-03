@@ -16,6 +16,7 @@ use DateTimeInterface;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\EncryptedData;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
@@ -72,7 +73,11 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
                 throw ValidationException::emptySecret();
             }
 
-            $existing = $this->adapter->retrieve($identifier);
+            // Administrative lookup: a disabled secret still occupies its
+            // identifier (UNIQUE KEY identifier/deleted), so classifying this
+            // write against the restricted read would call it a creation and
+            // fail on the constraint instead of updating the record.
+            $existing = $this->adapter->retrieveIncludingDisabled($identifier);
 
             $this->assertWritePermission($identifier, $existing);
 
@@ -207,7 +212,8 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
     public function delete(string $identifier, string $reason = ''): void
     {
-        $secret = $this->adapter->retrieve($identifier);
+        // Administrative lookup — a disabled secret must still be removable.
+        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
         if (!$secret instanceof Secret) {
             throw SecretNotFoundException::forIdentifier($identifier);
         }
@@ -251,7 +257,9 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
     public function assertDeletable(string $identifier): void
     {
-        $secret = $this->adapter->retrieve($identifier);
+        // Must see exactly what delete() sees, or the preflight and the delete
+        // disagree about whether there is anything to authorize.
+        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
         if (!$secret instanceof Secret) {
             // Nothing to delete — see the interface docblock.
             return;
@@ -262,7 +270,9 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
     public function rotate(string $identifier, #[SensitiveParameter] string $newSecret, string $reason = ''): void
     {
-        $secret = $this->adapter->retrieve($identifier);
+        // Administrative lookup — a disabled secret must still be rotatable,
+        // and a credential taken out of service is a likely rotation target.
+        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
         if (!$secret instanceof Secret) {
             throw SecretNotFoundException::forIdentifier($identifier);
         }
@@ -335,9 +345,88 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         }
     }
 
-    public function list(?string $pattern = null): array
+    public function setEnabled(string $identifier, bool $enabled, string $reason = ''): void
     {
-        $filters = $pattern !== null ? new SecretFilters(prefix: $pattern) : null;
+        // The disabled-visible lookup: a secret that is already disabled must
+        // remain reachable, or disabling would be a one-way door — the record
+        // would vanish from every query that could re-enable it.
+        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
+        if (!$secret instanceof Secret) {
+            throw SecretNotFoundException::forIdentifier($identifier);
+        }
+
+        // Both gates, in the order the rest of the service uses them: the
+        // per-secret tier answers "may this actor touch THIS secret", the
+        // operation permission "may this actor change availability at all".
+        if (!$this->accessControlService->canWrite($secret)) {
+            $this->auditLogService->log(
+                $identifier,
+                AuditAction::AccessDenied->value,
+                false,
+                'Availability change access denied',
+            );
+
+            throw AccessDeniedException::forIdentifier($identifier, 'availability change permission denied');
+        }
+
+        $this->assertOperationGranted(VaultPermission::SecretManagePolicy, $identifier, 'Availability change');
+
+        // Asked for the state it already has: nothing mutates, so there is
+        // nothing to audit. The gates above still ran, so an unauthorized
+        // attempt is recorded whether or not it would have changed anything.
+        if ($secret->isHidden() === !$enabled) {
+            return;
+        }
+
+        $uid = $secret->getUid();
+        if ($uid === null) {
+            // A record resolved from storage always carries its UID. Without
+            // one there is no row to address, and the write below would hit
+            // nothing while the audit entry claimed a change.
+            throw SecretNotFoundException::forIdentifier($identifier);
+        }
+
+        // A targeted write of the availability column — NOT `store()` of the
+        // entity read above with its flag flipped. That would UPDATE every
+        // scalar column from a snapshot taken moments earlier, so a
+        // `retrieve()` that incremented `read_count` or a `rotate()` that
+        // replaced the envelope in the meantime would be silently rolled back
+        // by a call that only changes whether the secret is in service.
+        $this->adapter->setHidden($uid, !$enabled);
+
+        // SEC-3 atomicity (compensating rollback — see store() for rationale):
+        // if the audit write fails, restore the previous availability so a
+        // silent revocation of access never persists unaudited.
+        try {
+            $this->auditLogService->log(
+                $identifier,
+                AuditAction::MetadataUpdate->value,
+                true,
+                null,
+                $this->availabilityChangeReason($enabled, $reason),
+                null,
+                null,
+                new GenericContext(['column' => 'hidden', 'enabled' => $enabled]),
+            );
+        } catch (AuditWriteException $auditException) {
+            $this->compensateAuditFailure(
+                $identifier,
+                function () use ($uid, $secret): void {
+                    // The captured prior state, through the same targeted
+                    // write: a revert that restored the whole entity would
+                    // undo everything else that landed in the window too.
+                    $this->adapter->setHidden($uid, $secret->isHidden());
+                },
+                $auditException,
+            );
+        }
+    }
+
+    public function list(?string $pattern = null, bool $includeDisabled = false): array
+    {
+        $filters = ($pattern !== null || $includeDisabled)
+            ? new SecretFilters(prefix: $pattern, includeDisabled: $includeDisabled)
+            : null;
 
         $allSecrets = $this->adapter->listSecrets($filters);
 
@@ -359,6 +448,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
                 description: $secret->getDescription(),
                 version: $secret->getVersion(),
                 metadata: $secret->getMetadata(),
+                enabled: !$secret->isHidden(),
             );
         }
 
@@ -367,7 +457,12 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
     public function getMetadata(string $identifier): SecretDetails
     {
-        $secret = $this->adapter->retrieve($identifier);
+        // Administrative lookup: metadata is not the value. Withholding it for
+        // a disabled secret would hide the record from the edit form that
+        // re-enables it, while disclosing nothing the actor could not see
+        // before the secret was disabled — the returned DTO reports the state
+        // rather than pretending the secret is gone.
+        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
         if (!$secret instanceof Secret) {
             throw SecretNotFoundException::forIdentifier($identifier);
         }
@@ -385,6 +480,18 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
     public function http(): VaultHttpClientInterface
     {
         return $this->httpClientFactory->create($this);
+    }
+
+    /**
+     * The audit `reason` for an availability change: the direction first, so
+     * the entry is readable without decoding the context, then whatever
+     * justification the operator supplied.
+     */
+    private function availabilityChangeReason(bool $enabled, string $reason): string
+    {
+        $direction = $enabled ? 'Secret enabled' : 'Secret disabled';
+
+        return $reason === '' ? $direction : $direction . ': ' . $reason;
     }
 
     /**
@@ -709,6 +816,11 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             adapter: 'local',
             crdate: $existing instanceof Secret ? $existing->getCrdate() : time(),
             cruserId: $existing instanceof Secret ? $existing->getCruserId() : $this->accessControlService->getCurrentActorUid(),
+            // Availability is not a value field and `store()` has no option
+            // for it: writing a new value to a disabled secret must not
+            // quietly put it back into service. `setEnabled()` is the only
+            // path that changes this, and it asserts secret.manage_policy.
+            hidden: $existing instanceof Secret && $existing->isHidden(),
         );
     }
 
