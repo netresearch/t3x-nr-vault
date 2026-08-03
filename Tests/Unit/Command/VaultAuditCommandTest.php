@@ -202,11 +202,16 @@ final class VaultAuditCommandTest extends TestCase
      * Holding every OTHER permission is not a substitute: the mode's own
      * permission is the one asserted.
      *
+     * This asserts the GATE lets the mode through, not that the mode then
+     * succeeds — a passing mode may still fail later on its own
+     * preconditions (a reset-anchor with no anchor to reset, say). The
+     * functional suite covers the outcomes.
+     *
      * @param array<string, string|bool> $arguments
      */
     #[Test]
     #[DataProvider('gatedModeProvider')]
-    public function allowsModeWithOnlyItsPermission(
+    public function passesTheGateWithOnlyItsPermission(
         array $arguments,
         VaultPermission $required,
         string $refusalMessage,
