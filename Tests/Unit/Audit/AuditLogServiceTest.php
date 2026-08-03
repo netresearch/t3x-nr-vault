@@ -2301,7 +2301,7 @@ final class AuditLogServiceTest extends TestCase
             ->method('insert');
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('simulated DB failure');
+        $this->expectExceptionMessageToContain('simulated DB failure');
 
         try {
             $this->getSubject()->log('s', 'read', true);

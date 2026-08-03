@@ -195,7 +195,7 @@ final class Typo3MasterKeyProviderTest extends TestCase
         $provider = new Typo3MasterKeyProvider();
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('TYPO3 encryption key is not set');
+        $this->expectExceptionMessageToContain('TYPO3 encryption key is not set');
 
         $provider->getMasterKey();
     }
@@ -206,7 +206,7 @@ final class Typo3MasterKeyProviderTest extends TestCase
         $provider = new Typo3MasterKeyProvider();
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('TYPO3 provider derives the key');
+        $this->expectExceptionMessageToContain('TYPO3 provider derives the key');
 
         $provider->storeMasterKey(random_bytes(32));
     }

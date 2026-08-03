@@ -206,7 +206,7 @@ final class WebhookAuditSinkTest extends TestCase
         $subject = $this->createSubject(client: new RecordingClient(new Response($status)));
 
         $this->expectException(AuditSinkException::class);
-        $this->expectExceptionMessage((string) $status);
+        $this->expectExceptionMessageToContain((string) $status);
 
         $subject->publish($this->createEntry(), 'tip');
     }
@@ -231,7 +231,7 @@ final class WebhookAuditSinkTest extends TestCase
         );
 
         $this->expectException(AuditSinkException::class);
-        $this->expectExceptionMessage('transport failed');
+        $this->expectExceptionMessageToContain('transport failed');
 
         $subject->publish($this->createEntry(), 'tip');
     }
@@ -250,7 +250,7 @@ final class WebhookAuditSinkTest extends TestCase
         );
 
         $this->expectException(AuditSinkException::class);
-        $this->expectExceptionMessage('disallowed IP range');
+        $this->expectExceptionMessageToContain('disallowed IP range');
 
         $subject->publish($this->createEntry(), 'tip');
     }

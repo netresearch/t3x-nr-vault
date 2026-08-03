@@ -183,7 +183,7 @@ final class SecretTest extends TestCase
         string $valueNonce,
     ): void {
         $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('encryptedValue, encryptedDek, dekNonce, valueNonce, and valueChecksum must all be set or all be empty');
+        $this->expectExceptionMessageToContain('encryptedValue, encryptedDek, dekNonce, valueNonce, and valueChecksum must all be set or all be empty');
 
         // The constructor MUST throw before returning; assertInstanceOf
         // is unreachable but uses the constructed value so Sonar's S1848
@@ -202,7 +202,7 @@ final class SecretTest extends TestCase
     public function constructorThrowsOnVersionTwoWithoutAlgorithmMarker(): void
     {
         $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('known encryptionAlgorithm marker');
+        $this->expectExceptionMessageToContain('known encryptionAlgorithm marker');
 
         self::assertInstanceOf(Secret::class, new Secret(
             identifier: 'v2-no-marker',
@@ -219,7 +219,7 @@ final class SecretTest extends TestCase
     public function constructorThrowsOnVersionTwoWithUnknownAlgorithmMarker(): void
     {
         $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('known encryptionAlgorithm marker');
+        $this->expectExceptionMessageToContain('known encryptionAlgorithm marker');
 
         self::assertInstanceOf(Secret::class, new Secret(
             identifier: 'v2-bad-marker',
@@ -239,7 +239,7 @@ final class SecretTest extends TestCase
         // Version 2 means "explicitly marked envelope" — without an envelope
         // the marker is meaningless and indicates a programming error.
         $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('full encryption envelope');
+        $this->expectExceptionMessageToContain('full encryption envelope');
 
         self::assertInstanceOf(Secret::class, new Secret(
             identifier: 'v2-no-envelope',
@@ -255,7 +255,7 @@ final class SecretTest extends TestCase
         // the marker (host-derived resolution) and silently diverge from
         // what the stored marker claims.
         $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('must not carry an encryptionAlgorithm marker');
+        $this->expectExceptionMessageToContain('must not carry an encryptionAlgorithm marker');
 
         self::assertInstanceOf(Secret::class, new Secret(
             identifier: 'v1-with-marker',

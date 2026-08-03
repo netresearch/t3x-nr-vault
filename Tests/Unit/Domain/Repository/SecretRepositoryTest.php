@@ -1019,7 +1019,7 @@ final class SecretRepositoryTest extends TestCase
             ->willThrowException(new RuntimeException('Constraint violation'));
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Constraint violation');
+        $this->expectExceptionMessageToContain('Constraint violation');
 
         $this->subject->save($secret);
     }

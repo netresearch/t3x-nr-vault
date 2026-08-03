@@ -133,7 +133,7 @@ final class AuditChainLockTraitTest extends TestCase
             ->with('SELECT RELEASE_LOCK("nr_vault_audit")');
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('deadlock');
+        $this->expectExceptionMessageToContain('deadlock');
 
         $this->subject->acquire($connection, false);
     }
@@ -152,7 +152,7 @@ final class AuditChainLockTraitTest extends TestCase
         $connection->method('executeStatement')->willThrowException(new RuntimeException('gone', 1750000012));
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('original');
+        $this->expectExceptionMessageToContain('original');
 
         $this->subject->acquire($connection, false);
     }

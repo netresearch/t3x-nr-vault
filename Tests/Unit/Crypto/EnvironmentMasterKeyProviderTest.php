@@ -114,7 +114,7 @@ final class EnvironmentMasterKeyProviderTest extends TestCase
         $provider = new EnvironmentMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('Environment variable');
+        $this->expectExceptionMessageToContain('Environment variable');
 
         $provider->getMasterKey();
     }
@@ -130,7 +130,7 @@ final class EnvironmentMasterKeyProviderTest extends TestCase
         $provider = new EnvironmentMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('Invalid master key length');
+        $this->expectExceptionMessageToContain('Invalid master key length');
 
         $provider->getMasterKey();
     }
@@ -142,7 +142,7 @@ final class EnvironmentMasterKeyProviderTest extends TestCase
         $provider = new EnvironmentMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
-        $this->expectExceptionMessage('cannot be persisted');
+        $this->expectExceptionMessageToContain('cannot be persisted');
 
         $provider->storeMasterKey(random_bytes(32));
     }

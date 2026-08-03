@@ -387,7 +387,7 @@ final class OAuthTokenManagerTest extends TestCase
             ->willReturn($response);
 
         $this->expectException(OAuthException::class);
-        $this->expectExceptionMessage('OAuth token request failed with status 401');
+        $this->expectExceptionMessageToContain('OAuth token request failed with status 401');
 
         $this->subject->getAccessToken($config);
     }
@@ -419,7 +419,7 @@ final class OAuthTokenManagerTest extends TestCase
             ->willReturn($response);
 
         $this->expectException(OAuthException::class);
-        $this->expectExceptionMessage('OAuth response missing access_token');
+        $this->expectExceptionMessageToContain('OAuth response missing access_token');
 
         $this->subject->getAccessToken($config);
     }
@@ -448,7 +448,7 @@ final class OAuthTokenManagerTest extends TestCase
             ->willThrowException($exception);
 
         $this->expectException(OAuthException::class);
-        $this->expectExceptionMessage('OAuth token request failed: Connection timeout');
+        $this->expectExceptionMessageToContain('OAuth token request failed: Connection timeout');
 
         $this->subject->getAccessToken($config);
     }
@@ -666,7 +666,7 @@ final class OAuthTokenManagerTest extends TestCase
             ->willReturn($response);
 
         $this->expectException(OAuthException::class);
-        $this->expectExceptionMessage('Invalid JSON response from OAuth server');
+        $this->expectExceptionMessageToContain('Invalid JSON response from OAuth server');
 
         $this->subject->getAccessToken($config);
     }

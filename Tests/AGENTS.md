@@ -79,6 +79,12 @@ Tests/
   `FunctionalTestCase` directly.
 - Test class name: `<SourceClass>Test`; methods use the `#[Test]` PHPUnit attribute (`PHPUnit\Framework\Attributes\Test`) or a `test` prefix — never the legacy `@test` docblock annotation.
 - Use `#[DataProvider]` (native PHPUnit 10 attribute) for parameterized cases.
+- **Expect exception messages with `$this->expectExceptionMessageToContain()`**
+  (`ExceptionMessageExpectationTrait`), never `expectExceptionMessage()` —
+  PHPUnit 13.2 soft-deprecated the latter, and its replacement
+  `expectExceptionMessageIsOrContains()` is a fatal error on the PHPUnit 11.5 /
+  12.5 the matrix resolves for PHP 8.2 / 8.3. `expectExceptionMessageMatches()`
+  stays correct where the expectation genuinely is a pattern.
 - One assertion concept per test; split by behaviour, not by line count.
 - No real HTTP / filesystem calls — mock adapters (`VaultAdapterInterface`).
 - Functional fixtures: `Tests/.../Fixtures/*.csv`, loaded via `$this->importCSVDataSet()`.
@@ -109,7 +115,7 @@ final class IdentifierValidatorTest extends TestCase
     #[DataProvider('invalidIdentifierProvider')]
     public function testRejectsInvalidIdentifier(string $input, string $reason): void
     {
-        $this->expectExceptionMessage($reason);
+        $this->expectExceptionMessageToContain($reason);
         (new IdentifierValidator())->validate($input);
     }
 
@@ -136,11 +142,12 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
 | Helper | Purpose |
 |--------|---------|
 | `Tests/Functional/AbstractVaultFunctionalTestCase.php` | Master-key lifecycle + UUID v7 helper (deduplicates ~17 functional tests) |
-| `Tests/Unit/TestCase.php` | Project base composing the two mock traits below |
+| `Tests/Unit/TestCase.php` | Project base composing the shared traits below |
 | `Tests/Unit/Traits/TcaSchemaMockTrait.php` | `mockTcaSchemaForTable()` (was duplicated 4x) |
 | `Tests/Unit/Traits/BackendUserMockTrait.php` | `createMockBackendUser()` (was duplicated 3x) |
 | `Tests/Unit/Traits/EnvironmentSandboxTrait.php` | Throwaway project layout + initialised `Environment` for tests that resolve paths via `getVarPath()` / check the `getPublicPath()` boundary (audit file sink, extension-config path defaults) |
 | `Tests/Unit/Traits/ErrorSuppressionTrait.php` | `withoutPhpDiagnostics()` — run one call with PHP diagnostics silenced, for code that handles a native failure by checking the return value (`fopen`/`mkdir` returning false) instead of using `@`, where the genuine warning would otherwise trip `failOnWarning` |
+| `Tests/Unit/Traits/ExceptionMessageExpectationTrait.php` | `expectExceptionMessageToContain()` — the substring form of the exception-message expectation. PHPUnit 13.2 soft-deprecated `expectExceptionMessage()` and its replacement `expectExceptionMessageIsOrContains()` does not exist before 13.2, while the matrix still resolves PHPUnit 11.5 on PHP 8.2 and 12.5 on PHP 8.3. Use this instead of either |
 | `Tests/Unit/Fixtures/SecretFixtureBuilder.php` | Fluent builder for `SecretDetails` / `SecretMetadata` / `Secret` DTOs (replaces ~6 hand-rolled factory methods) |
 | `Tests/Unit/Fixtures/FailingStreamWrapper.php` | Stream wrapper that stats as a healthy writable file but fails at a chosen point (`fopen` refused/throwing, `flock` refused, short write) — the audit-sink write layers a real filesystem cannot reach |
 | `Tests/Unit/Fixtures/AuditChainLockHost.php` | Host exposing `AuditChainLockTrait`'s private lock primitives so the raw-vs-savepoint lock protocol can be tested without a consumer's write path |
