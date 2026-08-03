@@ -117,19 +117,46 @@ The main service for interacting with the vault.
       :throws AccessDeniedException: If the per-secret ACL or the ``secret.rotate`` operation permission refuses it.
       :throws EncryptionException: If encryption fails.
 
-   .. php:method:: list(?string $pattern = null): array
+   .. php:method:: setEnabled(string $identifier, bool $enabled, string $reason = ''): void
+
+      Enable or disable a secret — the single write path for its availability.
+
+      Disabling withdraws the secret from every read path at once: the record
+      carries TCA's ``disabled`` enable column, so a disabled secret resolves
+      to nothing in :php:`retrieve()`, :php:`retrieveForFrontend()` and every
+      placeholder that goes through them. It stays administrable — it can be
+      re-enabled, rotated, deleted, and its metadata read — and reports its
+      state in :php:`SecretDetails::$enabled`.
+
+      The state is absolute rather than a toggle: setting the state a secret
+      already has is a no-op and writes no audit entry. A change is audited as
+      ``metadata_update``, the same action the FormEngine path writes for the
+      same column, and is all-or-nothing with that entry
+      (:ref:`adr-036-mutation-audit-atomicity`): if the audit write fails the
+      previous availability is restored and the failure surfaces.
+
+      :param string $identifier: The secret identifier.
+      :param bool $enabled: The availability the secret should have afterwards.
+      :param string $reason: Optional justification, recorded in the audit entry alongside the direction of the change.
+      :throws SecretNotFoundException: If the secret does not exist.
+      :throws AccessDeniedException: If the per-secret ACL or the ``secret.manage_policy`` operation permission refuses it.
+
+   .. php:method:: list(?string $pattern = null, bool $includeDisabled = false): array
 
       List accessible secrets.
 
       :param string|null $pattern: Optional pattern to filter identifiers (supports the ``*`` wildcard).
-      :returns: A ``list<SecretMetadata>`` of secret metadata DTOs (``Netresearch\NrVault\Domain\Dto\SecretMetadata``).
+      :param bool $includeDisabled: Also return disabled secrets. Off by default, so a consumer asking which secrets are available keeps the answer it had; the management surfaces pass ``true``, because a disabled secret that never appears in a listing cannot be re-enabled.
+      :returns: A ``list<SecretMetadata>`` of secret metadata DTOs (``Netresearch\NrVault\Domain\Dto\SecretMetadata``); each entry reports its availability in ``$enabled``.
 
    .. php:method:: getMetadata(string $identifier): SecretDetails
 
-      Get metadata for a secret without retrieving its value.
+      Get metadata for a secret without retrieving its value. Resolves a
+      disabled secret too — metadata is not the value, and withholding it
+      would hide the record from the form that re-enables it.
 
       :param string $identifier: The secret identifier.
-      :returns: A ``SecretDetails`` DTO (``Netresearch\NrVault\Domain\Dto\SecretDetails``) with identifier, description, owner, groups, version, etc.
+      :returns: A ``SecretDetails`` DTO (``Netresearch\NrVault\Domain\Dto\SecretDetails``) with identifier, description, owner, groups, version, availability (``$enabled``), etc.
       :throws SecretNotFoundException: If secret doesn't exist.
       :throws AccessDeniedException: If user lacks permission.
 

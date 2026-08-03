@@ -124,7 +124,17 @@ VaultServiceInterface::delete(string $identifier, string $reason = ''): void
 // An absent secret passes.
 VaultServiceInterface::assertDeletable(string $identifier): void
 VaultServiceInterface::rotate(string $identifier, string $newSecret, string $reason = ''): void
-VaultServiceInterface::list(?string $pattern = null): array
+// The single write path for a secret's availability. Disabling withdraws it from
+// every read path at once (TCA `disabled` enable column), so it is gated by
+// canWrite() AND secret.manage_policy, audited as `metadata_update`, and
+// compensated on a failed audit write. Absolute, not a toggle: setting the
+// current state is a no-op. A disabled secret stays administrable — it can be
+// re-enabled, rotated, deleted, and its metadata read.
+VaultServiceInterface::setEnabled(string $identifier, bool $enabled, string $reason = ''): void
+// `$includeDisabled` widens the listing to secrets that are out of service;
+// off by default, passed by the management surfaces only. Each SecretMetadata
+// reports its state in `$enabled`.
+VaultServiceInterface::list(?string $pattern = null, bool $includeDisabled = false): array
 VaultServiceInterface::getMetadata(string $identifier): SecretDetails
 VaultServiceInterface::http(): VaultHttpClientInterface
 

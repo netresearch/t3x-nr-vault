@@ -79,7 +79,13 @@ Compensation where refusal is impossible
 ----------------------------------------
 
 On the programmatic path the mutation is applied, then audited, and a failed audit write is compensated by reverting the mutation: ``VaultService::compensateAuditFailure()``.
-It is used by ``store()`` (restore the prior envelope on update, delete the just-inserted record on create), ``delete()`` (re-insert the record) and ``rotate()`` (restore the pre-rotation envelope and version).
+It is used by ``store()`` (restore the prior envelope on update, delete the just-inserted record on create), ``delete()`` (re-insert the record), ``rotate()`` (restore the pre-rotation envelope and version) and ``setEnabled()`` (restore the previous availability).
+
+``setEnabled()`` is worth naming separately, because it is the mutation whose loss is hardest to notice.
+Disabling a secret withdraws it from every read path at once — the record carries TCA's ``disabled`` enable column, so the ``HiddenRestriction`` in every restriction-honouring query removes it — and it leaves the value, the identifier and every other column untouched.
+An unaudited disable is therefore a silent revocation of access that looks exactly like a secret nobody has used lately.
+It carries the same two gates as the other mutations (the per-secret ``canWrite()`` tier plus ``secret.manage_policy``), and it sets an ABSOLUTE state rather than toggling: two concurrent toggles cancel out and leave two entries claiming opposite outcomes, whereas two concurrent ``setEnabled($id, false)`` calls converge on the state their caller asked for.
+Setting the state a secret already has writes nothing and audits nothing — there is no mutation — while a refusal is audited either way.
 
 Three properties make it a control rather than a gesture:
 
@@ -230,7 +236,9 @@ References
 -  :ref:`adr-018-flexform-secret-lifecycle` — the FlexForm counterpart
 -  :ref:`adr-034-audit-chain-tip-anchor` — what the chain proves once complete
 -  :ref:`tca-record-operations` — record copy/delete semantics and their residuals
--  ``Classes/Service/VaultService.php`` — ``compensateAuditFailure()``
+-  ``Classes/Service/VaultService.php`` — ``compensateAuditFailure()``, ``setEnabled()``
 -  ``Classes/Hook/SecretTcaHook.php`` — snapshot, restore and purge
 -  ``Classes/Audit/AuditChainLockTrait.php`` — why one shared transaction is impossible
 -  ``Tests/Functional/Hook/SecretTcaHookAuditAtomicityTest.php``
+-  ``Tests/Functional/Service/VaultServiceAtomicityTest.php`` — the programmatic compensations, availability included
+-  ``Tests/Functional/Service/SecretAvailabilityTest.php`` — that a disabled secret is unreadable yet still administrable
