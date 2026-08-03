@@ -1207,7 +1207,7 @@ parameters:
 		-
 			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
 			identifier: staticMethod.dynamicCall
-			count: 7
+			count: 8
 			path: ../Tests/Unit/Adapter/LocalEncryptionAdapterTest.php
 
 		-
@@ -1849,19 +1849,19 @@ parameters:
 		-
 			rawMessage: 'Call to an undefined method TYPO3\CMS\Core\Database\Query\QueryBuilder::method().'
 			identifier: method.notFound
-			count: 14
+			count: 20
 			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
 
 		-
 			rawMessage: 'Cannot call method willReturn() on mixed.'
 			identifier: method.nonObject
-			count: 14
+			count: 19
 			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
 
 		-
 			rawMessage: 'Cannot call method willReturnOnConsecutiveCalls() on mixed.'
 			identifier: method.nonObject
-			count: 2
+			count: 3
 			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
 
 		-
@@ -1879,7 +1879,7 @@ parameters:
 		-
 			rawMessage: 'Dynamic call to static method PHPUnit\Framework\TestCase::createStub().'
 			identifier: staticMethod.dynamicCall
-			count: 64
+			count: 72
 			path: ../Tests/Unit/Domain/Repository/SecretRepositoryTest.php
 
 		-

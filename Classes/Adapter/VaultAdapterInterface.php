@@ -46,8 +46,26 @@ interface VaultAdapterInterface
 
     /**
      * Retrieve a secret by identifier.
+     *
+     * Honours the storage backend's availability flag: a disabled secret is
+     * NOT returned here, which is how disabling revokes access to the value
+     * everywhere at once.
      */
     public function retrieve(string $identifier): ?Secret;
+
+    /**
+     * Retrieve a secret by identifier INCLUDING a disabled one.
+     *
+     * The administrative counterpart of {@see retrieve()}, for the operations
+     * that must still reach a disabled secret — re-enabling, rotating,
+     * deleting it, showing its metadata. A secret removed for good (soft
+     * delete) stays invisible.
+     *
+     * Callers on a path that returns plaintext MUST use `retrieve()`: the
+     * whole effect of disabling a secret is that this lookup and that one give
+     * different answers.
+     */
+    public function retrieveIncludingDisabled(string $identifier): ?Secret;
 
     /**
      * Delete a secret.

@@ -43,9 +43,20 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
         return $this->secretRepository->findByIdentifier($identifier);
     }
 
+    public function retrieveIncludingDisabled(string $identifier): ?Secret
+    {
+        return $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
+    }
+
+    /**
+     * Deleting resolves the record through the disabled-visible lookup: a
+     * disabled secret is still a secret, and its owner must be able to remove
+     * it. Using the restricted lookup here would make the delete a silent
+     * no-op for exactly the records an operator most likely wants gone.
+     */
     public function delete(string $identifier): void
     {
-        $secret = $this->secretRepository->findByIdentifier($identifier);
+        $secret = $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
         if ($secret instanceof Secret) {
             $this->secretRepository->delete($secret);
         }

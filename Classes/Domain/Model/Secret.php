@@ -163,6 +163,21 @@ final readonly class Secret
     }
 
     /**
+     * Flip the availability flag backing TCA's `disabled` enable column.
+     *
+     * `hidden = 1` removes the record from every restriction-honouring query,
+     * which is how disabling revokes access to the value everywhere at once.
+     * Called from `VaultService::setEnabled()`, the single write path for
+     * this column outside FormEngine; the inverted naming is deliberate —
+     * the column keeps core's `hidden` semantics, the service API speaks in
+     * the positive `enabled` form an operator reads on the button.
+     */
+    public function withHidden(bool $hidden): self
+    {
+        return $this->cloneWith(['hidden' => $hidden]);
+    }
+
+    /**
      * Replace the metadata array. Called from
      * `LocalEncryptionAdapter::storeMetadata()` when an adapter needs to
      * persist its own bookkeeping (e.g. external-reference details).

@@ -19,6 +19,19 @@ interface SecretRepositoryInterface
 {
     public function findByIdentifier(string $identifier): ?Secret;
 
+    /**
+     * Resolve a secret by identifier INCLUDING one that is disabled
+     * (`hidden = 1`), which {@see findByIdentifier()} deliberately cannot see.
+     *
+     * Reserved for administrative operations that must still reach a disabled
+     * record — re-enabling, rotation, deletion, metadata display. Soft-deleted
+     * records stay invisible here; only the enable columns are given up. Never
+     * use this on a path that returns plaintext: disabling a secret revokes
+     * access precisely because the enable-column restriction removes it from
+     * the read path's query.
+     */
+    public function findByIdentifierIncludingDisabled(string $identifier): ?Secret;
+
     public function findByUid(int $uid): ?Secret;
 
     public function exists(string $identifier): bool;

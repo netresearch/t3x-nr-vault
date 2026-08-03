@@ -93,15 +93,53 @@ final class LocalEncryptionAdapterTest extends TestCase
         self::assertNull($adapter->retrieve('nonexistent'));
     }
 
+    /**
+     * The two lookups are separate seams on purpose, and the adapter must not
+     * quietly route one to the other: the read path resolves through
+     * `findByIdentifier()`, which cannot see a disabled record, while the
+     * administrative path resolves through the lookup that can.
+     */
+    #[Test]
+    public function retrieveIncludingDisabledDelegatesToTheDisabledVisibleLookup(): void
+    {
+        $secret = new Secret(identifier: 'test');
+
+        $repository = $this->createMock(SecretRepositoryInterface::class);
+        $repository->expects(self::once())
+            ->method('findByIdentifierIncludingDisabled')
+            ->with('test')
+            ->willReturn($secret);
+        $repository->expects(self::never())->method('findByIdentifier');
+
+        $adapter = new LocalEncryptionAdapter($repository);
+
+        self::assertSame($secret, $adapter->retrieveIncludingDisabled('test'));
+    }
+
+    #[Test]
+    public function retrieveIncludingDisabledReturnsNullWhenNotFound(): void
+    {
+        $repository = $this->createStub(SecretRepositoryInterface::class);
+        $repository->method('findByIdentifierIncludingDisabled')->willReturn(null);
+
+        $adapter = new LocalEncryptionAdapter($repository);
+
+        self::assertNull($adapter->retrieveIncludingDisabled('nonexistent'));
+    }
+
     #[Test]
     public function deleteRemovesExistingSecret(): void
     {
         $secret = new Secret(identifier: 'test');
 
         $repository = $this->createMock(SecretRepositoryInterface::class);
-        $repository->method('findByIdentifier')
+        // The disabled-visible lookup, deliberately: a disabled secret is
+        // still a secret, and resolving the delete through the restricted
+        // lookup would make it a silent no-op for exactly those records.
+        $repository->method('findByIdentifierIncludingDisabled')
             ->with('test')
             ->willReturn($secret);
+        $repository->expects(self::never())->method('findByIdentifier');
         $repository->expects(self::once())
             ->method('delete')
             ->with($secret);
@@ -114,7 +152,7 @@ final class LocalEncryptionAdapterTest extends TestCase
     public function deleteDoesNothingWhenSecretNotFound(): void
     {
         $repository = $this->createMock(SecretRepositoryInterface::class);
-        $repository->method('findByIdentifier')->willReturn(null);
+        $repository->method('findByIdentifierIncludingDisabled')->willReturn(null);
         $repository->expects(self::never())->method('delete');
 
         $adapter = new LocalEncryptionAdapter($repository);
