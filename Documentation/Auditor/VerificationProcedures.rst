@@ -22,6 +22,14 @@ finding rather than a matter of interpretation.
 
 Read-only evidence collection is in :ref:`auditor-evidence-collection`.
 
+..  note::
+
+    The ``vault:audit`` queries below assert ``audit.view``, and
+    ``vault:audit --verify`` asserts ``vault.configure``. Both are excluded
+    from the :confval:`ext-nrvault-cliAllowedOperations` default, so grant them
+    to the actor running the procedure (see :ref:`auditor-evidence-collection`)
+    or read the same rows through the audit module.
+
 .. _auditor-verify-reveal-audited:
 
 Procedure 1 — A reveal writes an audit row

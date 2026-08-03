@@ -50,6 +50,15 @@ Step 2 — determine scope from the audit log
     # Everything that happened to one identifier.
     vendor/bin/typo3 vault:audit --identifier=<identifier>
 
+..  note::
+
+    Reading the audit log asserts ``audit.view``, and ``--export`` asserts
+    ``audit.export``; :confval:`ext-nrvault-cliAllowedOperations` excludes
+    both. Under time pressure this is the moment the command exits 1 — sort the
+    grant out before the incident (a named technical actor for the response
+    runbook is the clean answer), not during it. The audit module in the
+    backend needs the same two permissions and no CLI allowlist entry.
+
 Answer these, and write down the answers:
 
 *   **Which secrets?** Only the one observed, or every secret the compromised

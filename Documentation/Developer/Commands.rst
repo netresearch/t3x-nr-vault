@@ -364,6 +364,22 @@ Options
 --export=FILE, -e FILE
    Export results to a file (format taken from ``--format``).
 
+.. important::
+
+   Every mode of this command asserts an operation permission: listing and
+   console output assert ``audit.view``, ``--export`` asserts ``audit.export``,
+   and ``--verify`` / ``--reset-anchor`` assert ``vault.configure`` — they act
+   on the integrity state of the chain rather than reading its contents. A
+   refusal exits 1 before any work happens: nothing is queried, no export file
+   is written, and the tip anchor is left untouched.
+
+   :confval:`ext-nrvault-cliAllowedOperations` excludes all three permissions
+   by default, so for the unattributed CLI actor this command needs
+   ``allowCliAccess`` **and** the operation in that allowlist. Prefer a named
+   technical actor (:ref:`developer-technical-actor-context`) over widening the
+   allowlist — the audit trail then names the identity that read or exported
+   the log.
+
 .. _command-audit-example:
 
 Example

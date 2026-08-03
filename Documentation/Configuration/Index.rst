@@ -224,14 +224,13 @@ CLI access
    Note that the scheduled orphan cleanup deletes secrets and therefore
    needs ``secret.delete`` when it runs as the bare CLI actor.
 
-   Three of those five change what a CLI command can do today:
-   ``secret.reveal``, ``secret.delete`` and ``master_key.rotate``.
-   ``audit.export`` and ``vault.configure`` gate the corresponding **backend**
-   actions — the audit module's export and the migration wizard —
-   and :bash:`vault:audit --export` asserts no operation permission of its
-   own. Withholding them here still matters: the list is the record of what
-   the unattributed CLI actor has been granted, and a CLI surface for either
-   would inherit it.
+   All five change what a CLI command can do: ``secret.reveal``
+   (:bash:`vault:retrieve`), ``secret.delete`` (:bash:`vault:delete`),
+   ``master_key.rotate`` (:bash:`vault:rotate-master-key`), ``audit.export``
+   (:bash:`vault:audit --export`) and ``vault.configure`` (:bash:`vault:audit
+   --verify` and :bash:`--reset-anchor`). ``audit.view``, which
+   :bash:`vault:audit` asserts for plain listing, is excluded as well — so
+   reading the audit log from an unattributed shell needs it added here too.
 
 .. confval:: frontendPlaceholderLegacyCli
    :name: ext-nrvault-frontendPlaceholderLegacyCli

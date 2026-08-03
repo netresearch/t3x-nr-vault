@@ -152,6 +152,14 @@ Restore procedure
         vendor/bin/typo3 vault:audit --verify
         vendor/bin/typo3 vault:audit --reset-anchor
 
+    ..  note::
+
+        Both assert ``vault.configure``, which
+        :confval:`ext-nrvault-cliAllowedOperations` excludes. On the CLI they
+        need ``allowCliAccess = 1`` **and** that operation in the allowlist, or
+        a named technical actor. Restoring the allowlist to its previous value
+        is part of finishing the restore.
+
 ..  warning::
 
     Do not run a restored production database against a *fresh* master key in

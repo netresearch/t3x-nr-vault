@@ -250,6 +250,14 @@ arms itself on the next audit write; confirm it did, then require it:
 
     vendor/bin/typo3 vault:audit --verify   # "Tip anchor: ok" — not "NOT ARMED"
 
+..  note::
+
+    ``vault:audit --verify`` asserts ``vault.configure``; the listing form used
+    further down asserts ``audit.view``. Neither is in the
+    :confval:`ext-nrvault-cliAllowedOperations` default, and with the admin
+    override disabled an admin no longer holds them implicitly — grant them to
+    the group these checks run as, or run them as a named technical actor.
+
 ..  code-block:: none
     :caption: Extension configuration — only after the anchor reports ``ok``
 

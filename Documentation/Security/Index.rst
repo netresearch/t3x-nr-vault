@@ -343,12 +343,15 @@ Permission                          Governs
 ``tx_nrvault:secret.delete``        Deleting secrets.
 ``tx_nrvault:secret.manage_policy`` Enabling/disabling secrets and editing their
                                     ``allowed_groups`` / ``write_groups`` tiers.
-``tx_nrvault:audit.view``           Reading the audit log, its usage analytics, and verifying the
-                                    hash chain.
-``tx_nrvault:audit.export``         Downloading the audit log (JSON / CSV).
+``tx_nrvault:audit.view``           Reading the audit log and its usage analytics (audit module,
+                                    ``vault:audit``), and verifying the hash chain in the module.
+``tx_nrvault:audit.export``         Downloading the audit log (JSON / CSV), in the module and via
+                                    ``vault:audit --export``.
 ``tx_nrvault:master_key.rotate``    Rotating the master key.
-``tx_nrvault:vault.configure``      Running the migration wizard, and seeing the detailed
-                                    ``vault:doctor`` finding list in the Overview module.
+``tx_nrvault:vault.configure``      Running the migration wizard, seeing the detailed
+                                    ``vault:doctor`` finding list in the Overview module, and the
+                                    CLI chain-integrity operations ``vault:audit --verify`` and
+                                    ``--reset-anchor``.
 =================================== ==============================================================
 
 Notes on the model:

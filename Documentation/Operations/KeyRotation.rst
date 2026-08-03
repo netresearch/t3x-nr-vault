@@ -235,6 +235,8 @@ Verification
     # 5. The in-database anchor is re-sealed by the rotation itself. Confirm
     #    it reads "Tip anchor: ok" — a re-key that left it UNREADABLE means
     #    the re-seal did not complete, and that is a finding, not a nuisance.
+    #    Needs vault.configure: on the CLI that is allowCliAccess = 1 AND
+    #    vault.configure in cliAllowedOperations, or a named technical actor.
     vendor/bin/typo3 vault:audit --verify
 
 Probe at least two secrets, and pick them from different encryption versions

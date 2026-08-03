@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`vault:audit` now asserts an operation permission (breaking).** The command
+  gated nothing at all, while the same four capabilities were gated in the
+  backend module all along: anyone who could invoke it could read the audit log
+  — who touched which secret when, which maps out the credential topology —
+  carry an unchained copy of it off with `--export`, or clear the
+  tamper-evidence tip anchor. Listing and console output now assert
+  `audit.view`, `--export` asserts `audit.export`, and `--verify` /
+  `--reset-anchor` assert `vault.configure`, because they act on the chain's
+  integrity state rather than reading its contents. A refusal exits 1 before
+  any query, file write or anchor change happens, and writes no `access_denied`
+  entry — the same shape as every other operation-permission gate
+  (`vault:retrieve`, `vault:rotate-master-key`, the backend modules).
+- **Migration.** All three permissions are excluded from the
+  `cliAllowedOperations` default, so `vault:audit` run from a shell now needs
+  `allowCliAccess = 1` **and** the operation added to that list. Prefer a named
+  technical actor (`TechnicalActorContext::runAs()`) holding exactly those
+  permissions: the audit trail then names the identity that read or exported
+  the log. A backend user needs the matching `tx_nrvault:<permission>` custom
+  option on one of their groups; admins are unaffected unless the admin
+  override is disabled.
+
 ### Security
 
 - **Truncating the audit log is no longer invisible** (ADR-034). The hash chain
