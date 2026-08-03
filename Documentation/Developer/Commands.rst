@@ -25,7 +25,7 @@ Initialize the vault by creating a master key.
 Options
 -------
 
---output, -o
+--output=PATH, -o PATH
    Path to store the master key file (default: configured path or :file:`var/vault/master.key`).
 
 --force, -f
@@ -648,13 +648,13 @@ Scan for potential plaintext secrets in database and configuration.
 Options
 -------
 
---format, -f
+--format=FORMAT, -f FORMAT
    Output format: table (default), json, or summary.
 
---exclude, -e
+--exclude=TABLES, -e TABLES
    Comma-separated list of tables to exclude (supports wildcards).
 
---severity, -s
+--severity=LEVEL, -s LEVEL
    Minimum severity to report: critical, high, medium, low (default: low).
 
 --database-only
@@ -740,10 +740,10 @@ Options
 --dry-run
    Show what would be migrated without making changes.
 
---batch-size, -b
+--batch-size=N, -b N
    Number of records to process per batch (default: 100).
 
---where, -w
+--where=SQL, -w SQL
    Additional WHERE clause to filter records (e.g., ``pid=1``).
 
 --force, -f
@@ -752,7 +752,7 @@ Options
 --clear-source
    Clear the source field after migration (set to empty string).
 
---uid-field
+--uid-field=NAME
    Name of the UID field (default: uid).
 
 .. attention::
@@ -800,13 +800,13 @@ Options
 --dry-run
    Show what would be deleted without making changes.
 
---retention-days, -r
+--retention-days=DAYS, -r DAYS
    Only delete orphans older than this many days (default: 0).
 
---table, -t
+--table=TABLE, -t TABLE
    Only check secrets for this specific table.
 
---batch-size, -b
+--batch-size=N, -b N
    Number of secrets to check per batch (default: 100).
 
 .. _command-cleanup-orphans-example:
@@ -947,12 +947,12 @@ Options
 --status, -s
    Show the current state. This is the default when no action is given.
 
---reason, -r
+--reason=TEXT, -r TEXT
    Justification recorded in the audit log and shown in the backend warning
    banner. Mandatory for ``--activate`` and ``--deactivate``; an empty or
    whitespace-only value is rejected.
 
---minutes, -m
+--minutes=N, -m N
    Window length in minutes (default: 15). Values are clamped to the range
    1..60 rather than rejected.
 
