@@ -101,6 +101,19 @@ a verification run after key destruction proves nothing.
 
         vendor/bin/typo3 vault:audit-anchor
 
+    ..  note::
+
+        Both commands assert an operation permission (breaking change; they
+        previously asserted none): ``vault:audit-verify`` needs ``audit.view``,
+        ``vault:audit-anchor`` needs ``vault.configure``, and the export in the
+        next step needs ``audit.export``. All three are excluded from the
+        :confval:`ext-nrvault-cliAllowedOperations` default, so from a shell
+        they need ``allowCliAccess = 1`` **and** the operation in that
+        allowlist — or, better for an evidence run, a named technical actor, so
+        the record names who collected the evidence. Sort the grant out before
+        the decommissioning window: after the master key is destroyed there is
+        no second chance at this output.
+
 #.  **Export the audit log** in full, over the entire retained period, with
     the hash columns included — ``uid``, ``previous_hash``, ``entry_hash``,
     ``hmac_key_epoch``. Without them the export is a log, not evidence.

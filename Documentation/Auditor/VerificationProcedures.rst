@@ -24,11 +24,14 @@ Read-only evidence collection is in :ref:`auditor-evidence-collection`.
 
 ..  note::
 
-    The ``vault:audit`` queries below assert ``audit.view``, and
-    ``vault:audit --verify`` asserts ``vault.configure``. Both are excluded
-    from the :confval:`ext-nrvault-cliAllowedOperations` default, so grant them
-    to the actor running the procedure (see :ref:`auditor-evidence-collection`)
-    or read the same rows through the audit module.
+    The ``vault:audit`` queries below assert ``audit.view``, and so do
+    ``vault:audit --verify`` and ``vault:audit-verify`` — verification is a
+    read of the chain. The one procedure that publishes a baseline anchor
+    (``vault:audit-anchor``) asserts ``vault.configure`` instead, because it
+    mutates tamper evidence. Both permissions are excluded from the
+    :confval:`ext-nrvault-cliAllowedOperations` default, so grant them to the
+    actor running the procedure (see :ref:`auditor-evidence-collection`) or
+    read the same rows through the audit module.
 
 .. _auditor-verify-reveal-audited:
 

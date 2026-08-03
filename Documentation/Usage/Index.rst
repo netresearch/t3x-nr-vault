@@ -508,9 +508,11 @@ View the audit log:
 
 .. important::
 
-   Listing asserts ``audit.view``, ``--export`` asserts ``audit.export``, and
-   ``--verify`` / ``--reset-anchor`` assert ``vault.configure``. On the CLI all
-   three additionally need ``allowCliAccess`` plus the operation in
+   Listing and ``--verify`` assert ``audit.view`` — verification recomputes and
+   compares, which is a read of the chain. ``--export`` asserts
+   ``audit.export``, and ``--reset-anchor`` asserts ``vault.configure``,
+   because it mutates tamper evidence. On the CLI all three additionally need
+   ``allowCliAccess`` plus the operation in
    :confval:`ext-nrvault-cliAllowedOperations`, which excludes them by default
    — see :ref:`command-audit`.
 

@@ -20,8 +20,11 @@ artefact is the evidence, not the terminal.
     unattributed CLI actor holds only when ``allowCliAccess = 1`` **and** the
     operation appears in :confval:`ext-nrvault-cliAllowedOperations`:
     ``vault:retrieve`` (``secret.reveal``), ``vault:rotate-master-key``
-    (``master_key.rotate``), and ``vault:audit`` — ``audit.view`` to list,
-    ``audit.export`` for ``--export``, ``vault.configure`` for ``--verify``.
+    (``master_key.rotate``), ``vault:audit`` — ``audit.view`` to list and to
+    ``--verify``, ``audit.export`` for ``--export``, ``vault.configure`` for
+    ``--reset-anchor`` — and the two scheduler-task wrappers,
+    ``vault:audit-verify`` (``audit.view``) and ``vault:audit-anchor``
+    (``vault.configure``).
     The cleanest arrangement for an assessment is a named technical actor
     holding exactly those, so every evidence command appears in the audit trail
     under its own identity rather than as the anonymous CLI operator.

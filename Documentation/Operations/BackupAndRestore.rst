@@ -154,9 +154,11 @@ Restore procedure
 
     ..  note::
 
-        Both assert ``vault.configure``, which
-        :confval:`ext-nrvault-cliAllowedOperations` excludes. On the CLI they
-        need ``allowCliAccess = 1`` **and** that operation in the allowlist, or
+        ``vault:audit-anchor`` and ``--reset-anchor`` assert
+        ``vault.configure``; ``--verify`` asserts ``audit.view``. Both
+        permissions are excluded by
+        :confval:`ext-nrvault-cliAllowedOperations`, so on the CLI these steps
+        need ``allowCliAccess = 1`` **and** the operation in the allowlist, or
         a named technical actor. Restoring the allowlist to its previous value
         is part of finishing the restore.
 

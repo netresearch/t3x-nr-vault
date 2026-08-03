@@ -366,12 +366,17 @@ Options
 
 .. important::
 
-   Every mode of this command asserts an operation permission: listing and
-   console output assert ``audit.view``, ``--export`` asserts ``audit.export``,
-   and ``--verify`` / ``--reset-anchor`` assert ``vault.configure`` — they act
-   on the integrity state of the chain rather than reading its contents. A
-   refusal exits 1 before any work happens: nothing is queried, no export file
-   is written, and the tip anchor is left untouched.
+   Every mode of this command asserts an operation permission: listing,
+   console output and ``--verify`` assert ``audit.view``, ``--export`` asserts
+   ``audit.export``, and ``--reset-anchor`` asserts ``vault.configure``. A
+   refusal exits 1 before any work happens: nothing is queried, no chain is
+   read, no export file is written, and the tip anchor is left untouched.
+
+   ``--verify`` shares ``audit.view`` with the listing because verification
+   recomputes and compares — it mutates nothing, so it is a read of the chain,
+   and the audit module gates the same operation the same way.
+   ``--reset-anchor`` is the outlier: it clears the truncation anchor and
+   writes into the chain, which is vault administration.
 
    :confval:`ext-nrvault-cliAllowedOperations` excludes all three permissions
    by default, so for the unattributed CLI actor this command needs
@@ -444,6 +449,30 @@ Options
 --format=FORMAT, -f FORMAT
    Output format: ``text`` (default) or ``json``.
 
+.. important::
+
+   This command asserts ``vault.configure`` — the same permission
+   ``vault:audit --reset-anchor`` asserts, because both mutate tamper evidence.
+   An actor who truncates the log and then anchors makes the external sink
+   attest the truncated chain, which is the laundering the anchor exists to
+   prevent. A refusal exits 1 without reading the chain tip and without
+   publishing anything; in ``--format=json`` the body carries the reason.
+
+   ``--dry-run`` is gated identically rather than as a read: it publishes
+   nothing, but it prints the current chain tip — the value a forged anchor has
+   to reproduce — and it is the rehearsal of an administrative operation.
+
+   :confval:`ext-nrvault-cliAllowedOperations` excludes ``vault.configure`` by
+   default, so from a shell this command needs ``allowCliAccess`` **and** that
+   operation in the allowlist. **Scheduled runs are unaffected on a default
+   installation**: the *Vault Audit Chain Anchoring* task runs under
+   :bash:`scheduler:run`, which authenticates the ``_cli_`` administrator, and
+   the admin bypass grants it. Under ``disableAdminOverride`` the bypass is gone
+   by design and that identity needs a group carrying
+   ``tx_nrvault:vault.configure``; without it the task fails rather than
+   skipping quietly, because an anchoring run that did not happen must never
+   look like one that did.
+
 .. _command-audit-anchor-exit-codes:
 
 Exit codes
@@ -508,6 +537,27 @@ Options
    (``NO_EXTERNAL_SINK``, ``SINK_FAILURE``) as warnings. Useful while external
    sinks are still being rolled out, so a pending integration does not keep the
    check permanently red and train operators to ignore a real alarm.
+
+.. important::
+
+   This command asserts ``audit.view``, the same permission
+   ``vault:audit --verify`` and the audit module's *Verify chain* action
+   assert: verification recomputes and compares, it mutates nothing, so it is a
+   read of the chain wherever it is invoked from. A refusal exits 1 without
+   running any verification, and in ``--format=json`` reports ``valid: false``
+   — a verifier that was not allowed to run must never read as a verifier that
+   found nothing. ``--tamper-only`` does not soften a refusal: that is not a
+   finding about the chain.
+
+   :confval:`ext-nrvault-cliAllowedOperations` excludes ``audit.view`` by
+   default, so from a shell this command needs ``allowCliAccess`` **and** that
+   operation in the allowlist. **Scheduled runs are unaffected on a default
+   installation**: the *Vault Audit Integrity Verification* task runs under
+   :bash:`scheduler:run`, which authenticates the ``_cli_`` administrator, and
+   the admin bypass grants it. Under ``disableAdminOverride`` that identity
+   needs a group carrying ``tx_nrvault:audit.view``; without it the task fails,
+   for the same reason a verification that threw does — a check that did not
+   run must never report success.
 
 .. _command-audit-verify-reason-codes:
 

@@ -343,18 +343,32 @@ Permission                          Governs
 ``tx_nrvault:secret.delete``        Deleting secrets.
 ``tx_nrvault:secret.manage_policy`` Enabling/disabling secrets and editing their
                                     ``allowed_groups`` / ``write_groups`` tiers.
-``tx_nrvault:audit.view``           Reading the audit log and its usage analytics (audit module,
-                                    ``vault:audit``), and verifying the hash chain in the module.
+``tx_nrvault:audit.view``           Reading the audit log and its usage analytics, and verifying
+                                    the hash chain — in the audit module, via ``vault:audit`` /
+                                    ``vault:audit --verify`` / ``vault:audit-verify``, and in the
+                                    *Vault Audit Integrity Verification* scheduler task.
 ``tx_nrvault:audit.export``         Downloading the audit log (JSON / CSV), in the module and via
                                     ``vault:audit --export``.
 ``tx_nrvault:master_key.rotate``    Rotating the master key.
 ``tx_nrvault:vault.configure``      Running the migration wizard, seeing the detailed
-                                    ``vault:doctor`` finding list in the Overview module, and the
-                                    CLI chain-integrity operations ``vault:audit --verify`` and
-                                    ``--reset-anchor``.
+                                    ``vault:doctor`` finding list in the Overview module, and
+                                    mutating the audit chain-tip anchor — ``vault:audit-anchor``,
+                                    the *Vault Audit Chain Anchoring* scheduler task, and
+                                    ``vault:audit --reset-anchor``.
 =================================== ==============================================================
 
 Notes on the model:
+
+-  **The permission follows the operation's effect, not the command it
+   happens to live in.** The same operation answers to the same permission
+   through every entry point — interactive CLI, the scheduler-task wrapper
+   command, the scheduler task class, and the backend module — so a gate on
+   one entry point cannot be walked around by reaching for another. Verifying
+   the chain is a read (it recomputes and compares, it mutates nothing) and
+   therefore takes ``audit.view`` everywhere; publishing or resetting the tip
+   anchor mutates tamper evidence and therefore takes ``vault.configure``
+   everywhere. Auditing an installation means checking the *effect*, not
+   enumerating commands.
 
 -  **``secret.use`` does not imply ``secret.reveal``**, and neither
    implies the other. A non-admin needs **both** for an end-to-end
