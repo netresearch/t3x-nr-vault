@@ -114,18 +114,24 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
     }
 
     /**
+     * The merge is read-then-write, so the resolved record supplies both the
+     * base metadata and the UID the write is addressed to. Only the `metadata`
+     * column is written: saving the whole entity back would restore the
+     * envelope, version and read counters as they stood at the read above,
+     * discarding a `retrieve()` or `rotate()` that committed in between — the
+     * exact exposure `setHidden()` avoids, on a method whose contract is
+     * "without changing the secret value".
+     *
      * @param array<string, mixed> $metadata
      */
     public function updateMetadata(string $identifier, array $metadata): void
     {
         $secret = $this->secretRepository->findByIdentifier($identifier);
-        if (!$secret instanceof Secret) {
+        $uid = $secret?->getUid();
+        if (!$secret instanceof Secret || $uid === null) {
             return;
         }
 
-        $existing = $secret->getMetadata();
-        /** @var array<string, mixed> $merged */
-        $merged = array_merge($existing, $metadata);
-        $this->secretRepository->save($secret->withMetadata($merged));
+        $this->secretRepository->setMetadata($uid, array_merge($secret->getMetadata(), $metadata));
     }
 }

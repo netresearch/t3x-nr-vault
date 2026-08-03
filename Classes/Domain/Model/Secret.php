@@ -163,9 +163,12 @@ final readonly class Secret
     }
 
     /**
-     * Replace the metadata array. Called from
-     * `LocalEncryptionAdapter::storeMetadata()` when an adapter needs to
-     * persist its own bookkeeping (e.g. external-reference details).
+     * Replace the metadata array on a copy of the entity, for an adapter that
+     * needs to carry its own bookkeeping (e.g. external-reference details)
+     * through a call taking a `Secret`. Note that persisting the result via
+     * `SecretRepositoryInterface::save()` writes every scalar column; the
+     * targeted write of that one column is
+     * `SecretRepositoryInterface::setMetadata()`.
      *
      * @param array<string, mixed> $metadata
      */

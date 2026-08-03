@@ -783,6 +783,12 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
      * by secret.manage_policy, so an accidental reset is a policy change
      * without its permission.
      *
+     * The same applies to the columns no caller submits at all and this path
+     * does not own: `last_rotated_at` belongs to `rotate()`, `read_count` and
+     * `last_read_at` to the read path. `toDatabaseRow()` writes every scalar
+     * column, so omitting one here is not "leaving it alone" — it is writing
+     * the constructor default over whatever the owning path recorded.
+     *
      * @param array<string, mixed> $options
      */
     private function buildSecretEntity(
@@ -812,6 +818,12 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             frontendAccessible: $this->resolveFrontendAccessible($optional['frontendAccessible'], $existing),
             version: $existing instanceof Secret ? $existing->getVersion() : 1,
             expiresAt: $optional['expiresAt'],
+            // Carried, not recomputed: `store()` writes a value, it does not
+            // rotate one, so it has no rotation instant of its own to record.
+            // Leaving this to the constructor default would report a secret
+            // that WAS rotated as never rotated, because `toDatabaseRow()`
+            // writes the column on every UPDATE.
+            lastRotatedAt: $existing?->getLastRotatedAt() ?? 0,
             metadata: $optional['metadata'],
             adapter: 'local',
             crdate: $existing instanceof Secret ? $existing->getCrdate() : time(),
@@ -821,6 +833,14 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             // quietly put it back into service. `setEnabled()` is the only
             // path that changes this, and it asserts secret.manage_policy.
             hidden: $existing instanceof Secret && $existing->isHidden(),
+            // Access accounting belongs to the read path
+            // (`incrementReadCount()`), which owns both columns. Rebuilding
+            // the entity from the write path's inputs must carry them over —
+            // the alternative is a write that silently zeroes how often the
+            // secret was read and when it was last read, the numbers an audit
+            // consults.
+            readCount: $existing?->getReadCount() ?? 0,
+            lastReadAt: $existing?->getLastReadAt() ?? 0,
         );
     }
 

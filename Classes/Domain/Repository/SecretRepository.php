@@ -253,6 +253,25 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         );
     }
 
+    /**
+     * Set a record's metadata, addressed by UID.
+     *
+     * The `metadata` counterpart of {@see setHidden()}: one UPDATE of that
+     * column and `tstamp`. `json_encode()` is the same serialisation
+     * {@see Secret::toDatabaseRow()} applies, so a row written here is
+     * indistinguishable from one written by a full save.
+     *
+     * @param array<string, mixed> $metadata
+     */
+    public function setMetadata(int $uid, array $metadata): void
+    {
+        $this->getConnection()->update(
+            self::TABLE_NAME,
+            ['metadata' => json_encode($metadata), 'tstamp' => time()],
+            ['uid' => $uid],
+        );
+    }
+
     public function delete(Secret $secret): void
     {
         if ($secret->getUid() === null) {

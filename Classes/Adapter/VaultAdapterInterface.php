@@ -112,7 +112,14 @@ interface VaultAdapterInterface
     public function getMetadata(string $identifier): ?array;
 
     /**
-     * Update metadata without changing the secret value.
+     * Merge into a secret's metadata without changing the secret value.
+     *
+     * "Without changing the value" is a requirement on the write, not just a
+     * description of the arguments: an implementation that persists a whole
+     * entity to change one column restores the envelope, version and read
+     * counters from the read it started with, undoing anything that committed
+     * in between. Write the metadata alone — see {@see setHidden()} for the
+     * same rule on the availability flag.
      *
      * @param array<string, mixed> $metadata
      */
