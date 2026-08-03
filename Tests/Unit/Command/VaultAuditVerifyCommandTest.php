@@ -170,6 +170,77 @@ final class VaultAuditVerifyCommandTest extends TestCase
     }
 
     /**
+     * The distribution is reported on a CLEAN run, not only on a failure: a
+     * chain left at epoch 1 by a stalled migration verifies perfectly and still
+     * leaves `success` and the attribution fields outside the MAC. There is no
+     * finding to raise and an operator still has to see it, so the text report
+     * carries the per-epoch counts the walk already produced.
+     */
+    #[Test]
+    public function theTextReportNamesTheStoredEpochDistributionOnACleanChain(): void
+    {
+        $this->anchorService->method('verify')->willReturn(new AuditIntegrityReport(
+            findings: [],
+            chainValid: true,
+            currentSequence: 945,
+            epochCounts: [1 => 45, 3 => 900],
+        ));
+
+        self::assertSame(Command::SUCCESS, $this->commandTester->execute([]));
+
+        $display = $this->normalizedDisplay();
+
+        self::assertStringContainsString('Stored HMAC epochs', $display);
+        self::assertStringContainsString('epoch 1: 45 row(s)', $display);
+        self::assertStringContainsString('epoch 3: 900 row(s)', $display);
+        self::assertStringContainsString('lowest 1, highest 3', $display);
+    }
+
+    /**
+     * An empty chain has no epoch to report, and must not be rendered as
+     * "epoch 0" — that is a real state meaning keyless.
+     */
+    #[Test]
+    public function theTextReportSaysTheChainIsEmptyRatherThanReportingEpochZero(): void
+    {
+        $this->anchorService->method('verify')->willReturn(
+            new AuditIntegrityReport(findings: [], chainValid: true, currentSequence: 0),
+        );
+
+        $this->commandTester->execute([]);
+
+        $display = $this->normalizedDisplay();
+
+        self::assertStringContainsString('Stored HMAC epochs (chain empty)', $display);
+        self::assertStringNotContainsString('epoch 0', $display);
+    }
+
+    /**
+     * The JSON body is the monitoring interface — the same distribution has to
+     * be machine-readable, not only printed.
+     */
+    #[Test]
+    public function theJsonReportCarriesTheStoredEpochDistribution(): void
+    {
+        $this->anchorService->method('verify')->willReturn(new AuditIntegrityReport(
+            findings: [],
+            chainValid: true,
+            currentSequence: 945,
+            epochCounts: [1 => 45, 3 => 900],
+        ));
+
+        $this->commandTester->execute(['--format' => 'json']);
+
+        $payload = json_decode($this->commandTester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertIsArray($payload);
+        self::assertTrue($payload['valid']);
+        self::assertSame(['1' => 45, '3' => 900], $payload['epochCounts']);
+        self::assertSame(1, $payload['minEpoch']);
+        self::assertSame(3, $payload['maxEpoch']);
+    }
+
+    /**
      * @return list<VaultPermission>
      */
     private function allPermissionsExcept(VaultPermission $excluded): array

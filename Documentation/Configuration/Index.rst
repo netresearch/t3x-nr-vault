@@ -398,6 +398,15 @@ CLI access
    1 or 2, so treat that warning as "the migration did not finish", not as a
    pending nice-to-have.
 
+   The setting is not the evidence. It decides how the *next* row is signed and
+   says nothing about the rows already stored, so raising it to 3 without
+   running the migration leaves every historical row at its old epoch while the
+   configuration reads as fully protected. ``audit.hmac_epoch`` therefore also
+   **warns** when the oldest stored row is below the configured epoch, naming
+   both numbers and exposing the stored minimum as ``details.storedMinEpoch``.
+   :bash:`vault:audit-verify` reports the full per-epoch distribution, so the
+   migration can be confirmed rather than assumed.
+
 .. confval:: auditAnchorRequired
    :name: ext-nrvault-auditAnchorRequired
    :type: boolean

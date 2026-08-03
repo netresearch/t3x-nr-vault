@@ -136,6 +136,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
             currentSequence: $currentSequence,
             anchor: $anchor,
             warnings: $chainResult->warnings,
+            epochCounts: $chainResult->epochCounts,
         );
 
         $this->dispatchFindings($report);

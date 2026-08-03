@@ -35,6 +35,14 @@ final readonly class AuditIntegrityReport
      * @param int $currentSequence Highest audit uid at verification time
      * @param ChainTipAnchor|null $anchor Anchor compared against (null = none available)
      * @param array<int, string> $warnings Non-fatal chain notes, keyed by uid
+     * @param array<int, int> $epochCounts Rows per `hmac_key_epoch` across the full
+     *                                     chain, keyed by epoch. Carried through from
+     *                                     the chain pass, which counts them for free
+     *                                     while walking. A valid chain whose lowest
+     *                                     epoch is below the configured one is not a
+     *                                     finding — nothing was tampered with — but it
+     *                                     is the state a stalled HMAC migration leaves
+     *                                     behind, so the verifier reports it.
      */
     public function __construct(
         public array $findings,
@@ -42,6 +50,7 @@ final readonly class AuditIntegrityReport
         public int $currentSequence,
         public ?ChainTipAnchor $anchor = null,
         public array $warnings = [],
+        public array $epochCounts = [],
     ) {}
 
     /**
@@ -110,6 +119,9 @@ final readonly class AuditIntegrityReport
      *     reasonCodes: list<string>,
      *     findings: list<array{reason: string, tamperEvidence: bool, detail: string, timestamp: int, context: array<string, bool|int|string>}>,
      *     warnings: array<int, string>,
+     *     epochCounts: array<int, int>,
+     *     minEpoch: int|null,
+     *     maxEpoch: int|null,
      * }
      */
     public function toArray(): array
@@ -126,6 +138,28 @@ final readonly class AuditIntegrityReport
                 $this->findings,
             ),
             'warnings' => $this->warnings,
+            'epochCounts' => $this->epochCounts,
+            'minEpoch' => $this->getMinEpoch(),
+            'maxEpoch' => $this->getMaxEpoch(),
         ];
+    }
+
+    /**
+     * Lowest `hmac_key_epoch` in the chain, or null when it is empty.
+     *
+     * The number that decides what the OLDEST evidence is protected by:
+     * raising `auditHmacEpoch` only changes how new rows are signed.
+     */
+    public function getMinEpoch(): ?int
+    {
+        return $this->epochCounts === [] ? null : min(array_keys($this->epochCounts));
+    }
+
+    /**
+     * Highest `hmac_key_epoch` in the chain, or null when it is empty.
+     */
+    public function getMaxEpoch(): ?int
+    {
+        return $this->epochCounts === [] ? null : max(array_keys($this->epochCounts));
     }
 }

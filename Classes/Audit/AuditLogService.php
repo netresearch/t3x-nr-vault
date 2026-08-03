@@ -305,6 +305,15 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // Highest epoch observed across the chain (the "high-water mark"). Stays
         // -1 for an empty chain so the epoch-floor check below is skipped.
         $maxEpoch = -1;
+        // Rows per `hmac_key_epoch` across the scanned range. Free here: the
+        // walk already visits every row and already reads the epoch to pick the
+        // hash algorithm, so this is one increment on a value in hand. It is
+        // what makes the difference between "the chain is valid" and "the whole
+        // chain is signed at the configured epoch" visible — a chain of
+        // epoch-1 rows verifies perfectly while leaving `success` and the
+        // attribution fields outside the MAC.
+        /** @var array<int, int> $epochCounts */
+        $epochCounts = [];
         // When the caller specified $fromUid, treat $fromUid-1 as the
         // previous UID so a leading gap (first row > $fromUid) is still
         // detected. Otherwise start at -1 meaning "no prior row yet".
@@ -394,6 +403,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 if ($epoch > $maxEpoch) {
                     $maxEpoch = $epoch;
                 }
+                $epochCounts[$epoch] = ($epochCounts[$epoch] ?? 0) + 1;
 
                 // Epoch-aware hash dispatch:
                 //   0 → legacy SHA-256 (identity fields only)
@@ -465,9 +475,13 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             $anchorStatus = $this->verifyAnchor($connection, $errors, $warnings);
         }
 
+        // Ascending epoch order, so the reported distribution reads as the
+        // migration timeline it is rather than in row-arrival order.
+        ksort($epochCounts);
+
         return $errors === []
-            ? HashChainVerificationResult::valid($warnings, $missingUids, $missingUidCount, $anchorStatus)
-            : HashChainVerificationResult::invalid($errors, $warnings, $missingUids, $missingUidCount, $anchorStatus);
+            ? HashChainVerificationResult::valid($warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts)
+            : HashChainVerificationResult::invalid($errors, $warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts);
     }
 
     public function verifyChainForReseal(): ?HashChainVerificationResult

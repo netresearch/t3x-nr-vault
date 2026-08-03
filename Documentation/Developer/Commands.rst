@@ -1193,6 +1193,11 @@ audit.hash_chain
    tail verifies", never "the chain is intact". :ref:`command-audit-verify` is
    the authoritative full-range verifier and belongs on a schedule.
 
+   ``details`` carries ``errorCount``, ``warningCount`` and
+   ``missingUidCount``. The warnings are epoch boundaries — non-fatal by
+   design, and the sign that a migration covered only part of the verified
+   range, which is context a CI gate wants beside a green ``errorCount``.
+
 audit.hmac_epoch
    :confval:`ext-nrvault-auditHmacEpoch` is at least 3 — the shipped default,
    and the only epoch whose HMAC spans the whole audit row. Three-way, because
@@ -1225,6 +1230,42 @@ audit.hmac_epoch
    partial :ref:`command-audit-migrate-hmac` run (or its install-tool wizard)
    leaves an installation exactly there, which is why the remediation says to
    check that the migration completed rather than only raising the setting.
+
+   **Warning** when the setting is at 3 or above but the STORED rows are not.
+   :confval:`ext-nrvault-auditHmacEpoch` decides how the *next* row is signed;
+   it does not reach back over the ones already written. Raise it without
+   running :ref:`command-audit-migrate-hmac` and every historical row keeps its
+   narrower signature while the configuration reads as fully protected — the
+   chain still verifies, because those rows are keyed, just under a smaller
+   payload. Nothing else catches it: the epoch-downgrade floor in
+   ``verifyHashChain()`` compares the chain HIGH-WATER epoch against the
+   configured one, so a single row at the current epoch satisfies it, and it
+   only runs on a full-range pass, which ``audit.hash_chain`` never requests.
+
+   The check reads the ``hmac_key_epoch`` of the OLDEST row — one
+   PRIMARY-ordered row, because that column carries no index and a ``GROUP BY``
+   over it would be a full scan on a control that also renders the backend
+   status panel. That equals the stored minimum on any chain that verifies: a
+   *decrease* between adjacent uids is already recorded as an error, so a
+   legitimate chain is epoch-monotonic. The value is reported as
+   ``details.storedMinEpoch`` (``-1`` when the audit log is empty) for a CI
+   gate, and the pass text now states the configured epoch and — where there
+   was a stored row to check it against — the stored minimum it confirmed,
+   rather than asserting a property of rows it never looked at.
+
+   The interrupted-migration case is *not* the silent one. Both migration paths
+   rewrite row by row without a transaction, so a half-finished run leaves
+   newer rows behind older migrated ones — a decrease, which is already an
+   error. The state that arrives without any signal is the setting raised while
+   the migration was never run.
+
+   :ref:`command-audit-verify` reports the FULL distribution rather than only
+   the minimum: its walk already reads every row's epoch to pick the hash
+   algorithm, so the per-epoch counts cost nothing. They appear as
+   ``Stored HMAC epochs`` in the text report and as ``epochCounts`` /
+   ``minEpoch`` / ``maxEpoch`` in the JSON body — on a clean run too, because
+   "the chain is valid" and "the whole chain is signed at the configured epoch"
+   are different statements and only the second is answered there.
 
 audit.db_anchor
    The IN-DATABASE tip anchor in ``sys_registry`` — a different control from
