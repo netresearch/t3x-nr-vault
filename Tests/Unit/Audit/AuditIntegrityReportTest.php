@@ -150,6 +150,44 @@ final class AuditIntegrityReportTest extends TestCase
     }
 
     /**
+     * A valid chain and a fully migrated chain are different statements. The
+     * report carries the per-epoch distribution the walk counted for free, so a
+     * monitor reading the JSON can tell a stalled `vault:audit-migrate-hmac` run
+     * from a healthy installation — neither raises a finding.
+     */
+    #[Test]
+    public function arrayFormCarriesTheEpochDistributionAndItsBounds(): void
+    {
+        $report = new AuditIntegrityReport(
+            findings: [],
+            chainValid: true,
+            currentSequence: 945,
+            epochCounts: [1 => 45, 3 => 900],
+        );
+
+        $array = $report->toArray();
+
+        self::assertTrue($array['valid']);
+        self::assertSame([1 => 45, 3 => 900], $array['epochCounts']);
+        self::assertSame(1, $array['minEpoch']);
+        self::assertSame(3, $array['maxEpoch']);
+    }
+
+    /**
+     * Null, not 0 — epoch 0 is a real state ("keyless") and must not be how an
+     * empty chain reports itself.
+     */
+    #[Test]
+    public function anEmptyChainReportsNoEpochBounds(): void
+    {
+        $report = new AuditIntegrityReport(findings: [], chainValid: true, currentSequence: 0);
+
+        self::assertSame([], $report->epochCounts);
+        self::assertNull($report->getMinEpoch());
+        self::assertNull($report->getMaxEpoch());
+    }
+
+    /**
      * The JSON output is a machine interface for monitoring, so it must stay
      * serialisable and carry every finding.
      */

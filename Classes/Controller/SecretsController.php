@@ -12,7 +12,6 @@ namespace Netresearch\NrVault\Controller;
 use Exception;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
-use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Domain\Dto\SecretMetadata;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
@@ -107,7 +106,11 @@ final readonly class SecretsController
             'owner' => is_numeric($ownerVal) ? (int) $ownerVal : 0,
         ];
 
-        $secrets = $this->vaultService->list();
+        // Disabled secrets are listed too. They are the only surface from
+        // which one can be re-enabled — the toggle renders per listed row —
+        // so omitting them made disabling a one-way door. The row carries a
+        // "Disabled" badge and the status filter narrows to either state.
+        $secrets = $this->vaultService->list(includeDisabled: true);
         $userCache = $this->getUsernameCache($secrets);
 
         // Get unique owners for filter dropdown
@@ -119,7 +122,12 @@ final readonly class SecretsController
             if ($filters['identifier'] !== '' && stripos($secret->identifier, $filters['identifier']) === false) {
                 continue;
             }
-            // Status filter not applicable - secrets don't have hidden state
+            if ($filters['status'] === 'active' && !$secret->enabled) {
+                continue;
+            }
+            if ($filters['status'] === 'disabled' && $secret->enabled) {
+                continue;
+            }
             if ($filters['owner'] > 0 && $secret->ownerUid !== $filters['owner']) {
                 continue;
             }
@@ -134,7 +142,7 @@ final readonly class SecretsController
                 'read_count' => $secret->readCount,
                 'last_read' => $secret->lastReadAt !== null ? date(self::DATE_FORMAT, $secret->lastReadAt) : '-',
                 'description' => $secret->description,
-                'hidden' => false,
+                'hidden' => !$secret->enabled,
             ];
         }
 
@@ -265,6 +273,11 @@ final readonly class SecretsController
     /**
      * Toggle secret enabled/disabled state.
      *
+     * The mutation itself belongs to `VaultService::setEnabled()`, which owns
+     * the permission gates, the audit entry and its compensating rollback.
+     * What is left here is HTTP: resolving which state the button asks for,
+     * and answering in JSON or with a flash message plus redirect.
+     *
      * Supports both AJAX (returns JSON) and regular form submissions (redirects).
      */
     public function toggleAction(ServerRequestInterface $request): ResponseInterface
@@ -277,7 +290,8 @@ final readonly class SecretsController
 
         // Enabling/disabling a secret changes its availability to every
         // consumer, so it belongs to policy management rather than to editing
-        // a value.
+        // a value. The service asserts this again — this gate exists so the
+        // module answers with its own 403 page instead of an exception.
         if (!$this->accessGuard->isGranted(VaultPermission::SecretManagePolicy)) {
             if ($isAjax) {
                 /** @phpstan-ignore new.internalClass, method.internalClass */
@@ -295,9 +309,10 @@ final readonly class SecretsController
 
         // Holding secret.manage_policy says the actor may manage policy at
         // all; it does not say WHICH secrets. Without this second, per-secret
-        // gate any holder could disable every colleague's secret. A secret
-        // that cannot be found is left to performToggle()'s not-found path.
-        $secret = $this->secretRepository->findByIdentifier($identifier);
+        // gate any holder could disable every colleague's secret. The lookup
+        // must see disabled records too — otherwise the gate would silently
+        // not apply to exactly the secrets this action re-enables.
+        $secret = $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
         if ($secret instanceof Secret && !$this->accessGuard->canWrite($secret)) {
             $this->auditLogService->log(
                 $identifier,
@@ -314,13 +329,14 @@ final readonly class SecretsController
             return $this->accessGuard->deniedForSecretResponse($request);
         }
 
+        // The button toggles, the service sets: read the current state here
+        // and ask for its opposite. A secret that cannot be found is left to
+        // the service's not-found path, so both callers see one behaviour.
+        $enable = !$secret instanceof Secret || $secret->isHidden();
+
         try {
-            $response = $this->performToggle($identifier, $isAjax);
-            if ($response instanceof ResponseInterface) {
-                return $response;
-            }
+            return $this->applyEnabledState($identifier, $enable, $isAjax);
         } catch (SecretNotFoundException) {
-            $this->auditLogService->log($identifier, 'update', false, 'Secret not found');
             if ($isAjax) {
                 /** @phpstan-ignore new.internalClass, method.internalClass */
                 return new JsonResponse(['success' => false, 'error' => 'Secret not found'], 404);
@@ -330,7 +346,14 @@ final readonly class SecretsController
                 ContextualFeedbackSeverity::ERROR,
             );
         } catch (Exception $e) {
-            $this->auditLogService->log($identifier, 'update', false, $e->getMessage());
+            // Deliberately no audit write here. The failure this catch most
+            // has to survive is an audit-store outage, and the previous
+            // version's log() call would have thrown a SECOND time out of the
+            // handler — leaving the request with no response at all, no flash
+            // message, and the availability already flipped. Every outcome the
+            // service considers auditable it has already audited itself: the
+            // denial as `access_denied`, the change as `metadata_update`, and
+            // a failed audit write is compensated rather than logged again.
             if ($isAjax) {
                 /** @phpstan-ignore new.internalClass, method.internalClass */
                 return new JsonResponse(['success' => false, 'error' => 'An internal error occurred'], 500);
@@ -430,73 +453,40 @@ final readonly class SecretsController
     }
 
     /**
-     * Toggle the hidden state of a secret and audit the change.
+     * Apply the requested availability through the vault service and turn the
+     * outcome into the response shape the caller asked for.
      *
-     * Returns a JSON response for AJAX requests; for regular requests it adds a
-     * success flash message and returns null so the caller performs the shared redirect.
+     * The service is what mutates, audits and — on a failed audit write —
+     * rolls back; anything it throws propagates to `toggleAction()`'s handlers
+     * so a change that could not be audited never reports success.
      */
-    private function performToggle(string $identifier, bool $isAjax): ?ResponseInterface
+    private function applyEnabledState(string $identifier, bool $enable, bool $isAjax): ResponseInterface
     {
-        // Get current state - remove restrictions to find hidden records
-        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('tx_nrvault_secret');
-        $queryBuilder->getRestrictions()->removeAll();
-        $current = $queryBuilder
-            ->select('hidden')
-            ->from('tx_nrvault_secret')
-            ->where(
-                $queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier)),
-                $queryBuilder->expr()->eq('deleted', 0),
-            )
-            ->executeQuery()
-            ->fetchAssociative();
+        $this->vaultService->setEnabled($identifier, $enable);
 
-        if ($current === false) {
-            throw new SecretNotFoundException('Secret not found: ' . $identifier, 7409034110);
-        }
-
-        // Toggle the hidden state
-        $newState = $current['hidden'] ? 0 : 1;
-        $action = $newState !== 0 ? 'disable' : 'enable';
-        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('tx_nrvault_secret');
-        $queryBuilder->getRestrictions()->removeAll();
-        $queryBuilder
-            ->update('tx_nrvault_secret')
-            ->set('hidden', $newState)
-            ->set('tstamp', time())
-            ->where(
-                $queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier)),
-                $queryBuilder->expr()->eq('deleted', 0),
-            )
-            ->executeStatement();
-
-        // Log the enable/disable action to audit log
-        $this->auditLogService->log(
-            $identifier,
-            'update',
-            true,
-            null,
-            $action === 'disable' ? 'Secret disabled' : 'Secret enabled',
-            null,
-            null,
-            new GenericContext(['action' => $action, 'hidden' => $newState]),
+        $message = $this->getLanguageService()->sL(
+            $enable
+                ? 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.enabled.success'
+                : 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.disabled.success',
         );
 
-        $message = $newState !== 0
-            ? $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.disabled.success')
-            : $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.enabled.success');
-
         if ($isAjax) {
+            // `hidden` stays the wire name: the ESM module and the E2E specs
+            // read it, and renaming the field is not part of this change.
             /** @phpstan-ignore new.internalClass, method.internalClass */
             return new JsonResponse([
                 'success' => true,
-                'hidden' => (bool) $newState,
+                'hidden' => !$enable,
                 'message' => $message,
             ]);
         }
 
         $this->addFlashMessage($message, ContextualFeedbackSeverity::OK);
 
-        return null;
+        /** @phpstan-ignore new.internalClass, method.internalClass */
+        return new RedirectResponse(
+            (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME),
+        );
     }
 
     /**

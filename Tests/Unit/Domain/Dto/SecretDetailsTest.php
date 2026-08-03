@@ -128,6 +128,7 @@ final class SecretDetailsTest extends TestCase
             'groups', 'context', 'frontend_accessible', 'version',
             'createdAt', 'updatedAt', 'expiresAt', 'expires_at',
             'lastRotatedAt', 'read_count', 'last_read_at', 'metadata', 'scopePid',
+            'enabled',
         ];
 
         foreach ($expectedKeys as $key) {
@@ -256,6 +257,22 @@ final class SecretDetailsTest extends TestCase
         self::assertSame(1800000000, $result->lastReadAt);
         self::assertSame(['env' => 'prod'], $result->metadata);
         self::assertSame(11, $result->scopePid);
+        self::assertTrue($result->enabled);
+    }
+
+    /**
+     * The negative-to-positive mapping: the record carries TCA's `hidden`
+     * enable column, the DTO reports availability. Getting this inverted would
+     * show a disabled secret as active in the module and hand the operator a
+     * toggle pointing the wrong way.
+     */
+    #[Test]
+    public function fromSecretReportsADisabledSecretAsNotEnabled(): void
+    {
+        $result = SecretDetails::fromSecret(new Secret(identifier: 'retired', hidden: true));
+
+        self::assertFalse($result->enabled);
+        self::assertFalse($result->toArray()['enabled']);
     }
 
     #[Test]

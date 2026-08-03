@@ -357,6 +357,11 @@ final readonly class AuditCheck implements ReadinessCheckInterface
             'fromUid' => $fromUid,
             'toUid' => $currentSequence,
             'errorCount' => $result->getErrorCount(),
+            // Computed by every verification pass and discarded until now. The
+            // warnings are epoch boundaries — non-fatal by design, and the
+            // signal that a migration touched part of this range, which is
+            // context a CI gate wants next to a green errorCount.
+            'warningCount' => $result->getWarningCount(),
             'missingUidCount' => $result->missingUidCount,
         ];
 
@@ -431,24 +436,56 @@ final readonly class AuditCheck implements ReadinessCheckInterface
      * {@see \Netresearch\NrVault\Upgrades\AuditHmacMigrationWizard} run, not
      * hypotheticals, and reporting them as equivalent to 3 is what let a
      * half-migrated installation read as clean. The shipped default is 3.
+     *
+     * ## The setting is not the evidence
+     *
+     * `auditHmacEpoch` decides how the NEXT row is signed. It says nothing
+     * about the rows already stored, and the two come apart on exactly the
+     * installation this check exists for: raise the setting to 3 without
+     * running `vault:audit-migrate-hmac` and every historical row keeps its
+     * epoch-1 or epoch-2 signature while the control reports the full payload.
+     * Nothing else caught it — {@see AuditLogServiceInterface::verifyHashChain()}
+     * compares the chain HIGH-WATER epoch against the floor and only on a
+     * full-chain pass, which {@see self::checkHashChain()} never requests
+     * because it always passes a `$fromUid`. So the stored minimum is read
+     * here, and the pass text no longer asserts anything about stored rows it
+     * has not looked at.
      */
     private function checkHmacEpoch(): Finding
     {
         $id = 'audit.hmac_epoch';
         $epoch = $this->configuration->getAuditHmacEpoch();
+        $storedMinEpoch = $this->fetchStoredMinEpoch();
         $details = [
             'auditHmacEpoch' => $epoch,
             'auditAnchorRequired' => $this->configuration->isAuditAnchorRequired(),
+            // -1, not null: `details` is a flat scalar map that the backend
+            // status panel and a CI gate both read, and "no rows" needs a value
+            // they can compare rather than a missing key.
+            'storedMinEpoch' => $storedMinEpoch ?? -1,
         ];
 
         if ($epoch >= 3) {
+            if ($storedMinEpoch !== null && $storedMinEpoch < $epoch) {
+                return $this->unmigratedStoredRowsFinding($id, $epoch, $storedMinEpoch, $details);
+            }
+
             return Finding::pass(
                 id: $id,
                 summary: \sprintf(
-                    'Audit chain HMAC epoch is %d: rows are HMAC-signed over the full forensic '
-                    . 'payload including the epoch selector and the attribution fields, the '
-                    . 'epoch-downgrade floor is armed, and the in-DB tip anchor is active.',
+                    'Audit chain HMAC epoch is configured as %d, so rows are HMAC-signed over the '
+                    . 'full forensic payload including the epoch selector and the attribution '
+                    . 'fields, the epoch-downgrade floor is armed, and the in-DB tip anchor is '
+                    . 'active. %s',
                     $epoch,
+                    $storedMinEpoch === null
+                        ? 'The audit log is empty, so there is no stored row to confirm that against '
+                            . 'yet.'
+                        : \sprintf(
+                            'The oldest stored row is at epoch %d, so the stored rows carry that '
+                            . 'payload too — full-range confirmation is vault:audit-verify.',
+                            $storedMinEpoch,
+                        ),
                 ),
                 docsUrl: DocsLink::AUDIT_HMAC_EPOCH,
                 details: $details,
@@ -476,6 +513,112 @@ final readonly class AuditCheck implements ReadinessCheckInterface
                 . 'vendor/bin/typo3 vault:audit-migrate-hmac (or the install-tool "Migrate audit hash '
                 . 'chain" wizard), then arm the anchor with vendor/bin/typo3 vault:audit '
                 . '--reset-anchor.',
+            docsUrl: DocsLink::AUDIT_HMAC_EPOCH,
+            details: $details,
+        );
+    }
+
+    /**
+     * The lowest `hmac_key_epoch` any stored audit row carries, or null when the
+     * table is empty.
+     *
+     * ## Why the oldest row, and not a GROUP BY
+     *
+     * `hmac_key_epoch` has no index (see `ext_tables.sql`), so `MIN()` or a
+     * `GROUP BY` over it is a full clustered-index scan that drags the `text`
+     * columns along — precisely the cost this checkset avoids, because it also
+     * runs on every render of the backend status panel. One PRIMARY-ordered row
+     * is O(1) instead.
+     *
+     * It answers the same question because a legitimate chain is epoch-monotonic
+     * in uid: {@see AuditLogServiceInterface::verifyHashChain()} walks
+     * `ORDER BY uid ASC` and records a DECREASE between adjacent rows as an
+     * ERROR (an increase is only a warning, because a partial migration
+     * legitimately leaves older rows behind). On any chain that verifies, the
+     * epoch sequence is therefore non-decreasing and the oldest row holds the
+     * minimum.
+     *
+     * The caveat, stated rather than assumed: on a chain that does NOT verify,
+     * the oldest row can overstate the minimum. That chain is already failing —
+     * `audit.hash_chain` for the tail, `vault:audit-verify` for the full range,
+     * and the latter now also reports the complete per-epoch distribution. This
+     * control is not the one that catches a downgrade; it catches the
+     * configuration that was raised without migrating.
+     */
+    private function fetchStoredMinEpoch(): ?int
+    {
+        $value = $this->connectionPool
+            ->getConnectionForTable(AuditLogService::TABLE_NAME)
+            ->createQueryBuilder()
+            ->select('hmac_key_epoch')
+            ->from(AuditLogService::TABLE_NAME)
+            ->orderBy('uid', 'ASC')
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchOne();
+
+        // fetchOne() returns false on an empty result set.
+        return is_numeric($value) ? (int) $value : null;
+    }
+
+    /**
+     * The setting says 3, the stored rows do not.
+     *
+     * A warning rather than a critical: nothing was tampered with and the chain
+     * still verifies — the rows are keyed, just under a narrower payload. What
+     * is broken is the claim, and the claim is what a deployment gate reads.
+     *
+     * Naming the cause correctly matters for the remediation. An INTERRUPTED
+     * migration does not produce this state silently: both migration paths
+     * rewrite row by row without a transaction, so a half-finished run leaves
+     * newer rows at the old epoch behind older migrated ones — a DECREASE. A
+     * FULL `vault:audit-verify` pass records that as an error; this check does
+     * not see it, because the migration rewrites oldest-first (so the probe
+     * below reads the NEW epoch) and `checkHashChain()` only covers the newest
+     * CHAIN_TAIL_SIZE rows. Past that many rows, a stalled migration reads
+     * green here. The state that arrives without any signal at all is the
+     * other one: `auditHmacEpoch` raised in the extension configuration and
+     * the migration never run.
+     *
+     * @param array<string, bool|int|string> $details
+     */
+    private function unmigratedStoredRowsFinding(
+        string $id,
+        int $epoch,
+        int $storedMinEpoch,
+        array $details,
+    ): Finding {
+        return Finding::warning(
+            id: $id,
+            summary: \sprintf(
+                'Audit chain HMAC epoch is configured as %d, but the oldest stored audit row is at '
+                . 'epoch %d: the setting was raised without re-signing the existing entries.',
+                $epoch,
+                $storedMinEpoch,
+            ),
+            risk: \sprintf(
+                'The configuration governs how the NEXT row is signed; it does not reach back over '
+                . 'the ones already stored. Every historical row still carries its epoch-%d '
+                . 'signature, so %s. The chain verifies either way — these rows are keyed, just '
+                . 'under a narrower payload — which is why nothing else reports it: the '
+                . 'epoch-downgrade floor in verifyHashChain() compares the chain HIGH-WATER epoch '
+                . 'against the configured one, and a single row at the current epoch already '
+                . 'satisfies that.',
+                $storedMinEpoch,
+                $storedMinEpoch <= 1
+                    ? 'the outcome column "success" is outside the MAC on them — a recorded denial '
+                        . 'can be flipped into a recorded grant — along with the forensic columns '
+                        . 'and the attribution fields the audit list presents as "who did this"'
+                    : 'the algorithm selector hmac_key_epoch and the attribution fields '
+                        . 'actor_type, actor_username, actor_role and request_id are outside the '
+                        . 'MAC on them, so blame can be reassigned on any of those rows without '
+                        . 'breaking the chain',
+            ),
+            remediation: 'Re-sign the stored entries with vendor/bin/typo3 vault:audit-migrate-hmac '
+                . '(or the install-tool "Migrate audit hash chain" wizard) — raising '
+                . '"auditHmacEpoch" alone only changes new writes. Run vendor/bin/typo3 '
+                . 'vault:audit-verify afterwards: it reports the full per-epoch distribution, so '
+                . 'the migration can be confirmed rather than assumed.',
             docsUrl: DocsLink::AUDIT_HMAC_EPOCH,
             details: $details,
         );

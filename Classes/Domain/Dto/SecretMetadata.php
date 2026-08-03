@@ -19,6 +19,11 @@ readonly class SecretMetadata
 {
     /**
      * @param array<string, mixed> $metadata Custom metadata from the secret
+     * @param bool $enabled Whether the secret is available to consumers. A
+     *                      disabled secret exists and can be administered but
+     *                      resolves to nothing on every read path, so a
+     *                      listing that omitted this could not tell the two
+     *                      states apart.
      */
     public function __construct(
         public string $identifier,
@@ -30,12 +35,13 @@ readonly class SecretMetadata
         public string $description,
         public int $version,
         public array $metadata = [],
+        public bool $enabled = true,
     ) {}
 
     /**
      * Create from database row array.
      *
-     * @param array{identifier: string, owner_uid?: int, crdate?: int, tstamp?: int, read_count?: int, last_read_at?: int|null, description?: string, version?: int, metadata?: array<string, mixed>} $row
+     * @param array{identifier: string, owner_uid?: int, crdate?: int, tstamp?: int, read_count?: int, last_read_at?: int|null, description?: string, version?: int, metadata?: array<string, mixed>, hidden?: bool|int} $row
      */
     public static function fromArray(array $row): self
     {
@@ -49,13 +55,16 @@ readonly class SecretMetadata
             description: $row['description'] ?? '',
             version: $row['version'] ?? 1,
             metadata: $row['metadata'] ?? [],
+            // The row speaks the TCA column's negative form; the DTO speaks
+            // the positive one an operator reads in the listing.
+            enabled: !((bool) ($row['hidden'] ?? false)),
         );
     }
 
     /**
      * Convert to array for JSON serialization.
      *
-     * @return array{identifier: string, owner_uid: int, crdate: int, tstamp: int, read_count: int, last_read_at: int|null, description: string, version: int, metadata: array<string, mixed>}
+     * @return array{identifier: string, owner_uid: int, crdate: int, tstamp: int, read_count: int, last_read_at: int|null, description: string, version: int, metadata: array<string, mixed>, enabled: bool}
      */
     public function toArray(): array
     {
@@ -69,6 +78,7 @@ readonly class SecretMetadata
             'description' => $this->description,
             'version' => $this->version,
             'metadata' => $this->metadata,
+            'enabled' => $this->enabled,
         ];
     }
 }

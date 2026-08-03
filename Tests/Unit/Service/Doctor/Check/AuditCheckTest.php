@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Service\Doctor\Check;
 
+use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
@@ -33,6 +34,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
 #[CoversClass(AuditCheck::class)]
 final class AuditCheckTest extends TestCase
@@ -441,6 +443,200 @@ final class AuditCheckTest extends TestCase
         );
 
         self::assertTrue($finding->isPass(), $finding->summary);
+    }
+
+    /**
+     * The bug: `auditHmacEpoch` decides how the NEXT row is signed, and the pass
+     * asserted "rows are HMAC-signed over the full forensic payload" — a claim
+     * about STORED rows that nothing verified. Raise the setting to 3 without
+     * running `vault:audit-migrate-hmac` and the historical rows keep their
+     * epoch-1 signature while the gate reads green.
+     *
+     * @param int $storedMinEpoch Epoch of the oldest stored row
+     */
+    #[Test]
+    #[DataProvider('storedEpochBelowConfiguredProvider')]
+    public function storedRowsBelowTheConfiguredEpochWarn(int $storedMinEpoch): void
+    {
+        foreach (SecurityProfile::cases() as $profile) {
+            $finding = $this->assertFindingSeverity(
+                FindingSeverity::Warning,
+                $this->check(epoch: 3, storedMinEpoch: $storedMinEpoch)->run($this->doctorContext($profile)),
+                'audit.hmac_epoch',
+            );
+
+            // Both numbers, so the operator sees the gap rather than a verdict.
+            self::assertStringContainsString('configured as 3', $finding->summary);
+            self::assertStringContainsString(
+                \sprintf('oldest stored audit row is at epoch %d', $storedMinEpoch),
+                $finding->summary,
+            );
+            self::assertSame(3, $finding->details['auditHmacEpoch']);
+            self::assertSame($storedMinEpoch, $finding->details['storedMinEpoch']);
+        }
+    }
+
+    /**
+     * @return iterable<string, array{int}>
+     */
+    public static function storedEpochBelowConfiguredProvider(): iterable
+    {
+        yield 'keyless rows never migrated' => [0];
+        yield 'identity-only rows' => [1];
+        yield 'forensic rows without the epoch selector' => [2];
+    }
+
+    /**
+     * The risk text has to name what is unsigned on the rows that were left
+     * behind, and that differs by how far the chain got: below epoch 2 the
+     * outcome column itself is forgeable, at epoch 2 only the selector and the
+     * attribution fields are.
+     */
+    #[Test]
+    public function theUnmigratedRowsRiskNamesTheColumnsThatEpochLeavesUnsigned(): void
+    {
+        $stalledEarly = $this->findingById(
+            $this->check(epoch: 3, storedMinEpoch: 1)->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.hmac_epoch',
+        );
+        $stalledLate = $this->findingById(
+            $this->check(epoch: 3, storedMinEpoch: 2)->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.hmac_epoch',
+        );
+
+        self::assertStringContainsString('"success"', $stalledEarly->risk);
+        self::assertStringNotContainsString('"success"', $stalledLate->risk);
+        self::assertStringContainsString('actor_username', $stalledLate->risk);
+        self::assertNotSame($stalledEarly->risk, $stalledLate->risk);
+    }
+
+    /**
+     * The remediation must send the operator to the migration, not to the
+     * setting they already raised — and to the verifier that can confirm it,
+     * because this control only ever sees the oldest row.
+     */
+    #[Test]
+    public function theUnmigratedRowsRemediationNamesTheMigrationAndTheVerifier(): void
+    {
+        $finding = $this->findingById(
+            $this->check(epoch: 3, storedMinEpoch: 1)->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.hmac_epoch',
+        );
+
+        self::assertStringContainsString('vault:audit-migrate-hmac', $finding->remediation);
+        self::assertStringContainsString('vault:audit-verify', $finding->remediation);
+        self::assertStringContainsString('only changes new writes', $finding->remediation);
+    }
+
+    /**
+     * The boundary: equal is migrated, one below is not. Pinned so a `<=` cannot
+     * turn a fully migrated chain into a permanent warning.
+     */
+    #[Test]
+    public function aStoredEpochAtOrAboveTheConfiguredOnePasses(): void
+    {
+        foreach ([3, 4] as $storedMinEpoch) {
+            $finding = $this->findingById(
+                $this->check(epoch: 3, storedMinEpoch: $storedMinEpoch)->run(
+                    $this->doctorContext(SecurityProfile::Hardened),
+                ),
+                'audit.hmac_epoch',
+            );
+
+            self::assertTrue($finding->isPass(), $finding->summary);
+            self::assertSame($storedMinEpoch, $finding->details['storedMinEpoch']);
+            // The pass now states what was actually verified: the configuration
+            // AND the stored minimum it confirmed against.
+            self::assertStringContainsString('configured as 3', $finding->summary);
+            self::assertStringContainsString(
+                \sprintf('oldest stored row is at epoch %d', $storedMinEpoch),
+                $finding->summary,
+            );
+            self::assertStringContainsString('vault:audit-verify', $finding->summary);
+        }
+    }
+
+    /**
+     * An empty audit log has no stored row to contradict the configuration, so
+     * it passes — but the summary must not claim a confirmation it could not
+     * make, and `details` needs a comparable value rather than a missing key.
+     */
+    #[Test]
+    public function anEmptyAuditLogPassesWithoutClaimingStoredRowsWereChecked(): void
+    {
+        $finding = $this->findingById(
+            $this->check(epoch: 3, emptyAuditLog: true)->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.hmac_epoch',
+        );
+
+        self::assertTrue($finding->isPass(), $finding->summary);
+        self::assertSame(-1, $finding->details['storedMinEpoch']);
+        self::assertStringContainsString('audit log is empty', $finding->summary);
+        self::assertStringNotContainsString('oldest stored row', $finding->summary);
+    }
+
+    /**
+     * The cost guarantee, pinned. `hmac_key_epoch` carries no index (see
+     * `ext_tables.sql`), so `MIN()` or a `GROUP BY` over it is a full
+     * clustered-index scan dragging the `text` columns along — on a checkset
+     * that also renders the backend status panel. The probe must stay a single
+     * PRIMARY-ordered row, which is only correct because a chain that verifies
+     * is epoch-monotonic in uid: `verifyHashChain()` records a DECREASE between
+     * adjacent rows as an ERROR.
+     */
+    #[Test]
+    public function theStoredEpochProbeReadsOneRowOrderedByThePrimaryKey(): void
+    {
+        $calls = [];
+        $queryBuilder = $this->epochQueryBuilder(3, $calls);
+
+        $this->check(epoch: 3, epochQueryBuilder: $queryBuilder)
+            ->run($this->doctorContext(SecurityProfile::Standard));
+
+        self::assertSame(['hmac_key_epoch'], $calls['select'] ?? null);
+        // from() carries an optional alias, so only the table is asserted.
+        self::assertSame(AuditLogService::TABLE_NAME, $calls['from'][0] ?? null);
+        self::assertSame(['uid', 'ASC'], $calls['orderBy'] ?? null);
+        self::assertSame([1], $calls['setMaxResults'] ?? null);
+    }
+
+    /**
+     * A chain still below the configured epoch at 1 or 2 keeps the partial-
+     * signature warning, but the stored minimum has to reach `details` there
+     * too — a CI gate reads one key, not one branch.
+     */
+    #[Test]
+    #[DataProvider('partiallySignedEpochProvider')]
+    public function theStoredMinimumIsReportedAtEveryConfiguredEpoch(int $epoch): void
+    {
+        $finding = $this->findingById(
+            $this->check(epoch: $epoch, storedMinEpoch: 0)->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.hmac_epoch',
+        );
+
+        self::assertSame(0, $finding->details['storedMinEpoch']);
+    }
+
+    /**
+     * The chain pass computes a warning count on every run and discarded it —
+     * `getWarningCount()` had no caller under `Classes/Service/Doctor/`. The
+     * warnings are epoch boundaries: non-fatal, and exactly the context a CI
+     * gate wants beside a green `errorCount`.
+     */
+    #[Test]
+    public function theChainCheckReportsTheWarningCountItAlreadyComputes(): void
+    {
+        $finding = $this->findingById(
+            $this->check(chainResult: HashChainVerificationResult::valid([
+                1200 => 'HMAC key epoch boundary: 1 -> 2',
+                1800 => 'HMAC key epoch boundary: 2 -> 3',
+            ]))->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.hash_chain',
+        );
+
+        self::assertTrue($finding->isPass(), $finding->summary);
+        self::assertSame(2, $finding->details['warningCount']);
+        self::assertSame(0, $finding->details['errorCount']);
     }
 
     /**
@@ -918,6 +1114,13 @@ final class AuditCheckTest extends TestCase
      *                                                    the real store does
      * @param bool $sharesConnection Whether `sys_registry` resolves to the audit
      *                               connection
+     * @param int|null $storedMinEpoch `hmac_key_epoch` of the OLDEST stored audit
+     *                                 row; null models a fully migrated chain by
+     *                                 deriving it from `$epoch`, so a test that
+     *                                 only changes the configuration is not
+     *                                 silently also asserting a drifted chain
+     * @param bool $emptyAuditLog No audit row exists at all, so the epoch probe
+     *                            has nothing to read
      */
     private function check(
         bool $auditReads = true,
@@ -934,6 +1137,9 @@ final class AuditCheckTest extends TestCase
         bool $anchorRequired = false,
         ?AuditChainAnchorStatus $dbAnchorStatus = null,
         bool $sharesConnection = true,
+        ?int $storedMinEpoch = null,
+        bool $emptyAuditLog = false,
+        ?QueryBuilder $epochQueryBuilder = null,
     ): AuditCheck {
         $configuration = self::createStub(ExtensionConfigurationInterface::class);
         $configuration->method('isAuditReadsEnabled')->willReturn($auditReads);
@@ -983,7 +1189,7 @@ final class AuditCheckTest extends TestCase
             $anchorService,
             $anchorReader,
             $this->anchorStore($epoch, $dbAnchorStatus, $sharesConnection),
-            $this->connectionPool(),
+            $this->connectionPool($emptyAuditLog ? null : ($storedMinEpoch ?? $epoch), $epochQueryBuilder),
             $deliveryState,
         );
     }
@@ -1019,12 +1225,58 @@ final class AuditCheckTest extends TestCase
         return $store;
     }
 
-    private function connectionPool(): ConnectionPool
+    /**
+     * The audit connection, wired so the stored-epoch probe reads
+     * `$storedMinEpoch` from the oldest row — null models an empty table, where
+     * `fetchOne()` returns false.
+     *
+     * The probe must stay a single PRIMARY-ordered row: `hmac_key_epoch` has no
+     * index, so a `MIN()`/`GROUP BY` would be a full scan on a control that also
+     * renders the backend status panel. The expectations below pin that shape.
+     */
+    private function connectionPool(?int $storedMinEpoch, ?QueryBuilder $queryBuilder = null): ConnectionPool
     {
+        $connection = self::createStub(Connection::class);
+        $connection->method('createQueryBuilder')->willReturn(
+            $queryBuilder ?? $this->epochQueryBuilder($storedMinEpoch),
+        );
+
         $pool = self::createStub(ConnectionPool::class);
-        $pool->method('getConnectionForTable')->willReturn(self::createStub(Connection::class));
+        $pool->method('getConnectionForTable')->willReturn($connection);
 
         return $pool;
+    }
+
+    /**
+     * A query builder that answers the stored-epoch probe with `$storedMinEpoch`
+     * — null models an empty table, where `fetchOne()` returns false.
+     *
+     * @param array<string, mixed>|null $calls Filled with the builder calls the
+     *                                         probe made, so a test can assert
+     *                                         the query SHAPE rather than only
+     *                                         its answer
+     */
+    private function epochQueryBuilder(?int $storedMinEpoch, ?array &$calls = null): QueryBuilder
+    {
+        $result = self::createStub(Result::class);
+        $result->method('fetchOne')->willReturn($storedMinEpoch ?? false);
+
+        $queryBuilder = self::createStub(QueryBuilder::class);
+        $record = static function (string $method) use (&$queryBuilder, &$calls): callable {
+            return static function (mixed ...$arguments) use ($method, &$queryBuilder, &$calls): QueryBuilder {
+                $calls[$method] = $arguments;
+
+                return $queryBuilder;
+            };
+        };
+
+        $queryBuilder->method('select')->willReturnCallback($record('select'));
+        $queryBuilder->method('from')->willReturnCallback($record('from'));
+        $queryBuilder->method('orderBy')->willReturnCallback($record('orderBy'));
+        $queryBuilder->method('setMaxResults')->willReturnCallback($record('setMaxResults'));
+        $queryBuilder->method('executeQuery')->willReturn($result);
+
+        return $queryBuilder;
     }
 
     /**

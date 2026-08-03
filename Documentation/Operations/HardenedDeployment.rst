@@ -173,11 +173,14 @@ ownership and group tiers still apply — see
     separately by :confval:`ext-nrvault-cliAllowedOperations`, which defaults
     to ``secret.use,secret.create,secret.rotate``. Keep it at or below that,
     and scope ``cliAccessGroups`` as well. Of the high-risk entries,
-    ``secret.reveal``, ``secret.delete`` and ``master_key.rotate`` directly
-    hand ``vault:retrieve``, ``vault:delete`` and ``vault:rotate-master-key``
+    ``secret.reveal``, ``secret.delete``, ``master_key.rotate`` and
+    ``audit.view`` directly hand ``vault:retrieve``, ``vault:delete``,
+    ``vault:rotate-master-key`` and ``vault:audit`` / ``vault:audit-verify``
     to anyone with a shell on the host, under an actor the audit trail cannot
-    name; ``audit.export`` and ``vault.configure`` gate the corresponding
-    backend actions. Prefer a named technical actor —
+    name; ``secret.manage_policy``, ``audit.export`` and ``vault.configure``
+    gate the corresponding backend actions — ``secret.manage_policy`` is
+    listed because it edits ``allowed_groups`` / ``write_groups``, so it is
+    the entry that lets a grant widen itself. Prefer a named technical actor —
     :ref:`developer-technical-actor-context` — for those workflows.
     ``vault:doctor`` reports the list as ``cli.allowed_operations``.
 

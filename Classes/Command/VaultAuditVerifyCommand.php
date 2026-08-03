@@ -187,6 +187,7 @@ final class VaultAuditVerifyCommand extends Command
                     gmdate('Y-m-d H:i:s', $anchor->timestamp),
                 )
                 : 'none available'],
+            ['Stored HMAC epochs' => $this->formatEpochDistribution($report)],
             ['Enabled sinks' => $this->formatSinkList()],
         );
 
@@ -235,6 +236,36 @@ final class VaultAuditVerifyCommand extends Command
             . 'exiting successfully because --tamper-only was given.',
             $codes,
         ));
+    }
+
+    /**
+     * How the stored rows are distributed across HMAC epochs.
+     *
+     * Reported unconditionally, including on a clean run: "the chain is valid"
+     * and "the whole chain is signed at the configured epoch" are different
+     * statements, and only this one answers the second. A chain left at epoch 1
+     * by a stalled migration verifies perfectly while leaving `success` and the
+     * attribution fields outside the MAC — there is no error to raise, and an
+     * operator still has to see it. The counts come from the walk this command
+     * already performs, so nothing extra is read.
+     */
+    private function formatEpochDistribution(AuditIntegrityReport $report): string
+    {
+        if ($report->epochCounts === []) {
+            return '(chain empty)';
+        }
+
+        $parts = [];
+        foreach ($report->epochCounts as $epoch => $count) {
+            $parts[] = \sprintf('epoch %d: %d row(s)', $epoch, $count);
+        }
+
+        return \sprintf(
+            '%s — lowest %d, highest %d',
+            implode(', ', $parts),
+            (int) $report->getMinEpoch(),
+            (int) $report->getMaxEpoch(),
+        );
     }
 
     private function formatSinkList(): string

@@ -525,5 +525,95 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
             $result->isValid(),
             'A uniform relabel to keyless epoch-0 on an HMAC-configured install must be rejected',
         );
+        // The distribution names what the verdict only implies: every row is
+        // now keyless. This is the report an operator acts on — "invalid" alone
+        // does not say the algorithm selector was rewritten wholesale.
+        self::assertSame([0 => \count($rows)], $result->epochCounts);
+        self::assertSame(0, $result->getMinEpoch());
+        self::assertSame(0, $result->getMaxEpoch());
+        self::assertFalse($result->hasMixedEpochs());
+    }
+
+    /**
+     * The chain walk already reads every row's `hmac_key_epoch` to pick the hash
+     * algorithm, so counting them is free — and it is the only thing that
+     * separates "the chain is valid" from "every stored row is signed at the
+     * configured epoch". A chain left at epoch 1 by a stalled migration
+     * verifies perfectly while leaving `success` outside the MAC.
+     */
+    #[Test]
+    public function verifyHashChainReportsHowManyRowsCarryEachEpoch(): void
+    {
+        $auditService = $this->get(AuditLogServiceInterface::class);
+        $vaultService = $this->get(VaultServiceInterface::class);
+
+        $identifier = $this->generateUuidV7();
+        $vaultService->store($identifier, 'epoch-distribution-value');
+        $vaultService->retrieve($identifier);
+        $vaultService->delete($identifier, 'cleanup');
+
+        // The authoritative answer, read the expensive way the check itself
+        // must not: an unindexed GROUP BY over the whole table. Comparing the
+        // free counter against it proves the walk agrees with the database,
+        // without pinning the epoch the test environment happens to run at.
+        $expected = array_map(
+            intval(...),
+            $this->getConnectionPool()
+                ->getConnectionForTable('tx_nrvault_audit_log')
+                ->createQueryBuilder()
+                ->select('hmac_key_epoch')
+                ->addSelectLiteral('COUNT(uid) AS row_count')
+                ->from('tx_nrvault_audit_log')
+                ->groupBy('hmac_key_epoch')
+                ->orderBy('hmac_key_epoch', 'ASC')
+                ->executeQuery()
+                ->fetchAllKeyValue(),
+        );
+
+        $result = $auditService->verifyHashChain();
+
+        self::assertTrue($result->isValid(), 'Precondition: the chain must verify');
+        self::assertNotSame([], $expected, 'Precondition: the chain must not be empty');
+        self::assertSame($expected, $result->epochCounts);
+        self::assertSame(array_sum($expected), array_sum($result->epochCounts));
+        self::assertSame(min(array_keys($expected)), $result->getMinEpoch());
+        self::assertSame(max(array_keys($expected)), $result->getMaxEpoch());
+        self::assertSame(\count($expected) > 1, $result->hasMixedEpochs());
+    }
+
+    /**
+     * A bounded range reports the epochs of the rows it actually scanned, not of
+     * the whole table — `AuditCheck` verifies only the tail, so a distribution
+     * that silently widened to the full chain would misreport what was covered.
+     */
+    #[Test]
+    public function verifyHashChainCountsOnlyTheScannedRange(): void
+    {
+        $auditService = $this->get(AuditLogServiceInterface::class);
+        $vaultService = $this->get(VaultServiceInterface::class);
+
+        $identifier = $this->generateUuidV7();
+        $vaultService->store($identifier, 'bounded-range-value');
+        $vaultService->retrieve($identifier);
+        $vaultService->retrieve($identifier);
+        $vaultService->delete($identifier, 'cleanup');
+
+        $tip = $this->getConnectionPool()
+            ->getConnectionForTable('tx_nrvault_audit_log')
+            ->createQueryBuilder()
+            ->select('uid', 'hmac_key_epoch')
+            ->from('tx_nrvault_audit_log')
+            ->orderBy('uid', 'DESC')
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchAssociative();
+
+        self::assertIsArray($tip, 'Precondition: the chain must not be empty');
+
+        $maxUid = (int) $tip['uid'];
+        $result = $auditService->verifyHashChain($maxUid, $maxUid);
+
+        // Exactly the one row the range covers — not the whole table.
+        self::assertSame([(int) $tip['hmac_key_epoch'] => 1], $result->epochCounts);
     }
 }
