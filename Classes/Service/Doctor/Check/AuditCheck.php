@@ -571,10 +571,14 @@ final readonly class AuditCheck implements ReadinessCheckInterface
      * Naming the cause correctly matters for the remediation. An INTERRUPTED
      * migration does not produce this state silently: both migration paths
      * rewrite row by row without a transaction, so a half-finished run leaves
-     * newer rows at the old epoch behind older migrated ones — a DECREASE, which
-     * `verifyHashChain()` already records as an error. The state that arrives
-     * without any signal is the other one: `auditHmacEpoch` raised in the
-     * extension configuration and the migration never run at all.
+     * newer rows at the old epoch behind older migrated ones — a DECREASE. A
+     * FULL `vault:audit-verify` pass records that as an error; this check does
+     * not see it, because the migration rewrites oldest-first (so the probe
+     * below reads the NEW epoch) and `checkHashChain()` only covers the newest
+     * CHAIN_TAIL_SIZE rows. Past that many rows, a stalled migration reads
+     * green here. The state that arrives without any signal at all is the
+     * other one: `auditHmacEpoch` raised in the extension configuration and
+     * the migration never run.
      *
      * @param array<string, bool|int|string> $details
      */
