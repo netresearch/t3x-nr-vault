@@ -49,6 +49,6 @@ trait ExceptionMessageExpectationTrait
             return;
         }
 
-        $this->expectExceptionMessageMatches('/' . \preg_quote($message, '/') . '/');
+        $this->expectExceptionMessageMatches('/' . preg_quote($message, '/') . '/');
     }
 }
