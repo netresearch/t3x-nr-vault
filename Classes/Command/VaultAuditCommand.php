@@ -34,8 +34,8 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 /**
  * CLI command to query and export audit logs.
  *
- * Every mode is gated on an operation permission: listing on `audit.view`,
- * `--export` on `audit.export`, and `--verify` / `--reset-anchor` on
+ * Every mode is gated on an operation permission: listing and `--verify` on
+ * `audit.view`, `--export` on `audit.export`, and `--reset-anchor` on
  * `vault.configure`. A refusal exits non-zero before any query, file write or
  * anchor change happens.
  *
@@ -167,9 +167,13 @@ final class VaultAuditCommand extends Command
         // derivative of the secrets themselves; before this gate existed,
         // `vault:audit` was the one privileged vault command that asserted
         // nothing at all.
-        $required = $this->requiredPermission($resetAnchor, $verify, $exportFile);
+        [$required, $operation] = $this->gate($resetAnchor, $verify, $exportFile);
         if (!$this->accessControlService->isGranted($required)) {
-            $io->error($this->accessDeniedMessage($required));
+            $io->error(\sprintf(
+                'Access denied: the "%s" permission is required to %s.',
+                $required->value,
+                $operation,
+            ));
 
             return Command::FAILURE;
         }
@@ -236,42 +240,30 @@ final class VaultAuditCommand extends Command
     }
 
     /**
-     * Which permission this invocation needs.
+     * The permission this invocation needs, and the operation it guards.
      *
-     * `--verify` and `--reset-anchor` do not read audit *content* at all: they
-     * assert on the chain's integrity state and, in the reset case, clear the
-     * truncation anchor and write into the chain. That is vault
-     * administration, so they take `vault.configure` rather than the reading
-     * permissions. Export takes `audit.export` on its own — same rule as
-     * `AuditController::exportAction()`, because the exported copy leaves the
-     * tamper-evident storage behind.
+     * Resolved as one value so a refusal can never name a permission belonging
+     * to a different mode than the one it gated, and so the operator learns
+     * which grant to ask for AND what for.
+     *
+     * `--verify` recomputes and compares — it mutates nothing, so it is a read
+     * of the chain and shares `audit.view` with the listing, exactly as
+     * `AuditController::verifyChainAction()` does. `--reset-anchor` is the
+     * outlier: it clears the truncation anchor and writes into the chain, so
+     * it stays vault administration. Export takes `audit.export` on its own —
+     * same rule as `AuditController::exportAction()`, because the exported
+     * copy leaves the tamper-evident storage behind.
+     *
+     * @return array{VaultPermission, string}
      */
-    private function requiredPermission(bool $resetAnchor, bool $verify, ?string $exportFile): VaultPermission
+    private function gate(bool $resetAnchor, bool $verify, ?string $exportFile): array
     {
         return match (true) {
-            $resetAnchor, $verify => VaultPermission::VaultConfigure,
-            $exportFile !== null => VaultPermission::AuditExport,
-            default => VaultPermission::AuditView,
+            $resetAnchor => [VaultPermission::VaultConfigure, 'reset the audit chain tip anchor'],
+            $verify => [VaultPermission::AuditView, 'verify the audit hash chain'],
+            $exportFile !== null => [VaultPermission::AuditExport, 'export audit entries to a file'],
+            default => [VaultPermission::AuditView, 'read the audit log'],
         };
-    }
-
-    /**
-     * Name the missing permission AND the operation it guards, so the operator
-     * knows which grant to ask for and for what.
-     */
-    private function accessDeniedMessage(VaultPermission $permission): string
-    {
-        $operation = match ($permission) {
-            VaultPermission::VaultConfigure => 'verify or reset the audit hash chain',
-            VaultPermission::AuditExport => 'export audit entries to a file',
-            default => 'read the audit log',
-        };
-
-        return \sprintf(
-            'Access denied: the "%s" permission is required to %s.',
-            $permission->value,
-            $operation,
-        );
     }
 
     private function buildFilters(InputInterface $input): ?AuditLogFilter

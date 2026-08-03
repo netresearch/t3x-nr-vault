@@ -12,6 +12,8 @@ namespace Netresearch\NrVault\Command;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -30,6 +32,16 @@ use Throwable;
  * `vault:audit-verify`. The anchoring interval is the blind window: an attacker
  * who resets the table can only hide entries written since the last anchor.
  *
+ * Gated on `vault.configure`, the same permission `vault:audit --reset-anchor`
+ * asserts, because publishing an anchor mutates tamper evidence: an actor who
+ * truncates the log and then anchors makes the external sink attest the
+ * truncated chain — the exact laundering the anchor exists to prevent.
+ *
+ * `--dry-run` is gated identically rather than as a read. It publishes nothing,
+ * but it prints the current chain tip, which is the value a forged anchor has
+ * to reproduce; and it is the rehearsal of an administrative operation, not a
+ * view of the audit log.
+ *
  * Usage:
  *   vendor/bin/typo3 vault:audit-anchor
  *   vendor/bin/typo3 vault:audit-anchor --dry-run
@@ -44,6 +56,7 @@ final class VaultAuditAnchorCommand extends Command
     public function __construct(
         private readonly ChainTipAnchorServiceInterface $anchorService,
         private readonly AuditSinkRegistryInterface $sinkRegistry,
+        private readonly AccessControlServiceInterface $accessControlService,
     ) {
         parent::__construct();
     }
@@ -72,6 +85,17 @@ final class VaultAuditAnchorCommand extends Command
         $formatOption = $input->getOption('format');
         $json = \is_string($formatOption) && strtolower($formatOption) === 'json';
         $dryRun = (bool) $input->getOption('dry-run');
+
+        // Before the chain tip is even read, so a refusal discloses nothing and
+        // publishes nothing.
+        if (!$this->accessControlService->isGranted(VaultPermission::VaultConfigure)) {
+            $this->fail($io, $output, $json, \sprintf(
+                'Access denied: the "%s" permission is required to publish the audit chain tip.',
+                VaultPermission::VaultConfigure->value,
+            ));
+
+            return Command::FAILURE;
+        }
 
         try {
             $anchor = $this->anchorService->capture();

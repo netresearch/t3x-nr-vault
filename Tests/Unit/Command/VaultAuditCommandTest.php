@@ -107,15 +107,60 @@ final class VaultAuditCommandTest extends TestCase
 
         yield 'verify' => [
             ['--verify' => true],
-            VaultPermission::VaultConfigure,
-            'Access denied: the "vault.configure" permission is required to verify or reset the audit hash chain.',
+            VaultPermission::AuditView,
+            'Access denied: the "audit.view" permission is required to verify the audit hash chain.',
         ];
 
         yield 'reset-anchor' => [
             ['--reset-anchor' => true, '--force' => true],
             VaultPermission::VaultConfigure,
-            'Access denied: the "vault.configure" permission is required to verify or reset the audit hash chain.',
+            'Access denied: the "vault.configure" permission is required to reset the audit chain tip anchor.',
         ];
+    }
+
+    /**
+     * Verification recomputes and compares; it mutates nothing. The same
+     * operation therefore answers to the same permission at every entry point —
+     * `AuditController::verifyChainAction()`, `vault:audit-verify`,
+     * `AuditVerifyTask` and here — so an actor who may read the audit log in
+     * the module may also check whether it has been tampered with from a shell.
+     */
+    #[Test]
+    public function verifyIsSatisfiedByAuditViewAloneAndDoesNotAcceptVaultConfigure(): void
+    {
+        $this->grantedPermissions = [VaultPermission::VaultConfigure];
+
+        $this->auditLogService->expects($this->never())->method('verifyHashChain');
+
+        $exitCode = $this->commandTester->execute(['--verify' => true]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString(
+            'Access denied: the "audit.view" permission is required to verify the audit hash chain.',
+            $this->normalizedDisplay(),
+        );
+    }
+
+    /**
+     * The converse, and the reason `--reset-anchor` did not move with
+     * `--verify`: resetting clears the truncation anchor and writes into the
+     * chain, so it stays vault administration and `audit.view` is not enough.
+     */
+    #[Test]
+    public function resetAnchorIsNotSatisfiedByAuditView(): void
+    {
+        $this->grantedPermissions = [VaultPermission::AuditView];
+
+        $this->anchorStore->expects($this->never())->method('reset');
+        $this->auditLogService->expects($this->never())->method('log');
+
+        $exitCode = $this->commandTester->execute(['--reset-anchor' => true, '--force' => true]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString(
+            'Access denied: the "vault.configure" permission is required to reset the audit chain tip anchor.',
+            $this->normalizedDisplay(),
+        );
     }
 
     /**

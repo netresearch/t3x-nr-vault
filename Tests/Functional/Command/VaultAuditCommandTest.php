@@ -163,33 +163,56 @@ final class VaultAuditCommandTest extends AbstractVaultFunctionalTestCase
     }
 
     #[Test]
-    public function verifyIsRefusedForAnActorHoldingOnlyAuditView(): void
+    public function verifyIsRefusedWithoutAuditViewPermission(): void
     {
         $this->seedAuditEntry();
-        $this->setUpBackendUser(self::AUDIT_VIEWER);
+        $this->setUpBackendUser(self::NO_PERMISSIONS);
         $entriesBefore = $this->countAuditEntries();
 
         $tester = $this->executeAudit(['--verify' => true]);
 
         self::assertSame(Command::FAILURE, $tester->getStatusCode());
         self::assertStringContainsString(
-            'Access denied: the "vault.configure" permission is required to verify or reset the audit hash chain.',
+            'Access denied: the "audit.view" permission is required to verify the audit hash chain.',
             $this->normalize($tester),
         );
         self::assertStringNotContainsString('Hash chain', $tester->getDisplay());
         self::assertSame($entriesBefore, $this->countAuditEntries());
     }
 
+    /**
+     * Verification recomputes and compares — it mutates nothing, so it is a
+     * read of the chain and shares `audit.view` with the listing, exactly as
+     * `AuditController::verifyChainAction()` does in the backend module. The
+     * same operation must not answer differently depending on where it is
+     * invoked from.
+     */
     #[Test]
-    public function verifyIsAllowedWithVaultConfigurePermission(): void
+    public function verifyIsAllowedWithAuditViewPermission(): void
+    {
+        $this->seedAuditEntry();
+        $this->setUpBackendUser(self::AUDIT_VIEWER);
+
+        $tester = $this->executeAudit(['--verify' => true]);
+
+        self::assertSame(Command::SUCCESS, $tester->getStatusCode(), $tester->getDisplay());
+        self::assertStringContainsString('Hash chain is valid', $tester->getDisplay());
+    }
+
+    /**
+     * The administrative permission is not a stand-in for the read: it gates
+     * `--reset-anchor`, which mutates tamper evidence, and nothing else here.
+     */
+    #[Test]
+    public function verifyIsRefusedForAnActorHoldingOnlyVaultConfigure(): void
     {
         $this->seedAuditEntry();
         $this->setUpBackendUser(self::VAULT_CONFIGURATOR);
 
         $tester = $this->executeAudit(['--verify' => true]);
 
-        self::assertSame(Command::SUCCESS, $tester->getStatusCode(), $tester->getDisplay());
-        self::assertStringContainsString('Hash chain is valid', $tester->getDisplay());
+        self::assertSame(Command::FAILURE, $tester->getStatusCode());
+        self::assertStringNotContainsString('Hash chain', $tester->getDisplay());
     }
 
     #[Test]
@@ -206,7 +229,7 @@ final class VaultAuditCommandTest extends AbstractVaultFunctionalTestCase
 
         self::assertSame(Command::FAILURE, $tester->getStatusCode());
         self::assertStringContainsString(
-            'Access denied: the "vault.configure" permission is required to verify or reset the audit hash chain.',
+            'Access denied: the "vault.configure" permission is required to reset the audit chain tip anchor.',
             $this->normalize($tester),
         );
         self::assertSame($anchorBefore, $this->readAnchor(), 'A refused reset must leave the anchor untouched.');

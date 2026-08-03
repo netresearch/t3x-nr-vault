@@ -35,7 +35,16 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
 {
     use AuditSinkSandboxTrait;
 
-    protected ?string $backendUserFixture = __DIR__ . '/../Fixtures/Users/be_users.csv';
+    /** Non-admin whose group carries no vault permission at all. */
+    private const NO_PERMISSIONS = 2;
+
+    /** Non-admin holding `audit.view` only. */
+    private const AUDIT_VIEWER = 3;
+
+    /** Non-admin holding `vault.configure` only. */
+    private const VAULT_CONFIGURATOR = 5;
+
+    protected ?string $backendUserFixture = __DIR__ . '/Fixtures/be_users_audit_permission.csv';
 
     /** @var array<string, mixed> */
     protected array $extensionConfiguration = [
@@ -190,12 +199,105 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
         self::assertStringContainsString('file', $tester->getDisplay());
     }
 
+    /**
+     * The gate this pins: the wrapper checks strictly more than
+     * `vault:audit --verify` — the external anchor as well as the chain — while
+     * asserting nothing, which made the gate on the interactive command a
+     * formality. A refusal must run no verification and must not be mistakable
+     * for a clean result.
+     */
+    #[Test]
+    public function verificationIsRefusedWithoutAuditView(): void
+    {
+        $this->seedChain(3);
+        $this->publishAnchor();
+        $this->setUpBackendUser(self::NO_PERMISSIONS);
+
+        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $exitCode = $tester->execute([]);
+
+        self::assertSame(Command::FAILURE, $exitCode);
+        self::assertStringContainsString(
+            'Access denied: the "audit.view" permission is required to verify the audit log integrity.',
+            $this->normalize($tester),
+        );
+        self::assertStringNotContainsString('verified', $tester->getDisplay());
+    }
+
+    /**
+     * A monitor that only reads `valid` must see a refused verification as a
+     * failed one, never as an intact chain.
+     */
+    #[Test]
+    public function refusedJsonVerificationReportsInvalid(): void
+    {
+        $this->seedChain(3);
+        $this->publishAnchor();
+        $this->setUpBackendUser(self::NO_PERMISSIONS);
+
+        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $exitCode = $tester->execute(['--format' => 'json']);
+
+        self::assertSame(Command::FAILURE, $exitCode);
+
+        $payload = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertIsArray($payload);
+        self::assertFalse($payload['valid']);
+        self::assertIsString($payload['error']);
+        self::assertStringContainsString('audit.view', $payload['error']);
+    }
+
+    /**
+     * `audit.view` is the whole grant: verification is a read of the chain, so
+     * an actor who may see the audit log may also check it for tampering — the
+     * same rule `AuditController::verifyChainAction()` applies in the module.
+     */
+    #[Test]
+    public function verificationIsAllowedWithAuditViewPermission(): void
+    {
+        $this->seedChain(3);
+        $this->publishAnchor();
+        $this->setUpBackendUser(self::AUDIT_VIEWER);
+
+        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $exitCode = $tester->execute([]);
+
+        self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
+        self::assertStringContainsString('verified', $tester->getDisplay());
+    }
+
+    /**
+     * And `vault.configure` is not a stand-in for it — the administrative
+     * permission does not carry the read.
+     */
+    #[Test]
+    public function verificationIsRefusedForAnActorHoldingOnlyVaultConfigure(): void
+    {
+        $this->seedChain(3);
+        $this->publishAnchor();
+        $this->setUpBackendUser(self::VAULT_CONFIGURATOR);
+
+        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+
+        self::assertSame(Command::FAILURE, $tester->execute([]));
+    }
+
     private function seedChain(int $entries): void
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
         for ($i = 0; $i < $entries; $i++) {
             $auditService->log('verify_cmd_secret', 'read', true);
         }
+    }
+
+    /**
+     * SymfonyStyle wraps its error block to the terminal width; collapsing
+     * whitespace lets the assertions pin the whole refusal sentence.
+     */
+    private function normalize(CommandTester $tester): string
+    {
+        return (string) preg_replace('/\s+/', ' ', $tester->getDisplay());
     }
 
     private function publishAnchor(): void
