@@ -86,19 +86,14 @@ $globalOptions = [
 ];
 
 /**
- * Parse every command class into name => {options, positional argument count}.
+ * The PHP files below $commandDir, in the iterator's order.
  *
- * Each option carries its real short form and whether it takes a value, so the
- * documented term can be compared against the full signature rather than the
- * name alone.
- *
- * @return array{0: array<string, array{options: array<string, array{short: ?string, value: bool}>, args: int}>, 1: list<string>}
+ * @return list<string>
  */
-$parseCommands = static function (string $commandDir): array {
-    /** @var array<string, array{options: array<string, array{short: ?string, value: bool}>, args: int}> $commands */
-    $commands = [];
-    /** @var list<string> $errors */
-    $errors = [];
+function commandClassFiles(string $commandDir): array
+{
+    /** @var list<string> $paths */
+    $paths = [];
 
     /** @var SplFileInfo $file */
     foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($commandDir, RecursiveDirectoryIterator::SKIP_DOTS)) as $file) {
@@ -108,7 +103,62 @@ $parseCommands = static function (string $commandDir): array {
         if ($file->getExtension() !== 'php') {
             continue;
         }
-        $contents = file_get_contents($file->getPathname());
+        $paths[] = $file->getPathname();
+    }
+
+    return $paths;
+}
+
+/**
+ * Parse the `addOption(name, shortcut, mode, ...)` calls of one command class.
+ *
+ * All three are captured, so the documented short form and value placeholder
+ * can be verified too — not just the option name.
+ *
+ * @return array<string, array{short: ?string, value: bool}>
+ */
+function parseCommandOptions(string $contents): array
+{
+    /** @var array<string, array{short: ?string, value: bool}> $options */
+    $options = [];
+
+    preg_match_all(
+        '/->addOption\(\s*[\'"]([a-zA-Z0-9][a-zA-Z0-9-]*)[\'"]\s*,'
+        . '\s*(?:null|[\'"]([a-zA-Z0-9])[\'"])\s*,'
+        . '\s*((?:\s*InputOption::[A-Z_]+\s*\|?)+)/',
+        $contents,
+        $optMatches,
+        PREG_SET_ORDER,
+    );
+    foreach ($optMatches as $match) {
+        $options[$match[1]] = [
+            'short' => $match[2] === '' ? null : $match[2],
+            'value' => str_contains($match[3], 'VALUE_REQUIRED')
+                || str_contains($match[3], 'VALUE_OPTIONAL'),
+        ];
+    }
+
+    return $options;
+}
+
+/**
+ * Parse every command class into name => {options, positional argument count}.
+ *
+ * Each option carries its real short form and whether it takes a value, so the
+ * documented term can be compared against the full signature rather than the
+ * name alone.
+ *
+ * @return array{0: array<string, array{options: array<string, array{short: ?string, value: bool}>, args: int}>, 1: list<string>}
+ */
+function parseCommandDefinitions(string $commandDir): array
+{
+    /** @var array<string, array{options: array<string, array{short: ?string, value: bool}>, args: int}> $commands */
+    $commands = [];
+    /** @var list<string> $errors */
+    $errors = [];
+
+    foreach (commandClassFiles($commandDir) as $path) {
+        $contents = file_get_contents($path);
         if ($contents === false) {
             continue;
         }
@@ -121,25 +171,7 @@ $parseCommands = static function (string $commandDir): array {
         }
         $name = $nameMatch[1];
 
-        // addOption(name, shortcut, mode, ...): capture all three, so the
-        // documented short form and value placeholder can be verified too.
-        /** @var array<string, array{short: ?string, value: bool}> $options */
-        $options = [];
-        preg_match_all(
-            '/->addOption\(\s*[\'"]([a-zA-Z0-9][a-zA-Z0-9-]*)[\'"]\s*,'
-            . '\s*(?:null|[\'"]([a-zA-Z0-9])[\'"])\s*,'
-            . '\s*((?:\s*InputOption::[A-Z_]+\s*\|?)+)/',
-            $contents,
-            $optMatches,
-            PREG_SET_ORDER,
-        );
-        foreach ($optMatches as $match) {
-            $options[$match[1]] = [
-                'short' => $match[2] === '' ? null : $match[2],
-                'value' => str_contains($match[3], 'VALUE_REQUIRED')
-                    || str_contains($match[3], 'VALUE_OPTIONAL'),
-            ];
-        }
+        $options = parseCommandOptions($contents);
 
         // An addOption() call the regex could not read would silently drop out
         // of the model — the option would then read as invented in the docs AND
@@ -149,7 +181,7 @@ $parseCommands = static function (string $commandDir): array {
         if ($declared !== count($options)) {
             $errors[] = sprintf(
                 '%s: parsed %d of %d addOption() call(s) — the guard cannot see the full signature of %s',
-                basename($file->getPathname()),
+                basename($path),
                 count($options),
                 (int) $declared,
                 $name,
@@ -167,7 +199,7 @@ $parseCommands = static function (string $commandDir): array {
     }
 
     return [$commands, $errors];
-};
+}
 
 /**
  * Extract `vendor/bin/typo3 vault:* ...` example invocations from a doc file.
@@ -273,6 +305,17 @@ $parseExample = static function (string $cmdLine): array {
 };
 
 /**
+ * True when $title/$underline form an RST section header: a non-empty title
+ * whose next line is a run of punctuation at least as long as the title.
+ */
+function isRstSectionHeader(string $title, string $underline): bool
+{
+    return $title !== ''
+        && preg_match('/^([=\-~^"\'`#*+]){2,}$/', $underline) === 1
+        && strlen($underline) >= strlen($title);
+}
+
+/**
  * Extract the per-command `Options` definition lists from an RST reference page.
  *
  * A command section is a `vault:<name>` title with an underline; the option
@@ -307,28 +350,29 @@ function parseDocumentedOptions(string $rst): array
     $inOptions = false;
     $count = count($lines);
 
-    for ($i = 0; $i < $count; ++$i) {
-        $title = trim($lines[$i]);
-        $underline = $lines[$i + 1] ?? '';
+    // An explicit cursor rather than a `for` counter: a header consumes TWO
+    // lines (title + underline), and advancing a loop counter from inside the
+    // body is exactly the kind of hidden control flow this guard should not have.
+    $cursor = 0;
+    while ($cursor < $count) {
+        $line = $lines[$cursor];
+        $lineNo = $cursor + 1;
+        $title = trim($line);
 
-        // An RST section header: a non-empty title whose next line is a run of
-        // punctuation at least as long as the title.
-        if (
-            $title !== ''
-            && preg_match('/^([=\-~^"\'`#*+]){2,}$/', $underline) === 1
-            && strlen($underline) >= strlen($title)
-        ) {
+        if (isRstSectionHeader($title, $lines[$cursor + 1] ?? '')) {
             if (preg_match('/^(vault:[a-z][a-z0-9-]*)$/', $title, $sectionMatch) === 1) {
                 $command = $sectionMatch[1];
-                $sections[$command] = $i + 1;
+                $sections[$command] = $lineNo;
                 $inOptions = false;
             } else {
                 $inOptions = $title === 'Options';
             }
-            ++$i;
+            $cursor += 2;
 
             continue;
         }
+
+        ++$cursor;
 
         if (!$inOptions) {
             continue;
@@ -336,11 +380,11 @@ function parseDocumentedOptions(string $rst): array
         if ($command === null) {
             continue;
         }
-        if (preg_match('/^--\S/', $lines[$i]) !== 1) {
+        if (preg_match('/^--\S/', $line) !== 1) {
             continue;
         }
 
-        $options[$command][] = [$i + 1, rtrim($lines[$i])];
+        $options[$command][] = [$lineNo, rtrim($line)];
     }
 
     return ['sections' => $sections, 'options' => $options];
@@ -362,6 +406,189 @@ function renderOptionTerm(string $name, ?string $short, bool $takesValue, string
 }
 
 /**
+ * Split one documented term into its four parts, or null when it is malformed.
+ *
+ * Shape rule: `--name[=PLACEHOLDER][, -x [PLACEHOLDER]]` and nothing else. The
+ * placeholder may itself contain '=' (--metadata=KEY=VALUE) but may not start
+ * with one, which is what makes the `-x =VALUE` typo fail.
+ *
+ * @return array{name: string, placeholder: string, short: ?string, shortPlaceholder: string}|null
+ */
+function parseOptionTerm(string $term): ?array
+{
+    $shape = preg_match(
+        '/^--([a-z0-9][a-z0-9-]*)(?:=([^\s,=][^\s,]*))?(?:, -([a-zA-Z0-9])(?: ([^\s,=][^\s,]*))?)?$/',
+        $term,
+        $parts,
+    );
+    if ($shape !== 1) {
+        return null;
+    }
+
+    $short = $parts[3] ?? '';
+
+    return [
+        'name' => $parts[1],
+        'placeholder' => $parts[2] ?? '',
+        'short' => $short === '' ? null : $short,
+        'shortPlaceholder' => $parts[4] ?? '',
+    ];
+}
+
+/**
+ * Rule: a documented long option must be declared by THAT command.
+ *
+ * A Symfony global gets its own message, because "remove the entry" is the fix,
+ * whereas "the command does not declare it" would read as an invitation to add
+ * the option to the command.
+ *
+ * @param array<string, array{short: ?string, value: bool}> $real
+ * @param list<string> $globalOptions
+ */
+function violationForUndeclaredOption(string $where, string $name, array $real, array $globalOptions): ?string
+{
+    if (isset($real[$name])) {
+        return null;
+    }
+
+    if (in_array($name, $globalOptions, true)) {
+        return "{$where} documents the global option '--{$name}' as its own"
+            . ' — Symfony adds it to every command, so a per-command entry claims'
+            . ' semantics it does not have (this is how -q was documented as a'
+            . ' scripting flag; it suppresses the output). Remove the entry.';
+    }
+
+    $known = array_keys($real);
+    sort($known);
+
+    return "{$where} documents '--{$name}', which the command does not declare"
+        . ' (real options: --' . implode(', --', $known) . ')';
+}
+
+/**
+ * Rule: the documented term must render exactly like the real signature.
+ *
+ * Comparing the whole rendered term rather than each property one at a time:
+ * one comparison catches the wrong shortcut, a missing or invented shortcut, a
+ * value marker on a flag, a missing one on a value-taking option, and a short
+ * placeholder that disagrees with the long one — and it always names the exact
+ * line to write.
+ *
+ * @param array{name: string, placeholder: string, short: ?string, shortPlaceholder: string} $parsed
+ * @param array{short: ?string, value: bool} $real
+ */
+function violationForSignatureMismatch(string $where, string $term, array $parsed, array $real): ?string
+{
+    $placeholder = $parsed['placeholder'] === '' ? 'VALUE' : $parsed['placeholder'];
+
+    $expected = renderOptionTerm($parsed['name'], $real['short'], $real['value'], $placeholder);
+    $canonical = renderOptionTerm($parsed['name'], $parsed['short'], $parsed['placeholder'] !== '', $placeholder);
+
+    $selfConsistent = $canonical === $term
+        && ($parsed['short'] === null || $parsed['shortPlaceholder'] === $parsed['placeholder']);
+
+    if ($selfConsistent && $canonical === $expected) {
+        return null;
+    }
+
+    return "{$where} documents '{$term}'; the real signature is '{$expected}'";
+}
+
+/**
+ * Rule: every option the command declares must appear in the list.
+ *
+ * @param array<string, array{short: ?string, value: bool}> $real
+ * @param array<string,int> $seen documented long name => line
+ *
+ * @return list<string>
+ */
+function violationsForUndocumentedOptions(
+    string $label,
+    int $sectionLine,
+    string $command,
+    array $real,
+    array $seen,
+): array {
+    /** @var list<string> $violations */
+    $violations = [];
+
+    foreach (array_diff(array_keys($real), array_keys($seen)) as $name) {
+        $violations[] = sprintf(
+            "%s:%d: '%s' does not document '%s'",
+            $label,
+            $sectionLine,
+            $command,
+            renderOptionTerm($name, $real[$name]['short'], $real[$name]['value'], 'VALUE'),
+        );
+    }
+
+    return $violations;
+}
+
+/**
+ * Run every per-term rule over ONE command's Options list, then the
+ * completeness rule over the list as a whole.
+ *
+ * @param array<string, array{short: ?string, value: bool}> $real
+ * @param list<array{int, string}> $terms
+ * @param list<string> $globalOptions
+ *
+ * @return array{violations: list<string>, checked: int}
+ */
+function validateCommandOptionList(
+    string $label,
+    string $command,
+    int $sectionLine,
+    array $real,
+    array $terms,
+    array $globalOptions,
+): array {
+    /** @var list<string> $violations */
+    $violations = [];
+    /** @var array<string,int> $seen documented long name => line */
+    $seen = [];
+
+    foreach ($terms as [$lineNo, $term]) {
+        $where = "{$label}:{$lineNo}: '{$command}'";
+
+        $parsed = parseOptionTerm($term);
+        if ($parsed === null) {
+            $violations[] = "{$where} has a malformed option term '{$term}'"
+                . " (expected '--name=VALUE, -x VALUE', '--name=VALUE' or '--name')";
+
+            continue;
+        }
+
+        $name = $parsed['name'];
+
+        $undeclared = violationForUndeclaredOption($where, $name, $real, $globalOptions);
+        if ($undeclared !== null) {
+            $violations[] = $undeclared;
+
+            continue;
+        }
+
+        if (isset($seen[$name])) {
+            $violations[] = "{$where} documents '--{$name}' twice (also on line {$seen[$name]})";
+        }
+        $seen[$name] = $lineNo;
+
+        $mismatch = violationForSignatureMismatch($where, $term, $parsed, $real[$name]);
+        if ($mismatch !== null) {
+            $violations[] = $mismatch;
+        }
+    }
+
+    return [
+        'violations' => [
+            ...$violations,
+            ...violationsForUndocumentedOptions($label, $sectionLine, $command, $real, $seen),
+        ],
+        'checked' => count($terms),
+    ];
+}
+
+/**
  * Check the documented option lists of one file against the real definitions.
  *
  * A command section without an `Options` subsection is skipped rather than
@@ -369,7 +596,7 @@ function renderOptionTerm(string $name, ?string $short, bool $takesValue, string
  * task-first, with examples and no option lists, and forcing it to duplicate
  * the reference would be worse documentation. The list has to exist SOMEWHERE
  * though — the commands whose list was validated here are reported back so
- * $validateOptionCoverage can require exactly that, which also closes the
+ * validateOptionCoverage() can require exactly that, which also closes the
  * "delete the section instead of fixing it" escape.
  *
  * @param array<string, array{options: array<string, array{short: ?string, value: bool}>, args: int}> $commands
@@ -397,99 +624,22 @@ function validateDocumentedOptions(
             continue;
         }
 
-        $real = $commands[$command]['options'];
         $terms = $documented['options'][$command] ?? [];
-
         if ($terms === []) {
             continue;
         }
         $covered[] = $command;
 
-        /** @var array<string,int> $seen documented long name => line */
-        $seen = [];
-
-        foreach ($terms as [$lineNo, $term]) {
-            ++$checked;
-            $where = "{$label}:{$lineNo}: '{$command}'";
-
-            // --name[=PLACEHOLDER][, -x [PLACEHOLDER]] and nothing else. The
-            // placeholder may itself contain '=' (--metadata=KEY=VALUE) but may
-            // not start with one, which is what makes the `-x =VALUE` typo fail.
-            $shape = preg_match(
-                '/^--([a-z0-9][a-z0-9-]*)(?:=([^\s,=][^\s,]*))?(?:, -([a-zA-Z0-9])(?: ([^\s,=][^\s,]*))?)?$/',
-                $term,
-                $parts,
-            );
-            if ($shape !== 1) {
-                $violations[] = "{$where} has a malformed option term '{$term}'"
-                    . " (expected '--name=VALUE, -x VALUE', '--name=VALUE' or '--name')";
-
-                continue;
-            }
-
-            $name = $parts[1];
-            $placeholder = $parts[2] ?? '';
-            $short = ($parts[3] ?? '') === '' ? null : $parts[3];
-            $shortPlaceholder = $parts[4] ?? '';
-
-            if (!isset($real[$name])) {
-                if (in_array($name, $globalOptions, true)) {
-                    $violations[] = "{$where} documents the global option '--{$name}' as its own"
-                        . ' — Symfony adds it to every command, so a per-command entry claims'
-                        . ' semantics it does not have (this is how -q was documented as a'
-                        . ' scripting flag; it suppresses the output). Remove the entry.';
-
-                    continue;
-                }
-
-                $known = array_keys($real);
-                sort($known);
-                $violations[] = "{$where} documents '--{$name}', which the command does not declare"
-                    . ' (real options: --' . implode(', --', $known) . ')';
-
-                continue;
-            }
-
-            if (isset($seen[$name])) {
-                $violations[] = "{$where} documents '--{$name}' twice (also on line {$seen[$name]})";
-            }
-            $seen[$name] = $lineNo;
-
-            $expected = renderOptionTerm(
-                $name,
-                $real[$name]['short'],
-                $real[$name]['value'],
-                $placeholder === '' ? 'VALUE' : $placeholder,
-            );
-
-            $canonical = renderOptionTerm(
-                $name,
-                $short,
-                $placeholder !== '',
-                $placeholder === '' ? 'VALUE' : $placeholder,
-            );
-
-            // Compare the whole rendered term rather than each property one at a
-            // time: one comparison catches the wrong shortcut, a missing or
-            // invented shortcut, a value marker on a flag, a missing one on a
-            // value-taking option, and a short placeholder that disagrees with
-            // the long one — and it always names the exact line to write.
-            $selfConsistent = $canonical === $term && ($short === null || $shortPlaceholder === $placeholder);
-            if (!$selfConsistent || $canonical !== $expected) {
-                $violations[] = "{$where} documents '{$term}'; the real signature is '{$expected}'";
-            }
-        }
-
-        $missing = array_diff(array_keys($real), array_keys($seen));
-        foreach ($missing as $name) {
-            $violations[] = sprintf(
-                "%s:%d: '%s' does not document '%s'",
-                $label,
-                $sectionLine,
-                $command,
-                renderOptionTerm($name, $real[$name]['short'], $real[$name]['value'], 'VALUE'),
-            );
-        }
+        $result = validateCommandOptionList(
+            $label,
+            $command,
+            $sectionLine,
+            $commands[$command]['options'],
+            $terms,
+            $globalOptions,
+        );
+        $violations = [...$violations, ...$result['violations']];
+        $checked += $result['checked'];
     }
 
     return ['violations' => $violations, 'checked' => $checked, 'covered' => $covered];
@@ -535,12 +685,12 @@ function validateOptionCoverage(array $commands, array $covered): array
 // so the guard also behaves under an unusual CLI ini.
 $arguments = $_SERVER['argv'] ?? [];
 if (is_array($arguments) && in_array('--self-test', $arguments, true)) {
-    require __DIR__ . '/check-cli-docs-selftest.php';
+    require_once __DIR__ . '/check-cli-docs-selftest.php';
 
     exit(checkCliDocsSelfTest());
 }
 
-[$commands, $parseErrors] = $parseCommands($commandDir);
+[$commands, $parseErrors] = parseCommandDefinitions($commandDir);
 $violations = $parseErrors;
 
 // Scan README plus every doc under Documentation/ so a vault:* example
