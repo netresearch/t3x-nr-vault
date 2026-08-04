@@ -575,6 +575,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         foreach ([$activeIdentifier, $disabledIdentifier] as $identifier) {
             $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
         }
+
         if (file_exists($newKeyPath)) {
             // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
             unlink($newKeyPath);
