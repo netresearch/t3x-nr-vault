@@ -208,6 +208,8 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
         $result = $auditService->verifyHashChain();
         self::assertFalse($result->isValid(), 'the truncated chain must stay invalid across the rotation');
         self::assertSame(AuditChainAnchorStatus::Unreadable, $result->anchorStatus);
+
+        sodium_memzero($newKey);
     }
 
     private function rawAnchorValue(): ?string
