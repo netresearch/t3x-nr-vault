@@ -551,17 +551,11 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
     }
 
     // The happy path — a legitimate rotation re-seals the anchor under the new
-    // key — is covered end to end by
+    // key — belongs in
     // `MasterKeyRotationTest::secondRotationKeepsSecretsDecryptableAndAuditChainValid`,
-    // which stores real secrets, pins `masterKeyProvider = file` and switches
-    // the key file, so the re-key actually runs. A copy of it lived here and
-    // proved nothing: this class stores no secrets, so the rotate command
-    // returns at its `$totalSecrets === 0 && $totalForeign === 0` guard long
-    // before `rekeyAuditChain()`, and it leaves `masterKeyProvider`
-    // unconfigured, so auto-detection picks the TYPO3 provider and copying a
-    // file over `master.key` changes no key the verification uses. Removing
-    // `reseal()` from `AuditChainRekeyService` left that test green and failed
-    // the one in `MasterKeyRotationTest`.
+    // not here: it needs stored secrets and a pinned file key provider, and
+    // this class has neither. A copy of it lived here and passed without the
+    // re-seal existing at all. Full analysis in #285.
 
     /**
      * The rotation-path companion to the migration-path test above (#283).

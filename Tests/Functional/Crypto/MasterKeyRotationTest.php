@@ -475,13 +475,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
             $secrets[$identifier] = $value;
         }
 
-        $beforeRotation = $auditLogService->verifyHashChain();
-        self::assertTrue($beforeRotation->isValid(), 'Audit chain must be valid before any rotation (K0)');
-        self::assertSame(
-            AuditChainAnchorStatus::Ok,
-            $beforeRotation->anchorStatus,
-            'precondition: the tip anchor is armed under K0',
-        );
+        $this->assertChainAndAnchorSealedUnder($auditLogService, 'K0');
 
         // === Rotation 1: K0 -> K1 ===
         $key1Path = $this->instancePath . '/master-epoch1.key';
@@ -531,18 +525,18 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
     /**
      * Assert the chain verifies AND the tip anchor is armed on the current tip,
-     * under the key the rotation just installed.
+     * under the currently configured key.
      *
-     * Must be called BEFORE any further vault operation. An ordinary audit
-     * write arms a missing anchor (that is deliberate — `auditAnchorRequired`
-     * is what turns a missing anchor into an error), so a single `retrieve()`
-     * in between would re-arm an anchor the re-seal had dropped and hide
-     * exactly the defect this asserts. Verified: a probe replacing the
-     * `reseal()` call with a delete of the anchor row passes when this runs
-     * after the reads and fails when it runs here.
+     * Call this BEFORE any further vault operation. An ordinary audit write
+     * arms a missing anchor (deliberately — `auditAnchorRequired` is what turns
+     * a missing anchor into an error), so a single `retrieve()` in between
+     * re-arms an anchor a broken re-seal had dropped and hides the defect.
+     * Verified: a probe replacing the `reseal()` call with a delete of the
+     * anchor row passes when this runs after the reads and fails when it runs
+     * directly after the rotation.
      *
-     * `isValid()` alone is not enough either — a missing anchor is only a
-     * warning, so the status has to be asserted on its own.
+     * The anchor status needs its own assertion — `isValid()` folds a violated
+     * anchor into its errors but a missing one only into its warnings.
      */
     private function assertChainAndAnchorSealedUnder(
         AuditLogServiceInterface $auditLogService,
@@ -552,12 +546,12 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
         self::assertTrue(
             $result->isValid(),
-            'Audit chain must verify under ' . $keyLabel . ' after the rotation',
+            'Audit chain must verify under ' . $keyLabel,
         );
         self::assertSame(
             AuditChainAnchorStatus::Ok,
             $result->anchorStatus,
-            'the tip anchor must be re-sealed onto the current tip under ' . $keyLabel,
+            'the tip anchor must be armed on the current tip under ' . $keyLabel,
         );
     }
 
