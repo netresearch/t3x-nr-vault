@@ -17,9 +17,7 @@ use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Command\VaultAuditCommand;
 use Netresearch\NrVault\Command\VaultAuditMigrateCommand;
-use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
-use Netresearch\NrVault\Crypto\FileMasterKeyProvider;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Seeder\AuditChainSeeder;
@@ -552,43 +550,18 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         self::assertSame(AuditChainAnchorStatus::Violated, $result->anchorStatus);
     }
 
-    /**
-     * Master-key rotation rewrites every entry hash under the NEW key, so the
-     * anchor has to be re-signed with that key inside the same transaction.
-     * Omitting the re-seal — or signing it with the old key — makes every
-     * install report a chain violation right after a rotation.
-     */
-    #[Test]
-    public function masterKeyRotationResealsTheAnchorUnderTheNewKey(): void
-    {
-        $auditLogService = $this->get(AuditLogServiceInterface::class);
-        $this->writeEntries($auditLogService, 3);
-
-        self::assertIsString($this->masterKeyPath);
-        $newKeyPath = $this->instancePath . '/master-rotated.key';
-        file_put_contents($newKeyPath, sodium_crypto_secretbox_keygen());
-
-        $commandTester = new CommandTester($this->get(VaultRotateMasterKeyCommand::class));
-        $exitCode = $commandTester->execute([
-            '--old-key' => $this->masterKeyPath,
-            '--new-key' => $newKeyPath,
-            '--confirm' => true,
-        ]);
-        self::assertSame(0, $exitCode, $commandTester->getDisplay());
-
-        // The operator's next step: make the new key the configured one.
-        self::assertIsString($this->masterKeyPath, 'the master key path is wired by the base test case');
-        copy($newKeyPath, $this->masterKeyPath);
-        FileMasterKeyProvider::clearCachedKey();
-
-        $result = $auditLogService->verifyHashChain();
-
-        self::assertTrue($result->isValid(), 'chain must verify under the new key');
-        self::assertSame(AuditChainAnchorStatus::Ok, $result->anchorStatus);
-
-        // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
-        unlink($newKeyPath);
-    }
+    // The happy path — a legitimate rotation re-seals the anchor under the new
+    // key — is covered end to end by
+    // `MasterKeyRotationTest::secondRotationKeepsSecretsDecryptableAndAuditChainValid`,
+    // which stores real secrets, pins `masterKeyProvider = file` and switches
+    // the key file, so the re-key actually runs. A copy of it lived here and
+    // proved nothing: this class stores no secrets, so the rotate command
+    // returns at its `$totalSecrets === 0 && $totalForeign === 0` guard long
+    // before `rekeyAuditChain()`, and it leaves `masterKeyProvider`
+    // unconfigured, so auto-detection picks the TYPO3 provider and copying a
+    // file over `master.key` changes no key the verification uses. Removing
+    // `reseal()` from `AuditChainRekeyService` left that test green and failed
+    // the one in `MasterKeyRotationTest`.
 
     /**
      * The rotation-path companion to the migration-path test above (#283).

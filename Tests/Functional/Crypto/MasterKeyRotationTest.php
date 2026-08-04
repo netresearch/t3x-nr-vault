@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Crypto;
 
+use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
 use Netresearch\NrVault\Crypto\EncryptionService;
@@ -449,6 +450,14 @@ final class MasterKeyRotationTest extends FunctionalTestCase
      * survive repeated DEK re-wrapping, and the chain re-key runs inside the
      * rotation transaction each time, so verification under the
      * currently-configured key passes at every observable point.
+     *
+     * It is also the only test that reaches the tip-anchor re-seal
+     * (`AuditChainRekeyService` → `AuditChainAnchorStore::reseal()`) through
+     * the real command: the re-key only runs when secrets exist, and the
+     * anchor is only re-signed under a key the verification afterwards
+     * actually uses because this class pins `masterKeyProvider = file`. The
+     * anchor status is therefore asserted explicitly rather than left to
+     * `isValid()`, which merely happens to fold anchor errors in.
      */
     #[Test]
     public function secondRotationKeepsSecretsDecryptableAndAuditChainValid(): void
@@ -466,9 +475,12 @@ final class MasterKeyRotationTest extends FunctionalTestCase
             $secrets[$identifier] = $value;
         }
 
-        self::assertTrue(
-            $auditLogService->verifyHashChain()->isValid(),
-            'Audit chain must be valid before any rotation (K0)',
+        $beforeRotation = $auditLogService->verifyHashChain();
+        self::assertTrue($beforeRotation->isValid(), 'Audit chain must be valid before any rotation (K0)');
+        self::assertSame(
+            AuditChainAnchorStatus::Ok,
+            $beforeRotation->anchorStatus,
+            'precondition: the tip anchor is armed under K0',
         );
 
         // === Rotation 1: K0 -> K1 ===
@@ -478,6 +490,8 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         $this->runRotationCommand($commandTester, $key1Path);
         $this->switchMasterKeyFile($key1Path);
 
+        $this->assertChainAndAnchorSealedUnder($auditLogService, 'K1');
+
         foreach ($secrets as $identifier => $expectedValue) {
             self::assertSame(
                 $expectedValue,
@@ -486,17 +500,14 @@ final class MasterKeyRotationTest extends FunctionalTestCase
             );
         }
 
-        self::assertTrue(
-            $auditLogService->verifyHashChain()->isValid(),
-            'Audit chain must verify under K1 after the first rotation',
-        );
-
         // === Rotation 2 (epoch 2): K1 -> K2 ===
         $key2Path = $this->instancePath . '/master-epoch2.key';
         file_put_contents($key2Path, sodium_crypto_secretbox_keygen());
 
         $this->runRotationCommand($commandTester, $key2Path);
         $this->switchMasterKeyFile($key2Path);
+
+        $this->assertChainAndAnchorSealedUnder($auditLogService, 'K2');
 
         foreach ($secrets as $identifier => $expectedValue) {
             self::assertSame(
@@ -505,11 +516,6 @@ final class MasterKeyRotationTest extends FunctionalTestCase
                 'Secret must decrypt after the SECOND rotation: ' . $identifier,
             );
         }
-
-        self::assertTrue(
-            $auditLogService->verifyHashChain()->isValid(),
-            'Audit chain must verify under K2 after the second rotation',
-        );
 
         // Cleanup
         foreach (array_keys($secrets) as $identifier) {
@@ -521,6 +527,38 @@ final class MasterKeyRotationTest extends FunctionalTestCase
                 unlink($path);
             }
         }
+    }
+
+    /**
+     * Assert the chain verifies AND the tip anchor is armed on the current tip,
+     * under the key the rotation just installed.
+     *
+     * Must be called BEFORE any further vault operation. An ordinary audit
+     * write arms a missing anchor (that is deliberate — `auditAnchorRequired`
+     * is what turns a missing anchor into an error), so a single `retrieve()`
+     * in between would re-arm an anchor the re-seal had dropped and hide
+     * exactly the defect this asserts. Verified: a probe replacing the
+     * `reseal()` call with a delete of the anchor row passes when this runs
+     * after the reads and fails when it runs here.
+     *
+     * `isValid()` alone is not enough either — a missing anchor is only a
+     * warning, so the status has to be asserted on its own.
+     */
+    private function assertChainAndAnchorSealedUnder(
+        AuditLogServiceInterface $auditLogService,
+        string $keyLabel,
+    ): void {
+        $result = $auditLogService->verifyHashChain();
+
+        self::assertTrue(
+            $result->isValid(),
+            'Audit chain must verify under ' . $keyLabel . ' after the rotation',
+        );
+        self::assertSame(
+            AuditChainAnchorStatus::Ok,
+            $result->anchorStatus,
+            'the tip anchor must be re-sealed onto the current tip under ' . $keyLabel,
+        );
     }
 
     /**
