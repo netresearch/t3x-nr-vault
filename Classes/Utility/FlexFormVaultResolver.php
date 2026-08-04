@@ -76,6 +76,7 @@ final readonly class FlexFormVaultResolver
                 if ($throwOnError) {
                     throw $e;
                 }
+
                 $this->logger->error('Failed to resolve FlexForm vault field', [
                     'field' => $field,
                     'identifier' => $identifier,

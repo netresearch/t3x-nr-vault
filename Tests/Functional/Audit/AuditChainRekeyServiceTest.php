@@ -149,6 +149,7 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
         $connection->commit();
 
         $connection->beginTransaction();
+
         $secondRun = $rekeyService->rekeyChain($connection, $newKey);
         $connection->commit();
 

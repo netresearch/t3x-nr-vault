@@ -297,6 +297,7 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         if ($filters instanceof SecretFilters && $filters->includeDisabled) {
             $queryBuilder->getRestrictions()->removeByType(HiddenRestriction::class);
         }
+
         $queryBuilder
             ->select('identifier')
             ->from(self::TABLE_NAME)
@@ -345,6 +346,7 @@ final readonly class SecretRepository implements SecretRepositoryInterface
             if (!\is_string($identifier)) {
                 continue;
             }
+
             if ($identifier === '') {
                 continue;
             }
@@ -374,6 +376,7 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         foreach ($groupUids as $gid) {
             $intGroupUids[] = (int) $gid;
         }
+
         $secretUids = $mmQuery
             ->select('DISTINCT uid_local')
             ->from(self::MM_TABLE_NAME)
@@ -483,6 +486,7 @@ final readonly class SecretRepository implements SecretRepositoryInterface
         if ($filters instanceof SecretFilters && $filters->includeDisabled) {
             $queryBuilder->getRestrictions()->removeByType(HiddenRestriction::class);
         }
+
         $queryBuilder
             ->select('*')
             ->from(self::TABLE_NAME)

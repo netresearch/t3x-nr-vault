@@ -54,6 +54,7 @@ final readonly class AnalyticsController
 
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
+
         $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
         $window = $this->resolveWindow($request);

@@ -145,6 +145,7 @@ final class OAuthFuzzTest extends TestCase
             for ($j = 0; $j < $len; $j++) {
                 $random .= \chr(mt_rand(32, 126));
             }
+
             $cases["random_garbage_{$i}"] = [$random, true];
         }
 

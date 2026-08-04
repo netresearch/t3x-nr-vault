@@ -162,6 +162,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 7]);
+
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -183,6 +184,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 7]);
+
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -242,6 +244,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
+
         $result = $task->execute();
 
         self::assertFalse($result);
@@ -267,6 +270,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
+
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -368,6 +372,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
+
         $result = $task->execute();
 
         self::assertTrue($result);

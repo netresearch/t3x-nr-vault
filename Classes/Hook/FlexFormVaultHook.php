@@ -74,6 +74,7 @@ final class FlexFormVaultHook
             if (!\is_string($configType)) {
                 continue;
             }
+
             if ($configType !== 'flex') {
                 continue;
             }
@@ -84,6 +85,7 @@ final class FlexFormVaultHook
             if (!isset($fieldArray[$fieldName])) {
                 continue;
             }
+
             if (!\is_array($fieldArray[$fieldName])) {
                 continue;
             }
@@ -125,6 +127,7 @@ final class FlexFormVaultHook
         if ($status === 'new') {
             $uidRaw = $dataHandler->substNEWwithIDs[$id] ?? $id;
         }
+
         $uid = is_numeric($uidRaw) ? (int) $uidRaw : 0;
 
         // Process pending FlexForm secrets
@@ -166,6 +169,7 @@ final class FlexFormVaultHook
             if (!\is_string($xmlValue)) {
                 continue;
             }
+
             if ($xmlValue === '') {
                 continue;
             }
@@ -226,6 +230,7 @@ final class FlexFormVaultHook
         if ($newIdRaw === null) {
             return;
         }
+
         $newId = is_numeric($newIdRaw) ? (int) $newIdRaw : 0;
 
         $flexFieldNames = $this->getFlexFieldNames($table);
@@ -249,6 +254,7 @@ final class FlexFormVaultHook
             if (!\is_string($xmlValue)) {
                 continue;
             }
+
             if ($xmlValue === '') {
                 continue;
             }
@@ -384,6 +390,7 @@ final class FlexFormVaultHook
                 );
             }
         }
+
         unset($sheetData, $fieldData);
 
         $this->discardUnprocessedVaultPlaintext($data, $table, $id, $flexFieldName);
@@ -501,9 +508,11 @@ final class FlexFormVaultHook
                 if (!\is_array($containerData)) {
                     continue;
                 }
+
                 if (!isset($containerData['el'])) {
                     continue;
                 }
+
                 if (!\is_array($containerData['el'])) {
                     continue;
                 }
@@ -521,6 +530,7 @@ final class FlexFormVaultHook
                     if (!\is_string($renderType)) {
                         continue;
                     }
+
                     if ($renderType !== 'vaultSecret') {
                         continue;
                     }
@@ -536,6 +546,7 @@ final class FlexFormVaultHook
                 }
             }
         }
+
         unset($sectionItem, $containerData, $innerFieldData);
     }
 
@@ -786,6 +797,7 @@ final class FlexFormVaultHook
                 $stripped = true;
             }
         }
+
         unset($value);
 
         return $stripped;

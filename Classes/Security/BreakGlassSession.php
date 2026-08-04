@@ -54,6 +54,7 @@ final readonly class BreakGlassSession
         if (!is_numeric($uid) || !\is_string($username) || !\is_string($reason)) {
             return null;
         }
+
         if (!is_numeric($activatedAt) || !is_numeric($expiresAt)) {
             return null;
         }

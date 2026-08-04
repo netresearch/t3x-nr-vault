@@ -51,6 +51,6 @@ final readonly class GenericContext implements AuditContextInterface
      */
     public function jsonSerialize(): array
     {
-        return $this->toArray();
+        return $this->data;
     }
 }

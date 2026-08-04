@@ -134,6 +134,7 @@ final class DataHandlerHook
         if ($status === 'new') {
             $uidRaw = $dataHandler->substNEWwithIDs[$id] ?? $id;
         }
+
         $uid = is_numeric($uidRaw) ? (int) $uidRaw : 0;
 
         // Process pending secrets for this record
@@ -255,6 +256,7 @@ final class DataHandlerHook
             if (!\is_string($vaultIdentifier)) {
                 continue;
             }
+
             if ($vaultIdentifier === '') {
                 continue;
             }
@@ -374,6 +376,7 @@ final class DataHandlerHook
         if ($newIdRaw === null) {
             return;
         }
+
         $newId = is_numeric($newIdRaw) ? (int) $newIdRaw : 0;
 
         $vaultFields = $this->getVaultFieldNames($table);
@@ -402,6 +405,7 @@ final class DataHandlerHook
             if (!\is_string($sourceIdentifier)) {
                 continue;
             }
+
             if ($sourceIdentifier === '') {
                 continue;
             }

@@ -180,7 +180,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
         self::assertSame($before, $this->countAuditRows($identifier), '100 rejections must add 0 audit rows');
         self::assertTrue(
             $result[1],
-            'Outside Development the skip path must emit no record, so this request\'s log slot is still unclaimed',
+            "Outside Development the skip path must emit no record, so this request's log slot is still unclaimed",
         );
     }
 
@@ -251,7 +251,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
             ['bodytext' => $placeholder],
         ));
 
-        self::assertSame($placeholder, $later, 'A later request must not inherit the previous request\'s grant');
+        self::assertSame($placeholder, $later, "A later request must not inherit the previous request's grant");
     }
 
     /**

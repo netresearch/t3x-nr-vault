@@ -122,12 +122,15 @@ final readonly class SecretsController
             if ($filters['identifier'] !== '' && stripos($secret->identifier, $filters['identifier']) === false) {
                 continue;
             }
+
             if ($filters['status'] === 'active' && !$secret->enabled) {
                 continue;
             }
+
             if ($filters['status'] === 'disabled' && $secret->enabled) {
                 continue;
             }
+
             if ($filters['owner'] > 0 && $secret->ownerUid !== $filters['owner']) {
                 continue;
             }
@@ -341,6 +344,7 @@ final readonly class SecretsController
                 /** @phpstan-ignore new.internalClass, method.internalClass */
                 return new JsonResponse(['success' => false, 'error' => 'Secret not found'], 404);
             }
+
             $this->addFlashMessage(
                 \sprintf($lang->sL(self::LL_NOT_FOUND), $identifier),
                 ContextualFeedbackSeverity::ERROR,
@@ -358,6 +362,7 @@ final readonly class SecretsController
                 /** @phpstan-ignore new.internalClass, method.internalClass */
                 return new JsonResponse(['success' => false, 'error' => 'An internal error occurred'], 500);
             }
+
             $this->addFlashMessage(
                 \sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.error'), $e->getMessage()),
                 ContextualFeedbackSeverity::ERROR,
@@ -441,6 +446,7 @@ final readonly class SecretsController
             /** @phpstan-ignore new.internalClass, method.internalClass */
             return new JsonResponse(['success' => false, 'error' => 'No secret identifier provided'], 400);
         }
+
         $this->addFlashMessage(
             $lang->sL(self::LL_NO_IDENTIFIER),
             ContextualFeedbackSeverity::ERROR,
@@ -568,6 +574,7 @@ final readonly class SecretsController
             } elseif (\is_string($username)) {
                 $displayName = $username;
             }
+
             $uidVal = $row['uid'] ?? 0;
             $cache[is_numeric($uidVal) ? (int) $uidVal : 0] = $displayName;
         }
@@ -596,6 +603,7 @@ final readonly class SecretsController
                 'name' => $userCache[$uid] ?? 'User #' . $uid,
             ];
         }
+
         usort($options, static fn (array $a, array $b): int => strcasecmp($a['name'], $b['name']));
 
         return $options;

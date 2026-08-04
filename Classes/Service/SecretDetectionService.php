@@ -366,9 +366,11 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
                 $this->scanConfigArray($valueArray, "{$prefix}.{$key}");
                 continue;
             }
+
             if (!\is_string($value)) {
                 continue;
             }
+
             if ($value === '') {
                 continue;
             }

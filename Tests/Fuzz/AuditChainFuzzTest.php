@@ -67,11 +67,13 @@ final class AuditChainFuzzTest extends TestCase
             for ($j = 0; $j < $idLen; $j++) {
                 $secretId .= \chr(mt_rand(32, 126));
             }
+
             $actionLen = mt_rand(1, 20);
             $action = '';
             for ($j = 0; $j < $actionLen; $j++) {
                 $action .= \chr(mt_rand(97, 122)); // a-z
             }
+
             $actorUid = mt_rand(0, 1000);
             $crdate = mt_rand(1000000, 2000000000);
             $prevHash = mt_rand(0, 1) !== 0 ? str_repeat('0', 64) : '';

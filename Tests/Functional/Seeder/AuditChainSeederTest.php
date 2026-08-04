@@ -42,6 +42,7 @@ final class AuditChainSeederTest extends FunctionalTestCase
         if (!is_dir($dir)) {
             mkdir($dir, 0o700, true);
         }
+
         file_put_contents($this->masterKeyPath, sodium_crypto_secretbox_keygen());
         chmod($this->masterKeyPath, 0o600);
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['masterKeySource'] = $this->masterKeyPath;

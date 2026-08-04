@@ -120,6 +120,7 @@ final class CryptoFuzzTest extends TestCase
             for ($j = 0; $j < $length; $j++) {
                 $plaintext .= \chr(mt_rand(0, 255));
             }
+
             $id = \sprintf('01937b6e-4b6c-7abc-8def-%012d', $i + 100);
             $cases["random_{$i}_len{$length}"] = [$plaintext, $id];
         }
@@ -195,6 +196,7 @@ final class CryptoFuzzTest extends TestCase
             $valueNonces[] = $encrypted->valueNonce;
             $dekNonces[] = $encrypted->dekNonce;
         }
+
         $elapsedMs = (hrtime(true) - $start) / 1_000_000;
 
         // Soft cap on runtime — if this ever exceeds 1s we'd want to know.

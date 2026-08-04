@@ -72,6 +72,7 @@ final readonly class VaultFieldResolver
                 if ($throwOnError) {
                     throw $e;
                 }
+
                 $this->logger->error('Failed to resolve vault field', [
                     'field' => $field,
                     'identifier' => $identifier,

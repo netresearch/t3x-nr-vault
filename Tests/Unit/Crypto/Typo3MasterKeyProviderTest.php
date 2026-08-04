@@ -38,6 +38,7 @@ final class Typo3MasterKeyProviderTest extends TestCase
         } else {
             unset($GLOBALS['TYPO3_CONF_VARS']);
         }
+
         Typo3MasterKeyProvider::clearCachedKey();
     }
 

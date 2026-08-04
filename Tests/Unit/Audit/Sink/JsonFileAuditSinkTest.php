@@ -592,6 +592,7 @@ final class JsonFileAuditSinkTest extends TestCase
             $cursor['nested'] = [];
             $cursor = &$cursor['nested'];
         }
+
         unset($cursor);
 
         return $context;

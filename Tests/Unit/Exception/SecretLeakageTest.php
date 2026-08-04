@@ -169,9 +169,11 @@ final class SecretLeakageTest extends TestCase
         foreach (self::chainingFactoryProvider() as $name => $row) {
             yield $name => [$row[0]];
         }
+
         foreach (self::factoryDefaultProvider() as $name => $row) {
             yield $name => [$row[0]];
         }
+
         foreach (self::identifierOnlyFactoryProvider() as $name => $row) {
             yield $name => [$row[0]];
         }

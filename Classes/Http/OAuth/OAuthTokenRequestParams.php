@@ -62,6 +62,7 @@ final class OAuthTokenRequestParams
         if ($this->scope !== null) {
             $params['scope'] = $this->scope;
         }
+
         if ($this->refreshToken !== null) {
             $params['refresh_token'] = $this->refreshToken;
         }
@@ -84,6 +85,7 @@ final class OAuthTokenRequestParams
         if ($this->wiped) {
             return;
         }
+
         $this->wiped = true;
 
         /** @phpstan-ignore assign.propertyType */

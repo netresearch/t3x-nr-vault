@@ -41,6 +41,7 @@ final class VaultAnalyticsServiceTest extends FunctionalTestCase
         for ($i = 0; $i < 9; $i++) {
             $this->seedReadEvent('manual_only', 'backend', self::NOW - (40 + $i) * self::DAY);
         }
+
         $this->seedReadEvent('healthy_key', 'api', self::NOW - 2 * self::DAY);
         $this->seedReadEvent('healthy_key', 'cli', self::NOW - 3 * self::DAY);
 
@@ -71,6 +72,7 @@ final class VaultAnalyticsServiceTest extends FunctionalTestCase
         foreach ($stats->byContext as $bar) {
             $contextPercent[$bar->label] = $bar->percent;
         }
+
         self::assertSame(50, $contextPercent['payment']);
         self::assertSame(50, $contextPercent['integration']);
 
@@ -111,6 +113,7 @@ final class VaultAnalyticsServiceTest extends FunctionalTestCase
                 return $c;
             }
         }
+
         self::fail('candidate not found: ' . $identifier);
     }
 

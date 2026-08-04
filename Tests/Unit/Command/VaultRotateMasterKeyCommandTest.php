@@ -464,6 +464,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
                     // First call (verification) succeeds
                     return new ReEncryptedDek('new', 'n');
                 }
+
                 if ($callCount === 2) {
                     // Second call succeeds
                     return new ReEncryptedDek('new', 'n');
@@ -1002,6 +1003,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         if ($root === null) {
             $root = vfsStream::setup('keys');
         }
+
         vfsStream::newFile($name . '.key')
             ->withContent($content)
             ->at($root);

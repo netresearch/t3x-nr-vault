@@ -44,9 +44,11 @@ final class DefaultDnsResolver implements DnsResolverInterface
             if (\is_string($ip)) {
                 $entry['ip'] = $ip;
             }
+
             if (\is_string($ipv6)) {
                 $entry['ipv6'] = $ipv6;
             }
+
             if ($entry !== []) {
                 $out[] = $entry;
             }

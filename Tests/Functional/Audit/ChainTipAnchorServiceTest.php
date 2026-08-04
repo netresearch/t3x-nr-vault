@@ -139,6 +139,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         for ($i = 0; $i < 5; $i++) {
             $auditService->log('anchor_test_secret', 'read', true);
         }
+
         $anchor = $service->capture();
         $service->publish($anchor);
         self::assertSame(5, $anchor->sequence);
@@ -185,6 +186,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         for ($i = 0; $i < 3; $i++) {
             $auditService->log('anchor_test_secret', 'read', true);
         }
+
         $anchor = $service->capture();
         $service->publish($anchor);
 
@@ -212,6 +214,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         for ($i = 0; $i < 4; $i++) {
             $auditService->log('anchor_test_secret', 'read', true);
         }
+
         $anchor = $service->capture();
         $service->publish($anchor);
 
@@ -219,6 +222,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         // appending a new entry.
         $connection = $this->getAuditConnection();
         $connection->delete(AuditLogService::TABLE_NAME, ['uid' => $anchor->sequence]);
+
         $auditService->log('anchor_test_secret', 'read', true);
 
         $report = $service->verify();
@@ -386,6 +390,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         for ($i = 0; $i < 3; $i++) {
             $auditService->log('anchor_test_secret', 'read', true);
         }
+
         $service->publish($service->capture());
 
         $report = $service->verify();

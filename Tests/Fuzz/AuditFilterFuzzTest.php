@@ -58,6 +58,7 @@ final class AuditFilterFuzzTest extends TestCase
      * @return list<array{mixed, int}>
      */
     private array $recordedParams = [];
+
     // -----------------------------------------------------------------------
     // Data providers
     // -----------------------------------------------------------------------
@@ -105,6 +106,7 @@ final class AuditFilterFuzzTest extends TestCase
             for ($j = 0; $j < $len; $j++) {
                 $buf .= \chr(mt_rand(0, 255));
             }
+
             $cases["random_{$i}_len{$len}"] = [$buf];
         }
 
@@ -256,6 +258,7 @@ final class AuditFilterFuzzTest extends TestCase
                 break;
             }
         }
+
         self::assertTrue($found, "actorUid={$uid} must be bound with PARAM_INT");
     }
 
@@ -279,6 +282,7 @@ final class AuditFilterFuzzTest extends TestCase
                     break;
                 }
             }
+
             self::assertTrue(
                 $found,
                 'success=' . ($b ? 'true' : 'false') . ' must bind as ' . $expected . ' with PARAM_INT',

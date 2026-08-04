@@ -286,6 +286,7 @@ final class OAuthTokenRequestParamsTest extends TestCase
         );
 
         $params->wipeCredentials();
+
         $query = $params->toHttpQuery();
 
         $decoded = $this->decode($query);

@@ -97,12 +97,15 @@ final readonly class EncryptionService implements EncryptionServiceInterface
             if (isset($dek)) {
                 sodium_memzero($dek);
             }
+
             if (isset($macKey)) {
                 sodium_memzero($macKey);
             }
+
             if (isset($plaintext)) {
                 sodium_memzero($plaintext);
             }
+
             // The master key is deliberately NOT wiped: it is the provider's
             // shared request-lifetime cache entry (see decrypt()); the provider
             // owns its lifecycle and wipes it on destruction.
@@ -223,6 +226,7 @@ final readonly class EncryptionService implements EncryptionServiceInterface
             if (isset($dek)) {
                 sodium_memzero($dek);
             }
+
             sodium_memzero($oldMasterKey);
             sodium_memzero($newMasterKey);
         }

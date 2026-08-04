@@ -118,6 +118,7 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
         if ($vaultToken === null) {
             return false;
         }
+
         $this->wipeTokenCopy($vaultToken, $config);
 
         return file_exists($config->wrappedKeyPath) && is_readable($config->wrappedKeyPath);
@@ -210,9 +211,11 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
         if ($config->address === '') {
             throw MasterKeyException::transitNotConfigured('hashicorp.address is empty');
         }
+
         if ($config->wrappedKeyPath === '') {
             throw MasterKeyException::transitNotConfigured('hashicorp.transitWrappedKeyPath is empty');
         }
+
         if (!$config->usesTokenAuth()) {
             throw MasterKeyException::transitUnsupportedAuthMethod($config->authMethod);
         }
@@ -388,6 +391,7 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
         if (!file_exists($path)) {
             throw MasterKeyException::notFound($path);
         }
+
         if (!is_readable($path)) {
             throw MasterKeyException::notFound($path . ' (not readable)');
         }

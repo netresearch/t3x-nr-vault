@@ -84,6 +84,7 @@ final class VaultDoctorCommandTest extends TestCase
         ]));
 
         $tester->execute([]);
+
         $display = $tester->getDisplay();
 
         self::assertStringContainsString('the trail exists only in the database it protects', $display);
@@ -189,6 +190,7 @@ final class VaultDoctorCommandTest extends TestCase
         ));
 
         $tester->execute([]);
+
         $display = $tester->getDisplay();
 
         self::assertStringContainsString('hardened', $display);

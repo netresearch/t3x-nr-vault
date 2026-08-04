@@ -199,6 +199,7 @@ final readonly class OverviewController
         if ($activeTab === 'dashboard') {
             $dashboardItem->setActive(true);
         }
+
         $menu->addMenuItem($dashboardItem);
 
         $helpItem = $menu->makeMenuItem()
@@ -207,6 +208,7 @@ final readonly class OverviewController
         if ($activeTab === 'help') {
             $helpItem->setActive(true);
         }
+
         $menu->addMenuItem($helpItem);
 
         $menuRegistry->addMenu($menu);

@@ -74,6 +74,7 @@ final class VaultSeedDemoCommand extends Command
             foreach ($existing as $identifier) {
                 $this->vaultService->delete($identifier, 'demo reseed');
             }
+
             $io->writeln(\sprintf('Removed %d existing demo secrets.', \count($existing)));
         }
 

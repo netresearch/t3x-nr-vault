@@ -150,6 +150,7 @@ final class VaultRotateCommand extends Command
 
                 return null;
             }
+
             $fileValue = file_get_contents($file);
             if ($fileValue !== false) {
                 return $fileValue;

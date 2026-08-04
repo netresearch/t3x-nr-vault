@@ -81,13 +81,13 @@ final class AuditControllerTest extends TestCase
     #[Test]
     public function csvExportStillNeutralizesFormulaLeaders(): void
     {
-        $csv = $this->exportCsv([$this->createEntry(userAgent: '=cmd|\' /C calc\'!A0')]);
+        $csv = $this->exportCsv([$this->createEntry(userAgent: "=cmd|' /C calc'!A0")]);
 
         [$header, $row] = $this->parseCsv($csv);
 
         $columnIndex = array_search('userAgent', $header, true);
         self::assertIsInt($columnIndex);
-        self::assertSame('\'=cmd|\' /C calc\'!A0', $row[$columnIndex]);
+        self::assertSame("'=cmd|' /C calc'!A0", $row[$columnIndex]);
     }
 
     /**
@@ -201,6 +201,7 @@ final class AuditControllerTest extends TestCase
         while (($row = fgetcsv($handle, escape: '')) !== false) {
             $rows[] = array_map(static fn (mixed $cell): string => \is_string($cell) ? $cell : '', $row);
         }
+
         fclose($handle);
 
         self::assertCount(2, $rows, 'Expected exactly a header row and one data row.');

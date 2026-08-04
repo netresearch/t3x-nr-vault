@@ -183,6 +183,7 @@ final class VaultDoctorCommand extends Command
                 $context->configuredProfile->value,
             )];
         }
+
         $definitions[] = ['Controls passed' => \sprintf(
             '%d of %d',
             $report->passedControls(),

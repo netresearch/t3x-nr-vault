@@ -8,44 +8,60 @@
 declare(strict_types=1);
 
 use Rector\Config\RectorConfig;
-use Rector\Set\ValueObject\SetList;
-use Rector\ValueObject\PhpVersion;
+use Rector\Privatization\Rector\Property\PrivatizeFinalClassPropertyRector;
 use Ssch\TYPO3Rector\Set\Typo3LevelSetList;
 use Ssch\TYPO3Rector\Set\Typo3SetList;
 
-return RectorConfig::configure()
-    ->withPaths([
-        __DIR__ . '/Classes',
-        __DIR__ . '/Tests',
-        __DIR__ . '/Configuration',
-    ])
-    ->withRootFiles()
-    ->withPhpVersion(PhpVersion::PHP_82)
-    ->withPhpSets(php82: true)
-    ->withSets([
-        // PHP code quality
-        SetList::CODE_QUALITY,
-        SetList::DEAD_CODE,
-        SetList::EARLY_RETURN,
-        SetList::TYPE_DECLARATION,
+$configure = require_once __DIR__ . '/.Build/vendor/netresearch/typo3-ci-workflows/config/rector/rector.php';
 
-        // TYPO3 specific
+return static function (RectorConfig $rectorConfig) use ($configure): void {
+    // Shared org base config: code-quality sets, rule skips, phpstan-rector.neon
+    $configure($rectorConfig, __DIR__);
+
+    // paths() replaces the shared list — re-declared to keep Tests/ in scope,
+    // which the shared $projectRoot default leaves out.
+    $rectorConfig->paths(array_merge(
+        [
+            __DIR__ . '/Classes',
+            __DIR__ . '/Configuration',
+            __DIR__ . '/Resources',
+            __DIR__ . '/Tests',
+        ],
+        glob(__DIR__ . '/ext_*.php') ?: [],
+    ));
+
+    $rectorConfig->sets([
         Typo3LevelSetList::UP_TO_TYPO3_13,
         Typo3SetList::CODE_QUALITY,
         Typo3SetList::GENERAL,
-    ])
-    ->withSkip([
-        // Skip vendor and build directories
-        __DIR__ . '/.Build',
+    ]);
+
+    $rectorConfig->skip([
         // Scheduler tasks use unserialize() - constructor injection breaks them
         __DIR__ . '/Classes/Task/OrphanCleanupTask.php',
         // Factory is called via GeneralUtility::makeInstance without constructor args
         __DIR__ . '/Classes/Http/SecureHttpClientFactory.php',
-        // ext_emconf.php is parsed by the TYPO3 Extension Repository (TER), whose
-        // parser is fragile and rejects many modern PHP constructs (declare(strict_types),
-        // namespaced types, etc.). The repo's CI lint check forbids strict_types in this
-        // file, so we exclude it from Rector entirely to be robust against any future
-        // rule that might also break the TER parser.
-        __DIR__ . '/ext_emconf.php',
-    ])
-    ->withImportNames(removeUnusedImports: true);
+        // The shared config enables SetList::PRIVATIZATION, whose
+        // PrivatizeFinalClassPropertyRector narrows protected properties in final
+        // classes to private. Two places here depend on the wider visibility and
+        // Rector cannot see either contract:
+        //
+        // Classes/Task: TYPO3 13.4 stores a scheduler task as a serialized object
+        // (tx_scheduler_task.serialized_task_object, restored by
+        // Scheduler\Task\TaskSerializer::deserialize()), and PHP encodes property
+        // visibility in the serialized key ("\0*\0prop" protected vs "\0FQCN\0prop"
+        // private). Narrowing therefore orphans the stored value in every existing
+        // task row: unserialize() leaves the typed property uninitialized and the
+        // next read fails with "must not be accessed before initialization".
+        //
+        // Tests: Tests/Unit/TestCase.php pulls in TcaSchemaMockTrait, whose
+        // mockTcaSchemaForTable() reads isset($this->tcaSchemaFactory) — a property
+        // each final test class declares itself. From the base-class scope a private
+        // child property is invisible, so isset() reports false and the helper
+        // throws (50 unit tests failed on exactly that).
+        PrivatizeFinalClassPropertyRector::class => [
+            __DIR__ . '/Classes/Task',
+            __DIR__ . '/Tests',
+        ],
+    ]);
+};
