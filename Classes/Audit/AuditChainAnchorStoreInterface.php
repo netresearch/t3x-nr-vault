@@ -81,7 +81,11 @@ interface AuditChainAnchorStoreInterface
      *
      * `$masterKey` null means "derive from the master-key provider"; master-key
      * rotation passes the NEW key explicitly, because it must sign under that
-     * key before the provider is reconfigured.
+     * key before the provider is reconfigured. The stored anchor is still
+     * signed under the provider's CURRENT key at that point, so the
+     * anti-truncation guard authenticates it under that key before the re-sign
+     * — refusing, like every other path, to sign a chain whose anchored row is
+     * gone or whose tip fell below the anchored uid.
      */
     public function reseal(
         Connection $connection,
