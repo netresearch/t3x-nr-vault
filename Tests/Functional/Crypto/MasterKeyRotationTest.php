@@ -531,6 +531,57 @@ final class MasterKeyRotationTest extends FunctionalTestCase
     }
 
     /**
+     * #286 — the rotation inventory must include DISABLED secrets. Their DEKs
+     * are wrapped under the key being retired, and the command's own next-steps
+     * output tells the operator to destroy that key. A hidden-restricted
+     * inventory leaves the disabled secret on the old key, so re-enabling it
+     * later surfaces a permanently undecryptable ciphertext.
+     */
+    #[Test]
+    public function rotationReWrapsDisabledSecretsSoTheyDecryptAfterReEnabling(): void
+    {
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $commandTester = new CommandTester($this->get(VaultRotateMasterKeyCommand::class));
+
+        $activeIdentifier = $this->generateUuidV7();
+        $disabledIdentifier = $this->generateUuidV7();
+        $vaultService->store($activeIdentifier, 'active-value');
+        $vaultService->store($disabledIdentifier, 'disabled-value');
+        $vaultService->setEnabled($disabledIdentifier, false, 'out of service during rotation');
+
+        $newKeyPath = $this->instancePath . self::NEW_KEY_FILENAME;
+        file_put_contents($newKeyPath, sodium_crypto_secretbox_keygen());
+
+        $this->runRotationCommand($commandTester, $newKeyPath);
+        self::assertStringContainsString(
+            'Found 2 secret(s) to re-encrypt',
+            $commandTester->getDisplay(),
+            'the disabled secret must be part of the rotation inventory',
+        );
+
+        // The operator completes the switch; from here the old key is gone.
+        $this->switchMasterKeyFile($newKeyPath);
+
+        self::assertSame('active-value', $vaultService->retrieve($activeIdentifier));
+
+        $vaultService->setEnabled($disabledIdentifier, true, 're-enable after rotation');
+        self::assertSame(
+            'disabled-value',
+            $vaultService->retrieve($disabledIdentifier),
+            'a secret disabled during the rotation must decrypt under the new key once re-enabled',
+        );
+
+        // Cleanup
+        foreach ([$activeIdentifier, $disabledIdentifier] as $identifier) {
+            $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
+        }
+        if (file_exists($newKeyPath)) {
+            // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
+            unlink($newKeyPath);
+        }
+    }
+
+    /**
      * Assert the chain verifies AND the tip anchor is armed on the current tip,
      * under the currently configured key.
      *
