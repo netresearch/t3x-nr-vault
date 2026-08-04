@@ -189,6 +189,15 @@ the HMAC upgrade wizard, ``vault:audit-migrate-hmac``) rewrite
 ``entry_hash``/``previous_hash`` ``WHERE uid = …`` and preserve every uid, so
 neither condition can false-alarm on them — and both fail on a truncated chain.
 
+Both assertions need an *authenticated* stored anchor to check against, and
+master-key rotation is the one path that cannot authenticate it under the key
+it signs with: it passes the NEW key, while the stored anchor still carries
+the current key's MAC. Parsing under the new key therefore always fails, which
+originally skipped the guard on exactly that path (#283). ``reseal()`` falls
+back to the provider's current key to authenticate the stored anchor before
+re-signing, so the rotation path takes the same guard as the two migration
+paths.
+
 Without it, the re-seal paths launder a truncation. The gate in front of them,
 ``verifyChainForReseal()``, lets a chain through when no row carries
 ``hmac_key_epoch >= 1``, on the grounds that a keyless epoch-0 chain has no

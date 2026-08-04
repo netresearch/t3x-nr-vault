@@ -409,6 +409,17 @@ and end with **Migration**, which collects everything you actually have to do.
 
 ### Fixed
 
+- **`reseal()` skipped its anti-truncation guard on the master-key rotation
+  path** (#283). The guard refuses to re-sign a shortened chain, but it can
+  only check a stored anchor it has authenticated — and it authenticated under
+  the key it was about to sign with. Rotation is the one path that passes a
+  different key, so the old-key MAC never verified, the guard was skipped, and
+  `reseal()` minted a fresh anchor over whatever the tip was at that moment.
+  The command's pre-flight chain verification kept this theoretical (the rows
+  would have to disappear inside the rotate transaction), which is why it was
+  tracked as a follow-up rather than an advisory. `reseal()` now falls back to
+  the provider's current key to authenticate the stored anchor, putting the
+  rotation path behind the same guard as the two migration paths.
 - **A rotated secret read as never rotated** (#281). `store()` carried
   `version`, `crdate` and `cruser_id` forward from the existing record but not
   `last_rotated_at`, `read_count` or `last_read_at`, so all three fell back to

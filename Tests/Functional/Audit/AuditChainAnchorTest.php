@@ -590,6 +590,49 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         unlink($newKeyPath);
     }
 
+    /**
+     * The rotation-path companion to the migration-path test above (#283).
+     * Rotation hands `reseal()` the NEW key, under which the stored anchor's
+     * MAC can never verify — that parse failure used to skip the
+     * anti-truncation guard on exactly the one path that passes a different
+     * key, so a chain shortened between the rotate command's pre-flight
+     * verification and the re-seal was signed anyway. The guard now
+     * authenticates the stored anchor under the provider's current key.
+     *
+     * The rotation flow end-to-end (re-key, then the operator's key switch)
+     * is covered in `AuditChainRekeyServiceTest`; this pins the store-level
+     * guard itself.
+     */
+    #[Test]
+    public function resealWithACallerSuppliedKeyCannotSignATruncatedChain(): void
+    {
+        $auditLogService = $this->get(AuditLogServiceInterface::class);
+        $this->writeEntries($auditLogService, 7);
+        self::assertTrue($auditLogService->verifyHashChain()->isValid(), 'precondition: chain valid and armed');
+
+        $this->deleteEntriesAbove(3);
+        self::assertSame(
+            AuditChainAnchorStatus::Violated,
+            $auditLogService->verifyHashChain()->anchorStatus,
+            'precondition: the anchor is evidence at this point',
+        );
+        $before = $this->rawAnchorValue();
+
+        $newKey = sodium_crypto_secretbox_keygen();
+        $this->get(AuditChainAnchorStoreInterface::class)->reseal($this->auditConnection(), $newKey);
+        sodium_memzero($newKey);
+
+        self::assertSame(
+            $before,
+            $this->rawAnchorValue(),
+            'the anchor must not be re-signed onto the shortened chain',
+        );
+
+        $result = $auditLogService->verifyHashChain();
+        self::assertFalse($result->isValid(), 'the truncation must stay detected after the refused re-seal');
+        self::assertSame(AuditChainAnchorStatus::Violated, $result->anchorStatus);
+    }
+
     // =====================================================================
     // Anchor tampering
     // =====================================================================

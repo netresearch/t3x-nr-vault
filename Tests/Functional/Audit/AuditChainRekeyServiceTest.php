@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Audit;
 
+use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
 use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditChainRekeyService;
 use Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface;
@@ -153,6 +154,83 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
 
         self::assertSame(2, $firstRun, 'First run rewrites every HMAC row');
         self::assertSame(0, $secondRun, 'Second run with the same key must rewrite nothing');
+    }
+
+    /**
+     * #283 — the rotation-path truncation guard. A truncation that slips in
+     * between the rotate command's pre-flight verification and the re-seal
+     * must not be laundered: `reseal()` is handed the NEW key, under which
+     * the stored anchor's MAC can never verify, and that parse failure used
+     * to bypass the guard that refuses to sign a shortened chain. The stored
+     * anchor is now authenticated under the provider's current key instead.
+     */
+    #[Test]
+    public function rekeyChainDoesNotResealATruncatedChain(): void
+    {
+        $auditService = $this->get(AuditLogServiceInterface::class);
+        $rekeyService = $this->get(AuditChainRekeyServiceInterface::class);
+        $connection = $this->getAuditConnection();
+
+        $auditService->log('truncation_secret', 'create', true);
+        $auditService->log('truncation_secret', 'read', true);
+        $auditService->log('truncation_secret', 'read', true);
+        $auditService->log('truncation_secret', 'read', true);
+        self::assertTrue($auditService->verifyHashChain()->isValid(), 'precondition: chain valid and armed');
+
+        // The window the guard has to close: rows disappear after the
+        // pre-flight verification, before the re-seal.
+        $queryBuilder = $connection->createQueryBuilder();
+        $queryBuilder
+            ->delete(self::TABLE_NAME)
+            ->where($queryBuilder->expr()->gt('uid', $queryBuilder->createNamedParameter(2, Connection::PARAM_INT)))
+            ->executeStatement();
+
+        $before = $this->rawAnchorValue();
+        self::assertIsString($before, 'precondition: the anchor is armed');
+
+        $newKey = sodium_crypto_secretbox_keygen();
+        $connection->beginTransaction();
+        $rekeyService->rekeyChain($connection, $newKey);
+        $connection->commit();
+
+        self::assertSame(
+            $before,
+            $this->rawAnchorValue(),
+            'the anchor must not be re-signed onto the shortened chain',
+        );
+
+        // After the operator completes the key switch, the surviving rows
+        // verify under the new key — the anchor is what keeps the truncation
+        // detected: its old-key MAC no longer parses, and an unreadable
+        // anchor is an error.
+        $this->switchMasterKeyFile($newKey);
+
+        $result = $auditService->verifyHashChain();
+        self::assertFalse($result->isValid(), 'the truncated chain must stay invalid across the rotation');
+        self::assertSame(AuditChainAnchorStatus::Unreadable, $result->anchorStatus);
+    }
+
+    private function rawAnchorValue(): ?string
+    {
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('sys_registry');
+        $queryBuilder = $connection->createQueryBuilder();
+        $value = $queryBuilder
+            ->select('entry_value')
+            ->from('sys_registry')
+            ->where(
+                $queryBuilder->expr()->eq('entry_namespace', $queryBuilder->createNamedParameter('tx_nrvault_audit_anchor')),
+                $queryBuilder->expr()->eq('entry_key', $queryBuilder->createNamedParameter('auditChainTip')),
+            )
+            ->executeQuery()
+            ->fetchOne();
+
+        if (\is_resource($value)) {
+            $contents = stream_get_contents($value);
+
+            return \is_string($contents) ? $contents : null;
+        }
+
+        return \is_string($value) ? $value : null;
     }
 
     private function getAuditConnection(): Connection

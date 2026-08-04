@@ -176,12 +176,35 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
             }
 
             $stored = $raw === null ? null : $this->parse($raw, $anchorKey);
+            $storedUnderAnchorKey = $stored instanceof AuditChainAnchor;
+
+            if ($raw !== null && !$storedUnderAnchorKey && $masterKey !== null) {
+                // A caller-supplied key means a re-key is in flight: the stored
+                // anchor is still signed under the provider's CURRENT key, so
+                // parsing it under the key being rotated IN always fails — which
+                // used to skip the truncation guard below on exactly the one
+                // path that passes a different key (#283). Fall back to the
+                // provider's key so the guard has an authenticated anchor to
+                // check against.
+                $currentKey = $this->deriveAnchorKey(null);
+
+                try {
+                    $stored = $this->parse($raw, $currentKey);
+                } finally {
+                    sodium_memzero($currentKey);
+                }
+            }
+
             if ($stored instanceof AuditChainAnchor) {
-                if ($stored->uid === $tip->uid && hash_equals($stored->entryHash, $tip->entryHash)) {
-                    // Already asserts exactly this tip. The stored `tstamp` differs
-                    // on every call (it is minted here), so the comparison is on
-                    // (uid, entry_hash) — comparing raw bytes would rewrite the row
-                    // on every re-seal for no reason.
+                if ($storedUnderAnchorKey && $stored->uid === $tip->uid && hash_equals($stored->entryHash, $tip->entryHash)) {
+                    // Already asserts exactly this tip UNDER THIS KEY. The stored
+                    // `tstamp` differs on every call (it is minted here), so the
+                    // comparison is on (uid, entry_hash) — comparing raw bytes
+                    // would rewrite the row on every re-seal for no reason. An
+                    // anchor recovered via the fallback parse must never take
+                    // this exit: it still carries the OLD key's MAC (an all-
+                    // epoch-0 chain re-keys without a single hash changing) and
+                    // has to be re-signed below.
                     return;
                 }
 
