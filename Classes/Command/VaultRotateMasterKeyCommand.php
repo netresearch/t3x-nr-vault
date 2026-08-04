@@ -20,6 +20,7 @@ use Netresearch\NrVault\Crypto\EnvelopeCodecInterface;
 use Netresearch\NrVault\Crypto\EnvelopeRotationContext;
 use Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface;
+use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Event\MasterKeyRotatedEvent;
@@ -175,7 +176,14 @@ final class VaultRotateMasterKeyCommand extends Command
             return Command::FAILURE;
         }
 
-        $identifiers = $this->secretRepository->findIdentifiers();
+        // Disabled secrets stay in the cryptographic inventory: their DEKs are
+        // wrapped under the master key being retired, and a secret re-enabled
+        // AFTER the rotation must still decrypt once the old key is destroyed.
+        // The default (hidden-restricted) lookup would silently leave them
+        // behind on the old key (#286).
+        $identifiers = $this->secretRepository->findIdentifiers(
+            new SecretFilters(includeDisabled: true),
+        );
         $totalSecrets = \count($identifiers);
 
         // Consumer-owned envelopes are part of the rotation, so they are part of
@@ -378,7 +386,9 @@ final class VaultRotateMasterKeyCommand extends Command
         string $newKey,
     ): bool {
         $io->text('Verifying old master key...');
-        $firstSecret = $this->secretRepository->findByIdentifier($firstIdentifier);
+        // The inventory includes disabled secrets, so the smoke-test candidate
+        // may be one — load it through the disabled-visible lookup.
+        $firstSecret = $this->secretRepository->findByIdentifierIncludingDisabled($firstIdentifier);
 
         if (!$firstSecret instanceof Secret) {
             $io->error('Failed to load first secret for verification.');
@@ -696,7 +706,9 @@ final class VaultRotateMasterKeyCommand extends Command
         string $newKey,
         array &$failedSecrets,
     ): bool {
-        $secret = $this->secretRepository->findByIdentifier($identifier);
+        // Disabled-visible for the same reason as the inventory: a disabled
+        // secret's DEK must move to the new key with everything else.
+        $secret = $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
         if (!$secret instanceof Secret) {
             $failedSecrets[] = ['identifier' => $identifier, 'error' => 'Not found'];
 

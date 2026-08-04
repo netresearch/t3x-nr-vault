@@ -409,6 +409,16 @@ and end with **Migration**, which collects everything you actually have to do.
 
 ### Fixed
 
+- **Master-key rotation skipped disabled secrets** (#286). The rotation
+  inventory, the pre-flight smoke test and the per-secret loop all used the
+  hidden-restricted repository lookups, so a disabled secret's DEK stayed
+  wrapped under the old master key — the very key the command's next-steps
+  output tells the operator to destroy. Re-enabling the secret later would
+  surface a permanently undecryptable ciphertext; with only disabled secrets
+  in the vault the command even reported "No secrets found" and exited
+  successfully. All three lookups now use the disabled-visible repository
+  paths, and a functional test rotates a vault holding an active and a
+  disabled secret and proves both plaintexts survive the key switch.
 - **`reseal()` skipped its anti-truncation guard on the master-key rotation
   path** (#283). The guard refuses to re-sign a shortened chain, but it can
   only check a stored anchor it has authenticated — and it authenticated under

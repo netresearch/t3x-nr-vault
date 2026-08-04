@@ -21,6 +21,7 @@ use Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Crypto\ReEncryptedDek;
+use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Event\MasterKeyRotatedEvent;
@@ -176,7 +177,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->willReturn(['test-secret']);
 
         $this->secretRepository
-            ->method('findByIdentifier')
+            ->method('findByIdentifierIncludingDisabled')
             ->willReturn($secret);
 
         $this->encryptionService
@@ -229,7 +230,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->willReturn(['failing-secret']);
 
         $this->secretRepository
-            ->method('findByIdentifier')
+            ->method('findByIdentifierIncludingDisabled')
             ->willReturn($secret);
 
         $this->encryptionService
@@ -259,7 +260,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->willReturn(['b64-secret']);
 
         $this->secretRepository
-            ->method('findByIdentifier')
+            ->method('findByIdentifierIncludingDisabled')
             ->willReturn($secret);
 
         $this->encryptionService
@@ -284,7 +285,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->willReturn(['nonexistent-secret']);
 
         $this->secretRepository
-            ->method('findByIdentifier')
+            ->method('findByIdentifierIncludingDisabled')
             ->willReturn(null);
 
         $exitCode = $this->commandTester->execute([
@@ -336,12 +337,18 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     {
         $secret = $this->createTestSecret('test-secret');
 
+        // The inventory must be built disabled-visible (#286): a disabled
+        // secret's DEK is wrapped under the key being retired too.
         $this->secretRepository
+            ->expects(self::once())
             ->method('findIdentifiers')
+            ->with(self::callback(
+                static fn (SecretFilters $filters): bool => $filters->includeDisabled,
+            ))
             ->willReturn(['test-secret']);
 
         $this->secretRepository
-            ->method('findByIdentifier')
+            ->method('findByIdentifierIncludingDisabled')
             ->willReturn($secret);
 
         $this->encryptionService
@@ -404,7 +411,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->willReturn(['test-secret']);
 
         $this->secretRepository
-            ->method('findByIdentifier')
+            ->method('findByIdentifierIncludingDisabled')
             ->willReturn($secret);
 
         $this->encryptionService
@@ -452,7 +459,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->willReturn(['secret-1', 'secret-2']);
 
         $this->secretRepository
-            ->method('findByIdentifier')
+            ->method('findByIdentifierIncludingDisabled')
             ->willReturnCallback(static fn (string $id): Secret => $id === 'secret-1' ? $secret1 : $secret2);
 
         $callCount = 0;
@@ -503,7 +510,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         $callCount = 0;
         $this->secretRepository
-            ->method('findByIdentifier')
+            ->method('findByIdentifierIncludingDisabled')
             ->willReturnCallback(function (string $id) use ($secret, &$callCount): ?Secret {
                 ++$callCount;
                 // Return secret for verification
@@ -550,7 +557,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->willReturn(['test-secret']);
 
         $this->secretRepository
-            ->method('findByIdentifier')
+            ->method('findByIdentifierIncludingDisabled')
             ->willReturn($secret);
 
         $this->encryptionService
@@ -578,7 +585,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         $callCount = 0;
         $this->secretRepository
-            ->method('findByIdentifier')
+            ->method('findByIdentifierIncludingDisabled')
             ->willReturn($secret);
 
         $this->encryptionService
@@ -713,7 +720,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     public function dryRunCountsConsumerEnvelopesWithoutRewrappingThem(): void
     {
         $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
-        $this->secretRepository->method('findByIdentifier')->willReturn($this->createTestSecret('test-secret'));
+        $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn($this->createTestSecret('test-secret'));
         $this->encryptionService->method('reEncryptDek')->willReturn(new ReEncryptedDek('dek', 'nonce'));
 
         $rotator = $this->createRotator(envelopes: 12);
@@ -739,7 +746,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     public function rotationIsRefusedWhenAConsumerTableIsOnAnotherConnection(): void
     {
         $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
-        $this->secretRepository->method('findByIdentifier')->willReturn($this->createTestSecret('test-secret'));
+        $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn($this->createTestSecret('test-secret'));
         $this->encryptionService->method('reEncryptDek')->willReturn(new ReEncryptedDek('dek', 'nonce'));
 
         $vaultConnection = $this->createMock(Connection::class);
@@ -953,7 +960,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     private function givenOneRotatableSecret(bool $expectRollback = false): void
     {
         $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
-        $this->secretRepository->method('findByIdentifier')->willReturn($this->createTestSecret('test-secret'));
+        $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn($this->createTestSecret('test-secret'));
         $this->encryptionService->method('reEncryptDek')->willReturn(new ReEncryptedDek('new-dek', 'new-nonce'));
 
         $lockResult = $this->createStub(Result::class);
