@@ -175,6 +175,7 @@ final class JsonFileAuditSink implements AuditSinkInterface
                 if ($written === false || $written !== \strlen($line)) {
                     throw AuditSinkException::writeFailed(self::IDENTIFIER, 'incomplete write (disk full or quota exceeded?)');
                 }
+
                 fflush($handle);
             } finally {
                 flock($handle, LOCK_UN);

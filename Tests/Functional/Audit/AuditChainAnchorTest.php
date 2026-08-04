@@ -320,6 +320,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
             $this->get(AccessControlServiceInterface::class),
         );
         $command->setName('vault:audit');
+
         $exitCode = (new CommandTester($command))->execute(['--reset-anchor' => true, '--force' => true]);
 
         self::assertSame(0, $exitCode);

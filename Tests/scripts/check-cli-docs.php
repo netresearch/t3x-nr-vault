@@ -100,9 +100,11 @@ function commandClassFiles(string $commandDir): array
         if (!$file->isFile()) {
             continue;
         }
+
         if ($file->getExtension() !== 'php') {
             continue;
         }
+
         $paths[] = $file->getPathname();
     }
 
@@ -169,6 +171,7 @@ function parseCommandDefinitions(string $commandDir): array
         if (!preg_match('/#\[AsCommand\(\s*(?:name:\s*)?[\'"]([^\'"]+)[\'"]/', $contents, $nameMatch)) {
             continue;
         }
+
         $name = $nameMatch[1];
 
         $options = parseCommandOptions($contents);
@@ -269,6 +272,7 @@ $parseExample = static function (string $cmdLine): array {
         if ($tok === '') {
             continue;
         }
+
         if (str_starts_with($tok, '--')) {
             // Strip a value: --opt=value  OR  bare --opt.
             $opt = substr($tok, 2);
@@ -276,27 +280,33 @@ $parseExample = static function (string $cmdLine): array {
             if ($eq !== false) {
                 $opt = substr($opt, 0, $eq);
             }
+
             if ($opt !== '') {
                 $options[] = $opt;
             }
 
             continue;
         }
+
         if (str_starts_with($tok, '-') && strlen($tok) > 1) {
             // Short option (e.g. -r, -f) — not validated against long names here.
             continue;
         }
+
         // Synopsis grammar, not a real argument: [options], <identifier>,
         // [<arg>], [--], {a|b}. These describe the signature, they don't pass a value.
         if (preg_match('/^[\[<{].*[\]>}]$/', $tok)) {
             continue;
         }
+
         if ($tok === '[--]') {
             continue;
         }
+
         if ($tok === '--') {
             continue;
         }
+
         // A positional argument (placeholder or literal value).
         ++$positional;
     }
@@ -367,6 +377,7 @@ function parseDocumentedOptions(string $rst): array
             } else {
                 $inOptions = $title === 'Options';
             }
+
             $cursor += 2;
 
             continue;
@@ -377,9 +388,11 @@ function parseDocumentedOptions(string $rst): array
         if (!$inOptions) {
             continue;
         }
+
         if ($command === null) {
             continue;
         }
+
         if (preg_match('/^--\S/', $line) !== 1) {
             continue;
         }
@@ -571,6 +584,7 @@ function validateCommandOptionList(
         if (isset($seen[$name])) {
             $violations[] = "{$where} documents '--{$name}' twice (also on line {$seen[$name]})";
         }
+
         $seen[$name] = $lineNo;
 
         $mismatch = violationForSignatureMismatch($where, $term, $parsed, $real[$name]);
@@ -628,6 +642,7 @@ function validateDocumentedOptions(
         if ($terms === []) {
             continue;
         }
+
         $covered[] = $command;
 
         $result = validateCommandOptionList(
@@ -667,9 +682,11 @@ function validateOptionCoverage(array $commands, array $covered): array
         if ($definition['options'] === []) {
             continue;
         }
+
         if (in_array($command, $covered, true)) {
             continue;
         }
+
         $violations[] = sprintf(
             "no Options list documents '%s', which declares %d option(s): --%s",
             $command,
@@ -700,6 +717,7 @@ $docFiles = [];
 if (is_file($projectRoot . '/README.md')) {
     $docFiles['README.md'] = $projectRoot . '/README.md';
 }
+
 $docDir = $projectRoot . '/Documentation';
 if (is_dir($docDir)) {
     /** @var SplFileInfo $file */
@@ -707,12 +725,15 @@ if (is_dir($docDir)) {
         if (!$file->isFile()) {
             continue;
         }
+
         if (!in_array($file->getExtension(), ['rst', 'md'], true)) {
             continue;
         }
+
         $label = ltrim(str_replace($projectRoot, '', $file->getPathname()), '/');
         $docFiles[$label] = $file->getPathname();
     }
+
     ksort($docFiles);
 }
 
@@ -733,6 +754,7 @@ foreach ($docFiles as $label => $path) {
 
             continue;
         }
+
         ++$checked;
 
         $def = $commands[$command];
@@ -740,9 +762,11 @@ foreach ($docFiles as $label => $path) {
             if (isset($def['options'][$opt])) {
                 continue;
             }
+
             if (in_array($opt, $globalOptions, true)) {
                 continue;
             }
+
             $known = array_keys($def['options']);
             sort($known);
             $hint = $known === [] ? '(command has no options)' : '(have: --' . implode(', --', $known) . ')';
@@ -782,6 +806,7 @@ if ($violations !== []) {
     foreach ($violations as $v) {
         fwrite(STDERR, "  - {$v}\n");
     }
+
     fwrite(STDERR, "\nFix the documented example(s) and Options list(s) to match the command\n");
     fwrite(STDERR, "signature in Classes/Command/*Command.php, or update the command definition.\n");
     exit(1);

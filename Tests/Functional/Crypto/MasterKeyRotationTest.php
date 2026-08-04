@@ -68,6 +68,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         if (!is_dir($dir)) {
             mkdir($dir, 0o700, true);
         }
+
         $masterKey = sodium_crypto_secretbox_keygen();
         file_put_contents($this->masterKeyPath, $masterKey);
         chmod($this->masterKeyPath, 0o600);
@@ -91,6 +92,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
             if ($content !== false) {
                 sodium_memzero($content);
             }
+
             // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
             unlink($this->masterKeyPath);
         }
@@ -161,6 +163,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         foreach (array_keys($secrets) as $identifier) {
             $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
         }
+
         if (file_exists($newKeyPath)) {
             // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
             unlink($newKeyPath);
@@ -300,6 +303,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         foreach ($identifiers as $identifier) {
             $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
         }
+
         if (file_exists($newKeyPath)) {
             // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
             unlink($newKeyPath);
@@ -434,10 +438,12 @@ final class MasterKeyRotationTest extends FunctionalTestCase
                 // ignore cleanup errors
             }
         }
+
         if (file_exists($newKeyPath)) {
             // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
             unlink($newKeyPath);
         }
+
         sodium_memzero($bogusOldKey);
     }
 
@@ -515,6 +521,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         foreach (array_keys($secrets) as $identifier) {
             $vaultService->delete($identifier, self::REASON_TEST_CLEANUP);
         }
+
         foreach ([$key1Path, $key2Path] as $path) {
             if (file_exists($path)) {
                 // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path

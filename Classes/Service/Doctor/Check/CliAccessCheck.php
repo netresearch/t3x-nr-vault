@@ -258,6 +258,7 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
         if ($risky !== []) {
             $summaryParts[] = \sprintf('grants high-risk operation(s) %s to the unattributed CLI actor', implode(', ', $risky));
         }
+
         if ($unknown !== []) {
             $summaryParts[] = \sprintf('contains unknown value(s) %s', implode(', ', $unknown));
         }
@@ -273,7 +274,7 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
                 . 'do not admit it to, and the widened tiers read as ordinary configuration afterwards. '
                 . '"audit.view" grants no secret access at all, but the trail it opens names who touched '
                 . 'which identifier when: it maps the credential topology, and it is also where the '
-                . 'shell\'s own activity is recorded, so it is reconnaissance handed to the actor the '
+                . "shell's own activity is recorded, so it is reconnaissance handed to the actor the "
                 . 'log exists to catch. Unknown values do nothing: the grant the operator believes is '
                 . 'configured is silently absent.',
             remediation: 'Remove the high-risk operations from "cliAllowedOperations" (use a named '

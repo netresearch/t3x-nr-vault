@@ -258,6 +258,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             foreach ($chunk as $entry) {
                 yield $entry;
             }
+
             $offset += $chunkSize;
         } while (\count($chunk) === $chunkSize);
     }
@@ -363,6 +364,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                             $missingUids[] = $missing;
                         }
                     }
+
                     $errors[$uid] = \sprintf(
                         'Audit log uid gap detected: missing uids %d..%d (chain could have been tampered by deletion + previous_hash patch)',
                         $gapStart,
@@ -403,6 +405,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 if ($epoch > $maxEpoch) {
                     $maxEpoch = $epoch;
                 }
+
                 $epochCounts[$epoch] = ($epochCounts[$epoch] ?? 0) + 1;
 
                 // Epoch-aware hash dispatch:

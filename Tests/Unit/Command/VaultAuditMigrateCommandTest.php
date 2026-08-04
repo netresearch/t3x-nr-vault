@@ -282,6 +282,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
 
         $application = new Application();
         $application->addCommand($command);
+
         $tester = new CommandTester($command);
         $exitCode = $tester->execute([]);
 

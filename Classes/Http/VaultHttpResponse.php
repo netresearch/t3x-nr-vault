@@ -177,6 +177,7 @@ final readonly class VaultHttpResponse
             if (!\is_array($value) || !\array_key_exists($segment, $value)) {
                 return $default;
             }
+
             $value = $value[$segment];
         }
 

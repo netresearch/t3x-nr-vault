@@ -227,6 +227,7 @@ final class IdentifierValidatorTest extends TestCase
         for ($i = 0; $i < 500; $i++) {
             $variants[] = IdentifierValidator::generateUuid()[19];
         }
+
         $variants = array_values(array_unique($variants));
         sort($variants);
 

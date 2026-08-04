@@ -448,6 +448,7 @@ final class SecretTcaHook
         if ($status === 'new') {
             $uidRaw = $dataHandler->substNEWwithIDs[$id] ?? $id;
         }
+
         $uid = is_numeric($uidRaw) ? (int) $uidRaw : 0;
 
         // Get the secret identifier for operations
@@ -1060,9 +1061,11 @@ final class SecretTcaHook
 
                 return true;
             }
+
             if ($originalValues === []) {
                 return false;
             }
+
             $connection->update(self::TABLE, $originalValues, ['uid' => $uid]);
 
             return true;
@@ -1538,6 +1541,7 @@ final class SecretTcaHook
             if (!\array_key_exists($column, $fieldArray)) {
                 continue;
             }
+
             // Compare before dropping, so an ordinary save that merely
             // round-trips the unchanged value does not report tampering.
             // A comparison that cannot prove equality counts as an attempt:
@@ -1547,6 +1551,7 @@ final class SecretTcaHook
             ) {
                 $attempted[] = $column;
             }
+
             unset($fieldArray[$column]);
         }
 
@@ -1554,6 +1559,7 @@ final class SecretTcaHook
             if (!\array_key_exists($column, $fieldArray)) {
                 continue;
             }
+
             // MM-backed group field: the row column holds only the relation
             // count, so the submitted value carries no comparable state —
             // its mere presence is the attempt.

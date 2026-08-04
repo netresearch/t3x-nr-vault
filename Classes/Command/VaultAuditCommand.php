@@ -542,6 +542,7 @@ final class VaultAuditCommand extends Command
             if (isset($row['context']) && \is_array($row['context'])) {
                 $row['context'] = json_encode($row['context']);
             }
+
             // Filter to only scalar/null values for fputcsv
             /** @var array<string, bool|float|int|string|null> $csvRow */
             $csvRow = array_map(

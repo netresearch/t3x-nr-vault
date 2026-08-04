@@ -80,6 +80,7 @@ abstract class AbstractVaultFunctionalTestCase extends FunctionalTestCase
         if (!isset($GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']) || !\is_array($GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS'])) {
             $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS'] = [];
         }
+
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = array_merge(
             [
                 'masterKeySource' => $this->masterKeyPath,
@@ -107,6 +108,7 @@ abstract class AbstractVaultFunctionalTestCase extends FunctionalTestCase
             if ($content !== false) {
                 sodium_memzero($content);
             }
+
             // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
             unlink($this->masterKeyPath);
         }

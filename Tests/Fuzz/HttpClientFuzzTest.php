@@ -116,6 +116,7 @@ final class HttpClientFuzzTest extends TestCase
             for ($j = 0; $j < $len; $j++) {
                 $value .= \chr(mt_rand(33, 126)); // printable, excludes space
             }
+
             $cases["random_printable_{$i}"] = [$value];
         }
 
@@ -269,6 +270,7 @@ final class HttpClientFuzzTest extends TestCase
                         );
                     }
                 }
+
                 self::assertFalse(
                     $request->hasHeader('X-Injected-Header'),
                     'CRLF injection must not create extra headers',

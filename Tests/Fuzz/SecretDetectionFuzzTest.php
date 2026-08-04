@@ -162,6 +162,7 @@ final class SecretDetectionFuzzTest extends TestCase
             for ($j = 0; $j < $len; $j++) {
                 $value .= \chr(mt_rand(32, 126)); // printable ASCII
             }
+
             $cases["random_smtp_{$i}"] = [['MAIL' => ['transport_smtp_password' => $value], 'SYS' => []]];
         }
 

@@ -182,6 +182,7 @@ final class AccessControlService implements AccessControlServiceInterface
         if (!$backendUser instanceof BackendUserAuthentication) {
             return false;
         }
+
         if ($this->isBackendUserDisabled($backendUser)) {
             return false;
         }
@@ -303,6 +304,7 @@ final class AccessControlService implements AccessControlServiceInterface
             } elseif (is_numeric($groupId)) {
                 $normalised = (int) $groupId;
             }
+
             $result[] = $normalised;
         }
 
@@ -655,9 +657,11 @@ final class AccessControlService implements AccessControlServiceInterface
             if (!\is_string($options)) {
                 continue;
             }
+
             if ($options === '') {
                 continue;
             }
+
             if (GeneralUtility::inList($options, self::PERM_OPTION_GROUP . ':' . $permission->value)) {
                 return true;
             }

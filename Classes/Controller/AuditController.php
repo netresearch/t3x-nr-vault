@@ -366,6 +366,7 @@ final readonly class AuditController
                 if (\is_array($row['context'])) {
                     $row['context'] = json_encode($row['context']);
                 }
+
                 /** @var array<int, bool|float|int|string|null> $values */
                 $values = array_values($row);
                 fputcsv($output, CsvFormulaSanitizer::neutralizeRow($values), escape: '');

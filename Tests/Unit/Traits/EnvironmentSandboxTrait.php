@@ -137,9 +137,11 @@ trait EnvironmentSandboxTrait
             if ($item === '.') {
                 continue;
             }
+
             if ($item === '..') {
                 continue;
             }
+
             $path = $directory . '/' . $item;
             if (is_dir($path)) {
                 $this->removeSandboxDirectory($path);

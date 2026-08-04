@@ -205,6 +205,7 @@ final readonly class MigrationController
             if ($sourceFilter !== 'all' && $secret->getSource() !== $sourceFilter) {
                 continue;
             }
+
             if ($severityFilter !== 'all' && $secret->getSeverity()->value !== $severityFilter) {
                 continue;
             }
@@ -305,6 +306,7 @@ final readonly class MigrationController
             if (!$result instanceof MigrationResult) {
                 continue;
             }
+
             $results[] = $result->toArray();
             $totalMigrated += $result->migrated;
             $totalFailed += $result->failed;
@@ -346,6 +348,7 @@ final readonly class MigrationController
         if (!\is_array($migration)) {
             return null;
         }
+
         $tableVal = $migration['table'] ?? '';
         $table = \is_string($tableVal) ? $tableVal : '';
         $columnVal = $migration['column'] ?? '';
@@ -355,9 +358,11 @@ final readonly class MigrationController
         if ($table === '') {
             return null;
         }
+
         if ($column === '') {
             return null;
         }
+
         if ($identifierPattern === '') {
             return null;
         }

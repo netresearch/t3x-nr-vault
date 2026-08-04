@@ -73,6 +73,7 @@ final class FileMasterKeyProvider extends AbstractMasterKeyProvider
         } finally {
             umask($previousUmask);
         }
+
         if ($result === false) {
             throw MasterKeyException::cannotStore("Cannot write to: {$path}");
         }

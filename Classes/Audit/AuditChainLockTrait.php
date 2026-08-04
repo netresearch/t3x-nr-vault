@@ -62,10 +62,12 @@ trait AuditChainLockTrait
 
                 return;
             }
+
             $connection->executeStatement('BEGIN EXCLUSIVE');
 
             return;
         }
+
         $lockResult = $connection->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')->fetchOne();
         if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
             throw AuditWriteException::lockAcquisitionFailed($lockResult);
@@ -98,10 +100,12 @@ trait AuditChainLockTrait
 
                 return;
             }
+
             $connection->executeStatement('COMMIT');
 
             return;
         }
+
         $connection->commit();
     }
 
@@ -115,10 +119,12 @@ trait AuditChainLockTrait
 
                 return;
             }
+
             $connection->executeStatement('ROLLBACK');
 
             return;
         }
+
         $connection->rollBack();
     }
 

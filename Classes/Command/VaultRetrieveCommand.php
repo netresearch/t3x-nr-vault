@@ -120,6 +120,7 @@ final class VaultRetrieveCommand extends Command
                 } finally {
                     umask($previousUmask);
                 }
+
                 if ($result === false) {
                     $io->error(\sprintf('Failed to write to file: %s', $outputFile));
                     sodium_memzero($value);

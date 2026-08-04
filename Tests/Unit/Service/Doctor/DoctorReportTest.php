@@ -36,6 +36,7 @@ final class DoctorReportTest extends TestCase
         if ($worst === FindingSeverity::Warning) {
             $findings[] = Finding::warning('a.warn', 'meh', 'risk', 'fix');
         }
+
         if ($worst === FindingSeverity::Critical) {
             $findings[] = Finding::warning('a.warn', 'meh', 'risk', 'fix');
             $findings[] = Finding::critical('a.crit', 'broken', 'risk', 'fix');

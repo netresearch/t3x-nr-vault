@@ -161,6 +161,7 @@ final class WebhookAuditSinkTest extends TestCase
         $subject = $this->createSubject(client: $client);
 
         $subject->publish($this->createEntry(), 'tip');
+
         $entryType = $client->decodeBody()['type'];
 
         $subject->publishAnchor(new ChainTipAnchor(1, 'tip', 1, 3));
@@ -341,6 +342,7 @@ final class WebhookAuditSinkTest extends TestCase
             $cursor['nested'] = [];
             $cursor = &$cursor['nested'];
         }
+
         unset($cursor);
 
         return $context;

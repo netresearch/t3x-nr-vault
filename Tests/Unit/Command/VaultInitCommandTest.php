@@ -53,6 +53,7 @@ final class VaultInitCommandTest extends TestCase
         foreach ($this->tempPaths as $path) {
             GeneralUtility::rmdir($path, true);
         }
+
         $this->tempPaths = [];
 
         parent::tearDown();

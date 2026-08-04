@@ -129,6 +129,7 @@ final class FlexFormXmlFuzzTest extends TestCase
             for ($j = 0; $j < $len; $j++) {
                 $buf .= \chr(mt_rand(0, 255));
             }
+
             $cases["random_{$i}_len{$len}"] = [$buf];
         }
 

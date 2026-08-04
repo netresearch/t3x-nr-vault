@@ -2040,6 +2040,7 @@ final class SecretTcaHookTest extends TestCase
                 if ($writeFailure instanceof Throwable) {
                     throw $writeFailure;
                 }
+
                 $calls[] = ['delete', $table, $identifier];
 
                 return 1;
@@ -2051,6 +2052,7 @@ final class SecretTcaHookTest extends TestCase
                 if ($writeFailure instanceof Throwable) {
                     throw $writeFailure;
                 }
+
                 $calls[] = ['insert', $table, $data];
 
                 return 1;
@@ -2062,6 +2064,7 @@ final class SecretTcaHookTest extends TestCase
                 if ($writeFailure instanceof Throwable) {
                     throw $writeFailure;
                 }
+
                 $calls[] = ['update', $table, $data, $identifier];
 
                 return 1;

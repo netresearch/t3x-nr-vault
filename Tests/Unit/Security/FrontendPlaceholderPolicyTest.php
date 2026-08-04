@@ -364,6 +364,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
         for ($i = 0; $i < 1100; ++$i) {
             $setup['key' . $i] = \sprintf('%%vault(id_%04d)%%', $i);
         }
+
         $cObj = $this->contentObjectRenderer($this->frontendRequest($setup));
 
         self::assertTrue($this->subject->isResolvable('id_0000', $cObj));

@@ -282,6 +282,7 @@ final class VaultScanCommand extends Command
                 if (!$first) {
                     $table->addRow(new TableSeparator());
                 }
+
                 $first = false;
 
                 $patterns = implode(', ', $finding->getPatterns()) ?: '-';

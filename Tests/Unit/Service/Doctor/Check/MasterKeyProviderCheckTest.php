@@ -47,6 +47,7 @@ final class MasterKeyProviderCheckTest extends TestCase
                 unlink($path);
             }
         }
+
         $this->keyFiles = [];
 
         parent::tearDown();
@@ -74,6 +75,7 @@ final class MasterKeyProviderCheckTest extends TestCase
                 \sprintf('%s should pass: %s', $finding->id, $finding->summary),
             );
         }
+
         self::assertSame(
             ['provider.configured', 'provider.known', 'provider.available', 'provider.master_key_readable'],
             $this->findingIds($findings),

@@ -167,6 +167,7 @@ final class VaultCleanupOrphansCommand extends Command
                 if ($orphan !== null) {
                     $orphans[] = $orphan;
                 }
+
                 $progressBar->advance();
             }
         }

@@ -76,15 +76,19 @@ readonly class SecretFilters
         if ($this->owner !== null) {
             $result['owner'] = $this->owner;
         }
+
         if ($this->prefix !== null) {
             $result['prefix'] = $this->prefix;
         }
+
         if ($this->context !== null) {
             $result['context'] = $this->context;
         }
+
         if ($this->scopePid !== null) {
             $result['scopePid'] = $this->scopePid;
         }
+
         // Only when set, like every other member: the array form is "what was
         // asked for", and the default is asking for nothing.
         if ($this->includeDisabled) {

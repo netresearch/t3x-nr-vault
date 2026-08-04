@@ -55,6 +55,7 @@ final class VaultServiceTest extends FunctionalTestCase
         if (!isset($GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS'])) {
             $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS'] = [];
         }
+
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = [
             'masterKeySource' => $this->masterKeyPath,
             'autoKeyPath' => $this->masterKeyPath,
@@ -79,6 +80,7 @@ final class VaultServiceTest extends FunctionalTestCase
             if ($content !== false) {
                 sodium_memzero($content);
             }
+
             // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
             unlink($this->masterKeyPath);
         }

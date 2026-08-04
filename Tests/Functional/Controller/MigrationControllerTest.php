@@ -119,6 +119,7 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
         $connectionPool = $this->get(ConnectionPool::class);
         $connection = $connectionPool->getConnectionForTable(self::FIXTURE_TABLE);
         $connection->insert(self::FIXTURE_TABLE, [self::FIXTURE_COLUMN => 'plaintext-api-key']);
+
         $uid = (int) $connection->lastInsertId();
 
         // Pattern exactly as the fixed configureAction builds it: single braces.
@@ -161,6 +162,7 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
         $connectionPool = $this->get(ConnectionPool::class);
         $connection = $connectionPool->getConnectionForTable(self::FIXTURE_TABLE);
         $connection->insert(self::FIXTURE_TABLE, [self::FIXTURE_COLUMN => 'plaintext-api-key']);
+
         $uid = (int) $connection->lastInsertId();
 
         // The buggy pattern: double braces around uid.
@@ -217,6 +219,7 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
         $table->addColumn('uid', Types::INTEGER, ['autoincrement' => true, 'unsigned' => true]);
         $table->addColumn(self::FIXTURE_COLUMN, Types::TEXT, ['notnull' => false]);
         $table->setPrimaryKey(['uid']);
+
         $schemaManager->createTable($table);
     }
 }

@@ -158,6 +158,7 @@ final class VaultInitCommand extends Command
         } finally {
             umask($previousUmask);
         }
+
         if ($result === false) {
             $io->error(\sprintf('Failed to write master key to: %s', $outputFilePath));
 

@@ -252,6 +252,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         for ($i = 1; $i <= 25; $i++) {
             $records[] = ['uid' => $i, 'api_key' => 'secret' . $i];
         }
+
         $this->mockQueryReturnsRecords($records);
 
         $exitCode = $this->commandTester->execute([
@@ -445,6 +446,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         for ($i = 1; $i <= 15; $i++) {
             $records[] = ['uid' => $i, 'api_key' => 'secret' . $i];
         }
+
         $this->mockQueryReturnsRecords($records);
 
         $this->vaultService

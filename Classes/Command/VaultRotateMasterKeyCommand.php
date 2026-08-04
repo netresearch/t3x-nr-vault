@@ -185,6 +185,7 @@ final class VaultRotateMasterKeyCommand extends Command
         if ($foreignCounts === null) {
             return Command::FAILURE;
         }
+
         $totalForeign = array_sum($foreignCounts);
 
         if ($totalSecrets === 0 && $totalForeign === 0) {
@@ -484,6 +485,7 @@ final class VaultRotateMasterKeyCommand extends Command
 
             return Command::FAILURE;
         }
+
         if (!$verification->isValid()) {
             $io->error([
                 'Audit hash chain verification FAILED — re-keying refused.',
@@ -512,8 +514,10 @@ final class VaultRotateMasterKeyCommand extends Command
                 if ($this->rotateOne($identifier, $oldKey, $newKey, $failedSecrets)) {
                     ++$successCount;
                 }
+
                 $io->progressAdvance();
             }
+
             $io->progressFinish();
 
             if ($failedSecrets !== []) {
@@ -553,7 +557,7 @@ final class VaultRotateMasterKeyCommand extends Command
                         $foreignCount,
                     ),
                     'Rotation rolled back; nothing was changed.',
-                    'Re-run the command. If the shortfall repeats, the consumer\'s rotator is missing rows'
+                    "Re-run the command. If the shortfall repeats, the consumer's rotator is missing rows"
                     . ' and committing would leave them unreadable once the old key is gone.',
                 ]);
                 $this->auditLogService->log(

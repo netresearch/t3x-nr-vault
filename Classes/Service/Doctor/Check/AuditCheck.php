@@ -311,7 +311,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
                 summary: \sprintf('Audit entries are kept for %d days.', $days),
                 risk: \sprintf(
                     'Shorter than a %d-day review cycle, so a reviewer cannot see the previous '
-                    . 'cycle\'s access. It also shortens the window in which a slow-burn credential '
+                    . "cycle's access. It also shortens the window in which a slow-burn credential "
                     . 'misuse is still reconstructable.',
                     self::RETENTION_FLOOR_DAYS,
                 ),
@@ -657,7 +657,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
                 . 'which inverts the meaning of the entry without touching a signed byte. '
                 . 'error_message, reason, ip_address, user_agent, hash_before, hash_after and context '
                 . 'are forgeable the same way; so is the hmac_key_epoch column, which leaves the '
-                . 'algorithm selector resting on verifyHashChain()\'s chain-shape guards rather than '
+                . "algorithm selector resting on verifyHashChain()'s chain-shape guards rather than "
                 . 'on the MAC; and so are the attribution fields the backend audit list and the CSV '
                 . 'export present as "who did this", so blame can be reassigned on any row.'
             : 'The epoch-2 payload signs the forensic columns but leaves two sets out. The '
@@ -905,7 +905,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
                 . 'database state alone, which is why this is a warning rather than an error.',
             remediation: 'The next audit write arms it. Once it is armed, enable "auditAnchorRequired" '
                 . 'so a later deletion of the anchor row becomes an error instead of this warning — the '
-                . 'setting lives in a settings file and is out of a database-write attacker\'s reach.',
+                . "setting lives in a settings file and is out of a database-write attacker's reach.",
             docsUrl: DocsLink::AUDIT_TIP_ANCHOR,
             details: $details,
         );

@@ -770,6 +770,7 @@ final class AuditChainAnchorStoreTest extends TestCase
         if ($fetchOneReturns !== []) {
             $result->method('fetchOne')->willReturn(...$fetchOneReturns);
         }
+
         if ($fetchAssociativeReturns !== []) {
             $result->method('fetchAssociative')->willReturn(...$fetchAssociativeReturns);
         }

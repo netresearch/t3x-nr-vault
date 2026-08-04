@@ -60,7 +60,7 @@ final class Typo3MasterKeyProvider extends AbstractMasterKeyProvider
     {
         // Cannot store - the key is derived from TYPO3's encryption key
         throw MasterKeyException::cannotStore(
-            'TYPO3 provider derives the key from encryptionKey. To change it, rotate TYPO3\'s encryption key.',
+            "TYPO3 provider derives the key from encryptionKey. To change it, rotate TYPO3's encryption key.",
         );
     }
 

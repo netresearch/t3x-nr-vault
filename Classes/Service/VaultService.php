@@ -101,6 +101,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             } else {
                 $this->assertOperationGranted(VaultPermission::SecretRotate, $identifier, 'Update');
             }
+
             if ($existing instanceof Secret && !$isCreation) {
                 $this->assertPolicyChangeGranted($identifier, $options, $existing);
             }
@@ -761,6 +762,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
             return;
         }
+
         if (!$this->accessControlService->canWrite($existing)) {
             $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Update access denied');
 
@@ -861,6 +863,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             $ownerRaw = $options['owner'];
             $requestedOwner = is_numeric($ownerRaw) ? (int) $ownerRaw : 0;
         }
+
         if ($requestedOwner !== $defaultOwner
             && $this->accessControlService->getCurrentActorType() === 'backend'
             && !$this->accessControlService->isCurrentActorAdmin()
@@ -887,6 +890,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         if ($requested === $default) {
             return $default;
         }
+
         if ($this->accessControlService->getCurrentActorType() === 'backend'
             && !$this->accessControlService->isCurrentActorAdmin()
         ) {
@@ -954,6 +958,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         if (!\is_array($raw)) {
             return [];
         }
+
         /** @var list<int> $groups */
         $groups = [];
         foreach ($raw as $groupId) {
@@ -988,6 +993,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         if (!$this->eventDispatcher instanceof EventDispatcherInterface) {
             return;
         }
+
         if ($isNew) {
             $this->eventDispatcher->dispatch(new SecretCreatedEvent(
                 $identifier,
@@ -997,6 +1003,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
             return;
         }
+
         $this->eventDispatcher->dispatch(new SecretUpdatedEvent(
             $identifier,
             $secretEntity->getVersion(),

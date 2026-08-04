@@ -303,6 +303,7 @@ final class VaultMigrateFieldCommand extends Command
         foreach (\array_slice($errors, 0, 10) as $error) {
             $io->text('<error>✗</error> ' . $error);
         }
+
         if (\count($errors) > 10) {
             $io->text(\sprintf('... and %d more errors', \count($errors) - 10));
         }

@@ -833,7 +833,7 @@ parameters:
 			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
 
 		-
-			rawMessage: 'Method Psr\Http\Client\ClientInterface@anonymous/Tests/Functional/Http/OAuth/OAuthIntegrationTest.php:368::__construct() has parameter $capturedRequests with no value type specified in iterable type array.'
+			rawMessage: 'Method Psr\Http\Client\ClientInterface@anonymous/Tests/Functional/Http/OAuth/OAuthIntegrationTest.php:369::__construct() has parameter $capturedRequests with no value type specified in iterable type array.'
 			identifier: missingType.iterableValue
 			count: 1
 			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
@@ -845,7 +845,7 @@ parameters:
 			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php
 
 		-
-			rawMessage: 'Property Psr\Http\Client\ClientInterface@anonymous/Tests/Functional/Http/OAuth/OAuthIntegrationTest.php:368::$capturedRequests (list<array{grant_type: string, body: string}>) does not accept array.'
+			rawMessage: 'Property Psr\Http\Client\ClientInterface@anonymous/Tests/Functional/Http/OAuth/OAuthIntegrationTest.php:369::$capturedRequests (list<array{grant_type: string, body: string}>) does not accept array.'
 			identifier: assign.propertyType
 			count: 1
 			path: ../Tests/Functional/Http/OAuth/OAuthIntegrationTest.php

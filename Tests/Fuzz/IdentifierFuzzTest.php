@@ -247,7 +247,7 @@ final class IdentifierFuzzTest extends TestCase
             'shell backtick' => ['01937b6e-4b6c-7abc-`whoami`'],
             'shell dollar' => ['01937b6e-4b6c-7abc-$(whoami)'],
             'ldap injection' => ['01937b6e-4b6c-7abc-8def-0123456789ab)(cn=*)'],
-            'xpath injection' => ['01937b6e-4b6c-7abc-8def-0123456789ab\' or \'1\'=\'1'],
+            'xpath injection' => ["01937b6e-4b6c-7abc-8def-0123456789ab' or '1'='1"],
             'template injection' => ['01937b6e-4b6c-7abc-{{7*7}}'],
             'ssti jinja' => ['01937b6e-4b6c-7abc-{{ config }}'],
         ];

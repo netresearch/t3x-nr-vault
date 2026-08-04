@@ -244,7 +244,7 @@ final class ArchitectureTest
             ->dependOn()
             ->classes(Selector::classname(Registry::class))
             ->because(
-                'TYPO3\CMS\Core\Registry::get() unserializes attacker-writable '
+                Registry::class . '::get() unserializes attacker-writable '
                 . 'sys_registry bytes with no allowed_classes; the audit chain '
                 . 'tip anchor must reach sys_registry only via our own '
                 . 'QueryBuilder + anchored regex (ADR-034)',

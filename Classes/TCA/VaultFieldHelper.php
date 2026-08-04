@@ -155,6 +155,7 @@ final class VaultFieldHelper
         foreach ($vaultFields as $fieldName => $options) {
             $columns[$fieldName] = self::getFieldConfig($options);
         }
+
         $tca['columns'] = $columns;
 
         return $tca;
@@ -174,6 +175,7 @@ final class VaultFieldHelper
         if (!\is_array($config)) {
             return false;
         }
+
         $renderType = $config['renderType'] ?? '';
 
         return $renderType === 'vaultSecret';

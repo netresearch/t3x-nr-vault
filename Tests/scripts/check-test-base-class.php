@@ -57,9 +57,11 @@ if (is_file($allowListFile)) {
         if ($line === '') {
             continue;
         }
+
         if (str_starts_with($line, '#')) {
             continue;
         }
+
         $allowList[$line] = true;
     }
 }
@@ -78,17 +80,21 @@ foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($unitDir, 
     if (!$file->isFile()) {
         continue;
     }
+
     if ($file->getExtension() !== 'php') {
         continue;
     }
+
     // Skip the base class itself, traits, fixtures.
     $relative = ltrim(str_replace($projectRoot, '', $file->getPathname()), '/');
     if (str_ends_with($relative, 'Tests/Unit/TestCase.php')) {
         continue;
     }
+
     if (str_contains($relative, '/Traits/')) {
         continue;
     }
+
     if (str_contains($relative, '/Fixtures/')) {
         continue;
     }
@@ -169,6 +175,7 @@ if ($violations !== []) {
     foreach ($violations as $violation) {
         fwrite(STDERR, "  - {$violation}\n");
     }
+
     fwrite(STDERR, "\nHow to fix:\n");
     fwrite(STDERR, "  1. `extends UnitTestCase` -> `extends \\Netresearch\\NrVault\\Tests\\Unit\\TestCase`\n");
     fwrite(STDERR, "  2. Remove the now-unused `use TYPO3\\TestingFramework\\Core\\Unit\\UnitTestCase;`\n");
@@ -181,6 +188,7 @@ if ($staleAllowList !== []) {
     foreach ($staleAllowList as $entry) {
         fwrite(STDERR, "  - {$entry}\n");
     }
+
     fwrite(STDERR, "\nRegenerate with: php Tests/scripts/check-test-base-class.php --update-allowlist\n");
     $exitCode = 1;
 }

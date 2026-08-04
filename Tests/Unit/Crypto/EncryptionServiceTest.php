@@ -431,6 +431,7 @@ final class EncryptionServiceTest extends TestCase
         } catch (EncryptionException) {
             $threw = true;
         }
+
         self::assertTrue($threw, 'tampered ciphertext must fail closed on the throw path');
 
         // Same request, legitimate decrypt must still round-trip.

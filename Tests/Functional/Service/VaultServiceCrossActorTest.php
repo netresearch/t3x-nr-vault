@@ -69,7 +69,7 @@ final class VaultServiceCrossActorTest extends AbstractVaultFunctionalTestCase
         self::assertInstanceOf(
             AccessDeniedException::class,
             $denied,
-            'actor 13 must not read actor 10\'s secret',
+            "actor 13 must not read actor 10's secret",
         );
 
         // The denial is attributed to actor B in the audit trail.

@@ -186,6 +186,7 @@ final class VaultFieldPermissionService implements SingletonInterface
             if (!\is_array($current)) {
                 return null;
             }
+
             // Try with trailing dot (TSconfig convention for nested)
             if (isset($current[$key . '.'])) {
                 $current = $current[$key . '.'];

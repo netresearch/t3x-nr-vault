@@ -370,6 +370,7 @@ final class OAuthTokenManager
         if ($response->getStatusCode() === 200) {
             return;
         }
+
         $oauthError = $this->extractOauthErrorField($response);
 
         throw OAuthException::tokenRequestFailed($response->getStatusCode(), $oauthError);
@@ -388,6 +389,7 @@ final class OAuthTokenManager
         } catch (JsonException) {
             return null;
         }
+
         if (\is_array($errorBody) && isset($errorBody['error']) && \is_string($errorBody['error'])) {
             return $errorBody['error'];
         }
