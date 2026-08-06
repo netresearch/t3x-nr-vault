@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Forty-eight merged pull requests since 0.13.0, most of them a hardening
+## [0.14.0] - 2026-08-06
+
+Fifty-eight merged pull requests since 0.13.0, most of them a hardening
 programme carried out in four rounds of adversarial review: a technically
 enforced security profile, ten grantable operation permissions in place of the
 admin-only model, a tamper-evidence anchor inside and outside the database, and
@@ -1556,7 +1558,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.0...v0.12.1
