@@ -204,6 +204,27 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
+     * UID of the technical backend user `vault:store --as-provisioner` acts as.
+     *
+     * Fail-closed on anything that is not a positive integer: a stray string or
+     * a negative value must read as "no provisioning actor", never as uid 0,
+     * which TYPO3 treats as the unauthenticated CLI placeholder — the very
+     * actor this option exists to avoid.
+     *
+     * @return int<0, max>
+     */
+    public function getProvisioningBeUserUid(): int
+    {
+        $raw = $this->configuration['provisioningBeUserUid'] ?? 0;
+
+        if (!is_numeric($raw)) {
+            return 0;
+        }
+
+        return max(0, (int) $raw);
+    }
+
+    /**
      * Get backend groups that can access secrets via CLI.
      *
      * @return int[]

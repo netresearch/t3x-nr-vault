@@ -9,7 +9,10 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Exception\TechnicalActorException;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -30,6 +33,8 @@ final class VaultStoreCommand extends Command
 {
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
+        private readonly ExtensionConfigurationInterface $configuration,
+        private readonly TechnicalActorContextInterface $technicalActorContext,
     ) {
         parent::__construct();
     }
@@ -71,6 +76,14 @@ final class VaultStoreCommand extends Command
                 'g',
                 InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
                 'Backend user group IDs that can access this secret',
+            )
+            ->addOption(
+                'as-provisioner',
+                null,
+                InputOption::VALUE_NONE,
+                'Write as the configured provisioning backend user (nr_vault option '
+                . '"provisioningBeUserUid") instead of the unattributed CLI actor. The UID '
+                . 'comes from configuration, never from this command line.',
             );
     }
 
@@ -102,15 +115,45 @@ final class VaultStoreCommand extends Command
             );
         }
 
+        $asProvisioner = $input->getOption('as-provisioner') !== false;
+        $provisionerUid = $this->configuration->getProvisioningBeUserUid();
+
+        if ($asProvisioner && $provisionerUid === 0) {
+            sodium_memzero($value);
+            $io->error(
+                'No provisioning actor is configured. Set the nr_vault option '
+                . '"provisioningBeUserUid" to a backend user whose group carries the '
+                . 'tx_nrvault:secret.create permission option.',
+            );
+
+            return Command::FAILURE;
+        }
+
         try {
-            $this->vaultService->store($identifier, $value, $metadata);
+            if ($asProvisioner) {
+                // $value by REFERENCE: capturing it by value gives the closure
+                // its own copy of the plaintext, and sodium_memzero() below
+                // separates the copy-on-write pair instead of wiping both — the
+                // secret would survive in memory in the copy the command
+                // believes it has cleared.
+                $this->technicalActorContext->runAs(
+                    $provisionerUid,
+                    function () use ($identifier, &$value, $metadata): void {
+                        $this->vaultService->store($identifier, $value, $metadata);
+                    },
+                );
+            } else {
+                $this->vaultService->store($identifier, $value, $metadata);
+            }
+
             $io->success(\sprintf('Secret "%s" stored successfully', $identifier));
 
             // Clear the value from memory
             sodium_memzero($value);
 
             return Command::SUCCESS;
-        } catch (VaultException $e) {
+        } catch (VaultException|TechnicalActorException $e) {
+            sodium_memzero($value);
             $io->error($e->getMessage());
 
             return Command::FAILURE;

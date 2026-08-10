@@ -42,6 +42,9 @@ cliAccessGroups =
 # cat=Security; type=string; label=CLI Allowed Operations: Comma-separated operation permissions the unattributed CLI actor may hold when "allowCliAccess" is on. High-risk operations (secret.reveal, secret.delete, secret.manage_policy, audit.view, audit.export, master_key.rotate, vault.configure) are excluded by default - add them explicitly only where the deployment genuinely needs them, or prefer a named technical actor (TechnicalActorContext::runAs()).
 cliAllowedOperations = secret.use,secret.create,secret.rotate
 
+# cat=Security; type=int+; label=Provisioning Backend User: UID of the technical backend user that "vault:store --as-provisioner" acts as. Lets an unattended deployment write a secret without switching on the unattributed CLI actor: the user needs no admin flag, only a group carrying the tx_nrvault:secret.create (and secret.rotate) permission option, so the grant is exactly one operation on one identity and every write is attributed to it in the audit log. The UID is read from here and never from the command line - a flag that took it as an argument would be an impersonation primitive for anyone with a shell. 0 disables the option.
+provisioningBeUserUid = 0
+
 # cat=Security; type=int+; label=Audit Log Retention (days): Number of days to keep audit log entries (0 = forever)
 auditLogRetention = 365
 

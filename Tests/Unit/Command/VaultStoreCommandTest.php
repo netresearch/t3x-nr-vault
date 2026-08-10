@@ -10,8 +10,10 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
 use Netresearch\NrVault\Command\VaultStoreCommand;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use org\bovigo\vfs\vfsStream;
@@ -28,6 +30,10 @@ final class VaultStoreCommandTest extends TestCase
 {
     private VaultServiceInterface&MockObject $vaultService;
 
+    private ExtensionConfigurationInterface&MockObject $configuration;
+
+    private TechnicalActorContextInterface&MockObject $technicalActorContext;
+
     private CommandTester $commandTester;
 
     protected function setUp(): void
@@ -35,8 +41,10 @@ final class VaultStoreCommandTest extends TestCase
         parent::setUp();
 
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
+        $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
+        $this->technicalActorContext = $this->createMock(TechnicalActorContextInterface::class);
 
-        $command = new VaultStoreCommand($this->vaultService);
+        $command = $this->createCommand();
 
         $application = new Application();
         $application->addCommand($command);
@@ -47,9 +55,77 @@ final class VaultStoreCommandTest extends TestCase
     #[Test]
     public function hasCorrectName(): void
     {
-        $command = new VaultStoreCommand($this->vaultService);
+        self::assertSame('vault:store', $this->createCommand()->getName());
+    }
 
-        self::assertSame('vault:store', $command->getName());
+    /**
+     * Without the flag nothing changes: no actor scope is entered, and the
+     * configured UID is irrelevant. Guards against the option silently
+     * re-attributing an interactive operator's write.
+     */
+    #[Test]
+    public function storesAsTheCallingActorWhenTheFlagIsAbsent(): void
+    {
+        $this->configuration->method('getProvisioningBeUserUid')->willReturn(991);
+        $this->technicalActorContext->expects($this->never())->method('runAs');
+        $this->vaultService->expects($this->once())->method('store');
+
+        $exitCode = $this->commandTester->execute([
+            'identifier' => 'openai_api_key',
+            '--value' => 'secret-value',
+        ]);
+
+        self::assertSame(0, $exitCode);
+    }
+
+    #[Test]
+    public function storesInsideTheConfiguredActorScopeWithTheFlag(): void
+    {
+        $this->configuration->method('getProvisioningBeUserUid')->willReturn(991);
+
+        $ranInsideScope = false;
+        $this->technicalActorContext
+            ->expects($this->once())
+            ->method('runAs')
+            ->with(991, self::isCallable())
+            ->willReturnCallback(static function (int $uid, callable $fn) use (&$ranInsideScope): mixed {
+                $ranInsideScope = true;
+
+                return $fn();
+            });
+
+        $this->vaultService->expects($this->once())->method('store');
+
+        $exitCode = $this->commandTester->execute([
+            'identifier' => 'openai_api_key',
+            '--value' => 'secret-value',
+            '--as-provisioner' => true,
+        ]);
+
+        self::assertSame(0, $exitCode);
+        self::assertTrue($ranInsideScope, 'store() ran outside the technical actor scope.');
+    }
+
+    /**
+     * Fail closed. Writing as the unattributed CLI actor because no provisioning
+     * user is configured would silently deliver the opposite of what the flag
+     * asks for — an unattributed write where an attributed one was requested.
+     */
+    #[Test]
+    public function refusesTheFlagWhenNoProvisioningActorIsConfigured(): void
+    {
+        $this->configuration->method('getProvisioningBeUserUid')->willReturn(0);
+        $this->technicalActorContext->expects($this->never())->method('runAs');
+        $this->vaultService->expects($this->never())->method('store');
+
+        $exitCode = $this->commandTester->execute([
+            'identifier' => 'openai_api_key',
+            '--value' => 'secret-value',
+            '--as-provisioner' => true,
+        ]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('provisioningBeUserUid', $this->commandTester->getDisplay());
     }
 
     #[Test]
@@ -282,5 +358,14 @@ final class VaultStoreCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exitCode);
+    }
+
+    private function createCommand(): VaultStoreCommand
+    {
+        return new VaultStoreCommand(
+            $this->vaultService,
+            $this->configuration,
+            $this->technicalActorContext,
+        );
     }
 }
