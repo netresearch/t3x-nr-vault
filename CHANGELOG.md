@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-10
+
+One feature, aimed at a gap that only shows up in unattended deployments: there
+was no way to write a secret from a pipeline without switching on
+`allowCliAccess`, which grants the operation to every process holding a shell in
+that container and attributes the write to nobody.
+
+### Added
+
+- **A named actor for unattended writes** (#298). `vault:store --as-provisioner`
+  performs the store inside `TechnicalActorContext::runAs()` as the backend user
+  named by the new `provisioningBeUserUid` option. The actor needs **no admin
+  flag** — a group carrying `tx_nrvault:secret.create` is enough, because a
+  technical actor's grants are read from its groups' custom permission options.
+  The grant is therefore one operation on one identity, and every write it makes
+  is attributable in the audit log.
+
+  The UID comes from configuration and never from the command line. A flag that
+  accepted a UID as an argument would be a general impersonation primitive,
+  strictly worse than the switch it replaces.
+
+  Fail-closed at both ends: a non-numeric, negative or absent value reads as *no
+  provisioning actor* rather than uid 0, which names the unauthenticated CLI
+  placeholder the option exists to avoid; and the flag without a configured
+  actor is an error, not a silent fallback to the unattributed write the caller
+  explicitly asked not to make.
+
+  `ext_conf_template.txt` already recommended *"prefer a named technical actor
+  (TechnicalActorContext::runAs())"* over `allowCliAccess`. Until now no command
+  could enter such a scope, so the advice had nothing behind it.
+
+### Fixed
+
+- The closure handed to `runAs()` captured the plaintext **by value**, so
+  `sodium_memzero()` separated the copy-on-write pair instead of wiping both and
+  the secret survived in memory in the copy the command believed it had cleared.
+  Caught in review before release, so no shipped version is affected.
+
+### Changed
+
+- CI actions updated: `step-security/harden-runner` to v2.20.1,
+  `actions/attest-build-provenance` to v4.2.2.
+
+
 ## [0.14.0] - 2026-08-06
 
 Fifty-eight merged pull requests since 0.13.0, most of them a hardening
@@ -1558,7 +1602,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.1...v0.12.2
