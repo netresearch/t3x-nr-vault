@@ -157,6 +157,50 @@ final class ExtensionConfigurationTest extends TestCase
         self::assertFalse($config->isCliAccessAllowed());
     }
 
+    /**
+     * Every non-usable value must read as "no provisioning actor". Anything that
+     * fell through to a numeric 0 would name the unauthenticated CLI placeholder
+     * TYPO3 puts in $GLOBALS['BE_USER'] — the actor this option exists to avoid —
+     * so the failure mode of a typo has to be "off", never "unattributed".
+     *
+     * @param mixed $configured the raw provisioningBeUserUid value
+     */
+    #[DataProvider('provisioningUidProvider')]
+    #[Test]
+    public function getProvisioningBeUserUidFailsClosed(mixed $configured, int $expected): void
+    {
+        $this->typo3Config->method('get')->willReturn(['provisioningBeUserUid' => $configured]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame($expected, $config->getProvisioningBeUserUid());
+    }
+
+    /**
+     * @return iterable<string, array{mixed, int}>
+     */
+    public static function provisioningUidProvider(): iterable
+    {
+        yield 'configured uid' => [991, 991];
+        yield 'numeric string' => ['991', 991];
+        yield 'explicitly off' => [0, 0];
+        yield 'negative' => [-5, 0];
+        yield 'non-numeric' => ['admin', 0];
+        yield 'empty string' => ['', 0];
+        yield 'array' => [[991], 0];
+        yield 'null' => [null, 0];
+    }
+
+    #[Test]
+    public function getProvisioningBeUserUidIsOffWhenUnset(): void
+    {
+        $this->typo3Config->method('get')->willReturn([]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame(0, $config->getProvisioningBeUserUid());
+    }
+
     #[Test]
     public function getCliAccessGroupsParsesCommaString(): void
     {

@@ -70,6 +70,24 @@ interface ExtensionConfigurationInterface
     public function getCliAllowedOperations(): array;
 
     /**
+     * UID of the technical backend user that `vault:store --as-provisioner`
+     * enters via {@see TechnicalActorContextInterface::runAs()}.
+     *
+     * The alternative for an unattended deployment is `allowCliAccess`, which
+     * grants the operation to every process holding a shell in that container.
+     * A named actor narrows it to one identity that needs no admin flag —
+     * a group carrying `tx_nrvault:secret.create` is enough — and makes every
+     * write attributable in the audit log.
+     *
+     * Deliberately read from configuration rather than accepted as a command
+     * argument: a flag taking a UID would be a general impersonation
+     * primitive, strictly worse than the switch it replaces.
+     *
+     * @return int<0, max> 0 when no provisioning actor is configured
+     */
+    public function getProvisioningBeUserUid(): int;
+
+    /**
      * Check if read operations should be written to the audit log.
      */
     public function isAuditReadsEnabled(): bool;
