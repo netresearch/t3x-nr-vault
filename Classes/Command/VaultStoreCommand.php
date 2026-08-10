@@ -131,9 +131,14 @@ final class VaultStoreCommand extends Command
 
         try {
             if ($asProvisioner) {
+                // $value by REFERENCE: capturing it by value gives the closure
+                // its own copy of the plaintext, and sodium_memzero() below
+                // separates the copy-on-write pair instead of wiping both — the
+                // secret would survive in memory in the copy the command
+                // believes it has cleared.
                 $this->technicalActorContext->runAs(
                     $provisionerUid,
-                    function () use ($identifier, $value, $metadata): void {
+                    function () use ($identifier, &$value, $metadata): void {
                         $this->vaultService->store($identifier, $value, $metadata);
                     },
                 );
