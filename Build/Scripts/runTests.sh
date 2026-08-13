@@ -669,7 +669,13 @@ case ${TEST_SUITE} in
         SUITE_EXIT_CODE=$?
         ;;
     lint)
-        COMMAND="find . -name \\*.php ! -path \"./.Build/\\*\" -print0 | xargs -0 -n1 -P\$(nproc) php ${PHP_OPCACHE_OPTS} -dxdebug.mode=off -l >/dev/null"
+        # -prune rather than a `! -path` filter: the old exclusion was written
+        # `! -path "./.Build/\*"`, and the escaped star survives the double
+        # quotes, so find looked for a literal `*` and never matched. .Build was
+        # linted too and the suite died on class-alias-loader's
+        # alias-loader-include.tmpl.php, a template that is deliberately not
+        # valid PHP. Pruning also skips walking the vendor tree.
+        COMMAND="find . -path ./.Build -prune -o -name '*.php' -print0 | xargs -0 -n1 -P\$(nproc) php ${PHP_OPCACHE_OPTS} -dxdebug.mode=off -l >/dev/null"
         ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name lint-${SUFFIX} -e COMPOSER_CACHE_DIR=.Build/.cache/composer -e COMPOSER_ROOT_VERSION=${COMPOSER_ROOT_VERSION} ${IMAGE_PHP} /bin/sh -c "${COMMAND}"
         SUITE_EXIT_CODE=$?
         ;;
