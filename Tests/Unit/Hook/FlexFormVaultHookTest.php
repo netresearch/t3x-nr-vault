@@ -1462,7 +1462,7 @@ final class FlexFormVaultHookTest extends TestCase
     /**
      * Kill CastInt + Coalesce mutations on the substNEWwithIDs lookup.
      *
-     * @return iterable<string, array{string, string|int, array<string|int, int>, int}>
+     * @return iterable<string, array{string, string|int, array<string, int>, int}>
      */
     public static function newRecordUidResolutionProvider(): iterable
     {
@@ -1474,7 +1474,7 @@ final class FlexFormVaultHookTest extends TestCase
     }
 
     /**
-     * @param array<string|int, int> $substMap
+     * @param array<string, int> $substMap
      */
     #[Test]
     #[DataProvider('newRecordUidResolutionProvider')]
