@@ -15,6 +15,10 @@ namespace Netresearch\NrVault\Http;
 use Closure;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Handler\CurlHandler;
+use GuzzleHttp\Handler\CurlMultiHandler;
+use GuzzleHttp\Handler\Proxy;
+use GuzzleHttp\Handler\StreamHandler;
 use GuzzleHttp\HandlerStack;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
@@ -43,6 +47,36 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  */
 final class SecureHttpClientFactory
 {
+    /**
+     * How long one tick of the cancellable transport may block inside
+     * `curl_multi_select` — and therefore the worst-case delay between a
+     * cancellation signal turning true and the socket being torn down.
+     *
+     * Measured against a stalling local TCP server (3 runs each, worst tick
+     * duration; the server timestamps the moment it observes the peer close;
+     * php 8.5.9 / curl 8.5.0):
+     *
+     *   select_timeout=1     3 ticks   worst tick 1.001 s   peer close at +2.002 s
+     *   select_timeout=0.1  16 ticks   worst tick 0.100 s   peer close at +1.504 s
+     *   select_timeout=0.05 31 ticks   worst tick 0.050 s   peer close at +1.506 s
+     *
+     * (signal turned true at +1.5 s in every run.) Guzzle's default of 1 second
+     * costs up to a full second of overshoot and is unusable here. Between the
+     * other two the measurement shows no latency problem at 0.1 — it already
+     * bounds the abort under a tenth of a second — so the CPU-conservative
+     * value wins: 0.05 would double the wakeups to buy 50 ms that nothing in
+     * this feature's motivating case (a ~45 s hang) can perceive.
+     */
+    private const CANCELLABLE_SELECT_TIMEOUT_SECONDS = 0.1;
+
+    /**
+     * Margin added on top of the transport's own `timeout` + `connect_timeout`
+     * for the tick loop's defensive wall-clock bound. libcurl enforces the real
+     * deadlines; this only catches a handler that stopped settling its promise
+     * at all, so it must sit strictly above them.
+     */
+    private const CANCELLABLE_WALL_CLOCK_MARGIN_SECONDS = 5.0;
+
     public function __construct(
         private readonly DnsResolverInterface $dnsResolver = new DefaultDnsResolver(),
     ) {}
@@ -62,67 +96,7 @@ final class SecureHttpClientFactory
      */
     public function create(?int $timeoutSeconds = null): ClientInterface
     {
-        /** @var array<string, array<string, mixed>> $confVars */
-        $confVars = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
-        /** @var array<string, mixed> $typo3Config */
-        $typo3Config = $confVars['HTTP'] ?? [];
-
-        /** @var array<string, mixed> $options */
-        $options = [
-            // Security: Always disable debug to prevent secret logging
-            'debug' => false,
-
-            // Let VaultHttpClient handle errors for proper audit logging
-            'http_errors' => false,
-
-            // Respect TYPO3's timeout settings, with sensible defaults
-            'timeout' => \is_int($typo3Config['timeout'] ?? null) ? $typo3Config['timeout'] : 30,
-            'connect_timeout' => \is_int($typo3Config['connect_timeout'] ?? null) ? $typo3Config['connect_timeout'] : 10,
-
-            // Respect TYPO3's HTTP version preference
-            'version' => \is_string($typo3Config['version'] ?? null) ? $typo3Config['version'] : '1.1',
-        ];
-
-        // Per-client timeout override: long-running API calls (LLM generation,
-        // large exports) may legitimately exceed the instance-wide TYPO3
-        // timeout. Only `timeout` is overridden — `connect_timeout` keeps the
-        // platform value because a slow RESPONSE never justifies waiting
-        // longer for the connection to be established.
-        if ($timeoutSeconds !== null && $timeoutSeconds > 0) {
-            $options['timeout'] = $timeoutSeconds;
-        }
-
-        // Proxy settings (critical for corporate networks)
-        if (!empty($typo3Config['proxy'])) {
-            $options['proxy'] = $typo3Config['proxy'];
-        } else {
-            // Fall back to environment variables (common in containers)
-            $options['proxy'] = $this->getProxyFromEnvironment();
-        }
-
-        // SSL/TLS settings
-        if (\array_key_exists('verify', $typo3Config)) {
-            if ($typo3Config['verify'] === false) {
-                $this->getLogger()->warning(
-                    'TLS verification is disabled in TYPO3 HTTP configuration. '
-                    . 'This weakens security for vault HTTP client requests.',
-                );
-            }
-            $options['verify'] = $typo3Config['verify'];
-        }
-        if (!empty($typo3Config['cert'])) {
-            $options['cert'] = $typo3Config['cert'];
-        }
-        if (!empty($typo3Config['ssl_key'])) {
-            $options['ssl_key'] = $typo3Config['ssl_key'];
-        }
-
-        // Redirect settings: disable by default to prevent credential leakage on cross-origin redirects
-        if (\array_key_exists('allow_redirects', $typo3Config)) {
-            $options['allow_redirects'] = $typo3Config['allow_redirects'];
-        } else {
-            $options['allow_redirects'] = false;
-        }
+        $options = $this->buildOptions($timeoutSeconds);
 
         // Create handler stack without any logging middleware
         $stack = HandlerStack::create();
@@ -134,23 +108,77 @@ final class SecureHttpClientFactory
         $stack->push($this->buildSsrfDefenceMiddleware(), 'ssrf-dns-pin');
         $options['handler'] = $stack;
 
-        // ext-curl absence: Guzzle's HandlerStack::create() falls back to
-        // StreamHandler, which IGNORES the curl-only `CURLOPT_RESOLVE` option.
-        // The middleware still rejects dangerous-resolving hosts at lookup
-        // time (defence-in-depth), but the race-free pinning guarantee is
-        // gone — between our DNS check and stream's own resolution, an
-        // attacker can still rebind. Warn so operators notice the gap.
-        if (!\function_exists('curl_init')) {
-            $this->getLogger()->warning(
-                'PHP ext-curl is not loaded; the nr-vault HTTP client falls back '
-                . 'to the stream handler. DNS rebinding is no longer race-protected '
-                . '(the pre-request resolve-and-check is still enforced, but the '
-                . 'connect-time IP can drift). Install ext-curl to restore the '
-                . 'CURLOPT_RESOLVE pin.',
-            );
-        }
+        $this->warnWhenTlsVerificationIsDisabled();
+        $this->warnWhenCurlIsMissing();
 
         return new Client($options);
+    }
+
+    /**
+     * Create a transport whose in-flight transfer can be aborted.
+     *
+     * Same hardened options and the same `ssrf-dns-pin` middleware as
+     * `create()` — the option set comes from the shared `buildOptions()`
+     * precisely so the two paths cannot drift — but with a handler stack whose
+     * bottom is a `CurlMultiHandler`. That handler is the only one in Guzzle
+     * that attaches a real cancel function to its promise: the blocking
+     * `CurlHandler` that `Client::sendRequest()` routes to has already finished
+     * `curl_exec` by the time its (already-settled) promise exists, and
+     * cancelling it is a no-op.
+     *
+     * The handler is NOT passed bare. `Utils::chooseHandler()` composes
+     * `Proxy::wrapStreaming(Proxy::wrapSync($multi, new CurlHandler()), new StreamHandler())`,
+     * and passing the bare multi handler would silently delete both the sync
+     * and the streaming branch. Re-composing it here preserves both and yields
+     * the `$multi` reference the tick loop needs.
+     *
+     * @param int|null $timeoutSeconds Same meaning as in `create()`
+     *
+     * @return CancellableTransport|null Null when the platform has no
+     *                                   `curl_multi_*` support. The gate is
+     *                                   `curl_multi_exec`, deliberately not the
+     *                                   `curl_init` the warning below tests:
+     *                                   `CurlMultiHandler`'s constructor is lazy
+     *                                   and only fatals on first property
+     *                                   access, which would turn the documented
+     *                                   curl-less degraded mode into a hard
+     *                                   failure. A null return lets
+     *                                   `VaultHttpClient` fall back to the
+     *                                   blocking path instead.
+     */
+    public function createCancellable(?int $timeoutSeconds = null): ?CancellableTransport
+    {
+        if (!\function_exists('curl_multi_exec')) {
+            return null;
+        }
+
+        $options = $this->buildOptions($timeoutSeconds);
+
+        $multiHandler = new CurlMultiHandler([
+            'select_timeout' => self::CANCELLABLE_SELECT_TIMEOUT_SECONDS,
+        ]);
+
+        $stack = HandlerStack::create(
+            Proxy::wrapStreaming(
+                Proxy::wrapSync($multiHandler, new CurlHandler()),
+                new StreamHandler(),
+            ),
+        );
+
+        // Pushed AFTER HandlerStack::create()'s own defaults, exactly as in
+        // create(): resolve() wraps in reverse, so this stays the innermost
+        // middleware and therefore still sees every redirect hop.
+        $stack->push($this->buildSsrfDefenceMiddleware(), 'ssrf-dns-pin');
+        $options['handler'] = $stack;
+
+        $timeout = \is_int($options['timeout'] ?? null) ? $options['timeout'] : 30;
+        $connectTimeout = \is_int($options['connect_timeout'] ?? null) ? $options['connect_timeout'] : 10;
+
+        return new CancellableTransport(
+            new Client($options),
+            new CurlMultiTicker($multiHandler),
+            $timeout + $connectTimeout + self::CANCELLABLE_WALL_CLOCK_MARGIN_SECONDS,
+        );
     }
 
     /**
@@ -215,6 +243,134 @@ final class SecureHttpClientFactory
         }
 
         return false;
+    }
+
+    /**
+     * Build the hardened Guzzle option set shared by every client this factory
+     * produces.
+     *
+     * Extracted verbatim from `create()` so the blocking and the cancellable
+     * transport cannot drift apart: a proxy, TLS or timeout setting that
+     * applied to one and not the other would be a security posture that depends
+     * on which send method a consumer happened to call.
+     *
+     * The `handler` key is deliberately NOT set here — each caller composes its
+     * own stack and installs the `ssrf-dns-pin` middleware on it.
+     *
+     * @param int|null $timeoutSeconds Optional `timeout` override; see `create()`
+     *
+     * @return array<string, mixed>
+     */
+    private function buildOptions(?int $timeoutSeconds): array
+    {
+        /** @var array<string, array<string, mixed>> $confVars */
+        $confVars = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
+        /** @var array<string, mixed> $typo3Config */
+        $typo3Config = $confVars['HTTP'] ?? [];
+
+        /** @var array<string, mixed> $options */
+        $options = [
+            // Security: Always disable debug to prevent secret logging
+            'debug' => false,
+
+            // Let VaultHttpClient handle errors for proper audit logging
+            'http_errors' => false,
+
+            // Respect TYPO3's timeout settings, with sensible defaults
+            'timeout' => \is_int($typo3Config['timeout'] ?? null) ? $typo3Config['timeout'] : 30,
+            'connect_timeout' => \is_int($typo3Config['connect_timeout'] ?? null) ? $typo3Config['connect_timeout'] : 10,
+
+            // Respect TYPO3's HTTP version preference
+            'version' => \is_string($typo3Config['version'] ?? null) ? $typo3Config['version'] : '1.1',
+        ];
+
+        // Per-client timeout override: long-running API calls (LLM generation,
+        // large exports) may legitimately exceed the instance-wide TYPO3
+        // timeout. Only `timeout` is overridden — `connect_timeout` keeps the
+        // platform value because a slow RESPONSE never justifies waiting
+        // longer for the connection to be established.
+        if ($timeoutSeconds !== null && $timeoutSeconds > 0) {
+            $options['timeout'] = $timeoutSeconds;
+        }
+
+        // Proxy settings (critical for corporate networks)
+        if (!empty($typo3Config['proxy'])) {
+            $options['proxy'] = $typo3Config['proxy'];
+        } else {
+            // Fall back to environment variables (common in containers)
+            $options['proxy'] = $this->getProxyFromEnvironment();
+        }
+
+        // SSL/TLS settings. The operator warning for `verify => false` is NOT
+        // emitted here: this method runs for every client the factory builds,
+        // and the cancellable transport is built per send. A warning that
+        // repeats once per outbound call trains operators to ignore it. It is
+        // emitted from create() instead, which every VaultHttpClient goes
+        // through (the constructor builds its inner client there), so the
+        // warning still reaches the log exactly as before this change.
+        if (\array_key_exists('verify', $typo3Config)) {
+            $options['verify'] = $typo3Config['verify'];
+        }
+        if (!empty($typo3Config['cert'])) {
+            $options['cert'] = $typo3Config['cert'];
+        }
+        if (!empty($typo3Config['ssl_key'])) {
+            $options['ssl_key'] = $typo3Config['ssl_key'];
+        }
+
+        // Redirect settings: disable by default to prevent credential leakage on cross-origin redirects
+        if (\array_key_exists('allow_redirects', $typo3Config)) {
+            $options['allow_redirects'] = $typo3Config['allow_redirects'];
+        } else {
+            $options['allow_redirects'] = false;
+        }
+
+        return $options;
+    }
+
+    /**
+     * Warn once per built client when the platform disabled TLS verification.
+     *
+     * Split out of `buildOptions()` so it fires on the same occasions as before
+     * this change — one client built through `create()` — rather than on every
+     * cancellable send, which builds its own transport.
+     */
+    private function warnWhenTlsVerificationIsDisabled(): void
+    {
+        /** @var array<string, array<string, mixed>> $confVars */
+        $confVars = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
+        /** @var array<string, mixed> $typo3Config */
+        $typo3Config = $confVars['HTTP'] ?? [];
+
+        if (($typo3Config['verify'] ?? null) === false) {
+            $this->getLogger()->warning(
+                'TLS verification is disabled in TYPO3 HTTP configuration. '
+                . 'This weakens security for vault HTTP client requests.',
+            );
+        }
+    }
+
+    /**
+     * Warn when ext-curl is absent, i.e. when the `CURLOPT_RESOLVE` pin cannot
+     * be applied.
+     */
+    private function warnWhenCurlIsMissing(): void
+    {
+        // ext-curl absence: Guzzle's HandlerStack::create() falls back to
+        // StreamHandler, which IGNORES the curl-only `CURLOPT_RESOLVE` option.
+        // The middleware still rejects dangerous-resolving hosts at lookup
+        // time (defence-in-depth), but the race-free pinning guarantee is
+        // gone — between our DNS check and stream's own resolution, an
+        // attacker can still rebind. Warn so operators notice the gap.
+        if (!\function_exists('curl_init')) {
+            $this->getLogger()->warning(
+                'PHP ext-curl is not loaded; the nr-vault HTTP client falls back '
+                . 'to the stream handler. DNS rebinding is no longer race-protected '
+                . '(the pre-request resolve-and-check is still enforced, but the '
+                . 'connect-time IP can drift). Install ext-curl to restore the '
+                . 'CURLOPT_RESOLVE pin.',
+            );
+        }
     }
 
     /**

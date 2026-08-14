@@ -1246,6 +1246,285 @@ final class VaultHttpClientTest extends TestCase
         }
     }
 
+    // =========================================================================
+    // Characterization of the three refusals that happen before the send
+    //
+    // Written BEFORE those refusals were audited and unchanged since: an audit
+    // row is additive, and what a caller receives must be byte-for-byte the
+    // exception it received before. Each pins the concrete class, the code and
+    // the exact message. The rows themselves are asserted separately, below.
+    // =========================================================================
+
+    #[Test]
+    public function sendRequestRefusesAnUnsupportedSchemeWithAnUnchangedException(): void
+    {
+        $this->innerClient->expects(self::never())->method('sendRequest');
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        try {
+            $client->sendRequest(new Request('GET', 'ftp://files.example.com/data'));
+            self::fail('Expected the scheme guard to refuse an ftp:// URI.');
+        } catch (VaultException $e) {
+            self::assertSame(VaultException::class, $e::class);
+            self::assertSame(1735858523, $e->getCode());
+            self::assertSame(
+                'Unsupported URI scheme "ftp"; only https and http are allowed',
+                $e->getMessage(),
+            );
+        }
+    }
+
+    #[Test]
+    public function sendRequestRefusesAHostOutsideTheAllowlistWithAnUnchangedException(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['trusted.example.com'];
+
+        try {
+            $this->innerClient->expects(self::never())->method('sendRequest');
+
+            $client = new VaultHttpClient(
+                $this->vaultService,
+                $this->auditLogService,
+                $this->innerClient,
+            );
+
+            try {
+                $client->sendRequest(new Request('GET', 'https://untrusted.other.com/data'));
+                self::fail('Expected the allowlist to refuse the host.');
+            } catch (VaultException $e) {
+                self::assertSame(VaultException::class, $e::class);
+                self::assertSame(1735858522, $e->getCode());
+                self::assertSame(
+                    'Host "untrusted.other.com" is not in the allowed hosts list',
+                    $e->getMessage(),
+                );
+            }
+        } finally {
+            unset($GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']);
+        }
+    }
+
+    #[Test]
+    public function sendRequestRefusesAMissingSecretWithAnUnchangedException(): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturn(null);
+
+        $this->innerClient->expects(self::never())->method('sendRequest');
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        try {
+            $client
+                ->withAuthentication('nonexistent_key', SecretPlacement::Bearer)
+                ->sendRequest(new Request('GET', self::API_URL));
+            self::fail('Expected the missing secret to refuse the send.');
+        } catch (SecretNotFoundException $e) {
+            // The catch type is half the assertion: a different exception class
+            // would leave this block unentered and hit the fail() above.
+            self::assertSame(1735858521, $e->getCode());
+            self::assertSame('nonexistent_key', $e->getMessage());
+        }
+    }
+
+    // =========================================================================
+    // The audit rows those three refusals now leave
+    // =========================================================================
+
+    #[Test]
+    public function aRefusedSchemeIsAuditedAsAFailedHttpCall(): void
+    {
+        // Somebody tried `file://` is exactly the row an operator goes looking
+        // for, and the scheme reaches the log only through this message:
+        // HttpCallContext records method, host, path and status, not the scheme.
+        $rows = [];
+        $this->recordAuditRows($rows);
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        try {
+            $client->sendRequest(new Request('GET', 'file:///etc/passwd'));
+            self::fail('Expected the scheme guard to refuse a file:// URI.');
+        } catch (VaultException) {
+        }
+
+        self::assertSame(
+            [[
+                'http_call',
+                false,
+                'Request refused before any secret was read: unsupported URI scheme "file"',
+            ]],
+            $rows,
+        );
+    }
+
+    #[Test]
+    public function aRefusedHostIsAuditedAsAFailedHttpCall(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['trusted.example.com'];
+
+        try {
+            $rows = [];
+            $this->recordAuditRows($rows);
+
+            $client = new VaultHttpClient(
+                $this->vaultService,
+                $this->auditLogService,
+                $this->innerClient,
+            );
+
+            try {
+                $client->sendRequest(new Request('GET', 'https://untrusted.other.com/data'));
+                self::fail('Expected the allowlist to refuse the host.');
+            } catch (VaultException) {
+            }
+
+            self::assertSame(
+                [[
+                    'http_call',
+                    false,
+                    'Request refused before any secret was read: host is not in the allowed hosts list',
+                ]],
+                $rows,
+            );
+        } finally {
+            unset($GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']);
+        }
+    }
+
+    #[Test]
+    public function aFailedCredentialInjectionIsAuditedAsAFailedHttpCall(): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturn(null);
+
+        $rows = [];
+        $contexts = [];
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->willReturnCallback(
+                static function (
+                    string $identifier,
+                    string $action,
+                    bool $success,
+                    ?string $error = null,
+                    ?string $reason = null,
+                    ?string $hashBefore = null,
+                    ?string $hashAfter = null,
+                    ?AuditContextInterface $context = null,
+                ) use (&$rows, &$contexts): void {
+                    $rows[] = [$action, $success, $error];
+                    $contexts[] = $context;
+                },
+            );
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        try {
+            $client
+                ->withAuthentication('nonexistent_key', SecretPlacement::Bearer)
+                ->sendRequest(new Request('POST', self::API_URL));
+            self::fail('Expected the missing secret to refuse the send.');
+        } catch (SecretNotFoundException) {
+        }
+
+        self::assertCount(1, $rows);
+        self::assertSame('http_call', $rows[0][0]);
+        self::assertFalse($rows[0][1]);
+        self::assertSame(
+            'Credential injection failed; nothing was sent: nonexistent_key',
+            $rows[0][2],
+        );
+
+        // Status 0 says "nothing came back", which is the whole point of the
+        // row: the request was never sent. A real status here would read as a
+        // completed call in every count over the log.
+        self::assertInstanceOf(HttpCallContext::class, $contexts[0]);
+        self::assertSame(
+            [
+                'method' => 'POST',
+                'host' => 'api.example.com',
+                'path' => '/data',
+                'status_code' => 0,
+            ],
+            $contexts[0]->toArray(),
+        );
+    }
+
+    #[Test]
+    public function theRefusalRowCarriesTheRequestItRefused(): void
+    {
+        // The row has to be findable by what was attempted, or "who tried to
+        // reach a host nobody approved?" is unanswerable from the log.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['trusted.example.com'];
+
+        try {
+            $context = null;
+            $this->auditLogService
+                ->expects(self::once())
+                ->method('log')
+                ->willReturnCallback(
+                    static function (
+                        string $identifier,
+                        string $action,
+                        bool $success,
+                        ?string $error = null,
+                        ?string $reason = null,
+                        ?string $hashBefore = null,
+                        ?string $hashAfter = null,
+                        ?AuditContextInterface $auditContext = null,
+                    ) use (&$context): void {
+                        $context = $auditContext;
+                    },
+                );
+
+            $client = new VaultHttpClient(
+                $this->vaultService,
+                $this->auditLogService,
+                $this->innerClient,
+            );
+
+            try {
+                $client->sendRequest(new Request('POST', 'https://untrusted.other.com/data'));
+                self::fail('Expected the allowlist to refuse the host.');
+            } catch (VaultException) {
+            }
+
+            self::assertInstanceOf(HttpCallContext::class, $context);
+            self::assertSame(
+                [
+                    'method' => 'POST',
+                    'host' => 'untrusted.other.com',
+                    'path' => '/data',
+                    'status_code' => 0,
+                ],
+                $context->toArray(),
+            );
+        } finally {
+            unset($GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']);
+        }
+    }
+
     #[Test]
     public function withReasonPreservesOtherConfiguration(): void
     {
@@ -1339,6 +1618,34 @@ final class VaultHttpClientTest extends TestCase
             $this->extractOAuthManager($afterChain),
             'withReason() (after withOAuth) must forward the same OAuthTokenManager — token cache is dead if this fails',
         );
+    }
+
+    /**
+     * Record every audit row as `[action, success, errorMessage]`.
+     *
+     * @param list<array{0: string, 1: bool, 2: ?string}> $rows
+     *
+     * @param-out list<array{0: string, 1: bool, 2: ?string}> $rows
+     */
+    private function recordAuditRows(array &$rows): void
+    {
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->willReturnCallback(
+                static function (
+                    string $identifier,
+                    string $action,
+                    bool $success,
+                    ?string $error = null,
+                    ?string $reason = null,
+                    ?string $hashBefore = null,
+                    ?string $hashAfter = null,
+                    ?AuditContextInterface $context = null,
+                ) use (&$rows): void {
+                    $rows[] = [$action, $success, $error];
+                },
+            );
     }
 
     /**

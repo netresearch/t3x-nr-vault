@@ -7,6 +7,137 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A cancellable secure outbound send** (#302). `VaultHttpClient` now also
+  implements `CancellableHttpClientInterface`, whose `sendCancellable($request,
+  $signal)` polls a caller-supplied `CancellationSignalInterface` and tears the
+  socket down when it turns true. Until now a consumer whose own work was
+  cancelled still waited out the timeout — up to about 45 seconds for the caller
+  that asked for this
+  ([netresearch/t3x-nr-llm#774](https://github.com/netresearch/t3x-nr-llm/issues/774))
+  — because PSR-18 returns a response and never a handle, and because Guzzle's
+  synchronous branch settles its promise before it exists, which makes
+  `cancel()` a no-op there.
+
+  The new interface is separate from `VaultHttpClientInterface` and purely
+  additive, so consumers feature-detect (`$client instanceof
+  CancellableHttpClientInterface && $client->supportsCancellation()`) instead of
+  raising a version floor. Nothing existing changes shape.
+
+  The invariant is that **nothing hands a caller a client that already carries a
+  vault secret**, and `VaultHttpClient` is the only place nr-vault attaches a
+  secret to a *caller's* request. No send a caller can drive puts a vault secret
+  on the wire without the four protections that are statements in the sending
+  method rather than middleware — the scheme allowlist, the host allowlist, the
+  credential injection and the audit write. (nr-vault sends two credentials of
+  its own elsewhere, on paths that are not a caller's request: the transit
+  master-key provider's `X-Vault-Token` header and the OAuth token leg's
+  `client_secret`. Both are listed in ADR-037.) Every public method of
+  `VaultHttpClient` returns a configured clone, a PSR-7 response or a bool — no
+  client, no handler, no promise — and `sendCancellable()` accepts no
+  per-request option surface (a caller-supplied `stream => true` or `curl` array
+  would silently drop the `CURLOPT_RESOLVE` DNS pin). Both are asserted by
+  `VaultHttpClientCancellableTest::theCredentialBearingClientExportsNoTransportAndNoPromise()`.
+  Building a hardened transport *without* vault
+  credentials stays a supported public case: `SecureHttpClientFactory::create()`
+  and the new `createCancellable()` return one, carrying the SSRF middleware and
+  the DNS pin and nothing else.
+
+  A PSR-18 client injected into `VaultHttpClient`'s constructor is never replaced
+  by a cancellable transport — it may carry that caller's own middleware or
+  proxy. `supportsCancellation()` reports false for such an instance and the call
+  completes blocking on their client. The one exception is `withTimeout()`, which
+  has to bake the override into a client and therefore rebuilds one from the
+  factory; the clone it returns reports `supportsCancellation()` true
+  (`anInjectedGuzzleClientIsNeverSwappedForACancellableTransport()`,
+  `withTimeoutRebuildsACallerSuppliedClientAndTurnsCancellationOn()`). A client
+  obtained from `VaultServiceInterface::http()` supports cancellation wherever
+  `curl_multi_*` is available, and degrades to a blocking send where it is not —
+  feature-detect with `supportsCancellation()` rather than assuming either.
+
+  `allow_redirects => false` is re-pinned per request on the async path. Guzzle
+  pins it for every PSR-18 send but sets nothing on an async one, so on an
+  install that configured
+  `$GLOBALS['TYPO3_CONF_VARS']['HTTP']['allow_redirects']` this path alone would
+  have started following redirects — past a DNS pin computed for the original
+  host.
+
+  The timeout stays authoritative: a transport this client builds carries the
+  same deadline as its blocking client, so cancellation is an early exit and
+  never an extension
+  (`VaultHttpClientCancellableTest::theTransportTheClientResolvesForItselfCarriesTheRememberedTimeout()`).
+
+- **Two new audit actions for abandoned calls**, each meaning exactly one thing.
+  Every call leaves exactly one row from this client — `sendCancellable()` and
+  `sendRequest()` alike — so the log is complete with respect to *calls* and not
+  merely with respect to egress: a call that was already cancelled when it began
+  gets a row too. ADR-037 maps every outcome to the test that asserts its row.
+
+  `http_call_cancelled` (badge: `warning`) is written **only** when the
+  cancellation signal stopped an in-flight request, i.e. after the credential was
+  retrieved, injected and handed to the transport. Because it means nothing else,
+  "which calls were abandoned after their credential went out?" is a query on one
+  action value, with no message parsing
+  (`theTwoCancellationOutcomesAreToldApartByTheirAction()`). It is a separate action rather than a
+  failed `http_call` because status `0` there already means both "connection
+  refused" and "SSRF middleware rejected".
+
+  `http_call_cancelled_before_send` (badge: `info`) is written when the signal
+  was already set on entry: no secret was read and nothing egressed. Its own
+  action rather than a distinguishing message, so an auditor can *exclude* those
+  rows by query.
+
+  Everything that failed rather than was cancelled stays `http_call` with
+  `success = false` — a transport that could not be built, a transport error, the
+  defensive wall-clock bound, a settlement that is not an HTTP response, and a
+  throw from the caller's signal or the ticker. Nobody asked for those; filing them under the cancellation
+  action would put a second meaning back on it. The fixed-literal `error_message`
+  rendered under the badge identifies the situation within an action.
+
+  The audit write for a cancellable transfer happens in a `finally` that opens on
+  the first statement after the credential was injected: Guzzle's option handling
+  inside `sendAsync()`, the caller's signal and the ticker can all throw, and
+  none of them may be the one outbound call that leaves no trace.
+
+### Fixed
+
+- **A refused scheme, a host outside `allowed_hosts`, and a credential that
+  could not be obtained left no audit row.** All three are thrown by
+  `VaultHttpClient` before the send, and all three used to escape without a
+  trace — on `sendRequest()` as much as on the new cancellable path. They are
+  exactly the calls an operator goes looking for: somebody tried `file://`, or a
+  host nobody approved. Each now writes one `http_call` row with
+  `success = false`, status `0`, the attempted method/host/path, and a fixed
+  literal saying which gate refused it (`Request refused before any secret was
+  read: …`, `Credential injection failed; nothing was sent: …`). No new audit
+  action: that tuple already means "a refused outbound call" here — the SSRF
+  middleware rejection lands in it too.
+
+  The exceptions are unchanged, byte for byte: same class, same code, same
+  message, pinned by characterization tests written before the rows existed. A
+  consumer that catches `VaultException` sees no difference.
+
+- **A blocking send that threw something other than a PSR-18
+  `ClientExceptionInterface` left no audit row.** `Client::applyOptions()` raises
+  `InvalidArgumentException` outside `Client::transfer()`'s try/catch on the
+  synchronous path as well, so a bad option set escaped `VaultHttpClient`'s
+  catch — credential already injected, nothing in the log. The send-and-audit
+  helper now writes its row from a `finally`, which covers plain `sendRequest()`
+  and the degraded branch of `sendCancellable()` alike, under `http_call` with
+  the fixed literal `Blocking send aborted by an unexpected error after the
+  credential was injected: …`. Success and transport-failure rows are unchanged.
+
+### Changed
+
+- **`guzzlehttp/guzzle` is now a declared direct dependency** (`^7.10`).
+  Production code already imported `GuzzleHttp\Client`, `HandlerStack` and
+  `RequestException` while the manifest named only the PSR interfaces and relied
+  on `typo3/cms-core` to pull Guzzle in transitively. The cancellable transport
+  reaches deeper still — `CurlMultiHandler`, `Proxy`, `StreamHandler`, promise
+  cancel semantics — and a Guzzle major arriving through a third path would
+  break it with no warning in our own manifest.
+
 ## [0.15.0] - 2026-08-10
 
 One feature, aimed at a gap that only shows up in unattended deployments: there

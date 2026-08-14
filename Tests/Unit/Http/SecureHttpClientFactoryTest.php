@@ -15,6 +15,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Client\ClientInterface;
+use TYPO3\CMS\Core\Log\LogLevel;
+use TYPO3\CMS\Core\Log\LogRecord;
+use TYPO3\CMS\Core\Log\Writer\AbstractWriter;
 
 #[CoversClass(SecureHttpClientFactory::class)]
 final class SecureHttpClientFactoryTest extends TestCase
@@ -35,6 +38,7 @@ final class SecureHttpClientFactoryTest extends TestCase
     protected function tearDown(): void
     {
         unset($GLOBALS['TYPO3_CONF_VARS']);
+        CollectingLogWriter::reset();
         parent::tearDown();
     }
 
@@ -84,6 +88,51 @@ final class SecureHttpClientFactoryTest extends TestCase
         $client = $this->factory->create();
 
         self::assertInstanceOf(ClientInterface::class, $client);
+    }
+
+    /**
+     * @param array<string, mixed> $httpConfig
+     */
+    #[Test]
+    #[DataProvider('tlsVerificationValues')]
+    public function createWarnsExactlyWhenTlsVerificationIsTurnedOff(array $httpConfig, bool $expectWarning): void
+    {
+        // The condition moved out of the option-building block when it was
+        // extracted into `buildOptions()`, from `array_key_exists('verify', …)`
+        // plus `=== false` to `($typo3Config['verify'] ?? null) === false`.
+        // Nothing covered it before, so this pins the whole value range rather
+        // than the one case that motivated the warning.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = $httpConfig;
+
+        // The logger is reached through the real LogManager, configured from
+        // $TYPO3_CONF_VARS['LOG'] — no @internal singleton injection needed.
+        CollectingLogWriter::reset();
+        $GLOBALS['TYPO3_CONF_VARS']['LOG']['Netresearch']['NrVault']['Http']['SecureHttpClientFactory']['writerConfiguration'] = [
+            LogLevel::WARNING => [CollectingLogWriter::class => []],
+        ];
+
+        $this->factory->create();
+
+        $tlsWarnings = array_values(array_filter(
+            CollectingLogWriter::messages(),
+            static fn (string $message): bool => str_starts_with($message, 'TLS verification is disabled'),
+        ));
+
+        self::assertCount($expectWarning ? 1 : 0, $tlsWarnings);
+    }
+
+    /**
+     * @return iterable<string, array{0: array<string, mixed>, 1: bool}>
+     */
+    public static function tlsVerificationValues(): iterable
+    {
+        yield 'key absent' => [[], false];
+        yield 'verify null' => [['verify' => null], false];
+        yield 'verify false' => [['verify' => false], true];
+        yield 'verify true' => [['verify' => true], false];
+        yield 'verify zero' => [['verify' => 0], false];
+        yield 'verify empty string' => [['verify' => ''], false];
+        yield 'verify ca bundle path' => [['verify' => '/path/to/ca.pem'], false];
     }
 
     #[Test]
@@ -288,5 +337,36 @@ final class SecureHttpClientFactoryTest extends TestCase
 
         // Neither exact match nor wildcard match
         self::assertFalse($this->factory->isHostAllowed('different.domain.org'));
+    }
+}
+
+/**
+ * Collects the messages written to a logger, so a test can assert on what the
+ * factory logged without touching `@internal` singleton injection: the real
+ * LogManager builds its writers from `$TYPO3_CONF_VARS['LOG']`.
+ */
+final class CollectingLogWriter extends AbstractWriter
+{
+    /** @var list<string> */
+    private static array $messages = [];
+
+    public function writeLog(LogRecord $record): self
+    {
+        self::$messages[] = $record->getMessage();
+
+        return $this;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function messages(): array
+    {
+        return self::$messages;
+    }
+
+    public static function reset(): void
+    {
+        self::$messages = [];
     }
 }
