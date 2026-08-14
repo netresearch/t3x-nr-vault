@@ -30,13 +30,19 @@ final readonly class VaultHttpClientFactory implements VaultHttpClientFactoryInt
 
     /**
      * Create a new VaultHttpClient for the given vault service.
+     *
+     * The inner client is left to the constructor rather than built here: it
+     * then comes from the injected factory, and the client knows it is holding
+     * a factory-built transport. That is what licenses `sendCancellable()` to
+     * build a cancellable sibling — a client handed in from outside is never
+     * replaced by one.
      */
     public function create(VaultServiceInterface $vaultService): VaultHttpClientInterface
     {
         return new VaultHttpClient(
             $vaultService,
             $this->auditLogService,
-            $this->secureHttpClientFactory->create(),
+            secureHttpClientFactory: $this->secureHttpClientFactory,
         );
     }
 }

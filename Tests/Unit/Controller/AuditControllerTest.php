@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Controller;
 
+use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Controller\AuditController;
@@ -135,6 +136,74 @@ final class AuditControllerTest extends TestCase
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame('application/json', $response->getHeaderLine('Content-Type'));
+    }
+
+    /**
+     * The audit module renders `{entry.action}` inside a badge whose CSS class
+     * comes from `getActionBadgeClass()` (`Audit/List.html:99`).
+     *
+     * Every row under `http_call_cancelled` means a credential was injected and
+     * handed to the transport before the call was abandoned, so it must not sit
+     * in the grey default next to an ordinary completed call — that grey is what
+     * an operator scans past. The pre-flight case is an abandoned call too, but
+     * with nothing to act on, so it is distinguishable without being alarming.
+     */
+    #[Test]
+    public function eachAbandonedOutboundCallGetsItsOwnBadgeInTheAuditModule(): void
+    {
+        $reflection = new ReflectionClass(AuditController::class);
+        $subject = $reflection->newInstanceWithoutConstructor();
+        $badgeClass = $reflection->getMethod('getActionBadgeClass');
+
+        self::assertSame('warning', $badgeClass->invoke($subject, 'http_call_cancelled'));
+        self::assertSame('info', $badgeClass->invoke($subject, 'http_call_cancelled_before_send'));
+        self::assertSame(
+            'secondary',
+            $badgeClass->invoke($subject, 'http_call'),
+            'An ordinary completed call keeps the neutral badge, or the new ones signal nothing.',
+        );
+    }
+
+    /**
+     * The filter dropdown is what makes a row queryable in the module, and its
+     * whole point is that a writer never has to remember to register an action
+     * there. So the needle here is the literal string `VaultHttpClient` persists
+     * — NOT `AuditAction::cases()`, which is the same expression the controller
+     * evaluates and would make this assertion true of itself.
+     *
+     * A hard-coded list in the controller (which is what this derivation
+     * replaced, and which had silently omitted the master_key_* and oauth_*
+     * actions) fails here.
+     */
+    #[Test]
+    public function everyActionTheHttpClientWritesReachesTheFilterDropdown(): void
+    {
+        $reflection = new ReflectionClass(AuditController::class);
+        $subject = $reflection->newInstanceWithoutConstructor();
+
+        $offered = $reflection->getMethod('filterableActions')->invoke($subject);
+        self::assertIsArray($offered);
+
+        foreach (['http_call', 'http_call_cancelled', 'http_call_cancelled_before_send'] as $written) {
+            self::assertContains(
+                $written,
+                $offered,
+                \sprintf('"%s" is written to the chain but cannot be filtered for.', $written),
+            );
+        }
+    }
+
+    /**
+     * The persisted strings are bound into the HMAC hash payload, so changing
+     * one breaks verification of every historical row that used it. Pinning the
+     * two cancellation values against literals is what makes such a rename show
+     * up as a test failure rather than as an unverifiable chain.
+     */
+    #[Test]
+    public function theCancellationActionValuesAreFrozen(): void
+    {
+        self::assertSame('http_call_cancelled', AuditAction::HttpCallCancelled->value);
+        self::assertSame('http_call_cancelled_before_send', AuditAction::HttpCallCancelledBeforeSend->value);
     }
 
     /**

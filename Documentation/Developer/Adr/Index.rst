@@ -61,6 +61,7 @@ ADR      Title                                                    Status
 034      :ref:`adr-034-audit-chain-tip-anchor`                    Accepted
 035      :ref:`adr-035-frontend-placeholder-allow-set`            Amended
 036      :ref:`adr-036-mutation-audit-atomicity`                  Accepted
+037      :ref:`adr-037-cancellable-outbound-send`                 Accepted
 =======  =======================================================  ========
 
 .. toctree::
@@ -103,3 +104,4 @@ ADR      Title                                                    Status
    ADR-034-AuditChainTipAnchor
    ADR-035-FrontendPlaceholderAllowSet
    ADR-036-MutationAuditAtomicity
+   ADR-037-CancellableOutboundSend

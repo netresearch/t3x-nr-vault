@@ -150,11 +150,7 @@ final readonly class AuditController
             'filters' => ['_form' => $formData],
             'pagination' => $pagination,
             'canExport' => $this->accessGuard->isGranted(VaultPermission::AuditExport),
-            // Derive the action-filter list from the AuditAction enum so the UI
-            // can never drift from the actions actually written to the chain
-            // (the previous hard-coded list silently omitted master_key_* and
-            // oauth_* actions).
-            'actions' => array_map(static fn (AuditAction $action): string => $action->value, AuditAction::cases()),
+            'actions' => $this->filterableActions(),
         ]);
 
         $moduleTemplate->setTitle(
@@ -421,6 +417,22 @@ final readonly class AuditController
         // Note: Reload button is automatically added by TYPO3's DocHeaderComponent
     }
 
+    /**
+     * The action values the module's filter dropdown offers.
+     *
+     * Derived from the AuditAction enum so the UI can never drift from the
+     * actions actually written to the chain — the hard-coded list this replaced
+     * silently omitted the master_key_* and oauth_* actions, which made those
+     * rows unfilterable. A writer that adds an action must appear here without
+     * anyone editing this method.
+     *
+     * @return list<string>
+     */
+    private function filterableActions(): array
+    {
+        return array_map(static fn (AuditAction $action): string => $action->value, AuditAction::cases());
+    }
+
     private function getActionBadgeClass(string $action): string
     {
         return match ($action) {
@@ -430,6 +442,15 @@ final readonly class AuditController
             'delete' => 'danger',
             'rotate' => 'info',
             'access_denied' => 'danger',
+            // An in-flight call torn down after its credential was injected.
+            // Every row under this action means the credential went out, so it
+            // is worth a second look and must not sit in the grey default next
+            // to an ordinary completed call.
+            'http_call_cancelled' => 'warning',
+            // Refused before the send began: no secret was read and nothing
+            // egressed. Distinct from the grey default because it IS an
+            // abandoned call, but not `warning` — there is nothing to act on.
+            'http_call_cancelled_before_send' => 'info',
             // A break-glass activation is the most review-worthy row in the
             // log; it must not blend into the grey default.
             'break_glass_activated' => 'danger',

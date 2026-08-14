@@ -574,6 +574,253 @@ Via VaultService
       :returns: PSR-7 response.
       :throws ClientExceptionInterface: If request fails.
 
+.. _api-http-cancellable:
+
+Cancelling an outbound request
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+PSR-18 returns a response, never a handle, so :php:`sendRequest()` cannot be
+aborted once it is running — a caller whose own work was cancelled still waits
+out the timeout. :php:`CancellableHttpClientInterface` adds a second send that
+polls a caller-supplied signal and tears the socket down when it turns true.
+
+It is a *send*, not an exported handle, and that is a security property rather
+than a matter of taste. Four of this client's protections — the scheme
+allowlist, the ``allowed_hosts`` gate, the credential injection and the audit
+write — are statements inside the sending method, not middleware on the handler
+stack, so they do not travel with a transport. The rule the package holds to is
+therefore narrow and sharp: **nothing hands you a client that already carries a
+vault secret**, and :php:`VaultHttpClient` is the only place nr-vault attaches a
+secret to *your* request. There is no send you can drive that puts a vault
+secret on the wire without those four: every public method of that class returns
+a configured clone, a PSR-7 response or a bool, and
+:php:`sendCancellable()` takes no options parameter — asserted by
+``VaultHttpClientCancellableTest::theCredentialBearingClientExportsNoTransportAndNoPromise()``.
+
+nr-vault sends two credentials of its own on paths that are not your request and
+do not carry all four: the ``X-Vault-Token`` header of the transit master-key
+provider, on a plain Guzzle client, and the ``client_secret`` of the OAuth token
+leg, which does apply the ``allowed_hosts`` gate but writes no audit row. They
+are listed in :ref:`adr-037-cancellable-outbound-send`.
+
+Building a hardened transport *without* vault credentials remains a supported,
+public case: :php:`SecureHttpClientFactory::create()` and
+:php:`createCancellable()` return one, carrying the SSRF reject middleware and
+the ``CURLOPT_RESOLVE`` DNS pin — and no secret, no allowlist gate, no audit
+write.
+
+The interface is separate from :php:`VaultHttpClientInterface` and purely
+additive, so consumers feature-detect instead of raising a version floor:
+
+.. code-block:: php
+   :caption: Aborting a call when the surrounding operation is cancelled
+
+   use Netresearch\NrVault\Http\CancellableHttpClientInterface;
+   use Netresearch\NrVault\Http\CancellationSignalInterface;
+   use Netresearch\NrVault\Exception\RequestCancelledException;
+
+   final class RunCancellationSignal implements CancellationSignalInterface
+   {
+       public function __construct(private readonly MyRunState $run) {}
+
+       public function isCancelled(): bool
+       {
+           return $this->run->wasCancelled();
+       }
+   }
+
+   $client = $this->vaultService->http()
+       ->withAuthentication('tool_api_key')
+       ->withReason('MCP tool call')
+       ->withTimeout(15);
+
+   try {
+       $response = $client instanceof CancellableHttpClientInterface && $client->supportsCancellation()
+           ? $client->sendCancellable($request, new RunCancellationSignal($run))
+           : $client->sendRequest($request);
+   } catch (RequestCancelledException $e) {
+       // The call was abandoned on purpose; the audit log already recorded it.
+   }
+
+The signal is polled once before the request is sent and then between ticks of
+the transport event loop. Implementations must be cheap and must not throw:
+the method is called several times a second per in-flight request, and it runs
+after the credential has been injected. A signal that throws anyway still leaves
+an audit row — the write is in a ``finally`` — but the exception reaches the
+caller unchanged
+(``VaultHttpClientCancellableTest::aSignalThatThrowsMidFlightStillLeavesAnAuditRow()``).
+
+.. note::
+
+   Where a guarantee in this section names a test, that test is in
+   ``Tests/Unit/Http/VaultHttpClientCancellableTest.php`` or
+   ``Tests/Unit/Http/VaultHttpClientTest.php`` and enforces the sentence it is
+   named in; each fixed literal listed below is asserted by a test as well,
+   through the outcome-to-test table in
+   :ref:`adr-037-cancellable-outbound-send`, which names one per row.
+
+   Two statements here name none and are descriptions rather than pinned
+   guarantees: what :php:`SecureHttpClientFactory::create()` and
+   :php:`createCancellable()` hand out, and the invariant sentence introducing
+   this section — whose operative half, that no send you can drive skips the
+   four protections, does name one.
+
+.. note::
+
+   When this client builds the transport itself, it comes from
+   :php:`SecureHttpClientFactory` and carries the same hardened options, the
+   same SSRF/DNS-pin middleware
+   (``ssrfDnsPinIsInstalledOnTheCancellableTransport()``) and the same timeout
+   as the blocking client
+   (``theTransportTheClientResolvesForItselfCarriesTheRememberedTimeout()``) —
+   cancellation is an early exit, never an extension.
+
+   A PSR-18 client you injected into :php:`VaultHttpClient`'s constructor is
+   never replaced by a transport
+   (``anInjectedGuzzleClientIsNeverSwappedForACancellableTransport()``):
+   :php:`supportsCancellation()` reports false for such an instance and
+   :php:`sendCancellable()` completes the call blocking, on your client. The one
+   exception is :php:`withTimeout()`, which has to bake the override into a
+   client and therefore rebuilds one from the factory — the clone it returns
+   reports :php:`supportsCancellation()` **true**
+   (``withTimeoutRebuildsACallerSuppliedClientAndTurnsCancellationOn()``).
+
+   A client obtained from :php:`VaultServiceInterface::http()` supports
+   cancellation on any platform with ``curl_multi_*``, through the withers
+   included (``cancellationSurvivesTheWithersAndTheProductionFactory()``);
+   without that extension it degrades. Ask
+   :php:`supportsCancellation()` rather than assuming either.
+
+Every :php:`sendCancellable()` writes exactly one audit row — and so does every
+:php:`sendRequest()` — so the log is complete with respect to calls and not
+merely to egress. The outcome-to-test table in
+:ref:`adr-037-cancellable-outbound-send` is the enumeration that backs this
+sentence: one row per way a call can end, one named test per row. Three actions
+can result, and each means one thing — the
+action is what you filter and count on, so none of them needs the error message
+to be understood:
+
+``http_call_cancelled`` (badge: warning)
+   The signal stopped an **in-flight** request. The credential was retrieved,
+   injected and handed to the transport: treat it as exposed. Nothing else is
+   filed under this action, so "which calls were abandoned after their
+   credential went out?" is a query on this one value
+   (``theTwoCancellationOutcomesAreToldApartByTheirAction()``).
+
+``http_call_cancelled_before_send`` (badge: info)
+   The signal was already set when the send began. No secret was retrieved and
+   nothing was handed to the transport. Its own action so you can exclude these
+   rows by query rather than by reading messages
+   (``cancellingBeforeSendReadsNoSecretAndStillLeavesADistinguishableRow()``).
+
+``http_call`` with ``success = false``
+   Everything that failed rather than was cancelled — a refused scheme or host,
+   a transport that could not be built, a credential that could not be obtained,
+   a transport error, the defensive wall-clock bound, a settlement that is not a
+   response, or a throw from your signal or the ticker. Nobody asked for those,
+   so they sit with the other failures. ADR-037 lists the test for each.
+
+Within an action, the row's error message is a fixed literal shown under the
+badge:
+
+``Request cancelled before send: nothing egressed and no secret was retrieved``
+   The pre-flight refusal.
+
+``Request cancelled after send began: credential injected and transfer handed to the transport``
+   In the usual case the bytes are already out; if the signal turns true before
+   the first tick they may not be, which is why the literal does not claim more
+   than it can.
+
+``Cancellable transfer exceeded its wall-clock budget and was aborted``
+   The defensive bound above the curl timeouts tripped, i.e. the transport
+   stopped settling its promise.
+
+``Cancellable transport settled with a value that is not an HTTP response``
+   The transfer settled with something unusable.
+
+``Cancellable transfer aborted by an unexpected error after the credential was injected: …``
+   Guzzle's option handling, your signal or the ticker threw.
+
+``Blocking send aborted by an unexpected error after the credential was injected: …``
+   The degraded blocking branch threw something that is not a PSR-18
+   ``ClientExceptionInterface``. The same literal can appear for a plain
+   :php:`sendRequest()`, which runs the same send-and-audit helper.
+
+``Cancellable transport could not be built; nothing was sent: …``
+   Building the transport for :php:`sendCancellable()` threw. It is built after
+   the two guards and before the credential is read, so nothing egressed and no
+   secret was retrieved. This one is specific to :php:`sendCancellable()`.
+
+``Cancellable transfer was rejected``
+   The promise rejected with a reason that is not a ``Throwable``, so there is
+   no foreign message to append. Specific to :php:`sendCancellable()`.
+
+``Request refused before any secret was read: unsupported URI scheme "…"``
+   The URI was neither ``http`` nor ``https``. The scheme is in the message
+   because the audit context records method, host, path and status only.
+
+``Request refused before any secret was read: host is not in the allowed hosts list``
+   ``$GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']`` refused the
+   destination. The host is on the row, in the context.
+
+``Credential injection failed; nothing was sent: …``
+   The vault read, or the OAuth token leg, threw. Nothing egressed.
+
+The last three appear for :php:`sendRequest()` as well: they are refusals of a
+call that was asked for, and a call that was asked for shows up in the log.
+The exception you receive is unchanged by that row — pinned by three
+characterization tests in ``VaultHttpClientTest``, written before the rows
+existed.
+
+See :ref:`adr-037-cancellable-outbound-send` for the transport details and the
+residual gaps — in particular that the OAuth token round trip preceding an
+OAuth-authenticated call is not cancellable.
+
+.. php:interface:: CancellableHttpClientInterface
+
+   An outbound send that can be aborted while it is still on the wire.
+   Implemented by :php:`VaultHttpClient` alongside
+   :php:`VaultHttpClientInterface`.
+
+   .. php:method:: sendCancellable(RequestInterface $request, CancellationSignalInterface $signal): ResponseInterface
+
+      Send an HTTP request, aborting the transfer as soon as ``$signal`` says
+      so. Runs the same guard sequence as :php:`sendRequest()`: scheme
+      allowlist, host allowlist, credential injection, audit write.
+
+      Accepts no per-request transport options, deliberately — see
+      :ref:`adr-037-cancellable-outbound-send`.
+
+      When :php:`supportsCancellation()` is false the call still completes,
+      blocking, with an ordinary ``http_call`` audit row. It degrades; it does
+      not fail
+      (``aNonGuzzleInnerClientDegradesToABlockingSendWithAnOrdinaryAuditRow()``).
+
+      :param RequestInterface $request: PSR-7 request.
+      :param CancellationSignalInterface $signal: Polled before the send and between transport ticks.
+      :returns: PSR-7 response.
+      :throws RequestCancelledException: If the signal aborted the call.
+      :throws ClientExceptionInterface: If the transfer itself failed.
+      :throws VaultException: If the scheme or host is rejected, or secret retrieval fails.
+
+   .. php:method:: supportsCancellation(): bool
+
+      Whether this instance can abort a transfer in flight. False when the
+      platform has no ``curl_multi_*`` support, and false when the inner client
+      was supplied by the caller instead of built by
+      :php:`SecureHttpClientFactory` — a supplied client may carry your own
+      middleware or proxy, so it stays the one that sends. A *pre-flight* signal
+      is still honoured in either case, because nothing has egressed yet, and
+      the call is still audited
+      (``aPreFlightSignalIsHonouredEvenWhenCancellationIsUnsupported()``).
+
+.. php:interface:: CancellationSignalInterface
+
+   .. php:method:: isCancelled(): bool
+
+      Return true to abort the in-flight request. Must not throw, and must be
+      cheap.
+
 .. _api-http-auth-options:
 
 Authentication options

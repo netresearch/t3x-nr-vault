@@ -321,9 +321,13 @@ Options
    Filter by action — any :php:`AuditAction` value. The common ones are
    ``create``, ``read``, ``update``, ``delete``, ``rotate`` and
    ``access_denied``; the enum also covers ``metadata_update``, ``http_call``,
-   the master-key and chain lifecycle (``master_key_rotate_start`` /
-   ``_end``, ``audit_chain_rekey``, ``audit_anchor_reset``), break-glass
-   (``break_glass_activated`` / ``_deactivated``) and the OAuth actions.
+   ``http_call_cancelled`` (an in-flight outbound call stopped by its
+   cancellation signal, after the credential went out) and
+   ``http_call_cancelled_before_send`` (refused before the send; no secret was
+   read — see :ref:`adr-037-cancellable-outbound-send`), the master-key and chain
+   lifecycle (``master_key_rotate_start`` / ``_end``, ``audit_chain_rekey``,
+   ``audit_anchor_reset``), break-glass (``break_glass_activated`` /
+   ``_deactivated``) and the OAuth actions.
 
 --actor=UID
    Filter by actor (backend user UID).

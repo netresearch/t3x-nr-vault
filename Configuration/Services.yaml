@@ -153,6 +153,16 @@ services:
   Netresearch\NrVault\Http\VaultHttpClientInterface:
     alias: Netresearch\NrVault\Http\VaultHttpClient
 
+  # `$clonedFrom` is the seam the with*() clones use to carry "this inner client
+  # came from the factory" across a fluent chain, so it is typed as
+  # VaultHttpClient itself. Autowiring would read that as a dependency on the
+  # very service being built and refuse the container with a circular
+  # reference. Pinning the argument to null leaves every other one autowired,
+  # and the container-built instance is the one that has no prototype anyway.
+  Netresearch\NrVault\Http\VaultHttpClient:
+    arguments:
+      $clonedFrom: null
+
   Netresearch\NrVault\Service\Analytics\VaultAnalyticsServiceInterface:
     alias: Netresearch\NrVault\Service\Analytics\VaultAnalyticsService
 

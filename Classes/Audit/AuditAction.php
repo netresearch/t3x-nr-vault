@@ -32,6 +32,50 @@ enum AuditAction: string
     case MetadataUpdate = 'metadata_update';
     case AccessDenied = 'access_denied';
     case HttpCall = 'http_call';
+    /**
+     * The cancellation signal stopped an IN-FLIGHT request — written by
+     * `VaultHttpClient::sendCancellable()` only, and by nothing else.
+     *
+     * This action means exactly one thing: the credential was retrieved,
+     * injected into the request and handed to the transport, and then the
+     * caller's signal turned true and the transfer was torn down. Treat the
+     * credential as exposed.
+     *
+     * Because it means only that, "which calls were abandoned after their
+     * credential went out?" is answerable by querying this single action value.
+     * Nothing else is filed here:
+     *
+     * - a cancellation BEFORE the send is `HttpCallCancelledBeforeSend` — no
+     *   secret was read, nothing egressed, and an auditor must be able to
+     *   exclude those rows without parsing an error string;
+     * - the tick loop's defensive wall-clock bound and an unexpected throwable
+     *   are `HttpCall` with `success = false`. They are failures, not
+     *   cancellations: nobody asked for them, and counting them here would put
+     *   a second meaning back on this action.
+     *
+     * Distinct from `HttpCall` with `success = false` because status `0` is
+     * already overloaded there: a connection refusal and an SSRF middleware
+     * rejection produce the same tuple, and folding a deliberate abort into it
+     * would make the question above unanswerable by query.
+     */
+    case HttpCallCancelled = 'http_call_cancelled';
+    /**
+     * The cancellation signal was already true when
+     * `VaultHttpClient::sendCancellable()` was entered, so the call was refused
+     * before the send began.
+     *
+     * The one abandoned outcome in which NO credential was involved: the vault
+     * was never read and nothing was handed to the transport. It is a separate
+     * case rather than a distinguishing error string so that it is separately
+     * filterable and countable — an error message is free text an auditor
+     * cannot query on, while the action drives the backend's filter dropdown.
+     *
+     * The row is written even though nothing egressed: the log is complete with
+     * respect to CALLS, not merely with respect to egress, so an operator
+     * asking "what did this run do?" gets an answer for every send that was
+     * asked for.
+     */
+    case HttpCallCancelledBeforeSend = 'http_call_cancelled_before_send';
     case MasterKeyRotateStart = 'master_key_rotate_start';
     case MasterKeyRotateEnd = 'master_key_rotate_end';
     case AuditChainRekey = 'audit_chain_rekey';
