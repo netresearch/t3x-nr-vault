@@ -154,8 +154,27 @@ final class ApiSurfaceSnapshotTest extends TestCase
 
             $relative = substr($file->getPathname(), \strlen(self::CLASSES_DIR) + 1, -4);
             $fqcn = self::NAMESPACE_PREFIX . str_replace('/', '\\', $relative);
+
+            try {
+                $loadable = class_exists($fqcn) || interface_exists($fqcn) || trait_exists($fqcn) || enum_exists($fqcn);
+            } catch (Throwable) {
+                // The autoload attempt THREW — a parent or interface comes
+                // from a package this matrix leg does not ship (observed on
+                // TYPO3 ^13.4: AuditHmacMigrationWizard implements
+                // TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface, which
+                // exists under that name only on 14.x). Such a class cannot
+                // be part of THIS leg's surface. If a class that qualifies
+                // for the snapshot ever splits by TYPO3 version, the leg
+                // missing it fails the snapshot comparison with a visible
+                // `removed` diff instead of a fatal here.
+                continue;
+            }
+
+            // A clean FALSE (no throw) means the file's PSR-4 name resolves
+            // to nothing anywhere — that is a broken discovery rule, not a
+            // matrix difference, and stays a hard failure.
             self::assertTrue(
-                class_exists($fqcn) || interface_exists($fqcn) || trait_exists($fqcn) || enum_exists($fqcn),
+                $loadable,
                 \sprintf('File under Classes/ does not autoload as %s — the PSR-4 discovery rule is broken.', $fqcn),
             );
 
