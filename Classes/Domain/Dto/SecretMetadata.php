@@ -51,7 +51,12 @@ readonly class SecretMetadata
             createdAt: $row['crdate'] ?? 0,
             updatedAt: $row['tstamp'] ?? 0,
             readCount: $row['read_count'] ?? 0,
-            lastReadAt: $row['last_read_at'] ?? null,
+            // The column is NOT NULL DEFAULT 0, so a real database row carries 0
+            // for "never read" and the coalesce above it never fires. Every
+            // consumer of $lastReadAt guards with `!== null`, so passing the 0
+            // through renders 1970-01-01 -- the same defect #313 fixed in
+            // VaultService::list(), at the factory this docblock points at.
+            lastReadAt: ($row['last_read_at'] ?? 0) === 0 ? null : $row['last_read_at'],
             description: $row['description'] ?? '',
             version: $row['version'] ?? 1,
             metadata: $row['metadata'] ?? [],
