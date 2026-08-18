@@ -309,11 +309,15 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         // requests inherit the SSRF / DNS-rebinding / no-redirect defences.
         // The shared factory also lets the manager call `isHostAllowed()` on
         // the token endpoint — closes the allowed_hosts allowlist gap that
-        // the request-time middleware doesn't cover.
+        // the request-time middleware doesn't cover. The audit service is
+        // passed too (issue #303): the token round trip carries the
+        // `client_secret`, and a manager built without the service writes no
+        // `oauth_token_request` row for it.
         $this->oauthManager = $oauthManager ?? new OAuthTokenManager(
             $this->vaultService,
             $this->innerClient,
             $this->secureHttpClientFactory,
+            auditLogService: $this->auditLogService,
         );
     }
 
@@ -543,7 +547,17 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         }
 
         $transport = $this->resolveCancellableTransportAudited($request, $secretForAudit);
-        $authenticatedRequest = $this->injectAuthenticationAudited($request, $secretForAudit);
+
+        // The signal reaches the OAuth token leg exactly when this call's own
+        // transfer runs cancellable (issue #303): with a transport in hand the
+        // token POST is torn down by the same signal, and on the degraded
+        // blocking path the token leg blocks like everything else — the two
+        // legs never disagree on whether the call is abortable.
+        $authenticatedRequest = $this->injectAuthenticationAudited(
+            $request,
+            $secretForAudit,
+            $transport instanceof CancellableTransport ? $signal : null,
+        );
 
         if (!$transport instanceof CancellableTransport) {
             // Degraded: this platform or this instance cannot tick a transport.
@@ -632,10 +646,13 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      * The exception reaches the caller unchanged —
      * `VaultHttpClientTest::sendRequestRefusesAMissingSecretWithAnUnchangedException()`.
      */
-    private function injectAuthenticationAudited(RequestInterface $request, string $secretForAudit): RequestInterface
-    {
+    private function injectAuthenticationAudited(
+        RequestInterface $request,
+        string $secretForAudit,
+        ?CancellationSignalInterface $signal = null,
+    ): RequestInterface {
         try {
-            return $this->injectAuthentication($request);
+            return $this->injectAuthentication($request, $signal);
         } catch (Throwable $throwable) {
             $this->logHttpCall(
                 $secretForAudit,
@@ -1043,11 +1060,17 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
     /**
      * Inject authentication into the request based on configuration.
+     *
+     * `$signal` reaches only the OAuth leg: it is the one injection that
+     * performs its own outbound round trip (issue #303). Every other
+     * placement reads the vault locally and has nothing to abort.
      */
-    private function injectAuthentication(RequestInterface $request): RequestInterface
-    {
+    private function injectAuthentication(
+        RequestInterface $request,
+        ?CancellationSignalInterface $signal = null,
+    ): RequestInterface {
         if ($this->oauthConfig instanceof OAuthConfig) {
-            return $this->injectOAuth($request);
+            return $this->injectOAuth($request, $signal);
         }
 
         if ($this->secretIdentifier === null || !$this->placement instanceof SecretPlacement) {
@@ -1240,10 +1263,12 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         return $decoded;
     }
 
-    private function injectOAuth(RequestInterface $request): RequestInterface
-    {
+    private function injectOAuth(
+        RequestInterface $request,
+        ?CancellationSignalInterface $signal = null,
+    ): RequestInterface {
         \assert($this->oauthConfig instanceof OAuthConfig);
-        $accessToken = $this->oauthManager->getAccessToken($this->oauthConfig);
+        $accessToken = $this->oauthManager->getAccessToken($this->oauthConfig, $signal);
 
         try {
             return $request->withHeader('Authorization', 'Bearer ' . $accessToken);

@@ -13,16 +13,24 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Http\OAuth;
 
 use DateTimeImmutable;
+use GuzzleHttp\Promise\Utils as PromiseUtils;
 use GuzzleHttp\Psr7\HttpFactory;
+use GuzzleHttp\RequestOptions;
 use JsonException;
+use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\HttpCallContext;
 use Netresearch\NrVault\Exception\OAuthException;
+use Netresearch\NrVault\Exception\RequestCancelledException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
+use Netresearch\NrVault\Http\CancellableTransport;
+use Netresearch\NrVault\Http\CancellationSignalInterface;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Log\LoggerInterface;
@@ -42,6 +50,55 @@ use Throwable;
 final class OAuthTokenManager
 {
     private const REDACT_REPLACEMENT = '$1[REDACTED]';
+
+    /**
+     * The `reason` on every `oauth_token_request` audit row. A fixed literal:
+     * the manager does not know the caller's reason, and the row records the
+     * manager's own outbound call, not the caller's.
+     */
+    private const TOKEN_REQUEST_REASON = 'OAuth2 token round trip';
+
+    /**
+     * Fixed literal for a token request cancelled before anything egressed —
+     * before the body carrying the credentials was even built. Fixed so the
+     * audit row and the exception a caller sees can never carry a credential.
+     */
+    private const TOKEN_CANCELLED_BEFORE_SEND_MESSAGE
+        = 'OAuth token request cancelled before send: nothing egressed';
+
+    /**
+     * Fixed literal for a token transfer aborted after it was handed to the
+     * transport: the `client_secret` must be treated as exposed.
+     */
+    private const TOKEN_CANCELLED_IN_FLIGHT_MESSAGE
+        = 'OAuth token request cancelled after send began: the client credential was handed to the transport';
+
+    /**
+     * Fixed literal for the tick loop's defensive wall-clock bound — a bug in
+     * the transport, not something a caller did. Mirrors
+     * `VaultHttpClient::TICK_BUDGET_EXHAUSTED_MESSAGE`.
+     */
+    private const TOKEN_TICK_BUDGET_EXHAUSTED_MESSAGE
+        = 'Cancellable OAuth token transfer exceeded its wall-clock budget and was aborted';
+
+    /**
+     * Fixed literal for a transport that settled with something that is not a
+     * PSR-7 response. Not reachable through any handler this package builds.
+     */
+    private const TOKEN_NON_RESPONSE_SETTLEMENT_MESSAGE
+        = 'Cancellable OAuth token transport settled with a value that is not an HTTP response';
+
+    /** Fixed literal for an async rejection reason that is not a throwable. */
+    private const TOKEN_TRANSFER_REJECTED_MESSAGE
+        = 'Cancellable OAuth token transfer was rejected';
+
+    /**
+     * Fixed literal for a throw the audit classification did not enumerate.
+     * Pre-set so an unexpected error can never be the one round trip missing
+     * from the log.
+     */
+    private const TOKEN_REQUEST_UNEXPECTED_MESSAGE
+        = 'OAuth token request aborted by an unexpected error';
 
     /**
      * Cached tokens indexed by config hash.
@@ -72,6 +129,13 @@ final class OAuthTokenManager
      *                                                         hostnames. Without this extra gate, an attacker-controlled
      *                                                         `tokenEndpoint` could reach any public host the IP guards consider
      *                                                         "safe" — defeating the allowlist on the OAuth leg only.
+     * @param CancellableTransport|null $cancellableTransport Explicit transport
+     *                                                        for a token request carrying a cancellation signal. Normally null:
+     *                                                        the transport is built on demand from `$secureHttpClientFactory`,
+     *                                                        so a manager whose callers never pass a signal pays nothing.
+     *                                                        `@internal` test seam, mirroring the parameter of the same name on
+     *                                                        `VaultHttpClient` — it is how the suite drives the token-leg tick
+     *                                                        loop deterministically. Trailing position preserves positional BC.
      */
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
@@ -81,6 +145,7 @@ final class OAuthTokenManager
         ?RequestFactoryInterface $requestFactory = null,
         ?StreamFactoryInterface $streamFactory = null,
         private readonly ?AuditLogServiceInterface $auditLogService = null,
+        private readonly ?CancellableTransport $cancellableTransport = null,
     ) {
         $httpFactory = new HttpFactory();
         $this->requestFactory = $requestFactory ?? $httpFactory;
@@ -97,9 +162,25 @@ final class OAuthTokenManager
      *
      * Automatically refreshes the token if it's expired or about to expire.
      *
+     * @param CancellationSignalInterface|null $cancellationSignal When given,
+     *                                                             the token round trip honours it: an already-set signal aborts
+     *                                                             before any credential is read from the vault, and an in-flight
+     *                                                             token POST is torn down through a cancellable transport built by
+     *                                                             `SecureHttpClientFactory::createCancellable()` (issue #303).
+     *                                                             That transport carries the same hardening as the manager's own
+     *                                                             client but NOT a caller-supplied client's custom middleware —
+     *                                                             callers who handed this manager their own `$httpClient` and need
+     *                                                             its semantics must not pass a signal.
+     *                                                             `VaultHttpClient::sendCancellable()` passes its signal exactly
+     *                                                             when its own transfer runs cancellable, so the token leg and the
+     *                                                             API leg degrade together. A cached, still-valid token is returned
+     *                                                             without consulting the signal — it costs nothing and egresses
+     *                                                             nothing.
+     *
      * @throws OAuthException If token cannot be obtained
+     * @throws RequestCancelledException When the signal aborted the token round trip
      */
-    public function getAccessToken(OAuthConfig $config): string
+    public function getAccessToken(OAuthConfig $config, ?CancellationSignalInterface $cancellationSignal = null): string
     {
         $cacheKey = $this->getCacheKey($config);
 
@@ -115,8 +196,18 @@ final class OAuthTokenManager
             $this->logger?->debug('OAuth token expired or about to expire, refreshing');
         }
 
+        // Checked BEFORE the vault is read: an already-cancelled call must not
+        // retrieve the client credentials it will not use. No audit row here —
+        // the `oauth_token_request` row records round trips attempted with
+        // credentials in hand, and this abort never got that far. (On the
+        // `sendCancellable()` path the CALL's own row is still written by
+        // `VaultHttpClient::injectAuthenticationAudited()`.)
+        if ($cancellationSignal instanceof CancellationSignalInterface && $cancellationSignal->isCancelled()) {
+            throw new RequestCancelledException(self::TOKEN_CANCELLED_BEFORE_SEND_MESSAGE, 1786579301);
+        }
+
         // Fetch new token, with fallback to client_credentials on refresh failure.
-        $token = $this->fetchTokenWithFallback($config);
+        $token = $this->fetchTokenWithFallback($config, $cancellationSignal);
         $this->tokenCache[$cacheKey] = $token;
 
         return $token->accessToken;
@@ -169,14 +260,16 @@ final class OAuthTokenManager
      *
      * @throws OAuthException If both refresh and fallback fail
      */
-    private function fetchTokenWithFallback(OAuthConfig $config): OAuthToken
-    {
+    private function fetchTokenWithFallback(
+        OAuthConfig $config,
+        ?CancellationSignalInterface $cancellationSignal = null,
+    ): OAuthToken {
         if ($config->grantType !== 'refresh_token') {
-            return $this->fetchToken($config);
+            return $this->fetchToken($config, $cancellationSignal);
         }
 
         try {
-            return $this->fetchToken($config);
+            return $this->fetchToken($config, $cancellationSignal);
         } catch (OAuthException $e) {
             // Only fall back when the OAuth server specifically rejected
             // the refresh token. Everything else (5xx, 429, transport
@@ -216,7 +309,7 @@ final class OAuthTokenManager
                 additionalParams: $config->additionalParams,
             );
 
-            $token = $this->fetchToken($fallback);
+            $token = $this->fetchToken($fallback, $cancellationSignal);
 
             // Audit the successful fallback.
             $this->auditLogService?->log(
@@ -234,17 +327,36 @@ final class OAuthTokenManager
     /**
      * Fetch a new token from the OAuth server.
      *
+     * Every attempted round trip leaves exactly one `oauth_token_request`
+     * audit row (issue #303), written from the `finally` so no outcome can be
+     * the one missing from the log — the outbound POST here carries the
+     * `client_secret`, and until this row existed it left no trace at all.
+     * The row opens once the credentials have been read from the vault; the
+     * status is the endpoint's real answer where one arrived and `0` where
+     * nothing was received, and the message is a fixed literal (or the
+     * redacted upstream message) naming the failure. The vault's own rows
+     * about reading the credentials, and the `oauth_refresh_*` rows about the
+     * refresh flow, are unchanged — they answer different questions.
+     *
      * @throws OAuthException If token request fails
+     * @throws RequestCancelledException When the signal aborted the round trip
      */
-    private function fetchToken(OAuthConfig $config): OAuthToken
-    {
+    private function fetchToken(
+        OAuthConfig $config,
+        ?CancellationSignalInterface $cancellationSignal = null,
+    ): OAuthToken {
         // Build the request params VO (holds credentials/refresh_token from
         // vault). Plaintext is wiped via `wipeCredentials()` in the
         // `finally` block regardless of send success.
         $params = $this->buildTokenRequestParams($config);
 
+        $auditStatus = 0;
+        $auditSuccess = false;
+        $auditMessage = self::TOKEN_REQUEST_UNEXPECTED_MESSAGE;
+
         try {
-            $response = $this->dispatchTokenRequest($config, $params);
+            $response = $this->dispatchTokenRequest($config, $params, $cancellationSignal);
+            $auditStatus = $response->getStatusCode();
             $this->assertSuccessResponse($response);
             $body = $this->decodeTokenBody($response);
 
@@ -256,7 +368,25 @@ final class OAuthTokenManager
                 'token_type' => $token->tokenType,
             ]);
 
+            $auditSuccess = true;
+            $auditMessage = null;
+
             return $token;
+        } catch (RequestCancelledException $e) {
+            // Both cancellation literals are fixed constants of this class —
+            // safe on the row as-is, and they are what distinguishes "nothing
+            // egressed" from "the credential was handed to the transport".
+            $auditMessage = $e->getMessage();
+
+            throw $e;
+        } catch (OAuthException $e) {
+            // The host-gate rejection (nothing egressed), a non-200 answer
+            // (status recorded above), a missing access_token, the tick
+            // loop's wall-clock bound. Messages are built by this package;
+            // redaction is defence in depth.
+            $auditMessage = $this->redactCredentials($e->getMessage());
+
+            throw $e;
         } catch (ClientExceptionInterface $e) {
             $redacted = $this->redactCredentials($e->getMessage());
             $this->logger?->error('OAuth token request failed', [
@@ -264,13 +394,76 @@ final class OAuthTokenManager
                 'previous_class' => $e::class,
             ]);
 
+            $auditMessage = $redacted;
+
             throw OAuthException::requestFailed(
                 $redacted . \sprintf(' (caused by %s)', $e::class),
             );
         } catch (JsonException $e) {
+            // Fixed literal, not the JsonException message: the parser error
+            // quotes the response body, which nobody vetted for credentials.
+            $auditMessage = 'OAuth token response is not valid JSON';
+
             throw OAuthException::invalidJsonResponse($e);
+        } catch (Throwable $throwable) {
+            $auditMessage = self::TOKEN_REQUEST_UNEXPECTED_MESSAGE
+                . ': ' . $this->redactCredentials($throwable->getMessage());
+
+            throw $throwable;
         } finally {
             $params->wipeCredentials();
+            $this->auditTokenRoundTrip($config, $auditSuccess, $auditStatus, $auditMessage);
+        }
+    }
+
+    /**
+     * The one `oauth_token_request` row per attempted round trip.
+     *
+     * Written through the optional audit service: a manager constructed
+     * without one (a standalone consumer) keeps working, and the row's
+     * absence is that consumer's explicit choice. `VaultHttpClient` always
+     * passes its own audit service since issue #303.
+     */
+    private function auditTokenRoundTrip(
+        OAuthConfig $config,
+        bool $success,
+        int $statusCode,
+        ?string $errorMessage,
+    ): void {
+        if (!$this->auditLogService instanceof AuditLogServiceInterface) {
+            return;
+        }
+
+        try {
+            $this->auditLogService->log(
+                $config->clientIdSecret,
+                AuditAction::OAuthTokenRequest->value,
+                $success,
+                $errorMessage,
+                self::TOKEN_REQUEST_REASON,
+                null,
+                null,
+                HttpCallContext::fromRequest('POST', $config->tokenEndpoint, $statusCode),
+            );
+        } catch (Throwable $auditException) {
+            // Crash-safe like every other audit write in this class (see
+            // handleRefreshTokenStorageFailure(), and the test that pins the
+            // doctrine: getAccessTokenSurvivesAuditLogFailureDuringStorageFailure).
+            // The round trip already happened — a throw from the `finally`
+            // this is called from would cost the caller the token the OAuth
+            // server just issued, or mask the real failure, and un-send
+            // nothing. Fall back loudly instead.
+            try {
+                $this->logger?->error('OAuth token round trip could not be audited', [
+                    'token_endpoint' => $config->tokenEndpoint,
+                    'error' => $this->redactCredentials($auditException->getMessage()),
+                ]);
+            } catch (Throwable) {
+                error_log(
+                    'nr-vault: OAuth token round trip could not be audited: '
+                    . $this->redactCredentials($auditException->getMessage()),
+                );
+            }
         }
     }
 
@@ -324,8 +517,11 @@ final class OAuthTokenManager
      * exception propagates up and the outer finally wipes credentials
      * regardless.
      */
-    private function dispatchTokenRequest(OAuthConfig $config, OAuthTokenRequestParams $params): ResponseInterface
-    {
+    private function dispatchTokenRequest(
+        OAuthConfig $config,
+        OAuthTokenRequestParams $params,
+        ?CancellationSignalInterface $cancellationSignal = null,
+    ): ResponseInterface {
         // Gate the host BEFORE building the request body so the bearer
         // `client_secret` never gets serialised when the host is rejected
         // by the allowlist. The `$httpClient` middleware also rejects
@@ -344,6 +540,15 @@ final class OAuthTokenManager
             );
         }
 
+        // Checked BEFORE the body carrying the credentials is built: the
+        // credentials were already read from the vault (unavoidably — the
+        // pre-read check lives in getAccessToken()), but a cancelled call
+        // must not serialise or egress them. This also covers the degraded
+        // blocking send below.
+        if ($cancellationSignal instanceof CancellationSignalInterface && $cancellationSignal->isCancelled()) {
+            throw new RequestCancelledException(self::TOKEN_CANCELLED_BEFORE_SEND_MESSAGE, 1786579302);
+        }
+
         // `toHttpQuery()` builds a one-shot encoded body. Any throw from
         // the stream/request factories (or sendRequest) bubbles to the
         // outer `finally` in `fetchToken()` which calls
@@ -354,7 +559,121 @@ final class OAuthTokenManager
             ->withHeader('Accept', 'application/json')
             ->withBody($body);
 
+        if ($cancellationSignal instanceof CancellationSignalInterface) {
+            return $this->dispatchCancellable($request, $cancellationSignal);
+        }
+
         return $this->httpClient->sendRequest($request);
+    }
+
+    /**
+     * Send the token request through a cancellable transport, aborting when
+     * the signal says so (issue #303).
+     *
+     * The loop is the token-leg sibling of
+     * `VaultHttpClient::sendCancellably()` and follows the same mechanics for
+     * the same measured reasons documented there — `SYNCHRONOUS` deliberately
+     * absent (it would route back to the blocking handler whose cancel is a
+     * no-op), `ALLOW_REDIRECTS`/`HTTP_ERRORS` pinned per request, settlement
+     * observed through a `then()` handler rather than `getState()`, the
+     * global promise queue drained before the first tick and after every
+     * tick, and one teardown site: every abnormal exit cancels the promise,
+     * which is what closes the socket. It stays a private copy rather than a
+     * shared helper because the two callers classify outcomes differently —
+     * this one throws OAuth-flavoured exceptions and leaves the audit
+     * bookkeeping to `fetchToken()`'s wrapper, while `sendCancellably()`
+     * interleaves its own audit state with the loop.
+     *
+     * When no transport can be built (no `curl_multi_*` on this platform),
+     * the call degrades to the manager's blocking client — the same degraded
+     * mode `sendCancellable()` documents, and the pre-send signal check in
+     * `dispatchTokenRequest()` has already run.
+     *
+     * @throws RequestCancelledException When the signal aborted the transfer
+     * @throws OAuthException For the loop's own failure modes
+     * @throws ClientExceptionInterface When the transfer itself failed
+     */
+    private function dispatchCancellable(
+        RequestInterface $request,
+        CancellationSignalInterface $cancellationSignal,
+    ): ResponseInterface {
+        $transport = $this->cancellableTransport
+            ?? $this->secureHttpClientFactory->createCancellable();
+
+        if (!$transport instanceof CancellableTransport) {
+            return $this->httpClient->sendRequest($request);
+        }
+
+        $promise = null;
+
+        try {
+            $promise = $transport->client()->sendAsync($request, [
+                RequestOptions::ALLOW_REDIRECTS => false,
+                RequestOptions::HTTP_ERRORS => false,
+            ]);
+
+            $settled = false;
+            $rejected = false;
+            $settledValue = null;
+            $promise->then(
+                static function (mixed $value) use (&$settled, &$settledValue): void {
+                    $settled = true;
+                    $settledValue = $value;
+                },
+                static function (mixed $reason) use (&$settled, &$rejected, &$settledValue): void {
+                    $settled = true;
+                    $rejected = true;
+                    $settledValue = $reason;
+                },
+            );
+
+            $ticker = $transport->ticker();
+            $deadline = microtime(true) + $transport->wallClockBudgetSeconds();
+
+            // Drained before the first tick: an already-rejected promise (the
+            // SSRF middleware rejects synchronously) has its handler queued,
+            // not run inline.
+            PromiseUtils::queue()->run();
+
+            while (!$settled) {
+                if ($cancellationSignal->isCancelled()) {
+                    throw new RequestCancelledException(self::TOKEN_CANCELLED_IN_FLIGHT_MESSAGE, 1786579303);
+                }
+
+                if (microtime(true) >= $deadline) {
+                    throw new OAuthException(self::TOKEN_TICK_BUDGET_EXHAUSTED_MESSAGE, 1786579304);
+                }
+
+                $ticker->tick();
+                PromiseUtils::queue()->run();
+            }
+
+            if ($rejected) {
+                // A throwable reason (the SSRF middleware's RequestException,
+                // a connect failure) is rethrown as itself so fetchToken()'s
+                // ClientExceptionInterface handling treats it exactly like a
+                // blocking-path failure.
+                if ($settledValue instanceof Throwable) {
+                    throw $settledValue;
+                }
+
+                throw new OAuthException(self::TOKEN_TRANSFER_REJECTED_MESSAGE, 1786579305);
+            }
+
+            if (!$settledValue instanceof ResponseInterface) {
+                throw new OAuthException(self::TOKEN_NON_RESPONSE_SETTLEMENT_MESSAGE, 1786579306);
+            }
+
+            return $settledValue;
+        } catch (Throwable $throwable) {
+            // THE teardown: Promise::cancel() runs CurlMultiHandler's cancel
+            // function, which removes the easy handle and closes the socket.
+            // On a settled promise it returns immediately; null only when
+            // sendAsync() itself threw.
+            $promise?->cancel();
+
+            throw $throwable;
+        }
     }
 
     /**

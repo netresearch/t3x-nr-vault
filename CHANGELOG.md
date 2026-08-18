@@ -100,6 +100,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inside `sendAsync()`, the caller's signal and the ticker can all throw, and
   none of them may be the one outbound call that leaves no trace.
 
+- **The OAuth token round trip is audited and cancellable** (#303). The
+  outbound POST that carries the `client_secret` used to leave no trace:
+  `VaultHttpClient` built its `OAuthTokenManager` without the audit service,
+  and the blocking token send ran before the cancellable transfer, out of the
+  signal's reach. Now every attempted round trip — completed, refused by the
+  `allowed_hosts` gate, failed in transport, or cancelled — writes exactly one
+  row under the new `oauth_token_request` action, carrying the endpoint, the
+  real HTTP status and a fixed literal (or redacted upstream message) naming
+  the outcome. The row is crash-safe like the manager's other audit writes: an
+  audit outage is reported loudly but never costs the caller a token the OAuth
+  server already issued.
+
+  On `sendCancellable()`, the signal now reaches the token leg exactly when
+  the call's own transfer runs cancellable: an already-cancelled call reads no
+  credential from the vault, a cancellation before the send never serialises
+  the `client_secret`, and an in-flight token POST is torn down through a
+  cancellable transport with the same hardening as the blocking client. On the
+  degraded blocking path the token leg blocks like everything else, so the two
+  legs never disagree on abortability. `getAccessToken()` gains an optional
+  trailing `$cancellationSignal` parameter; every existing call keeps
+  compiling.
+
 ### Changed
 
 - **One DNS lookup per outbound request instead of two** (#304). The

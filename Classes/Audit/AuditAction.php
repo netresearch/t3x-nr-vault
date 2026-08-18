@@ -79,6 +79,28 @@ enum AuditAction: string
     case MasterKeyRotateStart = 'master_key_rotate_start';
     case MasterKeyRotateEnd = 'master_key_rotate_end';
     case AuditChainRekey = 'audit_chain_rekey';
+    /**
+     * One OAuth token-endpoint round trip attempted by `OAuthTokenManager` —
+     * the outbound POST that carries the `client_secret` (issue #303).
+     *
+     * Written once per attempted round trip, success and failure alike, from
+     * the moment the credentials have been read from the vault: a completed
+     * fetch, a non-200 answer, a transport failure, the `allowed_hosts`
+     * rejection of the token endpoint, and a cancelled transfer each leave
+     * exactly one row. The row's context carries method, endpoint host/path
+     * and the HTTP status; which failure it was is a fixed literal (or the
+     * redacted upstream message) in `error_message`.
+     *
+     * Its own action rather than `http_call`: that action means "a caller's
+     * request through `VaultHttpClient`", and the token leg is an extra
+     * outbound call the manager makes on its own behalf — an auditor counting
+     * caller traffic must be able to exclude these rows by query, and one
+     * asking "when did the client credential go out?" must not have to parse
+     * messages. The `oauth_refresh_*` actions below record refresh-flow
+     * EVENTS (a rejected refresh token, the fallback, a failed store); this
+     * one records the round trip itself.
+     */
+    case OAuthTokenRequest = 'oauth_token_request';
     case OAuthRefreshFailed = 'oauth_refresh_failed';
     case OAuthFallbackClientCredentials = 'oauth_fallback_client_credentials';
     case OAuthRefreshStoreFailed = 'oauth_refresh_store_failed';
