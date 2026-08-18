@@ -1,0 +1,886 @@
+Netresearch\NrVault\Adapter\VaultAdapterInterface (interface)
+  method delete(string $identifier): void
+  method exists(string $identifier): bool
+  method getIdentifier(): string
+  method getMetadata(string $identifier): ?array
+  method incrementReadCount(int $uid): void
+  method isAvailable(): bool
+  method list(?Netresearch\NrVault\Domain\Dto\SecretFilters $filters = …): array
+  method listSecrets(?Netresearch\NrVault\Domain\Dto\SecretFilters $filters = …): array
+  method retrieve(string $identifier): ?Netresearch\NrVault\Domain\Model\Secret
+  method retrieveIncludingDisabled(string $identifier): ?Netresearch\NrVault\Domain\Model\Secret
+  method setHidden(int $uid, bool $hidden): void
+  method store(Netresearch\NrVault\Domain\Model\Secret $secret, bool $persistGroupRelations = …): Netresearch\NrVault\Domain\Model\Secret
+  method updateMetadata(string $identifier, array $metadata): void
+
+Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface (interface)
+  method isAvailable(): bool
+  method readLatestAnchor(): ?Netresearch\NrVault\Audit\Anchor\ChainTipAnchor
+
+Netresearch\NrVault\Audit\Anchor\ChainTipAnchor (class)
+  constructor(int $sequence, string $chainTip, int $timestamp, int $hmacEpoch)
+  method isEmpty(): bool
+  method jsonSerialize(): array
+  method static fromArray(array $data): ?self
+  method toArray(): array
+  property readonly chainTip: string
+  property readonly hmacEpoch: int
+  property readonly sequence: int
+  property readonly timestamp: int
+
+Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface (interface)
+  method capture(): Netresearch\NrVault\Audit\Anchor\ChainTipAnchor
+  method publish(Netresearch\NrVault\Audit\Anchor\ChainTipAnchor $anchor): int
+  method verify(): Netresearch\NrVault\Audit\AuditIntegrityReport
+
+Netresearch\NrVault\Audit\AuditAction (enum)
+  case AccessDenied
+  case AuditAnchorReset
+  case AuditChainRekey
+  case AuditReadLoggingChanged
+  case BreakGlassActivated
+  case BreakGlassDeactivated
+  case Create
+  case Delete
+  case HttpCall
+  case HttpCallCancelled
+  case HttpCallCancelledBeforeSend
+  case MasterKeyRotateEnd
+  case MasterKeyRotateStart
+  case MetadataUpdate
+  case OAuthFallbackClientCredentials
+  case OAuthRefreshFailed
+  case OAuthRefreshStoreFailed
+  case Read
+  case Rotate
+  case Update
+  method label(): string
+  method static cases(): array
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Audit\AuditChainAnchor (class)
+  constructor(int $uid, string $entryHash, int $tstamp)
+  property readonly entryHash: string
+  property readonly tstamp: int
+  property readonly uid: int
+
+Netresearch\NrVault\Audit\AuditChainAnchorLoad (class)
+  constructor(Netresearch\NrVault\Audit\AuditChainAnchorStatus $status, ?Netresearch\NrVault\Audit\AuditChainAnchor $anchor = …, string $raw = …)
+  property readonly anchor: ?Netresearch\NrVault\Audit\AuditChainAnchor
+  property readonly raw: string
+  property readonly status: Netresearch\NrVault\Audit\AuditChainAnchorStatus
+
+Netresearch\NrVault\Audit\AuditChainAnchorStatus (enum)
+  case Disabled
+  case InFlight
+  case NotChecked
+  case Ok
+  case Unanchored
+  case Unreadable
+  case Violated
+  method static cases(): array
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface (interface)
+  method advance(TYPO3\CMS\Core\Database\Connection $connection, Netresearch\NrVault\Audit\AuditChainAnchor $tip, ?string $masterKey = …): void
+  method arm(TYPO3\CMS\Core\Database\Connection $connection, ?string $masterKey = …): bool
+  method isEnabled(): bool
+  method load(TYPO3\CMS\Core\Database\Connection $auditConnection): Netresearch\NrVault\Audit\AuditChainAnchorLoad
+  method reseal(TYPO3\CMS\Core\Database\Connection $connection, ?string $masterKey = …): void
+  method reset(TYPO3\CMS\Core\Database\Connection $connection): void
+  method sharesConnection(TYPO3\CMS\Core\Database\Connection $auditConnection): bool
+
+Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface (interface)
+  method rekeyChain(TYPO3\CMS\Core\Database\Connection $connection, string $newMasterKey): int
+
+Netresearch\NrVault\Audit\AuditContextInterface (interface)
+  method toArray(): array
+
+Netresearch\NrVault\Audit\AuditIntegrityAlert (class)
+  constructor(Netresearch\NrVault\Audit\AuditIntegrityReason $reason, string $detail, int $timestamp, array $context = …)
+  method jsonSerialize(): array
+  method static create(Netresearch\NrVault\Audit\AuditIntegrityReason $reason, string $detail, array $context = …): self
+  method toArray(): array
+  property readonly context: array
+  property readonly detail: string
+  property readonly reason: Netresearch\NrVault\Audit\AuditIntegrityReason
+  property readonly timestamp: int
+
+Netresearch\NrVault\Audit\AuditIntegrityReason (enum)
+  case BreakGlass
+  case EpochDowngrade
+  case HashMismatch
+  case NoExternalSink
+  case SinkFailure
+  case TableReset
+  case UidGap
+  method isTamperEvidence(): bool
+  method label(): string
+  method static cases(): array
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Audit\AuditIntegrityReport (class)
+  constructor(array $findings, bool $chainValid, int $currentSequence, ?Netresearch\NrVault\Audit\Anchor\ChainTipAnchor $anchor = …, array $warnings = …, array $epochCounts = …)
+  method getMaxEpoch(): ?int
+  method getMinEpoch(): ?int
+  method getReasonCodes(): array
+  method hasReason(Netresearch\NrVault\Audit\AuditIntegrityReason $reason): bool
+  method hasTamperEvidence(): bool
+  method isValid(): bool
+  method toArray(): array
+  property readonly anchor: ?Netresearch\NrVault\Audit\Anchor\ChainTipAnchor
+  property readonly chainValid: bool
+  property readonly currentSequence: int
+  property readonly epochCounts: array
+  property readonly findings: array
+  property readonly warnings: array
+
+Netresearch\NrVault\Audit\AuditLogEntry (class)
+  constructor(int $uid, string $secretIdentifier, string $action, bool $success, ?string $errorMessage, ?string $reason, int $actorUid, string $actorType, string $actorUsername, string $actorRole, string $ipAddress, string $userAgent, string $requestId, string $previousHash, string $entryHash, string $hashBefore, string $hashAfter, int $crdate, array $context)
+  method jsonSerialize(): array
+  method static fromDatabaseRow(array $row): self
+  property readonly action: string
+  property readonly actorRole: string
+  property readonly actorType: string
+  property readonly actorUid: int
+  property readonly actorUsername: string
+  property readonly context: array
+  property readonly crdate: int
+  property readonly entryHash: string
+  property readonly errorMessage: ?string
+  property readonly hashAfter: string
+  property readonly hashBefore: string
+  property readonly ipAddress: string
+  property readonly previousHash: string
+  property readonly reason: ?string
+  property readonly requestId: string
+  property readonly secretIdentifier: string
+  property readonly success: bool
+  property readonly uid: int
+  property readonly userAgent: string
+
+Netresearch\NrVault\Audit\AuditLogFilter (class)
+  constructor(?string $secretIdentifier = …, ?string $action = …, ?int $actorUid = …, ?bool $success = …, ?DateTimeInterface $since = …, ?DateTimeInterface $until = …)
+  method isEmpty(): bool
+  method static dateRange(DateTimeInterface $since, ?DateTimeInterface $until = …): self
+  method static failedOnly(): self
+  method static forAction(string $action): self
+  method static forActor(int $actorUid): self
+  method static forSecret(string $identifier): self
+  method withAction(string $action): self
+  method withActor(int $actorUid): self
+  method withDateRange(?DateTimeInterface $since, ?DateTimeInterface $until = …): self
+  method withSecret(string $identifier): self
+  method withSuccess(?bool $success): self
+  property readonly action: ?string
+  property readonly actorUid: ?int
+  property readonly secretIdentifier: ?string
+  property readonly since: ?DateTimeInterface
+  property readonly success: ?bool
+  property readonly until: ?DateTimeInterface
+
+Netresearch\NrVault\Audit\AuditLogServiceInterface (interface)
+  method count(?Netresearch\NrVault\Audit\AuditLogFilter $filter = …): int
+  method export(?Netresearch\NrVault\Audit\AuditLogFilter $filter = …): array
+  method getLatestHash(): ?string
+  method log(string $secretIdentifier, string $action, bool $success, ?string $errorMessage = …, ?string $reason = …, ?string $hashBefore = …, ?string $hashAfter = …, ?Netresearch\NrVault\Audit\AuditContextInterface $context = …): void
+  method query(?Netresearch\NrVault\Audit\AuditLogFilter $filter = …, int $limit = …, int $offset = …): array
+  method verifyChainForReseal(): ?Netresearch\NrVault\Audit\HashChainVerificationResult
+  method verifyHashChain(?int $fromUid = …, ?int $toUid = …, ?int $minEpoch = …): Netresearch\NrVault\Audit\HashChainVerificationResult
+
+Netresearch\NrVault\Audit\HashChainVerificationResult (class)
+  constructor(bool $valid, array $errors = …, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …)
+  method getErrorCount(): int
+  method getMaxEpoch(): ?int
+  method getMinEpoch(): ?int
+  method getWarningCount(): int
+  method hasMissingUids(): bool
+  method hasMixedEpochs(): bool
+  method isValid(): bool
+  method static invalid(array $errors, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …): self
+  method static valid(array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …): self
+  method toArray(): array
+  property readonly anchorStatus: Netresearch\NrVault\Audit\AuditChainAnchorStatus
+  property readonly epochCounts: array
+  property readonly errors: array
+  property readonly missingUidCount: int
+  property readonly missingUids: array
+  property readonly valid: bool
+  property readonly warnings: array
+
+Netresearch\NrVault\Audit\Sink\AuditSinkInterface (interface)
+  method getIdentifier(): string
+  method isEnabled(): bool
+  method publish(Netresearch\NrVault\Audit\AuditLogEntry $entry, string $chainTip): void
+  method publishAlert(Netresearch\NrVault\Audit\AuditIntegrityAlert $alert): void
+  method publishAnchor(Netresearch\NrVault\Audit\Anchor\ChainTipAnchor $anchor): void
+
+Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface (interface)
+  method dispatch(Netresearch\NrVault\Audit\AuditLogEntry $entry, string $chainTip): int
+  method dispatchAlert(Netresearch\NrVault\Audit\AuditIntegrityAlert $alert): int
+  method dispatchAnchor(Netresearch\NrVault\Audit\Anchor\ChainTipAnchor $anchor): int
+  method getEnabledSinkIdentifiers(): array
+  method getFailureCount(): int
+  method getFailureCountsBySink(): array
+  method hasExternalAuditSink(): bool
+
+Netresearch\NrVault\Audit\Sink\SinkDeliveryState (class)
+  constructor(string $sinkIdentifier, int $lastSuccessAt = …, int $lastFailureAt = …, int $consecutiveFailures = …, int $totalFailures = …, string $lastError = …)
+  method hasEverSucceeded(): bool
+  method isFailing(): bool
+  method static fromArray(string $sinkIdentifier, array $row): self
+  method toArray(): array
+  property readonly consecutiveFailures: int
+  property readonly lastError: string
+  property readonly lastFailureAt: int
+  property readonly lastSuccessAt: int
+  property readonly sinkIdentifier: string
+  property readonly totalFailures: int
+
+Netresearch\NrVault\Audit\Sink\SinkDeliveryStateRepositoryInterface (interface)
+  method getState(string $sinkIdentifier): Netresearch\NrVault\Audit\Sink\SinkDeliveryState
+  method recordFailure(string $sinkIdentifier, string $errorMessage): void
+  method recordSuccess(string $sinkIdentifier): void
+
+Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig (class)
+  constructor(string $region = …, string $secretPrefix = …)
+  method getFullSecretName(string $secretName): string
+  method isValid(): bool
+  method static fromArray(array $config): self
+  method toArray(): array
+  property readonly region: string
+  property readonly secretPrefix: string
+
+Netresearch\NrVault\Configuration\Dto\TransitConfig (class)
+  const DEFAULT_KEY_NAME = "nr-vault-master"
+  const DEFAULT_MOUNT = "transit"
+  const DEFAULT_TOKEN_ENV_VAR = "VAULT_TOKEN"
+  constructor(string $address = …, string $mount = …, string $keyName = …, string $wrappedKeyPath = …, string $authMethod = …, string $tokenEnvVar = …, string $token = …)
+  method endpointFor(string $operation): string
+  method isComplete(): bool
+  method static fromArray(array $config, string $fallbackWrappedKeyPath = …): self
+  method toArray(): array
+  method usesTokenAuth(): bool
+  property readonly address: string
+  property readonly authMethod: string
+  property readonly keyName: string
+  property readonly mount: string
+  property readonly token: string
+  property readonly tokenEnvVar: string
+  property readonly wrappedKeyPath: string
+
+Netresearch\NrVault\Configuration\Dto\VaultServerConfig (class)
+  constructor(string $address = …, string $path = …, string $authMethod = …, string $token = …)
+  method hasTokenAuth(): bool
+  method isValid(): bool
+  method static fromArray(array $config): self
+  method toArray(): array
+  property readonly address: string
+  property readonly authMethod: string
+  property readonly path: string
+  property readonly token: string
+
+Netresearch\NrVault\Configuration\ExtensionConfigurationInterface (interface)
+  method getAuditHmacEpoch(): int
+  method getAuditLogRetention(): int
+  method getAuditSinkAnchorPath(): string
+  method getAuditSinkFilePath(): string
+  method getAuditSinkStaleDeliveryHours(): int
+  method getAuditSinkSyslogIdent(): string
+  method getAuditSinkWebhookUrl(): string
+  method getAutoKeyPath(): string
+  method getAwsConfig(): Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig
+  method getCliAccessGroups(): array
+  method getCliAllowedOperations(): array
+  method getEncryptionAlgorithm(): string
+  method getHashiCorpConfig(): Netresearch\NrVault\Configuration\Dto\VaultServerConfig
+  method getMasterKeyProvider(): string
+  method getMasterKeySource(): string
+  method getProvisioningBeUserUid(): int
+  method getSecurityProfile(): Netresearch\NrVault\Configuration\SecurityProfile
+  method getStaleNeverReadDays(): int
+  method getStaleNeverRotatedDays(): int
+  method getStaleNotReadDays(): int
+  method getStorageAdapter(): string
+  method getTransitConfig(): Netresearch\NrVault\Configuration\Dto\TransitConfig
+  method isAdminOverrideDisabled(): bool
+  method isAuditAnchorRequired(): bool
+  method isAuditReadsEnabled(): bool
+  method isAuditSinkFileEnabled(): bool
+  method isAuditSinkSyslogEnabled(): bool
+  method isAuditSinkWebhookEnabled(): bool
+  method isCliAccessAllowed(): bool
+  method isFrontendPlaceholderLegacyCliEnabled(): bool
+  method preferXChaCha20(): bool
+
+Netresearch\NrVault\Configuration\SecurityProfile (enum)
+  case Hardened
+  case Standard
+  method isHardened(): bool
+  method static cases(): array
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessorInterface (interface)
+  method processConfiguration(array $configuration, ?TYPO3\CMS\Core\Site\Entity\Site $site = …): array
+
+Netresearch\NrVault\Crypto\EncryptedData (class)
+  constructor(string $encryptedValue, string $encryptedDek, string $dekNonce, string $valueNonce, string $valueChecksum, int $encryptionVersion = …, Netresearch\NrVault\Crypto\EncryptionAlgorithm $encryptionAlgorithm = …)
+  method static fromRaw(string $encryptedValue, string $encryptedDek, string $dekNonce, string $valueNonce, string $valueChecksum, int $encryptionVersion = …, Netresearch\NrVault\Crypto\EncryptionAlgorithm $encryptionAlgorithm = …): self
+  method toArray(): array
+  property readonly dekNonce: string
+  property readonly encryptedDek: string
+  property readonly encryptedValue: string
+  property readonly encryptionAlgorithm: Netresearch\NrVault\Crypto\EncryptionAlgorithm
+  property readonly encryptionVersion: int
+  property readonly valueChecksum: string
+  property readonly valueNonce: string
+
+Netresearch\NrVault\Crypto\EncryptionAlgorithm (enum)
+  case Aes256Gcm
+  case XChaCha20Poly1305
+  method isAvailable(): bool
+  method keyLength(): int
+  method nonceLength(): int
+  method static cases(): array
+  method static forNewSecrets(): self
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Crypto\EncryptionServiceInterface (interface)
+  const ENCRYPTION_VERSION_CURRENT = 2
+  const ENCRYPTION_VERSION_LEGACY = 1
+  method calculateChecksum(string $plaintext): string
+  method decrypt(string $encryptedValue, string $encryptedDek, string $dekNonce, string $valueNonce, string $identifier, int $encryptionVersion = …, string $encryptionAlgorithm = …): string
+  method encrypt(string $plaintext, string $identifier): Netresearch\NrVault\Crypto\EncryptedData
+  method generateDek(): string
+  method reEncryptDek(string $encryptedDek, string $dekNonce, string $identifier, string $oldMasterKey, string $newMasterKey, int $encryptionVersion = …, string $encryptionAlgorithm = …): Netresearch\NrVault\Crypto\ReEncryptedDek
+
+Netresearch\NrVault\Crypto\EnvelopeCodecInterface (interface)
+  const MARKER = "nrv1:"
+  method isSealed(string $value): bool
+  method open(string $sealed, string $identifier): string
+  method rewrap(string $sealed, string $identifier, string $oldMasterKey, string $newMasterKey): string
+  method seal(string $plaintext, string $identifier): string
+
+Netresearch\NrVault\Crypto\EnvelopeRotationContext (class)
+  constructor(Netresearch\NrVault\Crypto\EnvelopeCodecInterface $codec, string $oldMasterKey, string $newMasterKey)
+  method isSealed(string $value): bool
+  method rewrap(string $sealed, string $identifier): string
+
+Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface (interface)
+  method countEnvelopes(): int
+  method getIdentifier(): string
+  method getTables(): array
+  method rewrapAll(Netresearch\NrVault\Crypto\EnvelopeRotationContext $context): int
+
+Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface (interface)
+  method create(): Netresearch\NrVault\Crypto\MasterKeyProviderInterface
+  method getAvailableProvider(): Netresearch\NrVault\Crypto\MasterKeyProviderInterface
+
+Netresearch\NrVault\Crypto\MasterKeyProviderInterface (interface)
+  method generateMasterKey(): string
+  method getIdentifier(): string
+  method getMasterKey(): string
+  method isAvailable(): bool
+  method static clearCachedKey(): void
+  method storeMasterKey(string $key): void
+
+Netresearch\NrVault\Crypto\ReEncryptedDek (class)
+  constructor(string $encryptedDek, string $nonce)
+  method static fromRaw(string $encryptedDek, string $nonce): self
+  method toArray(): array
+  property readonly encryptedDek: string
+  property readonly nonce: string
+
+Netresearch\NrVault\Domain\Dto\SecretDetails (class)
+  constructor(int $uid, string $identifier, string $description, int $ownerUid, array $groups, string $context, bool $frontendAccessible, int $version, int $createdAt, int $updatedAt, ?int $expiresAt, ?int $lastRotatedAt, int $readCount, ?int $lastReadAt, array $metadata, int $scopePid, bool $enabled = …)
+  method expiresSoon(int $days): bool
+  method isExpired(): bool
+  method static fromSecret(Netresearch\NrVault\Domain\Model\Secret $secret): self
+  method toArray(): array
+  property readonly context: string
+  property readonly createdAt: int
+  property readonly description: string
+  property readonly enabled: bool
+  property readonly expiresAt: ?int
+  property readonly frontendAccessible: bool
+  property readonly groups: array
+  property readonly identifier: string
+  property readonly lastReadAt: ?int
+  property readonly lastRotatedAt: ?int
+  property readonly metadata: array
+  property readonly ownerUid: int
+  property readonly readCount: int
+  property readonly scopePid: int
+  property readonly uid: int
+  property readonly updatedAt: int
+  property readonly version: int
+
+Netresearch\NrVault\Domain\Dto\SecretFilters (class)
+  constructor(?int $owner = …, ?string $prefix = …, ?string $context = …, ?int $scopePid = …, bool $includeDisabled = …)
+  method hasFilters(): bool
+  method static fromArray(array $filters): self
+  method toArray(): array
+  property readonly context: ?string
+  property readonly includeDisabled: bool
+  property readonly owner: ?int
+  property readonly prefix: ?string
+  property readonly scopePid: ?int
+
+Netresearch\NrVault\Domain\Dto\VaultUsageStats (class)
+  constructor(int $total, int $active, int $disabled, int $expired, int $frontendAccessible, int $neverRotated, int $automatedReads, int $manualReveals, int $windowDays, array $byAdapter, array $byContext)
+  property readonly active: int
+  property readonly automatedReads: int
+  property readonly byAdapter: array
+  property readonly byContext: array
+  property readonly disabled: int
+  property readonly expired: int
+  property readonly frontendAccessible: int
+  property readonly manualReveals: int
+  property readonly neverRotated: int
+  property readonly total: int
+  property readonly windowDays: int
+
+Netresearch\NrVault\Domain\Model\Secret (class)
+  constructor(string $identifier, ?int $uid = …, int $scopePid = …, string $description = …, ?string $encryptedValue = …, string $encryptedDek = …, string $dekNonce = …, string $valueNonce = …, int $encryptionVersion = …, string $encryptionAlgorithm = …, string $valueChecksum = …, int $ownerUid = …, array $allowedGroups = …, array $writeGroups = …, string $context = …, bool $frontendAccessible = …, int $version = …, int $expiresAt = …, int $lastRotatedAt = …, array $metadata = …, string $adapter = …, string $externalReference = …, int $tstamp = …, int $crdate = …, int $cruserId = …, bool $deleted = …, bool $hidden = …, int $readCount = …, int $lastReadAt = …)
+  method cloneWithGroups(array $allowedGroups): self
+  method cloneWithWriteGroups(array $writeGroups): self
+  method getAdapter(): string
+  method getAllowedGroups(): array
+  method getContext(): string
+  method getCrdate(): int
+  method getCruserId(): int
+  method getDekNonce(): string
+  method getDescription(): string
+  method getEncryptedDek(): string
+  method getEncryptedValue(): ?string
+  method getEncryptionAlgorithm(): string
+  method getEncryptionVersion(): int
+  method getExpiresAt(): int
+  method getExternalReference(): string
+  method getIdentifier(): string
+  method getLastReadAt(): int
+  method getLastRotatedAt(): int
+  method getMetadata(): array
+  method getOwnerUid(): int
+  method getReadCount(): int
+  method getScopePid(): int
+  method getTstamp(): int
+  method getUid(): ?int
+  method getValueChecksum(): string
+  method getValueNonce(): string
+  method getVersion(): int
+  method getWriteGroups(): array
+  method isDeleted(): bool
+  method isExpired(): bool
+  method isFrontendAccessible(): bool
+  method isHidden(): bool
+  method static fromDatabaseRow(array $row, array $allowedGroups = …, array $writeGroups = …): self
+  method toDatabaseRow(): array
+  method withMetadata(array $metadata): self
+  method withReEncryptedDek(string $encryptedDek, string $dekNonce): self
+  method withUid(?int $uid): self
+  method withValueRotation(Netresearch\NrVault\Crypto\EncryptedData $encrypted, int $rotatedAt): self
+  property readonly adapter: string
+  property readonly allowedGroups: array
+  property readonly context: string
+  property readonly crdate: int
+  property readonly cruserId: int
+  property readonly dekNonce: string
+  property readonly deleted: bool
+  property readonly description: string
+  property readonly encryptedDek: string
+  property readonly encryptedValue: ?string
+  property readonly encryptionAlgorithm: string
+  property readonly encryptionVersion: int
+  property readonly expiresAt: int
+  property readonly externalReference: string
+  property readonly frontendAccessible: bool
+  property readonly hidden: bool
+  property readonly identifier: string
+  property readonly lastReadAt: int
+  property readonly lastRotatedAt: int
+  property readonly metadata: array
+  property readonly ownerUid: int
+  property readonly readCount: int
+  property readonly scopePid: int
+  property readonly tstamp: int
+  property readonly uid: ?int
+  property readonly valueChecksum: string
+  property readonly valueNonce: string
+  property readonly version: int
+  property readonly writeGroups: array
+
+Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface (interface)
+  method countAll(): int
+  method delete(Netresearch\NrVault\Domain\Model\Secret $secret): void
+  method exists(string $identifier): bool
+  method findAllWithFilters(?Netresearch\NrVault\Domain\Dto\SecretFilters $filters = …): array
+  method findByGroups(array $groupUids): array
+  method findByIdentifier(string $identifier): ?Netresearch\NrVault\Domain\Model\Secret
+  method findByIdentifierIncludingDisabled(string $identifier): ?Netresearch\NrVault\Domain\Model\Secret
+  method findByUid(int $uid): ?Netresearch\NrVault\Domain\Model\Secret
+  method findByUidIncludingDisabled(int $uid): ?Netresearch\NrVault\Domain\Model\Secret
+  method findExpired(): array
+  method findExpiringSoon(int $days): array
+  method findIdentifiers(?Netresearch\NrVault\Domain\Dto\SecretFilters $filters = …): array
+  method findPaginatedAfterUid(int $afterUid, int $limit): array
+  method incrementReadCount(int $uid): void
+  method save(Netresearch\NrVault\Domain\Model\Secret $secret, bool $persistGroupRelations = …): Netresearch\NrVault\Domain\Model\Secret
+  method setHidden(int $uid, bool $hidden): void
+  method setMetadata(int $uid, array $metadata): void
+
+Netresearch\NrVault\Domain\StalenessRule (enum)
+  case AutomationStale
+  case Dead
+  case Expired
+  case NeverRotated
+  method label(): string
+  method severity(): string
+  method static cases(): array
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Exception\AccessDeniedException (class)
+  method static breakGlassRequiresAdmin(string $operation): self
+  method static cliAccessDisabled(): self
+  method static forIdentifier(string $identifier, string $reason = …): self
+
+Netresearch\NrVault\Exception\AuditSinkException (class)
+  method static encodingFailed(string $sinkIdentifier, string $detail): self
+  method static rejectedByEndpoint(string $sinkIdentifier, int $statusCode): self
+  method static transportFailed(string $sinkIdentifier, string $detail): self
+  method static writeFailed(string $sinkIdentifier, string $detail): self
+
+Netresearch\NrVault\Exception\AuditWriteException (class)
+  method static lockAcquisitionFailed(mixed $rawResult): self
+  method static writeFailed(Throwable $cause): self
+
+Netresearch\NrVault\Exception\ConfigurationException (class)
+  method static invalidAdapter(string $adapter): self
+  method static invalidProvider(string $provider): self
+  method static invalidSecurityProfile(string $profile): self
+  method static missingConfiguration(string $key): self
+  method static providerForbiddenInHardenedProfile(string $provider): self
+
+Netresearch\NrVault\Exception\EncryptionException (class)
+  method static algorithmNotAvailable(string $algorithm): self
+  method static decryptionFailed(string $reason = …): self
+  method static encryptionFailed(string $reason = …): self
+
+Netresearch\NrVault\Exception\EnvelopeFormatException (class)
+  method static malformedFields(): self
+  method static missingMarker(): self
+  method static notBase64(): self
+  method static notJson(): self
+
+Netresearch\NrVault\Exception\MasterKeyException (class)
+  method static cannotStore(string $reason): self
+  method static environmentVariableNotSet(string $varName): self
+  method static invalidLength(int $expected, int $actual): self
+  method static notFound(string $location): self
+  method static transitInvalidKeyReference(string $field): self
+  method static transitMalformedResponse(string $operation, string $detail): self
+  method static transitNotConfigured(string $detail): self
+  method static transitRequestRejected(string $operation, int $statusCode): self
+  method static transitTokenMissing(string $envVarName): self
+  method static transitTransportFailure(string $operation, string $redactedReason): self
+  method static transitUnsupportedAuthMethod(string $authMethod): self
+
+Netresearch\NrVault\Exception\OAuthException (class)
+  method static invalidJsonResponse(Throwable $previous): self
+  method static missingAccessToken(): self
+  method static requestFailed(string $message, ?Throwable $previous = …): self
+  method static tokenRequestFailed(int $statusCode, ?string $oauthError = …): self
+  property httpStatus: ?int
+  property oauthError: ?string
+
+Netresearch\NrVault\Exception\RequestCancelledException (class)
+
+Netresearch\NrVault\Exception\SecretExpiredException (class)
+  method static forIdentifier(string $identifier, int $expiredAt): self
+
+Netresearch\NrVault\Exception\SecretNotFoundException (class)
+  method static forIdentifier(string $identifier): self
+
+Netresearch\NrVault\Exception\TechnicalActorException (class)
+  method static invalidUid(int $beUserUid): self
+  method static userDisabled(int $beUserUid): self
+  method static userNotActive(int $beUserUid): self
+  method static userNotAtRootLevel(int $beUserUid): self
+  method static userNotFound(int $beUserUid): self
+
+Netresearch\NrVault\Exception\ValidationException (class)
+  method static emptySecret(): self
+  method static invalidIdentifier(string $identifier, string $reason): self
+  method static invalidOption(string $option, string $reason): self
+  method static missingReason(string $operation): self
+
+Netresearch\NrVault\Exception\VaultException (class)
+
+Netresearch\NrVault\Hook\RecordCreationOutcome (enum)
+  case Rejected
+  case Stored
+  case ValueLess
+  method static cases(): array
+  method static classify(bool $valueSubmitted, bool $valueStored): self
+  property readonly name: string
+
+Netresearch\NrVault\Http\CancellableHttpClientInterface (interface)
+  method sendCancellable(Psr\Http\Message\RequestInterface $request, Netresearch\NrVault\Http\CancellationSignalInterface $signal): Psr\Http\Message\ResponseInterface
+  method supportsCancellation(): bool
+
+Netresearch\NrVault\Http\CancellationSignalInterface (interface)
+  method isCancelled(): bool
+
+Netresearch\NrVault\Http\DnsResolverInterface (interface)
+  method resolve(string $host): array
+
+Netresearch\NrVault\Http\OAuth\OAuthConfig (class)
+  constructor(string $tokenEndpoint, string $clientIdSecret, string $clientSecretSecret, string $grantType = …, ?string $refreshTokenSecret = …, array $scopes = …, int $tokenExpiryBuffer = …, array $additionalParams = …)
+  method getScopesString(): string
+  method static clientCredentials(string $tokenEndpoint, string $clientIdSecret, string $clientSecretSecret, array $scopes = …): self
+  method static refreshToken(string $tokenEndpoint, string $clientIdSecret, string $clientSecretSecret, string $refreshTokenSecret, array $scopes = …): self
+  property readonly additionalParams: array
+  property readonly clientIdSecret: string
+  property readonly clientSecretSecret: string
+  property readonly grantType: string
+  property readonly refreshTokenSecret: ?string
+  property readonly scopes: array
+  property readonly tokenEndpoint: string
+  property readonly tokenExpiryBuffer: int
+
+Netresearch\NrVault\Http\SecretPlacement (enum)
+  case ApiKey
+  case BasicAuth
+  case Bearer
+  case BodyField
+  case Header
+  case OAuth2
+  case QueryParam
+  method defaultConfigKey(): ?string
+  method description(): string
+  method requiresConfig(): bool
+  method static cases(): array
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Http\TransportTickerInterface (interface)
+  method tick(): void
+
+Netresearch\NrVault\Http\VaultHttpClientFactoryInterface (interface)
+  method create(Netresearch\NrVault\Service\VaultServiceInterface $vaultService): Netresearch\NrVault\Http\VaultHttpClientInterface
+
+Netresearch\NrVault\Http\VaultHttpClientInterface (interface)
+  method withAuthentication(string $secretIdentifier, Netresearch\NrVault\Http\SecretPlacement $placement = …, array $options = …): static
+  method withOAuth(Netresearch\NrVault\Http\OAuth\OAuthConfig $config, string $reason = …): static
+  method withReason(string $reason): static
+  method withTimeout(int $seconds): static
+
+Netresearch\NrVault\Secret\SecretIdentifierKind (enum)
+  case ConfigurationKey
+  case DatabaseColumn
+  case EnvironmentVariable
+  method hints(): array
+  method static cases(): array
+  property readonly name: string
+
+Netresearch\NrVault\Secret\SecretRedactorInterface (interface)
+  method identifyValue(string $value): ?string
+  method isSecretIdentifier(string $identifier, Netresearch\NrVault\Secret\SecretIdentifierKind $kind): bool
+  method redact(string $text, bool $includeEmails = …): string
+
+Netresearch\NrVault\Security\AccessControlServiceInterface (interface)
+  method canCreate(): bool
+  method canDelete(Netresearch\NrVault\Domain\Model\Secret $secret): bool
+  method canRead(Netresearch\NrVault\Domain\Model\Secret $secret): bool
+  method canWrite(Netresearch\NrVault\Domain\Model\Secret $secret): bool
+  method getCurrentActorType(): string
+  method getCurrentActorUid(): int
+  method getCurrentActorUsername(): string
+  method getCurrentUserGroups(): array
+  method isCurrentActorAdmin(): bool
+  method isGranted(Netresearch\NrVault\Security\VaultPermission $permission): bool
+
+Netresearch\NrVault\Security\BreakGlassServiceInterface (interface)
+  const DEFAULT_TTL_MINUTES = 15
+  const MAX_TTL_MINUTES = 60
+  const MIN_TTL_MINUTES = 1
+  method activate(string $reason, int $minutes = …): Netresearch\NrVault\Security\BreakGlassSession
+  method deactivate(string $reason): void
+
+Netresearch\NrVault\Security\BreakGlassSession (class)
+  constructor(int $activatedByUid, string $activatedByUsername, string $reason, DateTimeImmutable $activatedAt, DateTimeImmutable $expiresAt)
+  method isExpiredAt(DateTimeImmutable $now): bool
+  method remainingSeconds(DateTimeImmutable $now): int
+  method static fromArray(array $payload): ?self
+  method toArray(): array
+  property readonly activatedAt: DateTimeImmutable
+  property readonly activatedByUid: int
+  property readonly activatedByUsername: string
+  property readonly expiresAt: DateTimeImmutable
+  property readonly reason: string
+
+Netresearch\NrVault\Security\BreakGlassStateInterface (interface)
+  method getActiveSession(): ?Netresearch\NrVault\Security\BreakGlassSession
+  method isActive(): bool
+
+Netresearch\NrVault\Security\FrontendPlaceholderPolicyInterface (interface)
+  method allowIdentifier(string $identifier, Psr\Http\Message\ServerRequestInterface $request): void
+  method claimLogSlot(TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer $contentObjectRenderer): bool
+  method isResolvable(string $identifier, TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer $contentObjectRenderer): bool
+
+Netresearch\NrVault\Security\TechnicalActor (class)
+  constructor(int $uid, string $username, bool $admin, array $groupIds)
+  property readonly admin: bool
+  property readonly groupIds: array
+  property readonly uid: int
+  property readonly username: string
+
+Netresearch\NrVault\Security\TechnicalActorContextInterface (interface)
+  method getCurrentActor(): ?Netresearch\NrVault\Security\TechnicalActor
+  method runAs(int $beUserUid, callable $fn): mixed
+
+Netresearch\NrVault\Security\VaultPermission (enum)
+  case AuditExport
+  case AuditView
+  case MasterKeyRotate
+  case SecretCreate
+  case SecretDelete
+  case SecretManagePolicy
+  case SecretReveal
+  case SecretRotate
+  case SecretUse
+  case VaultConfigure
+  method static cases(): array
+  method static from(int|string $value): static
+  method static secretOperations(): array
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Service\Analytics\VaultAnalyticsServiceInterface (interface)
+  method getRedactionCandidates(int $windowDays): array
+  method getUsageStats(int $windowDays): Netresearch\NrVault\Domain\Dto\VaultUsageStats
+
+Netresearch\NrVault\Service\Detection\SecretFinding (interface)
+  method getDetails(): string
+  method getKey(): string
+  method getPatterns(): array
+  method getSeverity(): Netresearch\NrVault\Service\Detection\Severity
+  method getSource(): string
+
+Netresearch\NrVault\Service\Detection\Severity (enum)
+  case Critical
+  case High
+  case Low
+  case Medium
+  method isAtLeast(self $minimum): bool
+  method order(): int
+  method static cases(): array
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Service\Doctor\DoctorContext (class)
+  constructor(Netresearch\NrVault\Configuration\SecurityProfile $profile, Netresearch\NrVault\Configuration\SecurityProfile $configuredProfile, bool $activeProbes = …)
+  method isHardened(): bool
+  method isProfileOverridden(): bool
+  method static forConfiguredProfile(Netresearch\NrVault\Configuration\SecurityProfile $profile): self
+  property readonly activeProbes: bool
+  property readonly configuredProfile: Netresearch\NrVault\Configuration\SecurityProfile
+  property readonly profile: Netresearch\NrVault\Configuration\SecurityProfile
+
+Netresearch\NrVault\Service\Doctor\DoctorReport (class)
+  constructor(Netresearch\NrVault\Service\Doctor\DoctorContext $context, array $findings)
+  method exitCode(): int
+  method findingsOfSeverity(Netresearch\NrVault\Service\Doctor\FindingSeverity $severity): array
+  method highestSeverity(): Netresearch\NrVault\Service\Doctor\FindingSeverity
+  method isAuditReady(): bool
+  method passedControls(): int
+  method problems(): array
+  method toArray(): array
+  method totalControls(): int
+  property readonly context: Netresearch\NrVault\Service\Doctor\DoctorContext
+  property readonly findings: array
+
+Netresearch\NrVault\Service\Doctor\FindingSeverity (enum)
+  case Critical
+  case Pass
+  case Warning
+  method bootstrapContext(): string
+  method rank(): int
+  method static cases(): array
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface (interface)
+  method appliesTo(Netresearch\NrVault\Configuration\SecurityProfile $profile): bool
+  method getId(): string
+  method run(Netresearch\NrVault\Service\Doctor\DoctorContext $context): array
+
+Netresearch\NrVault\Service\Doctor\VaultDoctorServiceInterface (interface)
+  method run(?Netresearch\NrVault\Configuration\SecurityProfile $targetProfile = …, bool $activeProbes = …): Netresearch\NrVault\Service\Doctor\DoctorReport
+
+Netresearch\NrVault\Service\SecretDetectionServiceInterface (interface)
+  method getDetectedSecretsBySeverity(): array
+  method getDetectedSecretsCount(): int
+  method scan(array $excludeTables = …): array
+  method scanDatabaseTables(array $excludeTables = …): void
+  method scanExtensionConfiguration(): void
+  method scanLocalConfiguration(): void
+
+Netresearch\NrVault\Service\VaultFieldPermission (enum)
+  case Copy
+  case Edit
+  case ReadOnly
+  case Reveal
+  method static cases(): array
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Service\VaultHealthServiceInterface (interface)
+  method checkHealth(): Netresearch\NrVault\Service\VaultHealthStatus
+
+Netresearch\NrVault\Service\VaultHealthStatus (class)
+  constructor(bool $masterKeyAvailable, string $masterKeyProvider, bool $encryptionWorking, bool $hasIssues)
+  property readonly encryptionWorking: bool
+  property readonly hasIssues: bool
+  property readonly masterKeyAvailable: bool
+  property readonly masterKeyProvider: string
+
+Netresearch\NrVault\Service\VaultServiceInterface (interface)
+  method assertDeletable(string $identifier): void
+  method delete(string $identifier, string $reason = …): void
+  method exists(string $identifier): bool
+  method getMetadata(string $identifier): Netresearch\NrVault\Domain\Dto\SecretDetails
+  method http(): Netresearch\NrVault\Http\VaultHttpClientInterface
+  method list(?string $pattern = …, bool $includeDisabled = …): array
+  method retrieve(string $identifier): ?string
+  method retrieveForFrontend(string $identifier): ?string
+  method rotate(string $identifier, string $newSecret, string $reason = …): void
+  method setEnabled(string $identifier, bool $enabled, string $reason = …): void
+  method store(string $identifier, string $secret, array $options = …): void
