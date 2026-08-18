@@ -25,6 +25,8 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 
 /**
  * Dev-only: seed the vault with realistic, historic demo secrets + audit log.
+ *
+ * @phpstan-type DemoAuditEvent array{secret_identifier: string, action: string, success: bool, actor_uid: int, actor_type: string, actor_username: string, crdate: int, context: array<string, bool|float|int|string|null>}
  */
 #[AsCommand(
     name: 'vault:seed-demo',
@@ -100,13 +102,12 @@ final class VaultSeedDemoCommand extends Command
                 'No usable backend user found. The demo secrets will belong to uid 0 '
                 . 'and the module will show them as "User #0".',
             );
-            $this->storeAll($specs, $now, [], $events);
+            $events = $this->storeAll($specs, $now, []);
         } else {
-            $this->technicalActorContext->runAs(
+            /** @var list<DemoAuditEvent> $events */
+            $events = $this->technicalActorContext->runAs(
                 $owners[0],
-                function () use ($specs, $now, $owners, &$events): void {
-                    $this->storeAll($specs, $now, $owners, $events);
-                },
+                fn (): array => $this->storeAll($specs, $now, $owners),
             );
         }
 
@@ -169,7 +170,7 @@ final class VaultSeedDemoCommand extends Command
      * Capped at eight so the filter has several entries without turning into a
      * user list, and TYPO3's system accounts are left out.
      *
-     * @return list<int>
+     * @return list<int<1, max>>
      */
     private function seedOwners(): array
     {
@@ -196,7 +197,12 @@ final class VaultSeedDemoCommand extends Command
 
         $uids = [];
         foreach ($rows as $row) {
-            $uid = (int) $row['uid'];
+            $raw = $row['uid'] ?? null;
+            if (!is_numeric($raw)) {
+                continue;
+            }
+
+            $uid = (int) $raw;
             if ($uid > 0) {
                 $uids[] = $uid;
             }
@@ -207,11 +213,14 @@ final class VaultSeedDemoCommand extends Command
 
     /**
      * @param list<DemoSecretSpec> $specs
-     * @param list<int> $owners
-     * @param list<array<string, mixed>> $events
+     * @param list<int<1, max>> $owners
+     *
+     * @return list<DemoAuditEvent>
      */
-    private function storeAll(array $specs, int $now, array $owners, array &$events): void
+    private function storeAll(array $specs, int $now, array $owners): array
     {
+        $events = [];
+
         foreach ($specs as $index => $spec) {
             $options = [
                 'description' => $spec->description,
@@ -232,8 +241,13 @@ final class VaultSeedDemoCommand extends Command
                 $events[] = $event;
             }
         }
+
+        return $events;
     }
 
+    /**
+     * @return list<DemoAuditEvent>
+     */
     private function eventsFor(DemoSecretSpec $spec, int $now): array
     {
         $events = [];

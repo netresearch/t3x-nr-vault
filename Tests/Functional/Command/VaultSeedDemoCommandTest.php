@@ -106,8 +106,9 @@ final class VaultSeedDemoCommandTest extends FunctionalTestCase
 
         self::assertNotSame([], $actors, 'the creates are recorded');
         foreach ($actors as $username) {
-            self::assertNotSame('', (string) $username, 'every create names its actor');
-            self::assertNotSame('_cli_', (string) $username, 'and it is not the CLI system account');
+            self::assertIsString($username);
+            self::assertNotSame('', $username, 'every create names its actor');
+            self::assertNotSame('_cli_', $username, 'and it is not the CLI system account');
         }
     }
 
