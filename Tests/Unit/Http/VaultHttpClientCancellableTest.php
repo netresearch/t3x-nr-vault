@@ -1079,9 +1079,14 @@ final class VaultHttpClientCancellableTest extends TestCase
     #[Test]
     public function anSsrfRejectionSettlesBeforeTheFirstTickAndStillWritesItsRow(): void
     {
-        // The host answers a public address to the allowlist gate and a loopback
-        // address to the middleware a moment later — DNS rebinding, which is the
-        // attack the pin exists for. The middleware throws inside
+        // The host gives the allowlist gate no usable answer and the middleware
+        // a loopback one a moment later. (Until the DNS memo of #304 this
+        // scenario answered the gate with a PUBLIC address — but a non-empty
+        // gate answer is now memoised and reused by the middleware, whose
+        // re-check then pins the vetted address instead of rejecting; that
+        // behaviour has its own test in SecureHttpClientFactoryDnsMemoTest.
+        // A FAILED resolution is never memoised, so the middleware still
+        // resolves fresh here and still rejects.) The middleware throws inside
         // Client::transfer(), so sendAsync() returns an ALREADY-REJECTED promise
         // whose handler is merely QUEUED. Two things must hold and neither is
         // free: the loop must drain that queue before it ticks (there is no
@@ -1089,7 +1094,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // produce an audit row, because this is a call that was refused after
         // the credential had been injected.
         $this->dnsResolver->programSequence(self::API_HOST, [
-            [['ip' => self::PUBLIC_IP]],
+            [],
             [['ip' => '127.0.0.1']],
         ]);
 

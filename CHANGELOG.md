@@ -100,6 +100,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inside `sendAsync()`, the caller's signal and the ticker can all throw, and
   none of them may be the one outbound call that leaves no trace.
 
+### Changed
+
+- **One DNS lookup per outbound request instead of two** (#304). The
+  caller-side `isHostAllowed()` gate and the `ssrf-dns-pin` middleware each
+  ran their own `dns_get_record()`; a short-lived memo (5 s, per host) inside
+  `SecureHttpClientFactory` now lets the middleware reuse the gate's answer.
+  The sharing is bounded by issue #304's security constraint: it only applies
+  where every memoised IP is still range-checked and then pinned via
+  `CURLOPT_RESOLVE` (the ext-curl path), so a memoised answer can never admit
+  an address a fresh one would have rejected — a rebind inside the TTL just
+  means curl connects to the address that was actually vetted. Without
+  ext-curl there is no pin and the middleware's resolve IS the rebind
+  defence, so that path keeps resolving fresh. Failed resolutions are never
+  memoised; every failure-path behaviour is unchanged.
+
 ### Fixed
 
 - **A refused scheme, a host outside `allowed_hosts`, and a credential that
