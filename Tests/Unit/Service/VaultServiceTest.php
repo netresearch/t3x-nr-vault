@@ -1452,6 +1452,34 @@ final class VaultServiceTest extends TestCase
         self::assertEquals('secret1', $result[0]->identifier);
     }
 
+    /**
+     * `last_read_at` is NOT NULL DEFAULT 0, so 0 -- not null -- is what a secret
+     * nobody has read carries. Every consumer of SecretMetadata::$lastReadAt
+     * guards with `!== null`: the module list, both CLI listings and the delete
+     * command. Passing 0 through made all four print the epoch, which on a
+     * screen about stale credentials reads as a very old read rather than none.
+     */
+    #[Test]
+    public function listReportsANeverReadSecretAsNullRatherThanTheEpoch(): void
+    {
+        $never = $this->createSecretEntity('never-read');
+        $read = $this->createSecretEntity('has-been-read', lastReadAt: 1_700_000_000);
+
+        $this->adapter
+            ->method('listSecrets')
+            ->willReturn([$never, $read]);
+
+        $this->accessControlService
+            ->method('canRead')
+            ->willReturn(true);
+
+        $result = $this->subject->list();
+
+        self::assertCount(2, $result);
+        self::assertNull($result[0]->lastReadAt, 'a secret nobody read has no last-read time');
+        self::assertSame(1_700_000_000, $result[1]->lastReadAt, 'a real timestamp survives untouched');
+    }
+
     #[Test]
     public function getMetadataReturnsSecretMetadata(): void
     {
@@ -1983,6 +2011,7 @@ final class VaultServiceTest extends TestCase
         array $metadata = [],
         bool $frontendAccessible = false,
         bool $hidden = false,
+        int $lastReadAt = 0,
     ): Secret {
         return new Secret(
             identifier: $identifier,
@@ -2001,6 +2030,7 @@ final class VaultServiceTest extends TestCase
             metadata: $metadata,
             crdate: $crdate,
             hidden: $hidden,
+            lastReadAt: $lastReadAt,
         );
     }
 }
