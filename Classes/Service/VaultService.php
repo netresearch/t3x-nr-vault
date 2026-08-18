@@ -439,19 +439,21 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
                 continue;
             }
 
+            // 0 means "never read": last_read_at is NOT NULL DEFAULT 0.
+            $lastReadAt = $secret->getLastReadAt();
+
             $secrets[] = new SecretMetadata(
                 identifier: $secret->getIdentifier(),
                 ownerUid: $secret->getOwnerUid(),
                 createdAt: $secret->getCrdate(),
                 updatedAt: $secret->getTstamp(),
                 readCount: $secret->getReadCount(),
-                // 0 is what the column carries for a secret nobody has read:
-                // `last_read_at` is NOT NULL DEFAULT 0. Every consumer of this
-                // field guards with `!== null` -- the module list, both CLI
-                // listings and the delete command -- so passing 0 through made
-                // all four print 1970-01-01. SecretDetails, VaultAnalyticsService
-                // and StalenessEvaluator each normalise it; this one did not.
-                lastReadAt: $secret->getLastReadAt() ?: null,
+                // Every consumer of this field guards with `!== null` -- the
+                // module list, both CLI listings and the delete command -- so
+                // passing 0 through made all four print 1970-01-01.
+                // VaultAnalyticsService and StalenessEvaluator normalise it the
+                // same way; this construction site did not.
+                lastReadAt: $lastReadAt === 0 ? null : $lastReadAt,
                 description: $secret->getDescription(),
                 version: $secret->getVersion(),
                 metadata: $secret->getMetadata(),
