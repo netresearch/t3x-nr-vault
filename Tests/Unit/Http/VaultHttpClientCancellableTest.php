@@ -31,6 +31,8 @@ use Netresearch\NrVault\Http\CancellableHttpClientInterface;
 use Netresearch\NrVault\Http\CancellableTransport;
 use Netresearch\NrVault\Http\CancellationSignalInterface;
 use Netresearch\NrVault\Http\DnsResolverInterface;
+use Netresearch\NrVault\Http\OAuth\OAuthConfig;
+use Netresearch\NrVault\Http\OAuth\OAuthTokenManager;
 use Netresearch\NrVault\Http\SecretPlacement;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Http\TransportTickerInterface;
@@ -1346,6 +1348,167 @@ final class VaultHttpClientCancellableTest extends TestCase
             [['http_call', false, self::TRANSPORT_RESOLUTION_FAILED_MESSAGE . ': ' . $thrown]],
             $auditedRows,
             'A call whose transport could not be built still gets exactly one row.',
+        );
+    }
+
+    // =========================================================================
+    // 16 — the OAuth token leg rides the same signal (issue #303)
+    // =========================================================================
+
+    #[Test]
+    public function theSignalRoutesTheOAuthTokenLegThroughACancellableTransport(): void
+    {
+        // Credentials for the token leg: the manager reads client id + secret.
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(static fn (string $id): ?string => match ($id) {
+                'oauth/cid' => 'client-id-value',
+                'oauth/csec' => 'client-secret-value',
+                default => null,
+            });
+
+        // The manager's own cancellable transport: the token POST settles with
+        // a token on the first tick of ITS ticker.
+        $tokenTransfer = new StubbedTransfer();
+        $tokenTicker = new ClosureTicker(static function (int $tick) use ($tokenTransfer): void {
+            if ($tick >= 1) {
+                $tokenTransfer->settleWith(new Response(200, ['Content-Type' => 'application/json'], (string) json_encode([
+                    'access_token' => 'token-from-cancellable-leg',
+                    'token_type' => 'Bearer',
+                    'expires_in' => 3600,
+                ])));
+            }
+        });
+        $tokenTransport = new CancellableTransport(
+            new Client(['handler' => HandlerStack::create($tokenTransfer->handler())]),
+            $tokenTicker,
+            45.0,
+        );
+
+        // The manager's BLOCKING client must not serve a signalled call: that
+        // it stays untouched is the proof the signal reached the token leg.
+        $tokenBlockingClient = $this->createMock(ClientInterface::class);
+        $tokenBlockingClient->expects(self::never())->method('sendRequest');
+
+        $manager = new OAuthTokenManager(
+            $this->vaultService,
+            $tokenBlockingClient,
+            $this->clientFactory,
+            auditLogService: $this->auditLogService,
+            cancellableTransport: $tokenTransport,
+        );
+
+        // The API transfer settles on the first tick of its own ticker.
+        $apiTransfer = new StubbedTransfer();
+        $apiTicker = new ClosureTicker(static function (int $tick) use ($apiTransfer): void {
+            if ($tick >= 1) {
+                $apiTransfer->settleWith(new Response(200, [], 'api-payload'));
+            }
+        });
+        $apiTransport = $this->transportWith($apiTransfer, $apiTicker);
+
+        $rows = [];
+        $this->auditLogService
+            ->method('log')
+            ->willReturnCallback(
+                static function (
+                    string $identifier,
+                    string $action,
+                    bool $success,
+                ) use (&$rows): void {
+                    $rows[] = [$action, $success];
+                },
+            );
+
+        $client = new VaultHttpClient(
+            vaultService: $this->vaultService,
+            auditLogService: $this->auditLogService,
+            oauthConfig: OAuthConfig::clientCredentials(
+                tokenEndpoint: 'https://auth.example.com/token',
+                clientIdSecret: 'oauth/cid',
+                clientSecretSecret: 'oauth/csec',
+            ),
+            oauthManager: $manager,
+            secureHttpClientFactory: $this->clientFactory,
+            cancellableTransport: $apiTransport,
+        );
+
+        $response = $client->sendCancellable(new Request('GET', self::API_URL), new NeverCancelledSignal());
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertTrue($tokenTransfer->wasReached(), 'The token POST must ride the cancellable transport when a signal is in play.');
+        self::assertTrue($apiTransfer->wasReached());
+        self::assertSame(
+            [['oauth_token_request', true], ['http_call', true]],
+            $rows,
+            'The token leg and the call each leave their own row, in send order.',
+        );
+    }
+
+    #[Test]
+    public function theOAuthTokenLegStaysBlockingWhenTheCallItselfIsDegraded(): void
+    {
+        // A caller-supplied inner client degrades the whole call to blocking —
+        // and the token leg with it: the signal is deliberately NOT passed to
+        // the manager, so the two legs cannot disagree on abortability.
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(static fn (string $id): ?string => match ($id) {
+                'oauth/cid' => 'client-id-value',
+                'oauth/csec' => 'client-secret-value',
+                default => null,
+            });
+
+        $tokenTransfer = new StubbedTransfer();
+        $tokenTransport = new CancellableTransport(
+            new Client(['handler' => HandlerStack::create($tokenTransfer->handler())]),
+            new ClosureTicker(static function (): void {}),
+            45.0,
+        );
+
+        $tokenBlockingClient = $this->createMock(ClientInterface::class);
+        $tokenBlockingClient
+            ->expects(self::once())
+            ->method('sendRequest')
+            ->willReturn(new Response(200, ['Content-Type' => 'application/json'], (string) json_encode([
+                'access_token' => 'token-from-blocking-leg',
+                'token_type' => 'Bearer',
+                'expires_in' => 3600,
+            ])));
+
+        $manager = new OAuthTokenManager(
+            $this->vaultService,
+            $tokenBlockingClient,
+            $this->clientFactory,
+            auditLogService: $this->auditLogService,
+            cancellableTransport: $tokenTransport,
+        );
+
+        $callerSuppliedClient = $this->createMock(ClientInterface::class);
+        $callerSuppliedClient
+            ->expects(self::once())
+            ->method('sendRequest')
+            ->willReturn(new Response(200, [], 'api-payload'));
+
+        $client = new VaultHttpClient(
+            vaultService: $this->vaultService,
+            auditLogService: $this->auditLogService,
+            innerClient: $callerSuppliedClient,
+            oauthConfig: OAuthConfig::clientCredentials(
+                tokenEndpoint: 'https://auth.example.com/token',
+                clientIdSecret: 'oauth/cid',
+                clientSecretSecret: 'oauth/csec',
+            ),
+            oauthManager: $manager,
+            secureHttpClientFactory: $this->clientFactory,
+        );
+
+        $response = $client->sendCancellable(new Request('GET', self::API_URL), new NeverCancelledSignal());
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertFalse(
+            $tokenTransfer->wasReached(),
+            'A degraded call must not route its token leg through a cancellable transport the API leg does not have.',
         );
     }
 

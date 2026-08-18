@@ -13,7 +13,9 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Http\OAuth;
 
 use ArgumentCountError;
+use Netresearch\NrVault\Audit\AuditContextInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\HttpCallContext;
 use Netresearch\NrVault\Exception\OAuthException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
@@ -1067,9 +1069,13 @@ final class OAuthTokenManagerTest extends TestCase
         // mimicking a full DB outage. The caller must still receive the
         // just-obtained access_token; neither secondary failure may
         // propagate.
+        // Two writes reach the audit service on this path — the
+        // `oauth_refresh_store_failed` row and the `oauth_token_request`
+        // round-trip row (issue #303) — and BOTH throw here. Neither may
+        // propagate.
         $auditLogService = $this->createMock(AuditLogServiceInterface::class);
         $auditLogService
-            ->expects(self::once())
+            ->expects(self::exactly(2))
             ->method('log')
             ->willThrowException(new RuntimeException('audit log also down'));
 
@@ -1117,6 +1123,222 @@ final class OAuthTokenManagerTest extends TestCase
         $token = $subject->getAccessToken($config);
 
         self::assertSame('new-access-token', $token);
+    }
+
+    // =========================================================================
+    // The oauth_token_request audit row — one per attempted round trip (#303)
+    // =========================================================================
+
+    #[Test]
+    public function aSuccessfulTokenRoundTripLeavesAnAuditRow(): void
+    {
+        $rows = [];
+        $subject = $this->managerAuditingInto($rows);
+
+        $config = OAuthConfig::clientCredentials(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+        );
+        $this->programCredentialReads();
+
+        $this->httpClient
+            ->expects(self::once())
+            ->method('sendRequest')
+            ->willReturn($this->createSuccessfulTokenResponse([
+                'access_token' => 'new-access-token',
+                'token_type' => 'Bearer',
+                'expires_in' => 3600,
+            ]));
+
+        $subject->getAccessToken($config);
+
+        self::assertCount(1, $rows, 'Exactly one row per round trip.');
+        [$identifier, $action, $success, $error, $reason, $context] = $rows[0];
+        self::assertSame(self::CLIENT_ID_SECRET, $identifier);
+        self::assertSame('oauth_token_request', $action);
+        self::assertTrue($success);
+        self::assertNull($error);
+        self::assertSame('OAuth2 token round trip', $reason);
+        self::assertInstanceOf(HttpCallContext::class, $context);
+        self::assertSame('POST', $context->method);
+        self::assertSame('auth.example.com', $context->host);
+        self::assertSame(200, $context->statusCode);
+    }
+
+    #[Test]
+    public function aNon200AnswerLeavesAFailureRowCarryingTheRealStatus(): void
+    {
+        $rows = [];
+        $subject = $this->managerAuditingInto($rows);
+
+        $config = OAuthConfig::clientCredentials(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+        );
+        $this->programCredentialReads();
+
+        $errorResponse = $this->createMock(ResponseInterface::class);
+        $errorResponse->method('getStatusCode')->willReturn(401);
+        $errorBody = $this->createMock(StreamInterface::class);
+        $errorBody->method('__toString')->willReturn('{"error":"invalid_client"}');
+        $errorResponse->method('getBody')->willReturn($errorBody);
+        $this->httpClient->method('sendRequest')->willReturn($errorResponse);
+
+        try {
+            $subject->getAccessToken($config);
+            self::fail('Expected the non-200 answer to throw.');
+        } catch (OAuthException) {
+            // The exception itself is pinned elsewhere; the row is under test.
+        }
+
+        self::assertCount(1, $rows);
+        [, $action, $success, $error, , $context] = $rows[0];
+        self::assertSame('oauth_token_request', $action);
+        self::assertFalse($success);
+        self::assertIsString($error);
+        self::assertStringContainsString('401', $error);
+        self::assertInstanceOf(HttpCallContext::class, $context);
+        self::assertSame(401, $context->statusCode, "The row must carry the endpoint's real answer, not 0.");
+    }
+
+    #[Test]
+    public function anUnknownErrorCodeFromTheEndpointNeverReachesTheRowOrTheException(): void
+    {
+        // The `error` field is server-controlled free text. A compromised
+        // endpoint echoing a credential there must not reach the
+        // tamper-evident audit chain, where a row can never be deleted —
+        // only RFC 6749/6750 error codes pass the whitelist.
+        $rows = [];
+        $subject = $this->managerAuditingInto($rows);
+
+        $config = OAuthConfig::clientCredentials(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+        );
+        $this->programCredentialReads();
+
+        $errorResponse = $this->createMock(ResponseInterface::class);
+        $errorResponse->method('getStatusCode')->willReturn(400);
+        $errorBody = $this->createMock(StreamInterface::class);
+        $errorBody->method('__toString')->willReturn('{"error":"echoed-bare-credential-value"}');
+        $errorResponse->method('getBody')->willReturn($errorBody);
+        $this->httpClient->method('sendRequest')->willReturn($errorResponse);
+
+        try {
+            $subject->getAccessToken($config);
+            self::fail('Expected the non-200 answer to throw.');
+        } catch (OAuthException $e) {
+            self::assertNull($e->oauthError, 'An unlisted error code must collapse to null.');
+            self::assertStringNotContainsString('echoed-bare-credential-value', $e->getMessage());
+        }
+
+        self::assertCount(1, $rows);
+        [, , , $error] = $rows[0];
+        self::assertIsString($error);
+        self::assertStringNotContainsString('echoed-bare-credential-value', $error, 'The echoed value must not reach the audit chain.');
+    }
+
+    #[Test]
+    public function aTransportFailureLeavesAFailureRowWithStatusZero(): void
+    {
+        $rows = [];
+        $subject = $this->managerAuditingInto($rows);
+
+        $config = OAuthConfig::clientCredentials(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+        );
+        $this->programCredentialReads();
+
+        $this->httpClient
+            ->method('sendRequest')
+            ->willThrowException(
+                new class ('Connection refused for client_secret=super-secret-value') extends RuntimeException implements ClientExceptionInterface {},
+            );
+
+        try {
+            $subject->getAccessToken($config);
+            self::fail('Expected the transport failure to throw.');
+        } catch (OAuthException) {
+        }
+
+        self::assertCount(1, $rows);
+        [, $action, $success, $error, , $context] = $rows[0];
+        self::assertSame('oauth_token_request', $action);
+        self::assertFalse($success);
+        self::assertIsString($error);
+        self::assertStringContainsString('[REDACTED]', $error, 'The upstream message travels redacted.');
+        self::assertStringNotContainsString('super-secret-value', $error);
+        self::assertInstanceOf(HttpCallContext::class, $context);
+        self::assertSame(0, $context->statusCode);
+    }
+
+    #[Test]
+    public function aRejectedTokenEndpointHostLeavesARowBeforeAnythingEgressed(): void
+    {
+        $originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $GLOBALS['TYPO3_CONF_VARS'] = ['HTTP' => ['allowed_hosts' => ['api.partner.example']]];
+
+        try {
+            $rows = [];
+            $subject = $this->managerAuditingInto($rows);
+
+            $config = OAuthConfig::clientCredentials(
+                tokenEndpoint: self::TOKEN_ENDPOINT,
+                clientIdSecret: self::CLIENT_ID_SECRET,
+                clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            );
+            $this->programCredentialReads();
+
+            $this->httpClient->expects(self::never())->method('sendRequest');
+
+            try {
+                $subject->getAccessToken($config);
+                self::fail('Expected the allowlist gate to refuse the token endpoint.');
+            } catch (OAuthException $e) {
+                self::assertStringContainsString('not in the allowed hosts list', $e->getMessage());
+            }
+
+            self::assertCount(1, $rows, 'The refused round trip is exactly the attempt an operator goes looking for.');
+            [, $action, $success, $error] = $rows[0];
+            self::assertSame('oauth_token_request', $action);
+            self::assertFalse($success);
+            self::assertIsString($error);
+            self::assertStringContainsString('not in the allowed hosts list', $error);
+        } finally {
+            if ($originalGlobals !== null) {
+                $GLOBALS['TYPO3_CONF_VARS'] = $originalGlobals;
+            } else {
+                unset($GLOBALS['TYPO3_CONF_VARS']);
+            }
+        }
+    }
+
+    #[Test]
+    public function aCredentialThatCannotBeReadLeavesNoRoundTripRow(): void
+    {
+        // The row records round trips attempted with credentials in hand; a
+        // failed vault read never got that far, and the vault writes its own
+        // rows about the read. (On the VaultHttpClient path the CALL's row is
+        // still written by injectAuthenticationAudited().)
+        $auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        $auditLogService->expects(self::never())->method('log');
+        $subject = $this->managerWith($auditLogService);
+
+        $config = OAuthConfig::clientCredentials(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+        );
+
+        $this->vaultService->method('retrieve')->willReturn(null);
+
+        $this->expectException(SecretNotFoundException::class);
+        $subject->getAccessToken($config);
     }
 
     #[Test]
@@ -1372,6 +1594,62 @@ final class OAuthTokenManagerTest extends TestCase
             'rejected client_secret "topSecr3t"',
             'rejected client_secret "[REDACTED]"',
         ];
+    }
+
+    /**
+     * A manager whose audit writes are captured into `$rows` as
+     * `[identifier, action, success, error, reason, context]`.
+     *
+     * @param list<array{0: string, 1: string, 2: bool, 3: ?string, 4: ?string, 5: ?AuditContextInterface}> $rows
+     *
+     * @param-out list<array{0: string, 1: string, 2: bool, 3: ?string, 4: ?string, 5: ?AuditContextInterface}> $rows
+     */
+    private function managerAuditingInto(array &$rows): OAuthTokenManager
+    {
+        $rows = [];
+        $auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        $auditLogService
+            ->method('log')
+            ->willReturnCallback(
+                static function (
+                    string $identifier,
+                    string $action,
+                    bool $success,
+                    ?string $error = null,
+                    ?string $reason = null,
+                    ?string $hashBefore = null,
+                    ?string $hashAfter = null,
+                    ?AuditContextInterface $context = null,
+                ) use (&$rows): void {
+                    $rows[] = [$identifier, $action, $success, $error, $reason, $context];
+                },
+            );
+
+        return $this->managerWith($auditLogService);
+    }
+
+    private function managerWith(AuditLogServiceInterface $auditLogService): OAuthTokenManager
+    {
+        return new OAuthTokenManager(
+            $this->vaultService,
+            $this->httpClient,
+            new SecureHttpClientFactory(),
+            $this->logger,
+            $this->requestFactory,
+            $this->streamFactory,
+            $auditLogService,
+        );
+    }
+
+    private function programCredentialReads(): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(fn (string $id): ?string => match ($id) {
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
+                default => null,
+            });
     }
 
     /**

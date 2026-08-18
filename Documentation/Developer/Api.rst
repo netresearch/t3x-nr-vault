@@ -600,8 +600,10 @@ a configured clone, a PSR-7 response or a bool, and
 nr-vault sends two credentials of its own on paths that are not your request and
 do not carry all four: the ``X-Vault-Token`` header of the transit master-key
 provider, on a plain Guzzle client, and the ``client_secret`` of the OAuth token
-leg, which does apply the ``allowed_hosts`` gate but writes no audit row. They
-are listed in :ref:`adr-037-cancellable-outbound-send`.
+leg, which applies the ``allowed_hosts`` gate, writes one ``oauth_token_request``
+audit row per attempted round trip, and rides :php:`sendCancellable()`'s
+cancellation signal (issue #303). They are listed in
+:ref:`adr-037-cancellable-outbound-send`.
 
 Building a hardened transport *without* vault credentials remains a supported,
 public case: :php:`SecureHttpClientFactory::create()` and

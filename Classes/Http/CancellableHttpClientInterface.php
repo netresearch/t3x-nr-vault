@@ -55,9 +55,12 @@ use Psr\Http\Message\ResponseInterface;
  * not a caller's request and are not covered by the four: the `X-Vault-Token`
  * header in `TransitMasterKeyProvider::callTransit()`, on the plain Guzzle
  * client `MasterKeyProviderFactory` builds, and the `client_secret` form body
- * in `OAuthTokenManager::dispatchTokenRequest()`, which does apply the
- * `allowed_hosts` gate but writes no audit row. "No credential-bearing send
- * exists outside `VaultHttpClient`" would therefore be false; see ADR-037.
+ * in `OAuthTokenManager::dispatchTokenRequest()`, which applies the
+ * `allowed_hosts` gate and — since issue #303 — writes one
+ * `oauth_token_request` audit row per attempted round trip and honours this
+ * send's cancellation signal. "No credential-bearing send exists outside
+ * `VaultHttpClient`" would still be false (the transit leg remains); see
+ * ADR-037.
  *
  * The four are plain statements in the sending method, not middleware, so a
  * shape that handed a caller the promise for an authenticated send — or the
