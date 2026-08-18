@@ -469,7 +469,21 @@ final class SecureHttpClientFactory
                     );
                 }
 
-                $resolveEntries = $this->buildResolveEntries($host, $port, $allowlisted);
+                // Whether curl will actually honour a CURLOPT_RESOLVE pin for
+                // THIS transfer — per hop, not per process: even with ext-curl
+                // loaded, Guzzle routes a request carrying `stream => true` to
+                // the StreamHandler, which ignores `$options['curl']` entirely.
+                // The memo may only be consumed where the pin is honoured (see
+                // buildResolveEntries()); on a pinless transfer the fresh
+                // resolve below IS the rebind defence. No in-repo caller sets
+                // `stream`, but the factory's clients are a public seam.
+                // The truthiness cast mirrors Guzzle's own routing check
+                // (`Proxy::wrapStreaming()` tests `empty($options['stream'])`),
+                // so this predicate and the handler choice cannot disagree.
+                $pinWillBeHonoured = \function_exists('curl_init')
+                    && !(bool) ($options['stream'] ?? false);
+
+                $resolveEntries = $this->buildResolveEntries($host, $port, $allowlisted, $pinWillBeHonoured);
 
                 if ($resolveEntries === null) {
                     throw new RequestException(
@@ -488,7 +502,7 @@ final class SecureHttpClientFactory
                 // option anyway. The dangerous-IP rejections above still ran —
                 // this is exactly the degraded-but-working posture create()'s
                 // missing-ext-curl warning documents.
-                if ($resolveEntries !== [] && \function_exists('curl_init')) {
+                if ($resolveEntries !== [] && $pinWillBeHonoured) {
                     $curlOptions = \is_array($options['curl'] ?? null) ? $options['curl'] : [];
                     /** @var list<string> $existing */
                     $existing = \is_array($curlOptions[\CURLOPT_RESOLVE] ?? null)
@@ -540,11 +554,22 @@ final class SecureHttpClientFactory
      *                          operator has explicitly opted in. The pin is
      *                          still added so rebinding to a *different*
      *                          address stays blocked.
+     * @param bool $pinWillBeHonoured Whether curl will honour a
+     *                                `CURLOPT_RESOLVE` pin for THIS transfer — ext-curl present AND the
+     *                                request not routed to the StreamHandler (`stream => true` ignores
+     *                                the curl options). Only then may the resolve consume the DNS memo;
+     *                                otherwise this method resolves fresh, because on a pinless transfer
+     *                                its own resolve-and-check is the rebind defence. Defaults to false
+     *                                (fresh), the safe side.
      *
      * @return list<string>|null
      */
-    private function buildResolveEntries(string $host, int $port, bool $allowlisted = false): ?array
-    {
+    private function buildResolveEntries(
+        string $host,
+        int $port,
+        bool $allowlisted = false,
+        bool $pinWillBeHonoured = false,
+    ): ?array {
         // IP literal — no DNS to pin, but the literal itself is still
         // range-checked HERE. The middleware must be self-sufficient: it runs
         // below Guzzle's RedirectMiddleware, so EVERY redirect hop re-enters
@@ -561,16 +586,20 @@ final class SecureHttpClientFactory
         }
 
         // Which resolve this hop may share is a security decision, not a
-        // performance one (issue #304). WITH ext-curl, every IP taken from the
-        // answer is range-checked below and then pinned via CURLOPT_RESOLVE,
-        // so curl can only connect to addresses this method vetted — a
-        // memoised answer is exactly as safe as a fresh one, and reusing the
-        // gate's lookup is what collapses the double resolve. WITHOUT
-        // ext-curl there is no pin: this resolve-and-check is itself the
-        // rebind defence, and its whole value is being the freshest answer
-        // before the connect. Consuming a memo there would widen the
-        // check-to-connect window by up to the TTL, so that path stays fresh.
-        $records = \function_exists('curl_init')
+        // performance one (issue #304). When the pin will be HONOURED, every
+        // IP taken from the answer is range-checked below and then pinned via
+        // CURLOPT_RESOLVE, so curl can only connect to addresses this method
+        // vetted — a memoised answer is exactly as safe as a fresh one, and
+        // reusing the gate's lookup is what collapses the double resolve.
+        // Where no pin takes effect — no ext-curl, or a `stream => true`
+        // transfer that Guzzle routes to the StreamHandler, which ignores the
+        // curl options — this resolve-and-check is itself the rebind defence,
+        // and its whole value is being the freshest answer before the
+        // connect. Consuming a memo there would widen the check-to-connect
+        // window by up to the TTL, so those paths stay fresh. The caller (the
+        // middleware closure) decides per hop and defaults to fresh, so a
+        // forgotten caller degrades to the safe side.
+        $records = $pinWillBeHonoured
             ? $this->memoisedResolve($host)
             : $this->freshResolve($host);
         if ($records === []) {
@@ -950,9 +979,11 @@ final class SecureHttpClientFactory
      *
      * Serves the two callers issue #304 established MAY share an answer: the
      * `isHostAllowed()` gate (via `resolvesToDangerousIp()`), and the
-     * `ssrf-dns-pin` middleware when — and only when — ext-curl will pin the
-     * resolved IPs (`buildResolveEntries()` decides that per hop, and takes a
-     * fresh answer otherwise). Every consumer re-checks each IP it reads, so
+     * `ssrf-dns-pin` middleware when — and only when — the `CURLOPT_RESOLVE`
+     * pin will actually be honoured for the transfer (the middleware closure
+     * decides that per hop — ext-curl present and no `stream => true` — and
+     * `buildResolveEntries()` takes a fresh answer otherwise). Every consumer
+     * re-checks each IP it reads, so
      * a memoised answer can never admit an address a fresh one would have
      * rejected — the sharing changes WHEN the answer was resolved, never
      * whether it is checked.
@@ -1000,7 +1031,15 @@ final class SecureHttpClientFactory
 
         unset($this->dnsMemo[$host]);
         while (\count($this->dnsMemo) >= self::DNS_MEMO_MAX_HOSTS) {
-            array_shift($this->dnsMemo);
+            // Not array_shift(): PHP casts a purely-numeric hostname to an
+            // int key, and array_shift() would renumber the remaining int
+            // keys — a later lookup could then hit a foreign entry's records.
+            $oldest = array_key_first($this->dnsMemo);
+            if ($oldest === null) {
+                break;
+            }
+
+            unset($this->dnsMemo[$oldest]);
         }
 
         $this->dnsMemo[$host] = [

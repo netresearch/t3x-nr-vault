@@ -158,6 +158,60 @@ final class SecureHttpClientFactoryDnsMemoTest extends TestCase
     }
 
     #[Test]
+    public function aStreamTransferNeverConsumesTheMemo(): void
+    {
+        // Even with ext-curl loaded, Guzzle routes `stream => true` to the
+        // StreamHandler, which ignores the curl options — a pin attached to
+        // such a transfer is inert. The middleware must therefore resolve
+        // fresh (its own resolve-and-check IS the rebind defence there) and
+        // attach no pin at all.
+        $this->dnsResolver->answer(self::HOST, [['ip' => self::PUBLIC_IP]]);
+
+        self::assertTrue($this->subject->isHostAllowed(self::HOST));
+
+        $client = $this->buildCapturingClient($capturedOptions);
+        $client->get('https://' . self::HOST . '/v1/data', ['stream' => true]);
+
+        self::assertSame(2, $this->dnsResolver->queryCount(self::HOST), 'A pinless transfer must resolve fresh, not reuse the memo.');
+        self::assertIsArray($capturedOptions);
+        self::assertArrayNotHasKey('curl', $capturedOptions, 'No pin may be attached to a transfer that cannot honour it.');
+    }
+
+    #[Test]
+    public function theOldestEntryIsEvictedWhenTheMemoIsFull(): void
+    {
+        for ($i = 0; $i < 33; ++$i) {
+            $host = \sprintf('host-%02d.example', $i);
+            $this->dnsResolver->answer($host, [['ip' => self::PUBLIC_IP]]);
+            self::assertTrue($this->subject->isHostAllowed($host));
+        }
+
+        // host-00 was evicted by host-32's insert; host-32 is still memoised.
+        self::assertTrue($this->subject->isHostAllowed('host-00.example'));
+        self::assertSame(2, $this->dnsResolver->queryCount('host-00.example'), 'The oldest entry must have been evicted at the cap.');
+        self::assertTrue($this->subject->isHostAllowed('host-32.example'));
+        self::assertSame(1, $this->dnsResolver->queryCount('host-32.example'), 'A newer entry must survive the eviction.');
+    }
+
+    #[Test]
+    public function anExpiredForeignEntryIsPrunedOnTheNextFreshResolve(): void
+    {
+        $this->dnsResolver->answer(self::HOST, [['ip' => self::PUBLIC_IP]]);
+        $this->dnsResolver->answer('other.example', [['ip' => self::PUBLIC_IP_SECONDARY]]);
+
+        self::assertTrue($this->subject->isHostAllowed(self::HOST));
+        $this->expireMemoEntry(self::HOST);
+
+        self::assertTrue($this->subject->isHostAllowed('other.example'));
+
+        $property = (new ReflectionClass(SecureHttpClientFactory::class))->getProperty('dnsMemo');
+        /** @var array<string, mixed> $memo */
+        $memo = $property->getValue($this->subject);
+        self::assertArrayNotHasKey(self::HOST, $memo, 'A fresh resolve must prune expired foreign entries.');
+        self::assertArrayHasKey('other.example', $memo);
+    }
+
+    #[Test]
     public function anExpiredMemoEntryIsResolvedAgain(): void
     {
         $this->dnsResolver->answer(

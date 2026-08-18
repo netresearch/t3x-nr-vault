@@ -108,12 +108,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SecureHttpClientFactory` now lets the middleware reuse the gate's answer.
   The sharing is bounded by issue #304's security constraint: it only applies
   where every memoised IP is still range-checked and then pinned via
-  `CURLOPT_RESOLVE` (the ext-curl path), so a memoised answer can never admit
-  an address a fresh one would have rejected — a rebind inside the TTL just
-  means curl connects to the address that was actually vetted. Without
-  ext-curl there is no pin and the middleware's resolve IS the rebind
-  defence, so that path keeps resolving fresh. Failed resolutions are never
-  memoised; every failure-path behaviour is unchanged.
+  `CURLOPT_RESOLVE`, so a memoised answer can never admit an address a fresh
+  one would have rejected — a rebind inside the TTL just means curl connects
+  to the address that was actually vetted. Where no pin takes effect — no
+  ext-curl, or a `stream => true` transfer, which Guzzle routes to the
+  StreamHandler that ignores the curl options — the middleware's own resolve
+  IS the rebind defence and keeps resolving fresh, decided per hop. (The
+  `isHostAllowed()` gate itself may share answers within the TTL in every
+  mode; its check was always advisory relative to connect time, and the
+  middleware re-validates.) Failed resolutions are never memoised; every
+  failure-path behaviour is unchanged.
 
 ### Fixed
 
