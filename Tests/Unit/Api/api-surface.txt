@@ -51,6 +51,7 @@ Netresearch\NrVault\Audit\AuditAction (enum)
   case OAuthFallbackClientCredentials = "oauth_fallback_client_credentials"
   case OAuthRefreshFailed = "oauth_refresh_failed"
   case OAuthRefreshStoreFailed = "oauth_refresh_store_failed"
+  case OAuthTokenRequest = "oauth_token_request"
   case Read = "read"
   case Rotate = "rotate"
   case Update = "update"
