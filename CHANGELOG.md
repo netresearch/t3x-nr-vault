@@ -122,6 +122,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trailing `$cancellationSignal` parameter; every existing call keeps
   compiling.
 
+- **An api-surface snapshot test** (#306). `Tests/Unit/Api/api-surface.txt`
+  freezes the rendered public surface — every interface, enum (backing
+  values included) and exception class under `Classes/`, the `Domain/Dto`
+  value objects, plus every own-namespace type their signatures mention,
+  constructors included. A change to any frozen signature now has to be an
+  explicit commit with a visible snapshot diff rather than a side effect;
+  the failure message classifies the diff as additive (regenerate) or
+  breaking (a decision, per AGENTS.md's "Ask First" rule for interface
+  signatures). Ported from nr-llm, which has carried the same guard since
+  ADR-127, with one deliberate divergence — backed-enum values are rendered,
+  proposed upstream as t3x-nr-llm#815.
+
 ### Changed
 
 - **One DNS lookup per outbound request instead of two** (#304). The
