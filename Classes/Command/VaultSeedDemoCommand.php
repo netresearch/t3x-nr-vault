@@ -21,6 +21,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 /**
@@ -95,7 +96,7 @@ final class VaultSeedDemoCommand extends Command
         //
         // So the writes run as a real backend user, and ownership is spread over
         // whoever is available, exactly as vault:store --as-provisioner does it.
-        $owners = $this->seedOwners();
+        $owners = $this->seedOwners($now);
 
         if ($owners === []) {
             $io->warning(
@@ -170,9 +171,16 @@ final class VaultSeedDemoCommand extends Command
      * Capped at eight so the filter has several entries without turning into a
      * user list, and TYPO3's system accounts are left out.
      *
+     * The enable-column conditions mirror TechnicalActorContext::resolveActor()
+     * exactly, because that method is what receives the first uid here and it
+     * fails closed: a user this query returns but resolveActor() rejects throws
+     * mid-seed, leaving a half-populated vault behind. `pid` is part of it --
+     * backend users are root-level records and a non-zero pid is rejected there
+     * too.
+     *
      * @return list<int<1, max>>
      */
-    private function seedOwners(): array
+    private function seedOwners(int $now): array
     {
         $qb = $this->connectionPool->getQueryBuilderForTable('be_users');
         $qb->getRestrictions()->removeAll();
@@ -183,6 +191,12 @@ final class VaultSeedDemoCommand extends Command
             ->where(
                 $qb->expr()->eq('deleted', $qb->createNamedParameter(0)),
                 $qb->expr()->eq('disable', $qb->createNamedParameter(0)),
+                $qb->expr()->eq('pid', $qb->createNamedParameter(0, Connection::PARAM_INT)),
+                $qb->expr()->lte('starttime', $qb->createNamedParameter($now, Connection::PARAM_INT)),
+                $qb->expr()->or(
+                    $qb->expr()->eq('endtime', $qb->createNamedParameter(0, Connection::PARAM_INT)),
+                    $qb->expr()->gt('endtime', $qb->createNamedParameter($now, Connection::PARAM_INT)),
+                ),
                 // TYPO3's own system accounts (_cli_, _scheduler_) are not
                 // people. Picking one as the acting user puts "_cli_" in the
                 // audit log's Actor column, which is what this was meant to get

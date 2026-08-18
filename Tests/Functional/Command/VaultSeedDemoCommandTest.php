@@ -96,6 +96,11 @@ final class VaultSeedDemoCommandTest extends FunctionalTestCase
         self::assertNotContains(0, $owners, 'no secret may belong to uid 0');
         self::assertNotContains(2, $owners, 'the _cli_ system account is not an owner');
         self::assertNotContains(4, $owners, 'a disabled user is not an owner');
+        // seedOwners() has to reject exactly what TechnicalActorContext::resolveActor()
+        // rejects. It fails closed, so a user this query returns but that method
+        // refuses throws mid-seed and leaves a half-populated vault behind.
+        self::assertNotContains(5, $owners, 'a user whose starttime has not arrived is not an owner');
+        self::assertNotContains(6, $owners, 'a user whose endtime has passed is not an owner');
         self::assertContains(1, $owners, 'the admin owns some of them');
         self::assertContains(3, $owners, 'ownership is spread over more than one user');
 
