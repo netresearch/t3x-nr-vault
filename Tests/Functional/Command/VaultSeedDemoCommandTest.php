@@ -69,6 +69,48 @@ final class VaultSeedDemoCommandTest extends FunctionalTestCase
         self::assertTrue($this->get(AuditLogServiceInterface::class)->verifyHashChain()->isValid());
     }
 
+    /**
+     * Without an owner the seeded secrets belong to uid 0 and the module prints
+     * "User #0" on every row -- next to an owner filter with nothing to filter
+     * by. The audit rows for those writes read "Unknown" for the same reason.
+     *
+     * TYPO3's own system accounts are excluded on purpose: picking `_cli_` as
+     * the acting user puts that name in the Actor column, which is the thing
+     * being fixed, and owning a credential is not something they do.
+     */
+    #[Test]
+    public function seededSecretsBelongToRealBackendUsersAndTheWritesAreAttributed(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/be_users_seed_owners.csv');
+
+        $tester = new CommandTester($this->get(VaultSeedDemoCommand::class));
+        self::assertSame(0, $tester->execute([]), $tester->getDisplay());
+
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_secret');
+
+        $owners = $connection
+            ->select(['owner_uid'], 'tx_nrvault_secret', ['deleted' => 0])
+            ->fetchFirstColumn();
+        $owners = array_map(static fn (mixed $uid): int => (int) $uid, $owners);
+
+        self::assertNotContains(0, $owners, 'no secret may belong to uid 0');
+        self::assertNotContains(2, $owners, 'the _cli_ system account is not an owner');
+        self::assertNotContains(4, $owners, 'a disabled user is not an owner');
+        self::assertContains(1, $owners, 'the admin owns some of them');
+        self::assertContains(3, $owners, 'ownership is spread over more than one user');
+
+        $actors = $this->get(ConnectionPool::class)
+            ->getConnectionForTable('tx_nrvault_audit_log')
+            ->select(['actor_username'], 'tx_nrvault_audit_log', ['action' => 'create'])
+            ->fetchFirstColumn();
+
+        self::assertNotSame([], $actors, 'the creates are recorded');
+        foreach ($actors as $username) {
+            self::assertNotSame('', (string) $username, 'every create names its actor');
+            self::assertNotSame('_cli_', (string) $username, 'and it is not the CLI system account');
+        }
+    }
+
     #[Test]
     public function isIdempotentWithoutForce(): void
     {

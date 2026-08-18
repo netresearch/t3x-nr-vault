@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
+use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Seeder\AuditChainSeeder;
 use Netresearch\NrVault\Seeder\DemoDataProvider;
 use Netresearch\NrVault\Seeder\DemoSecretSpec;
@@ -40,6 +41,7 @@ final class VaultSeedDemoCommand extends Command
         private readonly DemoDataProvider $demoDataProvider,
         private readonly AuditChainSeeder $auditChainSeeder,
         private readonly ConnectionPool $connectionPool,
+        private readonly TechnicalActorContextInterface $technicalActorContext,
     ) {
         parent::__construct();
     }
@@ -83,18 +85,29 @@ final class VaultSeedDemoCommand extends Command
 
         $specs = $this->demoDataProvider->specs();
 
-        foreach ($specs as $spec) {
-            $this->vaultService->store($spec->identifier, $spec->value, [
-                'description' => $spec->description,
-                'context' => $spec->context,
-                'frontendAccessible' => $spec->frontendAccessible,
-                'expiresAt' => $spec->expiresInDays !== null ? $now + ($spec->expiresInDays * 86400) : 0,
-                'metadata' => ['source' => self::DEMO_SOURCE],
-            ]);
-            $this->backdateSecret($spec, $now);
-            foreach ($this->eventsFor($spec, $now) as $event) {
-                $events[] = $event;
-            }
+        // Without an actor the seeded secrets belong to uid 0 and the module
+        // prints "User #0" on every row -- next to an owner filter that then has
+        // nothing to filter by, on a screen whose whole subject is who may reach
+        // which credential. The audit rows for these writes read "Unknown (cli)"
+        // for the same reason: an unattributed CLI actor has no username.
+        //
+        // So the writes run as a real backend user, and ownership is spread over
+        // whoever is available, exactly as vault:store --as-provisioner does it.
+        $owners = $this->seedOwners();
+
+        if ($owners === []) {
+            $io->warning(
+                'No usable backend user found. The demo secrets will belong to uid 0 '
+                . 'and the module will show them as "User #0".',
+            );
+            $this->storeAll($specs, $now, [], $events);
+        } else {
+            $this->technicalActorContext->runAs(
+                $owners[0],
+                function () use ($specs, $now, $owners, &$events): void {
+                    $this->storeAll($specs, $now, $owners, $events);
+                },
+            );
         }
 
         usort($events, static fn (array $a, array $b): int => $a['crdate'] <=> $b['crdate']);
@@ -148,6 +161,79 @@ final class VaultSeedDemoCommand extends Command
     /**
      * @return list<array{secret_identifier: string, action: string, success: bool, actor_uid: int, actor_type: string, actor_username: string, crdate: int, context: array<string, scalar|null>}>
      */
+    /**
+     * Backend users the demo secrets may belong to, admins first.
+     *
+     * Real rows on this installation rather than invented ones: a demo that
+     * claims users who do not exist cannot demonstrate the owner filter either.
+     * Capped at eight so the filter has several entries without turning into a
+     * user list, and TYPO3's system accounts are left out.
+     *
+     * @return list<int>
+     */
+    private function seedOwners(): array
+    {
+        $qb = $this->connectionPool->getQueryBuilderForTable('be_users');
+        $qb->getRestrictions()->removeAll();
+
+        $rows = $qb
+            ->select('uid')
+            ->from('be_users')
+            ->where(
+                $qb->expr()->eq('deleted', $qb->createNamedParameter(0)),
+                $qb->expr()->eq('disable', $qb->createNamedParameter(0)),
+                // TYPO3's own system accounts (_cli_, _scheduler_) are not
+                // people. Picking one as the acting user puts "_cli_" in the
+                // audit log's Actor column, which is what this was meant to get
+                // rid of, and owning a secret is not a thing they do.
+                $qb->expr()->notLike('username', $qb->createNamedParameter('\_%')),
+            )
+            ->orderBy('admin', 'DESC')
+            ->addOrderBy('uid', 'ASC')
+            ->setMaxResults(8)
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        $uids = [];
+        foreach ($rows as $row) {
+            $uid = (int) $row['uid'];
+            if ($uid > 0) {
+                $uids[] = $uid;
+            }
+        }
+
+        return $uids;
+    }
+
+    /**
+     * @param list<DemoSecretSpec> $specs
+     * @param list<int> $owners
+     * @param list<array<string, mixed>> $events
+     */
+    private function storeAll(array $specs, int $now, array $owners, array &$events): void
+    {
+        foreach ($specs as $index => $spec) {
+            $options = [
+                'description' => $spec->description,
+                'context' => $spec->context,
+                'frontendAccessible' => $spec->frontendAccessible,
+                'expiresAt' => $spec->expiresInDays !== null ? $now + ($spec->expiresInDays * 86400) : 0,
+                'metadata' => ['source' => self::DEMO_SOURCE],
+            ];
+
+            if ($owners !== []) {
+                $options['owner'] = $owners[$index % \count($owners)];
+            }
+
+            $this->vaultService->store($spec->identifier, $spec->value, $options);
+            $this->backdateSecret($spec, $now);
+
+            foreach ($this->eventsFor($spec, $now) as $event) {
+                $events[] = $event;
+            }
+        }
+    }
+
     private function eventsFor(DemoSecretSpec $spec, int $now): array
     {
         $events = [];
