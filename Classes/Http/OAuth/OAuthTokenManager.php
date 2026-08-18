@@ -101,6 +101,33 @@ final class OAuthTokenManager
         = 'OAuth token request aborted by an unexpected error';
 
     /**
+     * The RFC 6749 §5.2 / RFC 6750 §3.1 error codes this class recognises.
+     *
+     * A whitelist rather than a passthrough on purpose: the `error` field is
+     * server-controlled free text, and since the `oauth_token_request` row
+     * exists it would travel — bounded only by pattern redaction — into the
+     * tamper-evident audit chain, where a row can never be deleted. A
+     * compromised endpoint echoing a bare credential in that field must not
+     * reach the chain. The only semantic consumer
+     * (`fetchTokenWithFallback()`) cares about `invalid_grant` /
+     * `invalid_token`; the rest exist so the exception message can still name
+     * a well-formed error. Anything outside the list collapses to null, which
+     * every consumer already handles.
+     */
+    private const KNOWN_OAUTH_ERROR_CODES = [
+        'invalid_request',
+        'invalid_client',
+        'invalid_grant',
+        'unauthorized_client',
+        'unsupported_grant_type',
+        'invalid_scope',
+        'invalid_token',
+        'insufficient_scope',
+        'server_error',
+        'temporarily_unavailable',
+    ];
+
+    /**
      * Cached tokens indexed by config hash.
      *
      * @var array<string, OAuthToken>
@@ -411,6 +438,12 @@ final class OAuthTokenManager
 
             throw $throwable;
         } finally {
+            // Wipe first (shortest plaintext residency during the DB write
+            // below), audit second. The row's unconditionality rests on
+            // wipeCredentials() never throwing — which its idempotence guard
+            // guarantees (OAuthTokenRequestParams wipes each buffer at most
+            // once); a throw here would both skip the row and mask the
+            // original exception.
             $params->wipeCredentials();
             $this->auditTokenRoundTrip($config, $auditSuccess, $auditStatus, $auditMessage);
         }
@@ -709,7 +742,12 @@ final class OAuthTokenManager
             return null;
         }
 
-        if (\is_array($errorBody) && isset($errorBody['error']) && \is_string($errorBody['error'])) {
+        if (
+            \is_array($errorBody)
+            && isset($errorBody['error'])
+            && \is_string($errorBody['error'])
+            && \in_array($errorBody['error'], self::KNOWN_OAUTH_ERROR_CODES, true)
+        ) {
             return $errorBody['error'];
         }
 

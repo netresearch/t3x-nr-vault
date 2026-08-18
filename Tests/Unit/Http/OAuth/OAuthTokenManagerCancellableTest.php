@@ -244,6 +244,49 @@ final class OAuthTokenManagerCancellableTest extends TestCase
     }
 
     #[Test]
+    public function aCancelledRefreshNeverFallsBackToClientCredentials(): void
+    {
+        // Cancellation must end the whole fetch, not read as "the refresh
+        // token was rejected": the fallback catch is typed OAuthException,
+        // and RequestCancelledException is its sibling under VaultException.
+        // One round trip, one row, no oauth_refresh_failed and no
+        // oauth_fallback_client_credentials.
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(fn (string $id): ?string => match ($id) {
+                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_SECRET_SECRET => 'my-client-secret',
+                'oauth/refresh-token' => 'old-refresh-token',
+                default => null,
+            });
+
+        $transfer = new TokenTransfer();
+        $rows = [];
+        $subject = $this->managerWith($transfer, new TokenLoopTicker(static function (): void {}), $rows);
+
+        $config = OAuthConfig::refreshToken(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+            refreshTokenSecret: 'oauth/refresh-token',
+        );
+
+        try {
+            $subject->getAccessToken($config, new TokenCountdownSignal(3));
+            self::fail('Expected the in-flight cancellation to throw.');
+        } catch (RequestCancelledException $e) {
+            self::assertSame(1786579303, $e->getCode());
+        }
+
+        self::assertSame(1, $transfer->cancelCalls());
+        self::assertCount(1, $rows, 'Exactly one round trip was attempted — the fallback leg must not run.');
+        self::assertSame('oauth_token_request', $rows[0][1]);
+        $actions = array_column($rows, 1);
+        self::assertNotContains('oauth_refresh_failed', $actions);
+        self::assertNotContains('oauth_fallback_client_credentials', $actions);
+    }
+
+    #[Test]
     public function aRejectedTransferSurfacesLikeABlockingFailureWithRedaction(): void
     {
         $this->programCredentialReads();

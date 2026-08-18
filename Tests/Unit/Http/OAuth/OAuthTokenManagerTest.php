@@ -1204,6 +1204,44 @@ final class OAuthTokenManagerTest extends TestCase
     }
 
     #[Test]
+    public function anUnknownErrorCodeFromTheEndpointNeverReachesTheRowOrTheException(): void
+    {
+        // The `error` field is server-controlled free text. A compromised
+        // endpoint echoing a credential there must not reach the
+        // tamper-evident audit chain, where a row can never be deleted —
+        // only RFC 6749/6750 error codes pass the whitelist.
+        $rows = [];
+        $subject = $this->managerAuditingInto($rows);
+
+        $config = OAuthConfig::clientCredentials(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: self::CLIENT_ID_SECRET,
+            clientSecretSecret: self::CLIENT_SECRET_SECRET,
+        );
+        $this->programCredentialReads();
+
+        $errorResponse = $this->createMock(ResponseInterface::class);
+        $errorResponse->method('getStatusCode')->willReturn(400);
+        $errorBody = $this->createMock(StreamInterface::class);
+        $errorBody->method('__toString')->willReturn('{"error":"echoed-bare-credential-value"}');
+        $errorResponse->method('getBody')->willReturn($errorBody);
+        $this->httpClient->method('sendRequest')->willReturn($errorResponse);
+
+        try {
+            $subject->getAccessToken($config);
+            self::fail('Expected the non-200 answer to throw.');
+        } catch (OAuthException $e) {
+            self::assertNull($e->oauthError, 'An unlisted error code must collapse to null.');
+            self::assertStringNotContainsString('echoed-bare-credential-value', $e->getMessage());
+        }
+
+        self::assertCount(1, $rows);
+        [, , , $error] = $rows[0];
+        self::assertIsString($error);
+        self::assertStringNotContainsString('echoed-bare-credential-value', $error, 'The echoed value must not reach the audit chain.');
+    }
+
+    #[Test]
     public function aTransportFailureLeavesAFailureRowWithStatusZero(): void
     {
         $rows = [];
