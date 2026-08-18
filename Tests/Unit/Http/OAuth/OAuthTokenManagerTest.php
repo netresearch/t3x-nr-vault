@@ -1200,7 +1200,7 @@ final class OAuthTokenManagerTest extends TestCase
         self::assertIsString($error);
         self::assertStringContainsString('401', $error);
         self::assertInstanceOf(HttpCallContext::class, $context);
-        self::assertSame(401, $context->statusCode, 'The row must carry the endpoint\'s real answer, not 0.');
+        self::assertSame(401, $context->statusCode, "The row must carry the endpoint's real answer, not 0.");
     }
 
     #[Test]
