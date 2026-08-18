@@ -1,0 +1,7 @@
+"be_users"
+,"uid","username","password","admin","disable","deleted","starttime","endtime"
+,2,"_cli_","",1,0,0,0,0
+,3,"editor","",0,0,0,0,0
+,4,"disabled_one","",0,1,0,0,0
+,5,"not_yet_started","",0,0,0,4102444800,0
+,6,"already_expired","",0,0,0,0,1000000000
