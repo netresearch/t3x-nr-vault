@@ -168,6 +168,25 @@ final class SecretMetadataTest extends TestCase
         self::assertTrue(SecretMetadata::fromArray(['identifier' => 'live-key', 'hidden' => 0])->enabled);
     }
 
+    /**
+     * The docblock promises a database row, and `last_read_at` is
+     * NOT NULL DEFAULT 0 there -- so 0, not null, is what a secret nobody has
+     * read carries. Every consumer of $lastReadAt guards with `!== null`, so a
+     * 0 arriving here renders as 1970-01-01 on a screen about stale
+     * credentials. Same defect as #313, one construction site further in.
+     */
+    #[Test]
+    public function fromArrayReportsANeverReadSecretAsNullRatherThanTheEpoch(): void
+    {
+        $never = SecretMetadata::fromArray(['identifier' => 'never-read', 'last_read_at' => 0]);
+        $read = SecretMetadata::fromArray(['identifier' => 'has-been-read', 'last_read_at' => 1_700_000_000]);
+        $absent = SecretMetadata::fromArray(['identifier' => 'column-absent']);
+
+        self::assertNull($never->lastReadAt, 'a 0 from the database means never read');
+        self::assertSame(1_700_000_000, $read->lastReadAt, 'a real timestamp survives untouched');
+        self::assertNull($absent->lastReadAt, 'a missing column still means never read');
+    }
+
     #[Test]
     public function roundTripFromArrayToArray(): void
     {
