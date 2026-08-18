@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Api;
 
 use Netresearch\NrVault\Tests\Unit\Api\Fixtures\AddedMethod;
+use Netresearch\NrVault\Tests\Unit\Api\Fixtures\BackedFixtureEnum;
 use Netresearch\NrVault\Tests\Unit\Api\Fixtures\InheritsForeignConstructor;
 use Netresearch\NrVault\Tests\Unit\Api\Fixtures\InheritsOwnConstructor;
 use Netresearch\NrVault\Tests\Unit\Api\Fixtures\NarrowConstructor;
@@ -138,6 +139,47 @@ final class ApiSurfaceRendererTest extends TestCase
             . 'between the 13.4 and 14.x legs; recording it would make the snapshot '
             . 'matrix-dependent.',
         );
+    }
+
+    #[Test]
+    public function aBackedEnumRendersItsBackingValues(): void
+    {
+        $rendered = (new ApiSurfaceRenderer())->render([BackedFixtureEnum::class]);
+
+        // The engine-declared enum members (cases/from/tryFrom, name/value)
+        // reflect as DECLARED on the enum itself and are therefore rendered —
+        // the committed snapshot has carried them across all eight matrix
+        // legs since its first version, so they are matrix-stable.
+        self::assertSame(
+            [
+                'case Read = "read"',
+                'case Write = "write"',
+                'method static cases(): array',
+                'method static from(int|string $value): static',
+                'method static tryFrom(int|string $value): ?static',
+                'property readonly name: string',
+                'property readonly value: string',
+            ],
+            $this->linesOf($rendered),
+            'The backing value is the frozen vocabulary — a name-only line would let a value change pass green.',
+        );
+    }
+
+    #[Test]
+    public function aChangedBackingValueClassifiesAsBreaking(): void
+    {
+        $renderer = new ApiSurfaceRenderer();
+        $rendered = $renderer->render([BackedFixtureEnum::class]);
+
+        // Simulate the value change textually: same case name, new value —
+        // exactly the shape of a `case Read = 'read'` → `= 'reveal'` edit.
+        $diff = ApiSurfaceDiff::between($rendered, str_replace('"read"', '"reveal"', $rendered));
+
+        self::assertSame('breaking', $diff->verdict());
+        self::assertCount(1, $diff->changed);
+        self::assertSame(BackedFixtureEnum::class . ' :: case Read', $diff->changed[0]['entry']);
+        self::assertSame('case Read = "read"', $diff->changed[0]['was']);
+        self::assertSame('case Read = "reveal"', $diff->changed[0]['now']);
     }
 
     #[Test]

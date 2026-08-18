@@ -1,6 +1,11 @@
 # Normalize line endings.
 * text=auto
 
+# The api-surface snapshot is compared byte-for-byte by assertSame(); a CRLF
+# checkout (Windows autocrlf) would fail the comparison with a diff output
+# that says "identical" (the classifier rtrims per line). Pin it to LF.
+/Tests/Unit/Api/api-surface.txt text eol=lf
+
 # Exclude development-only paths from `git archive` (composer dist / TER packages),
 # keeping published artifacts small. Runtime code (Classes, Configuration,
 # Resources, Documentation, ext_* , composer.json, LICENSE) is intentionally NOT

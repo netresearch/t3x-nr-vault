@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Tests\Unit\Api\Support;
 use ReflectionClass;
 use ReflectionClassConstant;
 use ReflectionEnum;
+use ReflectionEnumBackedCase;
 use ReflectionIntersectionType;
 use ReflectionMethod;
 use ReflectionNamedType;
@@ -51,8 +52,9 @@ use UnitEnum;
  *   `Netresearch\NrVault`; see {@see declaredPublicConstructor()}.
  *
  * Ported from nr-llm's `Tests/Unit/Api/Support/ApiSurfaceRenderer.php`
- * (issue #306); the rendering rules are identical so the two snapshots
- * stay comparable across the two packages.
+ * (issue #306) with one deliberate divergence: backed-enum cases render
+ * WITH their backing value (see `declaredLines()`), because here the
+ * values themselves are frozen vocabulary. Worth mirroring upstream.
  */
 final class ApiSurfaceRenderer
 {
@@ -199,7 +201,15 @@ final class ApiSurfaceRenderer
             \assert(is_subclass_of($enumName, UnitEnum::class));
             $enum = new ReflectionEnum($enumName);
             foreach ($enum->getCases() as $case) {
-                $lines[] = 'case ' . $case->getName();
+                // The BACKING VALUE is rendered, not just the case name: for
+                // this package the values are the frozen vocabulary (the
+                // AuditAction strings are persisted in audit rows and bound
+                // into the HMAC chain), and a name-only line would let a
+                // value change sail through green. Deliberate divergence
+                // from the nr-llm original, which renders names only.
+                $lines[] = $case instanceof ReflectionEnumBackedCase
+                    ? \sprintf('case %s = %s', $case->getName(), json_encode($case->getBackingValue(), JSON_THROW_ON_ERROR))
+                    : 'case ' . $case->getName();
             }
         }
 

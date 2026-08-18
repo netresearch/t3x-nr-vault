@@ -34,26 +34,26 @@ Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface (interface)
   method verify(): Netresearch\NrVault\Audit\AuditIntegrityReport
 
 Netresearch\NrVault\Audit\AuditAction (enum)
-  case AccessDenied
-  case AuditAnchorReset
-  case AuditChainRekey
-  case AuditReadLoggingChanged
-  case BreakGlassActivated
-  case BreakGlassDeactivated
-  case Create
-  case Delete
-  case HttpCall
-  case HttpCallCancelled
-  case HttpCallCancelledBeforeSend
-  case MasterKeyRotateEnd
-  case MasterKeyRotateStart
-  case MetadataUpdate
-  case OAuthFallbackClientCredentials
-  case OAuthRefreshFailed
-  case OAuthRefreshStoreFailed
-  case Read
-  case Rotate
-  case Update
+  case AccessDenied = "access_denied"
+  case AuditAnchorReset = "audit_anchor_reset"
+  case AuditChainRekey = "audit_chain_rekey"
+  case AuditReadLoggingChanged = "audit_read_logging_changed"
+  case BreakGlassActivated = "break_glass_activated"
+  case BreakGlassDeactivated = "break_glass_deactivated"
+  case Create = "create"
+  case Delete = "delete"
+  case HttpCall = "http_call"
+  case HttpCallCancelled = "http_call_cancelled"
+  case HttpCallCancelledBeforeSend = "http_call_cancelled_before_send"
+  case MasterKeyRotateEnd = "master_key_rotate_end"
+  case MasterKeyRotateStart = "master_key_rotate_start"
+  case MetadataUpdate = "metadata_update"
+  case OAuthFallbackClientCredentials = "oauth_fallback_client_credentials"
+  case OAuthRefreshFailed = "oauth_refresh_failed"
+  case OAuthRefreshStoreFailed = "oauth_refresh_store_failed"
+  case Read = "read"
+  case Rotate = "rotate"
+  case Update = "update"
   method label(): string
   method static cases(): array
   method static from(int|string $value): static
@@ -74,13 +74,13 @@ Netresearch\NrVault\Audit\AuditChainAnchorLoad (class)
   property readonly status: Netresearch\NrVault\Audit\AuditChainAnchorStatus
 
 Netresearch\NrVault\Audit\AuditChainAnchorStatus (enum)
-  case Disabled
-  case InFlight
-  case NotChecked
-  case Ok
-  case Unanchored
-  case Unreadable
-  case Violated
+  case Disabled = "disabled"
+  case InFlight = "inFlight"
+  case NotChecked = "notChecked"
+  case Ok = "ok"
+  case Unanchored = "unanchored"
+  case Unreadable = "unreadable"
+  case Violated = "violated"
   method static cases(): array
   method static from(int|string $value): static
   method static tryFrom(int|string $value): ?static
@@ -113,13 +113,13 @@ Netresearch\NrVault\Audit\AuditIntegrityAlert (class)
   property readonly timestamp: int
 
 Netresearch\NrVault\Audit\AuditIntegrityReason (enum)
-  case BreakGlass
-  case EpochDowngrade
-  case HashMismatch
-  case NoExternalSink
-  case SinkFailure
-  case TableReset
-  case UidGap
+  case BreakGlass = "BREAK_GLASS"
+  case EpochDowngrade = "EPOCH_DOWNGRADE"
+  case HashMismatch = "HASH_MISMATCH"
+  case NoExternalSink = "NO_EXTERNAL_SINK"
+  case SinkFailure = "SINK_FAILURE"
+  case TableReset = "TABLE_RESET"
+  case UidGap = "UID_GAP"
   method isTamperEvidence(): bool
   method label(): string
   method static cases(): array
@@ -323,8 +323,8 @@ Netresearch\NrVault\Configuration\ExtensionConfigurationInterface (interface)
   method preferXChaCha20(): bool
 
 Netresearch\NrVault\Configuration\SecurityProfile (enum)
-  case Hardened
-  case Standard
+  case Hardened = "hardened"
+  case Standard = "standard"
   method isHardened(): bool
   method static cases(): array
   method static from(int|string $value): static
@@ -348,8 +348,8 @@ Netresearch\NrVault\Crypto\EncryptedData (class)
   property readonly valueNonce: string
 
 Netresearch\NrVault\Crypto\EncryptionAlgorithm (enum)
-  case Aes256Gcm
-  case XChaCha20Poly1305
+  case Aes256Gcm = "aes256gcm"
+  case XChaCha20Poly1305 = "xchacha20poly1305"
   method isAvailable(): bool
   method keyLength(): int
   method nonceLength(): int
@@ -406,6 +406,43 @@ Netresearch\NrVault\Crypto\ReEncryptedDek (class)
   property readonly encryptedDek: string
   property readonly nonce: string
 
+Netresearch\NrVault\Domain\Dto\MigrationResult (class)
+  constructor(string $table, string $column, int $migrated, int $failed, int $skipped, ?string $error = …)
+  method getTotal(): int
+  method hasError(): bool
+  method isSuccess(): bool
+  method static error(string $table, string $column, string $error): self
+  method static success(string $table, string $column, int $migrated, int $skipped = …): self
+  method static withFailures(string $table, string $column, int $migrated, int $failed, int $skipped = …): self
+  method toArray(): array
+  property readonly column: string
+  property readonly error: ?string
+  property readonly failed: int
+  property readonly migrated: int
+  property readonly skipped: int
+  property readonly table: string
+
+Netresearch\NrVault\Domain\Dto\OrphanReference (class)
+  constructor(string $table, string $field, int $uid)
+  method getLocation(): string
+  method static fromArray(array $data): self
+  method toArray(): array
+  property readonly field: string
+  property readonly table: string
+  property readonly uid: int
+
+Netresearch\NrVault\Domain\Dto\OrphanSecretInfo (class)
+  constructor(string $identifier, array $metadata, int $createdAt)
+  method getAgeInDays(): int
+  method getAgeInSeconds(): int
+  method getMetadataValue(string $key, mixed $default = …): mixed
+  method isOlderThanDays(int $days): bool
+  method static fromArray(array $data): self
+  method toArray(): array
+  property readonly createdAt: int
+  property readonly identifier: string
+  property readonly metadata: array
+
 Netresearch\NrVault\Domain\Dto\SecretDetails (class)
   constructor(int $uid, string $identifier, string $description, int $ownerUid, array $groups, string $context, bool $frontendAccessible, int $version, int $createdAt, int $updatedAt, ?int $expiresAt, ?int $lastRotatedAt, int $readCount, ?int $lastReadAt, array $metadata, int $scopePid, bool $enabled = …)
   method expiresSoon(int $days): bool
@@ -440,6 +477,40 @@ Netresearch\NrVault\Domain\Dto\SecretFilters (class)
   property readonly owner: ?int
   property readonly prefix: ?string
   property readonly scopePid: ?int
+
+Netresearch\NrVault\Domain\Dto\SecretMetadata (class)
+  constructor(string $identifier, int $ownerUid, int $createdAt, int $updatedAt, int $readCount, ?int $lastReadAt, string $description, int $version, array $metadata = …, bool $enabled = …)
+  method static fromArray(array $row): self
+  method toArray(): array
+  property readonly createdAt: int
+  property readonly description: string
+  property readonly enabled: bool
+  property readonly identifier: string
+  property readonly lastReadAt: ?int
+  property readonly metadata: array
+  property readonly ownerUid: int
+  property readonly readCount: int
+  property readonly updatedAt: int
+  property readonly version: int
+
+Netresearch\NrVault\Domain\Dto\StaleSecret (class)
+  constructor(int $uid, string $identifier, string $context, string $adapter, ?int $lastReadAt, int $automatedReads, int $manualReveals, int $ageDays, array $rules)
+  method highestSeverity(): string
+  property readonly adapter: string
+  property readonly ageDays: int
+  property readonly automatedReads: int
+  property readonly context: string
+  property readonly identifier: string
+  property readonly lastReadAt: ?int
+  property readonly manualReveals: int
+  property readonly rules: array
+  property readonly uid: int
+
+Netresearch\NrVault\Domain\Dto\UsageBar (class)
+  constructor(string $label, int $value, int $percent)
+  property readonly label: string
+  property readonly percent: int
+  property readonly value: int
 
 Netresearch\NrVault\Domain\Dto\VaultUsageStats (class)
   constructor(int $total, int $active, int $disabled, int $expired, int $frontendAccessible, int $neverRotated, int $automatedReads, int $manualReveals, int $windowDays, array $byAdapter, array $byContext)
@@ -545,10 +616,10 @@ Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface (interface)
   method setMetadata(int $uid, array $metadata): void
 
 Netresearch\NrVault\Domain\StalenessRule (enum)
-  case AutomationStale
-  case Dead
-  case Expired
-  case NeverRotated
+  case AutomationStale = "automation_stale"
+  case Dead = "dead"
+  case Expired = "expired"
+  case NeverRotated = "never_rotated"
   method label(): string
   method severity(): string
   method static cases(): array
@@ -667,13 +738,13 @@ Netresearch\NrVault\Http\OAuth\OAuthConfig (class)
   property readonly tokenExpiryBuffer: int
 
 Netresearch\NrVault\Http\SecretPlacement (enum)
-  case ApiKey
-  case BasicAuth
-  case Bearer
-  case BodyField
-  case Header
-  case OAuth2
-  case QueryParam
+  case ApiKey = "api_key"
+  case BasicAuth = "basic"
+  case Bearer = "bearer"
+  case BodyField = "body_field"
+  case Header = "header"
+  case OAuth2 = "oauth2"
+  case QueryParam = "query"
   method defaultConfigKey(): ?string
   method description(): string
   method requiresConfig(): bool
@@ -760,16 +831,16 @@ Netresearch\NrVault\Security\TechnicalActorContextInterface (interface)
   method runAs(int $beUserUid, callable $fn): mixed
 
 Netresearch\NrVault\Security\VaultPermission (enum)
-  case AuditExport
-  case AuditView
-  case MasterKeyRotate
-  case SecretCreate
-  case SecretDelete
-  case SecretManagePolicy
-  case SecretReveal
-  case SecretRotate
-  case SecretUse
-  case VaultConfigure
+  case AuditExport = "audit.export"
+  case AuditView = "audit.view"
+  case MasterKeyRotate = "master_key.rotate"
+  case SecretCreate = "secret.create"
+  case SecretDelete = "secret.delete"
+  case SecretManagePolicy = "secret.manage_policy"
+  case SecretReveal = "secret.reveal"
+  case SecretRotate = "secret.rotate"
+  case SecretUse = "secret.use"
+  case VaultConfigure = "vault.configure"
   method static cases(): array
   method static from(int|string $value): static
   method static secretOperations(): array
@@ -789,10 +860,10 @@ Netresearch\NrVault\Service\Detection\SecretFinding (interface)
   method getSource(): string
 
 Netresearch\NrVault\Service\Detection\Severity (enum)
-  case Critical
-  case High
-  case Low
-  case Medium
+  case Critical = "critical"
+  case High = "high"
+  case Low = "low"
+  case Medium = "medium"
   method isAtLeast(self $minimum): bool
   method order(): int
   method static cases(): array
@@ -824,9 +895,9 @@ Netresearch\NrVault\Service\Doctor\DoctorReport (class)
   property readonly findings: array
 
 Netresearch\NrVault\Service\Doctor\FindingSeverity (enum)
-  case Critical
-  case Pass
-  case Warning
+  case Critical = "critical"
+  case Pass = "pass"
+  case Warning = "warning"
   method bootstrapContext(): string
   method rank(): int
   method static cases(): array
@@ -852,10 +923,10 @@ Netresearch\NrVault\Service\SecretDetectionServiceInterface (interface)
   method scanLocalConfiguration(): void
 
 Netresearch\NrVault\Service\VaultFieldPermission (enum)
-  case Copy
-  case Edit
-  case ReadOnly
-  case Reveal
+  case Copy = "copy"
+  case Edit = "edit"
+  case ReadOnly = "readOnly"
+  case Reveal = "reveal"
   method static cases(): array
   method static from(int|string $value): static
   method static tryFrom(int|string $value): ?static

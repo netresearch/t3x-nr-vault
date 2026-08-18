@@ -39,14 +39,22 @@ use Throwable;
  * frozen set is therefore derived mechanically, with no marker to forget:
  *
  * 1. **Seed**: every interface, enum and `Throwable` subclass under
- *    `Classes/`. Interfaces are the consumer contract; enum backing values
- *    are shared vocabulary (the `AuditAction` values are bound into audit
- *    rows); exception classes are what callers `catch`.
- * 2. **Closure**: every own-namespace type a frozen signature mentions —
- *    method parameters and returns, public property types, and public
- *    constructor parameters — is frozen too, recursively. That pulls in the
- *    value objects consumers receive and construct (`OAuthConfig`,
- *    `SecretDetails`, …) without hand-maintaining a list.
+ *    `Classes/`, plus every class under `Classes/Domain/Dto/`. Interfaces
+ *    are the consumer contract; enum backing values are shared vocabulary
+ *    (the `AuditAction` values are bound into audit rows, and the renderer
+ *    freezes the values, not just the case names); exception classes are
+ *    what callers `catch`; the DTO directory is seeded wholesale because
+ *    several DTOs travel only through docblock-typed arrays
+ *    (`VaultServiceInterface::list()` returns `list<SecretMetadata>` as
+ *    native `array`), which the reflection-based closure cannot see.
+ * 2. **Closure**: every own-namespace type a frozen signature mentions as a
+ *    NATIVE type — method parameters and returns, public property types,
+ *    and public constructor parameters — is frozen too, recursively. That
+ *    pulls in the value objects consumers receive and construct
+ *    (`OAuthConfig`, …) without hand-maintaining a list. Types that appear
+ *    only in docblocks are outside the closure's sight — the Dto seeding
+ *    above is the compensation, so a new consumer-facing DTO belongs in
+ *    that directory.
  *
  * A change to any of these signatures then has to be an explicit commit — a
  * visible `api-surface.txt` diff — rather than a side effect. The failure
@@ -163,10 +171,14 @@ final class ApiSurfaceSnapshotTest extends TestCase
                 // TYPO3 ^13.4: AuditHmacMigrationWizard implements
                 // TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface, which
                 // exists under that name only on 14.x). Such a class cannot
-                // be part of THIS leg's surface. If a class that qualifies
-                // for the snapshot ever splits by TYPO3 version, the leg
-                // missing it fails the snapshot comparison with a visible
-                // `removed` diff instead of a fatal here.
+                // be part of THIS leg's surface. If a SEED class ever splits
+                // by TYPO3 version, the leg missing it fails the snapshot
+                // comparison with a visible `removed` diff instead of a
+                // fatal here; a closure-reached type that splits would still
+                // error loudly at its ReflectionClass construction — loud,
+                // just without the diff diagnosis. This catch also swallows
+                // a ParseError in a seed file: such a file is skipped here
+                // and caught by the lint job instead.
                 continue;
             }
 
@@ -178,7 +190,12 @@ final class ApiSurfaceSnapshotTest extends TestCase
                 \sprintf('File under Classes/ does not autoload as %s — the PSR-4 discovery rule is broken.', $fqcn),
             );
 
-            if (interface_exists($fqcn) || enum_exists($fqcn) || is_a($fqcn, Throwable::class, true)) {
+            if (
+                interface_exists($fqcn)
+                || enum_exists($fqcn)
+                || is_a($fqcn, Throwable::class, true)
+                || str_starts_with($fqcn, self::NAMESPACE_PREFIX . 'Domain\\Dto\\')
+            ) {
                 $classes[] = $fqcn;
             }
         }
