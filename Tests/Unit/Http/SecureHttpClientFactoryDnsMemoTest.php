@@ -90,7 +90,7 @@ final class SecureHttpClientFactoryDnsMemoTest extends TestCase
         $client = $this->buildCapturingClient($capturedOptions);
         $client->get('https://' . self::HOST . '/v1/data');
 
-        self::assertSame(1, $this->dnsResolver->queryCount(self::HOST), 'The middleware must reuse the gate\'s answer, not resolve again.');
+        self::assertSame(1, $this->dnsResolver->queryCount(self::HOST), "The middleware must reuse the gate's answer, not resolve again.");
         self::assertIsArray($capturedOptions);
         self::assertSame(
             [self::HOST . ':443:' . self::PUBLIC_IP],
