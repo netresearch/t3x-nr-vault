@@ -475,8 +475,8 @@ The ``checks`` array is emitted in a fixed order with stable ids:
 
 :mutation-msi-security:
    The same mutation analysis narrowed to ``Classes/Crypto``,
-   ``Classes/Security`` and ``Classes/Audit``, held to the stricter thresholds
-   in :file:`infection-security.json5`.
+   ``Classes/Security``, ``Classes/Audit`` and ``Classes/Http``, held to the
+   stricter thresholds in :file:`infection-security.json5`.
 
 :vault-doctor:
    Read from ``highestSeverity`` (``pass``/``warning``/``critical``), falling

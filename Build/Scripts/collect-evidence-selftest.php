@@ -136,8 +136,8 @@ function selfTestFixtureRoot(bool $withDoctorCommand): string
 }
 
 /**
- * Clover report with known totals: 95/100 statements overall, and each
- * security directory above the 90 % bar.
+ * Clover report with known totals: 114/120 statements overall (95.00 %), and
+ * each security directory above the 90 % bar.
  */
 function selfTestCloverHealthy(string $dir): string
 {
@@ -154,10 +154,13 @@ function selfTestCloverHealthy(string $dir): string
         <file name="/src/Classes/Audit/AuditLogService.php">
           <metrics statements="20" coveredstatements="19" conditionals="4" coveredconditionals="4"/>
         </file>
+        <file name="/src/Classes/Http/VaultHttpClient.php">
+          <metrics statements="20" coveredstatements="19" conditionals="4" coveredconditionals="4"/>
+        </file>
         <file name="/src/Classes/Service/VaultService.php">
           <metrics statements="10" coveredstatements="9" conditionals="2" coveredconditionals="1"/>
         </file>
-        <metrics statements="100" coveredstatements="95" conditionals="22" coveredconditionals="19"/>
+        <metrics statements="120" coveredstatements="114" conditionals="26" coveredconditionals="23"/>
       </project>
     </coverage>
     XML);
@@ -423,6 +426,10 @@ function selfTest(string $projectRoot): int
         selfTestAssert(
             str_contains($goodById['coverage-security-dirs']['summary'], 'Classes/Crypto 95.00%'),
             'per-directory coverage is aggregated from the clover file metrics',
+        );
+        selfTestAssert(
+            str_contains($goodById['coverage-security-dirs']['summary'], 'Classes/Http 95.00%'),
+            'the widened security scope (#307) gives Classes/Http its own coverage line',
         );
         selfTestAssert(
             str_contains($goodById['mutation-msi']['summary'], '80.50%')

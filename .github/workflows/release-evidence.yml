@@ -284,8 +284,9 @@ jobs:
             --no-progress
 
       # The security ratchet an auditor actually cares about: the same mutation
-      # analysis narrowed to Classes/Crypto, Classes/Security and Classes/Audit,
-      # held to the stricter thresholds in infection-security.json5. Skipped
+      # analysis narrowed to Classes/Crypto, Classes/Security, Classes/Audit
+      # and Classes/Http, held to the stricter thresholds in
+      # infection-security.json5. Skipped
       # (and recorded as absent) on releases that predate that config.
       - name: Mutation testing (security-critical scope)
         id: mutation-security
