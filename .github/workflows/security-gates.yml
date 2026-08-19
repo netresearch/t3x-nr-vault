@@ -1,7 +1,7 @@
 name: Security Gates
 
 # Mutation ratchet for the security-critical directories (Classes/Crypto,
-# Classes/Security, Classes/Audit) via `infection-security.json5`.
+# Classes/Security, Classes/Audit, Classes/Http) via `infection-security.json5`.
 #
 # WHY A STANDALONE WORKFLOW
 # =========================
@@ -86,7 +86,7 @@ jobs:
           # The gate's own inputs count as security-critical: a PR that lowers
           # the ratchet, rewrites the config or edits the crypto/audit tests must
           # be measured, not waved through.
-          if echo "$changed" | grep -qE '^(Classes/(Crypto|Security|Audit)/|Tests/(Fuzz|Unit/(Crypto|Security|Audit)|Functional/(Crypto|Security|Audit))/|infection-security\.json5$|infection\.json5$|composer\.json$|Build/phpunit\.xml$|\.github/workflows/security-gates\.yml$)'; then
+          if echo "$changed" | grep -qE '^(Classes/(Crypto|Security|Audit|Http)/|Tests/(Fuzz|Unit/(Crypto|Security|Audit|Http)|Functional/(Crypto|Security|Audit|Http))/|infection-security\.json5$|infection\.json5$|composer\.json$|Build/phpunit\.xml$|\.github/workflows/security-gates\.yml$)'; then
             echo 'security-changed=true' >> "$GITHUB_OUTPUT"
             echo "Security-critical paths changed — running the mutation gate."
           else
@@ -203,7 +203,7 @@ jobs:
           fi
 
           if [ "$MUTATION_RESULT" != "success" ]; then
-            echo "::error::Security mutation ratchet did not pass ($MUTATION_RESULT). The mutation score index for Classes/{Crypto,Security,Audit} dropped below the floor in infection-security.json5, or the run failed. Kill the escaped mutants listed in the job annotations; lowering the ratchet needs security-team sign-off."
+            echo "::error::Security mutation ratchet did not pass ($MUTATION_RESULT). The mutation score index for Classes/{Crypto,Security,Audit,Http} dropped below the floor in infection-security.json5, or the run failed. Kill the escaped mutants listed in the job annotations; lowering the ratchet needs security-team sign-off."
             exit 1
           fi
 

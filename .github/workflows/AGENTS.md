@@ -11,7 +11,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 |------|---------|
 | `ci.yml` | Extension-specific test matrix — a thin call into `typo3-ci-workflows/ci.yml` |
 | `checks.yml` | Security + quality jobs (security, gitleaks, zizmor, codeql, scorecard, fuzz, license-check, dependency-review, pr-quality, labeler). **Byte-identical and drift-enforced across every netresearch typo3-extension — never add a repo-specific job here** |
-| `security-gates.yml` | Mutation ratchet over `Classes/Crypto`, `Classes/Security`, `Classes/Audit` (`infection-security.json5`). Standalone precisely because `checks.yml` is drift-locked |
+| `security-gates.yml` | Mutation ratchet over `Classes/Crypto`, `Classes/Security`, `Classes/Audit`, `Classes/Http` (`infection-security.json5`). Standalone precisely because `checks.yml` is drift-locked |
 | `check-template-drift.yml` | Verifies this repo still matches the `typo3-extension` template |
 | `docs.yml` | Renders `Documentation/` on PRs touching it |
 | `release.yml` | Tag-triggered TER publish + GitHub release assets |

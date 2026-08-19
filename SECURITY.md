@@ -75,7 +75,8 @@ What is **not** skipped, in any circumstance:
 
 - the full CI matrix (PHP 8.2-8.5 x TYPO3 13.4/14.3) must be green;
 - the security invariant tests and the mutation ratchet on
-  `Classes/Crypto`, `Classes/Security` and `Classes/Audit` must hold;
+  `Classes/Crypto`, `Classes/Security`, `Classes/Audit` and `Classes/Http`
+  must hold;
 - the release evidence bundle is generated and read before announcing.
 
 **A release does not ship with unresolved High or Critical findings.** That
