@@ -328,6 +328,98 @@ final class SecureHttpClientFactoryTest extends TestCase
         }
     }
 
+    /**
+     * Environment proxy variables decide where outbound traffic — including
+     * every request carrying a vault secret — is actually sent, so the built
+     * client has to be inspected rather than merely constructed. The two tests
+     * above assert only that a client came back, which holds just as well for
+     * a client that silently dropped the proxy or read the wrong variable.
+     *
+     * `NO_PROXY` is a comma-separated list and Guzzle expects it split; the
+     * uppercase spelling wins over the lowercase one; and an empty value is
+     * not a proxy setting at all — an empty `proxy.https` would send requests
+     * to nowhere.
+     */
+    #[Test]
+    public function environmentProxyVariablesReachTheClientConfiguration(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [];
+
+        $this->withProxyEnvironment(
+            [
+                'HTTPS_PROXY' => 'http://https-proxy.example.com:8080',
+                'https_proxy' => 'http://lowercase-proxy.example.com:8080',
+                'HTTP_PROXY' => 'http://http-proxy.example.com:3128',
+                'NO_PROXY' => 'localhost,127.0.0.1,.local',
+            ],
+            function (): void {
+                $config = $this->getGuzzleConfig($this->factory->create());
+
+                self::assertSame(
+                    [
+                        'http' => 'http://http-proxy.example.com:3128',
+                        'https' => 'http://https-proxy.example.com:8080',
+                        'no' => ['localhost', '127.0.0.1', '.local'],
+                    ],
+                    $config['proxy'] ?? null,
+                );
+            },
+        );
+    }
+
+    #[Test]
+    public function emptyProxyEnvironmentVariablesAreNotTreatedAsAProxy(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [];
+
+        $this->withProxyEnvironment(
+            [
+                'HTTPS_PROXY' => '',
+                'https_proxy' => '',
+                'HTTP_PROXY' => '',
+                'http_proxy' => '',
+                'NO_PROXY' => '',
+                'no_proxy' => '',
+            ],
+            function (): void {
+                $config = $this->getGuzzleConfig($this->factory->create());
+
+                self::assertNull(
+                    $config['proxy'] ?? null,
+                    'An empty proxy variable must leave the client without a proxy, not with an empty one.',
+                );
+            },
+        );
+    }
+
+    #[Test]
+    public function lowercaseProxyVariablesAreUsedWhenTheUppercaseOnesAreUnset(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [];
+
+        $this->withProxyEnvironment(
+            [
+                'HTTPS_PROXY' => null,
+                'https_proxy' => 'http://lowercase-proxy.example.com:8080',
+                'HTTP_PROXY' => null,
+                'http_proxy' => null,
+                'NO_PROXY' => null,
+                'no_proxy' => 'example.org',
+            ],
+            function (): void {
+                $config = $this->getGuzzleConfig($this->factory->create());
+
+                self::assertSame(
+                    [
+                        'https' => 'http://lowercase-proxy.example.com:8080',
+                        'no' => ['example.org'],
+                    ],
+                    $config['proxy'] ?? null,
+                );
+            },
+        );
+    }
+
     #[Test]
     public function isHostAllowedReturnsFalseWhenNoPatternMatches(): void
     {
@@ -337,6 +429,46 @@ final class SecureHttpClientFactoryTest extends TestCase
 
         // Neither exact match nor wildcard match
         self::assertFalse($this->factory->isHostAllowed('different.domain.org'));
+    }
+
+    /**
+     * Apply proxy environment variables for the duration of one callable and
+     * restore whatever the environment held before, including variables the
+     * caller set to `null` (meaning: must be unset while the callable runs).
+     *
+     * @param array<string, string|null> $variables
+     * @param callable(): void $assertions
+     */
+    private function withProxyEnvironment(array $variables, callable $assertions): void
+    {
+        $originals = [];
+        foreach (array_keys($variables) as $name) {
+            $originals[$name] = getenv($name);
+        }
+
+        foreach ($variables as $name => $value) {
+            if ($value === null) {
+                putenv($name);
+
+                continue;
+            }
+
+            putenv($name . '=' . $value);
+        }
+
+        try {
+            $assertions();
+        } finally {
+            foreach ($originals as $name => $value) {
+                if ($value === false) {
+                    putenv($name);
+
+                    continue;
+                }
+
+                putenv($name . '=' . $value);
+            }
+        }
     }
 }
 

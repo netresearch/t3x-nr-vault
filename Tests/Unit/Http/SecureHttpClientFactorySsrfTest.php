@@ -66,6 +66,21 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
         yield 'reserved 240/4' => ['240.0.0.1'];
         yield 'benchmark 198.18/15' => ['198.18.0.1'];
 
+        // Upper edges of each explicitly checked range. The lower edge alone
+        // passes a check that has drifted to only match that one address —
+        // both ends have to be pinned for the range to mean anything.
+        yield 'cgnat upper edge 100.127.255.254' => ['100.127.255.254'];
+        yield 'cgnat odd second octet 100.65.0.1' => ['100.65.0.1'];
+        yield 'ietf protocol assignments 192.0.0/24' => ['192.0.0.1'];
+        yield 'ietf protocol assignments upper 192.0.0.254' => ['192.0.0.254'];
+        yield 'benchmark second half 198.19/16' => ['198.19.0.1'];
+        yield 'multicast upper edge 239.255.255.254' => ['239.255.255.254'];
+
+        // IPv6 range edges, same reasoning.
+        yield 'ipv6 ula second half fd00::/8' => ['fd00::1'];
+        yield 'ipv6 link-local upper edge febf::' => ['febf::1'];
+        yield 'ipv6 discard-only 100::/64' => ['100::1'];
+
         // IPv6 dangerous ranges
         yield 'ipv6 loopback' => ['::1'];
         yield 'ipv6 ula fc00::/7' => ['fc00::1'];
@@ -160,6 +175,62 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
     {
         // parse_url returning no host means we fail closed.
         self::assertFalse($this->subject->isHostAllowed('://no-scheme-no-host'));
+    }
+
+    /**
+     * Addresses that sit just outside a denied range, or that merely resemble
+     * a transition form, and therefore must stay reachable.
+     *
+     * A deny check is only as good as the line it draws. Asserting the denied
+     * side alone cannot tell a correct range from one that swallows the whole
+     * internet, and the transition-form branches decode an embedded IPv4 at a
+     * fixed byte offset — reading one byte to either side still lands on
+     * plausible-looking bytes, so only an address that must be ALLOWED shows
+     * the offset moved.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function publicNeighbourIpProvider(): iterable
+    {
+        // IPv4 — one step outside each explicitly checked range.
+        yield 'above cgnat 100.128.0.1' => ['100.128.0.1'];
+        yield 'below cgnat 99.64.0.1' => ['99.64.0.1'];
+        yield 'past ietf /24 192.0.1.1' => ['192.0.1.1'];
+        yield 'other 192 second octet 192.1.0.1' => ['192.1.0.1'];
+        yield 'below ietf block 191.0.0.1' => ['191.0.0.1'];
+        yield 'above benchmark 198.20.0.1' => ['198.20.0.1'];
+        yield 'below benchmark 198.17.0.1' => ['198.17.0.1'];
+        yield 'below multicast 223.255.255.254' => ['223.255.255.254'];
+        yield 'ordinary public 16.0.0.1' => ['16.0.0.1'];
+        yield 'ordinary public 9.9.9.9' => ['9.9.9.9'];
+
+        // IPv6 — outside the byte-0/byte-1 prefixes.
+        yield 'global unicast 2080::1' => ['2080::1'];
+
+        // IPv6 addresses that merely CONTAIN bytes a transition form would
+        // carry. ::ffff: in the middle of a global address is not an
+        // IPv4-mapped address, and the trailing bytes are not an embedded IPv4.
+        yield 'ffff bytes mid-address 2001:db8::ffff:7f00:1' => ['2001:db8::ffff:7f00:1'];
+
+        // Transition forms whose embedded IPv4 is public — these exercise the
+        // decode offsets: shift the window by a byte and a public embedded
+        // address reads as a reserved one.
+        yield 'ipv4-mapped public ::ffff:8.8.8.8' => ['::ffff:8.8.8.8'];
+        yield '6to4 public 2002:17f:1::' => ['2002:17f:1::'];
+        // Teredo with a public server (8.127.0.1, bytes 4-7) AND a public
+        // client (8.8.4.4, bytes 12-15 stored XOR 0xffffffff).
+        yield 'teredo public both legs' => ['2001:0:87f:1::f7f7:fbfb'];
+        yield 'ipv4-compatible public ::8.8.8.8' => ['::8.8.8.8'];
+    }
+
+    #[Test]
+    #[DataProvider('publicNeighbourIpProvider')]
+    public function isHostAllowedAllowsPublicNeighboursOfDeniedRanges(string $host): void
+    {
+        self::assertTrue(
+            $this->subject->isHostAllowed($host),
+            \sprintf('Expected public host %s to stay reachable, but it was blocked.', $host),
+        );
     }
 
     #[Test]
