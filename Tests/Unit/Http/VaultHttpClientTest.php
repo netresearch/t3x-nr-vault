@@ -867,6 +867,86 @@ final class VaultHttpClientTest extends TestCase
     }
 
     /**
+     * The list guard behind the leading-token check. A body of `[1,2,3]` never
+     * reaches it — it is rejected for not starting with `{` — so the only way
+     * to exercise the guard is the case its own comment describes: an object
+     * whose keys are the consecutive numeric strings PHP decodes back into a
+     * list. Injecting a named field there would re-encode a reshaped
+     * structure, which is why it is refused rather than silently accepted.
+     */
+    #[Test]
+    public function injectBodyFieldRejectsJsonObjectThatDecodesToAList(): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->with('my_api_key')
+            ->willReturn('secret-value');
+
+        $this->innerClient
+            ->expects(self::never())
+            ->method('sendRequest');
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
+
+        $request = new Request('POST', self::API_URL, [
+            'Content-Type' => self::CONTENT_TYPE_JSON,
+        ], '{"0":"a","1":"b"}');
+
+        $this->expectException(VaultException::class);
+        $this->expectExceptionMessageToContain(self::NON_OBJECT_BODY_MESSAGE);
+
+        $authenticatedClient->sendRequest($request);
+    }
+
+    /**
+     * The two body-field refusals carry distinct codes, and a consumer that
+     * wants to tell "not an object" from "not parseable" has nothing else to
+     * match on — the messages are prose. Pin both.
+     *
+     * @return iterable<string, array{0: string, 1: int}>
+     */
+    public static function bodyFieldRefusalCodeProvider(): iterable
+    {
+        yield 'not an object' => ['[1,2,3]', 1735858524];
+        yield 'not valid json' => ['{"broken": ', 1781076764];
+    }
+
+    #[Test]
+    #[DataProvider('bodyFieldRefusalCodeProvider')]
+    public function injectBodyFieldRefusalsCarryTheirDistinctCode(string $body, int $expectedCode): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->with('my_api_key')
+            ->willReturn('secret-value');
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
+
+        $request = new Request('POST', self::API_URL, [
+            'Content-Type' => self::CONTENT_TYPE_JSON,
+        ], $body);
+
+        try {
+            $authenticatedClient->sendRequest($request);
+            self::fail('Expected the body-field injection to be refused.');
+        } catch (VaultException $exception) {
+            self::assertSame($expectedCode, $exception->getCode());
+        }
+    }
+
+    /**
      * A scalar JSON body (`"value"`, `42`, `true`) is even worse — the old
      * `$data[$field] = ...` on a string/int would fatally error after the
      * secret was already retrieved. Reject it with a clear exception instead.

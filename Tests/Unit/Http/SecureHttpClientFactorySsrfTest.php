@@ -80,6 +80,15 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
         yield 'ipv6 ula second half fd00::/8' => ['fd00::1'];
         yield 'ipv6 link-local upper edge febf::' => ['febf::1'];
         yield 'ipv6 discard-only 100::/64' => ['100::1'];
+        // Teredo with a dangerous SERVER (127.0.0.1 in bytes 4-7) and a public
+        // client (8.8.4.4, stored XOR 0xffffffff). The row above covers the
+        // mirror case; either leg reaching a dangerous IPv4 must deny, and only
+        // this one exercises the server decode.
+        yield 'teredo internal server 127.0.0.1' => ['2001:0:7f00:1::f7f7:fbfb'];
+        // Bracketed form of an address that must be denied on its merits, so
+        // the bracket strip cannot quietly hand a different address to the
+        // range checks.
+        yield 'ipv6 bracketed ula' => ['[fd00::1]'];
 
         // IPv6 dangerous ranges
         yield 'ipv6 loopback' => ['::1'];
@@ -221,6 +230,9 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
         // client (8.8.4.4, bytes 12-15 stored XOR 0xffffffff).
         yield 'teredo public both legs' => ['2001:0:87f:1::f7f7:fbfb'];
         yield 'ipv4-compatible public ::8.8.8.8' => ['::8.8.8.8'];
+        // The bracket strip must return the address itself, not a truncation
+        // of it: a public IPv6 in brackets stays reachable.
+        yield 'bracketed public ipv6' => ['[2606:4700:4700::1111]'];
     }
 
     #[Test]
