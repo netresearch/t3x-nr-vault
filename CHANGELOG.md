@@ -147,6 +147,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Agent documentation synced and put under CI verification** (#325). Root
+  `AGENTS.md` shrank from 296 to 144 lines: the Key-Interfaces cheat-sheet, the
+  `vault:*` CLI list, the component map and the phpat dependency rules now live
+  in the new agent-facing `docs/ARCHITECTURE.md`; the audit-log invariants and
+  the backend-submodule completeness recipe moved into `Classes/AGENTS.md`.
+  Drifted claims were corrected (`composer ci` scope, `make ci` scope in the
+  `Classes/` checklist, stale `ddev exec phpunit` instructions in `Tests/` and
+  `.ddev/` that contradicted the `runTests.sh` mandate), and
+  `Documentation/CLAUDE.md` was added as a regular file (the docs renderer
+  rejects symlinks). A new `harness-verify` workflow runs
+  `Build/Scripts/verify-harness.sh` on every PR so this class of drift fails CI.
+
 - **One DNS lookup per outbound request instead of two** (#304). The
   caller-side `isHostAllowed()` gate and the `ssrf-dns-pin` middleware each
   ran their own `dns_get_record()`; a short-lived memo (5 s, per host) inside

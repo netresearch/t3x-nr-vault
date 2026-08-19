@@ -1,5 +1,5 @@
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-04-20 | Last verified: 2026-04-20 -->
+<!-- Last updated: 2026-08-19 | Last verified: 2026-08-19 -->
 
 # AGENTS.md — .ddev
 
@@ -33,9 +33,8 @@ Invoke skill **`typo3-ddev`** for setup and multi-version testing patterns.
 ## Build/Tests
 | Task | Command |
 |------|---------|
-| Run unit tests in container | `ddev composer ci:test:php:unit` |
-| Run functional tests in container | `ddev composer ci:test:php:functional` |
-| Run single test | `ddev exec vendor/bin/phpunit -c Build/phpunit.xml <path>` |
+| Run tests | NOT in DDEV — use `make test-unit` / `make test-functional` (containerized `Build/Scripts/runTests.sh`, own ephemeral containers) |
+| Run single test | `Build/Scripts/runTests.sh -s unit Tests/Unit/Path/ToTest.php` |
 | DB export | `ddev export-db --file=dump.sql.gz` |
 | DB import | `ddev import-db --file=dump.sql.gz` |
 

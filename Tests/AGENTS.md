@@ -1,5 +1,5 @@
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-02 | Last verified: 2026-08-02 -->
+<!-- Last updated: 2026-08-19 | Last verified: 2026-08-19 -->
 
 # AGENTS.md — Tests
 
@@ -8,9 +8,8 @@ Unit, Functional, Fuzz, and Architecture tests for nr-vault.
 Invoke skill **`typo3-testing`** for deeper guidance on fixtures, mocking, and CI setup.
 
 ## Setup
-- Local: `make up` to start DDEV, then `make test-unit` / `make test-functional`.
-- CI-only config at `Build/phpunit.xml` (unit + fuzz) and `Build/FunctionalTests.xml` (functional).
-- Functional tests need DB — run inside DDEV (`ddev exec ...`).
+- All suites run through `Build/Scripts/runTests.sh` (containerized, brings its own ephemeral DB) — `make test-unit` / `make test-functional` wrap it. NEVER run tests inside DDEV; DDEV is the dev environment only.
+- PHPUnit config at `Build/phpunit.xml` (unit + fuzz) and `Build/FunctionalTests.xml` (functional).
 
 ## Key Files
 | File | Purpose |
@@ -43,10 +42,10 @@ Invoke skill **`typo3-testing`** for deeper guidance on fixtures, mocking, and C
 | Unit only | `make test-unit` (or `composer ci:test:php:unit`) |
 | Functional only | `make test-functional` (or `composer ci:test:php:functional`) |
 | Fuzz | `composer ci:test:php:fuzz` |
-| All CI (unit+fuzz+phpstan+cgl) | `composer ci` |
+| All CI (unit+fuzz+phpstan+arch+doc-cli+evidence+cgl) | `composer ci` |
 | Mutation (Infection) | `make test-mutation` |
-| Single file | `ddev exec vendor/bin/phpunit -c Build/phpunit.xml Tests/Unit/Path/ToTest.php` |
-| Coverage | `ddev exec vendor/bin/phpunit -c Build/phpunit.xml --coverage-html .Build/coverage` |
+| Single file | `Build/Scripts/runTests.sh -s unit Tests/Unit/Path/ToTest.php` |
+| Coverage | `make test-coverage` (line) / `make test-coverage-path` (path+branch) / `make test-coverage-functional` |
 | Test-base convention check | `php Tests/scripts/check-test-base-class.php` |
 | Regenerate legacy allow-list | `php Tests/scripts/check-test-base-class.php --update-allowlist` |
 

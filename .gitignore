@@ -36,8 +36,13 @@ package-lock.json
 /rust/target/
 *.so
 
-# Generated / internal docs
-/docs/
+# Generated / internal docs — but the agent-harness files are tracked:
+# docs/ARCHITECTURE.md and docs/exec-plans/README.md (exec-plan contents stay ignored)
+/docs/*
+!/docs/ARCHITECTURE.md
+!/docs/exec-plans/
+/docs/exec-plans/*
+!/docs/exec-plans/README.md
 /claudedocs/
 /.conformance-reports/
 

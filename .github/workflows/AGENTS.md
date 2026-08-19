@@ -1,5 +1,5 @@
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-02 | Last verified: 2026-08-02 -->
+<!-- Last updated: 2026-08-19 | Last verified: 2026-08-19 -->
 
 # AGENTS.md — .github/workflows
 
@@ -14,6 +14,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 | `security-gates.yml` | Mutation ratchet over `Classes/Crypto`, `Classes/Security`, `Classes/Audit`, `Classes/Http` (`infection-security.json5`). Standalone precisely because `checks.yml` is drift-locked |
 | `check-template-drift.yml` | Verifies this repo still matches the `typo3-extension` template |
 | `docs.yml` | Renders `Documentation/` on PRs touching it |
+| `harness-verify.yml` | Agent-harness consistency check (`Build/Scripts/verify-harness.sh`) via the shared `script-check.yml` reusable; exit 2 (warnings) passes |
 | `release.yml` | Tag-triggered TER publish + GitHub release assets |
 | `release-evidence.yml` | Publishes the security release-evidence bundle for a tag |
 | `republish.yml` | Manual re-run of a publish target (ter / docs / packagist) for an existing tag |
@@ -54,6 +55,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 │   ├── check-template-drift.yml
 │   ├── security-gates.yml
 │   ├── docs.yml
+│   ├── harness-verify.yml
 │   ├── release.yml
 │   ├── release-evidence.yml
 │   ├── republish.yml
