@@ -21,6 +21,13 @@ jobs:
       php-versions: '["8.2","8.3","8.4","8.5"]'
       typo3-versions: '["^13.4","^14.3"]'
       run-functional-tests: true
+      # Repo-specific checks (composer ci:test:repo: arch + doc-cli + its
+      # self-test + the evidence-collector self-test). All four are static
+      # file scans needing no dependency tree, which is the shared job's
+      # contract — without this input they ran only when someone invoked
+      # the full gate set by hand, which is how the vault:store doc drift
+      # went unnoticed (#308).
+      run-repo-checks: true
       upload-coverage: true
       upload-test-results: true
       coverage-tool: 'xdebug'

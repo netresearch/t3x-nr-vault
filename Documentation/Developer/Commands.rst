@@ -102,6 +102,15 @@ Options
    ``--groups="1,2"`` is *not* split: it is read as a single non-numeric value
    and becomes group 0.
 
+--as-provisioner
+   Write as the configured provisioning backend user instead of the
+   unattributed CLI actor, so the stored secret is owned and audited under a
+   real account.
+   The user comes from the ``provisioningBeUserUid`` extension setting —
+   never from this command line — and its group must carry the
+   ``tx_nrvault:secret.create`` permission option.
+   The command aborts before storing anything when the setting is unset.
+
 .. _command-store-example:
 
 Example
