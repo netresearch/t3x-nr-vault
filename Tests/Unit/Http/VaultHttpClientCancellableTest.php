@@ -24,6 +24,7 @@ use GuzzleHttp\Psr7\Response;
 use InvalidArgumentException;
 use Netresearch\NrVault\Audit\AuditContextInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\HttpCallContext;
 use Netresearch\NrVault\Exception\RequestCancelledException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\VaultException;
@@ -477,6 +478,54 @@ final class VaultHttpClientCancellableTest extends TestCase
             [['http_call_cancelled_before_send', false, self::CANCELLED_BEFORE_SEND_MESSAGE]],
             $auditedRows,
         );
+    }
+
+    /**
+     * The audited status code for a call that never reached the wire.
+     *
+     * Zero is the only honest value here — there was no response — and it is
+     * what an auditor filters on to separate "never sent" from a real HTTP
+     * outcome. Any other number would read as a status the server returned.
+     * The row's action and message are pinned above; nothing pinned the
+     * context the row carries.
+     */
+    #[Test]
+    public function aPreFlightCancellationIsAuditedWithoutAStatusCode(): void
+    {
+        $transfer = new StubbedTransfer();
+        $transport = $this->transportWith($transfer, new ClosureTicker(static function (): void {}));
+
+        $statusCodes = [];
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->willReturnCallback(
+                static function (
+                    string $identifier,
+                    string $action,
+                    bool $success,
+                    ?string $error = null,
+                    ?string $reason = null,
+                    ?string $hashBefore = null,
+                    ?string $hashAfter = null,
+                    ?AuditContextInterface $context = null,
+                ) use (&$statusCodes): void {
+                    self::assertInstanceOf(HttpCallContext::class, $context);
+                    $statusCodes[] = $context->statusCode;
+                },
+            );
+
+        $client = $this->clientWithTransport($transport)
+            ->withAuthentication('api_key', SecretPlacement::Bearer);
+
+        try {
+            $client->sendCancellable(new Request('GET', self::API_URL), new AlreadyCancelledSignal());
+            self::fail('Expected the pre-flight signal to refuse the send.');
+        } catch (RequestCancelledException) {
+            // The refusal itself is asserted by the test above.
+        }
+
+        self::assertSame([0], $statusCodes);
     }
 
     #[Test]

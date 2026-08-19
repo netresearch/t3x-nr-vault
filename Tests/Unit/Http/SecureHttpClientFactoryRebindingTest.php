@@ -317,10 +317,22 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // hand it to curl to resolve internally.
         $client = $this->buildCapturingClient($capturedOptions);
 
-        $this->expectException(RequestException::class);
-        $this->expectExceptionMessageMatches('/non-canonical numeric IP form/i');
+        try {
+            $client->get('http://2130706433/'); // NOSONAR: rejection test — the request is refused before any socket opens; scheme is irrelevant
+            self::fail('The middleware must refuse a legacy numeric IP form.');
+        } catch (RequestException $e) {
+            // All three parts of the refusal are asserted, not just the first:
+            // the message has to name the host, say what curl would do with it,
+            // and tell the operator the accepted form. A refusal that states
+            // only the verdict leaves whoever hits it with nothing to act on,
+            // and each part is a separate string the compiler is free to drop.
+            self::assertStringContainsString('non-canonical numeric IP form', $e->getMessage());
+            self::assertStringContainsString('2130706433', $e->getMessage());
+            self::assertStringContainsString('bypassing the IP range', $e->getMessage());
+            self::assertStringContainsString('canonical dotted-quad', $e->getMessage());
+        }
 
-        $client->get('http://2130706433/'); // NOSONAR: rejection test — the request is refused before any socket opens; scheme is irrelevant
+        self::assertNull($capturedOptions, 'Nothing may reach the transport.');
     }
 
     #[Test]

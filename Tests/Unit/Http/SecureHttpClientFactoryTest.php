@@ -64,6 +64,23 @@ final class SecureHttpClientFactoryTest extends TestCase
         self::assertInstanceOf(ClientInterface::class, $client);
     }
 
+    /**
+     * The fallbacks that apply when TYPO3 configures no HTTP timeouts. They
+     * bound how long a request carrying a vault secret may hang, and nothing
+     * asserted them — `createWithNonIntegerTimeoutUsesDefault` below only
+     * checks that a client came back, which is true for any default at all.
+     */
+    #[Test]
+    public function createFallsBackToTheDocumentedTimeoutDefaults(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [];
+
+        $config = $this->getGuzzleConfig($this->factory->create());
+
+        self::assertSame(30, $config['timeout'] ?? null);
+        self::assertSame(10, $config['connect_timeout'] ?? null);
+    }
+
     #[Test]
     public function createWithProxyConfig(): void
     {
