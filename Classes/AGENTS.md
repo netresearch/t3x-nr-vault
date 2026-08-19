@@ -1,5 +1,5 @@
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-02 | Last verified: 2026-08-02 -->
+<!-- Last updated: 2026-08-19 | Last verified: 2026-08-19 -->
 
 # AGENTS.md — Classes
 
@@ -37,6 +37,8 @@ Strict types, final classes, readonly properties, constructor promotion. DI via 
 |---------|-----------|
 | Service with DI + interface | `Classes/Service/VaultService.php` |
 | Crypto boundary (libsodium) | `Classes/Crypto/EncryptionService.php` |
+| Controller (backend module) | `Classes/Controller/SecretsController.php` |
+| Audit writer | `Classes/Audit/AuditLogService.php` |
 | TYPO3 hook integration | `Classes/Hook/FlexFormVaultHook.php` |
 | AJAX controller | `Classes/Controller/AjaxController.php` |
 | Symfony Console command | `Classes/Command/VaultMigrateFieldCommand.php` |
@@ -117,8 +119,16 @@ This directory contains the crypto + audit core. Review bar is high:
 - **Access control** — per-secret tiers via `AccessControlServiceInterface::canRead/canWrite/canDelete/canCreate`; privileged *operations* (create, rotate, delete, manage_policy) additionally go through `isGranted(VaultPermission::…)`. Both before the mutation, never after
 - **Mutation and audit are atomic** — if the audit write fails, compensate the mutation (`VaultService::compensateAuditFailure()`, `SecretTcaHook`'s MM-relation restore). A change that persists unaudited is a control failure, not a degraded success
 
+### Audit log invariants
+- `crdate` is bound into the entry hash and `log()` hardcodes `time()` — you cannot `log()` then `UPDATE crdate` without breaking `verifyHashChain()`. Backdated/historic rows require chain reconstruction in time order via the public static hashing API (`calculateHash()`/`calculateHashV2()`/`extractHashRow()`/`deriveHmacKey()`), mirroring `insertAndUpdateHash`; never delete rows (uid gaps are detected).
+- Audit retention (`getAuditLogRetention()`, default 365d) is configured but has **zero consumers** — nothing purges audit rows; `OrphanCleanupTask` touches only orphaned secrets. Audit-derived metrics are safe for windows ≤365d.
+- `actor_type` separates manual reveals (`backend`) from automated (`cli`/`api`/`scheduler`); `AuditLogFilter` cannot filter on it — query the table directly.
+
+### New backend submodule — completeness recipe
+(1) register in `Configuration/Backend/Modules.php` (with its dedicated labels XLF); (2) add a card to the `submodules` list in `OverviewController::indexAction` (with localized title/description in `locallang_mod.xlf`); (3) add a `Documentation/Usage/Index.rst` section + a `Documentation/Images/*.png` screenshot; (4) exclude the controller in `Build/phpunit.xml` coverage (backend module render is E2E-covered) **or** unit-test its extractable logic. Not done = incomplete feature.
+
 ## Checklist
-- [ ] `make ci` passes (lint + cs + phpstan + rector + tests)
+- [ ] `make ci` passes (cgl + phpstan + unit + fuzz) — and `make rector` run separately (not part of `make ci`, but a required CI gate)
 - [ ] New public methods have interfaces + tests
 - [ ] Audit log entry for any new secret operation
 - [ ] TCA changes accompanied by `ext_tables.sql` update
