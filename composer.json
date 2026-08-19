@@ -99,6 +99,11 @@
         ],
         "ci:audit": "@composer audit --locked --format=plain --abandoned=fail",
         "ci:evidence": "@php Build/Scripts/collect-evidence.php",
+        "ci:test:repo": [
+            "@ci:test:php:arch",
+            "@ci:test:php:doc-cli",
+            "@ci:test:php:doc-cli:self-test"
+        ],
         "ci:test:evidence": "@php Build/Scripts/collect-evidence.php --self-test",
         "ci:test:php:arch": "@php Tests/scripts/check-test-base-class.php",
         "ci:test:php:doc-cli": "@php Tests/scripts/check-cli-docs.php",
