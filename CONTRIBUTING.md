@@ -166,6 +166,7 @@ extra requirements on top of the normal PR process.
 | `Classes/Crypto/` | Envelope encryption, key wrapping, master-key providers |
 | `Classes/Security/` | Access control, permissions, technical-actor context |
 | `Classes/Audit/` | Tamper-evident audit log and its hash chain |
+| `Classes/Http/` | Outbound credential path, SSRF/DNS-pin middleware, host allow-list, OAuth token leg |
 | `infection-security.json5`, `.github/workflows/security-gates.yml` | The mutation ratchet that guards the above |
 | `.github/workflows/release-evidence.yml`, `Build/Scripts/collect-evidence.php` | The release evidence bundle |
 | `SECURITY.md` | The published security policy and its SLAs |

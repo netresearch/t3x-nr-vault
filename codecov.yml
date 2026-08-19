@@ -41,9 +41,10 @@ coverage:
 # Security-critical components.
 #
 # Patch coverage on these paths must be 90%: envelope encryption and master-key
-# handling (Crypto), authorization and technical-actor context (Security), and
-# the tamper-evident audit chain (Audit). The 1% threshold absorbs rounding on
-# small diffs without opening a meaningful gap.
+# handling (Crypto), authorization and technical-actor context (Security), the
+# tamper-evident audit chain (Audit), and the outbound credential path (Http).
+# The 1% threshold absorbs rounding on small diffs without opening a meaningful
+# gap.
 #
 # Raising a target is always fine. LOWERING one — or dropping a path from a
 # component — needs security-team sign-off recorded in the PR description, the
@@ -72,6 +73,11 @@ component_management:
       name: audit
       paths:
         - Classes/Audit/**
+
+    - component_id: http
+      name: http
+      paths:
+        - Classes/Http/**
 
 flags:
   unit:

@@ -24,9 +24,9 @@
 
 <!--
 REQUIRED when this PR touches Classes/Crypto, Classes/Security, Classes/Audit,
-the security gates, the release-evidence pipeline, or SECURITY.md — and whenever
-it changes how a secret, key, or audit record is produced, stored, transported
-or compared. Otherwise delete this section.
+Classes/Http, the security gates, the release-evidence pipeline, or SECURITY.md
+— and whenever it changes how a secret, key, or audit record is produced,
+stored, transported or compared. Otherwise delete this section.
 
 "No change" is a valid answer; leaving it blank is not — see CONTRIBUTING.md.
 Security-critical PRs also need TWO approvals, one from a code owner.

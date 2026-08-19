@@ -44,8 +44,9 @@ const SCHEMA_VERSION = 1;
 /**
  * Security-relevant source directories that get their own coverage line in
  * the manifest. Mirrors the source scope of the security mutation ratchet
- * (infection-security.json5); CODEOWNERS still lists only the first three —
- * reconciling that is #329.
+ * (infection-security.json5), the codecov security components, the
+ * security-critical path table in CONTRIBUTING.md and the `Classes/`
+ * entries in CODEOWNERS.
  */
 const SECURITY_DIRS = ['Classes/Crypto', 'Classes/Security', 'Classes/Audit', 'Classes/Http'];
 
