@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The security mutation ratchet now also covers `Classes/Http`** (#307). The
+  gate (`infection-security.json5`, enforced by the `Security gates` workflow)
+  previously measured only `Classes/Crypto`, `Classes/Security` and
+  `Classes/Audit`, so it said nothing about the outbound credential path. The
+  release-evidence manifest reports the four-directory scope accordingly. The
+  floor was re-baselined 86 → 82 from the first four-directory CI measurement
+  (MSI 83.84 %); raising it back above 86 by hardening the Http suites is
+  tracked in #328.
+
 ### Added
 
 - **A cancellable secure outbound send** (#302). `VaultHttpClient` now also

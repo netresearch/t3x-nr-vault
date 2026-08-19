@@ -63,21 +63,22 @@
     //   * Deleting or excluding a file/directory from `source` above has the
     //     same effect as lowering the threshold and needs the same sign-off.
     //
-    // MEASUREMENT (2026-08-19, PHP 8.5, Unit+Fuzz — first four-directory
-    // baseline including Classes/Http, #307):
-    //   3503 mutants — 2495 killed, 396 escaped, 22 timed out, 2 errored,
-    //   588 skipped, 0 not covered
-    //   MSI 86.42 %, covered-code MSI 86.42 %, mutation code coverage 100 %
+    // MEASUREMENT (2026-08-19, CI run 32220828311 — first four-directory
+    // baseline including Classes/Http, #307; ubuntu-latest, PHP 8.5, pcov,
+    // Infection 0.35, Unit+Fuzz):
+    //   3503 mutants — 2910 killed, 566 escaped, 25 timed out, 2 errored,
+    //   0 skipped, 0 not covered
+    //   MSI 83.84 %, covered-code MSI 83.84 %, mutation code coverage 100 %
     //   (previous 2026-08-02 three-directory baseline: 2338 mutants,
     //   MSI 87.77 %; 2026-07-31: MSI 75.03 %)
     //
-    //   All 588 skipped mutants are in Classes/Http (SecureHttpClientFactory
-    //   227, OAuthTokenManager 173, VaultHttpClient 159, OAuthToken 15,
-    //   OAuthConfig 14). Infection skips a mutant when its covering tests'
-    //   runtime exceeds the per-mutant time budget — the Http suites contain
-    //   real-timing tests (DNS-pin expiry, cancellable-transport deadlines) —
-    //   and excludes it from the MSI denominator, so the ratchet holds the
-    //   2915 measured mutants, not all 3503.
+    //   CI is the authoritative environment for this number. On a slower host
+    //   Infection drops a mutant from the MSI denominator when its covering
+    //   tests' recorded runtime exceeds the per-mutant time budget — a local
+    //   2026-08-19 run of the same recipe skipped 588 Http mutants that way
+    //   (the Http suites contain real-timing tests) and read 86.42 %. Quote
+    //   baselines from the CI infection-security-report artifact, never from
+    //   a local run.
     //
     // The thresholds sit ~1.5 points under the measurement so run-to-run jitter
     // in timing-sensitive tests cannot fail an unrelated PR, while any real
@@ -87,14 +88,11 @@
     // which is exactly the kind of weakness this gate is meant to hold the
     // line on.
     //
-    // The numeric floor moves 86 -> 85 with this scope widening. Nothing in the
-    // previously gated directories regressed (their 2026-08-02 baseline stands
-    // at 87.77 %); Classes/Http adds ~1100 measured mutants with its own
-    // escapes, and the jitter margin applies to the new whole-scope
-    // measurement. Recorded as a scope re-baseline mandated by #307 — the
-    // sign-off rule above targets shrinking `source` or lowering the floor at
-    // constant scope, not widening the gate.
+    // Floor history: 86 -> 82 on 2026-08-19, the #307 scope re-baseline —
+    // lowered per the policy above, sign-off recorded in PR #327. The 566
+    // escapes (263 of them in Classes/Http) are the raise target for the
+    // assertion-hardening pass tracked in #328, aiming back above 86.
     // ------------------------------------------------------------------------
-    "minMsi": 85,
-    "minCoveredMsi": 85
+    "minMsi": 82,
+    "minCoveredMsi": 82
 }
