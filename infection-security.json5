@@ -63,16 +63,16 @@
     //   * Deleting or excluding a file/directory from `source` above has the
     //     same effect as lowering the threshold and needs the same sign-off.
     //
-    // MEASUREMENT (2026-08-19, CI run 32262598788 — after the Classes/Http
-    // assertion-hardening pass, #328; ubuntu-latest, PHP 8.5, pcov,
-    // Infection 0.35, Unit+Fuzz):
-    //   3505 mutants — 2987 killed, 491 escaped, 25 timed out, 2 errored,
+    // MEASUREMENT (2026-08-19, CI run 32291041010 — after the second
+    // Classes/Http assertion-hardening pass, #328; ubuntu-latest, PHP 8.5,
+    // pcov, Infection 0.35, Unit+Fuzz):
+    //   3508 mutants — 3006 killed, 475 escaped, 25 timed out, 2 errored,
     //   0 skipped, 0 not covered
-    //   MSI 85.99 %, covered-code MSI 85.99 %, mutation code coverage 100 %
-    //   (same day, before the hardening pass: 3503 mutants, MSI 83.84 % —
-    //   the first four-directory baseline from #307, CI run 32220828311;
-    //   2026-08-02 three-directory baseline: 2338 mutants, MSI 87.77 %;
-    //   2026-07-31: MSI 75.03 %)
+    //   MSI 86.46 %, covered-code MSI 86.46 %, mutation code coverage 100 %
+    //   (same day: 85.99 % after the first hardening pass, CI run
+    //   32262598788; 83.84 % at the first four-directory baseline from #307,
+    //   CI run 32220828311; 2026-08-02 three-directory baseline: 2338
+    //   mutants, MSI 87.77 %; 2026-07-31: MSI 75.03 %)
     //
     //   CI is the authoritative environment for this number. On a slower host
     //   Infection drops a mutant from the MSI denominator when its covering
@@ -90,18 +90,18 @@
     // which is exactly the kind of weakness this gate is meant to hold the
     // line on.
     //
-    // Floor history, both on 2026-08-19: 86 -> 82 for the #307 scope
+    // Floor history, all on 2026-08-19: 86 -> 82 for the #307 scope
     // re-baseline (lowered per the policy above, sign-off recorded in PR #327),
-    // then 82 -> 84 here, raised by the first Classes/Http assertion-hardening
-    // pass (PR #331), which killed 75 of the 566 escapes.
+    // then 82 -> 84 with the first Classes/Http assertion-hardening pass
+    // (PR #331, 75 escapes killed), then 84 -> 85 here with the second
+    // (PR #332, 16 more).
     //
-    // 84 is what the measurement carries, not the 86 #328 set as its target:
-    // at MSI 85.99 a floor of 86 would fail on the spot, and even 85 would
-    // leave the gate tripping on a flake rather than on a regression — two
-    // runs of this same tree differed by one mutant (86.00 vs 85.99). #328
-    // stays open for the remaining 491 escapes, and the next pass raises the
-    // floor again.
+    // 85 is the ~1.5-point margin under 86.46 the paragraph above describes,
+    // and it is still short of the 86 #328 set as its target. Run-to-run
+    // variance is real but small: two runs of the identical tree differed by
+    // one mutant (0.03 points), so the margin is not the constraint — the
+    // remaining 475 escapes are. #328 stays open for them.
     // ------------------------------------------------------------------------
-    "minMsi": 84,
-    "minCoveredMsi": 84
+    "minMsi": 85,
+    "minCoveredMsi": 85
 }
