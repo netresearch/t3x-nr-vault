@@ -9,5 +9,6 @@
 /Classes/Crypto/        @CybotTM
 /Classes/Security/      @CybotTM
 /Classes/Audit/         @CybotTM
+/Classes/Http/          @CybotTM
 /SECURITY.md            @CybotTM
 /.github/workflows/     @CybotTM
