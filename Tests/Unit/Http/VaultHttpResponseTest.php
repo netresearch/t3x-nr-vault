@@ -70,6 +70,59 @@ final class VaultHttpResponseTest extends TestCase
         yield '299 boundary' => [299];
     }
 
+    /**
+     * The first code of the NEXT class, and the last code of the previous one.
+     * Each predicate is a half-open range, and asserting only the inside of it
+     * cannot tell a correct upper bound from one that has swallowed the
+     * neighbouring class — a 500 that also reports as a client error sends a
+     * caller down the retry-is-pointless branch for an error that is worth
+     * retrying.
+     *
+     * @return iterable<string, array{0: int, 1: string}>
+     */
+    public static function statusClassEdgeProvider(): iterable
+    {
+        yield '300 is not a success' => [300, 'isSuccessful'];
+        yield '199 is not a success' => [199, 'isSuccessful'];
+        yield '500 is not a client error' => [500, 'isClientError'];
+        yield '399 is not a client error' => [399, 'isClientError'];
+        yield '600 is not a server error' => [600, 'isServerError'];
+        yield '499 is not a server error' => [499, 'isServerError'];
+        yield '400 is not a redirect' => [400, 'isRedirect'];
+        yield '299 is not a redirect' => [299, 'isRedirect'];
+    }
+
+    #[Test]
+    #[DataProvider('statusClassEdgeProvider')]
+    public function statusClassPredicatesExcludeTheNeighbouringClass(int $statusCode, string $predicate): void
+    {
+        $psrResponse = $this->createMock(ResponseInterface::class);
+        $psrResponse->method('getStatusCode')->willReturn($statusCode);
+
+        $response = new VaultHttpResponse($psrResponse);
+
+        $actual = match ($predicate) {
+            'isSuccessful' => $response->isSuccessful(),
+            'isClientError' => $response->isClientError(),
+            'isServerError' => $response->isServerError(),
+            default => $response->isRedirect(),
+        };
+
+        self::assertFalse(
+            $actual,
+            \sprintf('%s() must not claim status %d.', $predicate, $statusCode),
+        );
+    }
+
+    #[Test]
+    public function isRedirectAcceptsTheFirstCodeOfItsClass(): void
+    {
+        $psrResponse = $this->createMock(ResponseInterface::class);
+        $psrResponse->method('getStatusCode')->willReturn(300);
+
+        self::assertTrue((new VaultHttpResponse($psrResponse))->isRedirect());
+    }
+
     #[Test]
     #[DataProvider('clientErrorStatusCodesProvider')]
     public function isClientErrorReturnsTrueFor4xxCodes(int $statusCode): void
@@ -282,6 +335,26 @@ final class VaultHttpResponseTest extends TestCase
         $response = new VaultHttpResponse($psrResponse);
 
         self::assertSame([self::CONTENT_TYPE_JSON, self::CONTENT_TYPE_HTML], $response->getHeaderValues('Accept'));
+    }
+
+    /**
+     * `application/json; charset=utf-8` splits into a media type that needs no
+     * trimming, so it cannot show whether the trim happens. A header written
+     * with the space before the separator can — and both spellings are legal
+     * per RFC 9110, so a caller comparing the media type must get the same
+     * answer for either.
+     */
+    #[Test]
+    public function getContentTypeTrimsWhitespaceAroundTheMediaType(): void
+    {
+        $psrResponse = $this->createMock(ResponseInterface::class);
+        $psrResponse
+            ->method('getHeader')
+            ->willReturn([' application/json ; charset=utf-8']);
+
+        $response = new VaultHttpResponse($psrResponse);
+
+        self::assertSame(self::CONTENT_TYPE_JSON, $response->getContentType());
     }
 
     #[Test]

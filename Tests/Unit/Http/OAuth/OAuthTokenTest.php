@@ -78,6 +78,39 @@ final class OAuthTokenTest extends TestCase
         self::assertTrue($token->isExpired());
     }
 
+    /**
+     * The default buffer is zero, and the two tests above cannot show it: an
+     * expiry a minute away stays in the future even if the default silently
+     * became a second, and one a minute past stays past. Both assertions are
+     * therefore made against an expiry closer than one second, where a
+     * non-zero default flips the answer.
+     */
+    #[Test]
+    public function isExpiredAppliesNoBufferByDefault(): void
+    {
+        $expiringShortly = new OAuthToken(
+            accessToken: 'test-token',
+            tokenType: 'Bearer',
+            expiresAt: new DateTimeImmutable('+1 second'),
+        );
+
+        self::assertFalse(
+            $expiringShortly->isExpired(),
+            'A token still inside its lifetime must not be reported expired by the default buffer.',
+        );
+
+        $expiringNow = new OAuthToken(
+            accessToken: 'test-token',
+            tokenType: 'Bearer',
+            expiresAt: new DateTimeImmutable(),
+        );
+
+        self::assertTrue(
+            $expiringNow->isExpired(),
+            'A token whose expiry has been reached must be reported expired without an extension.',
+        );
+    }
+
     #[Test]
     public function isExpiredRespectsBufferTime(): void
     {

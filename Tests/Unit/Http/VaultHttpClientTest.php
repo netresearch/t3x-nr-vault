@@ -32,6 +32,8 @@ use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamInterface;
 use ReflectionClass;
 
 #[CoversClass(VaultHttpClient::class)]
@@ -341,6 +343,52 @@ final class VaultHttpClientTest extends TestCase
 
         $request = new Request('GET', self::API_URL);
         $authenticatedClient->sendRequest($request);
+    }
+
+    /**
+     * The exact query string matters, not just that the pair is somewhere in
+     * it. `assertStringContainsString` passes on a query that dropped the `&`
+     * separator or emitted the pair before the caller's own parameters, and
+     * both of those silently change which request the server sees.
+     *
+     * @return iterable<string, array{0: string, 1: string}>
+     */
+    public static function queryParamInjectionProvider(): iterable
+    {
+        yield 'empty query gets no leading separator' => ['', 'api_key=query-key-value'];
+        yield 'existing query keeps its order and gains a separator' => [
+            '?page=2&sort=name',
+            'page=2&sort=name&api_key=query-key-value',
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('queryParamInjectionProvider')]
+    public function queryParamInjectionProducesTheExactQueryString(string $suffix, string $expected): void
+    {
+        $this->vaultService
+            ->method('retrieve')
+            ->with('my_api_key')
+            ->willReturn('query-key-value');
+
+        $this->innerClient
+            ->expects(self::once())
+            ->method('sendRequest')
+            ->willReturnCallback(function (RequestInterface $request) use ($expected): Response {
+                self::assertSame($expected, $request->getUri()->getQuery());
+
+                return new Response(200);
+            });
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+        );
+
+        $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::QueryParam);
+
+        $authenticatedClient->sendRequest(new Request('GET', self::API_URL . $suffix));
     }
 
     #[Test]
@@ -966,6 +1014,78 @@ final class VaultHttpClientTest extends TestCase
 
         $this->expectException(ClientExceptionInterface::class);
         $authenticatedClient->sendRequest($request);
+    }
+
+    /**
+     * The OAuth send path had no assertion on what it actually puts on the
+     * wire. Both halves are load-bearing and neither is observable from the
+     * `withOAuth()` construction tests: the header must be exactly
+     * `Bearer <token>` — a bare token, or the scheme without the token, is a
+     * request the API rejects or one that leaks nothing but also authenticates
+     * nothing — and the audit row must name the OAuth client-id secret under
+     * the `oauth2:` prefix, which is what separates an OAuth call from a
+     * static-secret call in the audit trail.
+     */
+    #[Test]
+    public function oauthSendSetsBearerHeaderAndAuditsUnderTheOauth2Identifier(): void
+    {
+        $tokenResponseBody = $this->createMock(StreamInterface::class);
+        $tokenResponseBody->method('__toString')->willReturn(json_encode([
+            'access_token' => 'issued-access-token',
+            'token_type' => 'Bearer',
+            'expires_in' => 3600,
+        ], JSON_THROW_ON_ERROR));
+
+        $tokenResponse = $this->createMock(ResponseInterface::class);
+        $tokenResponse->method('getStatusCode')->willReturn(200);
+        $tokenResponse->method('getBody')->willReturn($tokenResponseBody);
+
+        $tokenEndpointClient = $this->createMock(ClientInterface::class);
+        $tokenEndpointClient->method('sendRequest')->willReturn($tokenResponse);
+
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturnCallback(fn (string $id): ?string => match ($id) {
+                'oauth_client_id' => 'my-client-id',
+                'oauth_client_secret' => 'my-client-secret',
+                default => null,
+            });
+
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->with('oauth2:oauth_client_id');
+
+        $this->innerClient
+            ->expects(self::once())
+            ->method('sendRequest')
+            ->willReturnCallback(function (RequestInterface $request): Response {
+                self::assertSame(
+                    'Bearer issued-access-token',
+                    $request->getHeaderLine('Authorization'),
+                );
+
+                return new Response(200);
+            });
+
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+            oauthManager: new OAuthTokenManager(
+                $this->vaultService,
+                $tokenEndpointClient,
+                new SecureHttpClientFactory(),
+            ),
+        );
+
+        $oauthClient = $client->withOAuth(OAuthConfig::clientCredentials(
+            tokenEndpoint: self::TOKEN_ENDPOINT,
+            clientIdSecret: 'oauth_client_id',
+            clientSecretSecret: 'oauth_client_secret',
+        ));
+
+        $oauthClient->sendRequest(new Request('GET', self::API_URL));
     }
 
     #[Test]
