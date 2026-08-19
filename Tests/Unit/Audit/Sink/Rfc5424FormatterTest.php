@@ -149,8 +149,34 @@ final class Rfc5424FormatterTest extends TestCase
 
         $summary = substr($message, (int) strpos($message, '] ') + 2);
 
-        self::assertLessThanOrEqual(300, mb_strlen($summary, 'UTF-8'));
+        // Exact, not "at most": a cap asserted only as an upper bound is met
+        // by a summary that lost its leading characters, kept only its last
+        // one, or was replaced by the ellipsis alone — all of which are still
+        // short enough and still end in "...". The truncation has to keep the
+        // beginning of the text, which is the part that identifies the record.
+        self::assertSame(300, mb_strlen($summary, 'UTF-8'));
         self::assertStringEndsWith('...', $summary);
+        self::assertStringStartsWith('vault audit ', $summary);
+    }
+
+    /**
+     * The cap counts characters, not bytes. A byte-wise truncation of a
+     * multibyte summary both overshoots the character budget and can sever a
+     * UTF-8 sequence, which produces a record a strict collector rejects.
+     */
+    #[Test]
+    public function oversizedMultibyteSummaryIsTruncatedByCharacters(): void
+    {
+        $message = $this->subject->formatEntry(
+            $this->createEntry(secretIdentifier: str_repeat('ä', 5000)),
+            'tip',
+        );
+
+        $summary = substr($message, (int) strpos($message, '] ') + 2);
+
+        self::assertSame(300, mb_strlen($summary, 'UTF-8'));
+        self::assertStringEndsWith('...', $summary);
+        self::assertSame($summary, mb_convert_encoding($summary, 'UTF-8', 'UTF-8'));
     }
 
     /**

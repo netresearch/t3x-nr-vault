@@ -1425,6 +1425,43 @@ final class AuditLogServiceTest extends TestCase
         self::assertArrayHasKey(2, $verification->warnings, 'The increase must still be reported as a (non-fatal) warning');
     }
 
+    /**
+     * The per-epoch row census the verification result carries.
+     *
+     * It is what an auditor reads to answer "how far did the HMAC migration
+     * actually get" — a count that starts one too high, counts in the wrong
+     * steps, or attributes rows to the wrong epoch reports a migration that
+     * did not happen. The result DTO's own test only checks that the array is
+     * passed through; nothing covered the counting itself.
+     */
+    #[Test]
+    public function verifyHashChainCountsRowsPerEpoch(): void
+    {
+        $masterKey = str_repeat("\x01", 32);
+        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+
+        $row1 = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
+        $hash1 = AuditLogService::calculateHashV2(AuditLogService::extractV2HashRow($row1), '', $hmacKey);
+        $row2 = $this->makeV3Row(uid: 2, secretIdentifier: 'secret-b', action: 'read', crdate: 1704153600);
+        $hash2 = AuditLogService::calculateHashV2(AuditLogService::extractV2HashRow($row2), $hash1, $hmacKey);
+        $row3 = $this->makeV3Row(uid: 3, secretIdentifier: 'secret-c', action: 'read', crdate: 1704240000);
+        $hash3 = AuditLogService::calculateHashV3($row3, $hash2, $hmacKey);
+
+        $rows = [
+            array_merge($row1, ['previous_hash' => '', 'entry_hash' => $hash1, 'hmac_key_epoch' => 2]),
+            array_merge($row2, ['previous_hash' => $hash1, 'entry_hash' => $hash2, 'hmac_key_epoch' => 2]),
+            array_merge($row3, ['previous_hash' => $hash2, 'entry_hash' => $hash3, 'hmac_key_epoch' => 3]),
+        ];
+
+        $verification = $this->runVerifyOverRows($rows);
+
+        self::assertSame(
+            [2 => 2, 3 => 1],
+            $verification->epochCounts,
+            'Two rows at epoch 2 and one at epoch 3, keyed by epoch and sorted.',
+        );
+    }
+
     #[Test]
     public function extractV2HashRowAcceptsBooleanSuccess(): void
     {
