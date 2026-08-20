@@ -195,6 +195,53 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
         self::assertStringContainsString('&lt;script&gt;', $html);
     }
 
+    public function testTheBadgeLineIsTheDisclosureControlForTheFindings(): void
+    {
+        // The findings are the bulk of this panel on any instance that has some,
+        // and the ratio is the summary a reader wants first. The line therefore
+        // doubles as the control that hides them — which only counts as a
+        // control if it says so to assistive technology.
+        $html = $this->render([
+            'available' => true,
+            'profile' => 'standard',
+            'auditReady' => false,
+            'severity' => 'warning',
+            'context' => 'warning',
+            'passed' => 20,
+            'total' => 24,
+            'criticalCount' => 1,
+            'warningCount' => 3,
+            'detailed' => true,
+            'findings' => [
+                [
+                    'id' => 'audit.hash_chain',
+                    'context' => 'danger',
+                    'summary' => 'Hash chain verification failed.',
+                    'risk' => '',
+                    'remediation' => '',
+                    'docsUrl' => '',
+                ],
+            ],
+        ]);
+
+        self::assertStringContainsString('data-bs-toggle="collapse"', $html);
+        self::assertStringContainsString('data-bs-target="#vault-security-details"', $html);
+        self::assertStringContainsString('aria-controls="vault-security-details"', $html);
+        self::assertStringContainsString('aria-expanded="true"', $html);
+
+        // Expanded by default: a live finding must not be hidden by a default
+        // nobody chose. Collapsing is the reader's decision, not the panel's.
+        self::assertStringContainsString('id="vault-security-details"', $html);
+        self::assertStringContainsString('collapse show', $html);
+
+        // And the findings really do sit inside the collapsible region.
+        $regionStart = strpos($html, 'id="vault-security-details"');
+        $findingPos = strpos($html, 'vault-security-finding"');
+        self::assertIsInt($regionStart);
+        self::assertIsInt($findingPos);
+        self::assertGreaterThan($regionStart, $findingPos);
+    }
+
     /**
      * A complete view shape with per-test overrides, mirroring
      * {@see SecurityStatusProvider::forView()}.

@@ -22,7 +22,25 @@
 
     <f:if condition="{securityStatus.available}">
         <f:then>
+            <!--
+                The badge line doubles as the disclosure control for the findings
+                below: on an instance with a handful of warnings the landing page
+                is otherwise a wall of alerts, and the ratio is the summary a
+                reader wants first. `aria-expanded` and `aria-controls` are what
+                make it a control rather than a clickable decoration; the markup
+                stays CSP-safe because Bootstrap drives it from data attributes,
+                with no inline handler.
+            -->
             <p class="mb-3">
+                <button
+                    type="button"
+                    class="btn btn-link p-0 border-0 align-baseline text-decoration-none"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#vault-security-details"
+                    aria-expanded="true"
+                    aria-controls="vault-security-details"
+                    data-testid="vault-security-toggle"
+                >
                 <span class="badge bg-secondary" data-testid="vault-security-profile">
                     <core:icon identifier="actions-shield" size="small" />
                     <!--
@@ -39,7 +57,12 @@
                 <span class="badge bg-{securityStatus.context}" data-testid="vault-security-ratio">
                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.controlsPassed', arguments: {0: securityStatus.passed, 1: securityStatus.total})}
                 </span>
+                    <core:icon identifier="actions-chevron-down" size="small" />
+                    <span class="visually-hidden">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.toggle')}</span>
+                </button>
             </p>
+
+            <div class="collapse show" id="vault-security-details" data-testid="vault-security-details">
 
             <f:if condition="{securityStatus.auditReady}">
                 <f:then>
@@ -93,6 +116,7 @@
                     </f:if>
                 </f:else>
             </f:if>
+            </div>
         </f:then>
         <f:else>
             <div class="alert alert-warning" role="alert" data-testid="vault-security-unavailable">

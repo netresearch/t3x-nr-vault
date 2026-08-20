@@ -510,6 +510,9 @@
       <trans-unit id="overview.security.status.profile.hardened">
         <source>Hardened profile</source>
       </trans-unit>
+      <trans-unit id="overview.security.status.toggle">
+        <source>Show or hide the individual findings</source>
+      </trans-unit>
       <trans-unit id="overview.security.status.controlsPassed">
         <source>%1$s of %2$s controls passed</source>
       </trans-unit>
