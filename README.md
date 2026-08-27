@@ -4,6 +4,7 @@
 [![codecov](https://codecov.io/gh/netresearch/t3x-nr-vault/graph/badge.svg)](https://codecov.io/gh/netresearch/t3x-nr-vault)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/netresearch/t3x-nr-vault/badge)](https://securityscorecards.dev/viewer/?uri=github.com/netresearch/t3x-nr-vault)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11695/badge)](https://www.bestpractices.dev/projects/11695)
+[![OpenSSF Baseline](https://img.shields.io/badge/OpenSSF%20Baseline-passing-brightgreen)](https://github.com/ossf/baseline)
 [![TYPO3](https://img.shields.io/badge/TYPO3-13.4%20|%2014.3-orange.svg)](https://typo3.org/)
 [![PHP](https://img.shields.io/badge/PHP-8.2+-blue.svg)](https://www.php.net/)
 [![PHPStan](https://img.shields.io/badge/PHPStan-level%2010-brightgreen.svg)](https://phpstan.org/)

@@ -15,6 +15,13 @@
 - **Namespace:** `Netresearch\NrVault\` (PSR-4 from `Classes/`) · **Extension key:** `nr_vault`
 - **Component map + key interfaces + CLI command list:** `docs/ARCHITECTURE.md`
 
+## Setup / Dev Environment
+
+- **DDEV** for local development (PHP 8.5, MariaDB 10.11, Node.js 22, TYPO3_CONTEXT=Development)
+- Start: `make up` (DDEV + TYPO3 v14 install)
+- Shell: `make shell` (container shell)
+- Stop: `make down`
+
 ## Commands
 > Source: `Makefile` (primary) and `composer.json` scripts
 
@@ -45,6 +52,27 @@ Direct composer (without make): `composer ci` — unit + fuzz + phpstan + arch (
 3. **Before committing**: `make ci` when changes affect >2 files or touch shared code.
 4. **Before claiming done**: Run verification and **paste output as evidence** — never say "should work now" / "tested" / "all green" without showing output.
 5. **Response style**: answer first, skip preamble, match length to task; no sycophantic openers.
+
+## Architecture
+- **Component map + key interfaces + CLI command list:** `docs/ARCHITECTURE.md`
+- **Namespace:** `Netresearch\NrVault\` (PSR-4 from `Classes/`)
+- **Extension key:** `nr_vault`
+- **Crypto:** libsodium (XChaCha20-Poly1305 / AES-256-GCM envelope encryption)
+
+## Development Workflow
+1. **Before coding**: Read nearest `AGENTS.md` + inspect its Golden Samples (`Classes/AGENTS.md`, `Tests/AGENTS.md`, …).
+2. **After each change**: Run the smallest relevant check (`make lint` → `make phpstan` → single test).
+3. **Before committing**: `make ci` when changes affect >2 files or touch shared code.
+4. **Before claiming done**: Run verification and **paste output as evidence** — never say "should work now" / "tested" / "all green" without showing output.
+5. **Response style**: answer first, skip preamble, match length to task; no sycophantic openers.
+
+## Testing
+- **Unit tests:** `make test-unit` (composer ci:test:php:unit)
+- **Functional tests:** `make test-functional` (composer ci:test:php:functional)
+- **Mutation tests:** `make test-mutation` (Infection)
+- **All CI:** `make ci` (cgl + phpstan + unit + fuzz)
+- **Test execution:** ALWAYS through `Build/Scripts/runTests.sh` (containerized, ephemeral containers)
+- **NEVER** run tests inside DDEV (`ddev exec phpunit`)
 
 ## File Map
 ```
