@@ -61,6 +61,6 @@
     //   2026-07:  81 /  85
     //   2026-08:  83 /  90
     //   2026-Q4:  85 /  95  (long-term target)
-    "minMsi": 72,
-    "minCoveredMsi": 72
+    "minMsi": 90,
+    "minCoveredMsi": 90
 }

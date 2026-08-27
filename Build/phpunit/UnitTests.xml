@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/12.5/phpunit.xsd"
+    backupGlobals="true"
+    bootstrap="../../Tests/bootstrap.php"
+    cacheDirectory=".phpunit.cache"
+    colors="true"
+    displayDetailsOnPhpunitDeprecations="true"
+    displayDetailsOnTestsThatTriggerDeprecations="true"
+    displayDetailsOnTestsThatTriggerErrors="true"
+    displayDetailsOnTestsThatTriggerNotices="true"
+    displayDetailsOnTestsThatTriggerWarnings="true"
+    failOnRisky="true"
+    failOnWarning="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>../../Tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Fuzz">
+            <directory>../../Tests/Fuzz</directory>
+        </testsuite>
+    </testsuites>
+
+    <source ignoreSuppressionOfDeprecations="true">
+        <include>
+            <directory suffix=".php">../../Classes</directory>
+        </include>
+        <exclude>
+            <directory>../../Classes/Exception</directory>
+            <file>../../Classes/Controller/AuditController.php</file>
+            <file>../../Classes/Controller/MigrationController.php</file>
+            <file>../../Classes/Controller/OverviewController.php</file>
+            <file>../../Classes/Controller/SecretsController.php</file>
+            <file>../../Classes/Controller/ModuleAccessGuard.php</file>
+            <file>../../Classes/Form/Element/VaultSecretInputElement.php</file>
+            <file>../../Classes/Adapter/VaultAdapterInterface.php</file>
+            <file>../../Classes/Audit/AuditContextInterface.php</file>
+            <file>../../Classes/Audit/AuditLogServiceInterface.php</file>
+            <file>../../Classes/Configuration/ExtensionConfigurationInterface.php</file>
+            <file>../../Classes/Configuration/SiteConfigurationVaultProcessorInterface.php</file>
+            <file>../../Classes/Crypto/EncryptionServiceInterface.php</file>
+            <file>../../Classes/Crypto/MasterKeyProviderFactoryInterface.php</file>
+            <file>../../Classes/Crypto/MasterKeyProviderInterface.php</file>
+            <file>../../Classes/Domain/Repository/SecretRepositoryInterface.php</file>
+            <file>../../Classes/Http/VaultHttpClientInterface.php</file>
+            <file>../../Classes/Security/AccessControlServiceInterface.php</file>
+            <file>../../Classes/Security/BreakGlassServiceInterface.php</file>
+            <file>../../Classes/Security/BreakGlassStateInterface.php</file>
+            <file>../../Classes/Service/SecretDetectionServiceInterface.php</file>
+            <file>../../Classes/Service/VaultServiceInterface.php</file>
+            <file>../../Classes/Service/Doctor/ReadinessCheckInterface.php</file>
+            <file>../../Classes/Service/Doctor/VaultDoctorServiceInterface.php</file>
+            <file>../../Classes/Service/Doctor/DocsLink.php</file>
+            <file>../../Classes/Service/Detection/SecretFinding.php</file>
+            <file>../../Classes/Http/SecretPlacement.php</file>
+            <file>../../Classes/Service/Detection/Severity.php</file>
+            <file>../../Classes/Service/VaultFieldPermission.php</file>
+            <file>../../Classes/Security/VaultPermission.php</file>
+            <file>../../Classes/Service/Doctor/FindingSeverity.php</file>
+            <file>../../Classes/Secret/SecretRedactorInterface.php</file>
+            <file>../../Classes/Secret/SecretIdentifierKind.php</file>
+            <file>../../Classes/Crypto/EnvelopeCodecInterface.php</file>
+            <file>../../Classes/Crypto/ForeignEnvelopeRotatorInterface.php</file>
+        </exclude>
+    </source>
+
+    <php>
+        <ini name="display_errors" value="1"/>
+        <ini name="error_reporting" value="-1"/>
+        <env name="TYPO3_CONTEXT" value="Testing"/>
+    </php>
+</phpunit>

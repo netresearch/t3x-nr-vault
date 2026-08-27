@@ -29,6 +29,7 @@ return (new Config())
     ->setRiskyAllowed(true)
     ->setRules([
         '@PER-CS' => true,
+        '@PER-CS:risky' => true,
         '@PHP82Migration' => true,
 
         // Strict rules
