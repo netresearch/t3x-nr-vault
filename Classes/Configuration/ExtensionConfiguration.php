@@ -579,6 +579,53 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
+     * Get the TYPO3 core encryption key.
+     *
+     * Used by the TYPO3 master key provider to derive the envelope master key.
+     * Returns empty string when not set (provider will then be unavailable).
+     */
+    public function getTypo3EncryptionKey(): string
+    {
+        $sysConfig = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null)
+            && \is_array($GLOBALS['TYPO3_CONF_VARS']['SYS'] ?? null)
+                ? $GLOBALS['TYPO3_CONF_VARS']['SYS'] : [];
+
+        $encryptionKey = $sysConfig['encryptionKey'] ?? '';
+
+        return \is_string($encryptionKey) ? $encryptionKey : '';
+    }
+
+    /**
+     * Get the TYPO3 HTTP configuration array.
+     *
+     * Returns the configuration from $TYPO3_CONF_VARS['HTTP'].
+     *
+     * @return array<string, mixed>
+     */
+    public function getHttpConfiguration(): array
+    {
+        /** @var array<string, array<string, mixed>> $confVars */
+        $confVars = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
+        /** @var array<string, mixed> $httpConfig */
+        $httpConfig = $confVars['HTTP'] ?? [];
+
+        return $httpConfig;
+    }
+
+    /**
+     * Get the full TYPO3_CONF_VARS array for diagnostic/scanning purposes.
+     *
+     * @return array<string, mixed>
+     */
+    public function getTypo3ConfVars(): array
+    {
+        /** @var array<string, array<string, mixed>> $confVars */
+        $confVars = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
+
+        return $confVars;
+    }
+
+    /**
      * Resolve a configured audit-sink file path, falling back to
      * `<var>/log/<basename>` when unset or empty.
      *

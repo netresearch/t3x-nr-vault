@@ -63,7 +63,7 @@ final readonly class MasterKeyProviderFactory implements MasterKeyProviderFactor
         }
 
         return match ($provider) {
-            'typo3' => new Typo3MasterKeyProvider(),
+            'typo3' => new Typo3MasterKeyProvider($this->configuration),
             'file' => new FileMasterKeyProvider($this->configuration),
             'env' => new EnvironmentMasterKeyProvider($this->configuration),
             // Allowed in the hardened profile: external KMS custody is exactly
@@ -104,7 +104,7 @@ final readonly class MasterKeyProviderFactory implements MasterKeyProviderFactor
         }
 
         // Try TYPO3 encryption key (always available after installation)
-        $typo3Provider = new Typo3MasterKeyProvider();
+        $typo3Provider = new Typo3MasterKeyProvider($this->configuration);
         if ($typo3Provider->isAvailable()) {
             return $typo3Provider;
         }

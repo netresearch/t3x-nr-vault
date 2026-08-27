@@ -31,7 +31,6 @@ use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Throwable;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * PSR-18 HTTP client that injects vault secrets as authentication.
@@ -191,8 +190,6 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
     private OAuthTokenManager $oauthManager;
 
-    private SecureHttpClientFactory $secureHttpClientFactory;
-
     /**
      * @param VaultServiceInterface $vaultService Vault for secret retrieval
      * @param AuditLogServiceInterface $auditLogService Audit logging
@@ -265,6 +262,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
     public function __construct(
         private VaultServiceInterface $vaultService,
         private AuditLogServiceInterface $auditLogService,
+        private SecureHttpClientFactory $secureHttpClientFactory,
         ?ClientInterface $innerClient = null,
         private ?string $secretIdentifier = null,
         private ?SecretPlacement $placement = null,
@@ -275,20 +273,11 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         private ?string $usernameSecretIdentifier = null,
         private string $reason = 'HTTP API call',
         ?OAuthTokenManager $oauthManager = null,
-        ?SecureHttpClientFactory $secureHttpClientFactory = null,
         private ?string $authPrefix = null,
         private ?int $timeoutSeconds = null,
         private ?CancellableTransport $cancellableTransport = null,
         ?self $clonedFrom = null,
     ) {
-        // Resolve the factory once: it builds the inner client (when missing)
-        // AND backs the OAuth manager's `isHostAllowed()` gate. VaultHttpClient
-        // is a fluent immutable value-object instantiated per call chain, not
-        // a long-lived DI service — `makeInstance()` is the standard TYPO3
-        // bootstrap path here (same pattern as before this PR).
-        $this->secureHttpClientFactory = $secureHttpClientFactory
-            ?? GeneralUtility::makeInstance(SecureHttpClientFactory::class);
-
         // No client passed → this constructor builds it below, so it is
         // factory-built by definition. A client that WAS passed only counts as
         // factory-built when it is the identical object a factory-built

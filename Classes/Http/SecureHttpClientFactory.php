@@ -20,16 +20,15 @@ use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\Handler\Proxy;
 use GuzzleHttp\Handler\StreamHandler;
 use GuzzleHttp\HandlerStack;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Log\LoggerInterface;
-use TYPO3\CMS\Core\Log\LogManager;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Factory for creating HTTP clients that respect TYPO3 settings but prevent secret leakage.
  *
- * This factory reads TYPO3's HTTP configuration ($GLOBALS['TYPO3_CONF_VARS']['HTTP'])
+ * This factory reads TYPO3's HTTP configuration via ExtensionConfigurationInterface
  * to respect corporate proxy settings, SSL certificates, timeouts, and host restrictions.
  *
  * Security measures:
@@ -112,6 +111,8 @@ final class SecureHttpClientFactory
     private array $dnsMemo = [];
 
     public function __construct(
+        private readonly ExtensionConfigurationInterface $configuration,
+        private readonly LoggerInterface $logger,
         private readonly DnsResolverInterface $dnsResolver = new DefaultDnsResolver(),
     ) {}
 
@@ -297,10 +298,8 @@ final class SecureHttpClientFactory
      */
     private function buildOptions(?int $timeoutSeconds): array
     {
-        /** @var array<string, array<string, mixed>> $confVars */
-        $confVars = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
         /** @var array<string, mixed> $typo3Config */
-        $typo3Config = $confVars['HTTP'] ?? [];
+        $typo3Config = $this->configuration->getHttpConfiguration();
 
         /** @var array<string, mixed> $options */
         $options = [
@@ -371,13 +370,11 @@ final class SecureHttpClientFactory
      */
     private function warnWhenTlsVerificationIsDisabled(): void
     {
-        /** @var array<string, array<string, mixed>> $confVars */
-        $confVars = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
         /** @var array<string, mixed> $typo3Config */
-        $typo3Config = $confVars['HTTP'] ?? [];
+        $typo3Config = $this->configuration->getHttpConfiguration();
 
         if (($typo3Config['verify'] ?? null) === false) {
-            $this->getLogger()->warning(
+            $this->logger->warning(
                 'TLS verification is disabled in TYPO3 HTTP configuration. '
                 . 'This weakens security for vault HTTP client requests.',
             );
@@ -397,7 +394,7 @@ final class SecureHttpClientFactory
         // gone — between our DNS check and stream's own resolution, an
         // attacker can still rebind. Warn so operators notice the gap.
         if (!\function_exists('curl_init')) {
-            $this->getLogger()->warning(
+            $this->logger->warning(
                 'PHP ext-curl is not loaded; the nr-vault HTTP client falls back '
                 . 'to the stream handler. DNS rebinding is no longer race-protected '
                 . '(the pre-request resolve-and-check is still enforced, but the '
@@ -653,10 +650,8 @@ final class SecureHttpClientFactory
      */
     private function resolveAllowedHostsList(): array
     {
-        /** @var array<string, array<string, mixed>> $confVars */
-        $confVars = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
         /** @var array<string, mixed> $httpConfig */
-        $httpConfig = $confVars['HTTP'] ?? [];
+        $httpConfig = $this->configuration->getHttpConfiguration();
         $allowedHosts = $httpConfig['allowed_hosts'] ?? null;
 
         return \is_array($allowedHosts) ? $allowedHosts : [];
@@ -1081,10 +1076,5 @@ final class SecureHttpClientFactory
         }
 
         return $proxy !== [] ? $proxy : null;
-    }
-
-    private function getLogger(): LoggerInterface
-    {
-        return GeneralUtility::makeInstance(LogManager::class)->getLogger(self::class);
     }
 }

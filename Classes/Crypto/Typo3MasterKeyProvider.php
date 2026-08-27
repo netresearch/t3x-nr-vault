@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Crypto;
 
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\MasterKeyException;
 use SensitiveParameter;
 
@@ -19,7 +20,7 @@ use SensitiveParameter;
  * This is the default provider as it requires no additional configuration.
  *
  * Note: the strength of the derived master key equals the strength of
- * `$GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey']`. For production use,
+ * TYPO3's encryption key. For production use,
  * prefer FileMasterKeyProvider or EnvironmentMasterKeyProvider (see ADR-003).
  */
 final class Typo3MasterKeyProvider extends AbstractMasterKeyProvider
@@ -46,6 +47,10 @@ final class Typo3MasterKeyProvider extends AbstractMasterKeyProvider
      * should call {@see clearCachedKey()} explicitly when they need to observe a
      * rotated TYPO3 `encryptionKey`. See ADR-020.
      */
+    public function __construct(
+        private readonly ExtensionConfigurationInterface $configuration,
+    ) {}
+
     public function getIdentifier(): string
     {
         return 'typo3';
@@ -95,18 +100,6 @@ final class Typo3MasterKeyProvider extends AbstractMasterKeyProvider
 
     private function getEncryptionKey(): string
     {
-        $typo3ConfVars = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
-        if (!\is_array($typo3ConfVars)) {
-            return '';
-        }
-
-        $sysConfig = $typo3ConfVars['SYS'] ?? [];
-        if (!\is_array($sysConfig)) {
-            return '';
-        }
-
-        $encryptionKey = $sysConfig['encryptionKey'] ?? '';
-
-        return \is_string($encryptionKey) ? $encryptionKey : '';
+        return $this->configuration->getTypo3EncryptionKey();
     }
 }

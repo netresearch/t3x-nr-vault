@@ -13,6 +13,7 @@ use Netresearch\NrVault\Utility\LocalisationHelper;
 use Psr\Log\LoggerInterface;
 use Throwable;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 
 /**
  * Reports a failed vault operation to the backend user without telling them why
@@ -58,6 +59,7 @@ final readonly class VaultFailureReporter
 
     public function __construct(
         private LoggerInterface $logger,
+        private LanguageServiceFactory $languageServiceFactory,
     ) {}
 
     /**
@@ -114,7 +116,7 @@ final readonly class VaultFailureReporter
 
     private function getMessageTemplate(): string
     {
-        $languageService = $GLOBALS['LANG'] ?? null;
+        $languageService = $this->languageServiceFactory->create();
 
         if (!$languageService instanceof LanguageService) {
             return self::FALLBACK_MESSAGE;

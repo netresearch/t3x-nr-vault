@@ -191,6 +191,10 @@ services:
     arguments:
       $checks: !tagged_iterator nr_vault.readiness_check
 
+  Netresearch\NrVault\Security\CurrentBackendUserProvider:
+    arguments:
+      $request: '@Psr\Http\Message\ServerRequestInterface'
+
   # The webhook sink deliberately uses a SHORT-timeout client built by
   # SecureHttpClientFactory rather than the ambient PSR-18 client: audit fan-out
   # must inherit the extension-wide SSRF / DNS-rebinding / no-redirect defences

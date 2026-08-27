@@ -9,22 +9,24 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Crypto;
 
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\Typo3MasterKeyProvider;
 use Netresearch\NrVault\Exception\MasterKeyException;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\MockObject\MockObject;
 
 #[CoversClass(Typo3MasterKeyProvider::class)]
 final class Typo3MasterKeyProviderTest extends TestCase
 {
-    private mixed $originalGlobals;
+    private ExtensionConfigurationInterface&MockObject $configurationMock;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $this->configurationMock = $this->createMock(ExtensionConfigurationInterface::class);
         // Reset request-lifetime cache between tests
         Typo3MasterKeyProvider::clearCachedKey();
     }
@@ -33,19 +35,18 @@ final class Typo3MasterKeyProviderTest extends TestCase
     {
         parent::tearDown();
 
-        if ($this->originalGlobals !== null) {
-            $GLOBALS['TYPO3_CONF_VARS'] = $this->originalGlobals;
-        } else {
-            unset($GLOBALS['TYPO3_CONF_VARS']);
-        }
-
         Typo3MasterKeyProvider::clearCachedKey();
+    }
+
+    private function createProvider(): Typo3MasterKeyProvider
+    {
+        return new Typo3MasterKeyProvider($this->configurationMock);
     }
 
     #[Test]
     public function getIdentifierReturnsTypo3(): void
     {
-        $provider = new Typo3MasterKeyProvider();
+        $provider = $this->createProvider();
 
         self::assertEquals('typo3', $provider->getIdentifier());
     }
@@ -53,13 +54,11 @@ final class Typo3MasterKeyProviderTest extends TestCase
     #[Test]
     public function isAvailableReturnsTrueWhenEncryptionKeySet(): void
     {
-        $GLOBALS['TYPO3_CONF_VARS'] = [
-            'SYS' => [
-                'encryptionKey' => 'a-very-long-encryption-key-for-typo3-that-is-at-least-32-chars',
-            ],
-        ];
+        $this->configurationMock
+            ->method('getTypo3EncryptionKey')
+            ->willReturn('a-very-long-encryption-key-for-typo3-that-is-at-least-32-chars');
 
-        $provider = new Typo3MasterKeyProvider();
+        $provider = $this->createProvider();
 
         self::assertTrue($provider->isAvailable());
     }
@@ -67,13 +66,11 @@ final class Typo3MasterKeyProviderTest extends TestCase
     #[Test]
     public function isAvailableReturnsFalseWhenEncryptionKeyEmpty(): void
     {
-        $GLOBALS['TYPO3_CONF_VARS'] = [
-            'SYS' => [
-                'encryptionKey' => '',
-            ],
-        ];
+        $this->configurationMock
+            ->method('getTypo3EncryptionKey')
+            ->willReturn('');
 
-        $provider = new Typo3MasterKeyProvider();
+        $provider = $this->createProvider();
 
         self::assertFalse($provider->isAvailable());
     }
@@ -81,33 +78,11 @@ final class Typo3MasterKeyProviderTest extends TestCase
     #[Test]
     public function isAvailableReturnsFalseWhenEncryptionKeyNotSet(): void
     {
-        $GLOBALS['TYPO3_CONF_VARS'] = [
-            'SYS' => [],
-        ];
+        $this->configurationMock
+            ->method('getTypo3EncryptionKey')
+            ->willReturn('');
 
-        $provider = new Typo3MasterKeyProvider();
-
-        self::assertFalse($provider->isAvailable());
-    }
-
-    #[Test]
-    public function isAvailableReturnsFalseWhenSysNotArray(): void
-    {
-        $GLOBALS['TYPO3_CONF_VARS'] = [
-            'SYS' => 'not-an-array',
-        ];
-
-        $provider = new Typo3MasterKeyProvider();
-
-        self::assertFalse($provider->isAvailable());
-    }
-
-    #[Test]
-    public function isAvailableReturnsFalseWhenGlobalsNotSet(): void
-    {
-        unset($GLOBALS['TYPO3_CONF_VARS']);
-
-        $provider = new Typo3MasterKeyProvider();
+        $provider = $this->createProvider();
 
         self::assertFalse($provider->isAvailable());
     }
@@ -115,13 +90,11 @@ final class Typo3MasterKeyProviderTest extends TestCase
     #[Test]
     public function getMasterKeyDerives32ByteKey(): void
     {
-        $GLOBALS['TYPO3_CONF_VARS'] = [
-            'SYS' => [
-                'encryptionKey' => 'test-encryption-key-for-unit-testing-purposes',
-            ],
-        ];
+        $this->configurationMock
+            ->method('getTypo3EncryptionKey')
+            ->willReturn('test-encryption-key-for-unit-testing-purposes');
 
-        $provider = new Typo3MasterKeyProvider();
+        $provider = $this->createProvider();
         $key = $provider->getMasterKey();
 
         self::assertEquals(32, \strlen($key));
@@ -130,13 +103,11 @@ final class Typo3MasterKeyProviderTest extends TestCase
     #[Test]
     public function getMasterKeyReturnsSameKeyForSameInput(): void
     {
-        $GLOBALS['TYPO3_CONF_VARS'] = [
-            'SYS' => [
-                'encryptionKey' => 'consistent-encryption-key-value-at-least-32-chars',
-            ],
-        ];
+        $this->configurationMock
+            ->method('getTypo3EncryptionKey')
+            ->willReturn('consistent-encryption-key-value-at-least-32-chars');
 
-        $provider = new Typo3MasterKeyProvider();
+        $provider = $this->createProvider();
         $key1 = $provider->getMasterKey();
         $key2 = $provider->getMasterKey();
 
@@ -146,23 +117,18 @@ final class Typo3MasterKeyProviderTest extends TestCase
     #[Test]
     public function getMasterKeyReturnsDifferentKeyForDifferentInput(): void
     {
-        $provider = new Typo3MasterKeyProvider();
+        $provider = $this->createProvider();
 
-        $GLOBALS['TYPO3_CONF_VARS'] = [
-            'SYS' => [
-                'encryptionKey' => 'encryption-key-one-at-least-32-chars-long-aaaa',
-            ],
-        ];
+        $this->configurationMock
+            ->method('getTypo3EncryptionKey')
+            ->willReturnOnConsecutiveCalls(
+                'encryption-key-one-at-least-32-chars-long-aaaa',
+                'encryption-key-two-at-least-32-chars-long-bbbb',
+            );
         $key1 = $provider->getMasterKey();
 
-        // Clear request-lifetime cache so the second derivation reads the new globals
         Typo3MasterKeyProvider::clearCachedKey();
 
-        $GLOBALS['TYPO3_CONF_VARS'] = [
-            'SYS' => [
-                'encryptionKey' => 'encryption-key-two-at-least-32-chars-long-bbbb',
-            ],
-        ];
         $key2 = $provider->getMasterKey();
 
         self::assertNotEquals($key1, $key2);
@@ -171,13 +137,11 @@ final class Typo3MasterKeyProviderTest extends TestCase
     #[Test]
     public function getMasterKeyThrowsOnShortEncryptionKey(): void
     {
-        $GLOBALS['TYPO3_CONF_VARS'] = [
-            'SYS' => [
-                'encryptionKey' => 'too-short',
-            ],
-        ];
+        $this->configurationMock
+            ->method('getTypo3EncryptionKey')
+            ->willReturn('too-short');
 
-        $provider = new Typo3MasterKeyProvider();
+        $provider = $this->createProvider();
 
         $this->expectException(MasterKeyException::class);
 
@@ -187,13 +151,11 @@ final class Typo3MasterKeyProviderTest extends TestCase
     #[Test]
     public function getMasterKeyThrowsWhenEncryptionKeyEmpty(): void
     {
-        $GLOBALS['TYPO3_CONF_VARS'] = [
-            'SYS' => [
-                'encryptionKey' => '',
-            ],
-        ];
+        $this->configurationMock
+            ->method('getTypo3EncryptionKey')
+            ->willReturn('');
 
-        $provider = new Typo3MasterKeyProvider();
+        $provider = $this->createProvider();
 
         $this->expectException(MasterKeyException::class);
         $this->expectExceptionMessageToContain('TYPO3 encryption key is not set');
@@ -204,7 +166,7 @@ final class Typo3MasterKeyProviderTest extends TestCase
     #[Test]
     public function storeMasterKeyThrowsException(): void
     {
-        $provider = new Typo3MasterKeyProvider();
+        $provider = $this->createProvider();
 
         $this->expectException(MasterKeyException::class);
         $this->expectExceptionMessageToContain('TYPO3 provider derives the key');
@@ -215,34 +177,10 @@ final class Typo3MasterKeyProviderTest extends TestCase
     #[Test]
     public function generateMasterKeyReturns32Bytes(): void
     {
-        $provider = new Typo3MasterKeyProvider();
+        $provider = $this->createProvider();
 
         $key = $provider->generateMasterKey();
 
         self::assertEquals(32, \strlen($key));
-    }
-
-    #[Test]
-    public function handlesNonStringEncryptionKey(): void
-    {
-        $GLOBALS['TYPO3_CONF_VARS'] = [
-            'SYS' => [
-                'encryptionKey' => 12345,
-            ],
-        ];
-
-        $provider = new Typo3MasterKeyProvider();
-
-        self::assertFalse($provider->isAvailable());
-    }
-
-    #[Test]
-    public function handlesNonArrayTypo3ConfVars(): void
-    {
-        $GLOBALS['TYPO3_CONF_VARS'] = 'not-an-array';
-
-        $provider = new Typo3MasterKeyProvider();
-
-        self::assertFalse($provider->isAvailable());
     }
 }

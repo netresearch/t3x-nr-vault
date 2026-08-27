@@ -228,4 +228,28 @@ interface ExtensionConfigurationInterface
      * Get the auto-generated key storage path (for development).
      */
     public function getAutoKeyPath(): string;
+
+    /**
+     * Get the TYPO3 core encryption key.
+     *
+     * Used by the TYPO3 master key provider to derive the envelope master key.
+     * Returns empty string when not set (provider will then be unavailable).
+     */
+    public function getTypo3EncryptionKey(): string;
+
+    /**
+     * Get the TYPO3 HTTP configuration array.
+     *
+     * Returns the configuration from $TYPO3_CONF_VARS['HTTP'].
+     *
+     * @return array<string, mixed>
+     */
+    public function getHttpConfiguration(): array;
+
+    /**
+     * Get the full TYPO3_CONF_VARS array for diagnostic/scanning purposes.
+     *
+     * @return array<string, mixed>
+     */
+    public function getTypo3ConfVars(): array;
 }

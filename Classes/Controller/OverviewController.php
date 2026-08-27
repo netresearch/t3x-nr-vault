@@ -20,6 +20,7 @@ use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Page\PageRenderer;
 
 /**
@@ -39,6 +40,7 @@ final readonly class OverviewController
         private ModuleAccessGuard $accessGuard,
         private BreakGlassBannerProvider $breakGlassBanner,
         private SecurityStatusProvider $securityStatus,
+        private LanguageServiceFactory $languageServiceFactory,
     ) {}
 
     /**
@@ -286,8 +288,6 @@ final readonly class OverviewController
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
-
-        return $GLOBALS['LANG'];
+        return $this->languageServiceFactory->create();
     }
 }
