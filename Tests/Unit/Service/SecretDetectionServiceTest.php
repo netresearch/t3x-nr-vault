@@ -29,7 +29,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\NullLogger;
 use ReflectionClass;
-use Netresearch\NrVault\Configuration\ExtensionConfiguration;
+use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
@@ -39,7 +39,6 @@ use TYPO3\CMS\Core\Package\PackageManager;
 
 #[CoversClass(SecretDetectionService::class)]
 #[AllowMockObjectsWithoutExpectations]
-/** @phpstan-ignore method.unresolvableReturnType,method.nonObject */
 final class SecretDetectionServiceTest extends TestCase
 {
     private const UUID_V7 = '01937b6e-4b6c-7abc-8def-0123456789ab';
@@ -48,7 +47,6 @@ final class SecretDetectionServiceTest extends TestCase
 
     private PackageManager&MockObject $packageManager;
 
-    /** @phpstan-ignore property.unresolvableNativeType */
     private ExtensionConfiguration&MockObject $extensionConfiguration;
 
     private SecretDetectionService $service;
@@ -59,7 +57,6 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->connectionPool = $this->createMock(ConnectionPool::class);
         $this->packageManager = $this->createMock(PackageManager::class);
-        /** @phpstan-ignore method.unresolvableReturnType,method.nonObject */
         $this->extensionConfiguration = $this->createMock(ExtensionConfiguration::class);
 
         $this->service = new SecretDetectionService(
@@ -436,9 +433,8 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
-        /** @phpstan-ignore method.nonObject */
+        // Extension throws exception (no config)
         $this->extensionConfiguration->method('get')
-            /** @phpstan-ignore method.nonObject */
             ->with('test_extension')
             ->willThrowException(new Exception('No configuration'));
 
@@ -456,9 +452,8 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
-        /** @phpstan-ignore method.nonObject */
+        // Return config with a secret-like key and plaintext value
         $this->extensionConfiguration->method('get')
-            /** @phpstan-ignore method.nonObject */
             ->with('test_ext')
             ->willReturn([
                 'apiKey' => 'plaintext_api_key_value_not_encrypted',
@@ -477,9 +472,8 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
-        /** @phpstan-ignore method.nonObject */
+        // Return config with vault reference
         $this->extensionConfiguration->method('get')
-            /** @phpstan-ignore method.nonObject */
             ->with('test_ext')
             ->willReturn([
                 'apiKey' => '%vault(my_api_key)%',
@@ -499,9 +493,7 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
-        /** @phpstan-ignore method.nonObject */
         $this->extensionConfiguration->method('get')
-            /** @phpstan-ignore method.nonObject */
             ->with('test_ext')
             ->willReturn([
                 'smtp' => [
@@ -522,9 +514,7 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
-        /** @phpstan-ignore method.nonObject */
         $this->extensionConfiguration->method('get')
-            /** @phpstan-ignore method.nonObject */
             ->with('test_ext')
             ->willReturn([
                 'password' => '',
@@ -544,9 +534,7 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
-        /** @phpstan-ignore method.nonObject */
         $this->extensionConfiguration->method('get')
-            /** @phpstan-ignore method.nonObject */
             ->with('test_ext')
             ->willReturn([
                 'password' => 12345,
@@ -1097,9 +1085,8 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
-        /** @phpstan-ignore method.nonObject */
+        // Extension returns non-array config — should be ignored
         $this->extensionConfiguration->method('get')
-            /** @phpstan-ignore method.nonObject */
             ->with('test_ext')
             ->willReturn('not-an-array');
 
@@ -1116,8 +1103,8 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
+        // GitHub PAT pattern — should be detected as Critical
         $this->extensionConfiguration->method('get')
-            /** @phpstan-ignore method.nonObject */
             ->willReturn([
                 'apiKey' => 'ghp_FAKE000000000000000000000000000000AB',
             ]);
@@ -1141,7 +1128,6 @@ final class SecretDetectionServiceTest extends TestCase
         $package = $this->createMock(Package::class);
         $package->method('getPackageKey')->willReturn('ext_a');
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
-        /** @phpstan-ignore method.nonObject */
         $this->extensionConfiguration->method('get')->willReturn(['apiKey' => 'plaintext-value']);
 
         // First scan finds something
@@ -1149,8 +1135,7 @@ final class SecretDetectionServiceTest extends TestCase
         $firstCount = $this->service->getDetectedSecretsCount();
 
         // Second scan should reset and rescan
-        $this->extensionConfiguration = /** @phpstan-ignore method.unresolvableReturnType,method.nonObject */ $this->createMock(ExtensionConfiguration::class);
-        /** @phpstan-ignore method.nonObject */
+        $this->extensionConfiguration = $this->createMock(ExtensionConfiguration::class);
         $this->extensionConfiguration->method('get')->willReturn([]);
 
         // Create new service instance to test clean slate

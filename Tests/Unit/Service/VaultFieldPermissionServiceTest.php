@@ -9,14 +9,12 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Service;
 
-use Netresearch\NrVault\Security\CurrentBackendUserProviderInterface;
 use Netresearch\NrVault\Service\VaultFieldPermission;
 use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\MockObject\MockObject;
 use ReflectionClass;
 use stdClass;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -26,14 +24,11 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 final class VaultFieldPermissionServiceTest extends TestCase
 {
     private VaultFieldPermissionService $service;
-    private CurrentBackendUserProviderInterface&MockObject $currentBackendUserProviderMock;
 
     protected function setUp(): void
     {
         parent::setUp();
-
-        $this->currentBackendUserProviderMock = $this->createMock(CurrentBackendUserProviderInterface::class);
-        $this->service = new VaultFieldPermissionService($this->currentBackendUserProviderMock);
+        $this->service = new VaultFieldPermissionService();
     }
 
     protected function tearDown(): void
@@ -45,10 +40,6 @@ final class VaultFieldPermissionServiceTest extends TestCase
     #[Test]
     public function returnsFalseWhenNoBackendUser(): void
     {
-        $this->currentBackendUserProviderMock
-            ->method('get')
-            ->willReturn(null);
-
         $result = $this->service->isAllowed('tx_table', 'field', VaultFieldPermission::Reveal);
 
         self::assertFalse($result);
@@ -109,9 +100,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function usesGlobalBackendUserWhenNotProvided(): void
     {
         $backendUser = $this->createMockBackendUser(isAdmin: true);
-        $this->currentBackendUserProviderMock
-            ->method('get')
-            ->willReturn($backendUser);
+        $GLOBALS['BE_USER'] = $backendUser;
 
         $result = $this->service->isAllowed('table', 'field', VaultFieldPermission::Reveal);
 
@@ -384,10 +373,8 @@ final class VaultFieldPermissionServiceTest extends TestCase
     #[Test]
     public function isAllowedReturnsFalseForNonBackendUserInGlobals(): void
     {
-        // CurrentBackendUserProvider returns null (not a BackendUserAuthentication)
-        $this->currentBackendUserProviderMock
-            ->method('get')
-            ->willReturn(null);
+        // GLOBALS has a non-BackendUserAuthentication object
+        $GLOBALS['BE_USER'] = new stdClass();
 
         $result = $this->service->isAllowed('tx_table', 'field', VaultFieldPermission::Reveal);
 
