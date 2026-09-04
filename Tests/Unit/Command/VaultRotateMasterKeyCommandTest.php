@@ -1007,9 +1007,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     private function createKeyFile(string $name, string $content): string
     {
         static $root = null;
-        if ($root === null) {
-            $root = vfsStream::setup('keys');
-        }
+        $root ??= vfsStream::setup('keys');
 
         vfsStream::newFile($name . '.key')
             ->withContent($content)

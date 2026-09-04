@@ -52,9 +52,7 @@ final class VaultServiceTest extends FunctionalTestCase
         chmod($this->masterKeyPath, 0o600);
 
         // Configure extension to use file-based master key
-        if (!isset($GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS'])) {
-            $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS'] = [];
-        }
+        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS'] ??= [];
 
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = [
             'masterKeySource' => $this->masterKeyPath,
