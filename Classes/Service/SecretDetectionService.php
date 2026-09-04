@@ -24,7 +24,7 @@ use Netresearch\NrVault\Utility\IdentifierValidator;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Configuration\Exception\ExtensionConfigurationExtensionNotConfiguredException;
 use TYPO3\CMS\Core\Configuration\Exception\ExtensionConfigurationPathDoesNotExistException;
-use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Package\PackageManager;
 
@@ -53,7 +53,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
     public function __construct(
         private readonly ConnectionPool $connectionPool,
         private readonly PackageManager $packageManager,
-        private readonly ExtensionConfiguration $extensionConfiguration,
+        private readonly ExtensionConfigurationInterface $extensionConfiguration,
         private readonly LoggerInterface $logger,
         // The column-name, config-key and known-API-key-format patterns this
         // scanner used to carry as private constants now live in the shared
@@ -150,12 +150,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
      */
     public function scanLocalConfiguration(): void
     {
-        if (!isset($GLOBALS['TYPO3_CONF_VARS'])) {
-            return;
-        }
-
-        /** @var array<string, mixed> $typo3ConfVars */
-        $typo3ConfVars = $GLOBALS['TYPO3_CONF_VARS'];
+        $typo3ConfVars = $this->extensionConfiguration->getTypo3ConfVars();
 
         // Check MAIL configuration
         /** @var array<string, mixed> $mailConfig */

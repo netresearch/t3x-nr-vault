@@ -31,9 +31,10 @@ return static function (RectorConfig $rectorConfig) use ($configure): void {
     ));
 
     $rectorConfig->sets([
-        Typo3LevelSetList::UP_TO_TYPO3_13,
+        Typo3LevelSetList::UP_TO_TYPO3_14,
         Typo3SetList::CODE_QUALITY,
         Typo3SetList::GENERAL,
+        Rector\Set\ValueObject\SetList::DEAD_CODE,
     ]);
 
     $rectorConfig->skip([

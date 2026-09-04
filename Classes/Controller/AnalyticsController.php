@@ -18,6 +18,7 @@ use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\UriBuilder as BackendUriBuilder;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Page\PageRenderer;
 
 /**
@@ -39,6 +40,7 @@ final readonly class AnalyticsController
         private BackendUriBuilder $backendUriBuilder,
         private PageRenderer $pageRenderer,
         private ModuleAccessGuard $accessGuard,
+        private LanguageServiceFactory $languageServiceFactory,
     ) {}
 
     /**
@@ -135,8 +137,7 @@ final readonly class AnalyticsController
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
-
-        return $GLOBALS['LANG'];
+        /** @phpstan-ignore method.internal */
+        return $this->languageServiceFactory->createForBackendUser();
     }
 }

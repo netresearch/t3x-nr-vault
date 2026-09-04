@@ -29,6 +29,7 @@ use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Page\PageRenderer;
 
 /**
@@ -50,6 +51,7 @@ final readonly class AuditController
         private AuditLogServiceInterface $auditLogService,
         private UriBuilder $uriBuilder,
         private ModuleAccessGuard $accessGuard,
+        private LanguageServiceFactory $languageServiceFactory,
     ) {}
 
     /**
@@ -239,7 +241,7 @@ final readonly class AuditController
         /** @phpstan-ignore method.internalClass */
         $response->getBody()->write(json_encode($entries, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
 
-        /** @phpstan-ignore-next-line method.internalClass */
+        /** @phpstan-ignore method.internalClass */
         return $response
             ->withHeader('Content-Type', 'application/json')
             ->withHeader('Content-Disposition', 'attachment; filename="vault-audit-' . date('Y-m-d') . '.json"');
@@ -341,7 +343,7 @@ final readonly class AuditController
             /** @phpstan-ignore method.internalClass */
             $response->getBody()->write('Failed to create output stream');
 
-            /** @phpstan-ignore-next-line method.internalClass */
+            /** @phpstan-ignore method.internalClass */
             return $response->withHeader('Content-Type', 'text/plain');
         }
 
@@ -376,7 +378,7 @@ final readonly class AuditController
         /** @phpstan-ignore method.internalClass */
         $response->getBody()->write(\is_string($csv) ? $csv : '');
 
-        /** @phpstan-ignore-next-line method.internalClass */
+        /** @phpstan-ignore method.internalClass */
         return $response
             ->withHeader('Content-Type', 'text/csv')
             ->withHeader('Content-Disposition', 'attachment; filename="vault-audit-' . date('Y-m-d') . '.csv"');
@@ -461,8 +463,6 @@ final readonly class AuditController
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
-
-        return $GLOBALS['LANG'];
+        return $this->languageServiceFactory->create();
     }
 }

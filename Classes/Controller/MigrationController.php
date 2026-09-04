@@ -30,6 +30,7 @@ use TYPO3\CMS\Core\Http\RedirectResponse;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
@@ -71,6 +72,7 @@ final readonly class MigrationController
         private IconFactory $iconFactory,
         private PageRenderer $pageRenderer,
         private ModuleAccessGuard $accessGuard,
+        private LanguageServiceFactory $languageServiceFactory,
     ) {}
 
     /**
@@ -312,7 +314,7 @@ final readonly class MigrationController
             $totalFailed += $result->failed;
         }
 
-        $this->storeMigrationResults($results, $totalMigrated, $totalFailed, $clearOriginals);
+        $this->storeMigrationResults($request, $results, $totalMigrated, $totalFailed, $clearOriginals);
 
         /** @phpstan-ignore new.internalClass, method.internalClass */
         return new RedirectResponse($this->buildUri('verify'));
@@ -380,12 +382,13 @@ final readonly class MigrationController
      * @param list<array<string, mixed>> $results
      */
     private function storeMigrationResults(
+        ServerRequestInterface $request,
         array $results,
         int $totalMigrated,
         int $totalFailed,
         bool $clearOriginals,
     ): void {
-        $beUser = $GLOBALS['BE_USER'] ?? null;
+        $beUser = $request->getAttribute('backend.user') ?? null;
         if (\is_object($beUser) && method_exists($beUser, 'setAndSaveSessionData')) {
             $beUser->setAndSaveSessionData('vault_migration_results', [
                 'results' => $results,
@@ -412,7 +415,7 @@ final readonly class MigrationController
         );
 
         // Get results from session
-        $beUser = $GLOBALS['BE_USER'] ?? null;
+        $beUser = $request->getAttribute('backend.user') ?? null;
         $sessionData = [];
         if (\is_object($beUser) && method_exists($beUser, 'getSessionData')) {
             $sessionDataRaw = $beUser->getSessionData('vault_migration_results');
@@ -584,9 +587,7 @@ final readonly class MigrationController
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
-
-        return $GLOBALS['LANG'];
+        return $this->languageServiceFactory->create();
     }
 
     /**

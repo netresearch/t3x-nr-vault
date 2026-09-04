@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Hook;
 use Exception;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Hook\Dto\PendingSecret;
+use Netresearch\NrVault\Security\CurrentBackendUserProviderInterface;
 use Netresearch\NrVault\Service\VaultFieldPermission;
 use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -67,6 +68,7 @@ final class DataHandlerHook
         private readonly PendingSecretPersister $pendingSecretPersister,
         private readonly VaultFailureReporter $failureReporter,
         private readonly VaultFieldPermissionService $fieldPermissionService,
+        private readonly CurrentBackendUserProviderInterface $currentBackendUserProvider,
     ) {}
 
     /**
@@ -623,7 +625,7 @@ final class DataHandlerHook
      */
     private function isFieldWritable(string $table, string $fieldName): bool
     {
-        $backendUser = $GLOBALS['BE_USER'] ?? null;
+        $backendUser = $this->currentBackendUserProvider->get();
         if (!$backendUser instanceof BackendUserAuthentication) {
             return true;
         }

@@ -16,6 +16,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 
 /**
  * Per-action operation-permission gate for the vault backend modules.
@@ -37,6 +38,7 @@ final readonly class ModuleAccessGuard
     public function __construct(
         private AccessControlServiceInterface $accessControlService,
         private ModuleTemplateFactory $moduleTemplateFactory,
+        private LanguageServiceFactory $languageServiceFactory,
     ) {}
 
     /**
@@ -130,8 +132,6 @@ final readonly class ModuleAccessGuard
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
-
-        return $GLOBALS['LANG'];
+        return $this->languageServiceFactory->create();
     }
 }

@@ -32,6 +32,7 @@ use TYPO3\CMS\Core\Http\RedirectResponse;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
@@ -65,6 +66,7 @@ final readonly class SecretsController
         private ModuleAccessGuard $accessGuard,
         private BreakGlassBannerProvider $breakGlassBanner,
         private SecretRepositoryInterface $secretRepository,
+        private LanguageServiceFactory $languageServiceFactory,
     ) {}
 
     /**
@@ -532,9 +534,7 @@ final readonly class SecretsController
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
-
-        return $GLOBALS['LANG'];
+        return $this->languageServiceFactory->create();
     }
 
     /**

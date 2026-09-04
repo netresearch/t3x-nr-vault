@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Service;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\SingletonInterface;
+use Netresearch\NrVault\Security\CurrentBackendUserProviderInterface;
 
 /**
  * Service for checking TSconfig-based permissions on vault fields.
@@ -48,6 +49,10 @@ final class VaultFieldPermissionService implements SingletonInterface
     /** @var array<string, bool> */
     private array $permissionCache = [];
 
+    public function __construct(
+        private readonly CurrentBackendUserProviderInterface $currentBackendUserProvider,
+    ) {}
+
     /**
      * Check if a specific action is allowed for a vault field.
      */
@@ -57,7 +62,7 @@ final class VaultFieldPermissionService implements SingletonInterface
         VaultFieldPermission $permission,
         ?BackendUserAuthentication $backendUser = null,
     ): bool {
-        $backendUser ??= $this->getBackendUser();
+        $backendUser ??= $this->currentBackendUserProvider->get();
 
         if (!$backendUser instanceof BackendUserAuthentication) {
             return false;
@@ -165,13 +170,6 @@ final class VaultFieldPermissionService implements SingletonInterface
 
         /** @phpstan-ignore return.type */
         return \is_array($vaultConfig['permissions.'] ?? null) ? $vaultConfig['permissions.'] : [];
-    }
-
-    private function getBackendUser(): ?BackendUserAuthentication
-    {
-        $beUser = $GLOBALS['BE_USER'] ?? null;
-
-        return $beUser instanceof BackendUserAuthentication ? $beUser : null;
     }
 
     /**

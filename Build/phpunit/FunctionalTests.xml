@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/12.5/phpunit.xsd"
+    backupGlobals="true"
+    bootstrap="../../Tests/bootstrap.php"
+    cacheDirectory=".phpunit.cache"
+    colors="true"
+    displayDetailsOnPhpunitDeprecations="true"
+    displayDetailsOnTestsThatTriggerDeprecations="true"
+    displayDetailsOnTestsThatTriggerErrors="true"
+    displayDetailsOnTestsThatTriggerNotices="true"
+    displayDetailsOnTestsThatTriggerWarnings="true"
+    failOnRisky="true"
+    failOnWarning="true"
+>
+    <testsuites>
+        <testsuite name="Functional">
+            <directory>../../Tests/Functional</directory>
+        </testsuite>
+    </testsuites>
+
+    <source ignoreSuppressionOfDeprecations="true">
+        <include>
+            <directory suffix=".php">../../Classes</directory>
+        </include>
+    </source>
+
+    <php>
+        <ini name="display_errors" value="1"/>
+        <ini name="error_reporting" value="-1"/>
+        <env name="TYPO3_CONTEXT" value="Testing"/>
+    </php>
+</phpunit>
