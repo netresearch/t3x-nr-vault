@@ -7,16 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **The security mutation ratchet now also covers `Classes/Http`** (#307). The
-  gate (`infection-security.json5`, enforced by the `Security gates` workflow)
-  previously measured only `Classes/Crypto`, `Classes/Security` and
-  `Classes/Audit`, so it said nothing about the outbound credential path. The
-  release-evidence manifest reports the four-directory scope accordingly. The
-  floor was re-baselined 86 → 82 from the first four-directory CI measurement
-  (MSI 83.84 %); raising it back above 86 by hardening the Http suites is
-  tracked in #328.
+## [0.16.0] - 2026-09-05
 
 ### Added
 
@@ -147,6 +138,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The security mutation ratchet now also covers `Classes/Http`** (#307). The
+  gate (`infection-security.json5`, enforced by the `Security gates` workflow)
+  previously measured only `Classes/Crypto`, `Classes/Security` and
+  `Classes/Audit`, so it said nothing about the outbound credential path. The
+  release-evidence manifest reports the four-directory scope accordingly. The
+  floor was re-baselined 86 → 82 from the first four-directory CI measurement
+  (MSI 83.84 %); raising it back above 86 by hardening the Http suites is
+  tracked in #328.
+
+
 - **Agent documentation synced and put under CI verification** (#325). Root
   `AGENTS.md` shrank from 296 to 144 lines: the Key-Interfaces cheat-sheet, the
   `vault:*` CLI list, the component map and the phpat dependency rules now live
@@ -176,6 +177,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   middleware re-validates.) Failed resolutions are never memoised; every
   failure-path behaviour is unchanged.
 
+
+- **`guzzlehttp/guzzle` is now a declared direct dependency** (`^7.10`).
+  Production code already imported `GuzzleHttp\Client`, `HandlerStack` and
+  `RequestException` while the manifest named only the PSR interfaces and relied
+  on `typo3/cms-core` to pull Guzzle in transitively. The cancellable transport
+  reaches deeper still — `CurlMultiHandler`, `Proxy`, `StreamHandler`, promise
+  cancel semantics — and a Guzzle major arriving through a third path would
+  break it with no warning in our own manifest.
+
 ### Fixed
 
 - **A refused scheme, a host outside `allowed_hosts`, and a credential that
@@ -203,16 +213,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the degraded branch of `sendCancellable()` alike, under `http_call` with
   the fixed literal `Blocking send aborted by an unexpected error after the
   credential was injected: …`. Success and transport-failure rows are unchanged.
-
-### Changed
-
-- **`guzzlehttp/guzzle` is now a declared direct dependency** (`^7.10`).
-  Production code already imported `GuzzleHttp\Client`, `HandlerStack` and
-  `RequestException` while the manifest named only the PSR interfaces and relied
-  on `typo3/cms-core` to pull Guzzle in transitively. The cancellable transport
-  reaches deeper still — `CurlMultiHandler`, `Proxy`, `StreamHandler`, promise
-  cancel semantics — and a Guzzle major arriving through a third path would
-  break it with no warning in our own manifest.
 
 ## [0.15.0] - 2026-08-10
 
@@ -1809,7 +1809,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.12.2...v0.13.0
