@@ -8,7 +8,21 @@ on:
 permissions: {}
 
 jobs:
+  # Nothing is built, signed or published until the test matrix and the
+  # security evidence have succeeded for exactly the tagged commit. Both run
+  # for that commit anyway — ci.yml on the push to main, release-evidence.yml on
+  # this tag push — so the gate waits for them instead of the release racing
+  # them. A failure stops the release; re-run the failed workflow, then this one.
+  gate:
+    uses: netresearch/typo3-ci-workflows/.github/workflows/release-gate.yml@main
+    permissions:
+      actions: read
+      contents: read
+    with:
+      required-workflows: 'ci.yml release-evidence.yml'
+
   release:
+    needs: gate
     uses: netresearch/typo3-ci-workflows/.github/workflows/release-typo3-extension.yml@main
     permissions:
       contents: write

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A release is published only after its evidence passed.** `release.yml`
+  now starts with the fleet `release-gate.yml`, which waits for `ci.yml` and
+  `release-evidence.yml` to succeed at the tagged commit; the build, the
+  signatures, TER, Packagist and the GitHub release all depend on it. Until now
+  the evidence ran in parallel with the release, so a failed check was only
+  visible next to a release that was already out. A `FAIL` evidence verdict
+  now stops the release; `DEGRADED` does not.
+
+### Added
+
+- **A pre-release check without publishing.** A manual run of
+  `release-evidence.yml` with a commit SHA as `ref` runs every check against
+  that commit and publishes a bundle labelled `precheck-<commit>`, whose
+  release-identity entry reads "not a tagged build" instead of a tag mismatch —
+  the way to vet a release candidate, since the release pipeline accepts only
+  `x.y.z` tags. Manual runs also record the checked-out commit now, not the head
+  of the branch the run was started from.
+
 ## [0.16.0] - 2026-09-05
 
 ### Added

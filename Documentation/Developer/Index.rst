@@ -399,6 +399,18 @@ signed release artifacts. It is assembled by
 :file:`Build/Scripts/collect-evidence.php` and published by the
 :file:`.github/workflows/release-evidence.yml` workflow.
 
+The release is gated on it: :file:`.github/workflows/release.yml` first runs the
+fleet ``release-gate.yml``, which waits for the evidence run and for
+:file:`ci.yml` to succeed at the tagged commit before anything is built, signed
+or published.
+A candidate is vetted before tagging with a manual run against its commit,
+which publishes nothing:
+
+.. code-block:: bash
+   :caption: Pre-release check of a commit
+
+   gh workflow run release-evidence.yml -f ref=<commit-sha>
+
 .. code-block:: bash
    :caption: Build a bundle locally
 
