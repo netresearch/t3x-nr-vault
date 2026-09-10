@@ -10,7 +10,6 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Functional\Upgrades;
 
 use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
-use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfiguration;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
@@ -18,22 +17,27 @@ use Netresearch\NrVault\Crypto\FileMasterKeyProvider;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
-use Netresearch\NrVault\Upgrades\AuditHmacMigrationWizard;
+use Netresearch\NrVault\Tests\Functional\Traits\LegacyAuditEntryTrait;
+use Netresearch\NrVault\Upgrades\AuditHmacMigration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration as Typo3ExtensionConfiguration;
 use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface;
+use TYPO3\CMS\Core\Utility\ArrayUtility;
 
 /**
- * Functional tests for the AuditHmacMigrationWizard upgrade wizard.
+ * Functional tests for the HMAC audit-chain migration.
  *
- * Seeds audit entries with epoch=0 (legacy SHA-256), runs the wizard,
- * and verifies all entries are re-hashed with HMAC-SHA256.
+ * Seeds audit entries with epoch=0 (legacy SHA-256), runs the migration,
+ * and verifies all entries are re-hashed with HMAC-SHA256. Runs on every
+ * TYPO3 major: the logic depends on no upgrade API.
+ * UpgradeWizardRegistrationTest covers the path through TYPO3's registry.
  */
-#[CoversClass(AuditHmacMigrationWizard::class)]
-final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
+#[CoversClass(AuditHmacMigration::class)]
+final class AuditHmacMigrationTest extends AbstractVaultFunctionalTestCase
 {
+    use LegacyAuditEntryTrait;
+
     protected ?string $backendUserFixture = __DIR__ . '/../../Functional/Service/Fixtures/be_users.csv';
 
     /**
@@ -45,29 +49,6 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
     protected array $extensionConfiguration = [
         'auditHmacEpoch' => 0,
     ];
-
-    protected function setUp(): void
-    {
-        // parent::setUp() must run FIRST so tearDown can access
-        // $this->instancePath (inherited from FunctionalTestCase) without
-        // "accessed before initialization" errors even when we skip.
-        // Only then check for UpgradeWizardInterface — the wizard
-        // implements it, and the interface moved from cms-install to
-        // cms-core only in TYPO3 v14 (phpstan.neon excludes the wizard
-        // source file from v13 analysis for the same reason).
-        parent::setUp();
-
-        if (!interface_exists(UpgradeWizardInterface::class)) {
-            self::markTestSkipped(
-                'AuditHmacMigrationWizard requires TYPO3 v14 '
-                . '(UpgradeWizardInterface moved from cms-install to '
-                . 'cms-core). The unit suite at Tests/Unit/Upgrades/'
-                . 'AuditHmacMigrationWizardTest.php covers the migration '
-                . 'logic with a stubbed interface and runs on every '
-                . 'matrix cell.',
-            );
-        }
-    }
 
     #[Test]
     public function updateNecessaryReturnsFalseWhenEpochIsZero(): void
@@ -85,8 +66,7 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
     public function updateNecessaryReturnsFalseWhenNoLegacyEntries(): void
     {
         // Switch to epoch=1 but with no legacy entries
-        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 1;
-        FileMasterKeyProvider::clearCachedKey();
+        $this->configureAuditHmacEpoch(1);
 
         // Write new entries with epoch=1 (via VaultService which picks up the new epoch)
         $vaultService = $this->get(VaultServiceInterface::class);
@@ -109,8 +89,7 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
         $this->seedLegacyAuditEntry('legacy/secret/ident', 'store');
 
         // Switch to epoch=1 — migration is now needed
-        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 1;
-        FileMasterKeyProvider::clearCachedKey();
+        $this->configureAuditHmacEpoch(1);
 
         $wizard = $this->buildWizard();
 
@@ -124,8 +103,7 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
     public function updateNecessaryReturnsTrueForEpoch1RowsWhenTargetIsEpoch2(): void
     {
         // First: write entries at epoch=1 via VaultService.
-        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 1;
-        FileMasterKeyProvider::clearCachedKey();
+        $this->configureAuditHmacEpoch(1);
 
         $vaultService = $this->get(VaultServiceInterface::class);
         $identifier = $this->generateUuidV7();
@@ -134,13 +112,12 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
 
         // Now bump the configured epoch to 2 — the existing epoch-1 rows
         // are "outdated" because v1 hashes don't bind forensic fields.
-        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 2;
-        FileMasterKeyProvider::clearCachedKey();
+        $this->configureAuditHmacEpoch(2);
 
         // Build the wizard with a fresh ExtensionConfiguration so it picks
         // up the new epoch from $GLOBALS — the DI-resolved instance is a
         // singleton that cached the previous value at construction.
-        $wizard = new AuditHmacMigrationWizard(
+        $wizard = new AuditHmacMigration(
             $this->get(ConnectionPool::class),
             $this->get(MasterKeyProviderInterface::class),
             new ExtensionConfiguration(new Typo3ExtensionConfiguration()),
@@ -162,8 +139,7 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
         $this->seedLegacyAuditEntry('migrate/test/secret2', 'retrieve');
 
         // Switch to epoch=1
-        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 1;
-        FileMasterKeyProvider::clearCachedKey();
+        $this->configureAuditHmacEpoch(1);
 
         $wizard = $this->buildWizard();
         self::assertTrue($wizard->updateNecessary(), 'Migration must be necessary before running');
@@ -192,8 +168,7 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
         $this->seedLegacyAuditEntry($secretId, 'store');
 
         // Switch to epoch=1 and run migration
-        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 1;
-        FileMasterKeyProvider::clearCachedKey();
+        $this->configureAuditHmacEpoch(1);
 
         $wizard = $this->buildWizard();
         $wizard->executeUpdate();
@@ -213,8 +188,7 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
     {
         $this->seedLegacyAuditEntry('after-migration/secret', 'store');
 
-        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 1;
-        FileMasterKeyProvider::clearCachedKey();
+        $this->configureAuditHmacEpoch(1);
 
         $wizard = $this->buildWizard();
         self::assertTrue($wizard->updateNecessary());
@@ -237,8 +211,7 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
         $this->seedLegacyAuditEntry('idempotent/secret/3', 'delete');
 
         // Switch to epoch=1
-        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['auditHmacEpoch'] = 1;
-        FileMasterKeyProvider::clearCachedKey();
+        $this->configureAuditHmacEpoch(1);
 
         $wizard = $this->buildWizard();
         self::assertTrue($wizard->updateNecessary(), 'Migration must be necessary before first run');
@@ -296,71 +269,34 @@ final class AuditHmacMigrationWizardTest extends AbstractVaultFunctionalTestCase
     }
 
     /**
-     * Build the wizard instance using DI-resolved dependencies.
-     * The wizard is not in the test DI container (it's a TYPO3 install-tool class),
-     * so we wire it manually.
+     * Switch the configured target epoch mid-test and drop the cached master
+     * key so the next audit write derives its HMAC key afresh.
      */
-    private function buildWizard(): AuditHmacMigrationWizard
+    private function configureAuditHmacEpoch(int $epoch): void
     {
-        return new AuditHmacMigrationWizard(
+        $confVars = $GLOBALS['TYPO3_CONF_VARS'];
+        self::assertIsArray($confVars);
+        $GLOBALS['TYPO3_CONF_VARS'] = ArrayUtility::setValueByPath(
+            $confVars,
+            'EXTENSIONS/nr_vault/auditHmacEpoch',
+            $epoch,
+        );
+        FileMasterKeyProvider::clearCachedKey();
+    }
+
+    /**
+     * Build the migration with DI-resolved dependencies. The upgrade-wizard
+     * shells that TYPO3 registers are exercised separately, through the
+     * registry, in UpgradeWizardRegistrationTest.
+     */
+    private function buildWizard(): AuditHmacMigration
+    {
+        return new AuditHmacMigration(
             $this->get(ConnectionPool::class),
             $this->get(MasterKeyProviderInterface::class),
             $this->get(ExtensionConfigurationInterface::class),
             $this->get(AuditLogServiceInterface::class),
             $this->get(AuditChainAnchorStoreInterface::class),
-        );
-    }
-
-    /**
-     * Insert a legacy audit entry (epoch=0, SHA-256 hash) directly into the DB.
-     */
-    private function seedLegacyAuditEntry(string $secretIdentifier, string $action): void
-    {
-        $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
-
-        $crdate = time();
-        $previousHash = '';
-
-        // Compute sha256 chain hash (legacy, no HMAC key)
-        $connection->insert('tx_nrvault_audit_log', [
-            'pid' => 0,
-            'secret_identifier' => $secretIdentifier,
-            'action' => $action,
-            'success' => 1,
-            'error_message' => '',
-            'reason' => 'Legacy test entry',
-            'actor_uid' => 1,
-            'actor_type' => 'be_user',
-            'actor_username' => 'admin',
-            'actor_role' => 'admin',
-            'ip_address' => 'CLI',
-            'user_agent' => 'CLI',
-            'request_id' => bin2hex(random_bytes(8)),
-            'previous_hash' => $previousHash,
-            'hash_before' => '',
-            'hash_after' => '',
-            'crdate' => $crdate,
-            'hmac_key_epoch' => 0,
-            'context' => '{}',
-            'entry_hash' => '', // placeholder - will be updated below
-        ]);
-
-        $uid = (int) $connection->lastInsertId();
-
-        // Calculate correct legacy SHA-256 hash for this entry
-        $legacyHash = AuditLogService::calculateHash(
-            $uid,
-            $secretIdentifier,
-            $action,
-            1,
-            $crdate,
-            $previousHash, // null = legacy SHA-256
-        );
-
-        $connection->update(
-            'tx_nrvault_audit_log',
-            ['entry_hash' => $legacyHash],
-            ['uid' => $uid],
         );
     }
 }

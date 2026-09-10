@@ -433,7 +433,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
      * epoch 0 there is none. Warning at 1-2 rather than critical: the chain IS
      * keyed there, so the entries cannot be rewritten wholesale — but 1 and 2
      * are live states reachable from a stalled or partial
-     * {@see \Netresearch\NrVault\Upgrades\AuditHmacMigrationWizard} run, not
+     * {@see \Netresearch\NrVault\Upgrades\AuditHmacMigration} run, not
      * hypotheticals, and reporting them as equivalent to 3 is what let a
      * half-migrated installation read as clean. The shipped default is 3.
      *

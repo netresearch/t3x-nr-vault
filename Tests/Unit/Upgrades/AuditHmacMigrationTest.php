@@ -16,45 +16,41 @@ use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
-use Netresearch\NrVault\Upgrades\AuditHmacMigrationWizard;
+use Netresearch\NrVault\Upgrades\AuditHmacMigration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\MockObject\Stub;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
-use TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface;
 
-#[CoversClass(AuditHmacMigrationWizard::class)]
-final class AuditHmacMigrationWizardTest extends TestCase
+#[CoversClass(AuditHmacMigration::class)]
+final class AuditHmacMigrationTest extends TestCase
 {
-    private ConnectionPool $connectionPool;
+    private ConnectionPool&Stub $connectionPool;
 
-    private MasterKeyProviderInterface $masterKeyProvider;
+    private MasterKeyProviderInterface&Stub $masterKeyProvider;
 
-    private ExtensionConfigurationInterface $configuration;
+    private ExtensionConfigurationInterface&Stub $configuration;
 
-    private AuditChainAnchorStoreInterface $anchorStore;
+    private AuditChainAnchorStoreInterface&Stub $anchorStore;
 
-    private AuditHmacMigrationWizard $subject;
+    private AuditHmacMigration $subject;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        if (!interface_exists(UpgradeWizardInterface::class)) {
-            self::markTestSkipped('UpgradeWizardInterface not available in TYPO3 v13');
-        }
-
-        $this->connectionPool = $this->createStub(ConnectionPool::class);
-        $this->masterKeyProvider = $this->createStub(MasterKeyProviderInterface::class);
-        $this->configuration = $this->createStub(ExtensionConfigurationInterface::class);
+        $this->connectionPool = self::createStub(ConnectionPool::class);
+        $this->masterKeyProvider = self::createStub(MasterKeyProviderInterface::class);
+        $this->configuration = self::createStub(ExtensionConfigurationInterface::class);
         // Default: chain is safe to re-seal (verifyChainForReseal() returns null).
-        $auditLogService = $this->createStub(AuditLogServiceInterface::class);
-        $this->anchorStore = $this->createStub(AuditChainAnchorStoreInterface::class);
+        $auditLogService = self::createStub(AuditLogServiceInterface::class);
+        $this->anchorStore = self::createStub(AuditChainAnchorStoreInterface::class);
 
-        $this->subject = new AuditHmacMigrationWizard(
+        $this->subject = new AuditHmacMigration(
             $this->connectionPool,
             $this->masterKeyProvider,
             $this->configuration,
@@ -129,14 +125,14 @@ final class AuditHmacMigrationWizardTest extends TestCase
             ['uid' => 2, 'secret_identifier' => 'secret-2', 'action' => 'retrieve', 'actor_uid' => 5, 'crdate' => 1700000001],
         ];
 
-        $queryResult = $this->createStub(Result::class);
+        $queryResult = self::createStub(Result::class);
         $queryResult->method('fetchAssociative')->willReturnOnConsecutiveCalls(
             $rows[0],
             $rows[1],
             false,
         );
 
-        $queryBuilder = $this->createStub(QueryBuilder::class);
+        $queryBuilder = self::createStub(QueryBuilder::class);
         $queryBuilder->method('select')->willReturnSelf();
         $queryBuilder->method('from')->willReturnSelf();
         $queryBuilder->method('orderBy')->willReturnSelf();
@@ -166,10 +162,10 @@ final class AuditHmacMigrationWizardTest extends TestCase
             ['uid' => '3', 'secret_identifier' => null, 'action' => null, 'actor_uid' => '7', 'crdate' => '1700000005'],
         ];
 
-        $queryResult = $this->createStub(Result::class);
+        $queryResult = self::createStub(Result::class);
         $queryResult->method('fetchAssociative')->willReturnOnConsecutiveCalls($rows[0], false);
 
-        $queryBuilder = $this->createStub(QueryBuilder::class);
+        $queryBuilder = self::createStub(QueryBuilder::class);
         $queryBuilder->method('select')->willReturnSelf();
         $queryBuilder->method('from')->willReturnSelf();
         $queryBuilder->method('orderBy')->willReturnSelf();
@@ -194,10 +190,10 @@ final class AuditHmacMigrationWizardTest extends TestCase
         $this->configuration->method('getAuditHmacEpoch')->willReturn(1);
         $this->masterKeyProvider->method('getMasterKey')->willReturn($masterKey);
 
-        $queryResult = $this->createStub(Result::class);
+        $queryResult = self::createStub(Result::class);
         $queryResult->method('fetchAssociative')->willReturn(false);
 
-        $queryBuilder = $this->createStub(QueryBuilder::class);
+        $queryBuilder = self::createStub(QueryBuilder::class);
         $queryBuilder->method('select')->willReturnSelf();
         $queryBuilder->method('from')->willReturnSelf();
         $queryBuilder->method('orderBy')->willReturnSelf();
@@ -223,11 +219,11 @@ final class AuditHmacMigrationWizardTest extends TestCase
         $this->configuration->method('getAuditHmacEpoch')->willReturn(1);
         $this->masterKeyProvider->method('getMasterKey')->willReturn(str_repeat("\x42", 32));
 
-        $lockResult = $this->createStub(Result::class);
+        $lockResult = self::createStub(Result::class);
         $lockResult->method('fetchOne')->willReturn(0); // timeout
 
         $connection = $this->createMock(Connection::class);
-        $platform = $this->createStub(MySQLPlatform::class);
+        $platform = self::createStub(MySQLPlatform::class);
         $connection->method('getDatabasePlatform')->willReturn($platform);
         $connection->method('executeQuery')->willReturn($lockResult);
         $connection->expects(self::never())->method('beginTransaction');
@@ -246,22 +242,22 @@ final class AuditHmacMigrationWizardTest extends TestCase
      */
     private function stubLockAcquisition(Connection&MockObject $connection): void
     {
-        $lockResult = $this->createStub(Result::class);
+        $lockResult = self::createStub(Result::class);
         $lockResult->method('fetchOne')->willReturn(1);
-        $platform = $this->createStub(MySQLPlatform::class);
+        $platform = self::createStub(MySQLPlatform::class);
         $connection->method('getDatabasePlatform')->willReturn($platform);
         $connection->method('executeQuery')->willReturn($lockResult);
     }
 
     private function mockCountQuery(int $count): void
     {
-        $expressionBuilder = $this->createStub(ExpressionBuilder::class);
+        $expressionBuilder = self::createStub(ExpressionBuilder::class);
         $expressionBuilder->method('eq')->willReturn('hmac_key_epoch = 0');
 
-        $result = $this->createStub(Result::class);
+        $result = self::createStub(Result::class);
         $result->method('fetchOne')->willReturn($count);
 
-        $queryBuilder = $this->createStub(QueryBuilder::class);
+        $queryBuilder = self::createStub(QueryBuilder::class);
         $queryBuilder->method('count')->willReturnSelf();
         $queryBuilder->method('from')->willReturnSelf();
         $queryBuilder->method('where')->willReturnSelf();
@@ -269,7 +265,7 @@ final class AuditHmacMigrationWizardTest extends TestCase
         $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
         $queryBuilder->method('executeQuery')->willReturn($result);
 
-        $connection = $this->createStub(Connection::class);
+        $connection = self::createStub(Connection::class);
         $connection->method('createQueryBuilder')->willReturn($queryBuilder);
 
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);

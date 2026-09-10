@@ -390,6 +390,9 @@ CLI access
    chain* (or the :ref:`vault:audit-migrate-hmac <command-audit-migrate-hmac>`
    command) to re-hash existing rows. See
    :ref:`adr-023-audit-hash-chain-hmac`.
+   On the command line the wizard runs as
+   :bash:`vendor/bin/typo3 upgrade:run nrVaultAuditHmacMigration`, on TYPO3 13
+   and 14 alike.
 
    :bash:`vault:doctor` grades the three states apart under
    ``audit.hmac_epoch``: pass at 3 and above, **warning** at 1 and 2 naming the

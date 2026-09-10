@@ -17,7 +17,7 @@ use TYPO3\CMS\Core\Database\Connection;
  * master key. See {@see AuditChainRekeyServiceInterface} for the contract
  * (caller-managed transaction + advisory lock, epoch preservation).
  *
- * Modelled on `AuditHmacMigrationWizard::rehashAllRows()`, with two
+ * Modelled on `AuditHmacMigration::rehashAllRows()`, with two
  * deliberate differences:
  *  - the per-row `hmac_key_epoch` is PRESERVED, not migrated — re-keying
  *    changes the key, never the payload format;

@@ -79,7 +79,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
      * human-readable attribution columns, so blame can no longer be reassigned
      * on a row without breaking the chain. Existing epoch-0/1/2 entries
      * continue to verify under their stored epoch until
-     * `AuditHmacMigrationWizard` rehashes them.
+     * the `AuditHmacMigration` upgrade wizard rehashes them.
      */
     public const DEFAULT_AUDIT_HMAC_EPOCH = 3;
 
