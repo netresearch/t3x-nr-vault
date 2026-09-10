@@ -2,9 +2,13 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.x     | :white_check_mark: |
+| Version | Supported                                                           |
+| ------- | ------------------------------------------------------------------- |
+| 1.x     | :white_check_mark: from the 1.0.0 release on                        |
+| 0.x     | until 1.0.0 is released — afterwards no fixes; upgrade to 1.x        |
+
+The response targets below apply to the supported line. Once 1.0.0 is out,
+only 1.x receives security fixes.
 
 ## Reporting a Vulnerability
 
@@ -112,7 +116,7 @@ audit, and we will not describe it as one.
 
 This extension handles sensitive data (API keys, credentials, secrets). Key security features:
 
-- **Envelope Encryption**: AES-256-GCM with per-secret Data Encryption Keys
+- **Envelope Encryption**: XChaCha20-Poly1305 by default (AES-256-GCM opt-in via `encryptionAlgorithm`, on hosts with hardware AES support), with a per-secret Data Encryption Key wrapped by the master key
 - **Master Key Protection**: Stored outside database (file, env, or derived)
 - **Access Control**: Backend user group-based permissions
 - **Audit Logging**: Tamper-evident hash chain for all operations

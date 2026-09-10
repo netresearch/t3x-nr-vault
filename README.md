@@ -48,7 +48,7 @@ All "more secure" methods require either external infrastructure, deployment pip
 
 nr-vault provides:
 
-- **Envelope encryption** with AES-256-GCM via libsodium
+- **Envelope encryption** via libsodium: XChaCha20-Poly1305 by default, AES-256-GCM as an opt-in on hosts with hardware AES support
 - **Master key management** (file, environment variable, or derived)
 - **Per-secret access control** via backend user groups with context scoping
 - **Audit logging** of all secret access with tamper-evident hash chain
@@ -254,7 +254,7 @@ vendor/bin/typo3 vault:seed-demo
 - **TYPO3**: v13.4 LTS / v14.3 LTS+
 - **PHP**: ^8.2
 - **Extensions**: `ext-sodium` (bundled with PHP)
-- **CPU**: AES-NI support recommended (XChaCha20-Poly1305 fallback available)
+- **CPU**: no special requirement for the default XChaCha20-Poly1305; the opt-in AES-256-GCM needs hardware AES support (AES-NI)
 
 ## Documentation
 

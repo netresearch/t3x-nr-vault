@@ -44,6 +44,10 @@ the vault becomes permanently unreadable in one step — including soft-deleted
 rows, including rows in every backup already taken. This is the only measure
 that reaches copies you no longer control. See
 :ref:`operations-decommissioning-keys`.
+The same holds for rows deleted before a master-key rotation:
+``vault:rotate-master-key`` re-wraps live and disabled secrets only, so a
+soft-deleted row stays wrapped under the retired key and becomes unreadable
+once that key is destroyed.
 
 **Row removal (for completeness).** Drop or truncate the tables at the
 database level once the audit-retention obligations below are satisfied:
