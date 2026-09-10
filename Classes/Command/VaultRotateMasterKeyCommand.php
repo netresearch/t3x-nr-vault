@@ -12,6 +12,8 @@ namespace Netresearch\NrVault\Command;
 use DateTimeImmutable;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\AuditAction;
+use Netresearch\NrVault\Audit\AuditChainAnchor;
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditChainLockTrait;
 use Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -69,6 +71,8 @@ final class VaultRotateMasterKeyCommand extends Command
      */
     private const AUDIT_PSEUDO_IDENTIFIER = '__master_key__';
 
+    private const AUDIT_LOG_TABLE = 'tx_nrvault_audit_log';
+
     /**
      * @param iterable<ForeignEnvelopeRotatorInterface> $foreignRotators
      */
@@ -82,6 +86,7 @@ final class VaultRotateMasterKeyCommand extends Command
         private readonly EnvelopeCodecInterface $envelopeCodec,
         private readonly AccessControlServiceInterface $accessControlService,
         private readonly EventDispatcherInterface $eventDispatcher,
+        private readonly AuditChainAnchorStoreInterface $anchorStore,
         private readonly iterable $foreignRotators = [],
     ) {
         parent::__construct();
@@ -196,8 +201,18 @@ final class VaultRotateMasterKeyCommand extends Command
 
         $totalForeign = array_sum($foreignCounts);
 
-        if ($totalSecrets === 0 && $totalForeign === 0) {
-            $io->warning('No secrets found in the vault, and no consumer-owned envelopes registered.');
+        // The audit chain and its tip anchor are keyed from the master key too.
+        // A vault whose secrets have all been deleted still holds that history,
+        // and after the configuration switch it would verify only under the key
+        // the operator has just been told to destroy — so it is part of the
+        // inventory, not an afterthought of a secrets rotation.
+        [$keyedAuditRows, $anchorPresent] = $this->inventoryAuditChain();
+
+        if ($totalSecrets === 0 && $totalForeign === 0 && $keyedAuditRows === 0 && !$anchorPresent) {
+            $io->warning(
+                'No secrets found in the vault, no consumer-owned envelopes registered, '
+                . 'and no audit history sealed under the master key.',
+            );
 
             return Command::SUCCESS;
         }
@@ -205,6 +220,11 @@ final class VaultRotateMasterKeyCommand extends Command
         $io->title('Master Key Rotation');
         $io->text(\sprintf('Found %d secret(s) to re-encrypt.', $totalSecrets));
         $this->reportForeignInventory($io, $foreignCounts);
+        $io->text(\sprintf(
+            'Found %d audit-chain row(s) sealed under the current master key%s.',
+            $keyedAuditRows,
+            $anchorPresent ? ', plus the chain-tip anchor' : '',
+        ));
 
         if (!$this->confirmExecution($io, $dryRun, $confirmed)) {
             return Command::FAILURE;
@@ -224,10 +244,18 @@ final class VaultRotateMasterKeyCommand extends Command
                 . 'smoke-tested up front. A wrong key will surface as a failure of the '
                 . 'consumer-envelope pass, which rolls the rotation back.',
             );
+        } else {
+            $io->note(
+                'The vault holds no secrets and no consumer-owned envelopes, so only the '
+                . 'audit chain is re-keyed. That does not use the old key: the chain is '
+                . 'verified under the currently configured master key first, and a failed '
+                . 'verification refuses the rotation.',
+            );
         }
 
         if ($dryRun) {
             $io->text(\sprintf('Would re-wrap %d consumer-owned envelope(s).', $totalForeign));
+            $io->text(\sprintf('Would re-key %d audit-chain row(s).', $keyedAuditRows));
             $io->success(\sprintf(
                 '[DRY RUN] Would re-encrypt %d secret(s). No changes made.',
                 $totalSecrets,
@@ -237,6 +265,40 @@ final class VaultRotateMasterKeyCommand extends Command
         }
 
         return $this->rotateAllSecrets($io, $identifiers, $oldKey, $newKey, $totalSecrets, $totalForeign);
+    }
+
+    /**
+     * Count the audit rows sealed under a master-key-derived HMAC key (epoch 1
+     * and up) and tell whether a chain-tip anchor is stored. Epoch-0 rows are
+     * keyless SHA-256 and survive a key change untouched; the anchor carries a
+     * MAC under the master key whatever the rows are.
+     *
+     * An anchor that does not parse still counts as present: the verification
+     * ahead of the re-key then refuses the rotation, instead of the rotation
+     * quietly leaving it behind.
+     *
+     * @return array{int, bool} keyed row count, anchor present
+     */
+    private function inventoryAuditChain(): array
+    {
+        $connection = $this->connectionPool->getConnectionForTable(self::AUDIT_LOG_TABLE);
+        $queryBuilder = $connection->createQueryBuilder();
+        $count = $queryBuilder
+            ->count('uid')
+            ->from(self::AUDIT_LOG_TABLE)
+            ->where($queryBuilder->expr()->gt(
+                'hmac_key_epoch',
+                $queryBuilder->createNamedParameter(0, Connection::PARAM_INT),
+            ))
+            ->executeQuery()
+            ->fetchOne();
+
+        $anchor = $this->anchorStore->load($connection);
+
+        return [
+            is_numeric($count) ? (int) $count : 0,
+            $anchor->anchor instanceof AuditChainAnchor || $anchor->raw !== '',
+        ];
     }
 
     /**
@@ -443,7 +505,7 @@ final class VaultRotateMasterKeyCommand extends Command
 
         // Cross-table atomicity precondition: the chain re-key must share the
         // secrets transaction, which requires both tables on ONE connection.
-        if ($this->connectionPool->getConnectionForTable('tx_nrvault_audit_log') !== $connection) {
+        if ($this->connectionPool->getConnectionForTable(self::AUDIT_LOG_TABLE) !== $connection) {
             $io->error(
                 'tx_nrvault_secret and tx_nrvault_audit_log are mapped to different database '
                 . 'connections; atomic master-key rotation (secrets + audit chain) is not possible.',

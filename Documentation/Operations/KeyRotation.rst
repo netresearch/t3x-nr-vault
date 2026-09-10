@@ -98,8 +98,13 @@ The command performs these checks itself, in this order, and each one aborts:
 #.  **Inventory.** Vault secrets are counted, and so are consumer-owned
     foreign envelopes registered by other extensions
     (:ref:`adr-033-foreign-envelope-rotation`) — a vault with no secrets of
-    its own may still be the key authority for thousands of them. If both
-    counts are zero the command stops with a warning.
+    its own may still be the key authority for thousands of them.
+    The audit history is counted as well: rows sealed under a
+    master-key-derived HMAC key (epoch 1 and up) and the chain-tip anchor.
+    A vault whose secrets have all been deleted still holds that history,
+    and it has to move to the new key like everything else.
+    Only when secrets, foreign envelopes, keyed audit rows and anchor are all
+    absent does the command stop with a warning.
 #.  **Confirmation.** ``--confirm`` for a real run.
 #.  **Old-key smoke test.** One real secret is re-encrypted to prove the
     supplied old key is actually the one that wrapped the envelopes. This is
@@ -149,7 +154,8 @@ Always run this first:
 The dry run is genuinely useful rather than cosmetic, because the old-key
 smoke test happens **before** the short-circuit: a dry run that succeeds has
 proved that the old key opens a real envelope. It reports the number of
-secrets and foreign envelopes that would be re-wrapped and makes no changes.
+secrets and foreign envelopes that would be re-wrapped and the number of audit
+rows that would be re-keyed, and makes no changes.
 
 A dry run that fails the smoke test means the old key is wrong. Fix that
 before going further; do not proceed with ``--confirm`` hoping the real run

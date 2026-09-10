@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`vault:rotate-master-key` left the audit history of an empty vault on the
+  old key.** The inventory counted secrets and consumer-owned envelopes only, so
+  a vault whose secrets had all been deleted reported "No secrets found" and
+  exited successfully — before the audit-chain re-key. The chain and its tip
+  anchor are keyed from the master key too; after the configuration switch they
+  would have verified only under the key the operator had just been told to
+  destroy. The inventory now also counts audit rows sealed under a
+  master-key-derived HMAC key (epoch 1 and up) and the stored chain-tip anchor,
+  and an audit-only vault goes through the same verified, transactional re-key
+  as any other. The dry run reports the row count, and a failed re-key rolls
+  back as a whole.
+
 ## [0.16.0] - 2026-09-05
 
 ### Added
