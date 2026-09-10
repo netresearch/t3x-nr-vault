@@ -29,6 +29,8 @@ services:
       # requirement) — they are registered by Services.Dashboard.php, imported
       # from Services.php only when EXT:dashboard is installed.
       - '../Classes/Widgets/*'
+      # PHP attributes are metadata, not services.
+      - '../Classes/Attribute/*'
 
   # ----- Interface aliases -------------------------------------------------
   # Symfony's `autoconfigure` auto-aliases an interface to its single

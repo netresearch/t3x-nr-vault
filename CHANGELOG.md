@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A written compatibility promise for implementers.** Six interfaces are
+  extension points — meant to be implemented by other extensions, not only
+  called: `VaultAdapterInterface`, `MasterKeyProviderInterface`,
+  `AuditSinkInterface`, `ForeignEnvelopeRotatorInterface`,
+  `ReadinessCheckInterface` and `CancellationSignalInterface`. They carry the
+  new `#[Netresearch\NrVault\Attribute\ExtensionPoint]` attribute, and the API
+  chapter lists them under "Extension points and the compatibility promise":
+  an extension point gains no method and changes no signature outside a major
+  release; every other interface is for calling and may gain methods in a
+  minor one.
+
+### Fixed
+
+- **The API snapshot check called a new interface method harmless.** It
+  classified every added method as additive and told the author to regenerate
+  the snapshot, because no caller breaks. A method added to an interface that
+  extensions implement breaks every implementation instead. The check now reads
+  the extension-point mark from the snapshot: an added method, or a changed one
+  — optional parameter included — on an extension point is reported as breaking
+  under "breaks implementers", gaining the mark is additive and losing it is
+  breaking. One sample implementation per extension point, written against the
+  published interface only, makes such a change fail the unit run and PHPStan
+  the way it would fail a real consumer, and a test holds the documented list
+  to the attribute.
+
 ## [0.16.0] - 2026-09-05
 
 ### Added
