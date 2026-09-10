@@ -35,14 +35,6 @@ parameters:
             # Secret model uses raw array handling in fromDatabaseRow/toDatabaseRow
             # that PHPStan level 10 cannot resolve without extensive generics
             - Classes/Domain/Model/Secret.php
-            # UpgradeWizardInterface moved from cms-install to cms-core in v14.
-            # The wizard only runs in v14+ where the interface exists.
-            - Classes/Upgrades/AuditHmacMigrationWizard.php
-            # ... and both of its tests, for the same reason: on v13.4 the
-            # interface is absent, which PHPStan raises as a severe
-            # (non-baselineable) error.
-            - Tests/Unit/Upgrades/AuditHmacMigrationWizardTest.php
-            - Tests/Functional/Upgrades/AuditHmacMigrationWizardTest.php
             # AdminOnlyWidgetInterface was added in TYPO3 v14 (absent in v13.4).
             # These empty marker subclasses are only registered in the DI
             # container when the interface exists (Services.Dashboard.php).
@@ -50,7 +42,35 @@ parameters:
             - Classes/Widgets/AdminOnlyBarChartWidget.php
     reportUnmatchedIgnoredErrors: false
 
+    # Declares the TYPO3 upgrade-wizard API of the major that is NOT
+    # installed, so both wizard shells are analysed on every matrix leg
+    # instead of being excluded (see the file for details).
+    bootstrapFiles:
+        - Build/phpstan/typo3-upgrade-api.php
+
     ignoreErrors:
+        # The TYPO3 13 wizard shell implements the EXT:install upgrade API on
+        # purpose. TYPO3 14 still ships that API, deprecated, so the run against
+        # 14 reports it — but Configuration/Services.php never registers this
+        # shell on 14 (it registers the EXT:core one), and it goes away with
+        # TYPO3 13 support.
+        -
+            identifiers:
+                - class.implementsDeprecatedInterface
+                - attribute.deprecated
+                - attribute.deprecatedClass
+            path: Classes/Upgrades/AuditHmacMigrationWizardV13.php
+            reportUnmatched: false
+        # Whether TYPO3 offers the wizard is answered only by core's wizard
+        # registry, which is @internal to TYPO3 (EXT:core on 14, EXT:install
+        # on 13). The registration test reads it for exactly that question;
+        # no production code does.
+        -
+            identifiers:
+                - method.internalClass
+                - classConstant.internalClass
+            path: Tests/Functional/Upgrades/UpgradeWizardRegistrationTest.php
+            reportUnmatched: false
         # TcaSchemaFactory, TcaSchema, and FieldTypeInterface are internal in TYPO3 v13
         # but were made public in v14. Since this extension supports both v13.4 and v14,
         # we suppress these internal class/interface errors for the affected files.

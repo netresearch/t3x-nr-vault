@@ -29,6 +29,12 @@ services:
       # requirement) — they are registered by Services.Dashboard.php, imported
       # from Services.php only when EXT:dashboard is installed.
       - '../Classes/Widgets/*'
+      # Each upgrade-wizard shell implements the upgrade API of ONE TYPO3
+      # major and cannot even be loaded on the other; Services.php registers
+      # the one that matches the running core.
+      - '../Classes/Upgrades/AuditHmacMigrationWizard.php'
+      - '../Classes/Upgrades/AuditHmacMigrationWizardV13.php'
+      - '../Classes/Upgrades/AuditHmacMigrationWizardTrait.php'
 
   # ----- Interface aliases -------------------------------------------------
   # Symfony's `autoconfigure` auto-aliases an interface to its single
@@ -244,14 +250,8 @@ services:
     public: true
 
   # ----- Tagged services that need explicit registration ------------------
-  # The `upgrade.wizard` tag has no #[Attribute] form yet (unlike
-  # #[AsCommand] / #[AsController] / #[AsEventListener]) so it must be
-  # tagged explicitly with the wizard identifier.
-
-  Netresearch\NrVault\Upgrades\AuditHmacMigrationWizard:
-    tags:
-      - name: upgrade.wizard
-        identifier: nrVaultAuditHmacMigration
+  # The upgrade wizard is registered in Services.php, not here: which of its
+  # two shells can load depends on the TYPO3 major (see the exclude list).
 
   # Consuming extensions that store their own sealed envelopes tag a
   # ForeignEnvelopeRotatorInterface implementation with
