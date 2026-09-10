@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Crypto;
 
+use Netresearch\NrVault\Attribute\ExtensionPoint;
 use Throwable;
 
 /**
@@ -44,6 +45,7 @@ use Throwable;
  * - Work in batches. A consumer may hold a large number of rows and the whole
  *   pass happens in one transaction.
  */
+#[ExtensionPoint]
 interface ForeignEnvelopeRotatorInterface
 {
     /**

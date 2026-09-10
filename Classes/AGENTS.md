@@ -107,6 +107,7 @@ Classes/
 - DI via `Services.yaml` — avoid `GeneralUtility::makeInstance()`
 - Doctrine QueryBuilder only — never `$GLOBALS['TYPO3_DB']`, never raw SQL
 - Prefer `*Interface.php` seams at public boundaries (services, adapters, providers)
+- Interfaces marked `#[ExtensionPoint]` are implemented by other extensions: never add a method or change a signature on one outside a major release — ship a separate interface instead (see `Documentation/Developer/Api.rst`, "Extension points"). A new extension point needs the mark, a sample in `Tests/Unit/Api/ExtensionPoints/` and an entry in that list
 
 ## Security
 This directory contains the crypto + audit core. Review bar is high:

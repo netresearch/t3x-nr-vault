@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Api\Support;
 
+use Netresearch\NrVault\Attribute\ExtensionPoint;
 use ReflectionClass;
 use ReflectionClassConstant;
 use ReflectionEnum;
@@ -179,12 +180,20 @@ final class ApiSurfaceRenderer
      */
     private function kindOf(ReflectionClass $reflection): string
     {
-        return match (true) {
+        $kind = match (true) {
             $reflection->isEnum() => 'enum',
             $reflection->isInterface() => 'interface',
             $reflection->isTrait() => 'trait',
             default => 'class',
         };
+
+        // The extension-point mark is part of the contract, so it is part of
+        // the frozen surface: gaining or losing it is a changed declaration,
+        // and ApiSurfaceDiff reads it back to judge changes from the side of
+        // an implementation, not only of a caller.
+        return $reflection->getAttributes(ExtensionPoint::class) !== []
+            ? $kind . ', ' . ApiSurfaceDiff::EXTENSION_POINT_MARKER
+            : $kind;
     }
 
     /**

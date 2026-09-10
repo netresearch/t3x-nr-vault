@@ -9,12 +9,14 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Adapter;
 
+use Netresearch\NrVault\Attribute\ExtensionPoint;
 use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 
 /**
  * Interface for vault storage adapters.
  */
+#[ExtensionPoint]
 interface VaultAdapterInterface
 {
     /**
