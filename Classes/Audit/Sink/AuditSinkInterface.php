@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Audit\Sink;
 
+use Netresearch\NrVault\Attribute\ExtensionPoint;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\AuditIntegrityAlert;
 use Netresearch\NrVault\Audit\AuditLogEntry;
@@ -44,6 +45,7 @@ use Netresearch\NrVault\Audit\AuditLogEntry;
  * meaningful — "there is a destination that can carry an anchor" — if anchor
  * support is structurally guaranteed rather than checked at runtime.
  */
+#[ExtensionPoint]
 interface AuditSinkInterface
 {
     /**

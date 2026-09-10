@@ -12,6 +12,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Http;
 
+use Netresearch\NrVault\Attribute\ExtensionPoint;
+
 /**
  * A caller-owned "should this transfer stop?" question.
  *
@@ -31,6 +33,7 @@ namespace Netresearch\NrVault\Http;
  *
  * @see CancellableHttpClientInterface::sendCancellable()
  */
+#[ExtensionPoint]
 interface CancellationSignalInterface
 {
     /**

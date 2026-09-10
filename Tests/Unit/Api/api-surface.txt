@@ -1,4 +1,4 @@
-Netresearch\NrVault\Adapter\VaultAdapterInterface (interface)
+Netresearch\NrVault\Adapter\VaultAdapterInterface (interface, extension point)
   method delete(string $identifier): void
   method exists(string $identifier): bool
   method getIdentifier(): string
@@ -218,7 +218,7 @@ Netresearch\NrVault\Audit\HashChainVerificationResult (class)
   property readonly valid: bool
   property readonly warnings: array
 
-Netresearch\NrVault\Audit\Sink\AuditSinkInterface (interface)
+Netresearch\NrVault\Audit\Sink\AuditSinkInterface (interface, extension point)
   method getIdentifier(): string
   method isEnabled(): bool
   method publish(Netresearch\NrVault\Audit\AuditLogEntry $entry, string $chainTip): void
@@ -382,7 +382,7 @@ Netresearch\NrVault\Crypto\EnvelopeRotationContext (class)
   method isSealed(string $value): bool
   method rewrap(string $sealed, string $identifier): string
 
-Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface (interface)
+Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface (interface, extension point)
   method countEnvelopes(): int
   method getIdentifier(): string
   method getTables(): array
@@ -392,7 +392,7 @@ Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface (interface)
   method create(): Netresearch\NrVault\Crypto\MasterKeyProviderInterface
   method getAvailableProvider(): Netresearch\NrVault\Crypto\MasterKeyProviderInterface
 
-Netresearch\NrVault\Crypto\MasterKeyProviderInterface (interface)
+Netresearch\NrVault\Crypto\MasterKeyProviderInterface (interface, extension point)
   method generateMasterKey(): string
   method getIdentifier(): string
   method getMasterKey(): string
@@ -718,7 +718,7 @@ Netresearch\NrVault\Http\CancellableHttpClientInterface (interface)
   method sendCancellable(Psr\Http\Message\RequestInterface $request, Netresearch\NrVault\Http\CancellationSignalInterface $signal): Psr\Http\Message\ResponseInterface
   method supportsCancellation(): bool
 
-Netresearch\NrVault\Http\CancellationSignalInterface (interface)
+Netresearch\NrVault\Http\CancellationSignalInterface (interface, extension point)
   method isCancelled(): bool
 
 Netresearch\NrVault\Http\DnsResolverInterface (interface)
@@ -907,7 +907,7 @@ Netresearch\NrVault\Service\Doctor\FindingSeverity (enum)
   property readonly name: string
   property readonly value: string
 
-Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface (interface)
+Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface (interface, extension point)
   method appliesTo(Netresearch\NrVault\Configuration\SecurityProfile $profile): bool
   method getId(): string
   method run(Netresearch\NrVault\Service\Doctor\DoctorContext $context): array

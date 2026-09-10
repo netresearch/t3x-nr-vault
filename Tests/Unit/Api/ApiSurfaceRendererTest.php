@@ -11,6 +11,11 @@ namespace Netresearch\NrVault\Tests\Unit\Api;
 
 use Netresearch\NrVault\Tests\Unit\Api\Fixtures\AddedMethod;
 use Netresearch\NrVault\Tests\Unit\Api\Fixtures\BackedFixtureEnum;
+use Netresearch\NrVault\Tests\Unit\Api\Fixtures\ConsumedInterfaceFixture;
+use Netresearch\NrVault\Tests\Unit\Api\Fixtures\ConsumedInterfaceWithAddedMethod;
+use Netresearch\NrVault\Tests\Unit\Api\Fixtures\ExtensionPointFixture;
+use Netresearch\NrVault\Tests\Unit\Api\Fixtures\ExtensionPointWithAddedMethod;
+use Netresearch\NrVault\Tests\Unit\Api\Fixtures\ExtensionPointWithOptionalParameter;
 use Netresearch\NrVault\Tests\Unit\Api\Fixtures\InheritsForeignConstructor;
 use Netresearch\NrVault\Tests\Unit\Api\Fixtures\InheritsOwnConstructor;
 use Netresearch\NrVault\Tests\Unit\Api\Fixtures\NarrowConstructor;
@@ -192,6 +197,77 @@ final class ApiSurfaceRendererTest extends TestCase
 
         self::assertTrue($diff->isEmpty());
         self::assertSame('identical', $diff->verdict());
+    }
+
+    #[Test]
+    public function anExtensionPointCarriesItsMarkInTheDeclaration(): void
+    {
+        $rendered = (new ApiSurfaceRenderer())->render([ExtensionPointFixture::class, ConsumedInterfaceFixture::class]);
+
+        self::assertStringContainsString(ExtensionPointFixture::class . ' (interface, extension point)', $rendered);
+        self::assertStringContainsString(ConsumedInterfaceFixture::class . ' (interface)', $rendered);
+    }
+
+    #[Test]
+    public function aMethodAddedToAnExtensionPointBreaksImplementers(): void
+    {
+        $diff = $this->diffBetween(ExtensionPointFixture::class, ExtensionPointWithAddedMethod::class);
+
+        self::assertSame('breaking', $diff->verdict());
+        self::assertSame([], $diff->added, 'Additive for a caller is not additive for an implementation.');
+        self::assertSame(
+            [ExtensionPointWithAddedMethod::class . ' :: method shout(): string'],
+            $diff->implementerBreaks,
+        );
+        self::assertStringContainsString('breaks every existing implementation', $diff->describe());
+        self::assertStringContainsString('breaks implementers:', $diff->describe());
+    }
+
+    #[Test]
+    public function aMethodAddedToAnInterfaceThatIsOnlyCalledStaysAdditive(): void
+    {
+        $diff = $this->diffBetween(ConsumedInterfaceFixture::class, ConsumedInterfaceWithAddedMethod::class);
+
+        self::assertSame('additive', $diff->verdict());
+        self::assertSame([], $diff->implementerBreaks);
+        self::assertSame(
+            [ConsumedInterfaceWithAddedMethod::class . ' :: method shout(): string'],
+            $diff->added,
+        );
+    }
+
+    #[Test]
+    public function anOptionalParameterOnAnExtensionPointIsBreaking(): void
+    {
+        $diff = $this->diffBetween(ExtensionPointFixture::class, ExtensionPointWithOptionalParameter::class);
+
+        self::assertSame('breaking', $diff->verdict());
+        self::assertCount(1, $diff->changed);
+        self::assertSame(ExtensionPointWithOptionalParameter::class . ' :: method label', $diff->changed[0]['entry']);
+        self::assertStringContainsString('optional parameter or not', $diff->describe());
+    }
+
+    #[Test]
+    public function gainingTheExtensionPointMarkIsAdditive(): void
+    {
+        $diff = $this->diffBetween(ConsumedInterfaceFixture::class, ExtensionPointFixture::class);
+
+        self::assertSame('additive', $diff->verdict(), 'Promising more to implementations breaks nobody.');
+        self::assertSame(
+            [ExtensionPointFixture::class . ' (interface, extension point)'],
+            $diff->added,
+        );
+        self::assertSame([], $diff->changed);
+    }
+
+    #[Test]
+    public function losingTheExtensionPointMarkIsBreaking(): void
+    {
+        $diff = $this->diffBetween(ExtensionPointFixture::class, ConsumedInterfaceFixture::class);
+
+        self::assertSame('breaking', $diff->verdict(), 'Withdrawing the promise strands every implementation.');
+        self::assertCount(1, $diff->changed);
+        self::assertSame(ConsumedInterfaceFixture::class . ' :: (declaration)', $diff->changed[0]['entry']);
     }
 
     /**

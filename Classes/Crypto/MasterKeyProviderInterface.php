@@ -9,12 +9,14 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Crypto;
 
+use Netresearch\NrVault\Attribute\ExtensionPoint;
 use Netresearch\NrVault\Exception\MasterKeyException;
 use SensitiveParameter;
 
 /**
  * Interface for master key providers.
  */
+#[ExtensionPoint]
 interface MasterKeyProviderInterface
 {
     /**
