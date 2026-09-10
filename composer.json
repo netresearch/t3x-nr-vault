@@ -38,7 +38,7 @@
         "typo3/cms-core": "^13.4 || ^14.3",
         "typo3/cms-backend": "^13.4 || ^14.3",
         "typo3/cms-install": "^13.4 || ^14.3",
-        "guzzlehttp/guzzle": "^7.10",
+        "guzzlehttp/guzzle": "^7.10 || ^8.0",
         "psr/http-client": "^1.0",
         "psr/http-factory": "^1.0"
     },
