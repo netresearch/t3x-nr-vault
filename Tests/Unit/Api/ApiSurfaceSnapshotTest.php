@@ -167,10 +167,12 @@ final class ApiSurfaceSnapshotTest extends TestCase
                 $loadable = class_exists($fqcn) || interface_exists($fqcn) || trait_exists($fqcn) || enum_exists($fqcn);
             } catch (Throwable) {
                 // The autoload attempt THREW — a parent or interface comes
-                // from a package this matrix leg does not ship (observed on
-                // TYPO3 ^13.4: AuditHmacMigrationWizard implements
-                // TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface, which
-                // exists under that name only on 14.x). Such a class cannot
+                // from a package this matrix leg does not ship (by design on
+                // TYPO3 ^13.4: the upgrade-wizard shell AuditHmacMigrationWizard
+                // implements TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface,
+                // which 13.4 does not have; its 13.4 sibling
+                // AuditHmacMigrationWizardV13 is the one registered there).
+                // Such a class cannot
                 // be part of THIS leg's surface. If a SEED class ever splits
                 // by TYPO3 version, the leg missing it fails the snapshot
                 // comparison with a visible `removed` diff instead of a

@@ -16,7 +16,7 @@ use Throwable;
  *
  * Raised by {@see \Netresearch\NrVault\Audit\AuditChainLockTrait} via every
  * audit-chain writer — `AuditLogService::log()` (runtime) and the migration
- * sites (`AuditHmacMigrationWizard`, `VaultAuditMigrateCommand`) — when the
+ * sites (`AuditHmacMigration`, `VaultAuditMigrateCommand`) — when the
  * advisory lock that serialises hash-chain writers cannot be acquired
  * (`GET_LOCK` returned 0 = timeout, or NULL = database error), and by
  * `AuditLogService::log()` for any other failure of the chain write itself

@@ -21,6 +21,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as any other. The dry run reports the row count, and a failed re-key rolls
   back as a whole.
 
+- **The HMAC audit-chain upgrade wizard never reached TYPO3.** It was tagged
+  `upgrade.wizard`, a name neither TYPO3 13 nor 14 reads — both fill their
+  wizard registry from `install.upgradewizard` — so neither the Install Tool
+  nor `upgrade:run` ever offered `nrVaultAuditHmacMigration`. The tests built
+  the wizard with `new` and could not notice. On TYPO3 13 it could not have run
+  in any case: it implemented TYPO3 14's interface from EXT:core, which 13 does
+  not have, and its tests and PHPStan skipped that major.
+
+  The logic now lives in the version-neutral `AuditHmacMigration`. Two thin
+  shells implement the upgrade API of each major, and `Configuration/Services.php`
+  registers the one the running core provides. A functional test asks TYPO3's
+  own registry for the wizard and runs a migration through it, on both majors.
+  PHPStan analyses both shells on every matrix leg instead of excluding the
+  wizard: on TYPO3 13 against a stub of the EXT:core API, on 14 against the
+  EXT:install API that 14 still ships as deprecated. The identifier is
+  unchanged, so an installation that has already marked the wizard done does
+  not run it again. `vault:audit-migrate-hmac` was and remains the command-line
+  path on both majors.
+
 ## [0.16.0] - 2026-09-05
 
 ### Added

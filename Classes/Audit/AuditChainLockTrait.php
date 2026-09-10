@@ -23,7 +23,7 @@ use TYPO3\CMS\Core\Database\Connection;
  *  - {@see AuditLogService} — runtime audit-log writes.
  *  - {@see \Netresearch\NrVault\Command\VaultAuditMigrateCommand} —
  *    one-shot CLI re-hash from SHA-256 to HMAC.
- *  - {@see \Netresearch\NrVault\Upgrades\AuditHmacMigrationWizard} —
+ *  - {@see \Netresearch\NrVault\Upgrades\AuditHmacMigration} —
  *    install-tool counterpart of the above.
  *
  * Lock behaviour:
