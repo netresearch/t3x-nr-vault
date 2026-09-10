@@ -83,7 +83,7 @@
             "web-dir": ".Build/web"
         },
         "branch-alias": {
-            "dev-main": "0.5.x-dev"
+            "dev-main": "1.x-dev"
         }
     },
     "scripts": {
