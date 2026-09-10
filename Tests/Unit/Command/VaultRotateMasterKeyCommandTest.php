@@ -10,6 +10,9 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
 use Doctrine\DBAL\Result;
+use Netresearch\NrVault\Audit\AuditChainAnchorLoad;
+use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
+use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
@@ -40,6 +43,8 @@ use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
+use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
 #[CoversClass(VaultRotateMasterKeyCommand::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -717,6 +722,65 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         self::assertStringContainsString(self::OUTPUT_NO_SECRETS, $tester->getDisplay());
     }
 
+    /**
+     * A vault whose secrets were all deleted still holds an audit chain sealed
+     * under the master key. That is something to rotate, not "nothing to do":
+     * after the configuration switch it would otherwise verify only under the
+     * retired key.
+     */
+    #[Test]
+    public function aKeyedAuditChainAloneIsRotated(): void
+    {
+        $this->secretRepository->method('findIdentifiers')->willReturn([]);
+        $connection = $this->givenKeyedAuditRows(3);
+        $connection->expects(self::never())->method('rollBack');
+        $this->auditChainRekeyService->expects(self::once())->method('rekeyChain')->willReturn(5);
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(0, $exitCode);
+        $display = $this->commandTester->getDisplay();
+        self::assertStringNotContainsString(self::OUTPUT_NO_SECRETS, $display);
+        self::assertStringContainsString('Found 3 audit-chain row(s)', $display);
+        self::assertStringContainsString('Audit chain re-keyed', $display);
+    }
+
+    #[Test]
+    public function aKeyedAuditChainAloneIsCountedInADryRun(): void
+    {
+        $this->secretRepository->method('findIdentifiers')->willReturn([]);
+        $this->givenKeyedAuditRows(3);
+        $this->auditChainRekeyService->expects(self::never())->method('rekeyChain');
+
+        $exitCode = $this->commandTester->execute([
+            '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
+            '--new-key' => $this->createKeyFile('new', str_repeat('b', 32)),
+            '--dry-run' => true,
+        ]);
+
+        self::assertSame(0, $exitCode);
+        self::assertStringContainsString('Would re-key 3 audit-chain row(s).', $this->commandTester->getDisplay());
+    }
+
+    /**
+     * With nothing else in the transaction, a failed re-key must still roll
+     * back as a whole and never announce a completed rotation.
+     */
+    #[Test]
+    public function aFailedAuditOnlyReKeyRollsBack(): void
+    {
+        $this->secretRepository->method('findIdentifiers')->willReturn([]);
+        $connection = $this->givenKeyedAuditRows(3);
+        $connection->expects(self::atLeastOnce())->method('rollBack');
+        $this->auditChainRekeyService->method('rekeyChain')->willThrowException(new RuntimeException('re-key exploded'));
+        $this->eventDispatcher->expects(self::never())->method('dispatch');
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString(self::OUTPUT_UNEXPECTED_ERROR, $this->commandTester->getDisplay());
+    }
+
     #[Test]
     public function dryRunCountsConsumerEnvelopesWithoutRewrappingThem(): void
     {
@@ -924,6 +988,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             $this->envelopeCodec,
             $accessControlService,
             $this->eventDispatcher,
+            $this->anchorStoreReturning(new AuditChainAnchorLoad(AuditChainAnchorStatus::Unanchored)),
         );
         $tester = new CommandTester($command);
 
@@ -939,6 +1004,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     private function createCommand(
         ?AuditLogServiceInterface $auditLogService = null,
         iterable $foreignRotators = [],
+        ?AuditChainAnchorStoreInterface $anchorStore = null,
     ): VaultRotateMasterKeyCommand {
         return new VaultRotateMasterKeyCommand(
             $this->secretRepository,
@@ -950,8 +1016,17 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             $this->envelopeCodec,
             $this->accessControlService,
             $this->eventDispatcher,
+            $anchorStore ?? $this->anchorStoreReturning(new AuditChainAnchorLoad(AuditChainAnchorStatus::Unanchored)),
             $foreignRotators,
         );
+    }
+
+    private function anchorStoreReturning(AuditChainAnchorLoad $load): AuditChainAnchorStoreInterface
+    {
+        $anchorStore = self::createStub(AuditChainAnchorStoreInterface::class);
+        $anchorStore->method('load')->willReturn($load);
+
+        return $anchorStore;
     }
 
     /**
@@ -977,6 +1052,34 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
         $this->auditChainRekeyService->method('rekeyChain')->willReturn(1);
+    }
+
+    /**
+     * One connection for the secret and audit tables, holding `$rows` audit rows
+     * sealed under a master-key-derived HMAC key, with the audit lock granted.
+     */
+    private function givenKeyedAuditRows(int $rows): Connection&MockObject
+    {
+        $countResult = self::createStub(Result::class);
+        $countResult->method('fetchOne')->willReturn($rows);
+
+        $queryBuilder = self::createStub(QueryBuilder::class);
+        $queryBuilder->method('count')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('where')->willReturnSelf();
+        $queryBuilder->method('expr')->willReturn(self::createStub(ExpressionBuilder::class));
+        $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
+        $queryBuilder->method('executeQuery')->willReturn($countResult);
+
+        $lockResult = self::createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
+        $connection = $this->createMock(Connection::class);
+        $connection->method('createQueryBuilder')->willReturn($queryBuilder);
+        $connection->method('executeQuery')->willReturn($lockResult);
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+
+        return $connection;
     }
 
     private function createRotator(int $envelopes, ?int $rewrapped = null): ForeignEnvelopeRotatorInterface&MockObject

@@ -583,6 +583,50 @@ final class MasterKeyRotationTest extends FunctionalTestCase
     }
 
     /**
+     * A vault whose secrets have all been deleted still holds an audit chain
+     * sealed under the master key. Rotating must re-key that chain and its tip
+     * anchor, or the switch to the new key leaves the history verifying only
+     * under a key the operator has just been told to destroy.
+     *
+     * The chain and anchor are checked directly after the switch, before any
+     * other vault operation (see assertChainAndAnchorSealedUnder()).
+     */
+    #[Test]
+    public function rotationReKeysTheAuditChainOfAVaultWithoutSecrets(): void
+    {
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $auditLogService = $this->get(AuditLogServiceInterface::class);
+        $commandTester = new CommandTester($this->get(VaultRotateMasterKeyCommand::class));
+
+        // Leave a keyed audit history behind and no active secret: store,
+        // then delete.
+        $identifier = $this->generateUuidV7();
+        $vaultService->store($identifier, 'short-lived-value');
+        $vaultService->delete($identifier, 'decommissioned before the rotation');
+
+        $this->assertChainAndAnchorSealedUnder($auditLogService, 'K0');
+
+        $newKeyPath = $this->instancePath . self::NEW_KEY_FILENAME;
+        file_put_contents($newKeyPath, sodium_crypto_secretbox_keygen());
+
+        $this->runRotationCommand($commandTester, $newKeyPath);
+        self::assertStringNotContainsString(
+            'No secrets found',
+            $commandTester->getDisplay(),
+            'a keyed audit chain is something to rotate, not "nothing to do"',
+        );
+
+        $this->switchMasterKeyFile($newKeyPath);
+
+        $this->assertChainAndAnchorSealedUnder($auditLogService, 'K1');
+
+        if (file_exists($newKeyPath)) {
+            // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
+            unlink($newKeyPath);
+        }
+    }
+
+    /**
      * Assert the chain verifies AND the tip anchor is armed on the current tip,
      * under the currently configured key.
      *
