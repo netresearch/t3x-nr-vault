@@ -79,7 +79,16 @@ interface VaultServiceInterface
     public function exists(string $identifier): bool;
 
     /**
-     * Delete a secret permanently.
+     * Delete a secret.
+     *
+     * The secret is gone for every vault operation, and the vault offers no way
+     * back: there is no restore operation, and TYPO3's `undelete` is refused on
+     * the secret table. The row itself is SOFT-deleted — marked `deleted`, with
+     * its ciphertext and wrapped DEK left in place — so it stays in the database,
+     * and in every backup, until it is removed there. `vault:rotate-master-key`
+     * does not re-wrap deleted rows, so destroying the master key they were
+     * wrapped under makes them unreadable. Disposal is described in
+     * Documentation/Operations/Decommissioning.rst.
      *
      * @throws SecretNotFoundException If secret doesn't exist
      * @throws AccessDeniedException If current user lacks permission
@@ -90,8 +99,8 @@ interface VaultServiceInterface
      * Assert that {@see delete()} is permitted for this identifier — without deleting.
      *
      * Exists for callers that delete SEVERAL secrets as one logical unit (the
-     * DataHandler record delete across multiple vault fields). A vault delete is
-     * a hard delete with no restore, so a partially applied batch cannot be
+     * DataHandler record delete across multiple vault fields). A vault delete
+     * cannot be undone through the vault, so a partially applied batch cannot be
      * compensated: the only way to keep such a batch all-or-nothing is to run
      * every permission gate up front and abort before the first deletion.
      *

@@ -66,7 +66,9 @@ How it works
    generated using cryptographically secure random bytes.
 
 2. **Value encryption**: The secret value is encrypted with its DEK using
-   AES-256-GCM (or XChaCha20-Poly1305).
+   XChaCha20-Poly1305 by default, or AES-256-GCM where
+   :confval:`ext-nrvault-encryptionAlgorithm` selects it (see
+   :ref:`security-algorithms`).
 
 3. **DEK encryption**: The DEK is encrypted with the Master Key and stored
    alongside the encrypted value.

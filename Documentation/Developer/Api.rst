@@ -81,6 +81,14 @@ The main service for interacting with the vault.
 
       Delete a secret from the vault.
 
+      The secret is gone for every vault operation, and there is no restore
+      operation. The row is a **soft delete**, though: it is marked
+      ``deleted`` and keeps its ciphertext and wrapped DEK, in the database
+      and in every backup, until it is removed at the database level.
+      ``vault:rotate-master-key`` does not re-wrap deleted rows, so destroying
+      the master key they were wrapped under makes them unreadable. See
+      :ref:`operations-decommissioning-secrets`.
+
       :param string $identifier: The secret identifier.
       :param string $reason: Optional reason for deletion (logged).
       :throws SecretNotFoundException: If secret doesn't exist.
@@ -91,7 +99,7 @@ The main service for interacting with the vault.
       Assert that ``delete()`` is permitted for this identifier — without
       deleting. Exists for callers that delete several secrets as one
       logical unit, such as a record delete spanning multiple vault fields:
-      a vault delete is a hard delete with no restore, so a partially
+      a vault delete cannot be undone through the vault, so a partially
       applied batch cannot be compensated, and the only way to keep it
       all-or-nothing is to run every permission gate up front and abort
       before the first deletion.

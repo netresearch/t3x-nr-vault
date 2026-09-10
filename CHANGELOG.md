@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Support policy for 1.0.** `SECURITY.md` names 1.x as the supported line
+  from the 1.0.0 release on; 0.x receives fixes until then and none afterwards.
+  The Composer branch alias of `main` moves from the stale `0.5.x-dev` to
+  `1.x-dev`.
+
+### Fixed
+
+- **The delete contract matched neither the code nor the rest of the
+  documentation.** `VaultServiceInterface::delete()` promised a permanent
+  delete, and the API chapter called it a hard delete, while
+  `SecretRepository::delete()` has always soft-deleted: the row keeps its
+  ciphertext and wrapped DEK, in the database and in every backup. The
+  interface, the API chapter and the DataHandler comment now say what happens —
+  gone for every vault operation, no restore, the row retained until removed at
+  the database level — and point to the decommissioning guide, which now also
+  notes that a master-key rotation leaves deleted rows under the retired key.
+  The behaviour itself is unchanged.
+- **README and SECURITY.md named AES-256-GCM as the cipher.** The default for
+  new secrets is XChaCha20-Poly1305, with AES-256-GCM as an opt-in through
+  `encryptionAlgorithm` on hosts with hardware AES support; both files and the
+  security overview now say so, and the README no longer calls XChaCha20-Poly1305
+  a fallback.
+
 ## [0.16.0] - 2026-09-05
 
 ### Added
