@@ -23,5 +23,5 @@ declare(strict_types=1);
  * the installed major does provide is never shadowed.
  */
 
-require __DIR__ . '/stubs/typo3-core-upgrades.php';
-require __DIR__ . '/stubs/typo3-install-updates.php';
+require_once __DIR__ . '/stubs/typo3-core-upgrades.php';
+require_once __DIR__ . '/stubs/typo3-install-updates.php';
