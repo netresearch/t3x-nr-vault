@@ -13,6 +13,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Functional\Http\OAuth;
 
 use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use JsonException;
@@ -33,36 +34,36 @@ use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use RuntimeException;
 use Throwable;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 /**
  * Integration tests for OAuth 2.0 functionality with real HTTP requests.
  *
- * These tests require the mock OAuth server to be running:
- * - Via runTests.sh: Mock OAuth server is started automatically
- * - Via ddev: `ddev start` (mock-oauth service starts automatically)
- * - Via MOCK_OAUTH_URL env var: Point to a running mock OAuth server
+ * The OAuth server is PHP's built-in web server running
+ * `Fixtures/mock-oauth-router.php`, started once per class on a free loopback
+ * port. Every request is a real HTTP round trip through Guzzle, so the tests
+ * need no sidecar and run wherever PHP runs — including CI.
  *
- * Tests are skipped if the mock server is not reachable.
+ * Set MOCK_OAUTH_URL to aim the OAuth tests at another server instead, e.g. the
+ * DDEV mock-oauth2-server (`http://mock-oauth:8080`). The embedded server still
+ * starts: the bearer-token test needs its header echo endpoint.
+ *
+ * An unreachable server is a test failure, never a skip.
  */
 #[CoversClass(OAuthTokenManager::class)]
 #[Group('integration')]
 #[Group('oauth')]
 final class OAuthIntegrationTest extends FunctionalTestCase
 {
-    /**
-     * Mock OAuth server URL (internal ddev network).
-     * Plain `http://` is intentional: the mock OAuth sidecar (see
-     * `.ddev/docker-compose.mock-oauth.yaml`) only listens on plain
-     * HTTP because it runs inside the trusted ddev bridge network.
-     * NOSONAR — production OAuth integrations MUST use HTTPS via
-     * `OAuthConfig::tokenEndpoint`; this constant is test-only.
-     */
-    private const MOCK_OAUTH_INTERNAL_URL = 'http://mock-oauth:8080'; // NOSONAR
+    private const ROUTER_SCRIPT = __DIR__ . '/Fixtures/mock-oauth-router.php';
 
-    /** Mock OAuth server URL (external access). NOSONAR — test-only, see above. */
-    private const MOCK_OAUTH_EXTERNAL_URL = 'http://localhost:8080'; // NOSONAR
+    private const LOOPBACK_HOST = '127.0.0.1';
+
+    private const SERVER_START_ATTEMPTS = 3;
+
+    private const SERVER_READY_TIMEOUT_SECONDS = 10;
 
     private const DEFAULT_TOKEN_PATH = '/default/token';
 
@@ -84,15 +85,36 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
     private bool $setupCompleted = false;
 
-    private string $mockOAuthUrl = self::MOCK_OAUTH_EXTERNAL_URL;
+    private string $mockOAuthUrl = '';
+
+    /** @var resource|null */
+    private static $serverProcess;
+
+    private static string $embeddedServerUrl = '';
+
+    private static string $serverLogFile = '';
+
+    public static function setUpBeforeClass(): void
+    {
+        parent::setUpBeforeClass();
+        self::startEmbeddedServer();
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        self::stopEmbeddedServer();
+        parent::tearDownAfterClass();
+    }
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->setupCompleted = true;
 
-        // Determine which mock OAuth URL to use
-        $this->mockOAuthUrl = $this->determineMockOAuthUrl();
+        $envUrl = getenv('MOCK_OAUTH_URL');
+        $this->mockOAuthUrl = \is_string($envUrl) && $envUrl !== ''
+            ? rtrim($envUrl, '/')
+            : self::$embeddedServerUrl;
 
         // Create a temporary master key for testing
         $this->masterKeyPath = $this->instancePath . '/master.key';
@@ -139,7 +161,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
     #[Test]
     public function oauthTokenManagerAcquiresTokenWithClientCredentials(): void
     {
-        $this->skipIfMockServerUnavailable();
+        $this->requireMockServer();
 
         // Store OAuth credentials in vault
         $vaultService = $this->getVaultService();
@@ -164,7 +186,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
     #[Test]
     public function oauthTokenManagerCachesToken(): void
     {
-        $this->skipIfMockServerUnavailable();
+        $this->requireMockServer();
 
         // Store OAuth credentials in vault
         $vaultService = $this->getVaultService();
@@ -191,7 +213,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
     #[Test]
     public function oauthTokenManagerClearsCacheCorrectly(): void
     {
-        $this->skipIfMockServerUnavailable();
+        $this->requireMockServer();
 
         // Store OAuth credentials in vault
         $vaultService = $this->getVaultService();
@@ -212,19 +234,19 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         // Clear cache
         $tokenManager->clearCache($config);
 
-        // Get new token - should be different (new request to server)
+        // Get new token - a new request to the server
         $token2 = $tokenManager->getAccessToken($config);
 
-        // Tokens from mock server are generated fresh each time
-        // They may or may not be the same depending on server implementation
+        // Both the embedded router and mock-oauth2-server (random `jti`) issue a
+        // fresh token per request, so an unchanged token means the cache survived.
         self::assertNotEmpty($token1);
-        self::assertNotEmpty($token2);
+        self::assertNotSame($token1, $token2, 'clearCache() must force a new token request');
     }
 
     #[Test]
     public function vaultHttpClientWithOAuthMakesAuthenticatedRequest(): void
     {
-        $this->skipIfMockServerUnavailable();
+        $this->requireMockServer();
 
         // Store OAuth credentials in vault
         $vaultService = $this->getVaultService();
@@ -254,7 +276,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
     #[Test]
     public function vaultHttpClientWithBearerTokenMakesAuthenticatedRequest(): void
     {
-        $this->skipIfMockServerUnavailable();
+        $this->requireMockServer();
 
         // Store a static bearer token in vault
         $vaultService = $this->getVaultService();
@@ -268,12 +290,16 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
         self::assertInstanceOf(VaultHttpClientInterface::class, $httpClient);
 
-        // Make a request - we just verify the client works
-        // The mock OAuth server will accept any bearer token on its endpoints
-        $request = new Request('GET', $this->mockOAuthUrl . '/default/.well-known/openid-configuration');
+        // The embedded server echoes the Authorization header it received, so the
+        // assertion sees what actually went over the wire.
+        $request = new Request('GET', self::$embeddedServerUrl . '/echo/authorization');
         $response = $httpClient->sendRequest($request);
 
-        self::assertEquals(200, $response->getStatusCode());
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(
+            ['authorization' => 'Bearer test-bearer-token-12345'],
+            json_decode((string) $response->getBody(), true, 4, JSON_THROW_ON_ERROR),
+        );
     }
 
     #[Test]
@@ -375,6 +401,9 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
             public int $call;
 
+            /**
+             * @param list<array{grant_type: string, body: string}> $capturedRequests
+             */
             public function __construct(array &$capturedRequests, int &$call)
             {
                 $this->capturedRequests = &$capturedRequests;
@@ -568,48 +597,138 @@ final class OAuthIntegrationTest extends FunctionalTestCase
     }
 
     /**
-     * Determine which mock OAuth URL to use based on environment.
+     * Fail the test when the OAuth server does not answer. A skip here would
+     * hide exactly the regression these tests exist to catch.
      */
-    private function determineMockOAuthUrl(): string
+    private function requireMockServer(): void
     {
-        // Check for environment variable (set by runTests.sh)
-        $envUrl = getenv('MOCK_OAUTH_URL');
-        if ($envUrl !== false && $envUrl !== '') {
-            return $envUrl;
+        $discoveryUrl = $this->mockOAuthUrl . '/.well-known/openid-configuration';
+        if (!self::isDiscoveryDocumentServed($discoveryUrl)) {
+            self::fail('Mock OAuth server did not serve a discovery document at ' . $discoveryUrl);
         }
 
-        // Try internal ddev URL
-        if ($this->isUrlReachable(self::MOCK_OAUTH_INTERNAL_URL . '/.well-known/openid-configuration')) {
-            return self::MOCK_OAUTH_INTERNAL_URL;
-        }
-
-        // Fall back to external URL
-        return self::MOCK_OAUTH_EXTERNAL_URL;
+        $this->allowMockServerHosts();
     }
 
     /**
-     * Skip test if mock OAuth server is not available.
+     * The SSRF guard refuses loopback and private addresses unless the operator
+     * lists the host literally in `allowed_hosts` — the documented opt-in for
+     * self-hosted endpoints. Opt the mock servers in for this test only;
+     * backupGlobals restores the setting afterwards. Tests that do not talk to
+     * a mock server keep the empty allowlist.
      */
-    private function skipIfMockServerUnavailable(): void
+    private function allowMockServerHosts(): void
     {
-        if (!$this->isUrlReachable($this->mockOAuthUrl . '/.well-known/openid-configuration')) {
-            self::markTestSkipped(
-                'Mock OAuth server is not available at: ' . $this->mockOAuthUrl . "\n" .
-                'Options: Set MOCK_OAUTH_URL env var, use runTests.sh, or start ddev.',
+        $confVars = $GLOBALS['TYPO3_CONF_VARS'];
+        self::assertIsArray($confVars);
+        $httpConfig = $confVars['HTTP'] ?? [];
+        self::assertIsArray($httpConfig);
+
+        $httpConfig['allowed_hosts'] = array_values(array_unique([
+            (string) parse_url($this->mockOAuthUrl, PHP_URL_HOST),
+            self::LOOPBACK_HOST,
+        ]));
+        $confVars['HTTP'] = $httpConfig;
+        $GLOBALS['TYPO3_CONF_VARS'] = $confVars;
+    }
+
+    /**
+     * Start PHP's built-in web server with the mock OAuth router on a free
+     * loopback port. Throws (erroring every test of the class) if it cannot.
+     */
+    private static function startEmbeddedServer(): void
+    {
+        $logFile = tempnam(sys_get_temp_dir(), 'nr-vault-mock-oauth-');
+        if ($logFile === false) {
+            throw new RuntimeException('Could not create a log file for the mock OAuth server', 1789000001);
+        }
+
+        self::$serverLogFile = $logFile;
+        $environment = getenv();
+        $environment['NR_VAULT_MOCK_OAUTH_SECRET'] = bin2hex(random_bytes(32));
+
+        for ($attempt = 1; $attempt <= self::SERVER_START_ATTEMPTS; ++$attempt) {
+            $address = self::LOOPBACK_HOST . ':' . self::findFreePort();
+            // nosemgrep: php.lang.security.exec-use.exec-use - fixed argv (PHP_BINARY + test router), no shell
+            $process = proc_open(
+                [PHP_BINARY, '-d', 'xdebug.mode=off', '-S', $address, self::ROUTER_SCRIPT],
+                [
+                    0 => ['file', '/dev/null', 'r'],
+                    1 => ['file', $logFile, 'a'],
+                    2 => ['file', $logFile, 'a'],
+                ],
+                $pipes,
+                null,
+                $environment,
             );
+            if (!\is_resource($process)) {
+                continue;
+            }
+
+            self::$serverProcess = $process;
+            // Plain HTTP on loopback: the built-in server cannot terminate TLS. NOSONAR — test-only.
+            $url = 'http://' . $address; // NOSONAR
+            $deadline = microtime(true) + self::SERVER_READY_TIMEOUT_SECONDS;
+            while (microtime(true) < $deadline && proc_get_status($process)['running']) {
+                if (self::isDiscoveryDocumentServed($url . '/.well-known/openid-configuration')) {
+                    self::$embeddedServerUrl = $url;
+
+                    return;
+                }
+
+                usleep(50_000);
+            }
+
+            // Port taken in the meantime, or the server died: try another port.
+            self::stopEmbeddedServer(keepLog: true);
+        }
+
+        $log = (string) file_get_contents($logFile);
+
+        throw new RuntimeException(
+            'The embedded mock OAuth server did not start after ' . self::SERVER_START_ATTEMPTS
+            . ' attempts. Server output: ' . $log,
+            1789000002,
+        );
+    }
+
+    private static function stopEmbeddedServer(bool $keepLog = false): void
+    {
+        if (\is_resource(self::$serverProcess)) {
+            proc_terminate(self::$serverProcess);
+            proc_close(self::$serverProcess);
+        }
+
+        self::$serverProcess = null;
+        self::$embeddedServerUrl = '';
+
+        if (!$keepLog && self::$serverLogFile !== '' && file_exists(self::$serverLogFile)) {
+            // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned temp file
+            unlink(self::$serverLogFile);
         }
     }
 
     /**
-     * Build a plain Guzzle Client for tests that target the local
-     * mock-OAuth sidecar in DDEV. The hardened SecureHttpClientFactory
-     * is INTENTIONALLY bypassed here because:
-     *
-     *  - The sidecar lives on a private DDEV bridge network and only
-     *    accepts traffic from the test container; SSRF guards aren't
-     *    the assertion under test.
-     *  - Functional tests can't reach a real DNS resolver, so the
-     *    `ssrf-dns-pin` middleware would reject `mock-oauth` hosts.
+     * Ask the kernel for an unused loopback port.
+     */
+    private static function findFreePort(): int
+    {
+        $socket = stream_socket_server('tcp://' . self::LOOPBACK_HOST . ':0', $errorCode, $errorMessage);
+        if ($socket === false) {
+            throw new RuntimeException('Could not reserve a loopback port: ' . $errorMessage, 1789000003);
+        }
+
+        $name = (string) stream_socket_get_name($socket, false);
+        fclose($socket);
+
+        return (int) substr($name, (int) strrpos($name, ':') + 1);
+    }
+
+    /**
+     * Build a plain Guzzle Client for the token manager tests. The hardened
+     * SecureHttpClientFactory transport is INTENTIONALLY bypassed here: the
+     * SSRF middleware is not the assertion under test, and the token
+     * manager still applies its own `isHostAllowed()` gate to the endpoint.
      *
      * Production OAuth flows always go through SecureHttpClientFactory
      * via VaultHttpClient::__construct (see PR #145). Do NOT copy this
@@ -625,40 +744,33 @@ final class OAuthIntegrationTest extends FunctionalTestCase
     }
 
     /**
-     * Check if a URL is reachable.
+     * Whether `$url` serves an OpenID Connect discovery document.
+     *
+     * Any answer is not enough: a foreign service squatting on the port (e.g. a
+     * TYPO3 instance redirecting `/.well-known/...` to the install tool) must
+     * not pass for the OAuth server. Only HTTP 200 with JSON exposing the
+     * mandatory `token_endpoint` (RFC 8414 / OpenID Connect Discovery 1.0)
+     * counts — what mock-oauth2-server and the embedded router both serve.
      */
-    private function isUrlReachable(string $url): bool
+    private static function isDiscoveryDocumentServed(string $url): bool
     {
-        $context = stream_context_create([
-            'http' => [
+        try {
+            $response = (new GuzzleClient([
                 'timeout' => 2,
-                'ignore_errors' => true,
-            ],
-        ]);
-
-        $result = @file_get_contents($url, false, $context);
-        if (!\is_string($result) || $result === '') {
+                'connect_timeout' => 1,
+                'http_errors' => false,
+                'allow_redirects' => false,
+            ]))->request('GET', $url);
+        } catch (GuzzleException) {
             return false;
         }
 
-        // `ignore_errors => true` makes file_get_contents return the body even
-        // for 3xx/4xx responses, so a non-false result is NOT proof the mock
-        // OAuth server is there. A foreign service squatting on the port (e.g.
-        // a TYPO3 instance redirecting `/.well-known/...` to the install tool)
-        // would otherwise be mistaken for the sidecar and the sidecar-dependent
-        // tests would run against the wrong server instead of skipping.
-        //
-        // Only accept a genuine OpenID Connect discovery document: HTTP 2xx
-        // with JSON exposing the mandatory `token_endpoint` (RFC 8414 / OpenID
-        // Connect Discovery 1.0). This is what mock-oauth2-server serves and
-        // what these tests actually need.
-        $statusLine = $http_response_header[0] ?? '';
-        if (preg_match('#\s(2\d\d)\s#', $statusLine) !== 1) {
+        if ($response->getStatusCode() !== 200) {
             return false;
         }
 
         try {
-            $decoded = json_decode($result, true, 16, JSON_THROW_ON_ERROR);
+            $decoded = json_decode((string) $response->getBody(), true, 16, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             return false;
         }
