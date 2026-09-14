@@ -1,6 +1,15 @@
 import { test as base, expect, Page, FrameLocator } from '@playwright/test';
 
 /**
+ * Backend admin credentials. The defaults are the DDEV instance's
+ * (.ddev/commands/web/install-v14); CI provisions its own throwaway instance
+ * and passes the same values through the environment
+ * (Build/Scripts/e2e-provision.sh). Never point these at a real installation.
+ */
+export const ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME || 'admin';
+export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || 'Joh316!!';
+
+/**
  * Extended test fixture with TYPO3 backend authentication.
  *
  * TYPO3 v14 uses an iframe-based backend structure where module content
@@ -16,9 +25,9 @@ export const test = base.extend<{
     await page.goto('/typo3/login');
 
     // Fill login form
-    await page.fill('input[name="username"]', 'admin');
+    await page.fill('input[name="username"]', ADMIN_USERNAME);
     // TYPO3 uses a visible password field with type="password"
-    await page.fill('input[type="password"]', 'Joh316!!');
+    await page.fill('input[type="password"]', ADMIN_PASSWORD);
 
     // Submit login
     await page.click('button[type="submit"]');

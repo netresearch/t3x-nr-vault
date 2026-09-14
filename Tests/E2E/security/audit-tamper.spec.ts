@@ -1,5 +1,5 @@
 import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
-import { execFileSync } from 'node:child_process';
+import { isDbExecConfigured, runSql } from '../fixtures/db';
 
 /**
  * Hash-chain tamper-detection E2E test.
@@ -12,39 +12,18 @@ import { execFileSync } from 'node:child_process';
  * This spec:
  *   1. Ensures at least one audit entry exists (creates a secret).
  *   2. Visits verify-chain and captures the baseline "valid" status.
- *   3. Tampers with the audit row via `ddev mysql`.
+ *   3. Tampers with the audit row through the database client
+ *      (`ddev mysql` locally, `E2E_DB_EXEC` in CI — see fixtures/db.ts).
  *   4. Reloads verify-chain and asserts it now reports invalid.
  *   5. Restores the original row so subsequent tests are not impacted.
  *
- * If DDEV is unavailable (the mysql helper fails), the test is skipped with
- * a visible reason — it is NOT a hard prerequisite for the suite.
+ * Without `E2E_DB_EXEC`, an unavailable DDEV database skips the test with a
+ * visible reason — it is NOT a hard prerequisite for a local run. With
+ * `E2E_DB_EXEC` set the client was configured on purpose, so a failing client
+ * fails the test: a broken CI database command must not turn into a silent skip.
  */
 
 const generateTestId = () => `e2e_tamper_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
-
-/**
- * Run a single SQL statement via `ddev mysql`. Arguments are passed as an
- * argv array to execFileSync (no shell) and the SQL is fed via stdin, so
- * user-controlled strings never reach a shell parser.
- */
-function runDdevMysql(sql: string): string | null {
-  try {
-    const result = execFileSync('ddev', ['mysql', '-N', '-B'], {
-      // DDEV resolves the project from the CWD; running Playwright from the
-      // repo root is the convention, so trust process.cwd() rather than
-      // hardcoding an absolute path that breaks on CI + every other dev's
-      // machine.
-      cwd: process.cwd(),
-      encoding: 'utf8',
-      input: sql,
-      timeout: 15000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return result.trim();
-  } catch {
-    return null;
-  }
-}
 
 test.describe.serial('UP-AUD-009 (extended): Hash chain detects tampering', () => {
   test('mutating an audit row flips verifyChain result to invalid', async ({ authenticatedPage: page, browserName }) => {
@@ -55,9 +34,11 @@ test.describe.serial('UP-AUD-009 (extended): Hash chain detects tampering', () =
       'DB mutation tests must run on a single browser to avoid races',
     );
 
-    // Skip if DDEV helper isn't available — functional tests cover this path.
-    const ddevAvailable = runDdevMysql('SELECT 1');
-    if (ddevAvailable === null) {
+    const dbAvailable = runSql('SELECT 1');
+    if (isDbExecConfigured()) {
+      expect(dbAvailable, 'E2E_DB_EXEC is set but the database client failed to run SELECT 1').toBe('1');
+    } else if (dbAvailable === null) {
+      // Skip if DDEV helper isn't available — functional tests cover this path.
       test.skip(true, 'DDEV mysql helper unavailable — run functional tests for hash-chain coverage');
     }
 
@@ -87,7 +68,7 @@ test.describe.serial('UP-AUD-009 (extended): Hash chain detects tampering', () =
     expect(baselineValid, 'Baseline chain should be valid before tampering').toBe(true);
 
     // Step 3: fetch the newest audit row id and original hash_after.
-    const audit = runDdevMysql(
+    const audit = runSql(
       'SELECT uid, hash_after FROM tx_nrvault_audit_log ORDER BY uid DESC LIMIT 1',
     );
 
@@ -104,7 +85,7 @@ test.describe.serial('UP-AUD-009 (extended): Hash chain detects tampering', () =
 
     // Pass SQL via stdin using hard-coded literals — no user input interpolated
     // into a shell command. `uid` is validated as a finite integer above.
-    const tamperResult = runDdevMysql(
+    const tamperResult = runSql(
       `UPDATE tx_nrvault_audit_log SET hash_after='${badHash}' WHERE uid=${uid}`,
     );
     expect(tamperResult, 'Tamper UPDATE failed').not.toBeNull();
@@ -131,7 +112,7 @@ test.describe.serial('UP-AUD-009 (extended): Hash chain detects tampering', () =
       // originalHash comes from the DB query itself, not from the test — it is
       // already hex (no injection risk) but we additionally validate the shape.
       if (/^[0-9a-fA-F]+$/.test(originalHash)) {
-        runDdevMysql(
+        runSql(
           `UPDATE tx_nrvault_audit_log SET hash_after='${originalHash}' WHERE uid=${uid}`,
         );
       }
