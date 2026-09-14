@@ -1,4 +1,20 @@
-import { test as base, expect, Page, FrameLocator } from '@playwright/test';
+import { test as base, expect, Page, FrameLocator, APIResponse } from '@playwright/test';
+
+/**
+ * Whether a backend response is TYPO3's redirect to the login form.
+ *
+ * TYPO3 13 answers a backend AJAX request that carries no valid session or
+ * request token with `302 Location: /typo3/login`; TYPO3 14 answers 401/403.
+ * Both reject the request before any extension controller runs. Only
+ * meaningful for requests sent with `maxRedirects: 0` — otherwise Playwright
+ * follows the redirect and reports the login page's 200.
+ */
+export function isLoginRedirect(response: APIResponse): boolean {
+  return (
+    response.status() === 302 &&
+    /^(https?:\/\/[^/]+)?\/typo3\/login(\?|$)/.test(response.headers()['location'] ?? '')
+  );
+}
 
 /**
  * Backend admin credentials. The defaults are the DDEV instance's

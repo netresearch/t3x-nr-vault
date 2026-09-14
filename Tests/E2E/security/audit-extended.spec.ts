@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
 
 /**
@@ -11,10 +12,24 @@ import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/
 
 const generateTestId = () => `e2e_aud_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 
+/**
+ * The href of the audit module's docheader export button for a format
+ * (AuditController::addDocHeaderButtons), including its route token.
+ */
+async function exportLinkHref(page: Page, format: 'json' | 'csv'): Promise<string> {
+  await page.goto('/typo3/module/admin/vault/audit');
+  await waitForModuleContent(page);
+  const link = getModuleFrame(page)
+    .locator(`a[href*="/vault/audit/export"][href*="format=${format}"]`)
+    .first();
+  const href = await link.getAttribute('href');
+  expect(href, `No ${format} export link on the audit module`).toBeTruthy();
+  return href as string;
+}
+
 test.describe('AUD-EXT-001: JSON export returns a well-formed array', () => {
   test('json export parses and contains audit entry keys', async ({
     authenticatedPage: page,
-    request,
   }) => {
     // Seed at least one audit entry so the export is non-empty.
     const identifier = generateTestId();
@@ -26,14 +41,11 @@ test.describe('AUD-EXT-001: JSON export returns a well-formed array', () => {
     await frame.locator('button[name="_savedok"]').first().click();
     await page.waitForLoadState('networkidle');
 
-    // Use Playwright's request API with the authenticated cookies.
-    const cookies = await page.context().cookies();
-    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-
-    const response = await request.get(
-      '/typo3/module/admin/vault/audit/export?format=json',
-      { headers: { Cookie: cookieHeader }, failOnStatusCode: false },
-    );
+    // Download through the export link the audit module offers. TYPO3 module
+    // URLs carry a route token; a hand-built URL without it is sent to the
+    // login form. page.request shares the browser context's session.
+    const exportHref = await exportLinkHref(page, 'json');
+    const response = await page.request.get(exportHref, { failOnStatusCode: false });
 
     expect(response.status()).toBe(200);
     expect(response.headers()['content-type'] ?? '').toMatch(/application\/json/i);
@@ -75,15 +87,9 @@ test.describe('AUD-EXT-001: JSON export returns a well-formed array', () => {
 test.describe('AUD-EXT-002: CSV export returns headers and rows', () => {
   test('csv export has header row and at least one data row', async ({
     authenticatedPage: page,
-    request,
   }) => {
-    const cookies = await page.context().cookies();
-    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-
-    const response = await request.get(
-      '/typo3/module/admin/vault/audit/export?format=csv',
-      { headers: { Cookie: cookieHeader }, failOnStatusCode: false },
-    );
+    const exportHref = await exportLinkHref(page, 'csv');
+    const response = await page.request.get(exportHref, { failOnStatusCode: false });
 
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] ?? '';
