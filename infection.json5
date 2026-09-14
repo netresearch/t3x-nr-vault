@@ -10,7 +10,14 @@
             // Enum classes: PHPUnit 12 can't attribute coverage; Infection wastes cycles on them.
             "Service/Detection/Severity.php",
             "Service/VaultFieldPermission.php",
-            "Http/SecretPlacement.php"
+            "Http/SecretPlacement.php",
+            // Demo-data seeding. Its only consumer is `vault:seed-demo`
+            // (Classes/Command/VaultSeedDemoCommand.php), which refuses to run in
+            // the Production application context before it touches a seeder. The
+            // refusal lives in the command, which stays in scope. Before this
+            // exclusion it contributed 219 escaped mutants and 1 killed — 8 % of
+            // all escapes, for code no production request can reach.
+            "Seeder"
         ]
     },
     "logs": {
@@ -24,26 +31,211 @@
         "perMutator": ".Build/infection/per-mutator.md"
     },
     "tmpDir": ".Build/infection/tmp",
+    // Seconds a mutant's test run may take before it counts as timed out. This is
+    // Infection's default, made explicit so the MSI denominator does not move
+    // with a tool upgrade: timed-out mutants count as detected, so raising the
+    // value turns some of them into escapes and lowering it hides slow escapes.
+    "timeout": 10,
     "phpUnit": {
         // Infection reads Build/phpunit.xml and synthesises its own override config
         // (phpunitConfiguration.initial.infection.xml) that adds coverage/junit args.
-        // We cannot aim configDir at phpunit.infection.xml directly because Infection
-        // only looks for files named phpunit.xml(.dist) in configDir.
         "configDir": "Build",
         "customPath": ".Build/bin/phpunit"
     },
     "testFramework": "phpunit",
-    // Do NOT repeat --configuration here — Infection's synthesised config already
-    // carries failOnWarning=true from Build/phpunit.xml. Previously this option
-    // was set to "--testsuite=Unit --configuration=Build/phpunit.infection.xml"
-    // which tripped PHPUnit 12's "Option --configuration cannot be used more than
-    // once" warning (doubled with Infection's own --configuration flag).
+    // Do NOT repeat --configuration here — Infection passes its synthesised config
+    // itself, and PHPUnit 12+ rejects "Option --configuration cannot be used more
+    // than once".
     "testFrameworkOptions": "--testsuite=Unit",
     "mutators": {
         "@default": true,
         // Disable mutators that don't make sense for this codebase
         "CastString": false,
-        "UnwrapArrayMerge": false
+        "UnwrapArrayMerge": false,
+        // CONCATENATION IN HUMAN-READABLE OUTPUT
+        // =====================================
+        // `Concat` swaps the operands of `.`, `ConcatOperandRemoval` drops one.
+        // In the methods below every concatenation joins prose: a `vault:doctor`
+        // finding's summary/risk/remediation text, or a command's option help and
+        // console output. A test that pins every sentence fragment would be a
+        // change-detector for wording, not a check of behaviour, so these mutants
+        // were escapes nobody should kill: 573 of the 792 Concat escapes before
+        // this list existed.
+        //
+        // The list is per method, never per class, so a concatenation that builds
+        // a machine-read value stays mutated even inside these classes. Left out on
+        // purpose, because their concatenations are data, not prose:
+        //   AuditCheck::deliveryFindingForSink   finding id `audit.sink_state.<sink>`
+        //   SinkProbeCheck::run                  finding id `audit.sink_probe.<sink>`
+        //   VersionCheck::readEmConf             path of the ext_emconf.php it reads
+        //   Typo3VersionRange::__toString        the version-range value
+        //   VaultDoctorService::runContained     the `check.crashed` containment path
+        //   VaultInitCommand::resolveDefaultOutputFile  default master-key path
+        //   VaultRetrieveCommand::execute        the secret value written to stdout
+        //   VaultMigrateFieldCommand (except reportErrors)  value masking
+        //   VaultSeedDemoCommand                 SQL LIKE pattern
+        // Nothing in Classes/Crypto, Classes/Security, Classes/Audit or Classes/Http
+        // is listed. Add a method here only after reading every `.` in it.
+        "Concat": {
+            "ignore": [
+                // Option help text.
+                "Netresearch\\NrVault\\Command\\VaultAuditCommand::configure",
+                // Table cell text (hash prefix shown to the operator).
+                "Netresearch\\NrVault\\Command\\VaultAuditCommand::outputTable",
+                // Confirmation and result messages.
+                "Netresearch\\NrVault\\Command\\VaultAuditCommand::resetAnchor",
+                // Option help text.
+                "Netresearch\\NrVault\\Command\\VaultAuditVerifyCommand::configure",
+                // Console notes.
+                "Netresearch\\NrVault\\Command\\VaultBreakGlassCommand::activate",
+                // Per-error console lines.
+                "Netresearch\\NrVault\\Command\\VaultCleanupOrphansCommand::deleteOrphans",
+                // Confirmation question text.
+                "Netresearch\\NrVault\\Command\\VaultDeleteCommand::execute",
+                // Option help text.
+                "Netresearch\\NrVault\\Command\\VaultDoctorCommand::configure",
+                // Crash message rendering.
+                "Netresearch\\NrVault\\Command\\VaultDoctorCommand::renderCrash",
+                // Finding rendering (labels + text).
+                "Netresearch\\NrVault\\Command\\VaultDoctorCommand::renderFinding",
+                // Status and table text.
+                "Netresearch\\NrVault\\Command\\VaultInitCommand::execute",
+                // Result messages.
+                "Netresearch\\NrVault\\Command\\VaultInitCommand::writeMasterKeyToFile",
+                // Per-error console lines.
+                "Netresearch\\NrVault\\Command\\VaultMigrateFieldCommand::reportErrors",
+                // Exception message text.
+                "Netresearch\\NrVault\\Command\\VaultRotateMasterKeyCommand::foreignTablesShareConnection",
+                // Console listing text.
+                "Netresearch\\NrVault\\Command\\VaultRotateMasterKeyCommand::inventoryForeignRotators",
+                // Console error text.
+                "Netresearch\\NrVault\\Command\\VaultRotateMasterKeyCommand::rotateAllSecrets",
+                // Console notes and warnings.
+                "Netresearch\\NrVault\\Command\\VaultRotateMasterKeyCommand::runRotation",
+                // Console error text.
+                "Netresearch\\NrVault\\Command\\VaultRotateMasterKeyCommand::verifyOldKey",
+                // Option help text.
+                "Netresearch\\NrVault\\Command\\VaultStoreCommand::configure",
+                // Console error text.
+                "Netresearch\\NrVault\\Command\\VaultStoreCommand::execute",
+                // Finding summary/risk/remediation prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::anchorDisabledFinding",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkAnchor",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkDatabaseAnchor",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkExternalSink",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkHashChain",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkHmacEpoch",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkReadsLogged",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkRetention",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkSinkFailures",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::partiallySignedEpochFinding",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::unanchoredFinding",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::unmigratedStoredRowsFinding",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\BreakGlassCheck::run",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\CliAccessCheck::checkAccessEnabled",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\CliAccessCheck::checkAccessGroups",
+                // Finding prose (the operation list is joined with implode, not `.`).
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\CliAccessCheck::checkAllowedOperations",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\CliAccessCheck::checkFrontendPlaceholderLegacy",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\EnvironmentCheck::checkApplicationContext",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\EnvironmentCheck::checkBackendLockSsl",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\MasterKeyProviderCheck::checkConfigured",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\MasterKeyProviderCheck::checkKeyFilePermissions",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\MasterKeyProviderCheck::checkKnown",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\MasterKeyProviderCheck::checkLiveness",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\SecretHygieneCheck::checkDead",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\SecretHygieneCheck::checkExpired",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\SecretHygieneCheck::checkNeverRotated",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\SecurityProfileCheck::checkAdminOverrideConsistency",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\SecurityProfileCheck::checkProfileValue",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\VersionCheck::checkExtensionVersion",
+                // Finding prose.
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\VersionCheck::checkTypo3Supported"
+            ]
+        },
+        // Same methods and the same reasoning as `Concat` above; kept as an exact
+        // copy so the two mutators never disagree about what counts as prose.
+        "ConcatOperandRemoval": {
+            "ignore": [
+                "Netresearch\\NrVault\\Command\\VaultAuditCommand::configure",
+                "Netresearch\\NrVault\\Command\\VaultAuditCommand::outputTable",
+                "Netresearch\\NrVault\\Command\\VaultAuditCommand::resetAnchor",
+                "Netresearch\\NrVault\\Command\\VaultAuditVerifyCommand::configure",
+                "Netresearch\\NrVault\\Command\\VaultBreakGlassCommand::activate",
+                "Netresearch\\NrVault\\Command\\VaultCleanupOrphansCommand::deleteOrphans",
+                "Netresearch\\NrVault\\Command\\VaultDeleteCommand::execute",
+                "Netresearch\\NrVault\\Command\\VaultDoctorCommand::configure",
+                "Netresearch\\NrVault\\Command\\VaultDoctorCommand::renderCrash",
+                "Netresearch\\NrVault\\Command\\VaultDoctorCommand::renderFinding",
+                "Netresearch\\NrVault\\Command\\VaultInitCommand::execute",
+                "Netresearch\\NrVault\\Command\\VaultInitCommand::writeMasterKeyToFile",
+                "Netresearch\\NrVault\\Command\\VaultMigrateFieldCommand::reportErrors",
+                "Netresearch\\NrVault\\Command\\VaultRotateMasterKeyCommand::foreignTablesShareConnection",
+                "Netresearch\\NrVault\\Command\\VaultRotateMasterKeyCommand::inventoryForeignRotators",
+                "Netresearch\\NrVault\\Command\\VaultRotateMasterKeyCommand::rotateAllSecrets",
+                "Netresearch\\NrVault\\Command\\VaultRotateMasterKeyCommand::runRotation",
+                "Netresearch\\NrVault\\Command\\VaultRotateMasterKeyCommand::verifyOldKey",
+                "Netresearch\\NrVault\\Command\\VaultStoreCommand::configure",
+                "Netresearch\\NrVault\\Command\\VaultStoreCommand::execute",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::anchorDisabledFinding",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkAnchor",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkDatabaseAnchor",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkExternalSink",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkHashChain",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkHmacEpoch",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkReadsLogged",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkRetention",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::checkSinkFailures",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::partiallySignedEpochFinding",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::unanchoredFinding",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\AuditCheck::unmigratedStoredRowsFinding",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\BreakGlassCheck::run",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\CliAccessCheck::checkAccessEnabled",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\CliAccessCheck::checkAccessGroups",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\CliAccessCheck::checkAllowedOperations",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\CliAccessCheck::checkFrontendPlaceholderLegacy",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\EnvironmentCheck::checkApplicationContext",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\EnvironmentCheck::checkBackendLockSsl",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\MasterKeyProviderCheck::checkConfigured",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\MasterKeyProviderCheck::checkKeyFilePermissions",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\MasterKeyProviderCheck::checkKnown",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\MasterKeyProviderCheck::checkLiveness",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\SecretHygieneCheck::checkDead",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\SecretHygieneCheck::checkExpired",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\SecretHygieneCheck::checkNeverRotated",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\SecurityProfileCheck::checkAdminOverrideConsistency",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\SecurityProfileCheck::checkProfileValue",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\VersionCheck::checkExtensionVersion",
+                "Netresearch\\NrVault\\Service\\Doctor\\Check\\VersionCheck::checkTypo3Supported"
+            ]
+        }
     },
     // MSI thresholds — **ratchet** strategy.
     //
