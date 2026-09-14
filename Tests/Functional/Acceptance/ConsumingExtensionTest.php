@@ -14,6 +14,7 @@ use Netresearch\NrVault\Attribute\ExtensionPoint;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Command\VaultDoctorCommand;
 use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
+use Netresearch\NrVault\Crypto\EnvelopeCodecInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Exception\RequestCancelledException;
 use Netresearch\NrVault\Service\Doctor\Finding;
@@ -127,31 +128,69 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
         self::assertStringContainsString('profile: standard', $summary);
     }
 
+    /**
+     * The inventory the dry run reports and the work the rotation does must be
+     * the same number: `vault:rotate-master-key` rolls the whole rotation back
+     * when a consumer re-wraps fewer envelopes than it counted. The table also
+     * holds one row from before this consumer started sealing, which neither
+     * side may touch.
+     */
     #[Test]
-    public function theConsumerEnvelopeRotatorIsCountedByMasterKeyRotation(): void
+    public function theConsumerEnvelopeRotatorIsCountedAndRewrappedByMasterKeyRotation(): void
     {
-        $this->get(ApiTokenClient::class)->storeToken(self::TOKEN_IDENTIFIER, 'rotation-inventory-' . bin2hex(random_bytes(4)));
-        $payloads = $this->getConnectionPool()->getConnectionForTable(PayloadEnvelopeRotator::TABLE);
-        $payloads->insert(PayloadEnvelopeRotator::TABLE, ['sealed' => 'not-yet-sealed-1']);
-        $payloads->insert(PayloadEnvelopeRotator::TABLE, ['sealed' => 'not-yet-sealed-2']);
+        $client = $this->get(ApiTokenClient::class);
+        self::assertInstanceOf(ApiTokenClient::class, $client);
+        $client->storeToken(self::TOKEN_IDENTIFIER, 'rotation-inventory-' . bin2hex(random_bytes(4)));
 
+        $codec = $this->get(EnvelopeCodecInterface::class);
+        self::assertInstanceOf(EnvelopeCodecInterface::class, $codec);
+
+        $payloads = $this->getConnectionPool()->getConnectionForTable(PayloadEnvelopeRotator::TABLE);
+        $payloads->insert(PayloadEnvelopeRotator::TABLE, ['sealed' => $codec->seal('consumer-payload-one', PayloadEnvelopeRotator::ENVELOPE_CONTEXT)]);
+        $payloads->insert(PayloadEnvelopeRotator::TABLE, ['sealed' => $codec->seal('consumer-payload-two', PayloadEnvelopeRotator::ENVELOPE_CONTEXT)]);
+        $payloads->insert(PayloadEnvelopeRotator::TABLE, ['sealed' => 'written-before-this-consumer-sealed']);
+
+        $rotator = $this->get(PayloadEnvelopeRotator::class);
+        self::assertInstanceOf(PayloadEnvelopeRotator::class, $rotator);
+        self::assertSame(2, $rotator->countEnvelopes(), 'Only the sealed rows count as envelopes.');
+
+        $before = $this->storedPayloads();
         $newKeyPath = $this->instancePath . '/rotation-target.key';
         $newKey = sodium_crypto_secretbox_keygen();
         file_put_contents($newKeyPath, $newKey);
         sodium_memzero($newKey);
 
-        $tester = new CommandTester($this->command(VaultRotateMasterKeyCommand::class));
-        $tester->execute(['--dry-run' => true, '--new-key' => $newKeyPath]);
+        $dryRun = new CommandTester($this->command(VaultRotateMasterKeyCommand::class));
+        $dryRun->execute(['--dry-run' => true, '--new-key' => $newKeyPath]);
+        self::assertSame(Command::SUCCESS, $dryRun->getStatusCode(), $dryRun->getDisplay());
+        $dryRunOutput = $this->normalize($dryRun);
+        self::assertStringContainsString(PayloadEnvelopeRotator::IDENTIFIER . ': 2 envelope(s)', $dryRunOutput);
+        self::assertStringContainsString('Would re-wrap 2 consumer-owned envelope(s).', $dryRunOutput);
+
+        $rotation = new CommandTester($this->command(VaultRotateMasterKeyCommand::class));
+        $rotation->execute(['--confirm' => true, '--new-key' => $newKeyPath]);
         // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
         unlink($newKeyPath);
 
-        self::assertSame(Command::SUCCESS, $tester->getStatusCode(), $tester->getDisplay());
-        $display = (string) preg_replace('/\s+/', ' ', $tester->getDisplay());
-        self::assertMatchesRegularExpression(
-            '/' . preg_quote(PayloadEnvelopeRotator::IDENTIFIER, '/') . '\D{0,20}2\b/',
-            $display,
-            'The dry run must inventory the consumer rotator and its two envelopes.',
-        );
+        self::assertSame(Command::SUCCESS, $rotation->getStatusCode(), $rotation->getDisplay());
+        $rotationOutput = $this->normalize($rotation);
+        self::assertStringContainsString(PayloadEnvelopeRotator::IDENTIFIER . ': re-wrapped 2 envelope(s).', $rotationOutput);
+        self::assertStringContainsString('Consumer-owned envelopes re-wrapped: 2.', $rotationOutput);
+
+        $after = $this->storedPayloads();
+        self::assertSame(array_keys($before), array_keys($after));
+        foreach ($before as $uid => $value) {
+            if ($codec->isSealed($value)) {
+                self::assertNotSame($value, $after[$uid], \sprintf('Envelope %d must carry a DEK wrapped under the new key.', $uid));
+                self::assertTrue($codec->isSealed($after[$uid]), \sprintf('Envelope %d must still be a sealed envelope.', $uid));
+
+                continue;
+            }
+
+            self::assertSame($value, $after[$uid], 'A row written before sealing must not be rewritten.');
+        }
+
+        self::assertSame(2, $rotator->countEnvelopes(), 'The sealed count must be unchanged by the rotation.');
     }
 
     #[Test]
@@ -212,6 +251,35 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
         self::assertSame(self::KNOWN_UNPUBLISHED_DEPENDENCIES, array_values(array_unique($unpublished)), 'Fixture imports outside the published API snapshot.');
         self::assertCount(6, $implemented, 'The fixture must implement all six extension points.');
         self::assertNotContains(false, $implemented, 'The fixture implements an nr-vault interface that is not an extension point.');
+    }
+
+    /**
+     * The consumer's payload column, keyed by uid.
+     *
+     * @return array<int, string>
+     */
+    private function storedPayloads(): array
+    {
+        $rows = $this->getConnectionPool()->getConnectionForTable(PayloadEnvelopeRotator::TABLE)
+            ->select(['uid', 'sealed'], PayloadEnvelopeRotator::TABLE, [], [], ['uid' => 'ASC'])
+            ->fetchAllAssociative();
+
+        $payloads = [];
+        foreach ($rows as $row) {
+            self::assertIsNumeric($row['uid'] ?? null);
+            $payloads[(int) $row['uid']] = \is_string($row['sealed'] ?? null) ? $row['sealed'] : '';
+        }
+
+        return $payloads;
+    }
+
+    /**
+     * SymfonyStyle wraps its blocks to the terminal width; collapsing
+     * whitespace lets an assertion pin a whole sentence.
+     */
+    private function normalize(CommandTester $tester): string
+    {
+        return (string) preg_replace('/\s+/', ' ', $tester->getDisplay());
     }
 
     /**

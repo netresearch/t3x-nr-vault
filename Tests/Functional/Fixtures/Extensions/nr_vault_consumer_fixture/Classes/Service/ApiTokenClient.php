@@ -48,7 +48,15 @@ final readonly class ApiTokenClient
             ->withReason('consumer fixture API call');
         $request = $this->requestFactory->createRequest('GET', $url);
 
-        return $client instanceof CancellableHttpClientInterface && $client->supportsCancellation()
+        // Every client that implements the interface goes through
+        // sendCancellable(), without asking supportsCancellation() first: that
+        // method reports whether the TRANSFER can be torn down mid-flight, not
+        // whether the signal is honoured. sendCancellable() checks the signal
+        // before it retrieves the secret and then degrades to a blocking send
+        // on hosts without curl-multi, so gating on it would drop cancellation
+        // exactly where the client cannot abort a running transfer — and leave
+        // the behaviour depending on the host's curl build.
+        return $client instanceof CancellableHttpClientInterface
             ? $client->sendCancellable($request, new PresetCancellationSignal($cancelled))
             : $client->sendRequest($request);
     }

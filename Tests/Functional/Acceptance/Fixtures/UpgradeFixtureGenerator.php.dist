@@ -27,6 +27,7 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
  * is the regeneration recipe for UpgradeFromPreviousReleaseTest's data and
  * runs against a v0.16.0 source tree only. From the repository root:
  *
+ *     rm -rf /tmp/v0160 && mkdir -p /tmp/v0160
  *     git archive v0.16.0 | tar -x -C /tmp/v0160
  *     cp -a .Build Build /tmp/v0160/
  *     mkdir -p /tmp/v0160/Tests/Functional/Acceptance/Fixtures
