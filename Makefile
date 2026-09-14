@@ -60,7 +60,7 @@ test-coverage-functional: ## Run functional tests with coverage (Xdebug)
 	$(RUNTESTS) -s functionalCoverage
 
 test-e2e: ## Run Playwright E2E tests (requires DDEV up)
-	npm run e2e
+	npm run test:e2e
 
 # CI
 ci: ## Run all CI checks locally
