@@ -17,6 +17,7 @@ use Netresearch\NrVault\Exception\AccessDeniedException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Utility\IdentifierValidator;
 use Throwable;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Database\Connection;
@@ -299,6 +300,24 @@ final class SecretTcaHook
             // to compensate. `null` is what makes core skip the record — see
             // the create gate below for core's guard and why `[]` is not a
             // substitute.
+            $fieldArray = null;
+
+            return;
+        }
+
+        // Refuse an identifier the vault cannot represent, before anything is
+        // written and before DataHandler's own `checkValue()` gets to rewrite
+        // it. The TCA column used to carry `eval => alphanum_x`, which silently
+        // stripped every character the pattern disliked: a secret submitted as
+        // `<script>alert(1)</script>` landed as `scriptalert1script`. That is a
+        // record under an identifier nobody chose — unfindable by the name it
+        // was created with, and impossible to tell apart from a deliberate one.
+        //
+        // Only a value SUBMITTED for a new record is judged. Records already
+        // stored under an identifier this rule rejects stay readable and
+        // deletable: reads never pass through here, and an update cannot change
+        // the identifier at all (the guard further down restores the original).
+        if (str_starts_with((string) $id, 'NEW') && !$this->isIdentifierAcceptable($fieldArray, $dataHandler)) {
             $fieldArray = null;
 
             return;
@@ -1342,6 +1361,79 @@ final class SecretTcaHook
         } catch (Throwable) {
             // Deliberately ignored — see the docblock.
         }
+    }
+
+    /**
+     * Whether the identifier submitted for a new record is one the vault
+     * accepts, as `IdentifierValidator` defines it — the same rule
+     * `VaultService::store()` applies on the programmatic path.
+     *
+     * The value is judged in its trimmed form because that is what DataHandler
+     * will store (`eval => trim` on the column).
+     *
+     * @param array<string, mixed> $fieldArray
+     *
+     * @return bool True when the creation may proceed
+     */
+    private function isIdentifierAcceptable(array $fieldArray, DataHandler $dataHandler): bool
+    {
+        $submitted = \is_string($fieldArray['identifier'] ?? null) ? trim($fieldArray['identifier']) : '';
+
+        if (IdentifierValidator::isValid($submitted)) {
+            return true;
+        }
+
+        $this->refuseInvalidIdentifier($submitted, $dataHandler);
+
+        return false;
+    }
+
+    /**
+     * Record a refused identifier: an `access_denied` audit entry, the shape
+     * every other refusal in this hook writes, plus a DataHandler log line that
+     * states the rule so FormEngine can tell the editor why the save did
+     * nothing.
+     *
+     * The DataHandler message deliberately does NOT echo the submitted value.
+     * It reaches the editor as a flash message, and repeating an arbitrary
+     * payload there buys nothing the rule does not already say. The audit entry
+     * does carry it — that is the record of what was attempted — truncated to
+     * the column width (`secret_identifier varchar(255)`), because an
+     * over-long identifier is one of the things being refused here.
+     */
+    private function refuseInvalidIdentifier(string $identifier, DataHandler $dataHandler): void
+    {
+        try {
+            $this->auditService->log(
+                substr($identifier, 0, 255),
+                AuditAction::AccessDenied->value,
+                false,
+                'Create denied: identifier rejected by IdentifierValidator',
+            );
+        } catch (Throwable $e) {
+            /** @phpstan-ignore method.internal */
+            $dataHandler->log(
+                self::TABLE,
+                0,
+                1,
+                null,
+                1,
+                'Vault audit logging of the refused secret identifier failed: ' . $e->getMessage()
+                . ' — the creation was refused regardless.',
+            );
+        }
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            self::TABLE,
+            0,
+            1,
+            null,
+            1,
+            'Vault secret identifier is invalid: it must be a UUIDv7, or start with a letter and '
+            . 'contain only letters, numbers and underscores (3-255 characters) — the record was '
+            . 'not created. Nothing was stored under a corrected identifier.',
+        );
     }
 
     /**
