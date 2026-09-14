@@ -36,7 +36,7 @@ final class AuditVerifyTaskTest extends TestCase
         // See AuditAnchorTaskTest::setUp() — v13's AbstractTask resolves the
         // Scheduler through GeneralUtility, whose 3-arg constructor is not
         // autowirable in a unit test.
-        GeneralUtility::setSingletonInstance(Scheduler::class, $this->createMock(Scheduler::class));
+        GeneralUtility::setSingletonInstance(Scheduler::class, self::createStub(Scheduler::class));
     }
 
     #[Test]

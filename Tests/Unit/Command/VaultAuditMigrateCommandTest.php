@@ -264,7 +264,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
         $this->queryBuilder->method('executeQuery')->willReturn($countResult);
 
         // The existing chain is reported unsafe to re-seal.
-        $auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        $auditLogService = $this->createStub(AuditLogServiceInterface::class);
         $auditLogService->method('verifyChainForReseal')
             ->willReturn(HashChainVerificationResult::invalid([0 => 'HMAC key epoch downgrade detected']));
 
@@ -302,7 +302,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
 
         // GET_LOCK acquisition: command calls $connection->executeQuery() directly
         // (not via QueryBuilder). Return 1 = lock acquired.
-        $lockResult = $this->createMock(Result::class);
+        $lockResult = $this->createStub(Result::class);
         $lockResult->method('fetchOne')->willReturn(1);
         $connection->method('executeQuery')->willReturn($lockResult);
 

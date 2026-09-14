@@ -96,7 +96,7 @@ final class SinkDeliveryStateRepositoryTest extends TestCase
     #[Test]
     public function aThrowingRegistryIsSwallowedFailSafe(): void
     {
-        $registry = $this->createMock(Registry::class);
+        $registry = self::createStub(Registry::class);
         $registry->method('get')->willThrowException(new RuntimeException('sys_registry broken'));
         $registry->method('set')->willThrowException(new RuntimeException('sys_registry broken'));
 
@@ -122,7 +122,7 @@ final class SinkDeliveryStateRepositoryTest extends TestCase
 
     private function createSubject(?int &$writes = null): SinkDeliveryStateRepository
     {
-        $registry = $this->createMock(Registry::class);
+        $registry = self::createStub(Registry::class);
         $registry->method('get')->willReturnCallback(
             fn (string $namespace, string $key): mixed => $this->storage[$namespace . '/' . $key] ?? null,
         );

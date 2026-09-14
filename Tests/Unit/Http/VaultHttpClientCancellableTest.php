@@ -492,6 +492,9 @@ final class VaultHttpClientCancellableTest extends TestCase
     #[Test]
     public function aPreFlightCancellationIsAuditedWithoutAStatusCode(): void
     {
+        // A pre-flight refusal reads no secret.
+        $this->vaultService->expects(self::never())->method('retrieve');
+
         $transfer = new StubbedTransfer();
         $transport = $this->transportWith($transfer, new ClosureTicker(static function (): void {}));
 
@@ -749,7 +752,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         $this->vaultService->expects(self::never())->method('retrieve');
         $this->auditLogService->expects(self::never())->method('log');
 
-        $callerClient = $this->createMock(ClientInterface::class);
+        $callerClient = self::createStub(ClientInterface::class);
 
         $client = new VaultHttpClient(
             vaultService: $this->vaultService,
@@ -780,6 +783,9 @@ final class VaultHttpClientCancellableTest extends TestCase
         // anything a caller could send with. Every one returns a configured
         // clone, a PSR-7 response or a bool. A future method handing back the
         // inner client, the transport or the promise fails here.
+        $this->vaultService->expects(self::never())->method('retrieve');
+        $this->auditLogService->expects(self::never())->method('log');
+
         $publicMethods = (new ReflectionClass(VaultHttpClient::class))->getMethods(ReflectionMethod::IS_PUBLIC);
 
         foreach ($publicMethods as $method) {
@@ -1409,6 +1415,7 @@ final class VaultHttpClientCancellableTest extends TestCase
     {
         // Credentials for the token leg: the manager reads client id + secret.
         $this->vaultService
+            ->expects(self::exactly(2))
             ->method('retrieve')
             ->willReturnCallback(static fn (string $id): ?string => match ($id) {
                 'oauth/cid' => 'client-id-value',
@@ -1458,6 +1465,7 @@ final class VaultHttpClientCancellableTest extends TestCase
 
         $rows = [];
         $this->auditLogService
+            ->expects(self::exactly(2))
             ->method('log')
             ->willReturnCallback(
                 static function (
@@ -1500,7 +1508,10 @@ final class VaultHttpClientCancellableTest extends TestCase
         // A caller-supplied inner client degrades the whole call to blocking —
         // and the token leg with it: the signal is deliberately NOT passed to
         // the manager, so the two legs cannot disagree on abortability.
+        // The token leg reads client id + secret; each leg leaves its row.
+        $this->auditLogService->expects(self::exactly(2))->method('log');
         $this->vaultService
+            ->expects(self::exactly(2))
             ->method('retrieve')
             ->willReturnCallback(static fn (string $id): ?string => match ($id) {
                 'oauth/cid' => 'client-id-value',

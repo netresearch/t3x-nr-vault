@@ -407,6 +407,7 @@ final class SecretRepositoryTest extends TestCase
         // save() clears BOTH MM tiers (read + write) before re-inserting, so
         // delete() is called once per MM table. Match either table name.
         $connection
+            ->expects(self::exactly(2))
             ->method('delete')
             ->with(
                 self::logicalOr(
@@ -443,6 +444,7 @@ final class SecretRepositoryTest extends TestCase
         // save() clears BOTH MM tiers (read + write) for the secret's uid,
         // so delete() is called once per MM table with the same criteria.
         $connection
+            ->expects(self::exactly(2))
             ->method('delete')
             ->with(
                 self::logicalOr(
@@ -1164,7 +1166,7 @@ final class SecretRepositoryTest extends TestCase
         // be called with BOTH 'tx_nrvault_secret' (for the row fetch) AND
         // 'tx_nrvault_secret_begroups_mm' (for the groups lookup).
         $requestedTables = [];
-        $pool = $this->createMock(ConnectionPool::class);
+        $pool = $this->createStub(ConnectionPool::class);
         $pool->method('getConnectionForTable')->willReturnCallback(
             static function (string $table) use (&$requestedTables, $secretConnection, $mmConnection): Connection {
                 $requestedTables[] = $table;
