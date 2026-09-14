@@ -10,21 +10,15 @@ declare(strict_types=1);
 use Netresearch\NrVault\TCA\VaultFieldHelper;
 
 /*
- * Test-only record table with two vault secret fields.
+ * Inline child of tx_nrvaulttest_record with its own vault secret field.
  *
- * Registered at bootstrap through a fixture extension (not by writing to
- * $GLOBALS['TCA'] at runtime) so TcaSchemaFactory knows the table: both
- * DataHandler and VaultFieldResolver read the schema, not the raw array.
- * The fields use VaultFieldHelper, the helper integrators are told to use.
- *
- * The table is language aware and carries an inline child collection so the
- * DataHandler commands that duplicate a record through a nested datamap pass —
- * copy, localize, copyToLanguage, copying a page with its records, copying a
- * parent with its inline children — can be driven against real vault fields.
+ * DataHandler copies inline children through copyRecord() from within the
+ * parent's field processing, so a child's secret travels the same nested
+ * datamap pass as the parent's without any command of its own.
  */
 return [
     'ctrl' => [
-        'title' => 'Vault test record',
+        'title' => 'Vault test child',
         'label' => 'title',
         'delete' => 'deleted',
         'crdate' => 'crdate',
@@ -49,11 +43,17 @@ return [
                 'renderType' => 'selectSingle',
                 'default' => 0,
                 'items' => [['label' => '', 'value' => 0]],
-                'foreign_table' => 'tx_nrvaulttest_record',
-                'foreign_table_where' => 'AND {#tx_nrvaulttest_record}.{#sys_language_uid} IN (-1,0)',
+                'foreign_table' => 'tx_nrvaulttest_child',
+                'foreign_table_where' => 'AND {#tx_nrvaulttest_child}.{#sys_language_uid} IN (-1,0)',
             ],
         ],
         'l10n_source' => [
+            'config' => [
+                'type' => 'passthrough',
+            ],
+        ],
+        'parent' => [
+            'label' => 'Parent',
             'config' => [
                 'type' => 'passthrough',
             ],
@@ -65,17 +65,8 @@ return [
             ],
         ],
         'api_key' => VaultFieldHelper::getFieldConfig(['label' => 'API key']),
-        'api_secret' => VaultFieldHelper::getFieldConfig(['label' => 'API secret']),
-        'children' => [
-            'label' => 'Children',
-            'config' => [
-                'type' => 'inline',
-                'foreign_table' => 'tx_nrvaulttest_child',
-                'foreign_field' => 'parent',
-            ],
-        ],
     ],
     'types' => [
-        '0' => ['showitem' => 'title, api_key, api_secret, children'],
+        '0' => ['showitem' => 'title, api_key'],
     ],
 ];
