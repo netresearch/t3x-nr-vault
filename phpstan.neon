@@ -102,6 +102,21 @@ parameters:
             path: Tests/scripts/*.php
             reportUnmatched: false
 
+        # ModuleInterface::hasSubmoduleOverview() exists on TYPO3 14 and not on
+        # 13.4, which is the whole point of asking method_exists() before
+        # calling it. PHPStan resolves one core per matrix leg, so the check
+        # reads as "always true" on the 14 leg and would read as "always false"
+        # on the 13 one; the guard is load-bearing on exactly the major that
+        # cannot be analysed at the same time. Calling it unguarded produced a
+        # 500 on every 13.4 vault overview page.
+        -
+            identifiers:
+                - function.alreadyNarrowedType
+            paths:
+                - Classes/Middleware/VaultOverviewModuleResolver.php
+                - Tests/Unit/Middleware/VaultOverviewModuleResolverTest.php
+            reportUnmatched: false
+
         # setShortcutContext() is a v14-only method on DocHeaderComponent.
         # Code is guarded by method_exists() but PHPStan can't resolve the
         # named parameters when analysing against v13.

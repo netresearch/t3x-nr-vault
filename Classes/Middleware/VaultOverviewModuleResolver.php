@@ -67,7 +67,12 @@ final readonly class VaultOverviewModuleResolver implements MiddlewareInterface
         }
 
         // TYPO3 14 and later: core renders the overview itself.
-        if ($module->hasSubmoduleOverview()) {
+        //
+        // `hasSubmoduleOverview()` arrived on ModuleInterface with TYPO3 14 —
+        // calling it unguarded is a fatal on 13.4, the very major this
+        // middleware exists for. method_exists() is the capability question,
+        // asked of the running core rather than of a version number.
+        if (method_exists($module, 'hasSubmoduleOverview') && $module->hasSubmoduleOverview()) {
             return $handler->handle($request);
         }
 
