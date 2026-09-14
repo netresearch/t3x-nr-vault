@@ -258,6 +258,23 @@ statuses, so you can judge a release without opening the bundle:
 The bundle is published in all three cases. A `FAIL` roll-up marks the run red
 rather than suppressing the evidence.
 
+A `FAIL` also stops the release. The release workflow waits for the evidence
+run and for the test matrix at the tagged commit before it builds, signs or
+publishes anything, and it does not proceed unless both succeeded. `DEGRADED`
+does not stop a release; what it did not measure is stated in the bundle.
+
+### Checking a commit before tagging it
+
+A release candidate is vetted with the same workflow, run by hand against a
+commit, without publishing anything:
+
+```bash
+gh workflow run release-evidence.yml -f ref=<commit-sha>
+```
+
+The bundle of such a run is labelled `precheck-<commit>`, and its
+release-identity entry reads "not a tagged build".
+
 ### Fetching a bundle
 
 The bundle is attached to its workflow run rather than to the GitHub release,

@@ -26,7 +26,7 @@ name: Release Evidence
 # call, explicitly so it stays compatible with GitHub "Immutable Releases":
 # nothing is added, removed or edited after publication. Attaching the bundle
 # afterwards would either fail on an immutable release or break that guarantee.
-# So this workflow runs in parallel with the release and publishes the bundle as
+# So this workflow runs alongside the release and publishes the bundle as
 #
 #   1. a workflow-run artifact (the downloadable bundle),
 #   2. a build-provenance attestation over the bundle tarball, which is
@@ -37,6 +37,23 @@ name: Release Evidence
 # Making the bundle a real release asset requires an `evidence` input on the
 # fleet reusable — a follow-up in netresearch/typo3-ci-workflows, not a local
 # hack. SECURITY.md documents how to fetch and verify a bundle.
+#
+# THE RELEASE WAITS FOR THIS WORKFLOW
+# ===================================
+# release.yml starts with the fleet `release-gate.yml`, which waits for this
+# workflow (and for ci.yml) to succeed at the tagged commit before anything is
+# built, signed or published. A FAIL verdict below therefore stops the release;
+# DEGRADED does not, and is read in the bundle.
+#
+# PRE-RELEASE CHECK
+# =================
+# A manual run with a commit SHA or branch as `ref` runs every check against
+# that commit without publishing anything — the way to vet a release candidate
+# before tagging it. Every job checks out `ref` itself, and the reference
+# installation for `vault:doctor` is provisioned from that checkout, not from a
+# published version. Such a run carries no release tag, so the release-identity
+# check reports "not a tagged build" and the bundle is labelled
+# `precheck-<commit>`.
 #
 # WHY EVERY VERIFICATION STEP IS continue-on-error
 # ================================================
@@ -53,7 +70,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Tag to (re)generate the evidence bundle for (e.g. "v1.2.3")'
+        description: 'Tag to (re)generate the evidence bundle for (e.g. "v1.2.3"), or a commit SHA for a pre-release check'
         required: true
         type: string
 
@@ -583,26 +600,42 @@ jobs:
       - name: Assemble bundle
         id: assemble
         env:
-          COMMIT: ${{ github.sha }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           echo "Collected verification artifacts:"
           find parts -type f | sort
 
+          # The commit is what was checked out, not github.sha: on a manual run
+          # github.sha is the head of the branch the run was started from.
+          COMMIT="$(git rev-parse HEAD)"
+
+          # A version tag is a release and must match ext_emconf.php. Anything
+          # else — a commit SHA or a branch given to a manual run — is a
+          # pre-release check of a commit no release points to yet: no --tag,
+          # so the release-identity check reports "not a tagged build" instead
+          # of a mismatch.
+          TAG_ARGS=()
+          if [[ "$EVIDENCE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            TAG_ARGS=(--tag="$EVIDENCE_TAG")
+            LABEL="${EVIDENCE_TAG#v}"
+          else
+            LABEL="precheck-${COMMIT:0:12}"
+          fi
+
           php Build/Scripts/collect-evidence.php \
             --output-dir=.Build/evidence \
             --parts=parts \
-            --tag="$EVIDENCE_TAG" \
+            "${TAG_ARGS[@]}" \
             --commit="$COMMIT" \
             --repo="$REPO" \
             --archive-prefix=nr-vault \
             --extension-key=nr_vault
 
-          VERSION="${EVIDENCE_TAG#v}"
-          TARBALL="release-evidence-${VERSION}.tar.gz"
+          TARBALL="release-evidence-${LABEL}.tar.gz"
           tar -czf "$TARBALL" -C .Build/evidence .
           {
+            echo "label=$LABEL"
             echo "tarball=$TARBALL"
             echo "digest=$(sha256sum "$TARBALL" | cut -d' ' -f1)"
           } >> "$GITHUB_OUTPUT"
@@ -618,7 +651,10 @@ jobs:
       - name: Upload evidence bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-evidence-${{ env.EVIDENCE_TAG }}
+          # A tagged run keeps the name SECURITY.md documents
+          # (release-evidence-v1.2.3); a pre-release check is named after its
+          # commit, since a branch name may not be a valid artifact name.
+          name: release-evidence-${{ startsWith(steps.assemble.outputs.label, 'precheck-') && steps.assemble.outputs.label || env.EVIDENCE_TAG }}
           path: ${{ steps.assemble.outputs.tarball }}
           # 90 days is the ceiling for a public repository. The attestation and
           # this job summary outlive it; SECURITY.md documents re-verification.

@@ -230,6 +230,11 @@ Every entry in the bundle carries a status of `pass`, `warn`, `fail` or
 `absent`. `absent` means the producing step did not run in that build; it is
 recorded rather than omitted, precisely so a gap cannot be mistaken for a pass.
 
+The release workflow enforces the first half itself: it waits for the evidence
+run and for `ci.yml` at the tagged commit and publishes nothing unless both
+succeeded. Vet a candidate before tagging with
+`gh workflow run release-evidence.yml -f ref=<commit-sha>`.
+
 Two rules follow from that:
 
 - **Do not describe a release as verified while any bundle entry is `fail`, and
