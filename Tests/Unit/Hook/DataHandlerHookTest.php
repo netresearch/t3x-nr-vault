@@ -31,6 +31,7 @@ use RuntimeException;
 use Stringable;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
@@ -709,6 +710,80 @@ final class DataHandlerHookTest extends TestCase
             $this->dataHandler,
             false,
         );
+    }
+
+    /**
+     * A field the TCA marks `l10n_mode = exclude` is not translatable, so a
+     * translation must reference the SAME secret as its default-language
+     * record. Whatever reaches the hook for such a field on a translation — the
+     * data-map processor copies the default record's value in on every update —
+     * the stored identifier of the default record is the only correct outcome,
+     * and it is read from the database, never from the submitted value.
+     */
+    #[Test]
+    public function aTranslationKeepsTheDefaultRecordsIdentifierForAnExcludedField(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret', 'l10n_mode' => 'exclude'],
+        ]);
+        $GLOBALS['TCA']['tx_test']['ctrl']['transOrigPointerField'] = 'l10n_parent';
+
+        $result = $this->createMock(Result::class);
+        $result->method('fetchOne')->willReturn(self::EXISTING_UUID);
+
+        $queryBuilder = $this->createMock(QueryBuilder::class);
+        $queryBuilder->method('select')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('where')->willReturnSelf();
+        $queryBuilder->method('executeQuery')->willReturn($result);
+
+        $this->connectionPool->method('getQueryBuilderForTable')->willReturn($queryBuilder);
+
+        $this->vaultService->expects(self::never())->method('store');
+        $this->vaultService->expects(self::never())->method('rotate');
+
+        // A foreign identifier submitted for a translation must not survive.
+        $fieldArray = ['l10n_parent' => 7, 'api_key' => self::SECOND_UUID];
+        $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tx_test', 12, $this->dataHandler);
+
+        self::assertSame(self::EXISTING_UUID, $fieldArray['api_key']);
+
+        unset($GLOBALS['TCA']['tx_test']);
+    }
+
+    /**
+     * Deleting a translation must not delete the secret it shares with its
+     * default-language record.
+     */
+    #[Test]
+    public function aSecretAnotherRecordStillReferencesIsNotDeletedWithThisRecord(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret', 'l10n_mode' => 'exclude'],
+        ]);
+
+        $connection = $this->createMock(Connection::class);
+        $record = $this->createMock(Result::class);
+        $record->method('fetchAssociative')->willReturn(['api_key' => self::EXISTING_UUID]);
+        $connection->method('select')->willReturn($record);
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+
+        $countResult = $this->createMock(Result::class);
+        $countResult->method('fetchOne')->willReturn(1);
+
+        $queryBuilder = $this->createMock(QueryBuilder::class);
+        $queryBuilder->method('count')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('where')->willReturnSelf();
+        $queryBuilder->method('andWhere')->willReturnSelf();
+        $queryBuilder->method('executeQuery')->willReturn($countResult);
+
+        $this->connectionPool->method('getQueryBuilderForTable')->willReturn($queryBuilder);
+
+        $this->vaultService->expects(self::never())->method('assertDeletable');
+        $this->vaultService->expects(self::never())->method('delete');
+
+        $this->subject->processCmdmap_preProcess('delete', 'tx_test', 42, null, $this->dataHandler, false);
     }
 
     #[Test]

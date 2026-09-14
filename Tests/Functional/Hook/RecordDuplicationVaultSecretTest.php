@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Hook;
 
+use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Hook\DataHandlerHook;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
@@ -166,6 +167,158 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
     }
 
     /**
+     * An ordinary update of the default-language record — no duplicating
+     * command anywhere — makes core's DataMapProcessor copy every
+     * `l10n_mode = exclude` field of the persisted default record into the data
+     * map of each translation. The value it copies is the default record's
+     * stored vault identifier, under the translation's numeric uid, which is
+     * the one shape an ordinary datamap write and a duplication cannot be told
+     * apart by.
+     */
+    #[Test]
+    public function updatingTheDefaultRecordLeavesTheTranslationSecretSound(): void
+    {
+        $plaintext = 'sync-untouched-' . bin2hex(random_bytes(8));
+        $uid = $this->createRecordWithToken($plaintext);
+        $translationUid = $this->localizeRecord($uid);
+
+        $this->runDataHandler([self::TABLE => [$uid => ['title' => 'Changed title']]]);
+
+        self::assertSame(
+            $this->expectedSynchronisationState($plaintext, $plaintext),
+            $this->synchronisationStateOf($uid, $translationUid),
+        );
+    }
+
+    /**
+     * The same synchronisation, but the update rotates the default record's
+     * secret: the translation's data map then carries the default record's
+     * identifier while a rotation of that very secret is in flight.
+     */
+    #[Test]
+    public function rotatingTheDefaultRecordSecretLeavesTheTranslationSound(): void
+    {
+        $plaintext = 'sync-rotate-' . bin2hex(random_bytes(8));
+        $rotated = 'sync-rotated-' . bin2hex(random_bytes(8));
+
+        $uid = $this->createRecordWithToken($plaintext);
+        $translationUid = $this->localizeRecord($uid);
+        $identifier = $this->fetchVaultField(self::TABLE, $uid, 'api_token');
+
+        $checksum = $this->get(EncryptionServiceInterface::class)->calculateChecksum($plaintext);
+        $this->runDataHandler([
+            self::TABLE => [
+                $uid => [
+                    'api_token' => [
+                        'value' => $rotated,
+                        '_vault_identifier' => $identifier,
+                        '_vault_checksum' => $checksum,
+                    ],
+                ],
+            ],
+        ]);
+
+        self::assertSame(
+            $this->expectedSynchronisationState($rotated, $rotated),
+            $this->synchronisationStateOf($uid, $translationUid),
+        );
+    }
+
+    /**
+     * A translation shares the default record's secret, so deleting the
+     * translation must not delete that secret — the default record still
+     * references it.
+     */
+    #[Test]
+    public function deletingATranslationKeepsTheSharedSecret(): void
+    {
+        $plaintext = 'sync-delete-' . bin2hex(random_bytes(8));
+        $uid = $this->createRecordWithToken($plaintext);
+        $translationUid = $this->localizeRecord($uid);
+
+        $this->runDataHandler([], [self::TABLE => [$translationUid => ['delete' => 1]]]);
+
+        $identifier = $this->fetchVaultField(self::TABLE, $uid, 'api_token');
+        $vaultService = $this->get(VaultServiceInterface::class);
+
+        self::assertSame(
+            [
+                'defaultPlaintext' => $plaintext,
+                'secretStillExists' => true,
+                'activeSecrets' => 1,
+            ],
+            [
+                'defaultPlaintext' => $identifier === '' ? null : $vaultService->retrieve($identifier),
+                'secretStillExists' => $identifier !== '' && $vaultService->exists($identifier),
+                'activeSecrets' => \count($this->activeSecretIdentifiers()),
+            ],
+        );
+    }
+
+    /**
+     * The state a sound `l10n_mode = exclude` field leaves behind: one secret,
+     * one `create` audit entry, and both records resolving to the expected
+     * plaintext with no secret holding a vault identifier as its value.
+     *
+     * @return array<string, bool|int|string|null>
+     */
+    private function expectedSynchronisationState(string $defaultPlaintext, string $translationPlaintext): array
+    {
+        return [
+            'defaultPlaintext' => $defaultPlaintext,
+            'translationPlaintext' => $translationPlaintext,
+            'translationSharesTheDefaultIdentifier' => true,
+            'activeSecrets' => 1,
+            'createAudits' => 1,
+            'secretsHoldingAnIdentifier' => 0,
+        ];
+    }
+
+    /**
+     * @return array<string, bool|int|string|null>
+     */
+    private function synchronisationStateOf(int $uid, int $translationUid): array
+    {
+        $defaultIdentifier = $this->fetchVaultField(self::TABLE, $uid, 'api_token');
+        $translationIdentifier = $this->fetchVaultField(self::TABLE, $translationUid, 'api_token');
+        $vaultService = $this->get(VaultServiceInterface::class);
+
+        return [
+            'defaultPlaintext' => $defaultIdentifier === '' ? null : $vaultService->retrieve($defaultIdentifier),
+            'translationPlaintext' => $translationIdentifier === '' ? null : $vaultService->retrieve($translationIdentifier),
+            'translationSharesTheDefaultIdentifier' => $translationIdentifier === $defaultIdentifier,
+            'activeSecrets' => \count($this->activeSecretIdentifiers()),
+            'createAudits' => $this->countAuditRows('create'),
+            'secretsHoldingAnIdentifier' => $this->countSecretsHoldingAVaultIdentifier(),
+        ];
+    }
+
+    /**
+     * A record whose only filled vault field is the `l10n_mode = exclude` one.
+     */
+    private function createRecordWithToken(string $token): int
+    {
+        $this->runDataHandler([
+            self::TABLE => [
+                'NEW1' => [
+                    'pid' => 1,
+                    'title' => 'Synchronisation source',
+                    'api_token' => $token,
+                ],
+            ],
+        ]);
+
+        return $this->findOtherUid(self::TABLE, []);
+    }
+
+    private function localizeRecord(int $uid): int
+    {
+        $this->runDataHandler([], [self::TABLE => [$uid => ['localize' => 1]]]);
+
+        return $this->findTranslationUid(self::TABLE, $uid);
+    }
+
+    /**
      * The inventory a correctly duplicated single record leaves behind: one
      * secret for the source, one independent clone for the new record, one
      * `create` audit entry each, and no secret whose plaintext is a vault
@@ -246,13 +399,13 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
         self::assertSame([], $errors, 'DataHandler logged errors: ' . json_encode($errors, JSON_THROW_ON_ERROR));
     }
 
-    private function fetchVaultField(string $table, int $uid): string
+    private function fetchVaultField(string $table, int $uid, string $fieldName = 'api_key'): string
     {
         $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()->removeAll();
 
         $value = $queryBuilder
-            ->select('api_key')
+            ->select($fieldName)
             ->from($table)
             ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
             ->executeQuery()

@@ -179,4 +179,63 @@ final readonly class VaultFieldResolver
     {
         return $this->getVaultFieldsForTable($table) !== [];
     }
+
+    /**
+     * Vault fields a translation shares with its default-language record.
+     *
+     * `l10n_mode = exclude` — the default of
+     * {@see \Netresearch\NrVault\TCA\VaultFieldHelper::getSecureFieldConfig()} —
+     * means the column is not translatable: TYPO3's DataMapProcessor keeps
+     * every translation's value identical to the default record's. For a vault
+     * field that makes the SECRET shared, not merely the value: the translation
+     * must reference the same identifier. Giving it a clone would fork the
+     * secret, so rotating the default record's credential would silently leave
+     * every translation on the old one.
+     *
+     * @param string $table The table name
+     *
+     * @return list<string>
+     */
+    public function getTranslationSharedVaultFields(string $table): array
+    {
+        if (!$this->tcaSchemaFactory->has($table)) {
+            return [];
+        }
+
+        $schema = $this->tcaSchemaFactory->get($table);
+        $sharedFields = [];
+
+        foreach ($schema->getFields() as $field) {
+            $config = $field->getConfiguration();
+            if (($config['renderType'] ?? '') !== 'vaultSecret') {
+                continue;
+            }
+
+            if (($config['l10n_mode'] ?? null) !== 'exclude') {
+                continue;
+            }
+
+            $sharedFields[] = $field->getName();
+        }
+
+        return $sharedFields;
+    }
+
+    /**
+     * The field that points at the default-language record, or null when the
+     * table is not language aware.
+     *
+     * Read from the raw TCA control section, which is identical on every
+     * supported TYPO3 major.
+     *
+     * @param string $table The table name
+     */
+    public function getTranslationParentField(string $table): ?string
+    {
+        /** @var array<string, array{ctrl?: array{transOrigPointerField?: string}}> $tca */
+        $tca = $GLOBALS['TCA'] ?? [];
+        $parentField = $tca[$table]['ctrl']['transOrigPointerField'] ?? null;
+
+        return \is_string($parentField) && $parentField !== '' ? $parentField : null;
+    }
 }
