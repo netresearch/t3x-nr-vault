@@ -30,7 +30,8 @@ Strict types, final classes, readonly properties, constructor promotion. DI via 
 | `Classes/Hook/SecretTcaHook.php` | `tx_nrvault_secret` datamap guard; compensating rollback incl. MM ACL tiers |
 | `Classes/Command/VaultMigrateFieldCommand.php` | `vault:migrate-field` CLI |
 | `Classes/Command/VaultRotateMasterKeyCommand.php` | `vault:rotate-master-key` CLI |
-| `Classes/Upgrades/AuditHmacMigrationWizard.php` | Install-tool migration to HMAC chain |
+| `Classes/Upgrades/AuditHmacMigration.php` | Install-tool migration to HMAC chain (logic; version-neutral) |
+| `Classes/Upgrades/AuditHmacMigrationWizard*.php` | Upgrade-wizard shells: TYPO3 14 (EXT:core API) and `…V13` (EXT:install API); `Configuration/Services.php` registers the one whose interface exists |
 
 ## Golden Samples
 | Pattern | Reference |
@@ -42,7 +43,7 @@ Strict types, final classes, readonly properties, constructor promotion. DI via 
 | TYPO3 hook integration | `Classes/Hook/FlexFormVaultHook.php` |
 | AJAX controller | `Classes/Controller/AjaxController.php` |
 | Symfony Console command | `Classes/Command/VaultMigrateFieldCommand.php` |
-| Upgrade wizard | `Classes/Upgrades/AuditHmacMigrationWizard.php` |
+| Upgrade wizard (both TYPO3 majors) | `Classes/Upgrades/AuditHmacMigration.php` + shells, registration in `Configuration/Services.php` |
 | Interface-first API | `Classes/Service/VaultServiceInterface.php` |
 
 ## Setup

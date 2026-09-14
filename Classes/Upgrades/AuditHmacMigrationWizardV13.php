@@ -9,18 +9,19 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Upgrades;
 
-use TYPO3\CMS\Core\Attribute\UpgradeWizard;
-use TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface;
+use TYPO3\CMS\Install\Attribute\UpgradeWizard;
+use TYPO3\CMS\Install\Updates\UpgradeWizardInterface;
 
 /**
  * Offers {@see AuditHmacMigration} to the Install Tool and `upgrade:run` on
- * TYPO3 14, whose upgrade API lives in EXT:core.
+ * TYPO3 13, whose upgrade API lives in EXT:install.
  *
  * Registered by `Configuration/Services.php` only when that API exists; see
- * {@see AuditHmacMigrationWizardTrait} for why there are two shells.
+ * {@see AuditHmacMigrationWizardTrait} for why there are two shells. Remove
+ * this class together with TYPO3 13 support.
  */
 #[UpgradeWizard(AuditHmacMigration::IDENTIFIER)]
-final class AuditHmacMigrationWizard implements UpgradeWizardInterface
+final class AuditHmacMigrationWizardV13 implements UpgradeWizardInterface
 {
     use AuditHmacMigrationWizardTrait;
 }
