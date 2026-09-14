@@ -1,4 +1,20 @@
 import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import type { Page } from '@playwright/test';
+
+/**
+ * The URL the module iframe currently shows.
+ *
+ * Navigation inside a backend module happens in that iframe. TYPO3 14 mirrors
+ * it into the address bar afterwards; TYPO3 13 does not, so `page.url()` still
+ * reports the route the shell was opened with and an assertion on it measures
+ * the wrong document. Falls back to the top URL when there is no iframe, so the
+ * helper is safe on a standalone page too.
+ */
+function frameUrl(page: Page): string {
+  const child = page.frames().find((frame) => frame !== page.mainFrame());
+
+  return child === undefined ? page.url() : child.url();
+}
 
 /**
  * E2E tests for Migration Module User Pathways.
@@ -95,17 +111,26 @@ test.describe('Migration Module User Pathways', () => {
       await page.goto('/typo3/module/admin/vault/migration?action=scan');
       await page.waitForLoadState('networkidle');
 
-      // Should show scan results, progress, or continue button
-      const scanResults = page.locator('.scan-results, .migration-results');
-      const continueButton = page.locator('a:has-text("Continue"), a:has-text("Review"), button:has-text("Next")');
-      const noSecretsMessage = page.locator('text=No secrets found, text=No plaintext secrets');
+      // The wizard renders inside the module iframe, so the whole search has to
+      // happen there. `text=` also consumes the rest of the selector string —
+      // 'text=No secrets found, text=No plaintext secrets' looked for that one
+      // literal sentence and could never match. :has-text() composes in a union.
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
+
+      const scanResults = frame.locator('.scan-results, .migration-results, table');
+      const continueButton = frame.locator(
+        'a:has-text("Continue"), a:has-text("Review"), button:has-text("Next")',
+      );
+      // Nothing to migrate renders as an infobox (f:be.infobox -> .callout).
+      const noSecretsMessage = frame.locator('.callout');
 
       const hasScanContent =
-        await scanResults.isVisible() ||
-        await continueButton.isVisible() ||
-        await noSecretsMessage.isVisible();
+        (await scanResults.first().isVisible().catch(() => false)) ||
+        (await continueButton.first().isVisible().catch(() => false)) ||
+        (await noSecretsMessage.first().isVisible().catch(() => false));
 
-      expect(hasScanContent).toBe(true);
+      expect(hasScanContent, 'Scan step rendered neither results, a continue action nor an infobox').toBe(true);
     });
 
     test('scan results show severity grouping', async ({ authenticatedPage: page }) => {
@@ -209,8 +234,11 @@ test.describe('Migration Module User Pathways', () => {
       await page.waitForLoadState('networkidle');
 
       // Should show progress indicator or results
-      const progress = page.locator('.progress, .spinner, text=Processing, text=Migrating');
-      const results = page.locator('.results, text=Complete, text=Success, text=migrated');
+      // `text=` consumes the rest of the selector string verbatim, so a
+      // comma-separated list containing it never matches anything. Use
+      // :has-text() inside a CSS union instead.
+      const progress = page.locator('.progress, .spinner, :has-text("Processing"), :has-text("Migrating")');
+      const results = page.locator('.results, :has-text("Complete"), :has-text("Success"), :has-text("migrated")');
       const continueButton = page.locator('a:has-text("Continue"), a:has-text("Verify")');
 
       // Page should show something meaningful
@@ -232,7 +260,7 @@ test.describe('Migration Module User Pathways', () => {
 
       // Should show summary of migration results
       const summary = page.locator('.migration-summary, .results-summary');
-      const successCount = page.locator('text=success, text=migrated, text=completed');
+      const successCount = page.locator(':has-text("success"), :has-text("migrated"), :has-text("completed")');
       const returnLink = page.locator('a:has-text("Return"), a:has-text("Done"), a:has-text("Finish")');
 
       // Page should have some content
@@ -247,13 +275,13 @@ test.describe('Migration Module User Pathways', () => {
 
       // If no secrets found, should show appropriate message
       const noSecretsMessage = page.locator(
-        'text=No secrets found, ' +
-        'text=No plaintext secrets, ' +
-        'text=all clear, ' +
+        ':has-text("No secrets found"), ' +
+        ':has-text("No plaintext secrets"), ' +
+        ':has-text("all clear"), ' +
         '.callout-success'
       );
 
-      const hasSecrets = page.locator('text=found, text=detected').first();
+      const hasSecrets = page.locator(':has-text("found"), :has-text("detected")').first();
 
       // Either shows "no secrets" message or lists found secrets
       await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
@@ -265,17 +293,22 @@ test.describe('Migration Module User Pathways', () => {
       await page.goto('/typo3/module/admin/vault/migration?action=review');
       await page.waitForLoadState('networkidle');
 
-      const backButton = page.locator(
-        'a:has-text("Back"), ' +
-        'button:has-text("Back"), ' +
-        'a[href*="action=scan"]'
-      );
+      // The wizard's Back control is an <f:be.link> inside the module iframe,
+      // so both the click and the resulting URL belong to the frame. The top
+      // window's address only follows on TYPO3 14, which is why asserting
+      // page.url() passed there and failed on 13.4 — it was measuring the
+      // backend shell, not the navigation under test.
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
+      const backButton = frame
+        .locator('a:has-text("Back"), button:has-text("Back"), a[href*="action=scan"]')
+        .first();
 
-      if (await backButton.isVisible()) {
+      if (await backButton.isVisible().catch(() => false)) {
         await backButton.click();
         await page.waitForLoadState('networkidle');
 
-        expect(page.url()).toMatch(/action=scan|action=index/);
+        expect(frameUrl(page)).toMatch(/action=scan|admin_vault_migration/);
       }
     });
 
@@ -283,17 +316,17 @@ test.describe('Migration Module User Pathways', () => {
       await page.goto('/typo3/module/admin/vault/migration?action=configure');
       await page.waitForLoadState('networkidle');
 
-      const backButton = page.locator(
-        'a:has-text("Back"), ' +
-        'button:has-text("Back"), ' +
-        'a[href*="action=review"]'
-      );
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
+      const backButton = frame
+        .locator('a:has-text("Back"), button:has-text("Back"), a[href*="action=review"]')
+        .first();
 
-      if (await backButton.isVisible()) {
+      if (await backButton.isVisible().catch(() => false)) {
         await backButton.click();
         await page.waitForLoadState('networkidle');
 
-        expect(page.url()).toMatch(/action=review|action=scan/);
+        expect(frameUrl(page)).toMatch(/action=review|action=scan|admin_vault_migration/);
       }
     });
 

@@ -300,11 +300,17 @@ test.describe('Vault Module Accessibility', () => {
       await modalInput.waitFor({ state: 'visible', timeout: 5000 });
 
       // Focus must be INSIDE the modal, not on the original trigger.
+      //
+      // Asking the focused element which dialog owns it, rather than looking a
+      // modal up by class: TYPO3 renders the dialog as
+      // <typo3-backend-modal><dialog class="modal t3js-modal …">, with neither
+      // a `show` class nor aria-modal, so `.modal.show, .modal[aria-modal]`
+      // matched nothing and the check could only ever report false — including
+      // for correctly placed focus (measured on TYPO3 14.3, 2026-09-14).
       const focusInModal = await page.evaluate(() => {
         const el = document.activeElement;
         if (el === null) return false;
-        const modal = document.querySelector('.modal.show, .modal[aria-modal="true"]');
-        return modal !== null && modal.contains(el);
+        return el.closest('typo3-backend-modal, dialog.modal, .modal, [role="dialog"]') !== null;
       });
       expect(focusInModal, 'Focus did not move into the rotate modal').toBe(true);
 
