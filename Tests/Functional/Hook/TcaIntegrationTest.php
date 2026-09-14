@@ -13,6 +13,7 @@ use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Hook\DataHandlerHook;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
+use Netresearch\NrVault\Tests\Functional\VaultSecretInventoryTrait;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Netresearch\NrVault\Utility\VaultFieldResolver;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -33,6 +34,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 #[CoversClass(VaultFieldResolver::class)]
 final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
 {
+    use VaultSecretInventoryTrait;
+
     private const TABLE = 'tx_nrvaulttest_record';
 
     private const DELETE_REASON_CLEANUP = 'Test cleanup';
@@ -138,6 +141,13 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
         $copyIdentifier = $this->fetchApiKey($copyUid);
         self::assertTrue(IdentifierValidator::looksLikeVaultIdentifier($copyIdentifier));
         self::assertNotSame($sourceIdentifier, $copyIdentifier, 'The copy must get its own secret');
+        self::assertSame(
+            [$sourceIdentifier, $copyIdentifier],
+            $this->activeSecretIdentifiers(),
+            'A copy must add exactly one secret: the clone the copy references, no orphan',
+        );
+        self::assertSame(2, $this->countAuditRows('create'), 'One create for the source, one for the clone');
+        self::assertSame(0, $this->countSecretsHoldingAVaultIdentifier(), 'No secret may hold a vault identifier as its plaintext');
         self::assertSame($plaintext, $this->vault()->retrieve($copyIdentifier));
 
         // Independence: deleting the copy must leave the source's secret intact.
