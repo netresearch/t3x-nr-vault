@@ -22,9 +22,11 @@ test.describe('Overview Module User Pathways', () => {
       // Verify page loads successfully - check for heading inside iframe
       await expect(frame.locator('h1')).toBeVisible();
 
-      // Verify statistics section exists (group with statistics)
-      const statsGroup = frame.locator('[role="group"][aria-label*="statistics"], .vault-statistics, fieldset');
-      await expect(statsGroup.first()).toBeVisible();
+      // Verify statistics section exists. The template marks the card group
+      // with role="group" and data-testid="vault-stats"; its aria-label is the
+      // "Total Secrets" label, so it never contained "statistics".
+      const statsGroup = frame.locator('[role="group"][data-testid="vault-stats"]');
+      await expect(statsGroup).toBeVisible();
 
       // Check no error page
       await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
@@ -40,9 +42,11 @@ test.describe('Overview Module User Pathways', () => {
       const totalSecretsLabel = frame.locator('text=Total Secrets');
       await expect(totalSecretsLabel).toBeVisible();
 
-      // Verify there's a number displayed
-      const statNumbers = frame.locator('[aria-label*="secrets"], .stat-number');
-      expect(await statNumbers.count()).toBeGreaterThan(0);
+      // Verify there's a number displayed. The value element carries
+      // data-testid="stat-value-total"; its aria-label is "<n> Total Secrets"
+      // (capital S), which the old case-sensitive [aria-label*="secrets"] missed.
+      const totalValue = frame.getByTestId('stat-value-total');
+      await expect(totalValue).toHaveText(/^\s*\d+\s*$/);
     });
 
     test('shows active and disabled counts', async ({ authenticatedPage: page }) => {
@@ -66,7 +70,8 @@ test.describe('Overview Module User Pathways', () => {
       const frame = getModuleFrame(page);
 
       // Verify navigation section exists with links to submodules (within the navigation region)
-      const navSection = frame.locator('nav[aria-label="Vault submodules"]');
+      // The template's <nav> is labelled by the "overview.modules" translation ("Modules").
+      const navSection = frame.getByRole('navigation', { name: 'Modules', exact: true });
       await expect(navSection).toBeVisible();
 
       const secretsLink = navSection.locator('a[href*="vault/secrets"]');
@@ -87,7 +92,8 @@ test.describe('Overview Module User Pathways', () => {
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
-      const navSection = frame.locator('nav[aria-label="Vault submodules"]');
+      // The template's <nav> is labelled by the "overview.modules" translation ("Modules").
+      const navSection = frame.getByRole('navigation', { name: 'Modules', exact: true });
 
       // Click on Secrets link within the navigation section
       const secretsLink = navSection.locator('a[href*="vault/secrets"]');
@@ -110,7 +116,8 @@ test.describe('Overview Module User Pathways', () => {
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
-      const navSection = frame.locator('nav[aria-label="Vault submodules"]');
+      // The template's <nav> is labelled by the "overview.modules" translation ("Modules").
+      const navSection = frame.getByRole('navigation', { name: 'Modules', exact: true });
 
       // Click on Audit link
       const auditLink = navSection.locator('a[href*="vault/audit"]');
@@ -129,7 +136,8 @@ test.describe('Overview Module User Pathways', () => {
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
-      const navSection = frame.locator('nav[aria-label="Vault submodules"]');
+      // The template's <nav> is labelled by the "overview.modules" translation ("Modules").
+      const navSection = frame.getByRole('navigation', { name: 'Modules', exact: true });
 
       // Click on Migration link
       const migrationLink = navSection.locator('a[href*="vault/migration"]');

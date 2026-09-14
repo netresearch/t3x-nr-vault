@@ -1,5 +1,5 @@
 import { test as base, expect } from '@playwright/test';
-import { test } from '../fixtures/auth';
+import { test, isLoginRedirect } from '../fixtures/auth';
 
 /**
  * SEC-CSRF / SEC-COOKIES — CSRF and session-cookie hardening.
@@ -26,13 +26,16 @@ test.describe('SEC-CSRF-001: AJAX reveal rejects request without session cookie'
     const response = await request.post('/typo3/ajax/vault/reveal', {
       data: { identifier: 'whatever' },
       failOnStatusCode: false,
+      // Do not follow a redirect: TYPO3 13 rejects with 302 → /typo3/login,
+      // and following it would report the login page's 200.
+      maxRedirects: 0,
     });
 
     const status = response.status();
     expect(
-      [401, 403],
-      `vault/reveal without session cookie returned ${status} — expected 401 or 403`,
-    ).toContain(status);
+      [401, 403].includes(status) || isLoginRedirect(response),
+      `vault/reveal without session cookie returned ${status} — expected 401, 403 or a redirect to /typo3/login`,
+    ).toBe(true);
   });
 });
 
@@ -55,15 +58,17 @@ test.describe('SEC-CSRF-002: AJAX reveal rejects request without CSRF token', ()
       },
       data: JSON.stringify({ identifier: 'whatever' }),
       failOnStatusCode: false,
+      // TYPO3 13 rejects a token-less request with 302 → /typo3/login.
+      maxRedirects: 0,
     });
 
     const status = response.status();
     // Pinned rejection codes. A 200 here would indicate the route accepts
     // the request without CSRF protection — a critical regression.
     expect(
-      [401, 403, 400],
-      `POST /vault/reveal with session cookie but no CSRF token returned ${status} — expected 400|401|403`,
-    ).toContain(status);
+      [401, 403, 400].includes(status) || isLoginRedirect(response),
+      `POST /vault/reveal with session cookie but no CSRF token returned ${status} — expected 400|401|403 or a redirect to /typo3/login`,
+    ).toBe(true);
 
     // Also: the body must NOT include a plaintext secret field. A
     // well-formed rejection returns either HTML or JSON with success=false.
@@ -90,13 +95,15 @@ test.describe('SEC-CSRF-002: AJAX reveal rejects request without CSRF token', ()
       },
       data: JSON.stringify({ identifier: 'whatever' }),
       failOnStatusCode: false,
+      // TYPO3 13 rejects a request with an invalid token with 302 → /typo3/login.
+      maxRedirects: 0,
     });
 
     const status = response.status();
     expect(
-      [401, 403, 400],
+      [401, 403, 400].includes(status) || isLoginRedirect(response),
       `POST /vault/reveal with bogus CSRF token returned ${status}`,
-    ).toContain(status);
+    ).toBe(true);
   });
 });
 
