@@ -1,0 +1,16 @@
+{
+    "name": "netresearch/nr-vault-consumer-fixture",
+    "description": "Functional test fixture: an extension that consumes nr-vault through its public API and implements every extension point",
+    "type": "typo3-cms-extension",
+    "version": "1.0.0",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "netresearch/nr-vault": "*"
+    },
+    "extra": {
+        "typo3/cms": {
+            "extension-key": "nr_vault_consumer_fixture",
+            "providesPackages": {}
+        }
+    }
+}

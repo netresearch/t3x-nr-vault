@@ -1,0 +1,38 @@
+# Registers this consumer's implementations the way the nr-vault documentation
+# tells an extension to: explicit tags for the tagged iterators nr-vault
+# consumes (its own `_instanceof` block only reaches nr-vault's classes), and
+# service decoration for the two interfaces nr-vault resolves as single
+# services. Recording services are public so the functional test can read what
+# they received.
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+
+  Netresearch\NrVault\Tests\Functional\Fixtures\Extensions\nr_vault_consumer_fixture\Classes\:
+    resource: '../Classes/*'
+
+  Netresearch\NrVault\Tests\Functional\Fixtures\Extensions\nr_vault_consumer_fixture\Classes\Audit\RecordingAuditSink:
+    public: true
+    tags: ['nr_vault.audit_sink']
+
+  Netresearch\NrVault\Tests\Functional\Fixtures\Extensions\nr_vault_consumer_fixture\Classes\Doctor\ConsumerReadinessCheck:
+    tags: ['nr_vault.readiness_check']
+
+  Netresearch\NrVault\Tests\Functional\Fixtures\Extensions\nr_vault_consumer_fixture\Classes\Crypto\PayloadEnvelopeRotator:
+    public: true
+    tags: ['nrvault.foreign_envelope_rotator']
+
+  Netresearch\NrVault\Tests\Functional\Fixtures\Extensions\nr_vault_consumer_fixture\Classes\Adapter\RecordingVaultAdapter:
+    public: true
+    decorates: Netresearch\NrVault\Adapter\VaultAdapterInterface
+    arguments: ['@.inner']
+
+  Netresearch\NrVault\Tests\Functional\Fixtures\Extensions\nr_vault_consumer_fixture\Classes\Crypto\RecordingMasterKeyProvider:
+    public: true
+    decorates: Netresearch\NrVault\Crypto\MasterKeyProviderInterface
+    arguments: ['@.inner']
+
+  Netresearch\NrVault\Tests\Functional\Fixtures\Extensions\nr_vault_consumer_fixture\Classes\Service\ApiTokenClient:
+    public: true
