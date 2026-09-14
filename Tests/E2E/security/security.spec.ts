@@ -1,5 +1,12 @@
 import { test as base, expect, Page } from '@playwright/test';
-import { test, getModuleFrame, waitForModuleContent, ADMIN_USERNAME, ADMIN_PASSWORD } from '../fixtures/auth';
+import {
+  test,
+  getModuleFrame,
+  waitForModuleContent,
+  ADMIN_USERNAME,
+  ADMIN_PASSWORD,
+  isLoginRedirect,
+} from '../fixtures/auth';
 
 /**
  * Security and resilience E2E tests for nr-vault.
@@ -113,16 +120,18 @@ test.describe('SEC-RESIL-002/003/004: AJAX endpoint access control and method en
     const response = await request.post('/typo3/ajax/vault/reveal', {
       data: { identifier: 'any' },
       failOnStatusCode: false,
+      // TYPO3 13 rejects with 302 → /typo3/login; do not follow it.
+      maxRedirects: 0,
     });
 
     // TYPO3 backend AJAX routes require a session. The response MUST be a
-    // pinned auth-failure code — 401 or 403. Reject both 500 (server error)
-    // and 200 (leak).
+    // pinned auth-failure code — 401 or 403, or TYPO3 13's redirect to the
+    // login form. Reject both 500 (server error) and 200 (leak).
     const status = response.status();
     expect(
-      [401, 403],
-      `vault/reveal without session returned ${status} — expected 401 or 403`,
-    ).toContain(status);
+      [401, 403].includes(status) || isLoginRedirect(response),
+      `vault/reveal without session returned ${status} — expected 401, 403 or a redirect to /typo3/login`,
+    ).toBe(true);
   });
 
   test('AJAX reveal via GET is rejected (POST-only route)', async ({ authenticatedPage: page, request }) => {
@@ -443,12 +452,14 @@ test.describe('SEC-RESIL-013: UP-SEC-013 access-denied — unauthenticated AJAX'
     const response = await request.post('/typo3/ajax/vault/reveal', {
       data: { identifier: 'any_identifier_here' },
       failOnStatusCode: false,
+      // TYPO3 13 rejects with 302 → /typo3/login; do not follow it.
+      maxRedirects: 0,
     });
 
     const status = response.status();
     expect(
-      [401, 403],
-      `Unauthenticated POST /vault/reveal returned ${status} — expected 401 or 403`,
-    ).toContain(status);
+      [401, 403].includes(status) || isLoginRedirect(response),
+      `Unauthenticated POST /vault/reveal returned ${status} — expected 401, 403 or a redirect to /typo3/login`,
+    ).toBe(true);
   });
 });
