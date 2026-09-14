@@ -66,6 +66,11 @@ return [
         ],
         'api_key' => VaultFieldHelper::getFieldConfig(['label' => 'API key']),
         'api_secret' => VaultFieldHelper::getFieldConfig(['label' => 'API secret']),
+        // What integrators get from VaultFieldHelper::getSecureFieldConfig():
+        // l10n_mode = exclude, which makes core's DataMapProcessor push the
+        // default-language record's stored value into every translation's
+        // data map on an ordinary update.
+        'api_token' => VaultFieldHelper::getSecureFieldConfig('API token'),
         'children' => [
             'label' => 'Children',
             'config' => [
@@ -76,6 +81,6 @@ return [
         ],
     ],
     'types' => [
-        '0' => ['showitem' => 'title, api_key, api_secret, children'],
+        '0' => ['showitem' => 'title, api_key, api_secret, api_token, children'],
     ],
 ];

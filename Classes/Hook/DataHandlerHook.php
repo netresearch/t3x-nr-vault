@@ -78,6 +78,9 @@ final class DataHandlerHook
     /** @var array<string, list<string>> Per-table cache of vault field names */
     private array $vaultFieldCache = [];
 
+    /** @var array<string, list<string>> Per-table cache of vault fields shared with translations */
+    private array $sharedVaultFieldCache = [];
+
     /**
      * Record deletes (keyed by table) whose vault-secret cleanup failed in
      * processCmdmap_preProcess() and that must therefore be cancelled in
@@ -120,6 +123,22 @@ final class DataHandlerHook
         foreach ($vaultFieldNames as $fieldName) {
             // Check if field is in the data being saved
             if (!isset($fieldArray[$fieldName])) {
+                continue;
+            }
+
+            // The field is not translatable (`l10n_mode = exclude`) and this
+            // record is a translation: its secret is the default-language
+            // record's secret. Core's DataMapProcessor pushes the default
+            // record's value into every translation's data map — as the stored
+            // identifier on an ordinary update, and as the whole submitted
+            // value when the default record's field is written — and both
+            // shapes reach this hook under a translation's uid. The only
+            // correct outcome is the identifier the DEFAULT record holds, read
+            // from the database and never from the request, so nothing a caller
+            // submits can point a translation at a foreign secret.
+            $sharedIdentifier = $this->resolveSharedTranslationIdentifier($table, $fieldName, $id, $fieldArray);
+            if ($sharedIdentifier !== null) {
+                $fieldArray[$fieldName] = $sharedIdentifier;
                 continue;
             }
 
@@ -310,6 +329,16 @@ final class DataHandlerHook
             }
 
             $identifiers[$fieldName] = $vaultIdentifier;
+        }
+
+        // A secret another live record still references is not this record's to
+        // delete: a translation shares the default-language record's secret for
+        // every `l10n_mode = exclude` field, so deleting the translation must
+        // leave that secret — and the default record's credential — intact.
+        foreach ($identifiers as $fieldName => $vaultIdentifier) {
+            if ($this->isIdentifierReferencedElsewhere($table, $fieldName, $vaultIdentifier, $uid)) {
+                unset($identifiers[$fieldName]);
+            }
         }
 
         if ($identifiers === []) {
@@ -544,6 +573,15 @@ final class DataHandlerHook
                 continue;
             }
 
+            // The new record is a translation and this field is not
+            // translatable: it holds the default-language record's identifier
+            // on purpose. Cloning would fork the shared secret, so that
+            // rotating the default record's credential would leave the
+            // translation on the old one.
+            if ($this->isSharedTranslationField($table, $fieldName, $newId)) {
+                continue;
+            }
+
             $sourceValue = null;
 
             try {
@@ -738,6 +776,144 @@ final class DataHandlerHook
         } catch (Exception) {
             return false;
         }
+    }
+
+    /**
+     * The identifier a translation must hold for a vault field it shares with
+     * its default-language record, or null when this is not such a case.
+     *
+     * @param array<string, mixed> $fieldArray
+     */
+    private function resolveSharedTranslationIdentifier(
+        string $table,
+        string $fieldName,
+        string|int $id,
+        array $fieldArray,
+    ): ?string {
+        if (!\in_array($fieldName, $this->getTranslationSharedFields($table), true)) {
+            return null;
+        }
+
+        $parentUid = $this->resolveTranslationParentUid($table, $id, $fieldArray);
+        if ($parentUid <= 0) {
+            return null;
+        }
+
+        return $this->readColumn($table, $parentUid, $fieldName);
+    }
+
+    /**
+     * The uid of the default-language record a write belongs to, or 0 when the
+     * record is not a translation.
+     *
+     * A record being localized carries the pointer in the same field array; an
+     * ordinary update of an existing translation does not, so it is read from
+     * the persisted row.
+     *
+     * @param array<string, mixed> $fieldArray
+     */
+    private function resolveTranslationParentUid(string $table, string|int $id, array $fieldArray): int
+    {
+        $parentField = $this->vaultFieldResolver->getTranslationParentField($table);
+        if ($parentField === null) {
+            return 0;
+        }
+
+        /** @var mixed $submitted */
+        $submitted = $fieldArray[$parentField] ?? null;
+        if (is_numeric($submitted)) {
+            return (int) $submitted;
+        }
+
+        if (!is_numeric($id)) {
+            return 0;
+        }
+
+        $stored = $this->readColumn($table, (int) $id, $parentField);
+
+        return is_numeric($stored) ? (int) $stored : 0;
+    }
+
+    /**
+     * A shared field of a translated record keeps the default-language
+     * record's identifier, so a duplication must not clone it: the clone would
+     * fork the shared secret.
+     */
+    private function isSharedTranslationField(string $table, string $fieldName, int $uid): bool
+    {
+        return \in_array($fieldName, $this->getTranslationSharedFields($table), true)
+            && $this->resolveTranslationParentUid($table, $uid, []) > 0;
+    }
+
+    /**
+     * Whether a record other than $uid still references this secret in the same
+     * field — a translation sharing its default record's secret, above all.
+     */
+    private function isIdentifierReferencedElsewhere(
+        string $table,
+        string $fieldName,
+        string $identifier,
+        int $uid,
+    ): bool {
+        /** @var array<string, array{ctrl?: array{delete?: string}}> $tca */
+        $tca = $GLOBALS['TCA'] ?? [];
+        $deleteField = $tca[$table]['ctrl']['delete'] ?? null;
+
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()->removeAll();
+        $queryBuilder
+            ->count('uid')
+            ->from($table)
+            ->where(
+                $queryBuilder->expr()->eq($fieldName, $queryBuilder->createNamedParameter($identifier)),
+                $queryBuilder->expr()->neq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)),
+            );
+
+        if (\is_string($deleteField) && $deleteField !== '') {
+            $queryBuilder->andWhere(
+                $queryBuilder->expr()->eq($deleteField, $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)),
+            );
+        }
+
+        /** @var mixed $count */
+        $count = $queryBuilder->executeQuery()->fetchOne();
+
+        return is_numeric($count) && (int) $count > 0;
+    }
+
+    /**
+     * Read a single column of a record, bypassing every restriction.
+     */
+    private function readColumn(string $table, int $uid, string $column): ?string
+    {
+        if ($uid <= 0) {
+            return null;
+        }
+
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()->removeAll();
+
+        /** @var mixed $value */
+        $value = $queryBuilder
+            ->select($column)
+            ->from($table)
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
+            ->executeQuery()
+            ->fetchOne();
+
+        return \is_string($value) || is_numeric($value) ? (string) $value : null;
+    }
+
+    /**
+     * Vault fields of a table that translations share with the default-language
+     * record, cached per table for the lifetime of this hook instance.
+     *
+     * @return list<string>
+     */
+    private function getTranslationSharedFields(string $table): array
+    {
+        return $this->sharedVaultFieldCache[$table]
+            ??= $this->vaultFieldResolver->getTranslationSharedVaultFields($table);
     }
 
     /**
