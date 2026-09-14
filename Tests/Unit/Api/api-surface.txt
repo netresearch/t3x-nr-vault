@@ -400,6 +400,12 @@ Netresearch\NrVault\Crypto\MasterKeyProviderInterface (interface, extension poin
   method static clearCachedKey(): void
   method storeMasterKey(string $key): void
 
+Netresearch\NrVault\Crypto\MasterKeyProviderRegistryInterface (interface)
+  method assertNoIdentifierConflicts(): void
+  method get(string $identifier): Netresearch\NrVault\Crypto\MasterKeyProviderInterface
+  method getIdentifiers(): array
+  method has(string $identifier): bool
+
 Netresearch\NrVault\Crypto\ReEncryptedDek (class)
   constructor(string $encryptedDek, string $nonce)
   method static fromRaw(string $encryptedDek, string $nonce): self
@@ -645,6 +651,8 @@ Netresearch\NrVault\Exception\AuditWriteException (class)
   method static writeFailed(Throwable $cause): self
 
 Netresearch\NrVault\Exception\ConfigurationException (class)
+  method static blankProviderIdentifier(string $providerClass): self
+  method static duplicateProviderIdentifier(string $identifier, string $registeredClass, string $conflictingClass): self
   method static invalidAdapter(string $adapter): self
   method static invalidProvider(string $provider): self
   method static invalidSecurityProfile(string $profile): self

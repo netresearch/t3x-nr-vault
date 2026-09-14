@@ -1,0 +1,15 @@
+# The whole point of the fixture: this is everything a consuming extension
+# writes to plug its own key source into nr-vault. Implement
+# MasterKeyProviderInterface, apply the tag, and configure `masterKeyProvider`
+# with the identifier the provider returns from getIdentifier().
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+
+  # The class lives in the test tree (composer-autoloaded) rather than in this
+  # fixture extension, so the fixture needs no autoload registration of its own.
+  # A real extension would put it under its own Classes/ directory.
+  Netresearch\NrVault\Tests\Functional\Fixtures\CustomKms\CustomKmsMasterKeyProvider:
+    tags: ['nr_vault.master_key_provider']
