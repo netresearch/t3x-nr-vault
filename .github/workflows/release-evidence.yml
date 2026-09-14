@@ -428,8 +428,11 @@ jobs:
           TYPO3_CONTEXT: Production
         run: |
           set -euo pipefail
+          # `--driver` takes the setup command's connection type (`sqlite`), not
+          # the Doctrine driver it maps to (`pdo_sqlite`); the database path is
+          # derived automatically under var/sqlite/.
           .Build/bin/typo3 setup \
-            --driver=pdo_sqlite \
+            --driver=sqlite \
             --admin-username=evidence \
             --admin-email=evidence@example.com \
             --admin-user-password="$(openssl rand -base64 24)" \
