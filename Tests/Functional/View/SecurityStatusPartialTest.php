@@ -61,7 +61,10 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
         self::assertStringContainsString('vault-security-status', $html);
         self::assertStringContainsString('Hardened profile', $html);
         self::assertStringContainsString('19 of 22 controls passed', $html);
-        self::assertStringContainsString('badge bg-warning', $html);
+        // The vault paints its own badge colours (Resources/Public/Css/backend.css):
+        // Bootstrap's utilities do not reach WCAG AA at badge size in the TYPO3 14
+        // palette, and this is the class that carries the accessible pair.
+        self::assertStringContainsString('vault-badge-warning', $html);
     }
 
     public function testRendersTheStandardProfileLabelForAnyNonHardenedValue(): void

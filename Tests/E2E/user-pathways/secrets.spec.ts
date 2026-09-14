@@ -630,7 +630,7 @@ test.describe('Secrets Module User Pathways', () => {
 
         const newRow = newFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
         await expect(newRow).toBeVisible({ timeout: 5000 });
-        const badge = newRow.locator('.text-bg-secondary');
+        const badge = newRow.locator('.vault-badge-secondary');
         await expect(badge).toBeVisible({ timeout: 5000 });
       }
     });

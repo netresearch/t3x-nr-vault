@@ -5,16 +5,68 @@
  * - No hardcoded text/background colors: surfaces use TYPO3 v14 design
  *   tokens (var(--typo3-*)) with Bootstrap 5.3 fallbacks (var(--bs-*)) so
  *   they adapt to the light and dark backend color schemes.
- * - The Netresearch brand teal (#2f99a4) appears only as an accent. Core
- *   forces black text on .text-bg-* badges, which keeps sufficient contrast
- *   on the teal background in both color schemes.
+ * - The Netresearch brand teal (#2f99a4) appears only as an accent, and is
+ *   paired with an explicit dark text color. Core does NOT force black text
+ *   on badges — measured on TYPO3 14.3 it paints #ffffff — so the pairing is
+ *   stated here rather than inherited.
  */
 
-/* Brand accent: teal count/info badges. !important is required to win over
- * the core utility (.text-bg-info { background-color: ... !important }). */
-.badge.text-bg-info,
-.badge.text-bg-primary {
-    background-color: #2f99a4 !important;
+/* State badges.
+ *
+ * Bootstrap's .text-bg-* utilities are not accessible at badge size in the
+ * TYPO3 v14 palette: measured on a real v14.3 backend, .text-bg-success paints
+ * #ffffff on #2a9960 — 3.6:1 at 11px, where WCAG 2.1 AA (1.4.3) asks for 4.5:1
+ * on normal text. .text-bg-danger fails the same way. Rather than redefine core
+ * utilities globally — which would change every badge in the backend, ours and
+ * everyone else's — the vault paints its own badges through .vault-badge, and
+ * the templates carry that class instead.
+ *
+ * Both colours of every pair are stated explicitly, so the ratio holds in the
+ * light and the dark backend scheme alike, and no core token can move it.
+ * Ratios against the stated foreground (WCAG relative luminance):
+ *   success   #ffffff on #146c43 = 6.45
+ *   danger    #ffffff on #b02a37 = 6.50
+ *   warning   #000000 on #ffc107 = 12.88
+ *   info      #000000 on #2f99a4 = 6.21  (Netresearch brand teal, kept)
+ *   primary   #000000 on #2f99a4 = 6.21
+ *   secondary #ffffff on #495057 = 8.18
+ *   dark      #ffffff on #212529 = 15.43
+ */
+.vault-badge {
+    background-color: #495057;
+    color: #ffffff;
+}
+
+.vault-badge-success {
+    background-color: #146c43;
+    color: #ffffff;
+}
+
+.vault-badge-danger {
+    background-color: #b02a37;
+    color: #ffffff;
+}
+
+.vault-badge-warning {
+    background-color: #ffc107;
+    color: #000000;
+}
+
+/* Brand accent: teal count/info badges. */
+.vault-badge-info,
+.vault-badge-primary {
+    background-color: #2f99a4;
+    color: #000000;
+}
+
+.vault-badge-secondary {
+    background-color: #495057;
+    color: #ffffff;
+}
+
+.vault-badge-dark {
+    background-color: #212529;
+    color: #ffffff;
 }
 
 /* Code examples (Overview module).
