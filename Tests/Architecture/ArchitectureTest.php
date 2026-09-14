@@ -12,13 +12,17 @@ namespace Netresearch\NrVault\Tests\Architecture;
 use GuzzleHttp\Client;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
+use Netresearch\NrVault\Audit\Sink\SinkDeliveryStateRepository;
 use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
+use Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessor;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
+use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
 use Netresearch\NrVault\Http\OAuth\OAuthToken;
 use Netresearch\NrVault\Http\SecretPlacement;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Http\VaultHttpClient;
+use Netresearch\NrVault\Security\BreakGlassState;
 use Netresearch\NrVault\Service\Detection\Severity;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use Netresearch\NrVault\Tests\Unit\TestCase;
@@ -123,11 +127,16 @@ final class ArchitectureTest
      * Exceptions must be final.
      *
      * Prevents exception hierarchy manipulation attacks.
+     *
+     * `VaultException` is excluded: it is the base the extension's own domain
+     * exceptions extend, so a final base would forbid the hierarchy itself.
+     * Every class that extends it is still held to this rule.
      */
     public function testExceptionsMustBeFinal(): BuildStep
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Exception'))
+            ->excluding(Selector::classname(VaultException::class))
             ->shouldBeFinal()
             ->because('exceptions should not be extended for security');
     }
@@ -136,12 +145,20 @@ final class ArchitectureTest
      * Crypto implementations must be final.
      *
      * Prevents override attacks on cryptographic operations.
+     *
+     * Abstract classes are excluded because they cannot be final.
+     * `AbstractMasterKeyProvider` locks its template method instead
+     * (`getMasterKey()` is `final`), and every concrete provider extending it
+     * is still held to this rule.
      */
     public function testCryptoImplementationsMustBeFinal(): BuildStep
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace(self::NAMESPACE_CRYPTO))
-            ->excluding(Selector::classname(self::SELECTOR_INTERFACE_REGEX, true))
+            ->excluding(
+                Selector::classname(self::SELECTOR_INTERFACE_REGEX, true),
+                Selector::isAbstract(),
+            )
             ->shouldBeFinal()
             ->because('crypto implementations must not be overridden');
     }
@@ -219,7 +236,8 @@ final class ArchitectureTest
     }
 
     /**
-     * Nothing in the extension may depend on `TYPO3\CMS\Core\Registry`.
+     * Only the two documented state stores may depend on
+     * `TYPO3\CMS\Core\Registry`; the audit chain tip anchor never does.
      *
      * The audit chain tip anchor is stored in the CORE table `sys_registry`,
      * but is read and written exclusively through our own Doctrine
@@ -235,11 +253,23 @@ final class ArchitectureTest
      * future "tidy-up" that routes the anchor back through the Registry API
      * from a hope into a build failure. Same allow-nothing shape as the
      * `SecureHttpClientFactory` Guzzle lock (ADR-028).
+     *
+     * Allow-listed by classname, as ADR-034 records: `BreakGlassState` and
+     * `SinkDeliveryStateRepository` keep their serialized state in the
+     * `tx_nrvault` namespace through the Registry API, which is exactly why the
+     * raw anchor lives in a namespace of its own. Any further Registry consumer
+     * has to be added here deliberately. Tests are excluded because they
+     * double the Registry for those two stores (and this rule names the class).
      */
     public function testAuditAnchorNeverUsesCoreRegistry(): BuildStep
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault'))
+            ->excluding(
+                Selector::classname(BreakGlassState::class),
+                Selector::classname(SinkDeliveryStateRepository::class),
+                Selector::inNamespace('Netresearch\NrVault\Tests'),
+            )
             ->shouldNot()
             ->dependOn()
             ->classes(Selector::classname(Registry::class))
@@ -440,11 +470,17 @@ final class ArchitectureTest
      * Configuration must not depend on Services.
      *
      * Configuration is low-level infrastructure.
+     *
+     * `SiteConfigurationVaultProcessor` is excluded: resolving `%vault(...)%`
+     * references in site configuration through `VaultServiceInterface` is its
+     * whole purpose (ADR-030), and it is a documented public entry point, so
+     * moving it out of the namespace would break its callers.
      */
     public function testConfigurationDoesNotDependOnServices(): BuildStep
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Configuration'))
+            ->excluding(Selector::classname(SiteConfigurationVaultProcessor::class))
             ->shouldNotDependOn()
             ->classes(
                 Selector::inNamespace(self::NAMESPACE_SERVICE),
