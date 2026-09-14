@@ -63,13 +63,15 @@ parameters:
             reportUnmatched: false
         # Whether TYPO3 offers the wizard is answered only by core's wizard
         # registry, which is @internal to TYPO3 (EXT:core on 14, EXT:install
-        # on 13). The registration test reads it for exactly that question;
-        # no production code does.
+        # on 13). The registration test and the upgrade acceptance test read it
+        # for exactly that question; no production code does.
         -
             identifiers:
                 - method.internalClass
                 - classConstant.internalClass
-            path: Tests/Functional/Upgrades/UpgradeWizardRegistrationTest.php
+            paths:
+                - Tests/Functional/Upgrades/UpgradeWizardRegistrationTest.php
+                - Tests/Functional/Acceptance/UpgradeFromPreviousReleaseTest.php
             reportUnmatched: false
         # TcaSchemaFactory, TcaSchema, and FieldTypeInterface are internal in TYPO3 v13
         # but were made public in v14. Since this extension supports both v13.4 and v14,
