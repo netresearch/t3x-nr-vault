@@ -26,7 +26,7 @@
 | Lint (syntax) | `make lint` | `php -l` across sources |
 | CS check | `make cgl` | php-cs-fixer --dry-run |
 | CS fix | `make fix` | alias of `make cgl-fix` |
-| PHPStan | `make phpstan` | Static analysis. Locally use `.Build/bin/phpstan analyse --configuration=Build/phpstan.no-plugins.neon` — the plugin config dies on `Unexpected item 'parameters › ergebnis'` even with a fully populated `.Build`, because the ergebnis ruleset resolves only through the shared typo3-ci-workflows config on CI |
+| PHPStan | `make phpstan` | Static analysis. Without Docker, run it from the host with `.Build/bin/phpstan analyse --configuration=phpstan.neon --memory-limit=2G` (verified 2026-09-14). `Build/phpstan.no-plugins.neon` no longer works locally: with `phpstan/extension-installer` in `.Build` it stops with "These files are included multiple times" and analyses nothing, exit 1 |
 | Rector (dry-run) | `make rector` | |
 | Unit tests | `make test-unit` | `composer ci:test:php:unit` |
 | Functional tests | `make test-functional` | `composer ci:test:php:functional` |
@@ -81,6 +81,7 @@ docs/            → Agent-facing docs: ARCHITECTURE.md, exec-plans/
 - **A `.Build` copied from a sibling worktree can predate a dev dependency**: the unit suite then dies with `Interface "TYPO3\CMS\Dashboard\Widgets\…" not found`-style errors that look like code breakage. Run `./Build/Scripts/runTests.sh -s composerUpdate` in the new worktree before trusting any red. (Observed: a copied `.Build` lacked `typo3/cms-dashboard`; 12 widget tests errored on pristine `main`.)
 - **CaptainHook cannot install its hooks in a git worktree** — composer install ends with `CaptainHook could not install yer git hooks! (invalid .git path)`. Harmless for the containerized test runner, but it means NO pre-commit/commit-msg checks run locally in that worktree: the subject-style and cgl gates you rely on elsewhere are silently absent, so run the checks by hand before pushing.
 - **`make ci` does not include Rector** (cgl + phpstan + unit + fuzz only), and CI's Rector dry-run is a required gate. `SimplifyQuoteEscapeRector` flags every `\'` escape in a single-quoted string — an assertion message with an apostrophe costs a full CI round trip. When adding or editing PHP files, run `make rector` before pushing. (Cost two round trips in one day, 2026-08-18.)
+- **CI's Rector job resolves the newest Rector release, so a new rule can turn `main` red without a commit.** Rector 2.6.7 added `DirnameDirConcatStringToDirectStringPathRector` and failed `main` (`6fa9b9c`) and every open PR over the two test bootstraps. When the log names files your change did not touch, check `main`'s latest CI run first. A local `.Build` usually lags the release: to confirm a fix, `composer require rector/rector:<version>` into a scratch directory and run that directory's `vendor/bin/rector process <files> --dry-run` (it is not on `PATH`) with a config holding only that rule (`RectorConfig::configure()->withRules([...])`) — the repo's `rector.php` needs the TYPO3 Rector sets and will not load there. Old code reports "would have been changed", fixed code "Rector is done!".
 
 ## Security Requirements
 This extension handles sensitive data. Non-negotiable rules:
