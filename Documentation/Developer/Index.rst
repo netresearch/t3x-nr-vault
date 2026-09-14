@@ -444,15 +444,14 @@ long-term target:
    :caption: infection.json5
 
    {
-       "minMsi": 72,
-       "minCoveredMsi": 72
+       "minMsi": 77,
+       "minCoveredMsi": 77
    }
 
 A run that falls below either threshold fails CI. Ratchet these numbers
 upward as test coverage improves; avoid ratcheting them downward (use a
-brief TODO with a ticket instead). The dated ratchet schedule up to the
-85 % / 95 % long-term target is kept next to the values in
-:file:`infection.json5`.
+brief TODO with a ticket instead). The measurement the floors were set from,
+and the next target, are kept next to the values in :file:`infection.json5`.
 
 Badge generation
 ~~~~~~~~~~~~~~~~

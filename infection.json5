@@ -237,22 +237,31 @@
             ]
         }
     },
-    // MSI thresholds — **ratchet** strategy.
+    // MSI thresholds — **ratchet** strategy: the floor tracks the measurement,
+    // and it only ever goes up.
     //
-    // Current measured MSI: 72.35 % (2026-04-21 r2) after targeted
-    // mutant-killing work. Baseline was 70.86 %. Long-term target 85 % / 95 %;
-    // pushing higher requires surgical work per escaped mutant (open
-    // `.Build/infection/infection.html`, pick a surviving mutant, write
-    // a test that kills it). Detailed plan in
-    // `Documentation/Developer/mutation-baseline.md`.
+    // MEASUREMENT (2026-09-14, CI run 34848362108, ubuntu-latest, PHP 8.5, pcov,
+    // Infection 0.35, Unit suite):
+    //   8884 mutants — 6939 killed, 1917 escaped, 26 timed out, 2 errored
+    //   MSI 78.42 %, covered-code MSI 78.42 %, mutation code coverage 100 %
     //
-    // Target ratchet:
-    //   2026-04:  72 /  72  (current)
-    //   2026-05:  75 /  75
-    //   2026-06:  78 /  80
-    //   2026-07:  81 /  85
-    //   2026-08:  83 /  90
-    //   2026-Q4:  85 /  95  (long-term target)
-    "minMsi": 72,
-    "minCoveredMsi": 72
+    // The floors sit one point under that, rounded down. The rise from 72.19 %
+    // on the same tree is not new tests: it is this file's Seeder exclusion and
+    // the Concat ignore list above removing 857 mutants that no assertion should
+    // have been written for. Killing mutants is what moves the number next.
+    //
+    // The previous comment here carried a dated plan (75 by 2026-05, 78 by
+    // 2026-06, 85 by 2026-Q4) that nothing followed: the floor sat at 72 from
+    // April to September. It is replaced by a single next target, and by the
+    // rule that a PR raising the floor must show the measurement that clears it:
+    //
+    //   next:  80 / 80 — reachable by killing escapes in Classes/Service/Doctor
+    //          (588 escapes) and Classes/Command (523), the two largest
+    //          remaining clusters. Review by 2026-12-31: either met, or replaced
+    //          with a target backed by a fresh measurement.
+    //
+    // PR #355 (unit tests for security mutants) raises the score further once it
+    // lands; these floors deliberately do not anticipate it.
+    "minMsi": 77,
+    "minCoveredMsi": 77
 }
