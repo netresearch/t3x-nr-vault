@@ -73,6 +73,13 @@ Provider comparison
     ``typo3``, ``file`` and ``env``; an unknown value is refused with
     exception code ``1703800015``.
 
+..  note::
+
+    ``masterKeyProvider`` also accepts the identifier of a provider another
+    extension registers, and such a provider is permitted in the hardened
+    profile — only ``typo3`` is refused there. See
+    :ref:`developer-custom-key-providers`.
+
 .. _operations-key-custody-typo3:
 
 ``typo3`` — derived from the TYPO3 encryption key
@@ -228,11 +235,17 @@ is the supported indirection: HashiCorp Vault can itself be backed by an HSM
 or a cloud KMS for its own seal, which puts the vault's master key under that
 custody transitively without nr-vault needing a provider per KMS vendor.
 
-Anything else — AWS KMS, Azure Key Vault, GCP KMS directly — would need a new
-``MasterKeyProviderInterface`` implementation. The interface is a single
-method, and :php:`AbstractMasterKeyProvider` already implements the caching
-and wiping contract, so the surface is small; but it does not exist today, and
-no configuration setting will produce it.
+Anything else — AWS KMS, Azure Key Vault, GCP KMS directly — needs a
+``MasterKeyProviderInterface`` implementation, and an extension may supply
+one: tag it ``nr_vault.master_key_provider`` and set ``masterKeyProvider`` to
+the identifier it returns from ``getIdentifier()``.
+:php:`AbstractMasterKeyProvider` already implements the caching and wiping
+contract, so the surface is small; the registration is documented in
+:ref:`developer-custom-key-providers`.
+
+No such provider ships here. The custody of one is the custody its author gave
+it, and nothing on this page describes it — the comparison table above covers
+the four providers this package ships and no others.
 
 .. _operations-key-custody-inprocess:
 

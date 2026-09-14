@@ -142,8 +142,9 @@ adapter, and it swaps it for the whole installation.
 
 ..  note::
 
-    The two tags nr-vault does consume are ``nr_vault.audit_sink`` and
-    ``nr_vault.readiness_check``; both are collected as tagged iterators.
+    The three tags nr-vault does consume are ``nr_vault.audit_sink``,
+    ``nr_vault.readiness_check`` and ``nr_vault.master_key_provider``; all
+    three are collected as tagged iterators.
 
 .. _developer-custom-key-providers:
 
@@ -155,53 +156,127 @@ Custom master key providers
    from TYPO3's encryption key), **file** (reads from filesystem), **env**
    (reads from environment variable) and **transit** (unwraps the master key
    through HashiCorp Vault's transit engine — see the ``hashicorp.transit*``
-   settings). The example below shows how to implement a custom provider for
-   another key management system.
+   settings). A provider another extension supplies is selected in exactly the
+   same way, by putting its identifier in
+   :confval:`masterKeyProvider <ext-nrvault-masterKeyProvider>`.
 
-Implement :php:`MasterKeyProviderInterface` for custom key sources:
+Registering one takes two things: a class implementing
+:php:`MasterKeyProviderInterface`, and the ``nr_vault.master_key_provider``
+tag on its service.
+:php:`MasterKeyProviderRegistry` collects every tagged service and indexes it
+under the identifier the provider returns from :php:`getIdentifier()` — that
+method, not the service id and not a tag attribute, is what
+``masterKeyProvider`` names.
 
 .. code-block:: php
    :caption: EXT:my_extension/Classes/Crypto/KmsKeyProvider.php
 
    namespace MyVendor\MyExtension\Crypto;
 
-   use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
+   use Netresearch\NrVault\Crypto\AbstractMasterKeyProvider;
 
-   final class KmsKeyProvider implements MasterKeyProviderInterface
+   final class KmsKeyProvider extends AbstractMasterKeyProvider
    {
-       // Pick an identifier no shipped provider uses. 'hashicorp' and
-       // 'transit' are taken by the built-in transit provider.
+       // Pick an identifier no other provider uses. 'typo3', 'file', 'env'
+       // and 'transit' are taken by the built-in providers, and a collision
+       // is refused rather than resolved — see the contract below.
        public function getIdentifier(): string
        {
-           return 'kms';
+           return 'acme_kms';
        }
 
        public function isAvailable(): bool
        {
-           // Check if the KMS is accessible
+           // Configuration completeness and local preconditions. No network
+           // call: this is consulted on hot paths.
        }
 
-       public function getMasterKey(): string
+       public function storeMasterKey(#[\SensitiveParameter] string $key): void
        {
-           // Retrieve key from the KMS
-       }
-
-       public function storeMasterKey(string $key): void
-       {
-           // Store key in the KMS
-       }
-
-       // Static: wipe the request-lifetime key cache (ADR-020).
-       public static function clearCachedKey(): void
-       {
-           // Zero and drop this provider's cached key
+           // Write the key to the KMS, or throw
+           // MasterKeyException::cannotStore() when the source is read-only.
        }
 
        public function generateMasterKey(): string
        {
            return random_bytes(32);
        }
+
+       protected function loadRawKey(): string
+       {
+           // Fetch the 32 raw bytes from the KMS. Called at most once per
+           // request; the base class caches and wipes the result (ADR-020).
+       }
    }
+
+.. code-block:: yaml
+   :caption: EXT:my_extension/Configuration/Services.yaml
+
+   MyVendor\MyExtension\Crypto\KmsKeyProvider:
+     tags: ['nr_vault.master_key_provider']
+
+.. code-block:: none
+   :caption: Extension configuration
+
+   masterKeyProvider = acme_kms
+
+.. _developer-custom-key-providers-contract:
+
+What a custom provider must hold to
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Extending :php:`AbstractMasterKeyProvider` is the supported route. It
+implements the :ref:`ADR-020 <adr-020-master-key-request-lifetime-caching>`
+request-lifetime contract once — the key is loaded at most once per request,
+cached in a slot keyed by your class, and wiped with
+:php:`sodium_memzero()` — so the only method you write is
+:php:`loadRawKey()`. Implementing :php:`MasterKeyProviderInterface` directly is
+allowed; then the caching and the static :php:`clearCachedKey()` are yours to
+get right.
+
+The rest is the contract every provider is held to:
+
+Identifier
+   Distinct and non-blank. Two providers claiming one identifier is refused
+   with exception code ``1789430001``, a blank identifier with
+   ``1789430002``. An identifier decides which key source protects the vault,
+   so the registry will not settle a collision by load order — and while one
+   exists it refuses *every* lookup, not only the colliding name.
+
+Constructor
+   Cheap. It runs while the registry builds its index, on the first vault
+   operation of a request. Reaching the key source belongs in
+   :php:`isAvailable()` and :php:`loadRawKey()`.
+
+:php:`isAvailable()`
+   Configuration completeness and local preconditions, with no network call.
+   It is consulted on hot paths, so an outage at your key source must not turn
+   into a per-request timeout. The built-in ``transit`` provider is the worked
+   example.
+
+:php:`getMasterKey()`
+   Exactly 32 bytes. Never log the key and never put it in an exception
+   message — that includes the path or URL it came from, which the built-in
+   providers route to the PSR-3 log instead.
+
+Rotation
+   :php:`storeMasterKey()` is what ``vault:rotate-master-key`` calls. A source
+   that cannot be written to should throw
+   :php:`MasterKeyException::cannotStore()` with a message saying how to
+   rotate out of band, as the ``env`` provider does.
+
+Security profile
+   A custom provider is permitted in the hardened profile. That profile
+   refuses ``typo3`` by name, because its demand is that the key lives outside
+   :file:`config/system/settings.php`, and an external provider is the case it
+   asks for. It cannot police what your provider then does — deriving a key
+   from the TYPO3 encryption key under another name would pass — so the
+   installation is trusting the extension it installed.
+
+Auto-detection never reaches a custom provider. When the configured provider
+is unavailable, the standard profile falls back through ``typo3``, ``env`` and
+``file`` only: quietly adopting an external key custody nobody configured
+would be worse than the misconfiguration it papers over.
 
 .. _developer-events:
 

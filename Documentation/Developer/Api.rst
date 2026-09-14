@@ -22,7 +22,9 @@ attribute, and the test suite checks this list against that attribute:
 *   ``Netresearch\NrVault\Adapter\VaultAdapterInterface`` — a storage backend
     (:ref:`developer-custom-adapters`)
 *   ``Netresearch\NrVault\Crypto\MasterKeyProviderInterface`` — a master-key
-    source
+    source, selected by the identifier it declares and registered with the
+    ``nr_vault.master_key_provider`` tag
+    (:ref:`developer-custom-key-providers`)
 *   ``Netresearch\NrVault\Audit\Sink\AuditSinkInterface`` — an external
     destination for audit evidence
 *   ``Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface`` — re-wraps

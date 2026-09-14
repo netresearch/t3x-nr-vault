@@ -56,6 +56,13 @@ you back on it. Pick one of the others; the trade-offs are in
             wrapped ciphertext is stored locally and every unwrap is centrally
             audited and revocable.
 
+    *   -   an extension's own
+        -   Your key lives somewhere none of the above reaches — a cloud KMS,
+            an HSM bridge. Permitted here: the profile refuses ``typo3`` by
+            name, not everything it does not ship. Registration and the
+            contract such a provider must hold to are in
+            :ref:`developer-custom-key-providers`.
+
 ..  code-block:: none
     :caption: Extension configuration — file provider
 

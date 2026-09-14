@@ -61,7 +61,7 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    :name: ext-nrvault-masterKeyProvider
    :type: string
    :Default: typo3
-   :Options: typo3, file, env, transit
+   :Options: typo3, file, env, transit, or an identifier registered by another extension
 
    How to retrieve the master encryption key.
 
@@ -79,6 +79,12 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
       Unwrap through HashiCorp Vault's transit secrets engine. Only the
       Vault-encrypted ciphertext is stored locally — see
       :ref:`configuration-master-key-transit`.
+
+   Any other value names a provider that an installed extension registered
+   with the ``nr_vault.master_key_provider`` tag. An identifier no provider
+   claims is refused with exception code ``1703800015``; the vault does not
+   fall back to a different key source in the hardened profile. See
+   :ref:`developer-custom-key-providers`.
 
 .. confval:: masterKeySource
    :name: ext-nrvault-masterKeySource

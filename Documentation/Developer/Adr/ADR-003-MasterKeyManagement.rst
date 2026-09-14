@@ -84,13 +84,16 @@ Interface-based providers with factory pattern for selection.
 Decision
 ========
 
-We chose a **pluggable provider system** with three built-in providers:
+We chose a **pluggable provider system** with four built-in providers:
 
 1. **typo3** (default): Derives key from TYPO3's encryption key using HKDF
 2. **file**: Reads key from filesystem with strict permissions
 3. **env**: Reads key from environment variable
+4. **transit**: Unwraps the key through HashiCorp Vault's transit engine
 
 This provides zero-config operation while enabling enterprise deployments.
+Providers are resolved through a registry keyed by identifier, so a consuming
+extension can supply a fifth — see `Provider registry`_ below.
 
 Implementation
 ==============
@@ -218,6 +221,46 @@ Factory with auto-detection
        // 3. Return TYPO3 provider (will fail with clear error)
        return $this->providers['typo3'];
    }
+
+Provider registry
+-----------------
+
+The set of providers is not a closed list inside the factory. Every service
+tagged ``nr_vault.master_key_provider`` is collected by
+:php:`MasterKeyProviderRegistry` and indexed under the identifier it returns
+from :php:`getIdentifier()`; ``masterKeyProvider`` names one of those
+identifiers. The four built-in providers are tagged the same way and hold no
+privilege the registry can see, so an extension supplying a cloud-KMS or HSM
+provider registers it exactly as nr-vault registers its own
+(:ref:`developer-custom-key-providers`).
+
+Three rules make the indirection safe, because an identifier decides which key
+source protects the vault:
+
+*   **A duplicate identifier is refused, not resolved** (``1789430001``).
+    Last-one-wins would let an installed extension take over the master key by
+    choosing the name ``file``; first-one-wins would let load order decide the
+    same thing. While a collision exists the registry refuses *every* lookup,
+    not only the colliding name: in that state "which key source is in use?"
+    has no answer, and serving the other names would hide the ambiguity from
+    the operator.
+*   **A blank identifier is refused** (``1789430002``), because ``''`` is what
+    ``masterKeyProvider`` holds before anybody configures it.
+*   **The ambiguity check runs before the standard-profile fallback**, which
+    swallows :php:`ConfigurationException` to survive an unconfigured install.
+    Without that ordering, auto-detection would answer the custody question by
+    load order after all.
+
+The hardened profile's deny list names ``typo3`` and nothing else. Its demand
+is that the key lives outside :file:`config/system/settings.php`, which is
+what an extension-supplied provider delivers; refusing unknown identifiers by
+default would forbid exactly the deployments the profile exists to serve. What
+it cannot police is what installed code does — a custom provider may derive
+its key from the TYPO3 encryption key under another name. The profile
+constrains configuration, not the trustworthiness of an installed extension.
+
+Auto-detection still probes the three built-in local sources only. Falling
+back to a custom provider would mean adopting a key custody nobody configured.
 
 Configuration
 -------------
