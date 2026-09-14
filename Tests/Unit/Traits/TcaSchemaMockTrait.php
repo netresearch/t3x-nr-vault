@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Traits;
 
 use LogicException;
+use PHPUnit\Framework\MockObject\Stub;
 use PHPUnit\Framework\TestCase;
 use TYPO3\CMS\Core\Schema\Field\FieldCollection;
 use TYPO3\CMS\Core\Schema\Field\FieldTypeInterface;
@@ -88,7 +89,8 @@ trait TcaSchemaMockTrait
 
         $schema->method('getFields')->willReturn(new FieldCollection($fieldStubs));
 
-        if (!isset($this->tcaSchemaFactory) || !$this->tcaSchemaFactory instanceof TcaSchemaFactory) {
+        $factory = $this->tcaSchemaFactory ?? null;
+        if (!$factory instanceof TcaSchemaFactory || !$factory instanceof Stub) {
             throw new LogicException(
                 \sprintf(
                     '%s requires the test to define a protected `$tcaSchemaFactory` property '
@@ -117,7 +119,11 @@ trait TcaSchemaMockTrait
             return $this->mockedTcaSchemas[$requested];
         };
 
-        $this->tcaSchemaFactory->method('has')->willReturnCallback(static fn (string $requested): bool => $lookup($requested) instanceof TcaSchema);
-        $this->tcaSchemaFactory->method('get')->willReturnCallback($lookup);
+        $factory->method('has')->willReturnCallback(static function (string $requested) use ($lookup): bool {
+            $lookup($requested);
+
+            return true;
+        });
+        $factory->method('get')->willReturnCallback($lookup);
     }
 }

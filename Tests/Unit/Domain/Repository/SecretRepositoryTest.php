@@ -1166,7 +1166,7 @@ final class SecretRepositoryTest extends TestCase
         // be called with BOTH 'tx_nrvault_secret' (for the row fetch) AND
         // 'tx_nrvault_secret_begroups_mm' (for the groups lookup).
         $requestedTables = [];
-        $pool = $this->createStub(ConnectionPool::class);
+        $pool = self::createStub(ConnectionPool::class);
         $pool->method('getConnectionForTable')->willReturnCallback(
             static function (string $table) use (&$requestedTables, $secretConnection, $mmConnection): Connection {
                 $requestedTables[] = $table;

@@ -1261,7 +1261,7 @@ parameters:
 		-
 			rawMessage: 'Cannot call method expects() on PHPUnit\Framework\MockObject\MockObject|null.'
 			identifier: method.nonObject
-			count: 44
+			count: 48
 			path: ../Tests/Unit/Audit/AuditLogServiceTest.php
 
 		-

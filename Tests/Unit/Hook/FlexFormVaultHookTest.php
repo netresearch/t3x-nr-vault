@@ -50,9 +50,9 @@ final class FlexFormVaultHookTest extends TestCase
      */
     private const REFERENCE_PATTERN = '/\b[0-9a-f]{16}\b/';
 
-    private ConnectionPool&MockObject $connectionPool;
-
     protected TcaSchemaFactory&MockObject $tcaSchemaFactory;
+
+    private ConnectionPool&MockObject $connectionPool;
 
     private VaultServiceInterface&MockObject $vaultService;
 
