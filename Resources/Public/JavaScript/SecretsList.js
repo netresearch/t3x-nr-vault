@@ -166,11 +166,14 @@ class SecretsList {
         if (statusCell) {
             const badge = statusCell.querySelector('.badge');
             if (badge) {
+                // Same accessible classes the Fluid template paints — the live
+                // toggle must not drop the row back onto the core utilities,
+                // whose badge colours fail WCAG AA at this size (backend.css).
                 if (hidden) {
-                    badge.className = 'badge text-bg-secondary';
+                    badge.className = 'badge vault-badge vault-badge-secondary';
                     badge.textContent = 'Disabled';
                 } else {
-                    badge.className = 'badge text-bg-success';
+                    badge.className = 'badge vault-badge vault-badge-success';
                     badge.textContent = 'Active';
                 }
             }

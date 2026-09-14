@@ -67,16 +67,16 @@
                                     <td>
                                         <f:switch expression="{secret.severity}">
                                             <f:case value="critical">
-                                                <span class="badge text-bg-danger">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.critical')}</span>
+                                                <span class="badge vault-badge vault-badge-danger">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.critical')}</span>
                                             </f:case>
                                             <f:case value="high">
-                                                <span class="badge text-bg-warning">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.high')}</span>
+                                                <span class="badge vault-badge vault-badge-warning">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.high')}</span>
                                             </f:case>
                                             <f:case value="medium">
-                                                <span class="badge text-bg-info">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.medium')}</span>
+                                                <span class="badge vault-badge vault-badge-info">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.medium')}</span>
                                             </f:case>
                                             <f:defaultCase>
-                                                <span class="badge text-bg-secondary">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.low')}</span>
+                                                <span class="badge vault-badge vault-badge-secondary">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.low')}</span>
                                             </f:defaultCase>
                                         </f:switch>
                                     </td>
@@ -84,7 +84,7 @@
                                         <f:if condition="{secret.patterns}">
                                             <f:then>
                                                 <f:for each="{secret.patterns}" as="pattern">
-                                                    <span class="badge text-bg-dark">{pattern}</span>
+                                                    <span class="badge vault-badge vault-badge-dark">{pattern}</span>
                                                 </f:for>
                                             </f:then>
                                             <f:else>
