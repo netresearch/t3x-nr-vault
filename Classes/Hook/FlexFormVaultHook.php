@@ -10,11 +10,13 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Hook;
 
 use Exception;
+use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Hook\Dto\FlexFormPendingSecret;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Throwable;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Information\Typo3Version;
@@ -23,6 +25,7 @@ use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * DataHandler hook for vault secrets in FlexForm fields.
@@ -34,8 +37,36 @@ use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
  */
 final class FlexFormVaultHook
 {
+    /**
+     * The DataHandler commands that duplicate a record.
+     *
+     * Mirrors {@see DataHandlerHook::DUPLICATION_COMMANDS}: a FlexForm field is
+     * duplicated by exactly the same commands, and its vault identifiers travel
+     * inside the copied XML.
+     */
+    private const DUPLICATION_COMMANDS = ['copy', 'localize', 'copyToLanguage', 'inlineLocalizeSynchronize'];
+
     /** @var array<string, array<string|int, list<FlexFormPendingSecret>>> */
     private array $pendingFlexSecrets = [];
+
+    /**
+     * The DataHandler instances currently running a duplicating command, each
+     * with the number of such commands in flight.
+     *
+     * @see DataHandlerHook::$duplicationCommands for why this is counted and
+     *      why the command context — never the shape of the submitted value —
+     *      is what the datamap pass keys on
+     *
+     * @var array<int, int> spl_object_id() of the DataHandler => commands in flight
+     */
+    private array $duplicationCommands = [];
+
+    /**
+     * Whether the datamap pass currently being processed writes a duplicated
+     * record. Set for the duration of one `processDatamap_preProcessFieldArray()`
+     * call instead of threaded through the FlexForm traversal.
+     */
+    private bool $inDuplicationPass = false;
 
     public function __construct(
         private readonly ConnectionPool $connectionPool,
@@ -56,6 +87,7 @@ final class FlexFormVaultHook
         array &$fieldArray,
         string $table,
         string|int $id,
+        ?DataHandler $dataHandler = null,
     ): void {
         if (!$this->tcaSchemaFactory->has($table)) {
             return;
@@ -63,49 +95,16 @@ final class FlexFormVaultHook
 
         $schema = $this->tcaSchemaFactory->get($table);
 
-        /** @var array<string, mixed>|null $recordRow */
-        $recordRow = null;
+        $this->inDuplicationPass = $this->duplicationCommands !== []
+            && \is_string($id)
+            && str_starts_with($id, 'NEW')
+            && $dataHandler instanceof DataHandler
+            && $dataHandler->dontProcessTransformations;
 
-        foreach ($schema->getFields() as $field) {
-            $fieldConfig = $field->getConfiguration();
-
-            // Check for FlexForm type fields
-            $configType = $fieldConfig['type'] ?? '';
-            if (!\is_string($configType)) {
-                continue;
-            }
-
-            if ($configType !== 'flex') {
-                continue;
-            }
-
-            $fieldName = $field->getName();
-
-            // Check if this FlexForm field is being saved
-            if (!isset($fieldArray[$fieldName])) {
-                continue;
-            }
-
-            if (!\is_array($fieldArray[$fieldName])) {
-                continue;
-            }
-
-            /** @var array<string, mixed> $flexData */
-            $flexData = $fieldArray[$fieldName];
-            // Resolved lazily: the record row is only needed once a FlexForm
-            // field is actually part of the current save.
-            $recordRow ??= $this->resolveRecordRow($table, $id, $fieldArray);
-            // Process the FlexForm data array
-            $this->processFlexFormData(
-                $flexData,
-                $table,
-                $id,
-                $fieldName,
-                ['config' => $fieldConfig],
-                $schema,
-                $recordRow,
-            );
-            $fieldArray[$fieldName] = $flexData;
+        try {
+            $this->processFlexFields($fieldArray, $table, $id, $schema);
+        } finally {
+            $this->inDuplicationPass = false;
         }
     }
 
@@ -203,8 +202,39 @@ final class FlexFormVaultHook
     }
 
     /**
-     * Called after record copy.
-     * Copies FlexForm vault secrets to the new record with fresh UUIDs.
+     * Called before a command is executed.
+     *
+     * Remembers that a duplicating command is running, which is the only signal
+     * {@see processVaultSecretValue()} accepts for "this identifier was copied
+     * here by DataHandler".
+     *
+     * `$pasteUpdate` is typed `mixed` because TYPO3 core reassigns its `false`
+     * default to `$value['update']` (an array) on the localize / copy-to-
+     * language path.
+     */
+    public function processCmdmap_preProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
+        string $command,
+        string $table,
+        string|int $id,
+        mixed $value,
+        DataHandler $dataHandler,
+        mixed $pasteUpdate,
+    ): void {
+        if (\in_array($command, self::DUPLICATION_COMMANDS, true)) {
+            $handlerId = spl_object_id($dataHandler);
+            $this->duplicationCommands[$handlerId] = ($this->duplicationCommands[$handlerId] ?? 0) + 1;
+        }
+    }
+
+    /**
+     * Called after a record was duplicated.
+     * Gives every duplicated record its own clones of the source record's
+     * FlexForm secrets.
+     *
+     * Like the TCA path, the command names one record while `copyMappingArray`
+     * lists all of them — including inline children, which core duplicates
+     * through `copyRecord_raw()` without running a single datamap hook, so
+     * their XML still carries the source record's identifiers verbatim.
      *
      * @param bool|array<string, mixed> $pasteUpdate TYPO3 core defaults this to `false`
      *                                               but reassigns it to `$value['update']`
@@ -221,90 +251,427 @@ final class FlexFormVaultHook
         DataHandler $dataHandler,
         bool|array $pasteUpdate,
     ): void {
-        if ($command !== 'copy') {
+        if (!\in_array($command, self::DUPLICATION_COMMANDS, true)) {
             return;
         }
 
-        /** @phpstan-ignore property.internal */
-        $newIdRaw = $dataHandler->copyMappingArray[$table][$id] ?? null;
-        if ($newIdRaw === null) {
-            return;
+        try {
+            /** @phpstan-ignore property.internal */
+            foreach ($dataHandler->copyMappingArray as $duplicatedTable => $idMap) {
+                if (!\is_string($duplicatedTable) || !\is_array($idMap)) {
+                    continue;
+                }
+
+                $flexFieldNames = $this->getFlexFieldNames($duplicatedTable);
+                if ($flexFieldNames === []) {
+                    continue;
+                }
+
+                $connection = $this->connectionPool->getConnectionForTable($duplicatedTable);
+
+                /** @var mixed $newIdRaw */
+                foreach ($idMap as $sourceIdRaw => $newIdRaw) {
+                    $sourceUid = is_numeric($sourceIdRaw) ? (int) $sourceIdRaw : 0;
+                    $newUid = is_numeric($newIdRaw) ? (int) $newIdRaw : 0;
+                    if ($sourceUid <= 0 || $newUid <= 0) {
+                        continue;
+                    }
+
+                    $this->cloneFlexSecretsIntoDuplicate(
+                        $connection,
+                        $duplicatedTable,
+                        $sourceUid,
+                        $newUid,
+                        $flexFieldNames,
+                        $dataHandler,
+                    );
+                }
+            }
+        } finally {
+            $handlerId = spl_object_id($dataHandler);
+            $remaining = ($this->duplicationCommands[$handlerId] ?? 0) - 1;
+
+            if ($remaining > 0) {
+                $this->duplicationCommands[$handlerId] = $remaining;
+            } else {
+                unset($this->duplicationCommands[$handlerId]);
+            }
         }
+    }
 
-        $newId = is_numeric($newIdRaw) ? (int) $newIdRaw : 0;
+    /**
+     * Process every FlexForm field of the submitted field array.
+     *
+     * @param array<string, mixed> $fieldArray
+     */
+    private function processFlexFields(
+        array &$fieldArray,
+        string $table,
+        string|int $id,
+        TcaSchema $schema,
+    ): void {
+        /** @var array<string, mixed>|null $recordRow */
+        $recordRow = null;
 
-        $flexFieldNames = $this->getFlexFieldNames($table);
-        if ($flexFieldNames === []) {
-            return;
+        foreach ($schema->getFields() as $field) {
+            $fieldConfig = $field->getConfiguration();
+
+            // Check for FlexForm type fields
+            $configType = $fieldConfig['type'] ?? '';
+            if (!\is_string($configType)) {
+                continue;
+            }
+
+            if ($configType !== 'flex') {
+                continue;
+            }
+
+            $fieldName = $field->getName();
+
+            // Check if this FlexForm field is being saved
+            if (!isset($fieldArray[$fieldName])) {
+                continue;
+            }
+
+            if (!\is_array($fieldArray[$fieldName])) {
+                continue;
+            }
+
+            /** @var array<string, mixed> $flexData */
+            $flexData = $fieldArray[$fieldName];
+            // Resolved lazily: the record row is only needed once a FlexForm
+            // field is actually part of the current save.
+            $recordRow ??= $this->resolveRecordRow($table, $id, $fieldArray);
+            // Process the FlexForm data array
+            $this->processFlexFormData(
+                $flexData,
+                $table,
+                $id,
+                $fieldName,
+                ['config' => $fieldConfig],
+                $schema,
+                $recordRow,
+            );
+            $fieldArray[$fieldName] = $flexData;
         }
+    }
 
-        $connection = $this->connectionPool->getConnectionForTable($table);
-        $copiedRecord = $connection->select(
-            $flexFieldNames,
-            $table,
-            ['uid' => $newId],
-        )->fetchAssociative();
+    /**
+     * Clone the FlexForm secrets of a source record into the record duplicated
+     * from it.
+     *
+     * The source XML is the map: every vault identifier it holds marks a
+     * position the duplicate must fill with a clone. The duplicate's own value
+     * at that position is either the source identifier (core duplicated the XML
+     * verbatim) or empty (the datamap pass cleared it) — any other value was
+     * produced by an ordinary write and is left alone.
+     *
+     * @param list<string> $flexFieldNames
+     */
+    private function cloneFlexSecretsIntoDuplicate(
+        Connection $connection,
+        string $table,
+        int $sourceUid,
+        int $newUid,
+        array $flexFieldNames,
+        DataHandler $dataHandler,
+    ): void {
+        // Both rows in ONE query: issuing a second select() on the connection
+        // that DataHandler just wrote through did not see the freshly inserted
+        // copy, which silently skipped the clone.
+        $rows = $this->readFlexRows($table, $flexFieldNames, [$sourceUid, $newUid]);
 
-        if ($copiedRecord === false) {
+        $sourceRecord = $rows[$sourceUid] ?? null;
+        $copiedRecord = $rows[$newUid] ?? null;
+
+        if ($sourceRecord === null || $copiedRecord === null) {
             return;
         }
 
         foreach ($flexFieldNames as $flexFieldName) {
-            $xmlValue = $copiedRecord[$flexFieldName] ?? '';
-            if (!\is_string($xmlValue)) {
+            $sourceXml = $sourceRecord[$flexFieldName] ?? '';
+            $copyXml = $copiedRecord[$flexFieldName] ?? '';
+            if (!\is_string($sourceXml) || !\is_string($copyXml)) {
                 continue;
             }
 
-            if ($xmlValue === '') {
+            if ($sourceXml === '' || $copyXml === '') {
                 continue;
             }
 
-            $xml = $xmlValue;
-            $identifiers = $this->extractVaultIdentifiersFromXml($xml);
+            // xml2arrayProcess() rather than xml2array(): the latter memoizes
+            // through the runtime cache, which a hook must not depend on.
+            $sourceArray = GeneralUtility::xml2arrayProcess($sourceXml);
+            $copyArray = GeneralUtility::xml2arrayProcess($copyXml);
+            if (!\is_array($sourceArray) || !\is_array($copyArray)) {
+                continue;
+            }
 
-            foreach ($identifiers as $oldIdentifier) {
-                try {
-                    $secretValue = $this->vaultService->retrieve($oldIdentifier);
-                    if ($secretValue === null) {
-                        continue;
-                    }
+            $positions = $this->collectVaultIdentifierPositions($sourceArray);
+            if ($positions === []) {
+                continue;
+            }
 
-                    $newIdentifier = IdentifierValidator::generateUuid();
+            $this->cloneFlexField($connection, $table, $flexFieldName, $newUid, $positions, $copyArray, $copyXml, $dataHandler);
+        }
+    }
 
-                    $this->vaultService->store($newIdentifier, $secretValue, [
-                        'table' => $table,
-                        'flexField' => $flexFieldName,
-                        'uid' => $newId,
-                        'source' => 'flexform_record_copy',
-                        'copied_from' => $oldIdentifier,
-                    ]);
+    /**
+     * Read the FlexForm columns of the given records, indexed by uid.
+     *
+     * @param list<string> $flexFieldNames
+     * @param list<int> $uids
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function readFlexRows(string $table, array $flexFieldNames, array $uids): array
+    {
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()->removeAll();
 
-                    $xml = str_replace($oldIdentifier, $newIdentifier, $xml);
-                } catch (Throwable $e) {
-                    $userMessage = $this->failureReporter->report($e, [
-                        'table' => $table,
-                        'flexField' => $flexFieldName,
-                        'uid' => $newId,
-                        'identifier' => $oldIdentifier,
-                        'operation' => 'flexform_copy',
-                    ]);
+        $rows = $queryBuilder
+            ->select('uid', ...$flexFieldNames)
+            ->from($table)
+            ->where(
+                $queryBuilder->expr()->in(
+                    'uid',
+                    $queryBuilder->createNamedParameter($uids, Connection::PARAM_INT_ARRAY),
+                ),
+            )
+            ->executeQuery()
+            ->fetchAllAssociative();
 
-                    /** @phpstan-ignore method.internal */
-                    $dataHandler->log(
-                        $table,
-                        $newId,
-                        1,
-                        null,
-                        1,
-                        'Vault error during copy for FlexForm field "' . $flexFieldName . '": ' . $userMessage,
-                    );
+        $indexed = [];
+        foreach ($rows as $row) {
+            /** @var mixed $uid */
+            $uid = $row['uid'] ?? null;
+            if (!is_numeric($uid)) {
+                continue;
+            }
+
+            $indexed[(int) $uid] = $row;
+        }
+
+        return $indexed;
+    }
+
+    /**
+     * Clone every vault position of one FlexForm field into the duplicate and
+     * persist the result.
+     *
+     * Fails closed: when one clone fails, the clones already written for this
+     * field are deleted again and EVERY vault position of the duplicate is
+     * cleared — a duplicate that still pointed at the source record's secrets
+     * would rotate and delete them as if they were its own.
+     *
+     * @param list<array{path: list<string>, identifier: string}> $positions
+     * @param array<array-key, mixed> $copyArray
+     */
+    private function cloneFlexField(
+        Connection $connection,
+        string $table,
+        string $flexFieldName,
+        int $newUid,
+        array $positions,
+        array $copyArray,
+        string $copyXml,
+        DataHandler $dataHandler,
+    ): void {
+        /** @var list<string> $clonedIdentifiers */
+        $clonedIdentifiers = [];
+
+        foreach ($positions as $position) {
+            $sourceIdentifier = $position['identifier'];
+            $currentValue = $this->valueAtPath($copyArray, $position['path']);
+            if ($currentValue !== '' && $currentValue !== $sourceIdentifier) {
+                continue;
+            }
+
+            $secretValue = null;
+
+            try {
+                $secretValue = $this->vaultService->retrieve($sourceIdentifier);
+                if ($secretValue === null) {
+                    throw SecretNotFoundException::forIdentifier($sourceIdentifier);
+                }
+
+                $newIdentifier = IdentifierValidator::generateUuid();
+                $this->vaultService->store($newIdentifier, $secretValue, [
+                    'table' => $table,
+                    'flexField' => $flexFieldName,
+                    'uid' => $newUid,
+                    'source' => 'flexform_record_copy',
+                    'copied_from' => $sourceIdentifier,
+                ]);
+
+                $this->setValueAtPath($copyArray, $position['path'], $newIdentifier);
+                $clonedIdentifiers[] = $newIdentifier;
+            } catch (Throwable $e) {
+                $this->abandonFlexClones($clonedIdentifiers, $table, $flexFieldName, $newUid);
+
+                foreach ($positions as $positionToClear) {
+                    $this->setValueAtPath($copyArray, $positionToClear['path'], '');
+                }
+
+                $this->reportFlexCopyFailure($e, $table, $flexFieldName, $newUid, $sourceIdentifier, $dataHandler);
+
+                break;
+            } finally {
+                if ($secretValue !== null && $secretValue !== '') {
+                    sodium_memzero($secretValue);
                 }
             }
+        }
 
-            if ($xml !== $xmlValue) {
-                $connection->update($table, [$flexFieldName => $xml], ['uid' => $newId]);
+        /** @phpstan-ignore method.internal */
+        $newXml = $this->flexFormTools->flexArray2Xml($copyArray);
+        if ($newXml !== $copyXml) {
+            $connection->update($table, [$flexFieldName => $newXml], ['uid' => $newUid]);
+        }
+    }
+
+    /**
+     * Delete the clones written before a duplication failed.
+     *
+     * @param list<string> $clonedIdentifiers
+     */
+    private function abandonFlexClones(
+        array $clonedIdentifiers,
+        string $table,
+        string $flexFieldName,
+        int $newUid,
+    ): void {
+        foreach ($clonedIdentifiers as $clonedIdentifier) {
+            try {
+                $this->vaultService->delete($clonedIdentifier, 'Record copy rolled back');
+            } catch (Throwable $compensationError) {
+                // The clone is orphaned rather than dangerous — nothing
+                // references it any more. Record it for the administrator and
+                // keep rolling back.
+                $this->failureReporter->report($compensationError, [
+                    'table' => $table,
+                    'flexField' => $flexFieldName,
+                    'uid' => $newUid,
+                    'identifier' => $clonedIdentifier,
+                    'operation' => 'flexform_copy_rollback',
+                ]);
             }
         }
+    }
+
+    /**
+     * Tell the editor that the duplicate has no FlexForm secrets, and why.
+     */
+    private function reportFlexCopyFailure(
+        Throwable $error,
+        string $table,
+        string $flexFieldName,
+        int $newUid,
+        string $sourceIdentifier,
+        DataHandler $dataHandler,
+    ): void {
+        $userMessage = $this->failureReporter->report($error, [
+            'table' => $table,
+            'flexField' => $flexFieldName,
+            'uid' => $newUid,
+            'identifier' => $sourceIdentifier,
+            'operation' => 'flexform_copy',
+        ]);
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            $table,
+            $newUid,
+            1,
+            null,
+            2,
+            'Vault error during copy for FlexForm field "' . $flexFieldName . '": ' . $userMessage
+            . ' No secret was copied; the vault fields of the new record were cleared and must be filled in again.',
+        );
+    }
+
+    /**
+     * Every position of a parsed FlexForm value that holds a stored vault
+     * identifier, as the path of array keys leading to it.
+     *
+     * @param array<array-key, mixed> $node
+     * @param list<string> $path
+     *
+     * @return list<array{path: list<string>, identifier: string}>
+     */
+    private function collectVaultIdentifierPositions(array $node, array $path = []): array
+    {
+        $positions = [];
+
+        /** @var mixed $value */
+        foreach ($node as $key => $value) {
+            $childPath = [...$path, (string) $key];
+
+            if (\is_array($value)) {
+                $positions = [...$positions, ...$this->collectVaultIdentifierPositions($value, $childPath)];
+
+                continue;
+            }
+
+            if ((string) $key !== 'vDEF' || !\is_string($value)) {
+                continue;
+            }
+
+            if (!IdentifierValidator::looksLikeVaultIdentifier($value) || !$this->vaultService->exists($value)) {
+                continue;
+            }
+
+            $positions[] = ['path' => $childPath, 'identifier' => $value];
+        }
+
+        return $positions;
+    }
+
+    /**
+     * The string value a path points at, or an empty string when the path does
+     * not lead to one.
+     *
+     * @param array<array-key, mixed> $node
+     * @param list<string> $path
+     */
+    private function valueAtPath(array $node, array $path): string
+    {
+        $current = $node;
+
+        foreach ($path as $key) {
+            if (!\is_array($current) || !\array_key_exists($key, $current)) {
+                return '';
+            }
+
+            $current = $current[$key];
+        }
+
+        return \is_string($current) ? $current : '';
+    }
+
+    /**
+     * Write a string value at a path, leaving the rest of the structure alone.
+     *
+     * @param array<array-key, mixed> $node
+     * @param list<string> $path
+     */
+    private function setValueAtPath(array &$node, array $path, string $value): void
+    {
+        $current = &$node;
+
+        foreach ($path as $key) {
+            if (!\is_array($current)) {
+                return;
+            }
+
+            if (!\array_key_exists($key, $current)) {
+                return;
+            }
+
+            $current = &$current[$key];
+        }
+
+        $current = $value;
     }
 
     /**
@@ -410,6 +777,16 @@ final class FlexFormVaultHook
         string $fieldPath,
     ): void {
         $value = $fieldData['vDEF'] ?? '';
+
+        // The nested pass of a record duplication: the value is the SOURCE
+        // record's stored identifier, which only looks like a typed secret.
+        // Clear it here and let processCmdmap_postProcess() clone the source
+        // secret into the same position of the copied XML.
+        if ($this->inDuplicationPass && !\is_array($value)) {
+            $fieldData['vDEF'] = '';
+
+            return;
+        }
 
         if (\is_array($value)) {
             $rawSecretValue = $value['value'] ?? $value[0] ?? '';

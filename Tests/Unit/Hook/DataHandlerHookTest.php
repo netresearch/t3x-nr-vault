@@ -712,6 +712,63 @@ final class DataHandlerHookTest extends TestCase
     }
 
     #[Test]
+    public function duplicationPassClearsTheDuplicatedIdentifierInsteadOfStoringIt(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $this->dataHandler->dontProcessTransformations = true;
+        $this->subject->processCmdmap_preProcess('copy', 'tx_test', 42, null, $this->dataHandler, false);
+
+        $this->vaultService->expects(self::never())->method('store');
+
+        $fieldArray = ['api_key' => self::EXISTING_UUID];
+        $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tx_test', 'NEW1', $this->dataHandler);
+
+        self::assertSame(['api_key' => ''], $fieldArray);
+    }
+
+    /**
+     * Without a duplicating command, an identifier-shaped value is just a value
+     * somebody submitted: it must become a NEW secret, never a reference to the
+     * existing one — that would hand the submitter another record's secret.
+     */
+    #[Test]
+    public function anOrdinaryWriteNeverAdoptsASubmittedVaultIdentifier(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $this->dataHandler->dontProcessTransformations = true;
+
+        $fieldArray = ['api_key' => self::EXISTING_UUID];
+        $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tx_test', 'NEW1', $this->dataHandler);
+
+        self::assertNotSame(self::EXISTING_UUID, $fieldArray['api_key']);
+        self::assertIsString($fieldArray['api_key']);
+        self::assertMatchesRegularExpression(self::UUID_PATTERN, $fieldArray['api_key']);
+    }
+
+    #[Test]
+    public function theDuplicationContextEndsWithTheCommand(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $this->dataHandler->dontProcessTransformations = true;
+        $this->subject->processCmdmap_preProcess('copy', 'tx_test', 42, null, $this->dataHandler, false);
+        $this->subject->processCmdmap_postProcess('copy', 'tx_test', 42, null, $this->dataHandler, false);
+
+        $fieldArray = ['api_key' => self::EXISTING_UUID];
+        $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tx_test', 'NEW1', $this->dataHandler);
+
+        self::assertNotSame('', $fieldArray['api_key']);
+    }
+
+    #[Test]
     public function cmdmapPostProcessIgnoresNonCopyCommands(): void
     {
         $this->vaultService
