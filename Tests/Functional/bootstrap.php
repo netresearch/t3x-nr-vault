@@ -14,7 +14,7 @@ declare(strict_types=1);
  */
 
 // Load the general test bootstrap first
-require_once dirname(__DIR__) . '/bootstrap.php';
+require_once __DIR__ . '/../bootstrap.php';
 
 // Additional functional test setup can be added here
 // For TYPO3 functional tests, the FunctionalTestCase handles most setup
