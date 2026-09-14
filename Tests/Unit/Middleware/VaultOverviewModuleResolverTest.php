@@ -52,10 +52,18 @@ final class VaultOverviewModuleResolverTest extends TestCase
     /**
      * TYPO3 14 honours `showSubmoduleOverview` itself. Rewriting there would
      * swap the module for no reason and change what the module menu highlights.
+     *
+     * The scenario cannot exist on TYPO3 13.4: `hasSubmoduleOverview()` is not
+     * on ModuleInterface there, which is exactly what the production guard
+     * asks. Skipped rather than asserted on that leg of the matrix.
      */
     #[Test]
     public function parentRouteIsLeftAloneWhereCoreShowsTheOverviewItself(): void
     {
+        if (!self::coreKnowsSubmoduleOverview()) {
+            self::markTestSkipped('TYPO3 13.4 has no ModuleInterface::hasSubmoduleOverview()');
+        }
+
         $parent = $this->vaultParentModule(true, $this->module('admin_vault_overview'));
         $route = new Route('/module/admin/vault', ['module' => $parent]);
 
@@ -123,12 +131,26 @@ final class VaultOverviewModuleResolverTest extends TestCase
         return $handler;
     }
 
+    /**
+     * Whether the running core's ModuleInterface carries
+     * `hasSubmoduleOverview()`. TYPO3 14 has it, 13.4 does not — the same
+     * question the middleware asks before calling it, and a method that does
+     * not exist cannot be configured on a stub either.
+     */
+    private static function coreKnowsSubmoduleOverview(): bool
+    {
+        return method_exists(ModuleInterface::class, 'hasSubmoduleOverview');
+    }
+
     private function vaultParentModule(bool $hasSubmoduleOverview, ?ModuleInterface $overview): ModuleInterface
     {
         $module = self::createStub(ModuleInterface::class);
         $module->method('getIdentifier')->willReturn('admin_vault');
-        $module->method('hasSubmoduleOverview')->willReturn($hasSubmoduleOverview);
         $module->method('getSubModule')->willReturn($overview);
+
+        if (self::coreKnowsSubmoduleOverview()) {
+            $module->method('hasSubmoduleOverview')->willReturn($hasSubmoduleOverview);
+        }
 
         return $module;
     }
@@ -137,8 +159,11 @@ final class VaultOverviewModuleResolverTest extends TestCase
     {
         $module = self::createStub(ModuleInterface::class);
         $module->method('getIdentifier')->willReturn($identifier);
-        $module->method('hasSubmoduleOverview')->willReturn(false);
         $module->method('getSubModule')->willReturn(null);
+
+        if (self::coreKnowsSubmoduleOverview()) {
+            $module->method('hasSubmoduleOverview')->willReturn(false);
+        }
 
         return $module;
     }
