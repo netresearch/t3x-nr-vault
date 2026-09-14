@@ -59,8 +59,11 @@ use Throwable;
  * A change to any of these signatures then has to be an explicit commit — a
  * visible `api-surface.txt` diff — rather than a side effect. The failure
  * message is classified by ApiSurfaceDiff: additive (a new class, method,
- * property) may simply be regenerated; breaking (removed or changed) is a
- * decision, per AGENTS.md's "Ask First" rule for interface signatures.
+ * property) may simply be regenerated; breaking (removed or changed, or a
+ * method added to an interface marked `#[ExtensionPoint]`, which breaks
+ * every implementation) is a decision, per AGENTS.md's "Ask First" rule for
+ * interface signatures. The mark is rendered into the declaration line, so
+ * the snapshot freezes which interfaces are extension points as well.
  *
  * To update intentionally: delete `api-surface.txt`, run the unit suite
  * twice (first run regenerates the file and fails, second is green), and

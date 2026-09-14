@@ -35,6 +35,8 @@ services:
       - '../Classes/Upgrades/AuditHmacMigrationWizard.php'
       - '../Classes/Upgrades/AuditHmacMigrationWizardV13.php'
       - '../Classes/Upgrades/AuditHmacMigrationWizardTrait.php'
+      # PHP attributes are metadata, not services.
+      - '../Classes/Attribute/*'
 
   # ----- Interface aliases -------------------------------------------------
   # Symfony's `autoconfigure` auto-aliases an interface to its single

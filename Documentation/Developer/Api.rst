@@ -8,6 +8,54 @@ API
 
 This chapter documents the public API of the nr-vault extension.
 
+.. _api-extension-points:
+
+Extension points and the compatibility promise
+==============================================
+
+Most interfaces in this chapter are for *calling*.
+Six are for *implementing*: an extension plugs its own code into nr-vault
+through them.
+They carry the :php:`#[\Netresearch\NrVault\Attribute\ExtensionPoint]`
+attribute, and the test suite checks this list against that attribute:
+
+*   ``Netresearch\NrVault\Adapter\VaultAdapterInterface`` — a storage backend
+    (:ref:`developer-custom-adapters`)
+*   ``Netresearch\NrVault\Crypto\MasterKeyProviderInterface`` — a master-key
+    source
+*   ``Netresearch\NrVault\Audit\Sink\AuditSinkInterface`` — an external
+    destination for audit evidence
+*   ``Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface`` — re-wraps
+    the envelopes a consuming extension stores itself
+    (:ref:`api-foreign-envelope-rotator`)
+*   ``Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface`` — an
+    additional ``vault:doctor`` control
+*   ``Netresearch\NrVault\Http\CancellationSignalInterface`` — a caller-owned
+    cancellation signal for a secure outbound send
+    (:ref:`api-http-cancellable`)
+
+A new method means different things to a caller and to an implementation, so
+the two kinds of interface carry different promises:
+
+Extension points
+    No method is added, and no method signature changes, outside a major
+    release — not even by an optional parameter.
+    PHP refuses to load a class whose methods no longer match its interface,
+    so either change would break every existing implementation.
+    A new capability arrives as a separate interface that an implementation
+    may additionally implement and a caller detects with ``instanceof``, the
+    way ``CancellableHttpClientInterface`` joined ``VaultHttpClientInterface``.
+
+All other interfaces
+    Are for calling.
+    A minor release may add methods to them; existing calls keep working.
+    Implementing one of them outside this package is not supported, and such
+    an implementation may stop loading after any update.
+
+Removing or changing anything a caller uses — a method, a parameter, an enum
+backing value, an exception class — is a breaking change for either kind and
+waits for a major release.
+
 .. _api-vault-service:
 
 VaultService

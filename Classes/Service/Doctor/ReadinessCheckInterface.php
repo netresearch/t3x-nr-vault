@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Service\Doctor;
 
+use Netresearch\NrVault\Attribute\ExtensionPoint;
 use Netresearch\NrVault\Configuration\SecurityProfile;
 
 /**
@@ -31,6 +32,7 @@ use Netresearch\NrVault\Configuration\SecurityProfile;
  *     finding — that safety net exists so one broken check cannot blank the
  *     report, not as the normal error path.
  */
+#[ExtensionPoint]
 interface ReadinessCheckInterface
 {
     /**
