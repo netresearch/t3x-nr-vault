@@ -67,9 +67,13 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
  */
 final class UpgradeFixtureGenerator extends FunctionalTestCase
 {
+    /**
+     * nr-vault's own tables and its anchor row. Users and groups stay in
+     * `restore_users.csv`, which the test imports next to the data set: a
+     * `be_users`/`be_groups` export carries the columns of the core it ran on
+     * (TYPO3 14's `tsconfig_includes`, for one) and would not import on 13.
+     */
     private const EXPORTED_TABLES = [
-        'be_groups',
-        'be_users',
         'tx_nrvault_secret',
         'tx_nrvault_secret_begroups_mm',
         'tx_nrvault_secret_writegroups_mm',

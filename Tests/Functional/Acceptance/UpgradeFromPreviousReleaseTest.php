@@ -67,7 +67,14 @@ final class UpgradeFromPreviousReleaseTest extends AbstractVaultFunctionalTestCa
         'install',
     ];
 
-    /** The fixture data sets carry their own users and groups. */
+    /**
+     * The users and groups the data sets were generated with. Kept out of the
+     * data sets themselves, whose core tables would carry one TYPO3 major's
+     * columns.
+     */
+    protected ?string $backendUserFixture = __DIR__ . '/Fixtures/restore_users.csv';
+
+    /** Each test logs in after importing its data set. */
     protected ?int $backendUserUid = null;
 
     /** @var array<string, mixed> */
