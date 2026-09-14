@@ -872,7 +872,7 @@ final class AuditLogServiceTest extends TestCase
         // Capture the entry_hash and crdate written during insert/update
         $hmacHash = '';
         $capturedCrdate = 0;
-        $this->connection
+        $this->connectionMock()
             ->expects(self::atLeastOnce())
             ->method('insert')
             ->with(
@@ -884,7 +884,7 @@ final class AuditLogServiceTest extends TestCase
                 }),
             );
 
-        $this->connection
+        $this->connectionMock()
             ->expects(self::atLeastOnce())
             ->method('update')
             ->with(
@@ -1793,7 +1793,7 @@ final class AuditLogServiceTest extends TestCase
         $this->setupDatabaseMocks();
 
         $capturedData = null;
-        $this->connection
+        $this->connectionMock()
             ->expects(self::atLeastOnce())
             ->method('insert')
             ->with(
@@ -2612,7 +2612,7 @@ final class AuditLogServiceTest extends TestCase
             . 'for https://api.example.com/data?api_key=' . $secret;
 
         $captured = null;
-        $this->connection
+        $this->connectionMock()
             ->expects(self::atLeastOnce())
             ->method('insert')
             ->with(
