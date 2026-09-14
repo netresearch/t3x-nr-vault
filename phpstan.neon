@@ -132,6 +132,14 @@ parameters:
     # TYPO3-specific settings
     treatPhpDocTypesAsCertain: false
 
+    typo3:
+        # `route` is set by core's backend-routing middleware and read by every
+        # middleware that runs after it (core's own BackendModuleValidator does
+        # the same). Declaring its type here is what phpstan-typo3's
+        # requestAttributeValidation rule asks for.
+        requestGetAttributeMapping:
+            route: TYPO3\CMS\Backend\Routing\Route
+
     # Type coverage
     typeAliases:
         SecretOptions: 'array{owner?: int, groups?: int[], context?: string, description?: string, metadata?: array<string, mixed>, pid?: int, expiresAt?: int|\DateTimeInterface}'
