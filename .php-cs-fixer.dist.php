@@ -20,6 +20,7 @@ $finder = Finder::create()
     ->append([
         __DIR__ . '/Build/Scripts/collect-evidence.php',
         __DIR__ . '/Build/Scripts/collect-evidence-selftest.php',
+        __DIR__ . '/Build/Scripts/merge-coverage.php',
     ])
     ->ignoreDotFiles(false)
     ->ignoreVCSIgnored(true);
