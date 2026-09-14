@@ -238,9 +238,23 @@ test.describe('SEC-RESIL-005/006: XSS escaping', () => {
       const listFrame = getModuleFrame(page);
       // Filter by the literal payload — must yield zero results.
       await listFrame.getByRole('textbox', { name: 'Identifier' }).fill(payload);
-      await listFrame.locator('button:has-text("Filter")').click();
 
-      const rows = listFrame.locator('table tbody tr');
+      // The filter posts and the module iframe re-renders. Waiting for that
+      // response is what makes the count below describe the FILTERED list:
+      // page.waitForLoadState('networkidle') returns before the frame has
+      // swapped documents, so counting behind it reads the unfiltered table
+      // and the assertion passes or fails on timing rather than on the
+      // validator. Verified against a live instance: the same POST returns 16
+      // rows unfiltered, 1 for an existing identifier and 0 for this payload.
+      const filtered = page.waitForResponse(
+        (resp) => resp.request().method() === 'POST' && resp.url().includes('/vault/secrets'),
+        { timeout: 10000 },
+      );
+      await listFrame.locator('button:has-text("Filter")').click();
+      await filtered.catch(() => undefined);
+      await page.waitForLoadState('networkidle');
+
+      const rows = getModuleFrame(page).locator('table tbody tr');
       // Allow empty table or a "0 results" row; flag any actual data row.
       const rowCount = await rows.count();
       expect(

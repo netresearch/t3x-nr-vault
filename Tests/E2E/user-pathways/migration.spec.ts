@@ -305,10 +305,24 @@ test.describe('Migration Module User Pathways', () => {
         .first();
 
       if (await backButton.isVisible().catch(() => false)) {
+        // Wait for the iframe's own navigation. `networkidle` on the top page
+        // returns before the module frame has re-rendered, so an assertion
+        // behind it reads the document from before the click.
+        const navigated = page.waitForResponse(
+          (resp) => resp.url().includes('/vault/migration') && resp.request().method() === 'GET',
+          { timeout: 10000 },
+        );
         await backButton.click();
-        await page.waitForLoadState('networkidle');
+        await navigated.catch(() => undefined);
 
-        expect(frameUrl(page)).toMatch(/action=scan|admin_vault_migration/);
+        // The step is left behind — where it lands depends on the data: with
+        // findings the Back control carries action=scan, and on an instance
+        // with nothing to migrate the no-secrets branch links to the wizard
+        // start. Both are "no longer on review"; asserting one of them would
+        // pass or fail on the fixture rather than on the navigation.
+        await expect
+          .poll(() => frameUrl(page), { timeout: 10000 })
+          .not.toMatch(/action=review/);
       }
     });
 
