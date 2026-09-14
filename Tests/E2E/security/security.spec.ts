@@ -1,5 +1,5 @@
 import { test as base, expect, Page } from '@playwright/test';
-import { test, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import { test, getModuleFrame, waitForModuleContent, ADMIN_USERNAME, ADMIN_PASSWORD } from '../fixtures/auth';
 
 /**
  * Security and resilience E2E tests for nr-vault.
@@ -371,8 +371,8 @@ test.describe('SEC-RESIL-009: Concurrent edit — two tabs on same secret', () =
     // Login both.
     for (const p of [pageA, pageB]) {
       await p.goto('/typo3/login');
-      await p.fill('input[name="username"]', 'admin');
-      await p.fill('input[type="password"]', 'Joh316!!');
+      await p.fill('input[name="username"]', ADMIN_USERNAME);
+      await p.fill('input[type="password"]', ADMIN_PASSWORD);
       await p.click('button[type="submit"]');
       await p.waitForURL(/\/typo3\/(main|module)/);
     }
