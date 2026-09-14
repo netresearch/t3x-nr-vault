@@ -50,6 +50,23 @@ final class SecureHttpClientFactoryTest extends TestCase
         self::assertInstanceOf(ClientInterface::class, $client);
     }
 
+    /**
+     * Without platform HTTP settings the client is the hardened one: `debug`
+     * off so request bodies carrying secrets are never dumped, `http_errors`
+     * off so failures reach the audit log instead of throwing past it, and
+     * redirects off so a 3xx cannot replay an injected credential at another
+     * origin.
+     */
+    #[Test]
+    public function createDefaultsToTheHardenedTransportOptions(): void
+    {
+        $config = $this->getGuzzleConfig($this->factory->create());
+
+        self::assertFalse($config['debug'] ?? null);
+        self::assertFalse($config['http_errors'] ?? null);
+        self::assertFalse($config['allow_redirects'] ?? null);
+    }
+
     #[Test]
     public function createWithTypo3HttpConfig(): void
     {

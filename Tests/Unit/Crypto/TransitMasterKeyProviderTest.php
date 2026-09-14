@@ -15,6 +15,7 @@ use Netresearch\NrVault\Configuration\Dto\TransitConfig;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\TransitMasterKeyProvider;
 use Netresearch\NrVault\Exception\MasterKeyException;
+use Netresearch\NrVault\Tests\Unit\Fixtures\FailingStreamWrapper;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use Netresearch\NrVault\Tests\Unit\Traits\ErrorSuppressionTrait;
 use org\bovigo\vfs\vfsStream;
@@ -380,6 +381,41 @@ final class TransitMasterKeyProviderTest extends TestCase
         );
 
         self::assertSame(['vault-master.key.transit'], $names);
+    }
+
+    /**
+     * A wrapped key that never reached its final name is a lost master key, not
+     * a completed store: the refused move must surface, and the temporary copy
+     * of the ciphertext must not be left behind next to the key path.
+     */
+    #[Test]
+    public function storeMasterKeyReportsARefusedMoveIntoPlaceAndRemovesTheTemporaryFile(): void
+    {
+        FailingStreamWrapper::register(FailingStreamWrapper::MODE_RENAME_REFUSED);
+
+        try {
+            $client = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
+            $provider = $this->createProvider(
+                $client,
+                $this->transitConfig(wrappedKeyPath: FailingStreamWrapper::path('vault-master.key.transit')),
+            );
+
+            $thrown = null;
+
+            try {
+                $provider->storeMasterKey(random_bytes(32));
+            } catch (MasterKeyException $e) {
+                $thrown = $e;
+            }
+
+            self::assertInstanceOf(MasterKeyException::class, $thrown);
+            $renames = FailingStreamWrapper::renames();
+            self::assertCount(1, $renames);
+            self::assertSame(FailingStreamWrapper::path('vault-master.key.transit'), $renames[0]['to']);
+            self::assertSame([$renames[0]['from']], FailingStreamWrapper::unlinks());
+        } finally {
+            FailingStreamWrapper::unregister();
+        }
     }
 
     #[Test]

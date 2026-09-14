@@ -264,6 +264,26 @@ final class AccessControlServiceIsGrantedTest extends TestCase
     }
 
     /**
+     * The `_cli_` placeholder record before login carries uid 0, and a driver
+     * may deliver it as the string "0". That is still the unauthenticated
+     * placeholder: the CLI trust switch decides, exactly as for an int 0.
+     */
+    #[Test]
+    public function commandLineUserWithAStringZeroUidIsTreatedAsUnauthenticated(): void
+    {
+        $this->configuration->method('isCliAccessAllowed')->willReturn(true);
+        $this->configuration->method('getCliAllowedOperations')->willReturn(['secret.reveal']);
+
+        $cliUser = $this->createMock(CommandLineUserAuthentication::class);
+        /** @phpstan-ignore property.internal */
+        $cliUser->user = ['uid' => '0'];
+
+        $GLOBALS['BE_USER'] = $cliUser;
+
+        self::assertTrue($this->subject->isGranted(VaultPermission::SecretReveal));
+    }
+
+    /**
      * The mirror case: an AUTHENTICATED `_cli_` user keeps user-based
      * semantics, and a driver that returns the uid as a string must not push
      * it back onto the unauthenticated branch — where its grants would come

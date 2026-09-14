@@ -134,6 +134,37 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         self::assertTrue($success);
     }
 
+    /**
+     * The token request carries the client credentials. An async send inherits
+     * the CLIENT default for `allow_redirects`, and an install that enabled
+     * redirects in TYPO3_CONF_VARS would otherwise replay those credentials at
+     * whatever the token endpoint redirects to. Redirects and http_errors are
+     * therefore pinned per request; the bottom handler sees the options after
+     * the redirect middleware, which turns `true` into its settings array.
+     */
+    #[Test]
+    public function theTokenRequestPinsRedirectsOffEvenWhenTheClientFollowsThem(): void
+    {
+        $this->programCredentialReads(expectRead: true);
+        $this->blockingClient->expects(self::never())->method('sendRequest');
+
+        $transfer = new TokenTransfer();
+        $ticker = new TokenLoopTicker(static function () use ($transfer): void {
+            $transfer->settleWith(self::tokenResponse('pinned-access-token'));
+        });
+
+        $rows = [];
+        $subject = $this->managerWith($transfer, $ticker, $rows, clientFollowsRedirects: true);
+
+        self::assertSame('pinned-access-token', $subject->getAccessToken($this->config(), new TokenNeverCancelledSignal()));
+
+        $options = $transfer->options();
+        self::assertArrayHasKey('allow_redirects', $options);
+        self::assertFalse($options['allow_redirects']);
+        self::assertArrayHasKey('http_errors', $options);
+        self::assertFalse($options['http_errors']);
+    }
+
     #[Test]
     public function anInFlightCancellationAbortsTheTokenTransferAndAuditsIt(): void
     {
@@ -343,9 +374,13 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         );
     }
 
-    private function programCredentialReads(): void
+    private function programCredentialReads(bool $expectRead = false): void
     {
-        $this->vaultService
+        $retrieve = $expectRead
+            ? $this->vaultService->expects(self::atLeastOnce())
+            : $this->vaultService;
+
+        $retrieve
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
                 self::CLIENT_ID_SECRET => 'my-client-id',
@@ -368,6 +403,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         TokenLoopTicker $ticker,
         array &$rows,
         float $wallClockBudgetSeconds = 45.0,
+        bool $clientFollowsRedirects = false,
     ): OAuthTokenManager {
         $rows = [];
         $auditLogService = self::createStub(AuditLogServiceInterface::class);
@@ -388,8 +424,15 @@ final class OAuthTokenManagerCancellableTest extends TestCase
                 },
             );
 
+        $clientConfig = ['handler' => HandlerStack::create($transfer->handler())];
+        if ($clientFollowsRedirects) {
+            // What SecureHttpClientFactory builds on an install whose
+            // TYPO3_CONF_VARS[HTTP][allow_redirects] turns redirects on.
+            $clientConfig['allow_redirects'] = true;
+        }
+
         $transport = new CancellableTransport(
-            new Client(['handler' => HandlerStack::create($transfer->handler())]),
+            new Client($clientConfig),
             $ticker,
             $wallClockBudgetSeconds,
         );
@@ -447,6 +490,9 @@ final class TokenTransfer
 
     private int $waitCalls = 0;
 
+    /** @var array<int|string, mixed> */
+    private array $options = [];
+
     /**
      * @return Closure(RequestInterface, array<int|string, mixed>): PromiseInterface
      */
@@ -454,6 +500,7 @@ final class TokenTransfer
     {
         return function (RequestInterface $request, array $options): PromiseInterface {
             $this->request = $request;
+            $this->options = $options;
             ++$this->transferCount;
 
             $promise = new Promise(
@@ -485,6 +532,17 @@ final class TokenTransfer
     public function request(): ?RequestInterface
     {
         return $this->request;
+    }
+
+    /**
+     * The request options as they arrived at the bottom of the handler stack,
+     * i.e. after every middleware (redirect, http_errors) has seen them.
+     *
+     * @return array<int|string, mixed>
+     */
+    public function options(): array
+    {
+        return $this->options;
     }
 
     public function wasReached(): bool

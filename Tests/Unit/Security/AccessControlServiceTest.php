@@ -205,6 +205,23 @@ final class AccessControlServiceTest extends TestCase
     }
 
     /**
+     * The mirror case: a driver that hands `disable` over as the string "1"
+     * describes a disabled account, and a stale session for it must be refused
+     * just like one carrying the integer.
+     */
+    #[Test]
+    public function backendUserWithADisableColumnOfStringOneIsDisabled(): void
+    {
+        $backendUser = $this->createMockBackendUser(uid: 5);
+        /** @phpstan-ignore property.internal */
+        $backendUser->user = ['uid' => 5, 'username' => 'string_columns', 'disable' => '1'];
+
+        $GLOBALS['BE_USER'] = $backendUser;
+
+        self::assertFalse($this->subject->canCreate());
+    }
+
+    /**
      * A session record without a usable uid must not accidentally *own*
      * anything: the fallback uid is the one value no real be_users row can
      * carry, so no owner check can match it.

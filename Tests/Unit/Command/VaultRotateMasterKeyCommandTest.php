@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
 use Doctrine\DBAL\Result;
+use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainAnchorLoad;
 use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
 use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
@@ -495,6 +496,9 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->method('getConnectionForTable')
             ->willReturn($connection);
 
+        $auditRows = [];
+        $this->recordAuditRows($auditRows);
+
         $exitCode = $this->commandTester->execute([
             '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
             '--new-key' => $this->createKeyFile('new', str_repeat('b', 32)),
@@ -503,6 +507,9 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('rolled back', $this->commandTester->getDisplay());
+        // Every rotation attempt is audited, the rolled-back one included: the
+        // start row alone would read as a rotation still in progress.
+        self::assertSame([AuditAction::MasterKeyRotateEnd->value, false], end($auditRows));
     }
 
     #[Test]
@@ -910,11 +917,15 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $this->auditChainRekeyService->expects(self::never())->method('rekeyChain');
         $this->eventDispatcher->expects(self::never())->method('dispatch');
 
+        $auditRows = [];
+        $this->recordAuditRows($auditRows);
+
         $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
         $exitCode = $tester->execute($this->rotationInput());
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('inventoried 10', $tester->getDisplay());
+        self::assertSame([AuditAction::MasterKeyRotateEnd->value, false], end($auditRows));
     }
 
     #[Test]
@@ -1080,6 +1091,23 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
         return $connection;
+    }
+
+    /**
+     * Record every audit row the command writes as `[action, success]`.
+     *
+     * @param list<array{0: string, 1: bool}> $rows
+     *
+     * @param-out list<array{0: string, 1: bool}> $rows
+     */
+    private function recordAuditRows(array &$rows): void
+    {
+        $rows = [];
+        $this->auditLogService
+            ->method('log')
+            ->willReturnCallback(static function (string $identifier, string $action, bool $success) use (&$rows): void {
+                $rows[] = [$action, $success];
+            });
     }
 
     private function createRotator(int $envelopes, ?int $rewrapped = null): ForeignEnvelopeRotatorInterface&MockObject
