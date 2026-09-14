@@ -268,8 +268,9 @@ final class DataHandlerHook
             return;
         }
 
-        // Preflight: a vault delete is a HARD delete with no restore path, so a
-        // partially applied multi-field cleanup cannot be compensated. Assert
+        // Preflight: a vault delete cannot be undone through the vault (no
+        // restore path), so a partially applied multi-field cleanup cannot be
+        // compensated. Assert
         // every field's delete gate BEFORE removing the first secret — a record
         // whose second field is denied must lose neither secret.
         foreach ($identifiers as $fieldName => $vaultIdentifier) {
