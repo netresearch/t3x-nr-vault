@@ -434,7 +434,7 @@ final class SecretDetectionServiceTest extends TestCase
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
         // Extension throws exception (no config)
-        $this->extensionConfiguration->method('get')
+        $this->extensionConfiguration->expects(self::atLeastOnce())->method('get')
             ->with('test_extension')
             ->willThrowException(new Exception('No configuration'));
 
@@ -453,7 +453,7 @@ final class SecretDetectionServiceTest extends TestCase
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
         // Return config with a secret-like key and plaintext value
-        $this->extensionConfiguration->method('get')
+        $this->extensionConfiguration->expects(self::atLeastOnce())->method('get')
             ->with('test_ext')
             ->willReturn([
                 'apiKey' => 'plaintext_api_key_value_not_encrypted',
@@ -473,7 +473,7 @@ final class SecretDetectionServiceTest extends TestCase
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
         // Return config with vault reference
-        $this->extensionConfiguration->method('get')
+        $this->extensionConfiguration->expects(self::atLeastOnce())->method('get')
             ->with('test_ext')
             ->willReturn([
                 'apiKey' => '%vault(my_api_key)%',
@@ -493,7 +493,7 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
-        $this->extensionConfiguration->method('get')
+        $this->extensionConfiguration->expects(self::atLeastOnce())->method('get')
             ->with('test_ext')
             ->willReturn([
                 'smtp' => [
@@ -514,7 +514,7 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
-        $this->extensionConfiguration->method('get')
+        $this->extensionConfiguration->expects(self::atLeastOnce())->method('get')
             ->with('test_ext')
             ->willReturn([
                 'password' => '',
@@ -534,7 +534,7 @@ final class SecretDetectionServiceTest extends TestCase
 
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
-        $this->extensionConfiguration->method('get')
+        $this->extensionConfiguration->expects(self::atLeastOnce())->method('get')
             ->with('test_ext')
             ->willReturn([
                 'password' => 12345,
@@ -669,7 +669,7 @@ final class SecretDetectionServiceTest extends TestCase
         $intColumn->method('getName')->willReturn('password_reset_count');
         $intColumn->method('getType')->willReturn(new IntegerType());
 
-        $schemaManager->method('listTableColumns')
+        $schemaManager->expects(self::atLeastOnce())->method('listTableColumns')
             ->with('test_table')
             ->willReturn(['password_reset_count' => $intColumn]);
 
@@ -695,7 +695,7 @@ final class SecretDetectionServiceTest extends TestCase
         $secretColumn->method('getType')->willReturn(new StringType());
 
         $schemaManager->method('listTableNames')->willReturn(['tx_myext_config']);
-        $schemaManager->method('listTableColumns')
+        $schemaManager->expects(self::atLeastOnce())->method('listTableColumns')
             ->with('tx_myext_config')
             ->willReturn(['api_secret' => $secretColumn]);
 
@@ -737,7 +737,7 @@ final class SecretDetectionServiceTest extends TestCase
         $passwordColumn->method('getType')->willReturn(new StringType());
 
         $schemaManager->method('listTableNames')->willReturn(['be_users']);
-        $schemaManager->method('listTableColumns')
+        $schemaManager->expects(self::atLeastOnce())->method('listTableColumns')
             ->with('be_users')
             ->willReturn(['password' => $passwordColumn]);
 
@@ -783,7 +783,7 @@ final class SecretDetectionServiceTest extends TestCase
         $secretColumn->method('getType')->willReturn(new StringType());
 
         $schemaManager->method('listTableNames')->willReturn(['tx_myext_config']);
-        $schemaManager->method('listTableColumns')
+        $schemaManager->expects(self::atLeastOnce())->method('listTableColumns')
             ->with('tx_myext_config')
             ->willReturn(['api_secret' => $secretColumn]);
         $connection->method('createSchemaManager')->willReturn($schemaManager);
@@ -1086,7 +1086,7 @@ final class SecretDetectionServiceTest extends TestCase
         $this->packageManager->method('getActivePackages')->willReturn([$package]);
 
         // Extension returns non-array config — should be ignored
-        $this->extensionConfiguration->method('get')
+        $this->extensionConfiguration->expects(self::atLeastOnce())->method('get')
             ->with('test_ext')
             ->willReturn('not-an-array');
 

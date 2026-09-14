@@ -127,6 +127,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationInjectsBearerToken(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('secret-token-123');
@@ -158,6 +159,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationInjectsApiKeyHeader(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('key-abc-123');
@@ -187,6 +189,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationInjectsCustomHeader(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('custom-value');
@@ -221,6 +224,7 @@ final class VaultHttpClientTest extends TestCase
     {
         // FAL/DeepL-style "Authorization: <scheme> <secret>" schemes that Bearer can't express.
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('fal-secret');
@@ -254,6 +258,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationInjectsBasicAuthFromCombinedSecret(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_credentials')
             ->willReturn('user:pass123');
@@ -320,6 +325,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationInjectsQueryParam(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('query-key-value');
@@ -367,6 +373,7 @@ final class VaultHttpClientTest extends TestCase
     public function queryParamInjectionProducesTheExactQueryString(string $suffix, string $expected): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('query-key-value');
@@ -395,6 +402,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationInjectsCustomQueryParam(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('token123');
@@ -428,6 +436,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationAppendsToExistingQueryParams(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('key123');
@@ -459,6 +468,7 @@ final class VaultHttpClientTest extends TestCase
     public function sendRequestThrowsOnMissingSecret(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('nonexistent_key')
             ->willReturn(null);
@@ -726,6 +736,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationInjectsBodyFieldJson(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('secret-value');
@@ -761,6 +772,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationInjectsBodyFieldFormData(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_secret')
             ->willReturn('form-secret');
@@ -796,6 +808,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationInjectsCustomBodyField(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('secret-token');
@@ -839,6 +852,7 @@ final class VaultHttpClientTest extends TestCase
     public function injectBodyFieldRejectsJsonArrayBody(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('secret-value');
@@ -878,6 +892,7 @@ final class VaultHttpClientTest extends TestCase
     public function injectBodyFieldRejectsJsonObjectThatDecodesToAList(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('secret-value');
@@ -922,6 +937,7 @@ final class VaultHttpClientTest extends TestCase
     public function injectBodyFieldRefusalsCarryTheirDistinctCode(string $body, int $expectedCode): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('secret-value');
@@ -955,6 +971,7 @@ final class VaultHttpClientTest extends TestCase
     public function injectBodyFieldRejectsJsonScalarBody(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('secret-value');
@@ -991,6 +1008,7 @@ final class VaultHttpClientTest extends TestCase
     public function injectBodyFieldRejectsEmptyJsonArrayBody(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('secret-value');
@@ -1028,6 +1046,7 @@ final class VaultHttpClientTest extends TestCase
     public function injectBodyFieldRejectsMalformedJsonBody(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('secret-value');
@@ -1267,6 +1286,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationDefaultHeaderNameForHeaderPlacement(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('header-secret');
@@ -1298,6 +1318,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationInjectsBodyFieldWithEmptyBody(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('secret-value');
@@ -1333,6 +1354,7 @@ final class VaultHttpClientTest extends TestCase
     public function withAuthenticationInjectsBodyFieldWithEmptyFormData(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('form-secret');

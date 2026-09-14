@@ -1330,11 +1330,16 @@ final class AccessControlServiceTest extends TestCase
         $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
         $queryBuilder->method('executeQuery')->willReturn($result);
 
-        $connectionPool = $this->createMock(ConnectionPool::class);
+        // Tests that fail before the group lookup never reach the pool, so it
+        // pins the table without pinning a call count.
+        $connectionPool = self::createStub(ConnectionPool::class);
         $connectionPool
             ->method('getQueryBuilderForTable')
-            ->with('be_groups')
-            ->willReturn($queryBuilder);
+            ->willReturnCallback(static function (string $table) use ($queryBuilder): QueryBuilder {
+                self::assertSame('be_groups', $table);
+
+                return $queryBuilder;
+            });
 
         return new AccessControlService($this->configuration, $connectionPool);
     }
@@ -1425,11 +1430,14 @@ final class AccessControlServiceTest extends TestCase
             $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
             $queryBuilder->method('executeQuery')->willReturn($result);
 
-            $connectionPool = $this->createMock(ConnectionPool::class);
+            $connectionPool = self::createStub(ConnectionPool::class);
             $connectionPool
                 ->method('getQueryBuilderForTable')
-                ->with('be_groups')
-                ->willReturn($queryBuilder);
+                ->willReturnCallback(static function (string $table) use ($queryBuilder): QueryBuilder {
+                    self::assertSame('be_groups', $table);
+
+                    return $queryBuilder;
+                });
         }
 
         return new AccessControlService($this->configuration, $connectionPool, $technicalActorContext);

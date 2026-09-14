@@ -136,7 +136,7 @@ final class LocalEncryptionAdapterTest extends TestCase
         // The disabled-visible lookup, deliberately: a disabled secret is
         // still a secret, and resolving the delete through the restricted
         // lookup would make it a silent no-op for exactly those records.
-        $repository->method('findByIdentifierIncludingDisabled')
+        $repository->expects(self::atLeastOnce())->method('findByIdentifierIncludingDisabled')
             ->with('test')
             ->willReturn($secret);
         $repository->expects(self::never())->method('findByIdentifier');

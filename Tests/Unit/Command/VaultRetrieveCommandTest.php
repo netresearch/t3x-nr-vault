@@ -119,6 +119,7 @@ final class VaultRetrieveCommandTest extends TestCase
         vfsStream::setup('test');
 
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('file-secret')
             ->willReturn('file-content-123');
@@ -185,6 +186,7 @@ final class VaultRetrieveCommandTest extends TestCase
     public function acceptsReasonOption(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('test-secret')
             ->willReturn('value');

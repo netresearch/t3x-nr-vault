@@ -127,6 +127,7 @@ final class VaultServiceTest extends TestCase
             ->willReturn(new EncryptedData('enc_value', 'enc_dek', 'nonce1', 'nonce2', 'checksum'));
 
         $this->adapter
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with($identifier)
             ->willReturn(null);
@@ -203,7 +204,7 @@ final class VaultServiceTest extends TestCase
         $denyingAccessControl = $this->createMock(AccessControlServiceInterface::class);
         $denyingAccessControl->method('getCurrentActorUid')->willReturn(1);
         $denyingAccessControl->method('getCurrentActorType')->willReturn('backend');
-        $denyingAccessControl->method('canWrite')->with($existing)->willReturn(false);
+        $denyingAccessControl->expects(self::atLeastOnce())->method('canWrite')->with($existing)->willReturn(false);
 
         $subject = new VaultService(
             $this->adapter,
@@ -752,11 +753,13 @@ final class VaultServiceTest extends TestCase
         $secret = $this->createSecretEntity($identifier);
 
         $this->adapter
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with($identifier)
             ->willReturn($secret);
 
         $this->accessControlService
+            ->expects(self::atLeastOnce())
             ->method('canRead')
             ->with($secret)
             ->willReturn(true);
@@ -780,6 +783,7 @@ final class VaultServiceTest extends TestCase
     public function retrieveReturnsNullForNonExistentSecret(): void
     {
         $this->adapter
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('nonexistent')
             ->willReturn(null);
@@ -943,6 +947,7 @@ final class VaultServiceTest extends TestCase
         $secret = $this->createSecretEntity($identifier, frontendAccessible: true);
 
         $this->adapter
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with($identifier)
             ->willReturn($secret);
@@ -965,6 +970,7 @@ final class VaultServiceTest extends TestCase
         $secret = $this->createSecretEntity($identifier);
 
         $this->adapter
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with($identifier)
             ->willReturn($secret);
@@ -993,6 +999,7 @@ final class VaultServiceTest extends TestCase
     public function retrieveForFrontendReturnsNullForNonExistentSecret(): void
     {
         $this->adapter
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('nonexistent')
             ->willReturn(null);
@@ -1007,11 +1014,13 @@ final class VaultServiceTest extends TestCase
         $secret = $this->createSecretEntity($identifier);
 
         $this->adapter
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with($identifier)
             ->willReturn($secret);
 
         $this->accessControlService
+            ->expects(self::atLeastOnce())
             ->method('canDelete')
             ->with($secret)
             ->willReturn(true);
@@ -1414,6 +1423,7 @@ final class VaultServiceTest extends TestCase
     public function existsReturnsTrueForExistingSecret(): void
     {
         $this->adapter
+            ->expects(self::atLeastOnce())
             ->method('exists')
             ->with('existing')
             ->willReturn(true);
@@ -1425,6 +1435,7 @@ final class VaultServiceTest extends TestCase
     public function existsReturnsFalseForNonExistent(): void
     {
         $this->adapter
+            ->expects(self::atLeastOnce())
             ->method('exists')
             ->with('nonexistent')
             ->willReturn(false);
@@ -1656,6 +1667,7 @@ final class VaultServiceTest extends TestCase
         $secret = $this->createSecretEntity('api-key-1');
 
         $this->adapter
+            ->expects(self::atLeastOnce())
             ->method('listSecrets')
             ->with(self::callback(static fn ($filters): bool => $filters instanceof SecretFilters && $filters->prefix === 'api-*'))
             ->willReturn([$secret]);
@@ -1818,6 +1830,7 @@ final class VaultServiceTest extends TestCase
     public function listHandlesEmptyPattern(): void
     {
         $this->adapter
+            ->expects(self::atLeastOnce())
             ->method('listSecrets')
             ->with(null)
             ->willReturn([]);

@@ -168,6 +168,7 @@ final class TypoScriptVaultListenerTest extends TestCase
         $event = $this->createEvent('Bearer %vault(auth_token)%', 'auth_token');
 
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieveForFrontend')
             ->with('auth_token')
             ->willReturn('eyJhbGciOiJIUzI1NiJ9');
@@ -183,6 +184,7 @@ final class TypoScriptVaultListenerTest extends TestCase
         $event = $this->createEvent('%vault(my-api_key.v2)%', 'my-api_key.v2');
 
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieveForFrontend')
             ->with('my-api_key.v2')
             ->willReturn('special_secret');

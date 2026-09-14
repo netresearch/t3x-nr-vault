@@ -381,11 +381,17 @@ final class TechnicalActorContextTest extends TestCase
             $userResult->method('fetchAssociative')->willReturnOnConsecutiveCalls(...$userRows);
         }
 
-        $connectionPool = $this->createMock(ConnectionPool::class);
+        // Not every test reaches the lookup (invalid uids are rejected first),
+        // so the pool pins the table without pinning a call count.
+        $queryBuilder = $this->createQueryBuilderMock($userResult);
+        $connectionPool = self::createStub(ConnectionPool::class);
         $connectionPool
             ->method('getQueryBuilderForTable')
-            ->with('be_users')
-            ->willReturn($this->createQueryBuilderMock($userResult));
+            ->willReturnCallback(static function (string $table) use ($queryBuilder): QueryBuilder {
+                self::assertSame('be_users', $table);
+
+                return $queryBuilder;
+            });
 
         return new TechnicalActorContext($connectionPool, $this->createGroupResolver($groupRows));
     }
@@ -404,11 +410,15 @@ final class TechnicalActorContextTest extends TestCase
             ->method('fetchAssociative')
             ->willReturnOnConsecutiveCalls(...[...$groupRows, false]);
 
-        $connectionPool = $this->createMock(ConnectionPool::class);
+        $queryBuilder = $this->createQueryBuilderMock($groupResult);
+        $connectionPool = self::createStub(ConnectionPool::class);
         $connectionPool
             ->method('getQueryBuilderForTable')
-            ->with('be_groups')
-            ->willReturn($this->createQueryBuilderMock($groupResult));
+            ->willReturnCallback(static function (string $table) use ($queryBuilder): QueryBuilder {
+                self::assertSame('be_groups', $table);
+
+                return $queryBuilder;
+            });
 
         $eventDispatcher = $this->createMock(EventDispatcherInterface::class);
         $eventDispatcher->method('dispatch')->willReturnArgument(0);

@@ -873,6 +873,7 @@ final class AuditLogServiceTest extends TestCase
         $hmacHash = '';
         $capturedCrdate = 0;
         $this->connection
+            ->expects(self::atLeastOnce())
             ->method('insert')
             ->with(
                 'tx_nrvault_audit_log',
@@ -884,6 +885,7 @@ final class AuditLogServiceTest extends TestCase
             );
 
         $this->connection
+            ->expects(self::atLeastOnce())
             ->method('update')
             ->with(
                 'tx_nrvault_audit_log',
@@ -1792,6 +1794,7 @@ final class AuditLogServiceTest extends TestCase
 
         $capturedData = null;
         $this->connection
+            ->expects(self::atLeastOnce())
             ->method('insert')
             ->with(
                 'tx_nrvault_audit_log',
@@ -2610,6 +2613,7 @@ final class AuditLogServiceTest extends TestCase
 
         $captured = null;
         $this->connection
+            ->expects(self::atLeastOnce())
             ->method('insert')
             ->with(
                 'tx_nrvault_audit_log',

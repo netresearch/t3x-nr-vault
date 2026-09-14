@@ -70,7 +70,7 @@ final class ExtensionConfigurationTest extends FunctionalTestCase
     private function createConfigurationReturning(array $configuration): Typo3ExtensionConfiguration
     {
         $typo3Config = $this->createMock(Typo3ExtensionConfiguration::class);
-        $typo3Config->method('get')
+        $typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn($configuration);
 
