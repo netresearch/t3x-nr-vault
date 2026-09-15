@@ -10,7 +10,10 @@ Playwright browser E2E tests for the nr-vault TYPO3 backend module. Targets the 
 | File | Purpose |
 |------|---------|
 | `Tests/E2E/vault-module.spec.ts` | Basic module loading |
-| `Tests/E2E/fixtures/auth.ts` | Auth fixture + `getModuleFrame`, `waitForModuleContent` helpers |
+| `Tests/E2E/fixtures/auth.ts` | Auth fixture + `getModuleFrame`, `waitForModuleContent` helpers; admin credentials from `E2E_ADMIN_USERNAME` / `E2E_ADMIN_PASSWORD` (DDEV defaults) |
+| `Tests/E2E/fixtures/db.ts` | `runSql()` — direct SQL through `E2E_DB_EXEC`, or `ddev mysql -N -B` when unset |
+| `Build/Scripts/e2e-provision.sh` | Provisions a TYPO3 instance outside DDEV (CI and local reproduction) |
+| `.github/workflows/e2e.yml` | CI job: chromium against TYPO3 13.4 (PHP 8.2) and 14.3 (PHP 8.5) |
 | `Tests/E2E/user-pathways/secrets.spec.ts` | Secret CRUD + reveal journey |
 | `Tests/E2E/user-pathways/audit.spec.ts` | Audit log workflows |
 | `Tests/E2E/user-pathways/migration.spec.ts` | Migration wizard |
@@ -47,13 +50,27 @@ npx playwright install --with-deps
 | Single file | `npx playwright test user-pathways/secrets.spec.ts` |
 | Headed UI | `npx playwright test --ui` |
 | Debug | `npx playwright test --debug` |
-| Report | `npx playwright show-report` |
+| Report | `npx playwright show-report .Build/playwright-report` |
+| Via make | `make test-e2e` (`npm run test:e2e`) |
+
+### CI (`.github/workflows/e2e.yml`)
+CI does not use DDEV. It provisions each TYPO3 line with `Build/Scripts/e2e-provision.sh` (cms-base-distribution + this checkout as a path repository, `typo3 setup`, `extension:setup`, `vault:seed-demo` — the `install-v14` recipe), serves it with PHP's built-in server on `http://127.0.0.1:8080`, uses a MariaDB 10.11 service container, and runs **chromium only** with **one worker**. Every spec logs in as the same backend admin; with parallel workers TYPO3 itself races (a duplicate `core-formProtectionSessionToken:<uid>` row in `sys_registry` answers HTTP 500, overview counters move under other specs, and TYPO3 13 opens the vault parent module on another worker's last-used submodule). Per-worker backend users would allow parallelism again. On failure the artifact `playwright-typo3-<version>` holds the HTML report, traces, the PHP server log and `var/log`.
+
+Reproduce a CI cell locally without DDEV (needs PHP with `pdo_sqlite`, or `mysqli` plus a MariaDB for the `mysqli` driver):
+```bash
+export E2E_INSTANCE_DIR=/tmp/nr-vault-e2e-v14 TYPO3_VERSION='^14.3' E2E_DB_DRIVER=sqlite
+bash Build/Scripts/e2e-provision.sh
+PHP_CLI_SERVER_WORKERS=8 php -S 127.0.0.1:8080 -t "$E2E_INSTANCE_DIR/public" "$E2E_INSTANCE_DIR/router.php" &
+TYPO3_BASE_URL=http://127.0.0.1:8080 npx playwright test --project=chromium
+```
+With `E2E_DB_DRIVER=sqlite` the audit-tamper spec skips (it needs a MySQL-compatible client). Against a MariaDB, set `E2E_DB_EXEC="mysql -h127.0.0.1 -uroot -N -B typo3"` and `MYSQL_PWD`; once `E2E_DB_EXEC` is set, a failing client fails that spec instead of skipping it.
 
 ## Directory Structure
 ```
 Tests/E2E/
 ├── fixtures/
-│   └── auth.ts
+│   ├── auth.ts
+│   └── db.ts
 ├── user-pathways/
 │   ├── audit.spec.ts
 │   ├── cross-module.spec.ts
@@ -118,7 +135,7 @@ test('Secrets list renders', async ({ authenticatedPage: page }) => {
 | Element not found | Content lives in iframe — use `getModuleFrame(page)` |
 | Timeout waiting | Call `waitForModuleContent(page)` after `goto` |
 | Flaky tests | Generate unique identifiers; replace `waitForTimeout` with `waitFor` |
-| Auth failures | `make up` to ensure DDEV is running |
+| Auth failures | `make up` to ensure DDEV is running; outside DDEV check `E2E_ADMIN_USERNAME` / `E2E_ADMIN_PASSWORD` match the provisioned admin |
 
 - Playwright docs: <https://playwright.dev/docs/intro>
 - Invoke skill: `typo3-testing` for PHP-side integration tips

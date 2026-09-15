@@ -1,4 +1,29 @@
-import { test as base, expect, Page, FrameLocator } from '@playwright/test';
+import { test as base, expect, Page, FrameLocator, APIResponse } from '@playwright/test';
+
+/**
+ * Whether a backend response is TYPO3's redirect to the login form.
+ *
+ * TYPO3 13 answers a backend AJAX request that carries no valid session or
+ * request token with `302 Location: /typo3/login`; TYPO3 14 answers 401/403.
+ * Both reject the request before any extension controller runs. Only
+ * meaningful for requests sent with `maxRedirects: 0` — otherwise Playwright
+ * follows the redirect and reports the login page's 200.
+ */
+export function isLoginRedirect(response: APIResponse): boolean {
+  return (
+    response.status() === 302 &&
+    /^(https?:\/\/[^/]+)?\/typo3\/login(\?|$)/.test(response.headers()['location'] ?? '')
+  );
+}
+
+/**
+ * Backend admin credentials. The defaults are the DDEV instance's
+ * (.ddev/commands/web/install-v14); CI provisions its own throwaway instance
+ * and passes the same values through the environment
+ * (Build/Scripts/e2e-provision.sh). Never point these at a real installation.
+ */
+export const ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME || 'admin';
+export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || 'Joh316!!';
 
 /**
  * Extended test fixture with TYPO3 backend authentication.
@@ -16,9 +41,9 @@ export const test = base.extend<{
     await page.goto('/typo3/login');
 
     // Fill login form
-    await page.fill('input[name="username"]', 'admin');
+    await page.fill('input[name="username"]', ADMIN_USERNAME);
     // TYPO3 uses a visible password field with type="password"
-    await page.fill('input[type="password"]', 'Joh316!!');
+    await page.fill('input[type="password"]', ADMIN_PASSWORD);
 
     // Submit login
     await page.click('button[type="submit"]');

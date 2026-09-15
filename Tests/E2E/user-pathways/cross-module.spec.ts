@@ -174,8 +174,10 @@ test.describe.serial('Cross-Module User Pathways', () => {
       await page.goto('/typo3/module/admin/vault/secrets');
       await waitForModuleContent(page);
 
-      // Check that module menu shows current module
-      const moduleMenu = page.locator('.scaffold-modulemenu');
+      // Check that module menu shows current module. `.scaffold-modulemenu`
+      // exists only in TYPO3 13; both 13 and 14 label the menu landmark
+      // "Module Menu" (same locator as overview.spec.ts).
+      const moduleMenu = page.locator('nav[aria-label="Module Menu"]');
       await expect(moduleMenu).toBeVisible();
     });
 

@@ -166,11 +166,14 @@ class SecretsList {
         if (statusCell) {
             const badge = statusCell.querySelector('.badge');
             if (badge) {
+                // Same accessible classes the Fluid template paints — the live
+                // toggle must not drop the row back onto the core utilities,
+                // whose badge colours fail WCAG AA at this size (backend.css).
                 if (hidden) {
-                    badge.className = 'badge text-bg-secondary';
+                    badge.className = 'badge vault-badge vault-badge-secondary';
                     badge.textContent = 'Disabled';
                 } else {
-                    badge.className = 'badge text-bg-success';
+                    badge.className = 'badge vault-badge vault-badge-success';
                     badge.textContent = 'Active';
                 }
             }
@@ -430,31 +433,53 @@ class SecretsList {
             ]
         });
 
-        // Add toggle visibility event listener
-        setTimeout(() => {
-            const toggleBtn = document.getElementById('rotate-modal-toggle');
-            const input = document.getElementById('rotate-modal-secret');
+        // Wire the dialog's own controls. Two things matter here.
+        //
+        // The fields belong to the modal, which Modal.advanced() renders into
+        // the TOP document while this module runs inside the module iframe.
+        // They must be resolved through findModalElement(), never through this
+        // document alone — a plain document.getElementById() returns null from
+        // inside the iframe, which is what left the rotate dialog inert.
+        //
+        // And focus has to land inside the dialog reliably (WCAG 2.4.3). The
+        // modal moves focus itself when its show transition ends, so a focus
+        // set before that moment is undone again; `typo3-modal-shown` is that
+        // moment. The timer stays as a fallback for a core that does not emit
+        // the event, and focus is (re-)applied on every run while the click
+        // listener is attached only once.
+        let listenersAttached = false;
+        const wireRotateModal = () => {
+            const toggleBtn = this.findModalElement('rotate-modal-toggle');
+            const input = this.findModalElement('rotate-modal-secret');
 
-            if (toggleBtn && input) {
-                toggleBtn.addEventListener('click', () => {
-                    if (input.type === 'password') {
-                        input.type = 'text';
-                    } else {
-                        input.type = 'password';
-                    }
-                });
-
-                // Focus the input
-                input.focus();
+            if (!toggleBtn || !input) {
+                return;
             }
-        }, 100);
+
+            if (!listenersAttached) {
+                listenersAttached = true;
+                toggleBtn.addEventListener('click', () => {
+                    input.type = input.type === 'password' ? 'text' : 'password';
+                });
+            }
+
+            input.focus();
+        };
+
+        modal.addEventListener?.('typo3-modal-shown', wireRotateModal);
+        setTimeout(wireRotateModal, 100);
     }
 
     /**
      * Perform the actual rotation via AJAX.
      */
     async performRotate(modal, identifier) {
-        const input = document.getElementById('rotate-modal-secret');
+        // Same lookup rule as handleRotate(): the input lives in the modal's
+        // document, which is the top one whenever the module runs in an iframe.
+        // Reading it from `document` alone yielded null and turned every
+        // rotation into "Please enter a new secret value" — the endpoint was
+        // never called.
+        const input = this.findModalElement('rotate-modal-secret');
         const newSecret = input?.value || '';
 
         if (!newSecret) {

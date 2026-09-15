@@ -44,6 +44,23 @@ async function readOverviewCount(page: Page, label: RegExp): Promise<number> {
   return Number.NaN;
 }
 
+/**
+ * Confirm the delete dialog the secrets list opens.
+ *
+ * The dialog is a TYPO3 Modal rendered into the TOP document, one animation
+ * frame after the click. `isVisible()` is a point-in-time question — it
+ * answered `false` before the modal had been inserted, the confirmation was
+ * skipped, and the record survived a test that reported success. Waiting for
+ * the button is the assertion: if the dialog never appears, the delete path is
+ * broken and the caller must hear about it.
+ */
+async function confirmDeleteModal(page: Page): Promise<void> {
+  const confirm = page.getByRole('button', { name: 'Delete', exact: true });
+  await confirm.waitFor({ state: 'visible', timeout: 10000 });
+  await confirm.click();
+  await page.waitForLoadState('networkidle');
+}
+
 async function auditRowForIdentifier(
   page: Page,
   identifier: string,
@@ -129,11 +146,7 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
     const deleteButton = frame.locator('button[title*="Delete"]').first();
     if (await deleteButton.isVisible().catch(() => false)) {
       await deleteButton.click();
-      const confirm = page.getByRole('button', { name: 'Delete', exact: true });
-      if (await confirm.isVisible().catch(() => false)) {
-        await confirm.click();
-        await page.waitForLoadState('networkidle');
-      }
+      await confirmDeleteModal(page);
     }
 
     expect(
@@ -203,11 +216,7 @@ test.describe.serial('LC-EXT-002: Rotate produces an audit entry with success=tr
     const delBtn = frame.locator('button[title*="Delete"]').first();
     if (await delBtn.isVisible().catch(() => false)) {
       await delBtn.click();
-      const confirm = page.getByRole('button', { name: 'Delete', exact: true });
-      if (await confirm.isVisible().catch(() => false)) {
-        await confirm.click();
-        await page.waitForLoadState('networkidle');
-      }
+      await confirmDeleteModal(page);
     }
   });
 });
@@ -270,11 +279,7 @@ test.describe.serial('LC-EXT-003: Dashboard counter delta across lifecycle', () 
     const deleteButton = frame.locator('button[title*="Delete"]').first();
     if (await deleteButton.isVisible().catch(() => false)) {
       await deleteButton.click();
-      const confirm = page.getByRole('button', { name: 'Delete', exact: true });
-      if (await confirm.isVisible().catch(() => false)) {
-        await confirm.click();
-        await page.waitForLoadState('networkidle');
-      }
+      await confirmDeleteModal(page);
     }
 
     const afterDeleteTotal = await readOverviewCount(page, /Total Secrets/i);
