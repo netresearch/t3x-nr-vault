@@ -75,7 +75,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Event'))
-            ->shouldBeReadonly()
+            ->should()->beReadonly()
             ->because('events must be immutable for security and predictability');
     }
 
@@ -88,7 +88,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::classname(AuditLogEntry::class))
-            ->shouldBeReadonly()
+            ->should()->beReadonly()
             ->because('audit entries must be immutable for tamper-evidence');
     }
 
@@ -104,7 +104,7 @@ final class ArchitectureTest
                 Selector::classname(OAuthConfig::class),
                 Selector::classname(OAuthToken::class),
             )
-            ->shouldBeReadonly()
+            ->should()->beReadonly()
             ->because('OAuth value objects must be immutable');
     }
 
@@ -115,7 +115,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::classname(VaultHttpClient::class))
-            ->shouldBeReadonly()
+            ->should()->beReadonly()
             ->because('HTTP client uses immutable fluent pattern');
     }
 
@@ -137,7 +137,7 @@ final class ArchitectureTest
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Exception'))
             ->excluding(Selector::classname(VaultException::class))
-            ->shouldBeFinal()
+            ->should()->beFinal()
             ->because('exceptions should not be extended for security');
     }
 
@@ -159,7 +159,7 @@ final class ArchitectureTest
                 Selector::classname(self::SELECTOR_INTERFACE_REGEX, true),
                 Selector::isAbstract(),
             )
-            ->shouldBeFinal()
+            ->should()->beFinal()
             ->because('crypto implementations must not be overridden');
     }
 
@@ -171,7 +171,7 @@ final class ArchitectureTest
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Security'))
             ->excluding(Selector::classname(self::SELECTOR_INTERFACE_REGEX, true))
-            ->shouldBeFinal()
+            ->should()->beFinal()
             ->because('security implementations must not be overridden');
     }
 
@@ -194,7 +194,7 @@ final class ArchitectureTest
                 Selector::classname(self::SELECTOR_INTERFACE_REGEX, true),
                 Selector::classname('/.*Factory$/', true),
             )
-            ->shouldImplement()
+            ->should()->implement()
             ->classes(Selector::classname(self::SELECTOR_INTERFACE_REGEX, true))
             ->because('services should be injected via interfaces for testability');
     }
@@ -289,7 +289,7 @@ final class ArchitectureTest
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Adapter'))
             ->excluding(Selector::classname(self::SELECTOR_INTERFACE_REGEX, true))
-            ->shouldImplement()
+            ->should()->implement()
             ->classes(Selector::classname(VaultAdapterInterface::class))
             ->because('adapters must follow the adapter contract');
     }
@@ -307,7 +307,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace(self::NAMESPACE_SERVICE))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(Selector::inNamespace(self::NAMESPACE_CONTROLLER))
             ->because('services should be independent of the presentation layer');
     }
@@ -321,7 +321,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace(self::NAMESPACE_SERVICE))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(Selector::inNamespace(self::NAMESPACE_COMMAND))
             ->because('services should be independent of CLI commands');
     }
@@ -335,7 +335,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Domain'))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(
                 Selector::inNamespace(self::NAMESPACE_CONTROLLER),
                 Selector::inNamespace(self::NAMESPACE_COMMAND),
@@ -355,7 +355,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace(self::NAMESPACE_CRYPTO))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(
                 Selector::inNamespace('Netresearch\NrVault\Http'),
                 Selector::inNamespace(self::NAMESPACE_CONTROLLER),
@@ -377,7 +377,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Security'))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(
                 Selector::inNamespace('Netresearch\NrVault\Http'),
                 Selector::inNamespace(self::NAMESPACE_CONTROLLER),
@@ -394,7 +394,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace(self::NAMESPACE_HOOK))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(Selector::inNamespace(self::NAMESPACE_CONTROLLER))
             ->because('hooks should use services, not controllers');
     }
@@ -408,7 +408,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace(self::NAMESPACE_COMMAND))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(Selector::inNamespace(self::NAMESPACE_CONTROLLER))
             ->because('CLI commands should not use web controllers');
     }
@@ -461,7 +461,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace(self::NAMESPACE_CONTROLLER))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(Selector::inNamespace(self::NAMESPACE_CRYPTO))
             ->because('controllers should use services for crypto operations');
     }
@@ -481,7 +481,7 @@ final class ArchitectureTest
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Configuration'))
             ->excluding(Selector::classname(SiteConfigurationVaultProcessor::class))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(
                 Selector::inNamespace(self::NAMESPACE_SERVICE),
                 Selector::inNamespace(self::NAMESPACE_CONTROLLER),
@@ -499,7 +499,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\EventListener'))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(
                 Selector::inNamespace(self::NAMESPACE_CONTROLLER),
                 Selector::inNamespace(self::NAMESPACE_COMMAND),
@@ -516,7 +516,7 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault\Utility'))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(
                 Selector::inNamespace(self::NAMESPACE_CONTROLLER),
                 Selector::inNamespace(self::NAMESPACE_COMMAND),
@@ -542,7 +542,7 @@ final class ArchitectureTest
                 Selector::classname(Severity::class),
                 Selector::classname(SecretPlacement::class),
             )
-            ->shouldBeFinal()
+            ->should()->beFinal()
             ->because('enums are implicitly final but this documents intent');
     }
 
@@ -567,7 +567,7 @@ final class ArchitectureTest
         return PHPat::rule()
             ->classes(Selector::inNamespace('Netresearch\NrVault'))
             ->excluding(Selector::inNamespace('Netresearch\NrVault\Tests'))
-            ->shouldNotDependOn()
+            ->shouldNot()->dependOn()
             ->classes(
                 Selector::inNamespace('Netresearch\NrVault\Tests\Unit\Traits'),
                 Selector::inNamespace('Netresearch\NrVault\Tests\Unit\Fixtures'),
