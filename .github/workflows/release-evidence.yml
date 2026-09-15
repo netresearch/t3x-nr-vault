@@ -567,6 +567,7 @@ jobs:
       - name: Report coverage outcome
         if: always()
         env:
+          PLAN: ${{ needs.coverage-plan.result }}
           SUPPORTED: ${{ needs.coverage-plan.outputs.supported }}
           UNIT: ${{ needs.coverage-unit.result }}
           FUNCTIONAL: ${{ needs.coverage-functional.result }}
@@ -575,6 +576,14 @@ jobs:
           MERGE: ${{ steps.merge.outcome }}
         run: |
           set -euo pipefail
+          # A crashed plan job also leaves SUPPORTED empty, and reading that as
+          # "historical release" would turn its failure into a green job whose
+          # bundle merely records coverage as absent. Only a plan that RAN may
+          # answer that question.
+          if [ "$PLAN" != 'success' ]; then
+            echo "::error::The coverage shard plan did not run to completion ($PLAN) — no coverage was measured, and this is a failure of the evidence run rather than an unsupported release."
+            exit 1
+          fi
           if [ "$SUPPORTED" != 'true' ]; then
             echo "::notice::This release predates the coverage merge script — no coverage evidence to collect."
             exit 0
