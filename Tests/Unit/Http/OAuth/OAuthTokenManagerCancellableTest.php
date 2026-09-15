@@ -145,8 +145,10 @@ final class OAuthTokenManagerCancellableTest extends TestCase
     #[Test]
     public function theTokenRequestPinsRedirectsOffEvenWhenTheClientFollowsThem(): void
     {
-        $this->programCredentialReads(expectRead: true);
-        $this->blockingClient->expects(self::never())->method('sendRequest');
+        $this->programCredentialReads();
+        $blockingClient = $this->createMock(ClientInterface::class);
+        $blockingClient->expects(self::never())->method('sendRequest');
+        $this->blockingClient = $blockingClient;
 
         $transfer = new TokenTransfer();
         $ticker = new TokenLoopTicker(static function () use ($transfer): void {
@@ -374,13 +376,9 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         );
     }
 
-    private function programCredentialReads(bool $expectRead = false): void
+    private function programCredentialReads(): void
     {
-        $retrieve = $expectRead
-            ? $this->vaultService->expects(self::atLeastOnce())
-            : $this->vaultService;
-
-        $retrieve
+        $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
                 self::CLIENT_ID_SECRET => 'my-client-id',
