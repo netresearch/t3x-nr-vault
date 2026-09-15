@@ -12,10 +12,11 @@ namespace Netresearch\NrVault\Tests\Unit\Crypto;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderRegistry;
 use Netresearch\NrVault\Exception\ConfigurationException;
+use Netresearch\NrVault\Tests\Unit\Crypto\Fixtures\FirstThirdPartyMasterKeyProvider;
+use Netresearch\NrVault\Tests\Unit\Crypto\Fixtures\SecondThirdPartyMasterKeyProvider;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
-use SensitiveParameter;
 
 #[CoversClass(MasterKeyProviderRegistry::class)]
 final class MasterKeyProviderRegistryTest extends TestCase
@@ -53,7 +54,7 @@ final class MasterKeyProviderRegistryTest extends TestCase
         // "file" and thereby decides which key source protects the vault.
         $subject = new MasterKeyProviderRegistry([
             $this->providerNamed('file'),
-            $this->providerNamed('file'),
+            $this->conflictingProviderNamed('file'),
         ]);
 
         $this->expectException(ConfigurationException::class);
@@ -68,7 +69,7 @@ final class MasterKeyProviderRegistryTest extends TestCase
     {
         $subject = new MasterKeyProviderRegistry([
             $this->providerNamed('kms'),
-            $this->providerNamed('kms'),
+            $this->conflictingProviderNamed('kms'),
         ]);
 
         $this->expectException(ConfigurationException::class);
@@ -81,7 +82,12 @@ final class MasterKeyProviderRegistryTest extends TestCase
     public function theExceptionNamesBothCollidingProviderClasses(): void
     {
         $registered = $this->providerNamed('file');
-        $conflicting = $this->providerNamed('file');
+        $conflicting = $this->conflictingProviderNamed('file');
+
+        // Precondition, not decoration: with one class on both sides the two
+        // assertions below would check the same string and the test would pass
+        // even if the message named a single provider.
+        self::assertNotSame($registered::class, $conflicting::class);
 
         $subject = new MasterKeyProviderRegistry([$registered, $conflicting]);
 
@@ -103,7 +109,7 @@ final class MasterKeyProviderRegistryTest extends TestCase
         $subject = new MasterKeyProviderRegistry([
             $this->providerNamed('env'),
             $this->providerNamed('kms'),
-            $this->providerNamed('kms'),
+            $this->conflictingProviderNamed('kms'),
         ]);
 
         $this->expectException(ConfigurationException::class);
@@ -166,7 +172,7 @@ final class MasterKeyProviderRegistryTest extends TestCase
     {
         $subject = new MasterKeyProviderRegistry([
             $this->providerNamed('file'),
-            $this->providerNamed('file'),
+            $this->conflictingProviderNamed('file'),
         ]);
 
         $this->expectException(ConfigurationException::class);
@@ -190,37 +196,25 @@ final class MasterKeyProviderRegistryTest extends TestCase
 
     /**
      * A provider written against the published interface only, the way a
-     * consuming extension writes one. A fresh anonymous class per call, so a
-     * collision test can tell the two apart by class name.
+     * consuming extension writes one.
+     *
+     * A named fixture class rather than an anonymous one: PHP compiles a single
+     * class per anonymous-class DECLARATION site, so every call to a factory
+     * method returning `new class` hands back the same class name, and a test
+     * comparing two of them by class would compare one string to itself. Use
+     * {@see conflictingProviderNamed()} for the other side of a collision.
      */
     private function providerNamed(string $identifier): MasterKeyProviderInterface
     {
-        return new class ($identifier) implements MasterKeyProviderInterface {
-            public function __construct(private readonly string $identifier) {}
+        return new FirstThirdPartyMasterKeyProvider($identifier);
+    }
 
-            public function getIdentifier(): string
-            {
-                return $this->identifier;
-            }
-
-            public function isAvailable(): bool
-            {
-                return true;
-            }
-
-            public function getMasterKey(): string
-            {
-                return str_repeat('k', 32);
-            }
-
-            public function storeMasterKey(#[SensitiveParameter] string $key): void {}
-
-            public function generateMasterKey(): string
-            {
-                return str_repeat('n', 32);
-            }
-
-            public static function clearCachedKey(): void {}
-        };
+    /**
+     * A second provider, from a genuinely different class, for the cases that
+     * model two extensions claiming one identifier.
+     */
+    private function conflictingProviderNamed(string $identifier): MasterKeyProviderInterface
+    {
+        return new SecondThirdPartyMasterKeyProvider($identifier);
     }
 }

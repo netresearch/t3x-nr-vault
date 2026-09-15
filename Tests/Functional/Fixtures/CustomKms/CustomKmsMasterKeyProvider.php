@@ -60,7 +60,14 @@ final class CustomKmsMasterKeyProvider extends AbstractMasterKeyProvider
         return true;
     }
 
-    public function storeMasterKey(#[SensitiveParameter] string $key): void {}
+    public function storeMasterKey(#[SensitiveParameter] string $key): void
+    {
+        // Deliberately does not persist. The key this fixture hands out is
+        // derived from a constant so the test can compare against it, and
+        // accepting a rotated key would break that determinism for every later
+        // assertion. A real KMS provider writes to its backend here, or throws
+        // MasterKeyException::cannotStore() when the source is read-only.
+    }
 
     public function generateMasterKey(): string
     {
