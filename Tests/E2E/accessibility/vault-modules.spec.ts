@@ -1,4 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
+import type { Page } from '@playwright/test';
 import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
 
 /**
@@ -27,6 +28,55 @@ function filterFailingViolations<T extends { impact?: string | null | undefined 
 ): T[] {
   return violations.filter((v) =>
     FAIL_IMPACTS.includes((v.impact ?? 'minor') as AxeImpact),
+  );
+}
+
+/**
+ * One keyboard step: which element holds focus in the TOP document (where
+ * TYPO3 renders its dialogs), and whether that counts as having left the
+ * dialog.
+ *
+ * A native <dialog> cycles through the document itself, so `<body>` while the
+ * dialog is still open is the browser's wrap point, not an escape. Anything
+ * else outside the dialog is.
+ */
+type FocusStep = { element: string; escaped: boolean };
+
+async function walkFocus(page: Page, key: string, steps: number): Promise<FocusStep[]> {
+  const visited: FocusStep[] = [];
+  for (let i = 0; i < steps; i++) {
+    await page.keyboard.press(key);
+    visited.push(
+      await page.evaluate(() => {
+        const el = document.activeElement;
+        const modal = document.querySelector('typo3-backend-modal');
+        const dialog = modal?.querySelector('dialog');
+        const dialogOpen = modal !== null && (dialog === null || dialog === undefined || dialog.open);
+        if (el === null) {
+          return { element: 'none', escaped: dialogOpen };
+        }
+        const name = `${el.tagName.toLowerCase()}${el.id === '' ? '' : '#' + el.id}`;
+        const inside = modal !== null && modal.contains(el);
+        const atWrapPoint = el === document.body && dialogOpen;
+        return { element: name, escaped: !inside && !atWrapPoint };
+      }),
+    );
+  }
+  return visited;
+}
+
+/**
+ * `data-testid` of whatever holds focus inside the module iframe — the trigger
+ * a dialog must hand focus back to.
+ */
+async function triggerTestId(page: Page): Promise<string> {
+  const iframeHandle = await page.locator('iframe').first().elementHandle();
+  const ownerFrame = iframeHandle === null ? null : await iframeHandle.contentFrame();
+  if (ownerFrame === null) {
+    return 'no-frame';
+  }
+  return ownerFrame.evaluate(
+    () => (document.activeElement as HTMLElement | null)?.dataset?.testid ?? '',
   );
 }
 
@@ -332,23 +382,133 @@ test.describe('Vault Module Accessibility', () => {
       await page.keyboard.press('Escape');
       await modalInput.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => undefined);
 
-      // After close, focus should return to the trigger (WCAG 2.4.3 focus
-      // order). This is best-effort — if TYPO3's modal helper sends focus to
-      // <body>, we annotate but don't fail the suite.
-      const iframeHandle = await page.locator('iframe').first().elementHandle();
-      const ownerFrame = iframeHandle === null ? null : await iframeHandle.contentFrame();
-      const returnedTag =
-        ownerFrame === null
-          ? 'body'
-          : await ownerFrame.evaluate(
-              () => (document.activeElement?.tagName ?? '').toLowerCase(),
-            );
-      if (returnedTag !== 'button') {
-        test.info().annotations.push({
-          type: 'warning',
-          description: `After closing rotate modal, focus landed on <${returnedTag}> instead of the trigger button`,
-        });
+      // After close, focus returns to the trigger (WCAG 2.4.3 focus order).
+      // Asserted, not annotated: TYPO3 renders the dialog into the TOP document
+      // while the list runs in the module iframe, so the browser's own
+      // restoration cannot reach the trigger and the extension has to give
+      // focus back itself (vault-modal-focus.js). Without that, focus lands on
+      // <body> and a keyboard user loses their place in the table.
+      await expect
+        .poll(() => triggerTestId(page), {
+          message: 'Closing the rotate modal did not return focus to the rotate button',
+          timeout: 10000,
+        })
+        .toBe('vault-rotate-btn');
+    });
+
+    test('reveal dialog traps focus, cycles both ways, and returns focus to the trigger on Escape', async ({
+      authenticatedPage: page,
+    }) => {
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+
+      const frame = getModuleFrame(page);
+      const revealButton = frame.getByTestId('vault-reveal-btn').first();
+
+      if (!(await revealButton.isVisible().catch(() => false))) {
+        test.skip(true, 'No readable secret present in this environment — cannot exercise the reveal dialog');
+        return;
       }
+
+      await revealButton.focus();
+      await revealButton.click();
+
+      const secretInput = page.locator('#reveal-modal-secret');
+      await secretInput.waitFor({ state: 'visible', timeout: 15000 });
+
+      // The reveal path shows a loading dialog first and replaces it with the
+      // result. Wait for that handover to settle, so every assertion below
+      // describes the dialog the user is actually looking at.
+      await expect
+        .poll(() => page.locator('typo3-backend-modal').count(), { timeout: 10000 })
+        .toBe(1);
+
+      // Focus moves into the dialog, onto the first of its controls.
+      await expect
+        .poll(() => page.evaluate(() => document.activeElement?.id ?? ''), { timeout: 10000 })
+        .toBe('reveal-modal-secret');
+
+      // Tab must never reach a control outside the dialog. A native <dialog>
+      // wraps through the document itself — activeElement is then <body> while
+      // the dialog is still open, which is the browser's wrap point and not an
+      // escape; the delete dialog, pure TYPO3 core, behaves identically.
+      const forward = await walkFocus(page, 'Tab', 8);
+      await secretInput.focus();
+      const backward = await walkFocus(page, 'Shift+Tab', 6);
+
+      for (const step of [...forward, ...backward]) {
+        expect(
+          step.escaped,
+          `Focus left the reveal dialog onto <${step.element}> while the dialog was open`,
+        ).toBe(false);
+      }
+
+      // Forward from the secret field walks the dialog's own controls. The
+      // number of steps per lap is the browser's business (it may or may not
+      // pass through the wrap point on a given lap), so this asserts which
+      // controls are reached, not after how many presses.
+      const forwardIds = forward.map((s) => s.element);
+      expect(forwardIds, `Tab did not reach the visibility toggle: ${forwardIds.join(',')}`)
+        .toContain('button#reveal-modal-toggle');
+      expect(forwardIds, `Tab did not reach the copy button: ${forwardIds.join(',')}`)
+        .toContain('button#reveal-modal-copy');
+
+      // Backwards from the same starting point must not repeat the forward
+      // step — that is what distinguishes a reversed walk from a stuck one.
+      expect(forward[0].element, 'Tab from the secret field did not reach the visibility toggle')
+        .toBe('button#reveal-modal-toggle');
+      expect(
+        backward[0].element,
+        'Shift+Tab from the secret field moved forwards instead of backwards',
+      ).not.toBe('button#reveal-modal-toggle');
+
+      // Escape closes the dialog from a known position inside it.
+      await secretInput.focus();
+      await page.keyboard.press('Escape');
+      await expect.poll(() => page.locator('typo3-backend-modal').count(), { timeout: 10000 }).toBe(0);
+
+      await expect
+        .poll(() => triggerTestId(page), {
+          message: 'Closing the reveal dialog did not return focus to the reveal button',
+          timeout: 10000,
+        })
+        .toBe('vault-reveal-btn');
+    });
+
+    test('delete confirmation returns focus to its trigger', async ({ authenticatedPage: page }) => {
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+
+      const frame = getModuleFrame(page);
+      const deleteButton = frame.getByTestId('vault-delete-btn').first();
+
+      if (!(await deleteButton.isVisible().catch(() => false))) {
+        test.skip(true, 'No deletable secret present in this environment');
+        return;
+      }
+
+      await deleteButton.focus();
+      await deleteButton.click();
+
+      // `typo3-backend-modal` is a zero-size wrapper around the <dialog>, so it
+      // never satisfies Playwright's visibility check — count it instead.
+      await expect.poll(() => page.locator('typo3-backend-modal').count(), { timeout: 15000 }).toBe(1);
+      await expect
+        .poll(() => page.evaluate(() => document.activeElement?.closest('typo3-backend-modal') !== null), {
+          timeout: 10000,
+        })
+        .toBe(true);
+
+      // Escape only — the secret must survive this test.
+      await page.keyboard.press('Escape');
+      await expect.poll(() => page.locator('typo3-backend-modal').count(), { timeout: 10000 }).toBe(0);
+
+      await expect
+        .poll(() => triggerTestId(page), {
+          message: 'Closing the delete confirmation did not return focus to the delete button',
+          timeout: 10000,
+        })
+        .toBe('vault-delete-btn');
     });
   });
 });
