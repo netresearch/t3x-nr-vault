@@ -164,7 +164,10 @@ jobs:
         continue-on-error: true
         run: composer ci:test:php:cgl
 
-      - name: Architecture rules
+      # Not the phpat architecture rules: those run inside the PHPStan step
+      # above (phpstan.neon includes phpat.neon). This is the unit-test
+      # base-class scan (Tests/scripts/check-test-base-class.php).
+      - name: Test base-class convention
         id: arch
         continue-on-error: true
         run: composer ci:test:php:arch

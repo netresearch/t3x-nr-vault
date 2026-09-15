@@ -43,7 +43,7 @@ final class MasterKeyProviderFactoryTest extends TestCase
         $this->configuration
             ->method('getSecurityProfile')
             ->willReturn(SecurityProfile::Standard);
-        $this->subject = new MasterKeyProviderFactory($this->configuration);
+        $this->subject = new MasterKeyProviderFactory($this->configuration, self::createStub(ClientInterface::class));
     }
 
     #[Test]
@@ -242,6 +242,6 @@ final class MasterKeyProviderFactoryTest extends TestCase
             ->method('getMasterKeySource')
             ->willReturn('/nonexistent/hardened-test.key');
 
-        return new MasterKeyProviderFactory($configuration);
+        return new MasterKeyProviderFactory($configuration, self::createStub(ClientInterface::class));
     }
 }

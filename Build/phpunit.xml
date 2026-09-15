@@ -28,7 +28,7 @@
             <directory>../Tests/Fuzz</directory>
         </testsuite>
         <!-- Functional tests require TYPO3 bootstrap - run via 'composer test:functional' -->
-        <!-- Architecture tests use PHPat and are run via 'composer phpat' -->
+        <!-- Architecture rules (PHPat) are not a PHPUnit suite: they run inside PHPStan via phpat.neon -->
     </testsuites>
 
     <source ignoreSuppressionOfDeprecations="true">

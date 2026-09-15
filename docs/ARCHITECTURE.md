@@ -33,12 +33,12 @@ nr-vault is a TYPO3 extension (key `nr_vault`, namespace `Netresearch\NrVault\`)
 
 ## Dependency Rules
 
-Enforced by phpat via `Tests/Architecture/ArchitectureTest.php` (`composer ci:test:php:arch`; config `phpat.neon`). The test is authoritative — the summary below mirrors its 25 rules:
+Enforced by phpat via `Tests/Architecture/ArchitectureTest.php`, which runs inside PHPStan (`phpstan.neon` includes `phpat.neon`, which tags the class `phpat.test`; run it with `make phpstan`). `composer ci:test:php:arch` is a different check: the unit-test base-class scan. The test is authoritative — the summary below mirrors its 25 rules:
 
-- **Immutability/finality**: events, `AuditLogEntry`, OAuth value objects, and `VaultHttpClient` must be readonly; exceptions, enums, and Crypto/Security implementations must be final.
+- **Immutability/finality**: events, `AuditLogEntry`, OAuth value objects, and `VaultHttpClient` must be readonly; exceptions (except the `VaultException` base), enums, and Crypto/Security implementations (Crypto: except abstract bases) must be final.
 - **Interface seams**: `*Service` classes and adapters must implement their interface (`VaultAdapterInterface` for adapters).
-- **Layering**: services must not depend on controllers or commands; hooks and commands must not depend on controllers; commands must not depend on the repository; controllers must not depend on Crypto; Domain must not depend on infrastructure; Configuration must not depend on services; event listeners must not depend on presentation; utilities must not depend on services.
-- **Isolation locks**: Crypto is isolated; Security must not depend on Http; only `SecureHttpClientFactory` may instantiate a Guzzle `Client` (ADR-028); the audit anchor never uses TYPO3's core `Registry`; shared test infrastructure must not leak into production code.
+- **Layering**: services must not depend on controllers or commands; hooks and commands must not depend on controllers; commands must not depend on the repository; controllers must not depend on Crypto; Domain must not depend on infrastructure; Configuration must not depend on services (except `SiteConfigurationVaultProcessor`, ADR-030); event listeners must not depend on presentation; utilities must not depend on services.
+- **Isolation locks**: Crypto is isolated; Security must not depend on Http; only `SecureHttpClientFactory` may instantiate a Guzzle `Client` (ADR-028); only `BreakGlassState` and `SinkDeliveryStateRepository` may use TYPO3's core `Registry`, so the audit anchor never does (ADR-034); shared test infrastructure must not leak into production code.
 
 ## Data Flow
 

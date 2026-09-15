@@ -124,7 +124,7 @@ They are named here, where a reader checks the invariant, and not only under `Wh
      - Client
    * - ``TransitMasterKeyProvider::callTransit()`` (``TransitMasterKeyProvider.php:282``)
      - ``X-Vault-Token`` header
-     - the plain Guzzle client ``MasterKeyProviderFactory`` builds (``MasterKeyProviderFactory.php:52``) — no middleware, no allowlist, deliberately, for on-prem RFC1918 Vault
+     - the plain platform Guzzle client ``MasterKeyProviderFactory`` receives from the container — no middleware, no allowlist, deliberately, for on-prem RFC1918 Vault
    * - ``OAuthTokenManager::dispatchTokenRequest()`` (``OAuthTokenManager.php:357``)
      - ``client_secret`` in the form body built at ``OAuthTokenRequestParams.php:60``
      - the hardened inner client, with the ``allowed_hosts`` gate applied at ``OAuthTokenManager.php:337`` but no audit write
@@ -444,7 +444,7 @@ A *failed* token leg is audited from this client now, as a failed credential inj
 A *successful* one is not: the token request itself egresses with ``client_secret`` in its body and leaves no row from ``OAuthTokenManager``, which has no audit log service. `#303 <https://github.com/netresearch/t3x-nr-vault/issues/303>`__.
 
 **The other two egress paths are untouched.**
-``MasterKeyProviderFactory`` builds a plain Guzzle client with no middleware and no allowlist (deliberately, for on-prem RFC1918 Vault), and ``WebhookAuditSink`` uses a factory-built client but calls neither the allowlist gate nor the audit write.
+``MasterKeyProviderFactory`` passes the plain platform Guzzle client with no middleware and no allowlist (deliberately, for on-prem RFC1918 Vault), and ``WebhookAuditSink`` uses a factory-built client but calls neither the allowlist gate nor the audit write.
 This primitive lives on ``VaultHttpClient`` and covers neither.
 
 **That cancellation closes a real socket is a property of libcurl, not of our code.**

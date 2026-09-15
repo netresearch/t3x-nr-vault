@@ -53,9 +53,10 @@ use Psr\Http\Message\ResponseInterface;
  *
  * nr-vault does send two credentials of its own elsewhere, on paths that are
  * not a caller's request and are not covered by the four: the `X-Vault-Token`
- * header in `TransitMasterKeyProvider::callTransit()`, on the plain Guzzle
- * client `MasterKeyProviderFactory` builds, and the `client_secret` form body
- * in `OAuthTokenManager::dispatchTokenRequest()`, which applies the
+ * header in `TransitMasterKeyProvider::callTransit()`, on the plain platform
+ * Guzzle client `MasterKeyProviderFactory` receives from the container, and the
+ * `client_secret` form body in `OAuthTokenManager::dispatchTokenRequest()`,
+ * which applies the
  * `allowed_hosts` gate and — since issue #303 — writes one
  * `oauth_token_request` audit row per attempted round trip and honours this
  * send's cancellation signal. "No credential-bearing send exists outside

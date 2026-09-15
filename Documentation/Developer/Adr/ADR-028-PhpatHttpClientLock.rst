@@ -83,9 +83,9 @@ Allowed namespaces (an explicit allowlist, not a regex):
    ``MockHandler``-driven flows. Tests don't ship in the distributed
    extension, so they can't widen the production attack surface.
 
-The rule runs in the standard PHPat suite (``composer ci`` and the
-CI ``architecture`` job), so violations fail the build with a
-deterministic message naming the offending class.
+The rule runs inside PHPStan (``phpstan.neon`` includes ``phpat.neon``,
+which tags the test class ``phpat.test``), so violations fail the
+PHPStan job with a deterministic message naming the offending class.
 
 Consequences
 ============

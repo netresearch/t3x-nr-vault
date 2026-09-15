@@ -9,7 +9,6 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Crypto;
 
-use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\HttpFactory;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\ConfigurationException;
@@ -22,20 +21,24 @@ use Psr\Http\Message\StreamFactoryInterface;
  */
 final readonly class MasterKeyProviderFactory implements MasterKeyProviderFactoryInterface
 {
-    private ClientInterface $httpClient;
-
     private RequestFactoryInterface $requestFactory;
 
     private StreamFactoryInterface $streamFactory;
 
     /**
-     * The HTTP dependencies are only consumed by the `transit` provider; they are
-     * optional so unit tests (and any caller that never selects `transit`) can
-     * construct the factory with configuration alone.
+     * The HTTP dependencies are only consumed by the `transit` provider.
      *
      * The PSR-18 client is the platform one (TYPO3 aliases
      * `Psr\Http\Client\ClientInterface` to its Guzzle client, so proxy, TLS and
-     * timeout settings from `$TYPO3_CONF_VARS['HTTP']` apply). The Vault address
+     * timeout settings from `$TYPO3_CONF_VARS['HTTP']` apply;
+     * `MasterKeyProviderFactoryWiringTest` pins that the container passes it).
+     * It is required, not defaulted: a fallback `new GuzzleHttp\Client()` is an
+     * outbound client built outside `SecureHttpClientFactory`, which
+     * `ArchitectureTest::testOnlySecureHttpClientFactoryInstantiatesGuzzleClient()`
+     * forbids — the same fix PR #145 applied to `OAuthTokenManager`. The PSR-17
+     * factories keep their fallback: they build messages, not connections.
+     *
+     * The Vault address
      * is operator-supplied extension configuration, not request input, so the
      * SSRF/private-IP gating of `SecureHttpClientFactory` is deliberately NOT
      * applied here: it would block the on-prem RFC1918 Vault addresses this
@@ -44,12 +47,11 @@ final readonly class MasterKeyProviderFactory implements MasterKeyProviderFactor
      */
     public function __construct(
         private ExtensionConfigurationInterface $configuration,
-        ?ClientInterface $httpClient = null,
+        private ClientInterface $httpClient,
         ?RequestFactoryInterface $requestFactory = null,
         ?StreamFactoryInterface $streamFactory = null,
     ) {
         $httpFactory = new HttpFactory();
-        $this->httpClient = $httpClient ?? new Client(['http_errors' => false, 'allow_redirects' => false]);
         $this->requestFactory = $requestFactory ?? $httpFactory;
         $this->streamFactory = $streamFactory ?? $httpFactory;
     }

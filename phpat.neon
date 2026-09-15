@@ -2,3 +2,5 @@
 services:
     -
         class: Netresearch\NrVault\Tests\Architecture\ArchitectureTest
+        tags:
+            - phpat.test

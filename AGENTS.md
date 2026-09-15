@@ -37,7 +37,7 @@
 
 **Test execution ALWAYS goes through `Build/Scripts/runTests.sh`** (or the composer wrappers around it, e.g. `composer test:unit` / `test:functional`) — the TYPO3 core-style containerized runner with its own ephemeral containers. NEVER run tests inside DDEV (`ddev exec phpunit`); DDEV is the dev *environment*, not the test runner. Single file: `Build/Scripts/runTests.sh -s unit Tests/Unit/Path/ToTest.php`.
 
-Direct composer (without make): `composer ci` — unit + fuzz + phpstan + arch (phpat) + doc-cli drift + evidence + cgl; `composer ci:test:php:functional` — functional suite; `composer ci:cgl` — fix code style.
+Direct composer (without make): `composer ci` — unit + fuzz + phpstan (includes the phpat architecture rules via `phpat.neon`) + arch (`ci:test:php:arch`, the unit-test base-class scan — not phpat) + doc-cli drift + evidence + cgl; `composer ci:test:php:functional` — functional suite; `composer ci:cgl` — fix code style.
 
 ## Workflow
 1. **Before coding**: Read nearest `AGENTS.md` + inspect its Golden Samples (`Classes/AGENTS.md`, `Tests/AGENTS.md`, …).
