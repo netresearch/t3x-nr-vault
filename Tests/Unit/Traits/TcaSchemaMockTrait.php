@@ -88,6 +88,20 @@ trait TcaSchemaMockTrait
         }
 
         $schema->method('getFields')->willReturn(new FieldCollection($fieldStubs));
+        $schema->method('hasField')->willReturnCallback(
+            static fn (string $requested): bool => isset($fieldStubs[$requested]),
+        );
+        $schema->method('getField')->willReturnCallback(
+            static function (string $requested) use ($fieldStubs): FieldTypeInterface {
+                self::assertArrayHasKey(
+                    $requested,
+                    $fieldStubs,
+                    \sprintf('Unexpected TCA field lookup for "%s".', $requested),
+                );
+
+                return $fieldStubs[$requested];
+            },
+        );
 
         $factory = $this->tcaSchemaFactory ?? null;
         if (!$factory instanceof TcaSchemaFactory || !$factory instanceof Stub) {
