@@ -1,0 +1,11 @@
+"be_groups",,,,
+,"uid","pid","title","custom_options"
+,10,0,"vault-readers","tx_nrvault:secret.use,tx_nrvault:secret.reveal"
+,11,0,"vault-writers","tx_nrvault:secret.use,tx_nrvault:secret.reveal,tx_nrvault:secret.rotate"
+,12,0,"vault-outsiders","tx_nrvault:secret.use,tx_nrvault:secret.reveal"
+"be_users",,,,,,,,
+,"uid","username","password","admin","disable","starttime","endtime","usergroup"
+,1,"admin","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",1,0,0,0,""
+,2,"reader","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"10"
+,3,"outsider","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"12"
+,4,"writer","$2y$12$B5rDqbWz6yWWxnXeANxeAOkBJJDJnWx6kQ9b5l3/0dLLX/rOKpC5e",0,0,0,0,"11"

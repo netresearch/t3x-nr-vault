@@ -1,0 +1,299 @@
+<?php
+
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
+declare(strict_types=1);
+
+namespace Netresearch\NrVault\Tests\Functional\Acceptance\Fixtures;
+
+use Netresearch\NrVault\Audit\AuditLogService;
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
+use Netresearch\NrVault\Crypto\FileMasterKeyProvider;
+use Netresearch\NrVault\Service\VaultServiceInterface;
+use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
+use TYPO3\CMS\Core\Database\Connection;
+use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
+
+/**
+ * Writes `upgrade_long_lived_v0.16.0.csv` and `upgrade_plain_v0.16.0.csv`
+ * from the RELEASED v0.16.0 code.
+ *
+ * Kept as `.php.dist` so no suite, analyser or fixer on `main` picks it up: it
+ * is the regeneration recipe for UpgradeFromPreviousReleaseTest's data and
+ * runs against a v0.16.0 source tree only. From the repository root:
+ *
+ *     rm -rf /tmp/v0160 && mkdir -p /tmp/v0160
+ *     git archive v0.16.0 | tar -x -C /tmp/v0160
+ *     cp -a .Build Build /tmp/v0160/
+ *     mkdir -p /tmp/v0160/Tests/Functional/Acceptance/Fixtures
+ *     cp Tests/Functional/bootstrap.php /tmp/v0160/Tests/Functional/
+ *     cp Tests/Functional/Acceptance/Fixtures/{UpgradeFixture.php,restore_users.csv} \
+ *        /tmp/v0160/Tests/Functional/Acceptance/Fixtures/
+ *     cp Tests/Functional/Acceptance/Fixtures/UpgradeFixtureGenerator.php.dist \
+ *        /tmp/v0160/Tests/Functional/Acceptance/Fixtures/UpgradeFixtureGenerator.php
+ *     (cd /tmp/v0160 && Build/Scripts/runTests.sh -s functional \
+ *        Tests/Functional/Acceptance/Fixtures/UpgradeFixtureGenerator.php)
+ *     cp /tmp/v0160/Tests/Functional/Acceptance/Fixtures/upgrade_*_v0.16.0.csv \
+ *        Tests/Functional/Acceptance/Fixtures/
+ *
+ * The copied `.Build` autoloads `Classes/` relative to the tree it sits in, so
+ * the run executes v0.16.0's classes (the tree has no
+ * `Classes/Upgrades/AuditHmacMigration.php`, which only exists after 0.16.0);
+ * `.Build`'s dependencies are the ones `main` resolves, and v0.16.0's
+ * composer.json differs from `main` only in the branch alias.
+ *
+ * What a long-lived installation holds, and where each shape comes from:
+ *
+ *  - epoch-0 audit rows (keyless SHA-256) — written by every release before
+ *    0.5.0; v0.16.0's `AuditLogService::calculateHash()` without a key hashes
+ *    the same JSON payload as 0.4.x's `calculateEntryHash()`;
+ *  - epoch-1 rows (HMAC over identity fields) — the default from 0.5.0 to 0.8.x;
+ *  - epoch-2 rows (HMAC over identity + forensic fields) — the default in
+ *    0.9.0 and 0.10.0;
+ *  - epoch-3 rows — the default since 0.10.1, written here by v0.16.0's
+ *    VaultService, which also arms the in-database tip anchor;
+ *  - an `encryption_version` 1 secret — every release before 0.9.0 wrote
+ *    version 1 without an algorithm marker, choosing XChaCha20-Poly1305 when
+ *    `preferXChaCha20` was set (a setting since 0.4.x). The envelope format
+ *    (base64 columns, identifier as AAD) is unchanged since then.
+ *
+ * Because v0.16.0's upgrade wizard was tagged with a name TYPO3 never reads,
+ * no v0.16.0 installation has had its lower-epoch rows migrated by the
+ * Install Tool; that is the data an upgrade meets.
+ */
+final class UpgradeFixtureGenerator extends FunctionalTestCase
+{
+    /**
+     * nr-vault's own tables and its anchor row. Users and groups stay in
+     * `restore_users.csv`, which the test imports next to the data set: a
+     * `be_users`/`be_groups` export carries the columns of the core it ran on
+     * (TYPO3 14's `tsconfig_includes`, for one) and would not import on 13.
+     */
+    private const EXPORTED_TABLES = [
+        'tx_nrvault_secret',
+        'tx_nrvault_secret_begroups_mm',
+        'tx_nrvault_secret_writegroups_mm',
+        'tx_nrvault_audit_log',
+        'sys_registry',
+    ];
+
+    protected array $testExtensionsToLoad = ['netresearch/nr-vault'];
+
+    protected array $coreExtensionsToLoad = ['backend'];
+
+    private string $previousHash = '';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $keyPath = $this->instancePath . '/master.key';
+        file_put_contents($keyPath, UpgradeFixture::masterKey());
+        chmod($keyPath, 0o600);
+
+        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = [
+            'masterKeyProvider' => 'file',
+            'masterKeySource' => $keyPath,
+            'autoKeyPath' => $keyPath,
+            'enableCache' => false,
+            'auditHmacEpoch' => 3,
+            'preferXChaCha20' => 1,
+        ];
+
+        $this->importCSVDataSet(__DIR__ . '/restore_users.csv');
+        $this->setUpBackendUser(1);
+    }
+
+    protected function tearDown(): void
+    {
+        FileMasterKeyProvider::clearCachedKey();
+        parent::tearDown();
+    }
+
+    #[Test]
+    public function generateLongLivedInstallation(): void
+    {
+        $crdate = 1735689600; // 2025-01-01, a pre-0.5.0 installation
+        $this->insertLegacyV1Secret('legacy_v1_reader_tier', $crdate);
+        $this->appendSealedRow('legacy_v1_reader_tier', 'create', 0, $crdate);
+        $this->appendSealedRow('legacy_v1_reader_tier', 'read', 0, $crdate + 60);
+        $this->appendSealedRow('legacy_v1_reader_tier', 'read', 1, $crdate + 86400 * 100);
+        $this->appendSealedRow('legacy_v1_reader_tier', 'read', 1, $crdate + 86400 * 120);
+        $this->appendSealedRow('legacy_v1_reader_tier', 'read', 2, $crdate + 86400 * 160);
+
+        $this->writeModernSecrets();
+
+        $this->assertChainVerifiesUnderStoredEpochs();
+        $this->assertPlaintexts(UpgradeFixture::LONG_LIVED_PLAINTEXTS);
+        $this->export(__DIR__ . '/upgrade_long_lived_v0.16.0.csv');
+    }
+
+    #[Test]
+    public function generatePlainInstallation(): void
+    {
+        $this->writeModernSecrets();
+
+        $this->assertChainVerifiesUnderStoredEpochs();
+        $this->assertPlaintexts(UpgradeFixture::PLAIN_PLAINTEXTS);
+        $this->export(__DIR__ . '/upgrade_plain_v0.16.0.csv');
+    }
+
+    private function writeModernSecrets(): void
+    {
+        $vault = $this->get(VaultServiceInterface::class);
+        $vault->store('modern_reader_tier', UpgradeFixture::PLAIN_PLAINTEXTS['modern_reader_tier'], [
+            'groups' => [UpgradeFixture::READER_GROUP],
+            'context' => 'payment',
+        ]);
+        $vault->store('modern_owned_by_reader', UpgradeFixture::PLAIN_PLAINTEXTS['modern_owned_by_reader'], ['owner' => 2]);
+        $vault->store('modern_rotated', 'rotated-plaintext-before-rotation', ['groups' => [UpgradeFixture::READER_GROUP]]);
+        $vault->rotate('modern_rotated', UpgradeFixture::PLAIN_PLAINTEXTS['modern_rotated'], 'fixture rotation');
+        $vault->retrieve('modern_reader_tier');
+    }
+
+    /**
+     * A pre-0.9.0 row: the envelope a release of that line sealed, version 1,
+     * no algorithm marker, read tier on the reader group.
+     */
+    private function insertLegacyV1Secret(string $identifier, int $crdate): void
+    {
+        $encrypted = $this->get(EncryptionServiceInterface::class)->encrypt(UpgradeFixture::LONG_LIVED_PLAINTEXTS[$identifier], $identifier);
+
+        $secrets = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret');
+        $secrets->insert('tx_nrvault_secret', [
+            'pid' => 0,
+            'scope_pid' => 0,
+            'identifier' => $identifier,
+            'description' => 'Sealed before 0.9.0',
+            'encrypted_value' => $encrypted->encryptedValue,
+            'encrypted_dek' => $encrypted->encryptedDek,
+            'dek_nonce' => $encrypted->dekNonce,
+            'value_nonce' => $encrypted->valueNonce,
+            'encryption_version' => 1,
+            'encryption_algorithm' => '',
+            'value_checksum' => $encrypted->valueChecksum,
+            'owner_uid' => 1,
+            'allowed_groups' => 1,
+            'write_groups' => 0,
+            'context' => '',
+            'frontend_accessible' => 0,
+            'version' => 1,
+            'expires_at' => 0,
+            'last_rotated_at' => 0,
+            'read_count' => 0,
+            'last_read_at' => 0,
+            'metadata' => '[]',
+            'adapter' => 'local',
+            'external_reference' => '',
+            'tstamp' => $crdate,
+            'crdate' => $crdate,
+            'cruser_id' => 1,
+            'deleted' => 0,
+            'hidden' => 0,
+        ]);
+
+        $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret_begroups_mm')->insert(
+            'tx_nrvault_secret_begroups_mm',
+            ['uid_local' => (int) $secrets->lastInsertId(), 'uid_foreign' => UpgradeFixture::READER_GROUP, 'sorting' => 0, 'sorting_foreign' => 0],
+        );
+    }
+
+    /**
+     * Append one audit row sealed the way the release that used `$epoch` as its
+     * default sealed it, through v0.16.0's own hash functions.
+     */
+    private function appendSealedRow(string $identifier, string $action, int $epoch, int $crdate): void
+    {
+        $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
+        $row = [
+            'pid' => 0,
+            'secret_identifier' => $identifier,
+            'action' => $action,
+            'success' => 1,
+            'error_message' => '',
+            'reason' => '',
+            'actor_uid' => 1,
+            'actor_type' => 'be_user',
+            'actor_username' => 'admin',
+            'actor_role' => 'admin',
+            'ip_address' => '192.0.2.10',
+            'user_agent' => 'nr-vault upgrade fixture',
+            'request_id' => 'fixture-' . $action . '-' . $crdate,
+            'previous_hash' => $this->previousHash,
+            'entry_hash' => '',
+            'hash_before' => '',
+            'hash_after' => '',
+            'crdate' => $crdate,
+            'hmac_key_epoch' => $epoch,
+            'context' => '{}',
+        ];
+        $connection->insert('tx_nrvault_audit_log', $row);
+        $row['uid'] = (int) $connection->lastInsertId();
+
+        $hmacKey = AuditLogService::deriveHmacKeyFromMasterKey(UpgradeFixture::masterKey());
+        $hash = match ($epoch) {
+            0 => AuditLogService::calculateHash($row['uid'], $identifier, $action, 1, $crdate, $this->previousHash),
+            1 => AuditLogService::calculateHash($row['uid'], $identifier, $action, 1, $crdate, $this->previousHash, $hmacKey),
+            2 => AuditLogService::calculateHashV2(AuditLogService::extractV2HashRow($row), $this->previousHash, $hmacKey),
+            default => throw new RuntimeException('Epochs 3+ are written by the service, not sealed by hand.', 1757851201),
+        };
+        sodium_memzero($hmacKey);
+
+        $connection->update('tx_nrvault_audit_log', ['entry_hash' => $hash], ['uid' => $row['uid']]);
+        $this->previousHash = $hash;
+    }
+
+    private function assertChainVerifiesUnderStoredEpochs(): void
+    {
+        $result = $this->get(AuditLogServiceInterface::class)->verifyHashChain(minEpoch: 0);
+        self::assertTrue($result->isValid(), 'Generated chain does not verify: ' . implode(', ', $result->errors));
+    }
+
+    /**
+     * @param array<string, string> $plaintexts
+     */
+    private function assertPlaintexts(array $plaintexts): void
+    {
+        $vault = $this->get(VaultServiceInterface::class);
+        foreach ($plaintexts as $identifier => $plaintext) {
+            self::assertSame($plaintext, $vault->retrieve($identifier), \sprintf('Generated secret "%s" does not decrypt.', $identifier));
+        }
+    }
+
+    /**
+     * Write the tables in the testing framework's CSV data-set format.
+     */
+    private function export(string $path): void
+    {
+        $handle = fopen($path, 'wb');
+        self::assertNotFalse($handle, 'Cannot write ' . $path);
+
+        foreach (self::EXPORTED_TABLES as $table) {
+            $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable($table);
+            $queryBuilder->getRestrictions()->removeAll();
+            $queryBuilder->select('*')->from($table)->orderBy(str_ends_with($table, '_mm') ? 'uid_local' : 'uid');
+            if ($table === 'sys_registry') {
+                $queryBuilder->where($queryBuilder->expr()->eq('entry_namespace', $queryBuilder->createNamedParameter('tx_nrvault_audit_anchor', Connection::PARAM_STR)));
+            }
+
+            $rows = $queryBuilder->executeQuery()->fetchAllAssociative();
+            if ($rows === []) {
+                continue;
+            }
+
+            fputcsv($handle, [$table], ',', '"', '');
+            fputcsv($handle, ['', ...array_keys($rows[0])], ',', '"', '');
+            foreach ($rows as $row) {
+                fputcsv($handle, ['', ...array_map(static fn (mixed $value): string => $value === null ? '\NULL' : (string) $value, $row)], ',', '"', '');
+            }
+        }
+
+        fclose($handle);
+        self::assertFileExists($path);
+    }
+}

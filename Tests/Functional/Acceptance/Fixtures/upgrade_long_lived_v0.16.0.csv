@@ -1,0 +1,31 @@
+tx_nrvault_secret
+,uid,pid,tstamp,crdate,deleted,hidden,scope_pid,identifier,description,encrypted_value,encrypted_dek,dek_nonce,value_nonce,encryption_version,encryption_algorithm,value_checksum,owner_uid,allowed_groups,write_groups,context,frontend_accessible,version,expires_at,last_rotated_at,read_count,last_read_at,metadata,adapter,external_reference,cruser_id
+,1,0,1735689600,1735689600,0,0,0,legacy_v1_reader_tier,"Sealed before 0.9.0",ydbwIwnu6FaQMaXu8/+97dJ1IaqSmoo/gYYjbhk4RhiWIGr/XaEJFn0Vo9KOIX1SBKAwYQI9yQ==,Xc1YUt26148cFbZny5IHjgvZgYz2eDDvF/6lFYjh8Sqj8Dt7w0mJ8z0MhTRh+zxV,1gJbKb4TuEsajLeC9OcMTFGj11Ee9OVY,YOpF1XPDgnw8iWgFcUcRrRoa4auM9RsW,1,,f2d8a77985c71faa143dde65c6ece5edf91c85cb4ab3efd6581844e85ba0e5aa,1,1,0,,0,1,0,0,2,1789391199,[],local,,1
+,2,0,1789391199,1789391199,0,0,0,modern_reader_tier,,ve4swgbQBxSUIAumuPKB1M+91nhRcF8ueHBN+R06ZL4lRNbv+4WD4Op1NtskSCAhAA==,9eYl6YibReLTbFWkIE8ImzomDXkanj15WLcEEb5z/gmANpxZCDsGHiYiapXNUN4t,dkX2nN32g8Bw9kuFz6RmlAgqsMfWhNmP,O7djidL7ALqvmtwparCHpD+pdaBdxK31,2,xchacha20poly1305,67d529fff2ad57ad1c191f2cc46e1a5df98729dbf52639f58b42ea502822d96f,1,1,0,payment,0,1,0,0,2,1789391199,[],local,,1
+,3,0,1789391199,1789391199,0,0,0,modern_owned_by_reader,,1avpa1RaxKp4ioqyhNYCYXLpeKtCndycpaK/aorsDECVONcJdRVXrKAdr1gPFbkb,hqhgl5t7C73H/2vnc2UclIWysd0HEi8Dkl41VtN02GvZmcbhcA48crG5elTWETqW,iXz7k9tB8ICGXn/13mLtrfUnuQGgqDIY,+CaLeTKnCErdbCfKIuuJYbLvJjPP0iLC,2,xchacha20poly1305,e7da4f8e57036b96334ffabf3efece884f267d14ea97ec0ed02ae6ed3556c013,2,0,0,,0,1,0,0,1,1789391199,[],local,,1
+,4,0,1789391199,1789391199,0,0,0,modern_rotated,,EC3ImIQvkc8hCMV9pSGAd4SASvA/jIgXxOQFwfg8OqPHZJGKknrNmVpRk/pgI8JFrW0=,hBB9I81riPYolqfFIhZL/fEnMBJiIIJtv+upq8v2TQlYpq4+AzhKO2fO0XfGuEqo,7puNyd8DJS2Uc6zMndnkz6mWjQFCAuvc,jyZpT6qHuOh8Ff3OOr8uQ/qwfa4nIJal,2,xchacha20poly1305,04426650b4fd352582a7a7cb60b4ae8327d98cd08785bb306e08b089316dab2d,1,1,0,,0,2,0,1789391199,1,1789391199,[],local,,1
+tx_nrvault_secret_begroups_mm
+,uid_local,uid_foreign,sorting,sorting_foreign
+,1,10,0,0
+,2,10,0,0
+,4,10,0,0
+tx_nrvault_audit_log
+,uid,pid,secret_identifier,action,success,error_message,reason,actor_uid,actor_type,actor_username,actor_role,ip_address,user_agent,request_id,previous_hash,entry_hash,hash_before,hash_after,crdate,hmac_key_epoch,context
+,1,0,legacy_v1_reader_tier,create,1,,,1,be_user,admin,admin,192.0.2.10,"nr-vault upgrade fixture",fixture-create-1735689600,,7324b7f8f5b2bc6fe4f70abee9e91b8f406638d293a3347abea6a6c96aac6f5e,,,1735689600,0,{}
+,2,0,legacy_v1_reader_tier,read,1,,,1,be_user,admin,admin,192.0.2.10,"nr-vault upgrade fixture",fixture-read-1735689660,7324b7f8f5b2bc6fe4f70abee9e91b8f406638d293a3347abea6a6c96aac6f5e,c334d46e53caff81c875399c767ac6abafb5ee5ec3e4438d419df090ef6fa316,,,1735689660,0,{}
+,3,0,legacy_v1_reader_tier,read,1,,,1,be_user,admin,admin,192.0.2.10,"nr-vault upgrade fixture",fixture-read-1744329600,c334d46e53caff81c875399c767ac6abafb5ee5ec3e4438d419df090ef6fa316,d7e8ae79df3a748fef74c8d9b0aefd83214bdf42b9f501a64b1c965558c14cf9,,,1744329600,1,{}
+,4,0,legacy_v1_reader_tier,read,1,,,1,be_user,admin,admin,192.0.2.10,"nr-vault upgrade fixture",fixture-read-1746057600,d7e8ae79df3a748fef74c8d9b0aefd83214bdf42b9f501a64b1c965558c14cf9,9542d2d7593f91efeeb2fd6ed3a95e11b71eae01ab0ae51659e48f37098f43f6,,,1746057600,1,{}
+,5,0,legacy_v1_reader_tier,read,1,,,1,be_user,admin,admin,192.0.2.10,"nr-vault upgrade fixture",fixture-read-1749513600,9542d2d7593f91efeeb2fd6ed3a95e11b71eae01ab0ae51659e48f37098f43f6,b97f03b8d1a62aa700521d7747a714790cb16032b30e52233d59477f13bd4201,,,1749513600,2,{}
+,6,0,modern_reader_tier,create,1,,,1,backend,admin,backend,CLI,CLI,,b97f03b8d1a62aa700521d7747a714790cb16032b30e52233d59477f13bd4201,88b1dcd7268980e5bdb9af290ee4e6c5ce2c0e9faf356763faf96578abff164b,,67d529fff2ad57ad1c191f2cc46e1a5df98729dbf52639f58b42ea502822d96f,1789391199,3,{}
+,7,0,modern_owned_by_reader,create,1,,,1,backend,admin,backend,CLI,CLI,,88b1dcd7268980e5bdb9af290ee4e6c5ce2c0e9faf356763faf96578abff164b,dd7bee35804dd4d5cef292d236c6e1de2650b517ca4773a2d3b1f5ebcb8439ae,,e7da4f8e57036b96334ffabf3efece884f267d14ea97ec0ed02ae6ed3556c013,1789391199,3,{}
+,8,0,modern_rotated,create,1,,,1,backend,admin,backend,CLI,CLI,,dd7bee35804dd4d5cef292d236c6e1de2650b517ca4773a2d3b1f5ebcb8439ae,675cc701722629c01667ea1c2a847c10af98e0c6fa9cc611b1a8db859e3ebb58,,3cb1053bf38517cb1ed9cbfe6d5f8d9442a695894f5ec27ab7f03e2a0f4695ee,1789391199,3,{}
+,9,0,modern_rotated,rotate,1,,"fixture rotation",1,backend,admin,backend,CLI,CLI,,675cc701722629c01667ea1c2a847c10af98e0c6fa9cc611b1a8db859e3ebb58,ba40232d6cd213230af70707657ed4a8dc092c81c3f723bcecd21d44fd12a352,3cb1053bf38517cb1ed9cbfe6d5f8d9442a695894f5ec27ab7f03e2a0f4695ee,04426650b4fd352582a7a7cb60b4ae8327d98cd08785bb306e08b089316dab2d,1789391199,3,{}
+,10,0,modern_reader_tier,read,1,,,1,backend,admin,backend,CLI,CLI,,ba40232d6cd213230af70707657ed4a8dc092c81c3f723bcecd21d44fd12a352,d74f5cda374d7e4b928ed77f2603accd95164df02b570634eb2f55494959c970,,,1789391199,3,{}
+,11,0,legacy_v1_reader_tier,read,1,,,1,backend,admin,backend,CLI,CLI,,d74f5cda374d7e4b928ed77f2603accd95164df02b570634eb2f55494959c970,17551a68ecb555eb9fd3b6eb069c354ea3c8cf7fd08aff51719ecb46e7347f3a,,,1789391199,3,{}
+,12,0,legacy_v1_reader_tier,read,1,,,1,backend,admin,backend,CLI,CLI,,17551a68ecb555eb9fd3b6eb069c354ea3c8cf7fd08aff51719ecb46e7347f3a,bf52da0512baf47ec39c35731f522901410d2173f84195e4a090197bdb450ec9,,,1789391199,3,{}
+,13,0,modern_reader_tier,read,1,,,1,backend,admin,backend,CLI,CLI,,bf52da0512baf47ec39c35731f522901410d2173f84195e4a090197bdb450ec9,7218f02e26a68c1c43b8fb00444d1467819c8aeb3499376b11620f93f6cad2d4,,,1789391199,3,{}
+,14,0,modern_owned_by_reader,read,1,,,1,backend,admin,backend,CLI,CLI,,7218f02e26a68c1c43b8fb00444d1467819c8aeb3499376b11620f93f6cad2d4,41a7d7bc5eb5cfab10ef482453ddf61872fec66f244d635510e5fdf155778f68,,,1789391199,3,{}
+,15,0,modern_rotated,read,1,,,1,backend,admin,backend,CLI,CLI,,41a7d7bc5eb5cfab10ef482453ddf61872fec66f244d635510e5fdf155778f68,89d3ed8ae6d61148949687df87f7ef8f7d1500c68698046ae7c15bb3e4011599,,,1789391199,3,{}
+sys_registry
+,uid,entry_namespace,entry_key,entry_value
+,1,tx_nrvault_audit_anchor,auditChainTip,nrvault-audit-tip.v1|15|89d3ed8ae6d61148949687df87f7ef8f7d1500c68698046ae7c15bb3e4011599|1789391199|5ba7bc81670ce1dee7527017b7b9c5ea5c95971998e8157954f3ba499838c770
