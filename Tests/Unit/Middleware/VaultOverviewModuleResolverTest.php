@@ -13,91 +13,108 @@ use Netresearch\NrVault\Middleware\VaultOverviewModuleResolver;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use TYPO3\CMS\Backend\Module\ModuleInterface;
 use TYPO3\CMS\Backend\Routing\Route;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 
 /**
- * The route rewrite that makes `/typo3/module/admin/vault` show the overview on
- * TYPO3 13 as well.
+ * The stored submodule selection that makes `/typo3/module/admin/vault` show
+ * the overview on TYPO3 13 as well.
  *
  * What is pinned here is a decision, not a rendering: given the parent module's
- * route, does the middleware hand core the overview submodule or leave the
- * parent in place? Core's own `BackendModuleValidator` does the rest, and which
- * page comes out is covered by the Playwright overview specs on both majors.
+ * route, does the middleware point the parent's remembered selection at the
+ * overview submodule or leave it alone? Core's own `BackendModuleValidator`
+ * reads that selection and resolves the module from it, and which page comes
+ * out is covered by the Playwright overview specs on both majors.
  */
 #[CoversClass(VaultOverviewModuleResolver::class)]
 final class VaultOverviewModuleResolverTest extends TestCase
 {
-    #[Test]
-    public function parentRouteResolvesToTheOverviewSubmoduleWhereCoreCannotShowIt(): void
+    private ?BackendUserAuthentication $previousBackendUser = null;
+
+    protected function setUp(): void
     {
-        $overview = $this->module('admin_vault_overview');
-        $route = new Route('/module/admin/vault', [
-            'module' => $this->vaultParentModule(false, $overview),
-        ]);
+        parent::setUp();
 
-        $this->process($route);
+        $existing = $GLOBALS['BE_USER'] ?? null;
+        $this->previousBackendUser = $existing instanceof BackendUserAuthentication ? $existing : null;
+    }
 
-        self::assertSame(
-            $overview,
-            $route->getOption('module'),
-            'On a core without submodule-overview support the parent route must resolve to the '
-            . 'overview submodule, or the validator sends the user to the last-used one.',
-        );
+    protected function tearDown(): void
+    {
+        if ($this->previousBackendUser instanceof BackendUserAuthentication) {
+            $GLOBALS['BE_USER'] = $this->previousBackendUser;
+        } else {
+            unset($GLOBALS['BE_USER']);
+        }
+
+        parent::tearDown();
     }
 
     /**
-     * TYPO3 14 honours `showSubmoduleOverview` itself. Rewriting there would
-     * swap the module for no reason and change what the module menu highlights.
+     * The finding: without this, core resolves the parent to whichever
+     * submodule the user opened last, and the documented overview is
+     * unreachable.
+     */
+    #[Test]
+    public function parentRouteSelectsTheOverviewSubmoduleWhereCoreCannotShowIt(): void
+    {
+        $backendUser = $this->backendUser(['action' => 'admin_vault_secrets']);
+        $backendUser->expects($this->once())
+            ->method('pushModuleData')
+            ->with('admin_vault', ['action' => 'admin_vault_overview'], true);
+
+        $this->process($this->parentRoute(false));
+    }
+
+    /**
+     * A selection that already names the overview is left as it is — a write
+     * per request would be noise, and the value is identical.
+     */
+    #[Test]
+    public function anAlreadySelectedOverviewIsNotWrittenAgain(): void
+    {
+        $backendUser = $this->backendUser(['action' => 'admin_vault_overview']);
+        $backendUser->expects($this->never())->method('pushModuleData');
+
+        $this->process($this->parentRoute(false));
+    }
+
+    /**
+     * TYPO3 14 honours `showSubmoduleOverview` itself, so touching the stored
+     * selection there would change what the module menu highlights for nothing.
      *
      * The scenario cannot exist on TYPO3 13.4: `hasSubmoduleOverview()` is not
      * on ModuleInterface there, which is exactly what the production guard
      * asks. Skipped rather than asserted on that leg of the matrix.
      */
     #[Test]
-    public function parentRouteIsLeftAloneWhereCoreShowsTheOverviewItself(): void
+    public function storedSelectionIsLeftAloneWhereCoreShowsTheOverviewItself(): void
     {
-        if (!self::coreKnowsSubmoduleOverview()) {
+        if (!$this->coreKnowsSubmoduleOverview()) {
             self::markTestSkipped('TYPO3 13.4 has no ModuleInterface::hasSubmoduleOverview()');
         }
 
-        $parent = $this->vaultParentModule(true, $this->module('admin_vault_overview'));
-        $route = new Route('/module/admin/vault', ['module' => $parent]);
+        $backendUser = $this->backendUser(['action' => 'admin_vault_secrets']);
+        $backendUser->expects($this->never())->method('pushModuleData');
 
-        $this->process($route);
-
-        self::assertSame($parent, $route->getOption('module'));
+        $this->process($this->parentRoute(true));
     }
 
     #[Test]
     public function otherModulesAreLeftAlone(): void
     {
-        $foreign = $this->module('web_list');
-        $route = new Route('/module/web/list', ['module' => $foreign]);
+        $backendUser = $this->backendUser(['action' => 'web_info']);
+        $backendUser->expects($this->never())->method('pushModuleData');
 
-        $this->process($route);
+        $module = self::createStub(ModuleInterface::class);
+        $module->method('getIdentifier')->willReturn('web_list');
 
-        self::assertSame($foreign, $route->getOption('module'));
-    }
-
-    /**
-     * Defensive: if the overview submodule is not registered — or the user
-     * cannot reach it, in which case core filters it out of the parent — the
-     * middleware must not blank the route out. Core's own fallback is the
-     * better answer there.
-     */
-    #[Test]
-    public function routeIsUntouchedWhenTheOverviewSubmoduleIsAbsent(): void
-    {
-        $parent = $this->vaultParentModule(false, null);
-        $route = new Route('/module/admin/vault', ['module' => $parent]);
-
-        $this->process($route);
-
-        self::assertSame($parent, $route->getOption('module'));
+        $this->process(new Route('/module/web/list', ['module' => $module]));
     }
 
     /**
@@ -107,12 +124,69 @@ final class VaultOverviewModuleResolverTest extends TestCase
     #[Test]
     public function requestWithoutARouteIsPassedThrough(): void
     {
+        $backendUser = $this->backendUser([]);
+        $backendUser->expects($this->never())->method('pushModuleData');
+
         $request = self::createStub(ServerRequestInterface::class);
         $request->method('getAttribute')->willReturn(null);
 
         $expected = self::createStub(ResponseInterface::class);
 
-        self::assertSame($expected, (new VaultOverviewModuleResolver())->process($request, $this->handler($expected)));
+        self::assertSame(
+            $expected,
+            (new VaultOverviewModuleResolver())->process($request, $this->handler($expected)),
+        );
+    }
+
+    /**
+     * No backend user means nothing to steer — and must not be an error: the
+     * middleware chain reaches this point before authentication has produced
+     * one on some requests.
+     */
+    #[Test]
+    public function requestWithoutABackendUserIsPassedThrough(): void
+    {
+        unset($GLOBALS['BE_USER']);
+
+        $expected = self::createStub(ResponseInterface::class);
+        $request = self::createStub(ServerRequestInterface::class);
+        $request->method('getAttribute')->willReturn($this->parentRoute(false));
+
+        self::assertSame(
+            $expected,
+            (new VaultOverviewModuleResolver())->process($request, $this->handler($expected)),
+        );
+    }
+
+    private function coreKnowsSubmoduleOverview(): bool
+    {
+        return method_exists(ModuleInterface::class, 'hasSubmoduleOverview');
+    }
+
+    private function parentRoute(bool $hasSubmoduleOverview): Route
+    {
+        $module = self::createStub(ModuleInterface::class);
+        $module->method('getIdentifier')->willReturn('admin_vault');
+
+        if ($this->coreKnowsSubmoduleOverview()) {
+            $module->method('hasSubmoduleOverview')->willReturn($hasSubmoduleOverview);
+        }
+
+        return new Route('/module/admin/vault', ['module' => $module]);
+    }
+
+    /**
+     * @param array<string, mixed> $moduleData
+     *
+     * @return BackendUserAuthentication&MockObject
+     */
+    private function backendUser(array $moduleData): BackendUserAuthentication
+    {
+        $backendUser = $this->createMock(BackendUserAuthentication::class);
+        $backendUser->method('getModuleData')->willReturn($moduleData);
+        $GLOBALS['BE_USER'] = $backendUser;
+
+        return $backendUser;
     }
 
     private function process(Route $route): void
@@ -129,42 +203,5 @@ final class VaultOverviewModuleResolverTest extends TestCase
         $handler->method('handle')->willReturn($response);
 
         return $handler;
-    }
-
-    /**
-     * Whether the running core's ModuleInterface carries
-     * `hasSubmoduleOverview()`. TYPO3 14 has it, 13.4 does not — the same
-     * question the middleware asks before calling it, and a method that does
-     * not exist cannot be configured on a stub either.
-     */
-    private static function coreKnowsSubmoduleOverview(): bool
-    {
-        return method_exists(ModuleInterface::class, 'hasSubmoduleOverview');
-    }
-
-    private function vaultParentModule(bool $hasSubmoduleOverview, ?ModuleInterface $overview): ModuleInterface
-    {
-        $module = self::createStub(ModuleInterface::class);
-        $module->method('getIdentifier')->willReturn('admin_vault');
-        $module->method('getSubModule')->willReturn($overview);
-
-        if (self::coreKnowsSubmoduleOverview()) {
-            $module->method('hasSubmoduleOverview')->willReturn($hasSubmoduleOverview);
-        }
-
-        return $module;
-    }
-
-    private function module(string $identifier): ModuleInterface
-    {
-        $module = self::createStub(ModuleInterface::class);
-        $module->method('getIdentifier')->willReturn($identifier);
-        $module->method('getSubModule')->willReturn(null);
-
-        if (self::coreKnowsSubmoduleOverview()) {
-            $module->method('hasSubmoduleOverview')->willReturn(false);
-        }
-
-        return $module;
     }
 }

@@ -15,6 +15,7 @@ use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use TYPO3\CMS\Backend\Module\ModuleInterface;
 use TYPO3\CMS\Backend\Routing\Route;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 
 /**
  * Make `/typo3/module/admin/vault` render the vault overview on every supported
@@ -22,31 +23,37 @@ use TYPO3\CMS\Backend\Routing\Route;
  *
  * `Configuration/Backend/Modules.php` documents the parent module as the
  * overview page, and TYPO3 14 honours that through `showSubmoduleOverview`.
- * TYPO3 13 has no such option: `BackendModuleValidator` unconditionally
- * rewrites a second-level module that has submodules to a third-level one,
+ * TYPO3 13.4 has no such option: `BackendModuleValidator` rewrites a
+ * second-level module that has submodules to a third-level one,
  *
  *     if ($module->getParentModule() && $module->hasSubModules()) {
  *         $subModuleIdentifier = (string)($backendUser->getModuleData($module->getIdentifier())['action'] ?? '');
- *         …
  *
- * and that `action` key is the LAST submodule the user opened (the same
- * middleware writes it further down, "remember the previously selected module
- * in the parent module"). Registering the overview as the first submodule only
- * covers the fallback branch, which is reached exactly once — for a user who
- * has never opened a vault submodule. Afterwards the parent opens Secrets, or
- * Audit, or whatever was visited last, and the overview is unreachable.
+ * and that `action` key holds the submodule the user opened last — the same
+ * middleware writes it further down, under "remember the previously selected
+ * module in the parent module". Registering the overview as the first submodule
+ * only covers the fallback branch, reached exactly once: for a user who has
+ * never opened a vault submodule. Afterwards the parent opens Secrets, or
+ * Audit, and the overview is unreachable.
  *
- * The fix resolves the parent route to the overview submodule BEFORE the core
- * middleware runs. `admin_vault_overview` has no submodules of its own, so
- * core's rewrite branch no longer applies and the route target — already
- * `OverviewController::indexAction` on the parent route — stands.
+ * So the stored selection is what has to say "overview" — not the route.
+ * Replacing the route's module instead does not work: the requested route's
+ * `_identifier` is then the new module's PARENT, which is precisely the
+ * condition of core's `elseif` branch, and that branch resolves the last-used
+ * submodule all over again. Measured on 13.4: the 500 disappeared and the page
+ * was still Secrets.
  *
- * On TYPO3 14 the module reports `hasSubmoduleOverview()`, core skips its
- * rewrite by itself, and this middleware returns untouched.
+ * Writing the selection lets core's own first branch pick the overview, keeps
+ * the URL and the route target untouched, and matches what the parent module is
+ * documented to do. The write is in-memory (`pushModuleData(..., true)`): this
+ * middleware does not persist a user setting of its own.
+ *
+ * On TYPO3 14 the module reports `hasSubmoduleOverview()`, core renders the
+ * overview itself, and this middleware returns untouched.
  */
 final readonly class VaultOverviewModuleResolver implements MiddlewareInterface
 {
-    // The vault parent module, whose route this middleware re-points.
+    // The vault parent module, whose stored submodule selection is steered.
     private const PARENT_MODULE = 'admin_vault';
 
     // The submodule rendering the overview. Same controller action as the
@@ -70,21 +77,27 @@ final readonly class VaultOverviewModuleResolver implements MiddlewareInterface
         //
         // `hasSubmoduleOverview()` arrived on ModuleInterface with TYPO3 14 —
         // calling it unguarded is a fatal on 13.4, the very major this
-        // middleware exists for. method_exists() is the capability question,
-        // asked of the running core rather than of a version number.
+        // middleware exists for. method_exists() asks the running core for the
+        // capability rather than inferring it from a version number.
         if (method_exists($module, 'hasSubmoduleOverview') && $module->hasSubmoduleOverview()) {
             return $handler->handle($request);
         }
 
-        $overview = $module->getSubModule(self::OVERVIEW_MODULE);
-        if (!$overview instanceof ModuleInterface) {
+        $backendUser = $GLOBALS['BE_USER'] ?? null;
+        if (!$backendUser instanceof BackendUserAuthentication) {
             return $handler->handle($request);
         }
 
-        // Only the module option is replaced. The route keeps its path and its
-        // target, so the URL the user sees and the controller that answers it
-        // are the ones the parent module registered.
-        $route->setOption('module', $overview);
+        $moduleData = $backendUser->getModuleData(self::PARENT_MODULE);
+        $moduleData = \is_array($moduleData) ? $moduleData : [];
+
+        if (($moduleData['action'] ?? null) !== self::OVERVIEW_MODULE) {
+            $moduleData['action'] = self::OVERVIEW_MODULE;
+            // `true` keeps the write in memory: core persists the user's
+            // settings itself when it has a reason to, and opening the parent
+            // module is not one.
+            $backendUser->pushModuleData(self::PARENT_MODULE, $moduleData, true);
+        }
 
         return $handler->handle($request);
     }

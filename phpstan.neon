@@ -127,6 +127,16 @@ parameters:
                 - Tests/Unit/Middleware/VaultOverviewModuleResolverTest.php
             reportUnmatched: false
 
+        # phpstan-phpunit resolves the stub's methods from the running core's
+        # ModuleInterface, which has no hasSubmoduleOverview() before TYPO3 14.
+        # The test configures it only when the method exists, but that is a
+        # runtime guard and this rule is static, so it fires on the 13.4 leg
+        # alone.
+        -
+            message: '#Trying to mock an undefined method hasSubmoduleOverview\(\)#'
+            path: Tests/Unit/Middleware/VaultOverviewModuleResolverTest.php
+            reportUnmatched: false
+
         # setShortcutContext() is a v14-only method on DocHeaderComponent.
         # Code is guarded by method_exists() but PHPStan can't resolve the
         # named parameters when analysing against v13.
