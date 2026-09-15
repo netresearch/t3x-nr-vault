@@ -70,6 +70,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
         ];
 
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_api_key')
             ->willReturn('secret_value');
@@ -115,6 +116,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
         ];
 
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_key')
             ->willReturn('resolved');
@@ -131,6 +133,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
     public function processValueResolvesVaultReference(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('my_secret')
             ->willReturn('secret_value');
@@ -231,6 +234,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
 
         // Site-specific does not exist, so falls through to global
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('exists')
             ->with('site:main:api_key')
             ->willReturn(false);
@@ -257,11 +261,13 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
         ];
 
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('exists')
             ->with('site:main:api_key')
             ->willReturn(true);
 
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with('site:main:api_key')
             ->willReturn('site_specific_value');
@@ -276,6 +282,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
     public function handlesVariousVaultReferencePatterns(string $input, string $expectedIdentifier): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with($expectedIdentifier)
             ->willReturn('resolved');

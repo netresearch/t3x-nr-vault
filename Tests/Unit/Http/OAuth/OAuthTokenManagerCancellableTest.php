@@ -33,7 +33,7 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\MockObject\Stub;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 
@@ -70,9 +70,11 @@ final class OAuthTokenManagerCancellableTest extends TestCase
     private const TICK_BUDGET_EXHAUSTED_MESSAGE
         = 'Cancellable OAuth token transfer exceeded its wall-clock budget and was aborted';
 
-    private VaultServiceInterface&MockObject $vaultService;
+    /** A stub by default; tests that pin a call count swap in a mock before building the manager. */
+    private VaultServiceInterface&Stub $vaultService;
 
-    private ClientInterface&MockObject $blockingClient;
+    /** A stub by default; tests that pin a call count swap in a mock before building the manager. */
+    private ClientInterface&Stub $blockingClient;
 
     private mixed $originalGlobals;
 
@@ -80,8 +82,8 @@ final class OAuthTokenManagerCancellableTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
-        $this->blockingClient = $this->createMock(ClientInterface::class);
+        $this->vaultService = self::createStub(VaultServiceInterface::class);
+        $this->blockingClient = self::createStub(ClientInterface::class);
 
         $this->originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['HTTP' => []];
@@ -110,13 +112,15 @@ final class OAuthTokenManagerCancellableTest extends TestCase
             }
         });
 
-        $rows = [];
-        $subject = $this->managerWith($transfer, $ticker, $rows);
-
         // The blocking client must not serve a signalled call — that it is
         // never consulted IS the proof the signal routed the send through the
         // cancellable transport.
-        $this->blockingClient->expects(self::never())->method('sendRequest');
+        $blockingClient = $this->createMock(ClientInterface::class);
+        $blockingClient->expects(self::never())->method('sendRequest');
+        $this->blockingClient = $blockingClient;
+
+        $rows = [];
+        $subject = $this->managerWith($transfer, $ticker, $rows);
 
         $token = $subject->getAccessToken($this->config(), new TokenNeverCancelledSignal());
 
@@ -169,10 +173,13 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $this->programCredentialReads();
 
         $transfer = new TokenTransfer();
+
+        $blockingClient = $this->createMock(ClientInterface::class);
+        $blockingClient->expects(self::never())->method('sendRequest');
+        $this->blockingClient = $blockingClient;
+
         $rows = [];
         $subject = $this->managerWith($transfer, new TokenLoopTicker(static function (): void {}), $rows);
-
-        $this->blockingClient->expects(self::never())->method('sendRequest');
 
         // Question 1 (pre-read): false. Question 2 (pre-send): true.
         try {
@@ -194,7 +201,9 @@ final class OAuthTokenManagerCancellableTest extends TestCase
     #[Test]
     public function anAlreadyCancelledCallReadsNoSecretAndLeavesNoRow(): void
     {
-        $this->vaultService->expects(self::never())->method('retrieve');
+        $vaultService = $this->createMock(VaultServiceInterface::class);
+        $vaultService->expects(self::never())->method('retrieve');
+        $this->vaultService = $vaultService;
 
         $transfer = new TokenTransfer();
         $rows = [];
@@ -361,7 +370,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         float $wallClockBudgetSeconds = 45.0,
     ): OAuthTokenManager {
         $rows = [];
-        $auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        $auditLogService = self::createStub(AuditLogServiceInterface::class);
         $auditLogService
             ->method('log')
             ->willReturnCallback(

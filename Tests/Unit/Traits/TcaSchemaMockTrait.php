@@ -10,7 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Traits;
 
 use LogicException;
-use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\MockObject\Stub;
 use PHPUnit\Framework\TestCase;
 use TYPO3\CMS\Core\Schema\Field\FieldCollection;
 use TYPO3\CMS\Core\Schema\Field\FieldTypeInterface;
@@ -35,12 +35,12 @@ use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
  * {
  *     use TcaSchemaMockTrait;
  *
- *     private TcaSchemaFactory&MockObject $tcaSchemaFactory;
+ *     protected TcaSchemaFactory&Stub $tcaSchemaFactory;
  *
  *     protected function setUp(): void
  *     {
  *         parent::setUp();
- *         $this->tcaSchemaFactory = $this->createMock(TcaSchemaFactory::class);
+ *         $this->tcaSchemaFactory = self::createStub(TcaSchemaFactory::class);
  *     }
  *
  *     public function testSomething(): void
@@ -53,25 +53,48 @@ use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
  * }
  * ```
  *
- * The trait requires the consuming test class to expose a
- * `TcaSchemaFactory&MockObject` property named `$tcaSchemaFactory`.
+ * The trait requires the consuming test class to expose a protected
+ * `TcaSchemaFactory&Stub` (or `&MockObject`) property named `$tcaSchemaFactory`;
+ * a private one is invisible to the trait, which the project base class composes.
+ *
+ * The factory answers `has()` / `get()` from the tables registered in the
+ * current test and fails the test on a lookup for any other table — the
+ * argument check a `with($table)` constraint used to provide, without
+ * pinning a call count the hook under test does not define (several tests
+ * register a schema precisely to prove the hook returns before reading it).
  *
  * @phpstan-require-extends TestCase
  */
 trait TcaSchemaMockTrait
 {
+    /** @var array<string, TcaSchema> table => schema registered in the current test */
+    private array $mockedTcaSchemas = [];
+
     /**
-     * Configure the `$tcaSchemaFactory` mock to return a schema with the given fields.
+     * Configure the `$tcaSchemaFactory` double to return a schema with the given fields.
      *
      * @param array<string, array<string, mixed>> $fields field name => TCA field config
      */
     protected function mockTcaSchemaForTable(string $table, array $fields = []): void
     {
-        if (!isset($this->tcaSchemaFactory) || !$this->tcaSchemaFactory instanceof TcaSchemaFactory) {
+        $schema = self::createStub(TcaSchema::class);
+
+        $fieldStubs = [];
+        foreach ($fields as $fieldName => $config) {
+            $field = self::createStub(FieldTypeInterface::class);
+            $field->method('getName')->willReturn($fieldName);
+            $field->method('getConfiguration')->willReturn($config);
+            $fieldStubs[$fieldName] = $field;
+        }
+
+        $schema->method('getFields')->willReturn(new FieldCollection($fieldStubs));
+
+        $factory = $this->tcaSchemaFactory ?? null;
+        if (!$factory instanceof TcaSchemaFactory || !$factory instanceof Stub) {
             throw new LogicException(
                 \sprintf(
-                    '%s requires the test to define a `$tcaSchemaFactory` property '
-                    . 'of type `TcaSchemaFactory&MockObject` before calling %s().',
+                    '%s requires the test to define a protected `$tcaSchemaFactory` property '
+                    . 'of type `TcaSchemaFactory&Stub` before calling %s().',
                     self::class,
                     __FUNCTION__,
                 ),
@@ -79,21 +102,28 @@ trait TcaSchemaMockTrait
             );
         }
 
-        /** @var TcaSchema&MockObject $schema */
-        $schema = $this->createMock(TcaSchema::class);
+        $firstRegistration = $this->mockedTcaSchemas === [];
+        $this->mockedTcaSchemas[$table] = $schema;
 
-        $fieldMocks = [];
-        foreach ($fields as $fieldName => $config) {
-            /** @var FieldTypeInterface&MockObject $field */
-            $field = $this->createMock(FieldTypeInterface::class);
-            $field->method('getName')->willReturn($fieldName);
-            $field->method('getConfiguration')->willReturn($config);
-            $fieldMocks[$fieldName] = $field;
+        if (!$firstRegistration) {
+            return;
         }
 
-        $schema->method('getFields')->willReturn(new FieldCollection($fieldMocks));
+        $lookup = function (string $requested): TcaSchema {
+            self::assertArrayHasKey(
+                $requested,
+                $this->mockedTcaSchemas,
+                \sprintf('Unexpected TCA schema lookup for table "%s".', $requested),
+            );
 
-        $this->tcaSchemaFactory->method('has')->with($table)->willReturn(true);
-        $this->tcaSchemaFactory->method('get')->with($table)->willReturn($schema);
+            return $this->mockedTcaSchemas[$requested];
+        };
+
+        $factory->method('has')->willReturnCallback(static function (string $requested) use ($lookup): bool {
+            $lookup($requested);
+
+            return true;
+        });
+        $factory->method('get')->willReturnCallback($lookup);
     }
 }

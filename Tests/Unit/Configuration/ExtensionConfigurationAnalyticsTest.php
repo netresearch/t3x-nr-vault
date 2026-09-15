@@ -50,7 +50,7 @@ final class ExtensionConfigurationAnalyticsTest extends TestCase
     private function makeConfig(array $values): ExtensionConfiguration
     {
         $typo3Config = $this->createMock(Typo3ExtensionConfiguration::class);
-        $typo3Config->method('get')->with('nr_vault')->willReturn($values);
+        $typo3Config->expects(self::atLeastOnce())->method('get')->with('nr_vault')->willReturn($values);
 
         return new ExtensionConfiguration($typo3Config);
     }

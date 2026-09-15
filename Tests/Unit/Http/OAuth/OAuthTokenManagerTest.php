@@ -334,6 +334,7 @@ final class OAuthTokenManagerTest extends TestCase
         );
 
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with(self::CLIENT_ID_SECRET)
             ->willReturn(null);

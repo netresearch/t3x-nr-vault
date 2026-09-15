@@ -308,7 +308,7 @@ final class VaultHttpResponseTest extends TestCase
     public function getHeaderReturnsFirstHeaderValue(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('getHeader')->with('Content-Type')->willReturn([self::CONTENT_TYPE_JSON, 'charset=utf-8']);
+        $psrResponse->expects(self::atLeastOnce())->method('getHeader')->with('Content-Type')->willReturn([self::CONTENT_TYPE_JSON, 'charset=utf-8']);
 
         $response = new VaultHttpResponse($psrResponse);
 
@@ -319,7 +319,7 @@ final class VaultHttpResponseTest extends TestCase
     public function getHeaderReturnsNullForMissingHeader(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('getHeader')->with('X-Custom')->willReturn([]);
+        $psrResponse->expects(self::atLeastOnce())->method('getHeader')->with('X-Custom')->willReturn([]);
 
         $response = new VaultHttpResponse($psrResponse);
 
@@ -330,7 +330,7 @@ final class VaultHttpResponseTest extends TestCase
     public function getHeaderValuesReturnsAllValues(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('getHeader')->with('Accept')->willReturn([self::CONTENT_TYPE_JSON, self::CONTENT_TYPE_HTML]);
+        $psrResponse->expects(self::atLeastOnce())->method('getHeader')->with('Accept')->willReturn([self::CONTENT_TYPE_JSON, self::CONTENT_TYPE_HTML]);
 
         $response = new VaultHttpResponse($psrResponse);
 
@@ -361,7 +361,7 @@ final class VaultHttpResponseTest extends TestCase
     public function getContentTypeStripsParameters(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('getHeader')
+        $psrResponse->expects(self::atLeastOnce())->method('getHeader')
             ->with('Content-Type')
             ->willReturn(['application/json; charset=utf-8']);
 
@@ -374,17 +374,17 @@ final class VaultHttpResponseTest extends TestCase
     public function isJsonReturnsTrueForJsonContentTypes(): void
     {
         $jsonResponse = $this->createMock(ResponseInterface::class);
-        $jsonResponse->method('getHeader')
+        $jsonResponse->expects(self::atLeastOnce())->method('getHeader')
             ->with('Content-Type')
             ->willReturn([self::CONTENT_TYPE_JSON]);
 
         $apiResponse = $this->createMock(ResponseInterface::class);
-        $apiResponse->method('getHeader')
+        $apiResponse->expects(self::atLeastOnce())->method('getHeader')
             ->with('Content-Type')
             ->willReturn(['application/vnd.api+json']);
 
         $htmlResponse = $this->createMock(ResponseInterface::class);
-        $htmlResponse->method('getHeader')
+        $htmlResponse->expects(self::atLeastOnce())->method('getHeader')
             ->with('Content-Type')
             ->willReturn([self::CONTENT_TYPE_HTML]);
 
@@ -397,7 +397,7 @@ final class VaultHttpResponseTest extends TestCase
     public function getContentLengthReturnsIntegerValue(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('getHeader')
+        $psrResponse->expects(self::atLeastOnce())->method('getHeader')
             ->with('Content-Length')
             ->willReturn(['1234']);
 
@@ -474,7 +474,7 @@ final class VaultHttpResponseTest extends TestCase
     public function hasHeaderReturnsTrueWhenExists(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('hasHeader')->with('Content-Type')->willReturn(true);
+        $psrResponse->expects(self::atLeastOnce())->method('hasHeader')->with('Content-Type')->willReturn(true);
 
         $response = new VaultHttpResponse($psrResponse);
 
@@ -485,7 +485,7 @@ final class VaultHttpResponseTest extends TestCase
     public function hasHeaderReturnsFalseWhenMissing(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('hasHeader')->with('X-Missing')->willReturn(false);
+        $psrResponse->expects(self::atLeastOnce())->method('hasHeader')->with('X-Missing')->willReturn(false);
 
         $response = new VaultHttpResponse($psrResponse);
 
@@ -496,7 +496,7 @@ final class VaultHttpResponseTest extends TestCase
     public function getContentTypeReturnsNullWhenMissing(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('getHeader')->with('Content-Type')->willReturn([]);
+        $psrResponse->expects(self::atLeastOnce())->method('getHeader')->with('Content-Type')->willReturn([]);
 
         $response = new VaultHttpResponse($psrResponse);
 
@@ -507,7 +507,7 @@ final class VaultHttpResponseTest extends TestCase
     public function getContentLengthReturnsNullWhenMissing(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('getHeader')->with('Content-Length')->willReturn([]);
+        $psrResponse->expects(self::atLeastOnce())->method('getHeader')->with('Content-Length')->willReturn([]);
 
         $response = new VaultHttpResponse($psrResponse);
 
@@ -518,7 +518,7 @@ final class VaultHttpResponseTest extends TestCase
     public function isJsonReturnsFalseWhenNoContentType(): void
     {
         $psrResponse = $this->createMock(ResponseInterface::class);
-        $psrResponse->method('getHeader')->with('Content-Type')->willReturn([]);
+        $psrResponse->expects(self::atLeastOnce())->method('getHeader')->with('Content-Type')->willReturn([]);
 
         $response = new VaultHttpResponse($psrResponse);
 

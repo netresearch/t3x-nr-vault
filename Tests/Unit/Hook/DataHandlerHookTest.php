@@ -825,7 +825,7 @@ final class DataHandlerHookTest extends TestCase
     #[Test]
     public function preProcessFieldArrayIgnoresTablesWithoutSchema(): void
     {
-        $this->tcaSchemaFactory->method('has')->with('unknown_table')->willReturn(false);
+        $this->tcaSchemaFactory->expects(self::atLeastOnce())->method('has')->with('unknown_table')->willReturn(false);
 
         $fieldArray = ['field' => 'value'];
 
@@ -1081,7 +1081,7 @@ final class DataHandlerHookTest extends TestCase
     #[Test]
     public function getVaultFieldNamesReturnsEmptyForNonExistentTable(): void
     {
-        $this->tcaSchemaFactory->method('has')->with('nonexistent')->willReturn(false);
+        $this->tcaSchemaFactory->expects(self::atLeastOnce())->method('has')->with('nonexistent')->willReturn(false);
 
         $reflection = new ReflectionClass($this->subject);
         $method = $reflection->getMethod('getVaultFieldNames');
@@ -1129,6 +1129,7 @@ final class DataHandlerHookTest extends TestCase
         $connection->method('select')->willReturn($result);
 
         $this->connectionPool
+            ->expects(self::atLeastOnce())
             ->method('getConnectionForTable')
             ->with('tx_test')
             ->willReturn($connection);
@@ -1164,6 +1165,7 @@ final class DataHandlerHookTest extends TestCase
         $connection->method('select')->willReturn($result);
 
         $this->connectionPool
+            ->expects(self::atLeastOnce())
             ->method('getConnectionForTable')
             ->with('tx_test')
             ->willReturn($connection);
@@ -1208,6 +1210,7 @@ final class DataHandlerHookTest extends TestCase
         $connection->method('select')->willReturn($result);
 
         $this->connectionPool
+            ->expects(self::atLeastOnce())
             ->method('getConnectionForTable')
             ->with('tx_test')
             ->willReturn($connection);
@@ -1240,6 +1243,7 @@ final class DataHandlerHookTest extends TestCase
         $connection->method('select')->willReturn($result);
 
         $this->connectionPool
+            ->expects(self::atLeastOnce())
             ->method('getConnectionForTable')
             ->with('tx_test')
             ->willReturn($connection);
@@ -1277,12 +1281,14 @@ final class DataHandlerHookTest extends TestCase
         $connection->method('select')->willReturn($result);
 
         $this->connectionPool
+            ->expects(self::atLeastOnce())
             ->method('getConnectionForTable')
             ->with('tx_test')
             ->willReturn($connection);
 
         // Retrieve source secret
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with($sourceUuid)
             ->willReturn('the-secret-value');
@@ -1377,6 +1383,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Retrieve returns null (secret not found in vault)
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with($sourceUuid)
             ->willReturn(null);
@@ -1421,6 +1428,7 @@ final class DataHandlerHookTest extends TestCase
         $connection->method('select')->willReturn($result);
 
         $this->connectionPool
+            ->expects(self::atLeastOnce())
             ->method('getConnectionForTable')
             ->with('tx_test')
             ->willReturn($connection);

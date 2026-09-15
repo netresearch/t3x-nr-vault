@@ -35,7 +35,7 @@ final class AuditAnchorTaskTest extends TestCase
         // autowirable in a unit-test context (no DI container), so register a
         // stand-in. v14's AbstractTask no longer does this, but the mock is
         // harmless there.
-        GeneralUtility::setSingletonInstance(Scheduler::class, $this->createMock(Scheduler::class));
+        GeneralUtility::setSingletonInstance(Scheduler::class, self::createStub(Scheduler::class));
     }
 
     #[Test]

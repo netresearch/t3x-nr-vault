@@ -445,6 +445,7 @@ final class VaultSecretElementTest extends TestCase
 
         $metadata = $this->createMock(SecretDetails::class);
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('getMetadata')
             ->with($vaultIdentifier)
             ->willReturn($metadata);

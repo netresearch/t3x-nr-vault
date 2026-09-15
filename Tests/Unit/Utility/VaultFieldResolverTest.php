@@ -81,7 +81,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function getVaultFieldsForTableReturnsEmptyForUnknownTable(): void
     {
-        $this->tcaSchemaFactory->method('has')->with('tx_nonexistent_table')->willReturn(false);
+        $this->tcaSchemaFactory->expects(self::atLeastOnce())->method('has')->with('tx_nonexistent_table')->willReturn(false);
 
         $fields = $this->subject->getVaultFieldsForTable('tx_nonexistent_table');
 
@@ -91,7 +91,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function hasVaultFieldsReturnsFalseForTableWithoutVaultFields(): void
     {
-        $this->tcaSchemaFactory->method('has')->with('tx_nonexistent_table')->willReturn(false);
+        $this->tcaSchemaFactory->expects(self::atLeastOnce())->method('has')->with('tx_nonexistent_table')->willReturn(false);
 
         self::assertFalse($this->subject->hasVaultFields('tx_nonexistent_table'));
     }
@@ -201,6 +201,7 @@ final class VaultFieldResolverTest extends TestCase
         $secretValue = 'my-secret-value';
 
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('retrieve')
             ->with($identifier)
             ->willReturn($secretValue);
@@ -338,7 +339,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveRecordReturnsRecordUnchangedIfNoVaultFields(): void
     {
-        $this->tcaSchemaFactory->method('has')->with('tx_nonexistent')->willReturn(false);
+        $this->tcaSchemaFactory->expects(self::atLeastOnce())->method('has')->with('tx_nonexistent')->willReturn(false);
 
         $record = [
             'title' => 'Test',
@@ -429,7 +430,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveRecordReturnsExactRecordWhenNoVaultFields(): void
     {
-        $this->tcaSchemaFactory->method('has')->with('tx_nonexistent')->willReturn(false);
+        $this->tcaSchemaFactory->expects(self::atLeastOnce())->method('has')->with('tx_nonexistent')->willReturn(false);
 
         $record = [
             'title' => 'Test',

@@ -56,6 +56,7 @@ final class VaultDeleteCommandTest extends TestCase
     public function failsWhenSecretNotFound(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('getMetadata')
             ->with('nonexistent')
             ->willThrowException(SecretNotFoundException::forIdentifier('nonexistent'));
@@ -72,6 +73,7 @@ final class VaultDeleteCommandTest extends TestCase
     public function deletesSecretWhenConfirmed(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('getMetadata')
             ->with('to-delete')
             ->willReturn($this->createSecretDetails(

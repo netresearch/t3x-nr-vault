@@ -52,7 +52,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getStorageAdapterReturnsConfiguredValue(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['storageAdapter' => 'hashicorp']);
 
@@ -64,7 +64,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getStorageAdapterReturnsDefaultWhenNotConfigured(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -76,7 +76,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getMasterKeyProviderReturnsConfiguredValue(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['masterKeyProvider' => 'env']);
 
@@ -88,7 +88,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getMasterKeyProviderReturnsDefaultWhenNotConfigured(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -100,7 +100,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getMasterKeySourceReturnsConfiguredValue(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['masterKeySource' => '/path/to/key']);
 
@@ -112,7 +112,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getAuditLogRetentionReturnsConfiguredValue(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['auditLogRetention' => 90]);
 
@@ -124,7 +124,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getAuditLogRetentionReturnsDefaultWhenNotConfigured(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -136,7 +136,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function isCliAccessAllowedReturnsTrueWhenEnabled(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['allowCliAccess' => true]);
 
@@ -148,7 +148,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function isCliAccessAllowedReturnsFalseByDefault(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -204,7 +204,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getCliAccessGroupsParsesCommaString(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['cliAccessGroups' => '1,2,3']);
 
@@ -216,7 +216,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getCliAccessGroupsHandlesArray(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['cliAccessGroups' => [1, 2, 3]]);
 
@@ -228,7 +228,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getCliAllowedOperationsReturnsSafeDefault(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -243,7 +243,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getCliAllowedOperationsParsesAndTrimsConfiguredList(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['cliAllowedOperations' => ' secret.use , secret.delete ,, ']);
 
@@ -255,7 +255,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getCliAllowedOperationsFallsBackToTheDefaultOnANonStringValue(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['cliAllowedOperations' => ['not', 'a', 'string']]);
 
@@ -272,7 +272,7 @@ final class ExtensionConfigurationTest extends TestCase
     {
         // An operator may strip the CLI actor of every operation while
         // keeping the per-secret CLI tiers (allowCliAccess) intact.
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['cliAllowedOperations' => '']);
 
@@ -284,7 +284,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function isAuditReadsEnabledReturnsTrueByDefault(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -296,7 +296,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function isAuditReadsEnabledReturnsFalseWhenDisabled(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['auditReads' => false]);
 
@@ -312,7 +312,7 @@ final class ExtensionConfigurationTest extends TestCase
         $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['auditReads' => true]]];
 
         // BE-config says "disabled" but filesystem override forces enabled.
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['auditReads' => false]);
 
@@ -335,7 +335,7 @@ final class ExtensionConfigurationTest extends TestCase
         $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['auditReads' => false]]];
 
         // BE-config says "enabled" but filesystem override silences reads.
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['auditReads' => true]);
 
@@ -486,7 +486,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function preferXChaCha20ReturnsFalseByDefault(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -498,7 +498,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function preferXChaCha20ReturnsTrueWhenEnabled(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['preferXChaCha20' => true]);
 
@@ -510,7 +510,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getHashiCorpConfigReturnsEmptyConfigByDefault(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -533,7 +533,7 @@ final class ExtensionConfigurationTest extends TestCase
             'authMethod' => 'token',
         ];
 
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['hashicorp' => $hashicorpConfig]);
 
@@ -600,7 +600,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getAwsConfigReturnsEmptyConfigByDefault(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -620,7 +620,7 @@ final class ExtensionConfigurationTest extends TestCase
             'secretPrefix' => 'myapp/',
         ];
 
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['aws' => $awsConfig]);
 
@@ -635,7 +635,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function handlesNullConfiguration(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(null);
 
@@ -649,7 +649,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getStorageAdapterReturnsDefaultWhenValueIsNonString(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['storageAdapter' => 42]);
 
@@ -661,7 +661,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getMasterKeyProviderReturnsDefaultWhenValueIsNonString(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['masterKeyProvider' => true]);
 
@@ -673,7 +673,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getMasterKeySourceReturnsDefaultWhenNotConfigured(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -685,7 +685,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getMasterKeySourceReturnsDefaultWhenValueIsNonString(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['masterKeySource' => 999]);
 
@@ -697,7 +697,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getAuditLogRetentionReturnsDefaultWhenValueIsNonNumeric(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['auditLogRetention' => 'not-a-number']);
 
@@ -709,7 +709,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getAuditLogRetentionAcceptsNumericString(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['auditLogRetention' => '180']);
 
@@ -721,7 +721,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getHashiCorpConfigReturnsDefaultWhenValueIsNonArray(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['hashicorp' => 'invalid']);
 
@@ -735,7 +735,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getAwsConfigReturnsDefaultWhenValueIsNonArray(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['aws' => 'invalid']);
 
@@ -749,7 +749,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getCliAccessGroupsReturnsEmptyArrayWhenNotConfigured(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -761,7 +761,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getAuditHmacEpochReturnsConfiguredValue(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['auditHmacEpoch' => 2]);
 
@@ -773,7 +773,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getAuditHmacEpochReturnsDefaultWhenNotConfigured(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn([]);
 
@@ -785,7 +785,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getAuditHmacEpochReturnsDefaultWhenValueIsNonNumeric(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['auditHmacEpoch' => 'not-a-number']);
 
@@ -797,7 +797,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function getAuditHmacEpochAcceptsZeroForLegacyMode(): void
     {
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['auditHmacEpoch' => 0]);
 
@@ -810,7 +810,7 @@ final class ExtensionConfigurationTest extends TestCase
     public function getCliAccessGroupsFiltersZeroFromEmptyCommaString(): void
     {
         // A comma string with empty values would produce 0s that get filtered
-        $this->typo3Config->method('get')
+        $this->typo3Config->expects(self::atLeastOnce())->method('get')
             ->with('nr_vault')
             ->willReturn(['cliAccessGroups' => '1,,3']);
 

@@ -50,9 +50,9 @@ final class FlexFormVaultHookTest extends TestCase
      */
     private const REFERENCE_PATTERN = '/\b[0-9a-f]{16}\b/';
 
-    private ConnectionPool&MockObject $connectionPool;
+    protected TcaSchemaFactory&MockObject $tcaSchemaFactory;
 
-    private TcaSchemaFactory&MockObject $tcaSchemaFactory;
+    private ConnectionPool&MockObject $connectionPool;
 
     private VaultServiceInterface&MockObject $vaultService;
 
@@ -89,6 +89,7 @@ final class FlexFormVaultHookTest extends TestCase
     public function processDatamapPreProcessFieldArraySkipsUnknownTable(): void
     {
         $this->tcaSchemaFactory
+            ->expects(self::atLeastOnce())
             ->method('has')
             ->with('unknown_table')
             ->willReturn(false);
@@ -699,6 +700,7 @@ final class FlexFormVaultHookTest extends TestCase
         $xml = '<?xml version="1.0" encoding="utf-8" standalone="yes" ?><T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="settings.apiKey"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('exists')
             ->with($uuid)
             ->willReturn(true);
@@ -908,7 +910,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
         $this->vaultService->method('exists')->willReturn(true);
-        $this->vaultService->method('retrieve')->with($sourceUuid)->willReturn('the-secret-value');
+        $this->vaultService->expects(self::atLeastOnce())->method('retrieve')->with($sourceUuid)->willReturn('the-secret-value');
 
         $this->vaultService
             ->expects(self::once())
@@ -1578,7 +1580,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
         $this->vaultService->method('exists')->willReturn(true);
-        $this->vaultService->method('retrieve')->with($sourceUuid)->willReturn('secret-val');
+        $this->vaultService->expects(self::atLeastOnce())->method('retrieve')->with($sourceUuid)->willReturn('secret-val');
 
         $capturedOptions = null;
         $this->vaultService
@@ -1798,7 +1800,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
         $this->vaultService->method('exists')->willReturn(true);
-        $this->vaultService->method('retrieve')->with($sourceUuid)->willReturn('v');
+        $this->vaultService->expects(self::atLeastOnce())->method('retrieve')->with($sourceUuid)->willReturn('v');
 
         // Kill ArrayItemRemoval on `['uid' => 100]`.
         $connection
@@ -1897,7 +1899,7 @@ final class FlexFormVaultHookTest extends TestCase
         $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         // Secret does NOT exist — delete must NOT be called.
-        $this->vaultService->method('exists')->with($uuid)->willReturn(false);
+        $this->vaultService->expects(self::atLeastOnce())->method('exists')->with($uuid)->willReturn(false);
         $this->vaultService->expects(self::never())->method('delete');
 
         $recordWasDeleted = false;
@@ -1979,18 +1981,6 @@ final class FlexFormVaultHookTest extends TestCase
      */
     private function mockFlexFieldSchema(string $table, array $flexFieldNames): void
     {
-        $fieldMocks = [];
-        foreach ($flexFieldNames as $fieldName) {
-            $field = $this->createMock(FieldTypeInterface::class);
-            $field->method('getName')->willReturn($fieldName);
-            $field->method('getConfiguration')->willReturn(['type' => 'flex']);
-            $fieldMocks[$fieldName] = $field;
-        }
-
-        $schema = $this->createMock(TcaSchema::class);
-        $schema->method('getFields')->willReturn($this->createFieldCollection($fieldMocks));
-
-        $this->tcaSchemaFactory->method('has')->with($table)->willReturn(true);
-        $this->tcaSchemaFactory->method('get')->with($table)->willReturn($schema);
+        $this->mockTcaSchemaForTable($table, array_fill_keys($flexFieldNames, ['type' => 'flex']));
     }
 }

@@ -428,6 +428,7 @@ final class AjaxControllerTest extends TestCase
             ->with($identifier, $newSecret);
 
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('getMetadata')
             ->with($identifier)
             ->willReturn($this->createSecretDetails($identifier, version: 2));

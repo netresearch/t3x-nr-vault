@@ -57,6 +57,7 @@ final class VaultRotateCommandTest extends TestCase
     public function failsWhenSecretNotFound(): void
     {
         $this->vaultService
+            ->expects(self::atLeastOnce())
             ->method('getMetadata')
             ->with('nonexistent')
             ->willThrowException(SecretNotFoundException::forIdentifier('nonexistent'));
