@@ -225,14 +225,19 @@ method, not the service id and not a tag attribute, is what
 What a custom provider must hold to
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Extending :php:`AbstractMasterKeyProvider` is the supported route. It
-implements the :ref:`ADR-020 <adr-020-master-key-request-lifetime-caching>`
-request-lifetime contract once — the key is loaded at most once per request,
-cached in a slot keyed by your class, and wiped with
-:php:`sodium_memzero()` — so the only method you write is
-:php:`loadRawKey()`. Implementing :php:`MasterKeyProviderInterface` directly is
-allowed; then the caching and the static :php:`clearCachedKey()` are yours to
-get right.
+Extending :php:`AbstractMasterKeyProvider` is the supported route. What the
+base class supplies is the :ref:`ADR-020
+<adr-020-master-key-request-lifetime-caching>` request-lifetime contract — the
+key is loaded at most once per request, cached in a slot keyed by your class,
+and wiped with :php:`sodium_memzero()` — which it implements once as a final
+:php:`getMasterKey()` plus the static :php:`clearCachedKey()`. In exchange you
+implement :php:`loadRawKey()`, its single abstract method.
+
+The remaining :php:`MasterKeyProviderInterface` methods stay with the provider
+either way: :php:`getIdentifier()`, :php:`isAvailable()`,
+:php:`storeMasterKey()` and :php:`generateMasterKey()` — the example above
+writes all four. Implementing the interface directly is allowed; then the
+caching and :php:`clearCachedKey()` are yours to get right as well.
 
 The rest is the contract every provider is held to:
 

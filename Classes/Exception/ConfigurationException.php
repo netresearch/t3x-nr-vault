@@ -101,8 +101,9 @@ final class ConfigurationException extends VaultException
         return new self(
             \sprintf(
                 'Master key provider "%s" is not permitted in the hardened security profile. '
-                . 'Configure an explicit external provider (file, env) — the TYPO3 encryption '
-                . 'key must not protect vault secrets in hardened deployments.',
+                . 'Only "typo3" is refused: configure file, env, transit or a provider another '
+                . 'extension registers — the TYPO3 encryption key must not protect vault secrets '
+                . 'in hardened deployments.',
                 $provider,
             ),
             1753900002,

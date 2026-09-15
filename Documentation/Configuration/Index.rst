@@ -47,8 +47,11 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
       Secure defaults with zero-configuration TYPO3 integration.
 
    hardened
-      Fail-closed and audit-ready. Requires an explicit external
-      master-key provider (``file`` or ``env``), disables provider
+      Fail-closed and audit-ready. It refuses the ``typo3`` provider and
+      nothing else: ``file``, ``env``, ``transit`` and a provider another
+      extension registers are all permitted, because the demand is that
+      the master key lives outside
+      :file:`config/system/settings.php`. It disables provider
       auto-detection and any fallback to the TYPO3 encryption key, and
       makes vault operations refuse to run on a misconfigured or
       unavailable provider. It is also the prerequisite for

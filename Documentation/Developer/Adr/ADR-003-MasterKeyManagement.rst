@@ -203,23 +203,63 @@ Factory with auto-detection
 .. code-block:: php
    :caption: Classes/Crypto/MasterKeyProviderFactory.php
 
+   public function create(): MasterKeyProviderInterface
+   {
+       $provider = $this->configuration->getMasterKeyProvider();
+
+       // The hardened deny list names `typo3` and nothing else.
+       if (
+           \in_array($provider, self::FORBIDDEN_IN_HARDENED_PROFILE, true)
+           && $this->configuration->getSecurityProfile()->isHardened()
+       ) {
+           throw ConfigurationException::providerForbiddenInHardenedProfile($provider);
+       }
+
+       // The registry resolves the identifier; the factory knows no provider list.
+       return $this->registry->get($provider);
+   }
+
    public function getAvailableProvider(): MasterKeyProviderInterface
    {
-       // 1. Try explicitly configured provider
-       $configured = $this->configuration->getMasterKeyProvider();
-       if ($configured && $this->providers[$configured]->isAvailable()) {
-           return $this->providers[$configured];
+       // 1. An ambiguous registration is fatal, and must be seen before the
+       //    catch below swallows ConfigurationException.
+       $this->registry->assertNoIdentifierConflicts();
+
+       // 2. Hardened: no auto-detection, no fallback.
+       if ($this->configuration->getSecurityProfile()->isHardened()) {
+           return $this->create();
        }
 
-       // 2. Fallback chain: typo3 -> env -> file
-       foreach (['typo3', 'env', 'file'] as $id) {
-           if ($this->providers[$id]->isAvailable()) {
-               return $this->providers[$id];
+       // 3. Try the explicitly configured provider.
+       try {
+           $provider = $this->create();
+           if ($provider->isAvailable()) {
+               return $provider;
            }
+       } catch (ConfigurationException) {
+           // Fall through to auto-detection.
        }
 
-       // 3. Return TYPO3 provider (will fail with clear error)
-       return $this->providers['typo3'];
+       // 4. Fallback chain over the built-in local sources only: typo3 -> env
+       //    -> file. A registered custom provider is reached by being named,
+       //    never by auto-detection.
+       $typo3Provider = new Typo3MasterKeyProvider();
+       if ($typo3Provider->isAvailable()) {
+           return $typo3Provider;
+       }
+
+       $envProvider = new EnvironmentMasterKeyProvider($this->configuration);
+       if ($envProvider->isAvailable()) {
+           return $envProvider;
+       }
+
+       $fileProvider = new FileMasterKeyProvider($this->configuration);
+       if ($fileProvider->isAvailable()) {
+           return $fileProvider;
+       }
+
+       // 5. Return the TYPO3 provider (will fail with clear error).
+       return $typo3Provider;
    }
 
 Provider registry
@@ -269,7 +309,8 @@ Configuration
    :caption: Extension configuration options
 
    $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = [
-       'masterKeyProvider' => 'typo3',  // typo3, file, or env
+       // A built-in identifier, or one another extension registered.
+       'masterKeyProvider' => 'typo3',
        'masterKeySource' => 'NR_VAULT_MASTER_KEY',  // env var or file path
        'autoKeyPath' => 'var/secrets/vault-master.key',  // auto-generated key
    ];
