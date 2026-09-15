@@ -14,6 +14,7 @@ use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Hook\Dto\FlexFormPendingSecret;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
+use Netresearch\NrVault\Utility\TranslationSharedSecretResolver;
 use Throwable;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Database\Connection;
@@ -75,6 +76,7 @@ final class FlexFormVaultHook
         private readonly FlexFormTools $flexFormTools,
         private readonly FlashMessageService $flashMessageService,
         private readonly VaultFailureReporter $failureReporter,
+        private readonly TranslationSharedSecretResolver $translationSharedSecretResolver,
     ) {}
 
     /**
@@ -176,6 +178,23 @@ final class FlexFormVaultHook
             $identifiers = $this->extractVaultIdentifiersFromXml($xmlValue);
 
             foreach ($identifiers as $identifier) {
+                // A secret another live record still references is not this
+                // record's to delete. Mirrors the TCA path's guard: a
+                // translation carries the default-language record's XML for
+                // every `l10n_mode = exclude` column, identifiers included, so
+                // deleting the translation must leave that secret — and the
+                // default record's credential — intact. The identifier sits
+                // inside the serialised XML, so the same column of the other
+                // records is searched for it rather than compared to it.
+                if ($this->translationSharedSecretResolver->isIdentifierEmbeddedElsewhere(
+                    $table,
+                    $flexFieldName,
+                    $identifier,
+                    $id,
+                )) {
+                    continue;
+                }
+
                 try {
                     $this->vaultService->delete($identifier, 'Record deleted');
                 } catch (Throwable $e) {
@@ -388,7 +407,23 @@ final class FlexFormVaultHook
             return;
         }
 
+        $sharedFlexFields = $this->translationSharedFlexFields($table, $flexFieldNames);
+        // Resolved once per duplicated record, and only when a shared column
+        // exists at all: every other duplicate pays no query for it.
+        $duplicateIsTranslation = $sharedFlexFields !== []
+            && $this->translationSharedSecretResolver->isTranslation($table, $newUid);
+
         foreach ($flexFieldNames as $flexFieldName) {
+            // The duplicate is a translation and this column is not
+            // translatable: its XML holds the default-language record's
+            // identifiers on purpose. Cloning would fork the shared secrets, so
+            // that rotating the default record's credential would leave the
+            // translation on the old one. A same-language copy is not a
+            // translation, so it still gets its own clones.
+            if ($duplicateIsTranslation && \in_array($flexFieldName, $sharedFlexFields, true)) {
+                continue;
+            }
+
             $sourceXml = $sourceRecord[$flexFieldName] ?? '';
             $copyXml = $copiedRecord[$flexFieldName] ?? '';
             if (!\is_string($sourceXml) || !\is_string($copyXml)) {
@@ -414,6 +449,27 @@ final class FlexFormVaultHook
 
             $this->cloneFlexField($connection, $table, $flexFieldName, $newUid, $positions, $copyArray, $copyXml, $dataHandler);
         }
+    }
+
+    /**
+     * The FlexForm columns of a table that translations share with the
+     * default-language record.
+     *
+     * @param list<string> $flexFieldNames
+     *
+     * @return list<string>
+     */
+    private function translationSharedFlexFields(string $table, array $flexFieldNames): array
+    {
+        $shared = [];
+
+        foreach ($flexFieldNames as $flexFieldName) {
+            if ($this->translationSharedSecretResolver->isSharedColumn($table, $flexFieldName)) {
+                $shared[] = $flexFieldName;
+            }
+        }
+
+        return $shared;
     }
 
     /**

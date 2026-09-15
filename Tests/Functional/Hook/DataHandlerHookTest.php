@@ -19,6 +19,7 @@ use Netresearch\NrVault\Hook\VaultFailureReporter;
 use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
+use Netresearch\NrVault\Utility\TranslationSharedSecretResolver;
 use Netresearch\NrVault\Utility\VaultFieldResolver;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -527,6 +528,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
             $this->get(ConnectionPool::class),
             $this->get(VaultServiceInterface::class),
             $this->get(VaultFieldResolver::class),
+            $this->get(TranslationSharedSecretResolver::class),
             $this->get(PendingSecretExtractor::class),
             $this->get(PendingSecretPersister::class),
             $this->get(VaultFailureReporter::class),

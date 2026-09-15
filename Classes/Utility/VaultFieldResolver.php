@@ -211,7 +211,7 @@ final readonly class VaultFieldResolver
                 continue;
             }
 
-            if (($config['l10n_mode'] ?? null) !== 'exclude') {
+            if (!$this->isSharedConfiguration($config)) {
                 continue;
             }
 
@@ -219,6 +219,31 @@ final readonly class VaultFieldResolver
         }
 
         return $sharedFields;
+    }
+
+    /**
+     * Whether translations share this column's value with the default-language
+     * record.
+     *
+     * The single definition of the `l10n_mode = exclude` rule: the TCA path and
+     * the FlexForm path both ask here, so neither can drift into treating a
+     * shared column as translatable.
+     *
+     * @param string $table The table name
+     * @param string $column The column name
+     */
+    public function isTranslationSharedColumn(string $table, string $column): bool
+    {
+        if (!$this->tcaSchemaFactory->has($table)) {
+            return false;
+        }
+
+        $schema = $this->tcaSchemaFactory->get($table);
+        if (!$schema->hasField($column)) {
+            return false;
+        }
+
+        return $this->isSharedConfiguration($schema->getField($column)->getConfiguration());
     }
 
     /**
@@ -237,5 +262,21 @@ final readonly class VaultFieldResolver
         $parentField = $tca[$table]['ctrl']['transOrigPointerField'] ?? null;
 
         return \is_string($parentField) && $parentField !== '' ? $parentField : null;
+    }
+
+    /**
+     * `l10n_mode = exclude` on the resolved (config-flattened) column
+     * configuration the TCA schema hands out.
+     *
+     * The argument is what
+     * {@see \TYPO3\CMS\Core\Schema\Field\FieldTypeInterface::getConfiguration()}
+     * hands out: untyped, and with the `config` subarray merged into the top
+     * level, which is why `l10n_mode` is read there and not under `config`.
+     *
+     * @param array<array-key, mixed> $configuration
+     */
+    private function isSharedConfiguration(array $configuration): bool
+    {
+        return ($configuration['l10n_mode'] ?? null) === 'exclude';
     }
 }

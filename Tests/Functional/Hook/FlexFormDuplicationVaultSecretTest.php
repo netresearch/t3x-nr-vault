@@ -54,6 +54,20 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
         </sheets>
     </T3DataStructure>';
 
+    /**
+     * A table without a `delete` column, so DataHandler removes its records for
+     * good and the FlexForm delete path reaches the vault.
+     */
+    private const HARD_DELETE_TABLE = 'tx_nrvaulttest_flex';
+
+    private const HARD_DELETE_COLUMN = 'settings';
+
+    /** @var list<string> */
+    protected array $testExtensionsToLoad = [
+        'netresearch/nr-vault',
+        __DIR__ . '/../Fixtures/Extensions/nr_vault_test',
+    ];
+
     /** @var list<string> */
     protected array $coreExtensionsToLoad = [
         'backend',
@@ -67,6 +81,7 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
         parent::setUp();
 
         $this->importCSVDataSet(__DIR__ . '/Fixtures/pages.csv');
+        $this->writeSiteConfiguration();
         $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->createFromUserPreferences(null);
         $this->registerDataStructure();
     }
@@ -77,13 +92,13 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
         $plaintext = 'flexform-copy-' . bin2hex(random_bytes(8));
 
         $uid = $this->createContentElement($plaintext);
-        $sourceIdentifier = $this->fetchFlexIdentifier($uid);
+        $sourceIdentifier = $this->fetchFlexIdentifier('tt_content', 'pi_flexform', $uid);
         self::assertTrue(IdentifierValidator::looksLikeVaultIdentifier($sourceIdentifier));
 
         $this->runDataHandler([], ['tt_content' => [$uid => ['copy' => 1]]]);
 
         $copyUid = $this->findCopyUid($uid);
-        $copyIdentifier = $this->fetchFlexIdentifier($copyUid);
+        $copyIdentifier = $this->fetchFlexIdentifier('tt_content', 'pi_flexform', $copyUid);
         $vaultService = $this->get(VaultServiceInterface::class);
 
         self::assertSame(
@@ -102,6 +117,225 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
                 'secretsHoldingAnIdentifier' => $this->countSecretsHoldingAVaultIdentifier(),
             ],
         );
+    }
+
+    /**
+     * Localizing the record makes the translation a record whose FlexForm
+     * column is not translatable: TYPO3 keeps its XML identical to the
+     * default-language record's, identifiers included. Cloning the secrets into
+     * it would fork the credential — rotating the default record would leave
+     * the translation on the old secret — so the duplication must leave that
+     * column alone and let the translation share the identifier.
+     *
+     * Asserted twice: directly after the localize command, and again after an
+     * ordinary update of the default record, which is when core pushes the
+     * default XML into every translation's data map.
+     */
+    #[Test]
+    public function localizingARecordSharesTheFlexFormSecret(): void
+    {
+        $plaintext = 'flexform-localize-' . bin2hex(random_bytes(8));
+
+        $uid = $this->createContentElement($plaintext);
+        $sourceIdentifier = $this->fetchFlexIdentifier('tt_content', 'pi_flexform', $uid);
+        self::assertTrue(IdentifierValidator::looksLikeVaultIdentifier($sourceIdentifier));
+
+        $this->runDataHandler([], ['tt_content' => [$uid => ['localize' => 1]]]);
+        $translationUid = $this->findTranslationUid('tt_content', $uid);
+
+        self::assertSame(
+            $this->expectedSharedState($plaintext),
+            $this->sharedStateOf($uid, $translationUid),
+            'The translation must share the default record identifier right after localize',
+        );
+
+        $this->runDataHandler(['tt_content' => [$uid => ['header' => 'Changed header']]]);
+
+        self::assertSame(
+            $this->expectedSharedState($plaintext),
+            $this->sharedStateOf($uid, $translationUid),
+            'An ordinary update of the default record must leave the shared secret alone',
+        );
+    }
+
+    /**
+     * A translation shares the default-language record's FlexForm secret, so
+     * hard-deleting the translation must leave that secret — and the default
+     * record's credential — intact. The identifier sits inside the serialised
+     * XML, where no equality comparison can find it, so the delete guard has to
+     * search the other records for it.
+     *
+     * Driven against a fixture table without a `delete` column: `tt_content`
+     * soft-deletes, and the FlexForm delete path only reaches the vault on a
+     * hard delete.
+     */
+    #[Test]
+    public function hardDeletingATranslationKeepsTheSharedFlexFormSecret(): void
+    {
+        $plaintext = 'flexform-delete-' . bin2hex(random_bytes(8));
+
+        $uid = $this->createFlexRecord($plaintext);
+        $this->runDataHandler([], [self::HARD_DELETE_TABLE => [$uid => ['localize' => 1]]]);
+        $translationUid = $this->findTranslationUid(self::HARD_DELETE_TABLE, $uid);
+
+        $identifier = $this->fetchFlexIdentifier(self::HARD_DELETE_TABLE, self::HARD_DELETE_COLUMN, $uid);
+        self::assertSame(
+            $identifier,
+            $this->fetchFlexIdentifier(self::HARD_DELETE_TABLE, self::HARD_DELETE_COLUMN, $translationUid),
+            'The translation must share the default record identifier',
+        );
+
+        $this->runDataHandler([], [self::HARD_DELETE_TABLE => [$translationUid => ['delete' => 1]]]);
+
+        $vaultService = $this->get(VaultServiceInterface::class);
+
+        self::assertSame(
+            [
+                'defaultPlaintext' => $plaintext,
+                'secretStillExists' => true,
+                'activeSecrets' => 1,
+            ],
+            [
+                'defaultPlaintext' => $vaultService->retrieve($identifier),
+                'secretStillExists' => $vaultService->exists($identifier),
+                'activeSecrets' => \count($this->activeSecretIdentifiers()),
+            ],
+        );
+
+        // The guard must be able to answer the other way: once no other record
+        // references the secret, deleting the last one does remove it.
+        $this->runDataHandler([], [self::HARD_DELETE_TABLE => [$uid => ['delete' => 1]]]);
+
+        self::assertSame([], $this->activeSecretIdentifiers());
+    }
+
+    /**
+     * A record of the hard-deleting fixture table whose FlexForm column holds
+     * one vault secret.
+     */
+    private function createFlexRecord(string $plaintext): int
+    {
+        $this->runDataHandler([
+            self::HARD_DELETE_TABLE => [
+                'NEW1' => [
+                    'pid' => 1,
+                    'title' => 'FlexForm vault source',
+                    self::HARD_DELETE_COLUMN => [
+                        'data' => [
+                            'sDEF' => [
+                                'lDEF' => [
+                                    'apiKey' => [
+                                        'vDEF' => [
+                                            'value' => $plaintext,
+                                            '_vault_identifier' => '',
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable(self::HARD_DELETE_TABLE);
+        $queryBuilder->getRestrictions()->removeAll();
+
+        return (int) $queryBuilder
+            ->select('uid')
+            ->from(self::HARD_DELETE_TABLE)
+            ->orderBy('uid', 'DESC')
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchOne();
+    }
+
+    /**
+     * The state a sound shared FlexForm column leaves behind: one secret, one
+     * `create` audit entry, both records resolving to the same plaintext
+     * through the same identifier, and no secret holding a vault identifier as
+     * its value.
+     *
+     * @return array<string, bool|int|string|null>
+     */
+    private function expectedSharedState(string $plaintext): array
+    {
+        return [
+            'defaultPlaintext' => $plaintext,
+            'translationPlaintext' => $plaintext,
+            'translationSharesTheDefaultIdentifier' => true,
+            'activeSecrets' => 1,
+            'createAudits' => 1,
+            'secretsHoldingAnIdentifier' => 0,
+        ];
+    }
+
+    /**
+     * @return array<string, bool|int|string|null>
+     */
+    private function sharedStateOf(int $uid, int $translationUid): array
+    {
+        $defaultIdentifier = $this->fetchFlexIdentifier('tt_content', 'pi_flexform', $uid);
+        $translationIdentifier = $this->fetchFlexIdentifier('tt_content', 'pi_flexform', $translationUid);
+        $vaultService = $this->get(VaultServiceInterface::class);
+
+        return [
+            'defaultPlaintext' => $defaultIdentifier === '' ? null : $vaultService->retrieve($defaultIdentifier),
+            'translationPlaintext' => $translationIdentifier === '' ? null : $vaultService->retrieve($translationIdentifier),
+            'translationSharesTheDefaultIdentifier' => $translationIdentifier === $defaultIdentifier,
+            'activeSecrets' => \count($this->activeSecretIdentifiers()),
+            'createAudits' => $this->countAuditRows('create'),
+            'secretsHoldingAnIdentifier' => $this->countSecretsHoldingAVaultIdentifier(),
+        ];
+    }
+
+    private function findTranslationUid(string $table, int $sourceUid): int
+    {
+        /** @var array<string, array{ctrl?: array{transOrigPointerField?: string}}> $tca */
+        $tca = $GLOBALS['TCA'] ?? [];
+        $parentField = $tca[$table]['ctrl']['transOrigPointerField'] ?? '';
+        self::assertIsString($parentField);
+        self::assertNotSame('', $parentField);
+
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()->removeAll();
+
+        $uids = $queryBuilder
+            ->select('uid')
+            ->from($table)
+            ->where($queryBuilder->expr()->eq($parentField, $queryBuilder->createNamedParameter($sourceUid, Connection::PARAM_INT)))
+            ->executeQuery()
+            ->fetchFirstColumn();
+        self::assertCount(1, $uids, 'DataHandler must have created exactly one translation');
+
+        return (int) $uids[0];
+    }
+
+    /**
+     * A site with a second language, which `localize` needs to resolve the
+     * target language at all.
+     */
+    private function writeSiteConfiguration(): void
+    {
+        $path = $this->instancePath . '/typo3conf/sites/testsite';
+        GeneralUtility::mkdir_deep($path);
+        file_put_contents($path . '/config.yaml', <<<'YAML'
+        rootPageId: 1
+        base: /
+        languages:
+          - title: English
+            enabled: true
+            languageId: 0
+            base: /
+            locale: en_US.UTF-8
+            flag: us
+          - title: German
+            enabled: true
+            languageId: 1
+            base: /de/
+            locale: de_DE.UTF-8
+            flag: de
+        YAML);
     }
 
     private function createContentElement(string $plaintext): int
@@ -167,18 +401,18 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
     /**
      * The single vault identifier stored in a record's FlexForm XML.
      */
-    private function fetchFlexIdentifier(int $uid): string
+    private function fetchFlexIdentifier(string $table, string $column, int $uid): string
     {
-        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('tt_content');
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()->removeAll();
 
         $xml = $queryBuilder
-            ->select('pi_flexform')
-            ->from('tt_content')
+            ->select($column)
+            ->from($table)
             ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
             ->executeQuery()
             ->fetchOne();
-        self::assertIsString($xml, 'Record tt_content:' . $uid . ' not found');
+        self::assertIsString($xml, 'Record ' . $table . ':' . $uid . ' not found');
 
         $parsed = GeneralUtility::xml2array($xml);
         self::assertIsArray($parsed);
@@ -247,6 +481,11 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
             : ['default' => self::DATA_STRUCTURE];
 
         $piFlexform['config'] = $config;
+        // Top-level, as real TCA carries it: what integrators get from
+        // VaultFieldHelper::getSecureFieldConfig(). The same-language copy test
+        // then also proves that the translation exclusion does not swallow an
+        // ordinary copy.
+        $piFlexform['l10n_mode'] = 'exclude';
         $columns['pi_flexform'] = $piFlexform;
         $ttContent['columns'] = $columns;
         $tca['tt_content'] = $ttContent;

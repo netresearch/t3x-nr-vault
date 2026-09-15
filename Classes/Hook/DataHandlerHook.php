@@ -16,6 +16,7 @@ use Netresearch\NrVault\Service\VaultFieldPermission;
 use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
+use Netresearch\NrVault\Utility\TranslationSharedSecretResolver;
 use Netresearch\NrVault\Utility\VaultFieldResolver;
 use Throwable;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -97,6 +98,7 @@ final class DataHandlerHook
         private readonly ConnectionPool $connectionPool,
         private readonly VaultServiceInterface $vaultService,
         private readonly VaultFieldResolver $vaultFieldResolver,
+        private readonly TranslationSharedSecretResolver $translationSharedSecretResolver,
         private readonly PendingSecretExtractor $pendingSecretExtractor,
         private readonly PendingSecretPersister $pendingSecretPersister,
         private readonly VaultFailureReporter $failureReporter,
@@ -794,44 +796,12 @@ final class DataHandlerHook
             return null;
         }
 
-        $parentUid = $this->resolveTranslationParentUid($table, $id, $fieldArray);
+        $parentUid = $this->translationSharedSecretResolver->resolveParentUid($table, $id, $fieldArray);
         if ($parentUid <= 0) {
             return null;
         }
 
-        return $this->readColumn($table, $parentUid, $fieldName);
-    }
-
-    /**
-     * The uid of the default-language record a write belongs to, or 0 when the
-     * record is not a translation.
-     *
-     * A record being localized carries the pointer in the same field array; an
-     * ordinary update of an existing translation does not, so it is read from
-     * the persisted row.
-     *
-     * @param array<string, mixed> $fieldArray
-     */
-    private function resolveTranslationParentUid(string $table, string|int $id, array $fieldArray): int
-    {
-        $parentField = $this->vaultFieldResolver->getTranslationParentField($table);
-        if ($parentField === null) {
-            return 0;
-        }
-
-        /** @var mixed $submitted */
-        $submitted = $fieldArray[$parentField] ?? null;
-        if (is_numeric($submitted)) {
-            return (int) $submitted;
-        }
-
-        if (!is_numeric($id)) {
-            return 0;
-        }
-
-        $stored = $this->readColumn($table, (int) $id, $parentField);
-
-        return is_numeric($stored) ? (int) $stored : 0;
+        return $this->translationSharedSecretResolver->readColumn($table, $parentUid, $fieldName);
     }
 
     /**
@@ -842,7 +812,7 @@ final class DataHandlerHook
     private function isSharedTranslationField(string $table, string $fieldName, int $uid): bool
     {
         return \in_array($fieldName, $this->getTranslationSharedFields($table), true)
-            && $this->resolveTranslationParentUid($table, $uid, []) > 0;
+            && $this->translationSharedSecretResolver->isTranslation($table, $uid);
     }
 
     /**
@@ -855,53 +825,8 @@ final class DataHandlerHook
         string $identifier,
         int $uid,
     ): bool {
-        /** @var array<string, array{ctrl?: array{delete?: string}}> $tca */
-        $tca = $GLOBALS['TCA'] ?? [];
-        $deleteField = $tca[$table]['ctrl']['delete'] ?? null;
-
-        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-        $queryBuilder->getRestrictions()->removeAll();
-        $queryBuilder
-            ->count('uid')
-            ->from($table)
-            ->where(
-                $queryBuilder->expr()->eq($fieldName, $queryBuilder->createNamedParameter($identifier)),
-                $queryBuilder->expr()->neq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)),
-            );
-
-        if (\is_string($deleteField) && $deleteField !== '') {
-            $queryBuilder->andWhere(
-                $queryBuilder->expr()->eq($deleteField, $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)),
-            );
-        }
-
-        /** @var mixed $count */
-        $count = $queryBuilder->executeQuery()->fetchOne();
-
-        return is_numeric($count) && (int) $count > 0;
-    }
-
-    /**
-     * Read a single column of a record, bypassing every restriction.
-     */
-    private function readColumn(string $table, int $uid, string $column): ?string
-    {
-        if ($uid <= 0) {
-            return null;
-        }
-
-        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-        $queryBuilder->getRestrictions()->removeAll();
-
-        /** @var mixed $value */
-        $value = $queryBuilder
-            ->select($column)
-            ->from($table)
-            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
-            ->executeQuery()
-            ->fetchOne();
-
-        return \is_string($value) || is_numeric($value) ? (string) $value : null;
+        return $this->translationSharedSecretResolver
+            ->isValueReferencedElsewhere($table, $fieldName, $identifier, $uid);
     }
 
     /**
