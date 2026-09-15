@@ -16,6 +16,8 @@ use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Hook\VaultFailureReporter;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
+use Netresearch\NrVault\Utility\TranslationSharedSecretResolver;
+use Netresearch\NrVault\Utility\VaultFieldResolver;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -25,6 +27,7 @@ use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Schema\Field\FieldCollection;
@@ -80,6 +83,14 @@ final class FlexFormVaultHookTest extends TestCase
             $this->flexFormTools,
             $flashMessageService,
             new VaultFailureReporter(self::createStub(LoggerInterface::class)),
+            new TranslationSharedSecretResolver(
+                $this->connectionPool,
+                new VaultFieldResolver(
+                    $this->vaultService,
+                    $this->tcaSchemaFactory,
+                    self::createStub(LoggerInterface::class),
+                ),
+            ),
         );
     }
 
@@ -348,7 +359,7 @@ final class FlexFormVaultHookTest extends TestCase
 
         $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tt_content', 'NEW1');
 
-        self::assertSame('', $fieldArray['pi_flexform']['data']['sDEF']['lDEF']['apiKey']['vDEF']);
+        self::assertSame('', $this->flexValueOf($fieldArray));
         self::assertStringNotContainsString(
             'smuggled-plaintext',
             (string) json_encode($fieldArray),
@@ -902,12 +913,7 @@ final class FlexFormVaultHookTest extends TestCase
         $sourceUuid = self::VAULT_UUID;
         $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
-        $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
-        $result->method('fetchAssociative')->willReturn(['pi_flexform' => $xml]);
-        $connection->method('select')->willReturn($result);
-
-        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+        $connection = $this->stubFlexRowQuery($xml);
 
         $this->vaultService->method('exists')->willReturn(true);
         $this->vaultService->expects(self::atLeastOnce())->method('retrieve')->with($sourceUuid)->willReturn('the-secret-value');
@@ -948,17 +954,26 @@ final class FlexFormVaultHookTest extends TestCase
         $sourceUuid = self::VAULT_UUID;
         $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
-        $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
-        $result->method('fetchAssociative')->willReturn(['pi_flexform' => $xml]);
-        $connection->method('select')->willReturn($result);
-
-        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+        $connection = $this->stubFlexRowQuery($xml);
 
         $this->vaultService->method('exists')->willReturn(true);
         $this->vaultService->method('retrieve')->willReturn(null);
         $this->vaultService->expects(self::never())->method('store');
-        $connection->expects(self::never())->method('update');
+
+        // Fail closed: a duplicate whose source secret is gone must not keep
+        // pointing at the source record's identifier.
+        $connection
+            ->expects(self::once())
+            ->method('update')
+            ->with(
+                'tt_content',
+                self::callback(static function (array $updates): bool {
+                    $xml = $updates['pi_flexform'] ?? null;
+
+                    return \is_string($xml) && !str_contains($xml, self::VAULT_UUID);
+                }),
+                ['uid' => 100],
+            );
 
         $this->subject->processCmdmap_postProcess('copy', 'tt_content', 42, null, $this->dataHandler, false);
     }
@@ -973,12 +988,7 @@ final class FlexFormVaultHookTest extends TestCase
         $sourceUuid = self::VAULT_UUID;
         $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
-        $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
-        $result->method('fetchAssociative')->willReturn(['pi_flexform' => $xml]);
-        $connection->method('select')->willReturn($result);
-
-        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+        $this->stubFlexRowQuery($xml);
 
         $this->vaultService->method('exists')->willReturn(true);
         $this->vaultService->method('retrieve')->willThrowException(new VaultException('Retrieve failed'));
@@ -986,7 +996,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->dataHandler
             ->expects(self::once())
             ->method('log')
-            ->with('tt_content', 100, 1, 0, 1, self::callback(
+            ->with('tt_content', 100, 1, 0, 2, self::callback(
                 static fn (string $message): bool => preg_match(self::REFERENCE_PATTERN, $message) === 1
                     && !str_contains($message, 'Retrieve failed'),
             ));
@@ -1011,6 +1021,59 @@ final class FlexFormVaultHookTest extends TestCase
         $this->vaultService->expects(self::never())->method('retrieve');
 
         $this->subject->processCmdmap_postProcess('copy', 'tt_content', 42, null, $this->dataHandler, false);
+    }
+
+    // ---- Record duplication context ----
+
+    #[Test]
+    public function duplicationPassClearsTheDuplicatedIdentifierInsteadOfStoringIt(): void
+    {
+        $this->stubVaultSecretDataStructure();
+
+        $this->dataHandler->dontProcessTransformations = true;
+        $this->subject->processCmdmap_preProcess('copy', 'tt_content', 42, null, $this->dataHandler, false);
+
+        $this->vaultService->expects(self::never())->method('store');
+
+        $fieldArray = $this->flexFieldArrayWithValue(self::VAULT_UUID);
+        $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tt_content', 'NEW1', $this->dataHandler);
+
+        self::assertSame('', $this->flexValueOf($fieldArray));
+    }
+
+    /**
+     * Without a duplicating command, an identifier-shaped value is just a value
+     * somebody submitted: it must become a NEW secret, never a reference to the
+     * existing one — that would hand the submitter another record's secret.
+     */
+    #[Test]
+    public function anOrdinaryWriteNeverAdoptsASubmittedVaultIdentifier(): void
+    {
+        $this->stubVaultSecretDataStructure();
+
+        $this->dataHandler->dontProcessTransformations = true;
+
+        $fieldArray = $this->flexFieldArrayWithValue(self::VAULT_UUID);
+        $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tt_content', 'NEW1', $this->dataHandler);
+
+        $storedValue = $this->flexValueOf($fieldArray);
+        self::assertNotSame(self::VAULT_UUID, $storedValue);
+        self::assertMatchesRegularExpression(self::UUID_PATTERN, $storedValue);
+    }
+
+    #[Test]
+    public function theDuplicationContextEndsWithTheCommand(): void
+    {
+        $this->stubVaultSecretDataStructure();
+
+        $this->dataHandler->dontProcessTransformations = true;
+        $this->subject->processCmdmap_preProcess('copy', 'tt_content', 42, null, $this->dataHandler, false);
+        $this->subject->processCmdmap_postProcess('copy', 'tt_content', 42, null, $this->dataHandler, false);
+
+        $fieldArray = $this->flexFieldArrayWithValue(self::VAULT_UUID);
+        $this->subject->processDatamap_preProcessFieldArray($fieldArray, 'tt_content', 'NEW1', $this->dataHandler);
+
+        self::assertNotSame('', $this->flexValueOf($fieldArray));
     }
 
     // ---- storeFlexFormSecret via processDatamap_afterDatabaseOperations ----
@@ -1390,12 +1453,7 @@ final class FlexFormVaultHookTest extends TestCase
         $sourceUuid = self::VAULT_UUID;
         $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
-        $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
-        $result->method('fetchAssociative')->willReturn(['pi_flexform' => $xml]);
-        $connection->method('select')->willReturn($result);
-
-        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+        $this->stubFlexRowQuery($xml);
 
         $this->vaultService->method('exists')->willReturn(true);
         $this->vaultService->method('retrieve')->willThrowException(new VaultException('CopyBoom'));
@@ -1408,7 +1466,7 @@ final class FlexFormVaultHookTest extends TestCase
                 100,
                 1,
                 0,
-                1,
+                2,
                 self::callback(static fn (string $msg): bool => str_contains($msg, 'pi_flexform')
                     && preg_match(self::REFERENCE_PATTERN, $msg) === 1
                     && !str_contains($msg, 'CopyBoom')
@@ -1573,11 +1631,7 @@ final class FlexFormVaultHookTest extends TestCase
         $sourceUuid = self::VAULT_UUID;
         $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
-        $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
-        $result->method('fetchAssociative')->willReturn(['pi_flexform' => $xml]);
-        $connection->method('select')->willReturn($result);
-        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+        $this->stubFlexRowQuery($xml);
 
         $this->vaultService->method('exists')->willReturn(true);
         $this->vaultService->expects(self::atLeastOnce())->method('retrieve')->with($sourceUuid)->willReturn('secret-val');
@@ -1793,11 +1847,7 @@ final class FlexFormVaultHookTest extends TestCase
         $sourceUuid = self::VAULT_UUID;
         $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
-        $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
-        $result->method('fetchAssociative')->willReturn(['pi_flexform' => $xml]);
-        $connection->method('select')->willReturn($result);
-        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+        $connection = $this->stubFlexRowQuery($xml);
 
         $this->vaultService->method('exists')->willReturn(true);
         $this->vaultService->expects(self::atLeastOnce())->method('retrieve')->with($sourceUuid)->willReturn('v');
@@ -1929,12 +1979,7 @@ final class FlexFormVaultHookTest extends TestCase
         $sourceUuid = self::VAULT_UUID;
         $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
-        $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
-        $result->method('fetchAssociative')->willReturn(['pi_flexform' => $xml]);
-        $connection->method('select')->willReturn($result);
-
-        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+        $this->stubFlexRowQuery($xml);
 
         $this->vaultService->method('exists')->willReturn(true);
         $this->vaultService->method('retrieve')->willThrowException(new VaultException('Boom'));
@@ -1947,7 +1992,7 @@ final class FlexFormVaultHookTest extends TestCase
                 100,
                 1,
                 0,
-                1,
+                2,
                 self::callback(
                     // Kills both Concat and ConcatOperandRemoval: message starts
                     // with the literal prefix, contains the field name
@@ -1965,6 +2010,82 @@ final class FlexFormVaultHookTest extends TestCase
     }
 
     // ---- Helper methods ----
+
+    /**
+     * A `tt_content.pi_flexform` data structure with one vault secret element.
+     */
+    private function stubVaultSecretDataStructure(): void
+    {
+        $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
+        $this->flexFormTools->method('getDataStructureIdentifier')->willReturn('test-ds');
+        $this->flexFormTools->method('parseDataStructureByIdentifier')->willReturn([
+            'sheets' => [
+                'sDEF' => ['ROOT' => ['el' => ['apiKey' => ['config' => ['type' => 'input', 'renderType' => 'vaultSecret']]]]],
+            ],
+        ]);
+    }
+
+    /**
+     * The value the single vault field of a submitted FlexForm array holds.
+     *
+     * @param array<string, mixed> $fieldArray
+     */
+    private function flexValueOf(array $fieldArray): string
+    {
+        $flex = $fieldArray['pi_flexform'] ?? null;
+        self::assertIsArray($flex);
+        $value = $flex['data']['sDEF']['lDEF']['apiKey']['vDEF'] ?? null;
+        self::assertIsString($value);
+
+        return $value;
+    }
+
+    /**
+     * The submitted FlexForm array with $value in its single vault field.
+     *
+     * @return array<string, mixed>
+     */
+    private function flexFieldArrayWithValue(string $value): array
+    {
+        return [
+            'pi_flexform' => [
+                'data' => ['sDEF' => ['lDEF' => ['apiKey' => ['vDEF' => $value]]]],
+            ],
+        ];
+    }
+
+    /**
+     * Stub the record read of the duplication path: the source record (uid 42)
+     * and the record duplicated from it (uid 100), both carrying $xml — which
+     * is the state core leaves behind when it duplicates a FlexForm verbatim.
+     *
+     * Returns the connection mock the copy is written back through.
+     */
+    private function stubFlexRowQuery(string $xml): Connection&MockObject
+    {
+        $result = $this->createMock(Result::class);
+        $result->method('fetchAllAssociative')->willReturn([
+            ['uid' => 42, 'pi_flexform' => $xml],
+            ['uid' => 100, 'pi_flexform' => $xml],
+        ]);
+
+        $queryBuilder = $this->createMock(QueryBuilder::class);
+        $queryBuilder->method('select')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('where')->willReturnSelf();
+        $queryBuilder->method('executeQuery')->willReturn($result);
+
+        $this->connectionPool->method('getQueryBuilderForTable')->willReturn($queryBuilder);
+
+        $this->flexFormTools
+            ->method('flexArray2Xml')
+            ->willReturnCallback(static fn (array $flex): string => json_encode($flex, JSON_THROW_ON_ERROR));
+
+        $connection = $this->createMock(Connection::class);
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+
+        return $connection;
+    }
 
     /**
      * @param array<string, FieldTypeInterface&MockObject> $fields

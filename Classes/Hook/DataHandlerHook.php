@@ -16,6 +16,7 @@ use Netresearch\NrVault\Service\VaultFieldPermission;
 use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
+use Netresearch\NrVault\Utility\TranslationSharedSecretResolver;
 use Netresearch\NrVault\Utility\VaultFieldResolver;
 use Throwable;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -38,14 +39,48 @@ use TYPO3\CMS\Core\DataHandling\DataHandler;
 final class DataHandlerHook
 {
     /**
+     * The DataHandler commands that duplicate a record.
+     *
+     * Every one of them writes the new record through a nested
+     * `process_datamap()` pass in which the vault field carries the SOURCE
+     * record's identifier as a plain string — indistinguishable from a freshly
+     * typed secret. {@see processDatamap_preProcessFieldArray()} therefore
+     * refuses to interpret such a value while one of these commands is running,
+     * and {@see processCmdmap_postProcess()} clones the source secrets
+     * afterwards, for every record the command duplicated.
+     */
+    private const DUPLICATION_COMMANDS = ['copy', 'localize', 'copyToLanguage', 'inlineLocalizeSynchronize'];
+
+    /**
      * Pending secrets to be stored after database operations.
      *
      * @var array<string, array<string|int, array<string, PendingSecret>>>
      */
     private array $pendingSecrets = [];
 
+    /**
+     * The DataHandler instances that are currently between the
+     * `processCmdmap_preProcess()` and `processCmdmap_postProcess()` call of a
+     * duplicating command, each with the number of such commands in flight.
+     *
+     * Counted rather than flagged: a hook of another extension may run a nested
+     * command inside one, and the inner command's postProcess must not end the
+     * outer one's duplication context.
+     *
+     * This is the ONLY signal the datamap pass uses. Keying on "the value looks
+     * like a vault identifier" instead would let any caller point a new record
+     * at an existing secret by submitting its identifier, bypassing that
+     * secret's access control.
+     *
+     * @var array<int, int> spl_object_id() of the DataHandler => commands in flight
+     */
+    private array $duplicationCommands = [];
+
     /** @var array<string, list<string>> Per-table cache of vault field names */
     private array $vaultFieldCache = [];
+
+    /** @var array<string, list<string>> Per-table cache of vault fields shared with translations */
+    private array $sharedVaultFieldCache = [];
 
     /**
      * Record deletes (keyed by table) whose vault-secret cleanup failed in
@@ -63,6 +98,7 @@ final class DataHandlerHook
         private readonly ConnectionPool $connectionPool,
         private readonly VaultServiceInterface $vaultService,
         private readonly VaultFieldResolver $vaultFieldResolver,
+        private readonly TranslationSharedSecretResolver $translationSharedSecretResolver,
         private readonly PendingSecretExtractor $pendingSecretExtractor,
         private readonly PendingSecretPersister $pendingSecretPersister,
         private readonly VaultFailureReporter $failureReporter,
@@ -89,6 +125,34 @@ final class DataHandlerHook
         foreach ($vaultFieldNames as $fieldName) {
             // Check if field is in the data being saved
             if (!isset($fieldArray[$fieldName])) {
+                continue;
+            }
+
+            // The field is not translatable (`l10n_mode = exclude`) and this
+            // record is a translation: its secret is the default-language
+            // record's secret. Core's DataMapProcessor pushes the default
+            // record's value into every translation's data map — as the stored
+            // identifier on an ordinary update, and as the whole submitted
+            // value when the default record's field is written — and both
+            // shapes reach this hook under a translation's uid. The only
+            // correct outcome is the identifier the DEFAULT record holds, read
+            // from the database and never from the request, so nothing a caller
+            // submits can point a translation at a foreign secret.
+            $sharedIdentifier = $this->resolveSharedTranslationIdentifier($table, $fieldName, $id, $fieldArray);
+            if ($sharedIdentifier !== null) {
+                $fieldArray[$fieldName] = $sharedIdentifier;
+                continue;
+            }
+
+            // A duplicating command (copy, localize, …) is running and this is
+            // the nested pass that writes the new record: the value is the
+            // SOURCE record's stored identifier, not a secret anybody typed.
+            // Clear it — processCmdmap_postProcess() clones the source secret
+            // into the new record afterwards. Keeping the identifier would let
+            // the two records share one secret until then; storing it as a
+            // value would create a secret whose plaintext is an identifier.
+            if ($this->isRecordDuplicationPass($fieldArray[$fieldName], $id, $dataHandler)) {
+                $fieldArray[$fieldName] = '';
                 continue;
             }
 
@@ -224,6 +288,11 @@ final class DataHandlerHook
         DataHandler $dataHandler,
         bool|array $pasteUpdate,
     ): void {
+        if (\in_array($command, self::DUPLICATION_COMMANDS, true)) {
+            $handlerId = spl_object_id($dataHandler);
+            $this->duplicationCommands[$handlerId] = ($this->duplicationCommands[$handlerId] ?? 0) + 1;
+        }
+
         if ($command !== 'delete') {
             return;
         }
@@ -262,6 +331,16 @@ final class DataHandlerHook
             }
 
             $identifiers[$fieldName] = $vaultIdentifier;
+        }
+
+        // A secret another live record still references is not this record's to
+        // delete: a translation shares the default-language record's secret for
+        // every `l10n_mode = exclude` field, so deleting the translation must
+        // leave that secret — and the default record's credential — intact.
+        foreach ($identifiers as $fieldName => $vaultIdentifier) {
+            if ($this->isIdentifierReferencedElsewhere($table, $fieldName, $vaultIdentifier, $uid)) {
+                unset($identifiers[$fieldName]);
+            }
         }
 
         if ($identifiers === []) {
@@ -350,8 +429,16 @@ final class DataHandlerHook
     }
 
     /**
-     * Called after record copy.
-     * Copies vault secrets to the new record with new UUIDs.
+     * Called after a record was duplicated.
+     * Gives every new record its own clone of the source record's secrets.
+     *
+     * The command names one record, but a single command duplicates many: a
+     * page copy duplicates the records on the page, a copy or localize carries
+     * the inline children along (through `copyRecord_raw()`, which runs no
+     * datamap hook at all), and a copy also duplicates the source's
+     * translations. DataHandler records all of them in `copyMappingArray`, so
+     * that map — not the command's own uid — is the list of records that need a
+     * secret of their own.
      *
      * @param bool|array<string, mixed> $pasteUpdate TYPO3 core defaults this to `false`
      *                                               but reassigns it to `$value['update']`
@@ -368,31 +455,108 @@ final class DataHandlerHook
         DataHandler $dataHandler,
         bool|array $pasteUpdate,
     ): void {
-        if ($command !== 'copy') {
+        if (!\in_array($command, self::DUPLICATION_COMMANDS, true)) {
             return;
         }
 
-        /** @phpstan-ignore property.internal */
-        $newIdRaw = $dataHandler->copyMappingArray[$table][$id] ?? null;
-        if ($newIdRaw === null) {
+        try {
+            /** @phpstan-ignore property.internal */
+            foreach ($dataHandler->copyMappingArray as $duplicatedTable => $idMap) {
+                if (!\is_string($duplicatedTable) || !\is_array($idMap)) {
+                    continue;
+                }
+
+                $vaultFields = $this->getVaultFieldNames($duplicatedTable);
+                if ($vaultFields === []) {
+                    continue;
+                }
+
+                $connection = $this->connectionPool->getConnectionForTable($duplicatedTable);
+
+                /** @var mixed $newIdRaw */
+                foreach ($idMap as $sourceIdRaw => $newIdRaw) {
+                    $sourceUid = is_numeric($sourceIdRaw) ? (int) $sourceIdRaw : 0;
+                    $newUid = is_numeric($newIdRaw) ? (int) $newIdRaw : 0;
+                    if ($sourceUid <= 0 || $newUid <= 0) {
+                        continue;
+                    }
+
+                    $this->cloneSecretsIntoDuplicate(
+                        $connection,
+                        $duplicatedTable,
+                        $sourceUid,
+                        $newUid,
+                        $vaultFields,
+                        $dataHandler,
+                    );
+                }
+            }
+        } finally {
+            // Leaving the context set would make the datamap pass discard a
+            // scalar vault value of a later, unrelated write in this request.
+            $this->endDuplicationCommand($dataHandler);
+        }
+    }
+
+    /**
+     * Forget one duplicating command of this DataHandler.
+     */
+    private function endDuplicationCommand(DataHandler $dataHandler): void
+    {
+        $handlerId = spl_object_id($dataHandler);
+        $remaining = ($this->duplicationCommands[$handlerId] ?? 0) - 1;
+
+        if ($remaining > 0) {
+            $this->duplicationCommands[$handlerId] = $remaining;
+
             return;
         }
 
-        $newId = is_numeric($newIdRaw) ? (int) $newIdRaw : 0;
+        unset($this->duplicationCommands[$handlerId]);
+    }
 
-        $vaultFields = $this->getVaultFieldNames($table);
-        if ($vaultFields === []) {
-            return;
-        }
+    /**
+     * Decide whether a submitted vault field value is the nested pass of a
+     * record duplication rather than a value a user entered.
+     *
+     * All three conditions must hold, and none of them is under the control of
+     * a datamap caller:
+     * - a duplicating command of THIS hook instance is currently running,
+     * - the record is being created (`NEW…`), as every duplication does,
+     * - the DataHandler is core's internal copy instance, which `getLocalTCE()`
+     *   marks by disabling transformations.
+     *
+     * Array-shaped values are never duplication input: they are what the vault
+     * FormEngine element submits.
+     */
+    private function isRecordDuplicationPass(mixed $value, string|int $id, ?DataHandler $dataHandler): bool
+    {
+        return $this->duplicationCommands !== []
+            && !\is_array($value)
+            && \is_string($id)
+            && str_starts_with($id, 'NEW')
+            && $dataHandler instanceof DataHandler
+            && $dataHandler->dontProcessTransformations;
+    }
 
-        // Read source record to get UUIDs
-        $connection = $this->connectionPool
-            ->getConnectionForTable($table);
-
+    /**
+     * Clone every vault secret of a source record into the record that was
+     * duplicated from it.
+     *
+     * @param list<string> $vaultFields
+     */
+    private function cloneSecretsIntoDuplicate(
+        Connection $connection,
+        string $table,
+        int $id,
+        int $newId,
+        array $vaultFields,
+        DataHandler $dataHandler,
+    ): void {
         $sourceRecord = $connection->select(
             $vaultFields,
             $table,
-            ['uid' => (int) $id],
+            ['uid' => $id],
         )->fetchAssociative();
 
         if ($sourceRecord === false) {
@@ -408,6 +572,15 @@ final class DataHandlerHook
             }
 
             if ($sourceIdentifier === '') {
+                continue;
+            }
+
+            // The new record is a translation and this field is not
+            // translatable: it holds the default-language record's identifier
+            // on purpose. Cloning would fork the shared secret, so that
+            // rotating the default record's credential would leave the
+            // translation on the old one.
+            if ($this->isSharedTranslationField($table, $fieldName, $newId)) {
                 continue;
             }
 
@@ -605,6 +778,67 @@ final class DataHandlerHook
         } catch (Exception) {
             return false;
         }
+    }
+
+    /**
+     * The identifier a translation must hold for a vault field it shares with
+     * its default-language record, or null when this is not such a case.
+     *
+     * @param array<string, mixed> $fieldArray
+     */
+    private function resolveSharedTranslationIdentifier(
+        string $table,
+        string $fieldName,
+        string|int $id,
+        array $fieldArray,
+    ): ?string {
+        if (!\in_array($fieldName, $this->getTranslationSharedFields($table), true)) {
+            return null;
+        }
+
+        $parentUid = $this->translationSharedSecretResolver->resolveParentUid($table, $id, $fieldArray);
+        if ($parentUid <= 0) {
+            return null;
+        }
+
+        return $this->translationSharedSecretResolver->readColumn($table, $parentUid, $fieldName);
+    }
+
+    /**
+     * A shared field of a translated record keeps the default-language
+     * record's identifier, so a duplication must not clone it: the clone would
+     * fork the shared secret.
+     */
+    private function isSharedTranslationField(string $table, string $fieldName, int $uid): bool
+    {
+        return \in_array($fieldName, $this->getTranslationSharedFields($table), true)
+            && $this->translationSharedSecretResolver->isTranslation($table, $uid);
+    }
+
+    /**
+     * Whether a record other than $uid still references this secret in the same
+     * field — a translation sharing its default record's secret, above all.
+     */
+    private function isIdentifierReferencedElsewhere(
+        string $table,
+        string $fieldName,
+        string $identifier,
+        int $uid,
+    ): bool {
+        return $this->translationSharedSecretResolver
+            ->isValueReferencedElsewhere($table, $fieldName, $identifier, $uid);
+    }
+
+    /**
+     * Vault fields of a table that translations share with the default-language
+     * record, cached per table for the lifetime of this hook instance.
+     *
+     * @return list<string>
+     */
+    private function getTranslationSharedFields(string $table): array
+    {
+        return $this->sharedVaultFieldCache[$table]
+            ??= $this->vaultFieldResolver->getTranslationSharedVaultFields($table);
     }
 
     /**

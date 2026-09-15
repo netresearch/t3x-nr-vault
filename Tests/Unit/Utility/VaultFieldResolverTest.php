@@ -168,6 +168,80 @@ final class VaultFieldResolverTest extends TestCase
         self::assertSame(['api_key', 'api_secret'], $fields);
     }
 
+    /**
+     * `l10n_mode = exclude` is what makes a vault field shared with every
+     * translation: the column is not translatable, so the translation holds the
+     * default-language record's identifier rather than a clone.
+     */
+    #[Test]
+    public function getTranslationSharedVaultFieldsReturnsTheColumnsExcludedFromTranslation(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'title' => ['type' => 'input', 'l10n_mode' => 'exclude'],
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_token' => ['type' => 'input', 'renderType' => 'vaultSecret', 'l10n_mode' => 'exclude'],
+        ]);
+
+        self::assertSame(['api_token'], $this->subject->getTranslationSharedVaultFields('tx_test'));
+    }
+
+    #[Test]
+    public function getTranslationSharedVaultFieldsIsEmptyForAnUnknownTable(): void
+    {
+        self::assertSame([], $this->subject->getTranslationSharedVaultFields('tx_unknown'));
+    }
+
+    /**
+     * The column-level question the FlexForm path asks: a `type = flex` column
+     * carries no `renderType`, so only `l10n_mode` decides.
+     */
+    #[Test]
+    public function isTranslationSharedColumnReadsL10nModeOfAnyColumn(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'settings' => ['type' => 'flex', 'l10n_mode' => 'exclude'],
+            'other_settings' => ['type' => 'flex'],
+        ]);
+
+        self::assertSame(
+            [
+                'excluded' => true,
+                'translatable' => false,
+                'unknownColumn' => false,
+            ],
+            [
+                'excluded' => $this->subject->isTranslationSharedColumn('tx_test', 'settings'),
+                'translatable' => $this->subject->isTranslationSharedColumn('tx_test', 'other_settings'),
+                'unknownColumn' => $this->subject->isTranslationSharedColumn('tx_test', 'nope'),
+            ],
+        );
+    }
+
+    #[Test]
+    public function isTranslationSharedColumnIsFalseForAnUnknownTable(): void
+    {
+        self::assertFalse($this->subject->isTranslationSharedColumn('tx_unknown', 'settings'));
+    }
+
+    /**
+     * The pointer is read from the raw TCA control section, which is identical
+     * on every supported TYPO3 major.
+     */
+    #[Test]
+    public function getTranslationParentFieldReadsTheControlSection(): void
+    {
+        $GLOBALS['TCA']['tx_test']['ctrl']['transOrigPointerField'] = 'l10n_parent';
+        $GLOBALS['TCA']['tx_plain']['ctrl'] = [];
+
+        self::assertSame(
+            ['aware' => 'l10n_parent', 'notAware' => null],
+            [
+                'aware' => $this->subject->getTranslationParentField('tx_test'),
+                'notAware' => $this->subject->getTranslationParentField('tx_plain'),
+            ],
+        );
+    }
+
     #[Test]
     public function hasVaultFieldsReturnsTrueForTableWithVaultFields(): void
     {
