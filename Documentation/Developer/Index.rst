@@ -444,15 +444,14 @@ long-term target:
    :caption: infection.json5
 
    {
-       "minMsi": 72,
-       "minCoveredMsi": 72
+       "minMsi": 77,
+       "minCoveredMsi": 77
    }
 
 A run that falls below either threshold fails CI. Ratchet these numbers
 upward as test coverage improves; avoid ratcheting them downward (use a
-brief TODO with a ticket instead). The dated ratchet schedule up to the
-85 % / 95 % long-term target is kept next to the values in
-:file:`infection.json5`.
+brief TODO with a ticket instead). The measurement the floors were set from,
+and the next target, are kept next to the values in :file:`infection.json5`.
 
 Badge generation
 ~~~~~~~~~~~~~~~~
@@ -498,6 +497,10 @@ which publishes nothing:
    composer ci:test:php:coverage
    composer ci:test:php:mutation
 
+   # The path figure comes from PHPUnit's text report, which the command above
+   # writes to stdout; add a target for it to feed the bundle:
+   #   --coverage-text=.Build/coverage/coverage-text.txt --only-summary-for-coverage-text
+
    # Assemble into .Build/evidence/
    composer ci:evidence -- --tag=v1.2.3
 
@@ -511,7 +514,7 @@ into one flat drop-zone that the bundling job passes with ``--parts``:
 
 Recognised names under ``--parts`` are :file:`junit-unit.xml`,
 :file:`junit-fuzz.xml`, :file:`junit-functional.xml`, :file:`clover.xml`,
-:file:`infection.json`, :file:`infection-security.json`,
+:file:`coverage-text.txt`, :file:`infection.json`, :file:`infection-security.json`,
 :file:`infection-summary.log`, :file:`composer-audit.json` and
 :file:`doctor.json`. Precedence per input is: an explicit flag, then the
 drop-zone, then the in-tree default location, then absent. Run
@@ -538,8 +541,8 @@ Manifest schema
        {
          "id": "coverage-line",
          "status": "pass",
-         "summary": "line 84.79% (6128/7227 statements), branch n/a — bar 80.00%",
-         "source": "clover.xml"
+         "summary": "line 95.65% (11454/11974 statements), branch 87.12% (6579/7551), path 5.02% (2411/47969) — bar 93.00%",
+         "source": "clover.xml + coverage-text.txt"
        }
      ],
      "artifacts": [
@@ -550,8 +553,10 @@ Manifest schema
 
 The ``checks`` array is emitted in a fixed order with stable ids:
 ``release-identity``, ``tests``, ``coverage-line``, ``coverage-security-dirs``,
-``mutation-msi``, ``mutation-msi-security``, ``static-analysis``,
-``dependency-audit``, ``vault-doctor``.
+``coverage-branch``, ``mutation-msi``, ``mutation-msi-security``,
+``static-analysis``, ``dependency-audit``, ``vault-doctor``.
+``coverage-branch`` was added without a schema version change: it is a new
+entry in the ``checks`` array, and no existing field changed shape.
 
 :status:
    One of ``pass``, ``warn``, ``fail`` or ``absent``.
@@ -564,6 +569,19 @@ The ``checks`` array is emitted in a fixed order with stable ids:
    Aggregates every suite that left a JUnit log, keeping the per-suite counts in
    the summary. A suite that did not run is not listed — it is never counted as
    passing.
+
+:coverage-line:
+   Line coverage against its bar, with branch and path coverage reported
+   beside it. Branch and path figures exist only when the run collected them
+   (Xdebug ``--path-coverage``); otherwise they read ``n/a``. Path coverage is
+   reported but not gated: its denominator grows combinatorially with nested
+   conditions, so a bar on it would punish readable branching rather than
+   missing tests.
+
+:coverage-branch:
+   Branch coverage overall and per security directory, each against its own
+   bar. A coverage report without branch data is a ``warn``, never a ``pass``:
+   the report exists, but it cannot show the bar was met.
 
 :mutation-msi-security:
    The same mutation analysis narrowed to ``Classes/Crypto``,

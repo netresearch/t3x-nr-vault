@@ -1,5 +1,12 @@
 # Mutation Testing Baseline (2026-04-21)
 
+> **Historical snapshot.** The numbers, thresholds and commands below describe
+> April 2026 and are not maintained. The current floors, their measurement and
+> the dated next target live next to the values in `infection.json5`; the
+> release evidence workflow (`.github/workflows/release-evidence.yml`) is where
+> the score is measured. `Build/phpunit.infection.xml`, used by the invocation
+> below, has since been removed — Infection runs against `Build/phpunit.xml`.
+
 First successful end-to-end Infection run after the CI/tooling modernization pass.
 
 ## Environment

@@ -136,8 +136,11 @@ function selfTestFixtureRoot(bool $withDoctorCommand): string
 }
 
 /**
- * Clover report with known totals: 114/120 statements overall (95.00 %), and
- * each security directory above the 90 % bar.
+ * Clover report with known totals: 114/120 statements overall (95.00 %), each
+ * security directory above the 90 % line bar, and branch data as Xdebug
+ * `--path-coverage` writes it: 57/60 branches overall (95.00 %), per directory
+ * Crypto 19/20, Security 19/20, Audit 10/10, Http 8/8 — above any branch bar the
+ * collector could plausibly carry, so the healthy case never depends on it.
  */
 function selfTestCloverHealthy(string $dir): string
 {
@@ -146,24 +149,62 @@ function selfTestCloverHealthy(string $dir): string
     <coverage generated="1">
       <project timestamp="1">
         <file name="/src/Classes/Crypto/EncryptionService.php">
-          <metrics statements="40" coveredstatements="38" conditionals="10" coveredconditionals="9"/>
+          <metrics statements="40" coveredstatements="38" conditionals="20" coveredconditionals="19"/>
         </file>
         <file name="/src/Classes/Security/AccessControlService.php">
-          <metrics statements="30" coveredstatements="29" conditionals="6" coveredconditionals="5"/>
+          <metrics statements="30" coveredstatements="29" conditionals="20" coveredconditionals="19"/>
         </file>
         <file name="/src/Classes/Audit/AuditLogService.php">
-          <metrics statements="20" coveredstatements="19" conditionals="4" coveredconditionals="4"/>
+          <metrics statements="20" coveredstatements="19" conditionals="10" coveredconditionals="10"/>
         </file>
         <file name="/src/Classes/Http/VaultHttpClient.php">
-          <metrics statements="20" coveredstatements="19" conditionals="4" coveredconditionals="4"/>
+          <metrics statements="20" coveredstatements="19" conditionals="8" coveredconditionals="8"/>
         </file>
         <file name="/src/Classes/Service/VaultService.php">
           <metrics statements="10" coveredstatements="9" conditionals="2" coveredconditionals="1"/>
         </file>
-        <metrics statements="120" coveredstatements="114" conditionals="26" coveredconditionals="23"/>
+        <metrics statements="120" coveredstatements="114" conditionals="60" coveredconditionals="57"/>
       </project>
     </coverage>
     XML);
+}
+
+/**
+ * The same statement totals as a line-only driver (pcov) writes them: every
+ * `conditionals` attribute is 0. That is "no branch data", never 0 % or 100 %.
+ */
+function selfTestCloverLineOnly(string $dir): string
+{
+    return selfTestWrite($dir . '/clover-line-only.xml', <<<'XML'
+    <?xml version="1.0" encoding="UTF-8"?>
+    <coverage generated="1">
+      <project timestamp="1">
+        <file name="/src/Classes/Crypto/EncryptionService.php">
+          <metrics statements="40" coveredstatements="38" conditionals="0" coveredconditionals="0"/>
+        </file>
+        <metrics statements="120" coveredstatements="114" conditionals="0" coveredconditionals="0"/>
+      </project>
+    </coverage>
+    XML);
+}
+
+/**
+ * PHPUnit's summary-only text report as `--coverage-text --only-summary-for-coverage-text`
+ * writes it for a path-coverage run: 600/1000 paths (60.00 %).
+ */
+function selfTestCoverageTextWithPaths(string $dir): string
+{
+    return selfTestWrite($dir . '/coverage-text.txt', <<<'TXT'
+
+
+    Code Coverage Report Summary:
+      Classes: 50.00% (10/20)
+      Methods: 80.00% (80/100)
+      Paths:   60.00% (600/1000)
+      Branches:   95.00% (57/60)
+      Lines:   95.00% (114/120)
+
+    TXT);
 }
 
 /**
@@ -288,6 +329,7 @@ function selfTestExpectedCheckIds(): array
         'tests',
         'coverage-line',
         'coverage-security-dirs',
+        'coverage-branch',
         'mutation-msi',
         'mutation-msi-security',
         'static-analysis',
@@ -307,7 +349,7 @@ function selfTest(string $projectRoot): int
         $temporary[] = $bareRoot;
         $emptyInputs = [
             'junit-unit' => null, 'junit-fuzz' => null, 'junit-functional' => null,
-            'clover' => null, 'infection' => null, 'infectionSecurity' => null,
+            'clover' => null, 'coverageText' => null, 'infection' => null, 'infectionSecurity' => null,
             'infectionSummary' => null, 'audit' => null, 'doctor' => null,
         ];
         $absent = selfTestManifest($bareRoot, $emptyInputs);
@@ -333,7 +375,7 @@ function selfTest(string $projectRoot): int
         }
 
         $byId = selfTestById($absent['checks']);
-        foreach (['tests', 'coverage-line', 'coverage-security-dirs', 'mutation-msi', 'mutation-msi-security', 'dependency-audit'] as $id) {
+        foreach (['tests', 'coverage-line', 'coverage-security-dirs', 'coverage-branch', 'mutation-msi', 'mutation-msi-security', 'dependency-audit'] as $id) {
             selfTestEquals('absent', $byId[$id]['status'], "`{$id}` degrades to absent without its artifact");
         }
         selfTestEquals(
@@ -391,6 +433,7 @@ function selfTest(string $projectRoot): int
                 '<?xml version="1.0"?><testsuites tests="45" errors="0" failures="0" skipped="0"/>',
             ),
             'clover' => selfTestCloverHealthy($fixtures),
+            'coverageText' => selfTestCoverageTextWithPaths($fixtures),
             'infection' => selfTestWrite(
                 $fixtures . '/infection.json',
                 '{"stats":{"msi":80.5,"coveredCodeMsi":85.25,"totalMutantsCount":900}}',
@@ -424,8 +467,105 @@ function selfTest(string $projectRoot): int
             'overall line coverage is computed from the clover project metrics',
         );
         selfTestAssert(
+            str_contains($goodById['coverage-line']['summary'], 'branch 95.00% (57/60)'),
+            'the line check reports real branch coverage from the clover conditionals',
+        );
+        selfTestAssert(
+            str_contains($goodById['coverage-line']['summary'], 'path 60.00% (600/1000)'),
+            'the line check reports path coverage from the text report',
+        );
+        selfTestAssert(
+            !str_contains($goodById['coverage-line']['summary'], 'n/a'),
+            'a path-coverage run reports no n/a figure',
+        );
+        selfTestAssert(
+            str_contains($goodById['coverage-branch']['summary'], 'Classes/Crypto 95.00%')
+                && str_contains($goodById['coverage-branch']['summary'], 'Classes/Audit 100.00%'),
+            'per-directory branch coverage is aggregated from the clover file metrics',
+        );
+        selfTestAssert(
             str_contains($goodById['coverage-security-dirs']['summary'], 'Classes/Crypto 95.00%'),
             'per-directory coverage is aggregated from the clover file metrics',
+        );
+
+        // A zero bar passes every report while still looking like a gate, and
+        // both branch bars were 0.0 until the first measurement landed. Run a
+        // deliberately weak report through the REAL constants: it fails at any
+        // honest bar and passes at 0, so the bars cannot quietly go back.
+        // Asserting on the constants directly would be constant-folded away.
+        selfTestEquals(
+            'fail',
+            checkBranchCoverage(
+                parseClover(selfTestCloverWeakCrypto($fixtures . '/bars'), SECURITY_DIRS),
+                MIN_BRANCH_COVERAGE,
+                MIN_SECURITY_BRANCH_COVERAGE,
+            )['status'],
+            'the branch-coverage bars are set to a real measurement, not 0',
+        );
+
+        // --- 2b. Branch and path coverage against explicit bars -------------
+        // Called directly so the cases do not move when the real bars move.
+        $healthyCoverage = parseClover($healthy['clover'], SECURITY_DIRS);
+        selfTestEquals(
+            'pass',
+            checkBranchCoverage($healthyCoverage, 90.0, 90.0)['status'],
+            'branch coverage passes when overall and every security directory meet their bars',
+        );
+        selfTestEquals(
+            'fail',
+            checkBranchCoverage($healthyCoverage, 96.0, 90.0)['status'],
+            'branch coverage fails when the overall figure is under its bar',
+        );
+        selfTestEquals(
+            'fail',
+            checkBranchCoverage($healthyCoverage, 90.0, 96.0)['status'],
+            'branch coverage fails when one security directory is under its bar, even with a healthy overall figure',
+        );
+        // A subdirectory: the fixture is written as clover.xml and must not
+        // replace the healthy report the later sections still read.
+        $weakCrypto = checkBranchCoverage(parseClover(selfTestCloverWeakCrypto($fixtures . '/weak'), SECURITY_DIRS), 30.0, 50.0);
+        selfTestEquals('fail', $weakCrypto['status'], 'a weak security directory fails the branch check');
+        selfTestAssert(
+            str_contains($weakCrypto['summary'], 'Classes/Crypto 40.00%')
+                && str_contains($weakCrypto['summary'], 'Classes/Http n/a'),
+            'the branch summary names each directory, n/a for one without measured files',
+        );
+        selfTestEquals(
+            'warn',
+            checkBranchCoverage(parseClover($healthy['clover'], array_merge(SECURITY_DIRS, ['Classes/Nowhere'])), 0.0, 0.0)['status'],
+            'a security directory without branch data warns rather than passing',
+        );
+
+        // The n/a case: a line-only clover (pcov) carries conditionals="0".
+        $lineOnly = parseClover(selfTestCloverLineOnly($fixtures), SECURITY_DIRS);
+        selfTestEquals(null, $lineOnly['branch'], 'zero conditionals are no branch data, not 0 %');
+        $lineOnlyBranch = checkBranchCoverage($lineOnly, 0.0, 0.0);
+        selfTestEquals('warn', $lineOnlyBranch['status'], 'a report without branch data warns even against a zero bar');
+        selfTestAssert(
+            str_contains($lineOnlyBranch['summary'], 'branch n/a'),
+            'the branch check says the figure is not available',
+        );
+        $lineOnlyLine = checkCoverage($lineOnly);
+        selfTestAssert(
+            str_contains($lineOnlyLine['summary'], 'branch n/a') && str_contains($lineOnlyLine['summary'], 'path n/a'),
+            'the line check reports branch and path as n/a without branch data or a text report',
+        );
+        selfTestEquals('clover.xml', $lineOnlyLine['source'], 'without a text report the line check names only the clover');
+
+        // A text report from a run without path coverage has no `Paths:` line.
+        $noPaths = parseCoverageText(selfTestWrite(
+            $fixtures . '/coverage-text-lines-only.txt',
+            "Code Coverage Report Summary:\n  Classes: 50.00% (10/20)\n  Methods: 80.00% (80/100)\n  Lines:   95.00% (114/120)\n",
+        ));
+        selfTestEquals(null, $noPaths['path'], 'a text report without a Paths line is no path data');
+        selfTestAssert(
+            str_contains(checkCoverage($healthyCoverage, $noPaths)['summary'], 'path n/a'),
+            'the line check reports path n/a for a text report without paths',
+        );
+        selfTestEquals(
+            ['path' => 60.0, 'executedPaths' => 600, 'executablePaths' => 1000],
+            parseCoverageText($healthy['coverageText']),
+            'path counts are read from the text report and the percentage recomputed',
         );
         selfTestAssert(
             str_contains($goodById['coverage-security-dirs']['summary'], 'Classes/Http 95.00%'),
@@ -699,6 +839,7 @@ function selfTest(string $projectRoot): int
         $cases = [
             'audit' => selfTestWrite($malformed . '/composer-audit.json', '{"advisories": '),
             'clover' => selfTestWrite($malformed . '/clover.xml', '<coverage><project></project>'),
+            'coverageText' => selfTestWrite($malformed . '/coverage-text.txt', "PHPUnit 13.3.3 by Sebastian Bergmann\n"),
             'infection' => selfTestWrite($malformed . '/infection.json', '{"stats":{}}'),
             'junit-unit' => selfTestWrite($malformed . '/junit-unit.xml', '<?xml version="1.0"?><testsuites/>'),
             'infectionSecurity' => selfTestWrite($malformed . '/infection-security.json', '{"stats":{}}'),
@@ -763,7 +904,7 @@ function selfTest(string $projectRoot): int
         $emptyDir = selfTestTempDir('empty');
         $temporary[] = $emptyDir;
         $emptyNames = [
-            'junit-unit.xml', 'junit-fuzz.xml', 'junit-functional.xml', 'clover.xml',
+            'junit-unit.xml', 'junit-fuzz.xml', 'junit-functional.xml', 'clover.xml', 'coverage-text.txt',
             'infection.json', 'infection-security.json', 'composer-audit.json', 'doctor.json',
         ];
         foreach ($emptyNames as $name) {
@@ -775,6 +916,7 @@ function selfTest(string $projectRoot): int
             [
                 'junit-unit' => 'junit-unit.xml',
                 'clover' => 'clover.xml',
+                'coverage-text' => 'coverage-text.txt',
                 'infection' => 'infection.json',
                 'infection-security' => 'infection-security.json',
                 'audit' => 'composer-audit.json',

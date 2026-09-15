@@ -220,7 +220,8 @@ and any future audit are read against.
 ### Release evidence
 
 Tagged releases publish a security evidence bundle — test results per suite,
-coverage overall and for the security directories, the mutation score for the
+line, branch and path coverage over the unit and functional suites, overall and
+for the security directories, the mutation score for the
 whole codebase and for the security-critical scope, the dependency audit, the
 reference `vault:doctor` posture, and pointers to the signed release artifacts.
 It is assembled by `Build/Scripts/collect-evidence.php` and published by

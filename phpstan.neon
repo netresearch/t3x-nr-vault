@@ -28,6 +28,14 @@ parameters:
         # entry would import a pile of pre-existing findings.
         - Build/Scripts/collect-evidence.php
         - Build/Scripts/collect-evidence-selftest.php
+        # Build/Scripts/merge-coverage.php is deliberately NOT listed. It uses
+        # phpunit/php-code-coverage 14's Serialization\Merger and
+        # Report\Facade::fromSerializedData, while the CI matrix analyses this
+        # config against TYPO3 13.4 with `phpunit/phpunit:<13` — where those
+        # classes do not exist and PHPStan reports them as unknown. The file
+        # only ever runs in the release-evidence workflow, which installs the
+        # default dependency set; it stays in the php-cs-fixer scope, and its
+        # behaviour is exercised by the coverage jobs there.
         - Classes
         - Tests
     excludePaths:

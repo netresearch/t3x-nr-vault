@@ -110,9 +110,10 @@ jobs:
         with:
           php-version: ${{ env.PHP_VERSION }}
           # pdo_sqlite for the functional suite (the shared ci.yml runs it on
-          # SQLite too), pcov for coverage.
-          extensions: intl, mbstring, xml, sodium, json, pdo_sqlite, pcov
-          coverage: pcov
+          # SQLite too). No coverage driver: coverage is the `coverage` job's,
+          # which needs Xdebug for branch and path metrics.
+          extensions: intl, mbstring, xml, sodium, json, pdo_sqlite
+          coverage: none
           tools: composer:v2
 
       - name: Install dependencies
@@ -128,10 +129,9 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          mkdir -p .Build/logs .Build/coverage
+          mkdir -p .Build/logs
           .Build/bin/phpunit -c Build/phpunit.xml --testsuite Unit \
-            --log-junit=.Build/logs/junit.xml \
-            --coverage-clover=.Build/coverage/clover.xml
+            --log-junit=.Build/logs/junit.xml
 
       - name: Fuzz tests
         id: fuzz
@@ -207,7 +207,6 @@ jobs:
           stage_if_present .Build/logs/junit.xml            junit-unit.xml
           stage_if_present .Build/logs/junit-fuzz.xml       junit-fuzz.xml
           stage_if_present .Build/logs/junit-functional.xml junit-functional.xml
-          stage_if_present .Build/coverage/clover.xml       clover.xml
           stage_if_present .Build/evidence-inputs/composer-audit.json composer-audit.json
           find stage -type f | sort
 
@@ -240,6 +239,363 @@ jobs:
           echo "$OUTCOMES" | tr ' ' '\n' | sed '/^$/d'
           if echo "$OUTCOMES" | grep -q '=failure'; then
             echo "::error::At least one verification check failed — see the outcomes above."
+            exit 1
+          fi
+
+  # WHY COVERAGE IS FOUR JOBS
+  # =========================
+  # Branch and path metrics exist only under Xdebug with `--path-coverage`, and
+  # that is not "a bit slower": the whole unit suite under it did not finish
+  # inside 40 minutes (run 34848362108), while the same suite takes 12 seconds
+  # with pcov and no branch data at all. So the unit suite is sharded over one
+  # runner per Tests/Unit subdirectory, each writing PHPUnit's serialized
+  # coverage, and one job merges the shards with the functional run into the two
+  # reports the collector reads. Wall time is then the slowest single directory,
+  # not the sum.
+  #
+  # The shard list is read from the checkout rather than written out here: a
+  # hardcoded list silently stops measuring a directory somebody adds later, and
+  # missing coverage that nobody notices is exactly what this bundle exists to
+  # prevent.
+  coverage-plan:
+    name: Coverage shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      supported: ${{ steps.plan.outputs.supported }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EVIDENCE_TAG }}
+          persist-credentials: false
+
+      # A release that predates Build/Scripts/merge-coverage.php cannot have its
+      # shards merged, so it does not collect coverage at all: the bundle records
+      # the gap rather than reporting a partial figure as if it were the whole.
+      - name: Plan the shards
+        id: plan
+        run: |
+          set -euo pipefail
+          if [ ! -f Build/Scripts/merge-coverage.php ]; then
+            echo "::notice::No Build/Scripts/merge-coverage.php in this release — coverage is recorded as absent."
+            {
+              echo "supported=false"
+              echo 'shards=["Audit"]'
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Tests live in subdirectories by convention, and every one of them
+          # becomes a shard. A test file placed directly in Tests/Unit/ would
+          # belong to no shard and would therefore go unmeasured without anything
+          # saying so, so it gets a shard of its own (`__root`) instead.
+          SHARDS="$(
+            {
+              find Tests/Unit -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
+              find Tests/Unit -maxdepth 1 -type f -name '*Test.php' -printf '__root\n' | sort -u
+            } | sort | jq -R . | jq -sc .
+          )"
+          echo "Unit shards: $SHARDS"
+          {
+            echo "supported=true"
+            echo "shards=$SHARDS"
+          } >> "$GITHUB_OUTPUT"
+
+  coverage-unit:
+    name: Coverage (unit ${{ matrix.shard }})
+    needs: coverage-plan
+    if: needs.coverage-plan.outputs.supported == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.coverage-plan.outputs.shards) }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EVIDENCE_TAG }}
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: intl, mbstring, xml, sodium, json, xdebug
+          # Xdebug, not pcov: pcov reports lines only, so a pcov clover carries
+          # no branch data and the path metric does not exist at all.
+          coverage: xdebug
+          tools: composer:v2
+
+      - name: Install dependencies
+        env:
+          CAPTAINHOOK_DISABLE: 'true'
+        run: composer install --prefer-dist --no-progress
+
+      - name: Unit coverage
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/coverage
+          # `__root` is the shard for test files directly in Tests/Unit/; every
+          # other shard is one subdirectory. PHPUnit takes several paths.
+          if [ "$SHARD" = '__root' ]; then
+            targets=(Tests/Unit/*Test.php)
+          else
+            targets=("Tests/Unit/${SHARD}")
+          fi
+          .Build/bin/phpunit -c Build/phpunit.xml \
+            --path-coverage \
+            --coverage-php=".Build/coverage/unit-${SHARD}.cov" \
+            "${targets[@]}"
+
+      - name: Upload shard coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-shard-unit-${{ matrix.shard }}
+          path: .Build/coverage/*.cov
+          retention-days: 1
+          if-no-files-found: error
+
+  # Runs against a copy of Build/FunctionalTests.xml carrying the <source> of
+  # Build/phpunit.xml, so every shard measures the same files; see
+  # Build/Scripts/merge-coverage.php for why that matters.
+  coverage-functional:
+    name: Coverage (functional)
+    needs: coverage-plan
+    if: needs.coverage-plan.outputs.supported == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EVIDENCE_TAG }}
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: intl, mbstring, xml, sodium, json, pdo_sqlite, xdebug
+          coverage: xdebug
+          tools: composer:v2
+
+      - name: Install dependencies
+        env:
+          CAPTAINHOOK_DISABLE: 'true'
+        run: composer install --prefer-dist --no-progress
+
+      - name: Functional coverage
+        env:
+          typo3DatabaseDriver: pdo_sqlite
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/coverage
+          php Build/Scripts/merge-coverage.php config \
+            Build/phpunit.xml Build/FunctionalTests.xml Build/FunctionalTests.coverage.xml
+          .Build/bin/phpunit -c Build/FunctionalTests.coverage.xml \
+            --path-coverage \
+            --coverage-php=.Build/coverage/functional.cov
+
+      - name: Upload functional coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-shard-functional
+          path: .Build/coverage/functional.cov
+          retention-days: 1
+          if-no-files-found: error
+
+  coverage-merge:
+    name: Coverage
+    needs: [coverage-plan, coverage-unit, coverage-functional]
+    # always(): a shard that failed must be visible as missing coverage, not as
+    # a job that never ran.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EVIDENCE_TAG }}
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: intl, mbstring, xml, sodium, json
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        if: needs.coverage-plan.outputs.supported == 'true'
+        env:
+          CAPTAINHOOK_DISABLE: 'true'
+        run: composer install --prefer-dist --no-progress
+
+      - name: Download shard coverage
+        if: needs.coverage-plan.outputs.supported == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: coverage-shard-*
+          merge-multiple: true
+          path: .Build/coverage
+
+      # WHY A PARTIAL MERGE IS THROWN AWAY RATHER THAN PUBLISHED
+      # ========================================================
+      # php-code-coverage merges whatever it is handed, so a build where one
+      # shard died produces a perfectly well-formed clover.xml — just over fewer
+      # parts. Nothing in that file says a part is missing, so the collector
+      # would read the smaller number as *the* measurement, and the release gate
+      # would then report `coverage-line` as FAIL for insufficient coverage when
+      # the real cause is a missing input. That is exactly the misreporting this
+      # bundle exists to prevent.
+      #
+      # So the parts are counted against the plan first: every shard
+      # `coverage-plan` listed, plus the one functional part. If any is absent
+      # (or an unexpected extra appears), this build publishes NO coverage input
+      # at all — the collector then records the coverage checks as "absent",
+      # which is honest and non-fatal — while this job goes red and names what
+      # was missing, so the gap is visible on the run itself.
+      - name: Check every coverage part arrived
+        id: parts
+        if: needs.coverage-plan.outputs.supported == 'true'
+        env:
+          SHARDS: ${{ needs.coverage-plan.outputs.shards }}
+        run: |
+          set -euo pipefail
+          missing=()
+          while IFS= read -r shard; do
+            [ -s ".Build/coverage/unit-${shard}.cov" ] || missing+=("unit-${shard}.cov")
+          done < <(jq -r '.[]' <<<"$SHARDS")
+          [ -s .Build/coverage/functional.cov ] || missing+=('functional.cov')
+
+          expected=$(( $(jq 'length' <<<"$SHARDS") + 1 ))
+          actual=$(find .Build/coverage -name '*.cov' | wc -l)
+          echo "expected ${expected} part(s), found ${actual}"
+          find .Build/coverage -name '*.cov' | sort
+
+          if [ ${#missing[@]} -gt 0 ] || [ "$actual" -ne "$expected" ]; then
+            detail="${missing[*]:-none by name, but the count disagrees with the plan}"
+            {
+              echo 'complete=false'
+              echo "missing=${detail}"
+            } >> "$GITHUB_OUTPUT"
+            echo "::error::Coverage parts incomplete (expected ${expected}, found ${actual}; missing: ${detail}). No coverage input is published for this build: a clover over fewer parts would be indistinguishable from a complete one."
+            exit 1
+          fi
+          echo 'complete=true' >> "$GITHUB_OUTPUT"
+
+      - name: Merge shard coverage
+        id: merge
+        if: needs.coverage-plan.outputs.supported == 'true' && steps.parts.outputs.complete == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Word splitting is the point: the shard list is a glob of files this
+          # job just downloaded, and their names carry no spaces.
+          # shellcheck disable=SC2046
+          php Build/Scripts/merge-coverage.php merge .Build/coverage $(find .Build/coverage -name '*.cov' | sort)
+
+      # Flattened into the `--parts` drop-zone layout (see the `checks` job).
+      # Staging is gated on the part check above: an incomplete set publishes
+      # nothing, so the bundle records "absent" instead of presenting a partial
+      # measurement as the whole.
+      - name: Stage coverage artifacts
+        if: always()
+        env:
+          COMPLETE: ${{ steps.parts.outputs.complete }}
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          if [ "${COMPLETE:-}" != 'true' ]; then
+            echo "::notice::No complete set of coverage parts — publishing no coverage input; the bundle records the coverage checks as absent."
+            exit 0
+          fi
+          stage_if_present() { [ -s "$1" ] && cp "$1" "stage/$2" || true; }
+          stage_if_present .Build/coverage/clover.xml        clover.xml
+          stage_if_present .Build/coverage/coverage-text.txt coverage-text.txt
+          find stage -type f | sort
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evidence-inputs-coverage
+          path: stage/
+          retention-days: 7
+          # A crashed shard leaves nothing to merge; the bundle records that as
+          # absent rather than failing the upload.
+          if-no-files-found: warn
+
+      # Test failures are the `checks` job's to report. This job goes red when
+      # the coverage evidence itself is missing: a shard that wrote no coverage,
+      # or a merge that produced no reports.
+      - name: Report coverage outcome
+        if: always()
+        env:
+          PLAN: ${{ needs.coverage-plan.result }}
+          SUPPORTED: ${{ needs.coverage-plan.outputs.supported }}
+          UNIT: ${{ needs.coverage-unit.result }}
+          FUNCTIONAL: ${{ needs.coverage-functional.result }}
+          COMPLETE: ${{ steps.parts.outputs.complete }}
+          MISSING: ${{ steps.parts.outputs.missing }}
+          MERGE: ${{ steps.merge.outcome }}
+        run: |
+          set -euo pipefail
+          # A crashed plan job also leaves SUPPORTED empty, and reading that as
+          # "historical release" would turn its failure into a green job whose
+          # bundle merely records coverage as absent. Only a plan that RAN may
+          # answer that question.
+          if [ "$PLAN" != 'success' ]; then
+            echo "::error::The coverage shard plan did not run to completion ($PLAN) — no coverage was measured, and this is a failure of the evidence run rather than an unsupported release."
+            exit 1
+          fi
+          if [ "$SUPPORTED" != 'true' ]; then
+            echo "::notice::This release predates the coverage merge script — no coverage evidence to collect."
+            exit 0
+          fi
+          echo "unit=$UNIT functional=$FUNCTIONAL parts=${COMPLETE:-unknown} merge=$MERGE"
+          if [ "${COMPLETE:-}" != 'true' ]; then
+            echo "::error::Coverage parts missing (${MISSING:-see the part check above}) — the bundle records the coverage checks as absent rather than reporting a partial measurement."
+            exit 1
+          fi
+          if [ "$UNIT" != 'success' ] || [ "$FUNCTIONAL" != 'success' ] || [ "$MERGE" != 'success' ] \
+            || [ ! -s .Build/coverage/clover.xml ] || [ ! -s .Build/coverage/coverage-text.txt ]; then
+            echo "::error::No merged coverage report — see the shard jobs and the merge step above."
             exit 1
           fi
 
@@ -561,7 +917,7 @@ jobs:
 
   bundle:
     name: Publish evidence bundle
-    needs: [checks, mutation, doctor]
+    needs: [checks, coverage-merge, mutation, doctor]
     # always(): the bundle must exist precisely when something went wrong.
     if: always()
     runs-on: ubuntu-latest
@@ -691,6 +1047,7 @@ jobs:
       - name: Gate on the verdict
         env:
           CHECKS_RESULT: ${{ needs.checks.result }}
+          COVERAGE_RESULT: ${{ needs.coverage-merge.result }}
           MUTATION_RESULT: ${{ needs.mutation.result }}
           DOCTOR_RESULT: ${{ needs.doctor.result }}
         run: |
@@ -703,9 +1060,9 @@ jobs:
           FAILED="$(jq -r '[.checks[] | select(.status == "fail")] | length' "$MANIFEST")"
           SOFT="$(jq -r '[.checks[] | select(.status == "warn" or .status == "absent")] | length' "$MANIFEST")"
 
-          echo "jobs: checks=$CHECKS_RESULT mutation=$MUTATION_RESULT doctor=$DOCTOR_RESULT"
+          echo "jobs: checks=$CHECKS_RESULT coverage=$COVERAGE_RESULT mutation=$MUTATION_RESULT doctor=$DOCTOR_RESULT"
 
-          if [ "$FAILED" -gt 0 ] || [ "$CHECKS_RESULT" != 'success' ] || [ "$MUTATION_RESULT" != 'success' ]; then
+          if [ "$FAILED" -gt 0 ] || [ "$CHECKS_RESULT" != 'success' ] || [ "$COVERAGE_RESULT" != 'success' ] || [ "$MUTATION_RESULT" != 'success' ]; then
             echo "::error::Release evidence verdict: FAIL — $FAILED failing check(s); see the job summary. The bundle is published; do not describe this release as verified until this is resolved."
             exit 1
           fi
