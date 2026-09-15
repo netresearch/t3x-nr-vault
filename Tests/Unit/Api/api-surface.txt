@@ -895,6 +895,22 @@ Netresearch\NrVault\Service\Doctor\DoctorReport (class)
   property readonly context: Netresearch\NrVault\Service\Doctor\DoctorContext
   property readonly findings: array
 
+Netresearch\NrVault\Service\Doctor\Finding (class)
+  constructor(string $id, Netresearch\NrVault\Service\Doctor\FindingSeverity $severity, string $summary, string $risk = …, string $remediation = …, string $docsUrl = …, array $details = …)
+  method escalatedTo(Netresearch\NrVault\Service\Doctor\FindingSeverity $severity): self
+  method isPass(): bool
+  method static critical(string $id, string $summary, string $risk, string $remediation, string $docsUrl = …, array $details = …): self
+  method static pass(string $id, string $summary, string $docsUrl = …, array $details = …): self
+  method static warning(string $id, string $summary, string $risk, string $remediation, string $docsUrl = …, array $details = …): self
+  method toArray(): array
+  property readonly details: array
+  property readonly docsUrl: string
+  property readonly id: string
+  property readonly remediation: string
+  property readonly risk: string
+  property readonly severity: Netresearch\NrVault\Service\Doctor\FindingSeverity
+  property readonly summary: string
+
 Netresearch\NrVault\Service\Doctor\FindingSeverity (enum)
   case Critical = "critical"
   case Pass = "pass"

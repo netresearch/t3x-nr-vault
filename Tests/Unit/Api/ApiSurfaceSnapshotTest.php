@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Tests\Unit\Api;
 use FilesystemIterator;
 use Netresearch\NrVault\Tests\Unit\Api\Support\ApiSurfaceDiff;
 use Netresearch\NrVault\Tests\Unit\Api\Support\ApiSurfaceRenderer;
+use Netresearch\NrVault\Tests\Unit\Api\Support\ExtensionPointCatalogue;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
@@ -55,6 +56,17 @@ use Throwable;
  *    only in docblocks are outside the closure's sight — the Dto seeding
  *    above is the compensation, so a new consumer-facing DTO belongs in
  *    that directory.
+ * 3. **Implementer docblocks**: for an interface marked `#[ExtensionPoint]`
+ *    only, every own-namespace type its phpdoc names — `@param`, `@return`,
+ *    `@throws` — is frozen as well, and then closed over like any other. An
+ *    implementation is written against the published interface and nothing
+ *    else, so a type that interface names is part of what its author must be
+ *    able to rely on, whether the name sits in a native position or in a
+ *    docblock. `ReadinessCheckInterface::run()` is declared `array` and names
+ *    its element type in `@return list<Finding>` alone, so `Finding` — a class
+ *    every implementation constructs — sat outside the frozen surface (#357).
+ *    The rule stops at extension points on purpose: applying it to the calling
+ *    interfaces would pull internals in without that justification.
  *
  * A change to any of these signatures then has to be an explicit commit — a
  * visible `api-surface.txt` diff — rather than a side effect. The failure
@@ -120,7 +132,7 @@ final class ApiSurfaceSnapshotTest extends TestCase
     {
         $renderer = new ApiSurfaceRenderer();
         $included = [];
-        $queue = $this->discoverSeedClasses();
+        $queue = [...$this->discoverSeedClasses(), ...$this->implementerFacingDocblockTypes()];
 
         while ($queue !== []) {
             $fqcn = array_shift($queue);
@@ -209,6 +221,141 @@ final class ApiSurfaceSnapshotTest extends TestCase
 
         /** @var list<class-string> $classes */
         return $classes;
+    }
+
+    // ==================== implementer docblocks ====================
+
+    /**
+     * Own-namespace types named only in the phpdoc of an extension point.
+     *
+     * The closure follows NATIVE types, and a native `array` says nothing
+     * about what it contains — which is exactly how the element type of
+     * `ReadinessCheckInterface::run()` escaped the snapshot. Seeding these
+     * keeps the promise the extension-point mark makes: everything an
+     * implementer has to name is frozen.
+     *
+     * @return list<class-string>
+     */
+    private function implementerFacingDocblockTypes(): array
+    {
+        $types = [];
+
+        foreach (ExtensionPointCatalogue::markedInterfaces() as $interface) {
+            $reflection = new ReflectionClass($interface);
+            $imports = $this->importsOf($reflection);
+
+            foreach ($reflection->getMethods() as $method) {
+                foreach ($this->docblockTypeNames($method->getDocComment()) as $name) {
+                    $resolved = $this->resolveOwnType($name, $reflection->getNamespaceName(), $imports);
+                    if ($resolved !== null) {
+                        $types[] = $resolved;
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique($types));
+    }
+
+    /**
+     * Every bare identifier in the type expression of a `@param`, `@return`
+     * or `@throws`: `list<Finding>` yields `list` and `Finding`.
+     *
+     * The capture runs to the end of the line (or the parameter variable), so
+     * a `@return string e.g., "local"` contributes its prose words too. That
+     * is deliberate and harmless: {@see resolveOwnType()} keeps only names
+     * that resolve to a class in this package, and a prose word does not.
+     * Stopping at the type expression instead would need a phpdoc parser to
+     * get `array<string, Finding>` right.
+     *
+     * @return list<string>
+     */
+    private function docblockTypeNames(string|false $docComment): array
+    {
+        if ($docComment === false) {
+            return [];
+        }
+
+        preg_match_all('/@(?:param|return|throws)\s+([^\n$]*)/', $docComment, $matches);
+
+        $names = [];
+        foreach ($matches[1] as $expression) {
+            preg_match_all('/[A-Za-z_\\\\][A-Za-z0-9_\\\\]*/', $expression, $identifiers);
+            $names = [...$names, ...$identifiers[0]];
+        }
+
+        return $names;
+    }
+
+    /**
+     * `use A\B\C;` / `use A\B\C as D;` from the file the class is declared in,
+     * as alias => fully qualified name — what a short docblock name resolves
+     * against.
+     *
+     * @param ReflectionClass<object> $reflection
+     *
+     * @return array<string, string>
+     */
+    private function importsOf(ReflectionClass $reflection): array
+    {
+        $file = $reflection->getFileName();
+        if ($file === false) {
+            return [];
+        }
+
+        $source = file_get_contents($file);
+        if ($source === false) {
+            return [];
+        }
+
+        preg_match_all(
+            '/^use\s+([A-Za-z0-9_\\\\]+)(?:\s+as\s+([A-Za-z0-9_]+))?\s*;/m',
+            $source,
+            $matches,
+            PREG_SET_ORDER,
+        );
+
+        $imports = [];
+        foreach ($matches as $match) {
+            $fqcn = $match[1];
+            $alias = ($match[2] ?? '') !== ''
+                ? $match[2]
+                : substr((string) strrchr('\\' . $fqcn, '\\'), 1);
+            $imports[$alias] = $fqcn;
+        }
+
+        return $imports;
+    }
+
+    /**
+     * A docblock identifier to the class in this package it names, or null for
+     * a builtin, a foreign class, a prose word or anything that does not exist.
+     *
+     * @param array<string, string> $imports
+     *
+     * @return class-string|null
+     */
+    private function resolveOwnType(string $name, string $namespace, array $imports): ?string
+    {
+        $candidate = match (true) {
+            str_starts_with($name, '\\') => substr($name, 1),
+            isset($imports[$name]) => $imports[$name],
+            default => $namespace . '\\' . $name,
+        };
+
+        if (!str_starts_with($candidate, self::NAMESPACE_PREFIX)) {
+            return null;
+        }
+
+        try {
+            $exists = class_exists($candidate) || interface_exists($candidate) || enum_exists($candidate);
+        } catch (Throwable) {
+            // Same matrix-split rationale as the seed loop above.
+            return null;
+        }
+
+        /** @var class-string $candidate */
+        return $exists ? $candidate : null;
     }
 
     // ==================== closure ====================

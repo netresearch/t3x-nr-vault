@@ -35,10 +35,37 @@ What has to be backed up
             algorithm markers, and the full chain including
             ``previous_hash`` / ``entry_hash`` / ``hmac_key_epoch``.
 
+    *   -   Per-secret ACL tiers
+        -   ``tx_nrvault_secret_begroups_mm``,
+            ``tx_nrvault_secret_writegroups_mm``
+        -   **Easily missed, and silent when it is.** The read tier and the
+            write tier of every secret live in these two MM tables, not on
+            the secret row — ``allowed_groups`` and ``write_groups`` there
+            are counts. Restore the secret table without them and every
+            secret comes back, the chain verifies, and each member of a
+            once-allowed group is refused with ``AccessDeniedException …
+            insufficient permissions``.
+
     *   -   Permission grants
         -   ``be_groups`` (``custom_options``)
         -   The ``tx_nrvault:*`` grants live here. Restoring secrets without
             them leaves nobody able to operate the vault.
+
+    *   -   Registry state
+        -   ``sys_registry``, namespaces ``tx_nrvault_audit_anchor`` and
+            ``tx_nrvault``
+        -   The in-database audit chain-tip anchor
+            (:ref:`ADR-034 <adr-034-audit-chain-tip-anchor>`), the
+            break-glass session and the per-sink delivery state. Expect to
+            re-arm the anchor rather than restore it — see step 7.
+
+    *   -   Scheduler task rows
+        -   ``tx_scheduler_task``
+        -   The *Vault Audit Integrity Verification*, *Vault Audit Anchor*
+            and orphan-cleanup registrations, including the nr-vault columns
+            ``nr_vault_retention_days`` and ``nr_vault_table_filter``.
+            Without them the restored vault runs unverified and unanchored
+            until somebody notices.
 
     *   -   Master key material
         -   Depends on the provider — see below.
@@ -103,7 +130,25 @@ Key material per provider
 Restore procedure
 =================
 
-#.  **Restore the database.** Secrets, audit log, and ``be_groups``.
+#.  **Restore the database — the whole table set, in one pass.**
+
+    ..  code-block:: none
+        :caption: Every table a restore needs
+
+        tx_nrvault_secret
+        tx_nrvault_secret_begroups_mm      <- read tier, easily forgotten
+        tx_nrvault_secret_writegroups_mm   <- write tier, easily forgotten
+        tx_nrvault_audit_log
+        be_groups                          <- the tx_nrvault:* grants
+        tx_scheduler_task                  <- verification + anchor schedules
+        sys_registry                       <- namespaces tx_nrvault_audit_anchor
+                                              and tx_nrvault
+
+    Restore the two MM tables **together with** ``tx_nrvault_secret``: an MM
+    row points at a secret uid, so importing them against a secret table
+    that was reloaded with different uids silently re-points the tiers. A
+    dump that includes the uid column, restored in one transaction, keeps
+    them aligned.
 
 #.  **Restore the configuration**, including the provider setting, the
     security profile, ``auditHmacEpoch`` and any pinned values in
@@ -128,6 +173,13 @@ Restore procedure
 
 #.  **Probe-decrypt.** See below. A restore is not verified until a real
     secret has come back as plaintext.
+
+#.  **Check the ACL back, with a non-admin account.** An administrator
+    passes the per-secret tiers by the admin bypass, so a reveal as
+    administrator proves nothing about them. Log in as a member of a group
+    that held a read tier — or run the reveal through a technical actor
+    bound to that group — and confirm the secret still opens. This is the
+    one step no command performs for you; see the note below.
 
 #.  **Verify the audit chain and compare it against the external anchor.**
 
@@ -204,6 +256,26 @@ AES will fail the second while passing the first.
 
 Every probe writes an audit row, which is the intended side effect: the
 restore verification leaves its own evidence.
+
+..  warning::
+
+    ``vault:doctor`` does not establish that a restore is COMPLETE, and no
+    command in the current release does. Its controls cover the master-key
+    provider, the security profile, CLI access and the audit chain; none of
+    them reads ``tx_nrvault_secret`` or the two MM tables. A restore that
+    brought back no secrets at all, or every secret without its ACL tiers,
+    therefore passes ``provider.available`` and
+    ``provider.master_key_readable`` exactly like a complete one.
+
+    The audit table is the one exception: a chain shorter than the published
+    anchor is reported — as ``TABLE_RESET`` by ``vault:audit-verify``, and by
+    the ``audit.anchor`` control where an external anchor exists. Missing
+    secrets and missing group tiers have no equivalent.
+
+    Completeness is the operator's own step. Compare row counts against the
+    source database — ``tx_nrvault_secret`` and both MM tables — and treat the
+    probe decrypt and the non-admin ACL check above as part of the procedure
+    rather than as optional extras.
 
 .. _operations-backup-and-restore-symptoms:
 
