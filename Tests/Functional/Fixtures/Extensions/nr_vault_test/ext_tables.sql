@@ -11,3 +11,8 @@ CREATE TABLE tx_nrvaulttest_child (
     api_key varchar(255) DEFAULT '' NOT NULL,
     parent int(11) unsigned DEFAULT 0 NOT NULL
 );
+
+CREATE TABLE tx_nrvaulttest_flex (
+    title varchar(255) DEFAULT '' NOT NULL,
+    settings mediumtext
+);

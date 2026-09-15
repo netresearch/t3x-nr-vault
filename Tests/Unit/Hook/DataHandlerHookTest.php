@@ -20,6 +20,7 @@ use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use Netresearch\NrVault\Utility\IdentifierValidator;
+use Netresearch\NrVault\Utility\TranslationSharedSecretResolver;
 use Netresearch\NrVault\Utility\VaultFieldResolver;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -101,6 +102,7 @@ final class DataHandlerHookTest extends TestCase
             $this->connectionPool,
             $this->vaultService,
             $vaultFieldResolver,
+            new TranslationSharedSecretResolver($this->connectionPool, $vaultFieldResolver),
             $pendingSecretExtractor,
             $pendingSecretPersister,
             new VaultFailureReporter($this->failureLogger),

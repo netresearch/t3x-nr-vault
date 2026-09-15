@@ -16,6 +16,8 @@ use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Hook\VaultFailureReporter;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
+use Netresearch\NrVault\Utility\TranslationSharedSecretResolver;
+use Netresearch\NrVault\Utility\VaultFieldResolver;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -81,6 +83,14 @@ final class FlexFormVaultHookTest extends TestCase
             $this->flexFormTools,
             $flashMessageService,
             new VaultFailureReporter(self::createStub(LoggerInterface::class)),
+            new TranslationSharedSecretResolver(
+                $this->connectionPool,
+                new VaultFieldResolver(
+                    $this->vaultService,
+                    $this->tcaSchemaFactory,
+                    self::createStub(LoggerInterface::class),
+                ),
+            ),
         );
     }
 
