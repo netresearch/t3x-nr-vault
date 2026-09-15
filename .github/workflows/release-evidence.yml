@@ -431,11 +431,18 @@ jobs:
           # `--driver` takes the setup command's connection type (`sqlite`), not
           # the Doctrine driver it maps to (`pdo_sqlite`); the database path is
           # derived automatically under var/sqlite/.
+          #
+          # The `#aA1` on the generated password is not decoration: base64
+          # emits only letters, digits, `+` and `/`, so roughly one password
+          # in three carries no special character, TYPO3's password policy
+          # rejects it, and the job then fails for no reason of its own. One
+          # character of each required class makes the check deterministic;
+          # the account dies with the throwaway instance and never logs in.
           .Build/bin/typo3 setup \
             --driver=sqlite \
             --admin-username=evidence \
             --admin-email=evidence@example.com \
-            --admin-user-password="$(openssl rand -base64 24)" \
+            --admin-user-password="$(openssl rand -base64 24)#aA1" \
             --project-name='nr-vault release evidence' \
             --server-type=other \
             --no-interaction \
