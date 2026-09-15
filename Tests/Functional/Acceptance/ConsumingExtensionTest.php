@@ -17,7 +17,6 @@ use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
 use Netresearch\NrVault\Crypto\EnvelopeCodecInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Exception\RequestCancelledException;
-use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use Netresearch\NrVault\Tests\Functional\Fixtures\Extensions\nr_vault_consumer_fixture\Classes\Adapter\RecordingVaultAdapter;
 use Netresearch\NrVault\Tests\Functional\Fixtures\Extensions\nr_vault_consumer_fixture\Classes\Audit\RecordingAuditSink;
@@ -54,16 +53,18 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
     /**
      * Imports the fixture needs that Tests/Unit/Api/api-surface.txt does not list.
      *
-     * `ReadinessCheckInterface::run()` is declared `array` and documents
-     * `list<Finding>` only in its docblock. The snapshot's closure follows
-     * native types, and `Finding` is neither an interface, enum, exception nor
-     * a `Domain/Dto` class, so it is not frozen — although no readiness check
-     * can be written without constructing one. Named here so the gap stays
-     * visible; the assertion fails as soon as the snapshot lists the class.
+     * Empty, and meant to stay that way. It held `Finding` until the snapshot
+     * learned to freeze the types an extension point names in its phpdoc:
+     * `ReadinessCheckInterface::run()` is declared `array` and gives its
+     * element type as `list<Finding>` in a docblock alone, so the closure —
+     * which follows native types — walked past a class no readiness check can
+     * be written without. A new entry here means the published surface is
+     * missing something an implementer must name; publish the type instead of
+     * widening this list.
+     *
+     * @var list<class-string>
      */
-    private const KNOWN_UNPUBLISHED_DEPENDENCIES = [
-        Finding::class,
-    ];
+    private const KNOWN_UNPUBLISHED_DEPENDENCIES = [];
 
     /** @var list<string> */
     protected array $testExtensionsToLoad = [
