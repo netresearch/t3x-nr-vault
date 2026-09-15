@@ -284,8 +284,14 @@ source protects the vault:
     not only the colliding name: in that state "which key source is in use?"
     has no answer, and serving the other names would hide the ambiguity from
     the operator.
-*   **A blank identifier is refused** (``1789430002``), because ``''`` is what
-    ``masterKeyProvider`` holds before anybody configures it.
+*   **A blank identifier is refused** (``1789430002``). The rule is about the
+    provider, not the setting: a provider whose :php:`getIdentifier()` returns
+    an empty string names nothing an operator could configure, and indexing it
+    under ``''`` would make it the provider an explicitly emptied
+    ``masterKeyProvider`` resolves to. An absent setting never reaches that
+    case — :php:`ExtensionConfiguration::getMasterKeyProvider()` answers
+    ``typo3`` until somebody configures otherwise — and an explicitly empty one
+    finds no provider and fails the lookup, which is the intended outcome.
 *   **The ambiguity check runs before the standard-profile fallback**, which
     swallows :php:`ConfigurationException` to survive an unconfigured install.
     Without that ordering, auto-detection would answer the custody question by
