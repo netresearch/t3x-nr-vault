@@ -64,6 +64,14 @@ final class FailingStreamWrapper
     /** A short write — a full volume or an exceeded quota mid-line. */
     public const MODE_SHORT_WRITE = 'short-write';
 
+    /**
+     * `rename()` is refused — the atomic move of a fully written temporary file
+     * into its final name (the write-to-temp + rename pattern of the wrapped
+     * master-key store), which a real filesystem only refuses under conditions
+     * that would already have failed the temporary write.
+     */
+    public const MODE_RENAME_REFUSED = 'rename-refused';
+
     /** Everything succeeds; the baseline that proves the wrapper itself works. */
     public const MODE_HEALTHY = 'healthy';
 
@@ -77,11 +85,19 @@ final class FailingStreamWrapper
     /** @var list<array{path: string, mode: string}> */
     private static array $opens = [];
 
+    /** @var list<array{from: string, to: string}> */
+    private static array $renames = [];
+
+    /** @var list<string> */
+    private static array $unlinks = [];
+
     public static function register(string $mode): void
     {
         self::$mode = $mode;
         self::$written = '';
         self::$opens = [];
+        self::$renames = [];
+        self::$unlinks = [];
 
         if (\in_array(self::SCHEME, stream_get_wrappers(), true)) {
             stream_wrapper_unregister(self::SCHEME);
@@ -109,6 +125,26 @@ final class FailingStreamWrapper
     public static function opens(): array
     {
         return self::$opens;
+    }
+
+    /**
+     * Every `rename()` seen since the last `register()`, refused or not.
+     *
+     * @return list<array{from: string, to: string}>
+     */
+    public static function renames(): array
+    {
+        return self::$renames;
+    }
+
+    /**
+     * Every `unlink()` seen since the last `register()`.
+     *
+     * @return list<string>
+     */
+    public static function unlinks(): array
+    {
+        return self::$unlinks;
     }
 
     /**
@@ -172,6 +208,30 @@ final class FailingStreamWrapper
         }
 
         return \strlen($data);
+    }
+
+    public function rename(string $pathFrom, string $pathTo): bool
+    {
+        self::$renames[] = ['from' => $pathFrom, 'to' => $pathTo];
+
+        return self::$mode !== self::MODE_RENAME_REFUSED;
+    }
+
+    public function unlink(string $path): bool
+    {
+        self::$unlinks[] = $path;
+
+        return true;
+    }
+
+    /**
+     * `chmod()`, `touch()` and friends: accepted without effect — permissions
+     * are not what this wrapper simulates. PHP passes path, option and value;
+     * none of them matters here.
+     */
+    public function stream_metadata(): bool
+    {
+        return true;
     }
 
     public function stream_read(): string

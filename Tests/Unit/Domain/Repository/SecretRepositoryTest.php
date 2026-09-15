@@ -778,9 +778,15 @@ final class SecretRepositoryTest extends TestCase
 
         // Expect: 1 secret insert + 2 read-tier MM group inserts = 3 inserts.
         // The write tier is empty, so it contributes no inserts.
+        $insertedRows = [];
         $connection
             ->expects(self::exactly(3))
-            ->method('insert');
+            ->method('insert')
+            ->willReturnCallback(static function (string $table, array $data) use (&$insertedRows): int {
+                $insertedRows[] = [$table, $data];
+
+                return 1;
+            });
 
         // save() clears BOTH MM tiers (read + write) before re-inserting.
         // Record the deleted tables and assert each DISTINCT MM table was
@@ -806,6 +812,45 @@ final class SecretRepositoryTest extends TestCase
         );
         self::assertNull($secret->getUid());
         self::assertSame(5, $saved->getUid());
+
+        // The record row carries the tier counts that match the MM rows written
+        // alongside it.
+        [$table, $row] = $insertedRows[0];
+        self::assertSame('tx_nrvault_secret', $table);
+        self::assertSame(2, $row['allowed_groups'] ?? null);
+        self::assertSame(0, $row['write_groups'] ?? null);
+    }
+
+    /**
+     * With `persistGroupRelations: false` neither half of the group tiers is
+     * written: no MM rows and no count columns. A count written without the MM
+     * rows behind it would claim a different set of groups than the record
+     * actually grants.
+     */
+    #[Test]
+    public function saveWithoutGroupRelationsWritesNeitherTheTierCountsNorTheMmRows(): void
+    {
+        $connection = $this->useStrictConnectionMock();
+
+        $secret = $this->newEncryptedSecret('existing-secret', uid: 42, allowedGroups: [3, 7]);
+
+        $updatedRow = null;
+        $connection
+            ->expects(self::once())
+            ->method('update')
+            ->willReturnCallback(static function (string $table, array $data) use (&$updatedRow): int {
+                $updatedRow = $data;
+
+                return 1;
+            });
+        $connection->expects(self::never())->method('delete');
+        $connection->expects(self::never())->method('insert');
+
+        $this->subject->save($secret, persistGroupRelations: false);
+
+        self::assertIsArray($updatedRow);
+        self::assertArrayNotHasKey('allowed_groups', $updatedRow);
+        self::assertArrayNotHasKey('write_groups', $updatedRow);
     }
 
     /**

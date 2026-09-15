@@ -369,6 +369,9 @@ final class SecretTcaHookTest extends TestCase
         // secret_input should be removed from fieldArray
         self::assertArrayNotHasKey('secret_input', $fieldArray);
         self::assertArrayHasKey('identifier', $fieldArray);
+        // ... and parked for afterDatabaseOperations, which encrypts it once
+        // the record exists. A value that is dropped here is never stored.
+        self::assertSame(['NEW123' => 'my-secret-value'], $this->readPrivate($this->hook, 'pendingSecrets'));
     }
 
     #[Test]
@@ -389,6 +392,8 @@ final class SecretTcaHookTest extends TestCase
 
         // Empty secret_input should just be removed
         self::assertArrayNotHasKey('secret_input', $fieldArray);
+        // An empty submission means "unchanged", never "store an empty secret".
+        self::assertSame([], $this->readPrivate($this->hook, 'pendingSecrets'));
     }
 
     #[Test]

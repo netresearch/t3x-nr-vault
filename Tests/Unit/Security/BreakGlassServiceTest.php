@@ -172,6 +172,25 @@ final class BreakGlassServiceTest extends TestCase
         $this->subject->activate('incident');
     }
 
+    /**
+     * Closing the window is gated like opening it: a non-admin who could end an
+     * incident responder's break-glass session mid-incident could deny them the
+     * very bypass the incident needs, and the audit row would name the wrong
+     * operator as the one who closed it.
+     */
+    #[Test]
+    public function aNonAdminBackendUserMayNotDeactivate(): void
+    {
+        $this->givenBackendActor(isAdmin: false);
+        $this->givenOpenWindow();
+        $this->registry->expects(self::never())->method('remove');
+        $this->auditLogService->expects(self::never())->method('log');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $this->subject->deactivate('incident over');
+    }
+
     #[Test]
     #[DataProvider('emptyReasonProvider')]
     public function activationRequiresANonEmptyReason(string $reason): void
