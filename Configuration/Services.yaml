@@ -183,6 +183,42 @@ services:
   Netresearch\NrVault\Crypto\MasterKeyProviderInterface:
     factory: ['@Netresearch\NrVault\Crypto\MasterKeyProviderFactory', 'create']
 
+  # ----- Master-key providers ---------------------------------------------
+  # The `masterKeyProvider` setting names one of these by the identifier the
+  # provider returns from getIdentifier(); MasterKeyProviderRegistry indexes
+  # them and MasterKeyProviderFactory selects one. A consuming extension adds
+  # its own key source by implementing MasterKeyProviderInterface and applying
+  # the same tag in ITS Services.yaml — see Documentation/Developer/Index.rst.
+  #
+  # Tagged one by one rather than through an `_instanceof` block on purpose.
+  # The interface also names the factory-resolved service above, whose class IS
+  # the interface, so an `_instanceof` rule would tag that definition too and
+  # the registry would be fed the very factory it feeds — a circular reference.
+  # Naming the four built-ins also keeps the set of key sources this package
+  # ships reviewable in one place.
+  Netresearch\NrVault\Crypto\Typo3MasterKeyProvider:
+    tags: ['nr_vault.master_key_provider']
+
+  Netresearch\NrVault\Crypto\FileMasterKeyProvider:
+    tags: ['nr_vault.master_key_provider']
+
+  Netresearch\NrVault\Crypto\EnvironmentMasterKeyProvider:
+    tags: ['nr_vault.master_key_provider']
+
+  # The transit provider's HTTP stack is autowired: the PSR-18 client is the
+  # platform one (TYPO3 aliases Psr\Http\Client\ClientInterface to its Guzzle
+  # client, so proxy, TLS and timeout settings from $TYPO3_CONF_VARS['HTTP']
+  # apply), and MasterKeyProviderWiringTest pins that the container passes it.
+  Netresearch\NrVault\Crypto\TransitMasterKeyProvider:
+    tags: ['nr_vault.master_key_provider']
+
+  Netresearch\NrVault\Crypto\MasterKeyProviderRegistryInterface:
+    alias: Netresearch\NrVault\Crypto\MasterKeyProviderRegistry
+
+  Netresearch\NrVault\Crypto\MasterKeyProviderRegistry:
+    arguments:
+      $providers: !tagged_iterator nr_vault.master_key_provider
+
   # ----- External audit sinks ---------------------------------------------
 
   Netresearch\NrVault\Audit\Sink\AuditSinkRegistry:

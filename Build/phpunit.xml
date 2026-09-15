@@ -58,6 +58,7 @@
             <file>../Classes/Crypto/EncryptionServiceInterface.php</file>
             <file>../Classes/Crypto/MasterKeyProviderFactoryInterface.php</file>
             <file>../Classes/Crypto/MasterKeyProviderInterface.php</file>
+            <file>../Classes/Crypto/MasterKeyProviderRegistryInterface.php</file>
             <file>../Classes/Domain/Repository/SecretRepositoryInterface.php</file>
             <file>../Classes/Http/VaultHttpClientInterface.php</file>
             <file>../Classes/Security/AccessControlServiceInterface.php</file>

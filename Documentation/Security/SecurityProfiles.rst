@@ -67,9 +67,13 @@ Exact technical differences
         -   ``hardened``
 
     *   -   Master-key provider policy
-        -   ``typo3``, ``file`` and ``env`` all permitted.
+        -   ``typo3``, ``file``, ``env`` and ``transit`` all permitted, as is
+            a provider another extension registers.
         -   ``typo3`` is **rejected** with exception code ``1753900002``. An
-            explicit external provider is required.
+            explicit external provider is required — ``file``, ``env``,
+            ``transit``, or one an extension registers. The deny list names
+            ``typo3`` and nothing else, because the demand is that the key
+            lives outside :file:`config/system/settings.php`.
 
     *   -   Provider fallback
         -   :php:`getAvailableProvider()` auto-detects: configured provider

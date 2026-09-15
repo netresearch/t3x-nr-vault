@@ -47,8 +47,11 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
       Secure defaults with zero-configuration TYPO3 integration.
 
    hardened
-      Fail-closed and audit-ready. Requires an explicit external
-      master-key provider (``file`` or ``env``), disables provider
+      Fail-closed and audit-ready. It refuses the ``typo3`` provider and
+      nothing else: ``file``, ``env``, ``transit`` and a provider another
+      extension registers are all permitted, because the demand is that
+      the master key lives outside
+      :file:`config/system/settings.php`. It disables provider
       auto-detection and any fallback to the TYPO3 encryption key, and
       makes vault operations refuse to run on a misconfigured or
       unavailable provider. It is also the prerequisite for
@@ -61,7 +64,7 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    :name: ext-nrvault-masterKeyProvider
    :type: string
    :Default: typo3
-   :Options: typo3, file, env, transit
+   :Options: typo3, file, env, transit, or an identifier registered by another extension
 
    How to retrieve the master encryption key.
 
@@ -79,6 +82,12 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
       Unwrap through HashiCorp Vault's transit secrets engine. Only the
       Vault-encrypted ciphertext is stored locally — see
       :ref:`configuration-master-key-transit`.
+
+   Any other value names a provider that an installed extension registered
+   with the ``nr_vault.master_key_provider`` tag. An identifier no provider
+   claims is refused with exception code ``1703800015``; the vault does not
+   fall back to a different key source in the hardened profile. See
+   :ref:`developer-custom-key-providers`.
 
 .. confval:: masterKeySource
    :name: ext-nrvault-masterKeySource

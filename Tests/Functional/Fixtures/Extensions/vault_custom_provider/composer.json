@@ -1,0 +1,14 @@
+{
+    "name": "netresearch/vault-custom-provider-fixture",
+    "type": "typo3-cms-extension",
+    "description": "Functional-test fixture: a third-party extension that registers its own nr-vault master key provider.",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "typo3/cms-core": "^13.4 || ^14.3"
+    },
+    "extra": {
+        "typo3/cms": {
+            "extension-key": "vault_custom_provider"
+        }
+    }
+}

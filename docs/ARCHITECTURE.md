@@ -14,7 +14,7 @@ nr-vault is a TYPO3 extension (key `nr_vault`, namespace `Netresearch\NrVault\`)
 | Component | Location | Responsibility |
 |-----------|----------|----------------|
 | Vault service | `Classes/Service/VaultService.php` | Core secret CRUD + rotation; binds vault adapters; compensates mutations on failed audit writes |
-| Crypto | `Classes/Crypto/` | `EncryptionService` (libsodium envelope), master-key providers (file / env / TYPO3 encryptionKey) behind `MasterKeyProviderInterface` |
+| Crypto | `Classes/Crypto/` | `EncryptionService` (libsodium envelope), master-key providers (TYPO3 encryptionKey / file / env / HashiCorp transit) behind `MasterKeyProviderInterface`, resolved by identifier through `MasterKeyProviderRegistry` (tag `nr_vault.master_key_provider`, open to consuming extensions) |
 | Access control | `Classes/Security/AccessControlService.php` | Per-secret tiers + operation permissions (`VaultPermission` enum); sole admin-bypass seam |
 | Technical actor | `Classes/Security/TechnicalActorContext.php` | Headless `runAs()` for CLI/scheduler/API actors without a live session |
 | Break-glass | `Classes/Security/BreakGlassService.php` | Time-boxed restore of the admin override |

@@ -84,13 +84,16 @@ Interface-based providers with factory pattern for selection.
 Decision
 ========
 
-We chose a **pluggable provider system** with three built-in providers:
+We chose a **pluggable provider system** with four built-in providers:
 
 1. **typo3** (default): Derives key from TYPO3's encryption key using HKDF
 2. **file**: Reads key from filesystem with strict permissions
 3. **env**: Reads key from environment variable
+4. **transit**: Unwraps the key through HashiCorp Vault's transit engine
 
 This provides zero-config operation while enabling enterprise deployments.
+Providers are resolved through a registry keyed by identifier, so a consuming
+extension can supply a fifth — see `Provider registry`_ below.
 
 Implementation
 ==============
@@ -200,24 +203,110 @@ Factory with auto-detection
 .. code-block:: php
    :caption: Classes/Crypto/MasterKeyProviderFactory.php
 
+   public function create(): MasterKeyProviderInterface
+   {
+       $provider = $this->configuration->getMasterKeyProvider();
+
+       // The hardened deny list names `typo3` and nothing else.
+       if (
+           \in_array($provider, self::FORBIDDEN_IN_HARDENED_PROFILE, true)
+           && $this->configuration->getSecurityProfile()->isHardened()
+       ) {
+           throw ConfigurationException::providerForbiddenInHardenedProfile($provider);
+       }
+
+       // The registry resolves the identifier; the factory knows no provider list.
+       return $this->registry->get($provider);
+   }
+
    public function getAvailableProvider(): MasterKeyProviderInterface
    {
-       // 1. Try explicitly configured provider
-       $configured = $this->configuration->getMasterKeyProvider();
-       if ($configured && $this->providers[$configured]->isAvailable()) {
-           return $this->providers[$configured];
+       // 1. An ambiguous registration is fatal, and must be seen before the
+       //    catch below swallows ConfigurationException.
+       $this->registry->assertNoIdentifierConflicts();
+
+       // 2. Hardened: no auto-detection, no fallback.
+       if ($this->configuration->getSecurityProfile()->isHardened()) {
+           return $this->create();
        }
 
-       // 2. Fallback chain: typo3 -> env -> file
-       foreach (['typo3', 'env', 'file'] as $id) {
-           if ($this->providers[$id]->isAvailable()) {
-               return $this->providers[$id];
+       // 3. Try the explicitly configured provider.
+       try {
+           $provider = $this->create();
+           if ($provider->isAvailable()) {
+               return $provider;
            }
+       } catch (ConfigurationException) {
+           // Fall through to auto-detection.
        }
 
-       // 3. Return TYPO3 provider (will fail with clear error)
-       return $this->providers['typo3'];
+       // 4. Fallback chain over the built-in local sources only: typo3 -> env
+       //    -> file. A registered custom provider is reached by being named,
+       //    never by auto-detection.
+       $typo3Provider = new Typo3MasterKeyProvider();
+       if ($typo3Provider->isAvailable()) {
+           return $typo3Provider;
+       }
+
+       $envProvider = new EnvironmentMasterKeyProvider($this->configuration);
+       if ($envProvider->isAvailable()) {
+           return $envProvider;
+       }
+
+       $fileProvider = new FileMasterKeyProvider($this->configuration);
+       if ($fileProvider->isAvailable()) {
+           return $fileProvider;
+       }
+
+       // 5. Return the TYPO3 provider (will fail with clear error).
+       return $typo3Provider;
    }
+
+Provider registry
+-----------------
+
+The set of providers is not a closed list inside the factory. Every service
+tagged ``nr_vault.master_key_provider`` is collected by
+:php:`MasterKeyProviderRegistry` and indexed under the identifier it returns
+from :php:`getIdentifier()`; ``masterKeyProvider`` names one of those
+identifiers. The four built-in providers are tagged the same way and hold no
+privilege the registry can see, so an extension supplying a cloud-KMS or HSM
+provider registers it exactly as nr-vault registers its own
+(:ref:`developer-custom-key-providers`).
+
+Three rules make the indirection safe, because an identifier decides which key
+source protects the vault:
+
+*   **A duplicate identifier is refused, not resolved** (``1789430001``).
+    Last-one-wins would let an installed extension take over the master key by
+    choosing the name ``file``; first-one-wins would let load order decide the
+    same thing. While a collision exists the registry refuses *every* lookup,
+    not only the colliding name: in that state "which key source is in use?"
+    has no answer, and serving the other names would hide the ambiguity from
+    the operator.
+*   **A blank identifier is refused** (``1789430002``). The rule is about the
+    provider, not the setting: a provider whose :php:`getIdentifier()` returns
+    an empty string names nothing an operator could configure, and indexing it
+    under ``''`` would make it the provider an explicitly emptied
+    ``masterKeyProvider`` resolves to. An absent setting never reaches that
+    case — :php:`ExtensionConfiguration::getMasterKeyProvider()` answers
+    ``typo3`` until somebody configures otherwise — and an explicitly empty one
+    finds no provider and fails the lookup, which is the intended outcome.
+*   **The ambiguity check runs before the standard-profile fallback**, which
+    swallows :php:`ConfigurationException` to survive an unconfigured install.
+    Without that ordering, auto-detection would answer the custody question by
+    load order after all.
+
+The hardened profile's deny list names ``typo3`` and nothing else. Its demand
+is that the key lives outside :file:`config/system/settings.php`, which is
+what an extension-supplied provider delivers; refusing unknown identifiers by
+default would forbid exactly the deployments the profile exists to serve. What
+it cannot police is what installed code does — a custom provider may derive
+its key from the TYPO3 encryption key under another name. The profile
+constrains configuration, not the trustworthiness of an installed extension.
+
+Auto-detection still probes the three built-in local sources only. Falling
+back to a custom provider would mean adopting a key custody nobody configured.
 
 Configuration
 -------------
@@ -226,7 +315,8 @@ Configuration
    :caption: Extension configuration options
 
    $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = [
-       'masterKeyProvider' => 'typo3',  // typo3, file, or env
+       // A built-in identifier, or one another extension registered.
+       'masterKeyProvider' => 'typo3',
        'masterKeySource' => 'NR_VAULT_MASTER_KEY',  // env var or file path
        'autoKeyPath' => 'var/secrets/vault-master.key',  // auto-generated key
    ];

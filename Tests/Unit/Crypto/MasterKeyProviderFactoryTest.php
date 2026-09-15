@@ -10,13 +10,13 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Crypto;
 
 use GuzzleHttp\Psr7\HttpFactory;
-use Netresearch\NrVault\Configuration\Dto\TransitConfig;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Configuration\SecurityProfile;
 use Netresearch\NrVault\Crypto\EnvironmentMasterKeyProvider;
 use Netresearch\NrVault\Crypto\FileMasterKeyProvider;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactory;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
+use Netresearch\NrVault\Crypto\MasterKeyProviderRegistry;
 use Netresearch\NrVault\Crypto\TransitMasterKeyProvider;
 use Netresearch\NrVault\Crypto\Typo3MasterKeyProvider;
 use Netresearch\NrVault\Exception\ConfigurationException;
@@ -26,6 +26,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Client\ClientInterface;
+use SensitiveParameter;
 
 #[CoversClass(MasterKeyProviderFactory::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -43,7 +44,10 @@ final class MasterKeyProviderFactoryTest extends TestCase
         $this->configuration
             ->method('getSecurityProfile')
             ->willReturn(SecurityProfile::Standard);
-        $this->subject = new MasterKeyProviderFactory($this->configuration, self::createStub(ClientInterface::class));
+        $this->subject = new MasterKeyProviderFactory(
+            $this->configuration,
+            $this->createBuiltInRegistry($this->configuration),
+        );
     }
 
     #[Test]
@@ -105,25 +109,27 @@ final class MasterKeyProviderFactoryTest extends TestCase
     }
 
     #[Test]
-    public function createPassesTheInjectedHttpStackToTheTransitProvider(): void
+    public function createReturnsTheRegisteredProviderInstanceItself(): void
     {
+        // The factory selects, it no longer constructs: the transit provider's
+        // HTTP stack is injected into the provider by the container, so what
+        // comes back must be the registered instance rather than a new one.
         $this->configuration
             ->method('getMasterKeyProvider')
             ->willReturn('transit');
-        $this->configuration
-            ->method('getTransitConfig')
-            ->willReturn(new TransitConfig(address: 'https://vault.example.com', wrappedKeyPath: '/nonexistent/wrapped.key'));
 
-        $httpFactory = new HttpFactory();
-        // Never dispatched: provider construction alone must not touch the network.
-        $client = $this->createMock(ClientInterface::class);
-        $client->expects(self::never())->method('sendRequest');
+        $transit = new TransitMasterKeyProvider(
+            $this->configuration,
+            self::createStub(ClientInterface::class),
+            new HttpFactory(),
+            new HttpFactory(),
+        );
+        $factory = new MasterKeyProviderFactory(
+            $this->configuration,
+            new MasterKeyProviderRegistry([$transit]),
+        );
 
-        $factory = new MasterKeyProviderFactory($this->configuration, $client, $httpFactory, $httpFactory);
-        $provider = $factory->create();
-
-        self::assertInstanceOf(TransitMasterKeyProvider::class, $provider);
-        self::assertFalse($provider->isAvailable());
+        self::assertSame($transit, $factory->create());
     }
 
     #[Test]
@@ -134,8 +140,44 @@ final class MasterKeyProviderFactoryTest extends TestCase
             ->willReturn('invalid');
 
         $this->expectException(ConfigurationException::class);
+        $this->expectExceptionCode(1703800015);
 
         $this->subject->create();
+    }
+
+    #[Test]
+    public function createSelectsAProviderRegisteredByAnotherExtension(): void
+    {
+        // The defect this PR closes: before the registry, an identifier outside
+        // the built-in four could never be selected, however it was registered.
+        $this->configuration
+            ->method('getMasterKeyProvider')
+            ->willReturn('acme_kms');
+
+        $custom = $this->customProvider('acme_kms');
+        $factory = new MasterKeyProviderFactory(
+            $this->configuration,
+            new MasterKeyProviderRegistry([new Typo3MasterKeyProvider(), $custom]),
+        );
+
+        self::assertSame($custom, $factory->create());
+    }
+
+    #[Test]
+    public function createAllowsACustomProviderInHardenedProfile(): void
+    {
+        // The hardened profile's demand is that the key lives outside
+        // settings.php. An extension-supplied provider is the case it asks for,
+        // so the deny list names `typo3` and nothing else.
+        $configuration = $this->hardenedConfiguration('acme_kms');
+        $custom = $this->customProvider('acme_kms');
+
+        $factory = new MasterKeyProviderFactory(
+            $configuration,
+            new MasterKeyProviderRegistry([new Typo3MasterKeyProvider(), $custom]),
+        );
+
+        self::assertSame($custom, $factory->create());
     }
 
     #[Test]
@@ -150,6 +192,31 @@ final class MasterKeyProviderFactoryTest extends TestCase
         $result = $this->subject->getAvailableProvider();
 
         self::assertInstanceOf(MasterKeyProviderInterface::class, $result);
+    }
+
+    #[Test]
+    public function getAvailableProviderRefusesAnAmbiguousRegistryInsteadOfFallingBack(): void
+    {
+        // The fallback chain swallows ConfigurationException to survive an
+        // unconfigured install. A duplicate identifier must not be swallowed
+        // with it: silently auto-detecting would answer "which key source
+        // protects the vault?" by load order.
+        $this->configuration
+            ->method('getMasterKeyProvider')
+            ->willReturn('file');
+
+        $factory = new MasterKeyProviderFactory(
+            $this->configuration,
+            new MasterKeyProviderRegistry([
+                new FileMasterKeyProvider($this->configuration),
+                $this->customProvider('file'),
+            ]),
+        );
+
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionCode(1789430001);
+
+        $factory->getAvailableProvider();
     }
 
     #[Test]
@@ -231,6 +298,13 @@ final class MasterKeyProviderFactoryTest extends TestCase
      */
     private function createHardenedFactory(string $provider): MasterKeyProviderFactory
     {
+        $configuration = $this->hardenedConfiguration($provider);
+
+        return new MasterKeyProviderFactory($configuration, $this->createBuiltInRegistry($configuration));
+    }
+
+    private function hardenedConfiguration(string $provider): ExtensionConfigurationInterface&MockObject
+    {
         $configuration = $this->createMock(ExtensionConfigurationInterface::class);
         $configuration
             ->method('getSecurityProfile')
@@ -242,6 +316,62 @@ final class MasterKeyProviderFactoryTest extends TestCase
             ->method('getMasterKeySource')
             ->willReturn('/nonexistent/hardened-test.key');
 
-        return new MasterKeyProviderFactory($configuration, self::createStub(ClientInterface::class));
+        return $configuration;
+    }
+
+    /**
+     * The four built-in providers, registered exactly as `Services.yaml` tags
+     * them, so the unit tests exercise the production registration set.
+     */
+    private function createBuiltInRegistry(ExtensionConfigurationInterface $configuration): MasterKeyProviderRegistry
+    {
+        $httpFactory = new HttpFactory();
+
+        return new MasterKeyProviderRegistry([
+            new Typo3MasterKeyProvider(),
+            new FileMasterKeyProvider($configuration),
+            new EnvironmentMasterKeyProvider($configuration),
+            new TransitMasterKeyProvider(
+                $configuration,
+                self::createStub(ClientInterface::class),
+                $httpFactory,
+                $httpFactory,
+            ),
+        ]);
+    }
+
+    /**
+     * A provider as a consuming extension writes one: against the published
+     * interface, with an identifier of its own choosing.
+     */
+    private function customProvider(string $identifier): MasterKeyProviderInterface
+    {
+        return new class ($identifier) implements MasterKeyProviderInterface {
+            public function __construct(private readonly string $identifier) {}
+
+            public function getIdentifier(): string
+            {
+                return $this->identifier;
+            }
+
+            public function isAvailable(): bool
+            {
+                return true;
+            }
+
+            public function getMasterKey(): string
+            {
+                return str_repeat('k', 32);
+            }
+
+            public function storeMasterKey(#[SensitiveParameter] string $key): void {}
+
+            public function generateMasterKey(): string
+            {
+                return str_repeat('n', 32);
+            }
+
+            public static function clearCachedKey(): void {}
+        };
     }
 }
