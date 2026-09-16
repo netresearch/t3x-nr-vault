@@ -34,6 +34,8 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 #[CoversClass(VaultOverviewModuleResolver::class)]
 final class VaultOverviewModuleResolverTest extends TestCase
 {
+    private const PARENT_PATH = '/module/admin/vault';
+
     private ?BackendUserAuthentication $previousBackendUser = null;
 
     protected function setUp(): void
@@ -158,21 +160,37 @@ final class VaultOverviewModuleResolverTest extends TestCase
         );
     }
 
+    #[Test]
+    public function theParentModulesHelpRouteLeavesTheRememberedSubmoduleAlone(): void
+    {
+        $backendUser = $this->backendUser(['action' => 'admin_vault_secrets']);
+        $backendUser->expects($this->never())->method('pushModuleData');
+
+        // Every route of the module carries the same `module` option, so the
+        // identifier alone would rewrite the remembered submodule when
+        // somebody opens Help.
+        $this->process($this->parentRoute(false, self::PARENT_PATH . '/help'));
+    }
+
     private function coreKnowsSubmoduleOverview(): bool
     {
         return method_exists(ModuleInterface::class, 'hasSubmoduleOverview');
     }
 
-    private function parentRoute(bool $hasSubmoduleOverview): Route
+    private function parentRoute(bool $hasSubmoduleOverview, string $path = self::PARENT_PATH): Route
     {
         $module = self::createStub(ModuleInterface::class);
         $module->method('getIdentifier')->willReturn('admin_vault');
+        // Core registers the default route under the module's own path and
+        // every further route beneath it, which is how the middleware tells
+        // them apart — so the double has to answer this the same way.
+        $module->method('getPath')->willReturn(self::PARENT_PATH);
 
         if ($this->coreKnowsSubmoduleOverview()) {
             $module->method('hasSubmoduleOverview')->willReturn($hasSubmoduleOverview);
         }
 
-        return new Route('/module/admin/vault', ['module' => $module]);
+        return new Route($path, ['module' => $module]);
     }
 
     /**
