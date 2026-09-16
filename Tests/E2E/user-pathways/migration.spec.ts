@@ -229,19 +229,16 @@ test.describe('Migration Module User Pathways', () => {
       await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
-    test('execute shows progress or results', async ({ authenticatedPage: page }) => {
+    test('execute page renders without an error page', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=execute');
       await page.waitForLoadState('networkidle');
 
-      // Should show progress indicator or results
-      // `text=` consumes the rest of the selector string verbatim, so a
-      // comma-separated list containing it never matches anything. Use
-      // :has-text() inside a CSS union instead.
-      const progress = page.locator('.progress, .spinner, :has-text("Processing"), :has-text("Migrating")');
-      const results = page.locator('.results, :has-text("Complete"), :has-text("Success"), :has-text("migrated")');
-      const continueButton = page.locator('a:has-text("Continue"), a:has-text("Verify")');
-
-      // Page should show something meaningful
+      // What this test measures is that the step renders at all. Three
+      // locators for progress, results and a Continue control used to stand
+      // here unasserted, which read as coverage and was none: a `:has-text()`
+      // union without an element prefix matches the whole document anyway, so
+      // asserting them would have passed on any page. The name says what is
+      // checked.
       await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
@@ -254,16 +251,13 @@ test.describe('Migration Module User Pathways', () => {
       await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
-    test('verify page shows migration summary', async ({ authenticatedPage: page }) => {
+    test('verify page renders without an error page', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=verify');
       await page.waitForLoadState('networkidle');
 
-      // Should show summary of migration results
-      const summary = page.locator('.migration-summary, .results-summary');
-      const successCount = page.locator(':has-text("success"), :has-text("migrated"), :has-text("completed")');
-      const returnLink = page.locator('a:has-text("Return"), a:has-text("Done"), a:has-text("Finish")');
-
-      // Page should have some content
+      // Same as the execute step: the summary, count and return-link
+      // locators that stood here were never asserted. This checks that the
+      // step renders.
       await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
@@ -281,9 +275,9 @@ test.describe('Migration Module User Pathways', () => {
         '.callout-success'
       );
 
-      const hasSecrets = page.locator(':has-text("found"), :has-text("detected")').first();
-
-      // Either shows "no secrets" message or lists found secrets
+      // Either branch is acceptable here — a seeded instance lists findings,
+      // a clean one shows the all-clear — so the check is that the scan step
+      // renders either of them rather than an error page.
       await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
@@ -304,7 +298,11 @@ test.describe('Migration Module User Pathways', () => {
         .locator('a:has-text("Back"), button:has-text("Back"), a[href*="action=scan"]')
         .first();
 
-      if (await backButton.isVisible().catch(() => false)) {
+      // Required, not optional: a conditional skip here would let the test
+      // pass precisely when the Back control has gone missing.
+      await expect(backButton).toBeVisible();
+
+      {
         // Wait for the iframe's own navigation. `networkidle` on the top page
         // returns before the module frame has re-rendered, so an assertion
         // behind it reads the document from before the click.
@@ -336,12 +334,17 @@ test.describe('Migration Module User Pathways', () => {
         .locator('a:has-text("Back"), button:has-text("Back"), a[href*="action=review"]')
         .first();
 
-      if (await backButton.isVisible().catch(() => false)) {
-        await backButton.click();
-        await page.waitForLoadState('networkidle');
+      // Required for the same reason as the review step above.
+      await expect(backButton).toBeVisible();
 
-        expect(frameUrl(page)).toMatch(/action=review|action=scan|admin_vault_migration/);
-      }
+      await backButton.click();
+
+      // `networkidle` observes the outer document, and on TYPO3 13 the module
+      // iframe can still carry action=configure when it returns — so the URL
+      // is polled until the frame itself has moved.
+      await expect
+        .poll(() => frameUrl(page), { timeout: 10000 })
+        .toMatch(/action=review|action=scan|admin_vault_migration/);
     });
 
     test('index page is accessible from any step', async ({ authenticatedPage: page }) => {
