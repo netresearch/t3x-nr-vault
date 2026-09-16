@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A custom master-key provider can finally be selected.**
+  `MasterKeyProviderInterface` was published as an extension point, but the
+  factory resolved a closed list of four identifiers, so a provider shipped by
+  another extension could never be configured — the developer chapter showed a
+  `KmsKeyProvider` example that could not work while the key-custody chapter
+  said the opposite. Providers are collected by the service tag
+  `nr_vault.master_key_provider` and indexed under the identifier each one
+  reports. A duplicate identifier is refused rather than resolved by load
+  order, so an installed extension cannot take over the key source by claiming
+  the name `file`; a blank identifier is refused; and the ambiguity check runs
+  before the standard-profile fallback that would otherwise auto-detect a
+  different key source. The hardened profile denies `typo3` and nothing else,
+  and auto-detection still probes only the built-in local sources, so a vault
+  never adopts an external custody nobody configured.
+
+- **The E2E suite runs in CI against both TYPO3 lines.** A repository workflow
+  provisions a real installation per matrix cell — TYPO3 13.4 on PHP 8.2 and
+  14.3 on PHP 8.5, MariaDB, a web server, chromium — and runs the Playwright
+  specs against it. `Build/Scripts/e2e-provision.sh` builds the same instance
+  locally.
+
 - **A written compatibility promise for implementers.** Six interfaces are
   extension points — meant to be implemented by other extensions, not only
   called: `VaultAdapterInterface`, `MasterKeyProviderInterface`,
@@ -30,6 +51,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The test suites are strict about their own noise.** `failOnNotice`,
+  `failOnPhpunitDeprecation`, `failOnEmptyTestSuite` and
+  `beStrictAboutOutputDuringTests` are on for both suites, `failOnRisky` for
+  the functional one, and `failOnDeprecation` plus random execution order for
+  the unit suite; the 264 PHPUnit deprecations and 50 notices that stood
+  behind them are gone.
+
+- **The architecture rules actually run.** The phpat test was registered
+  without the tag that makes PHPStan execute it, so none of its rules had ever
+  fired. They run now, and the violations they reported are either fixed or
+  excluded by name with a stated reason.
+
+- **The release evidence measures branch and path coverage and reports
+  functional coverage.** Line coverage over the merged unit and functional
+  runs is 95.67 % (bar 93), branch coverage 87.14 % (bar 85), and the
+  mutation score 78.42 % (bar 77) once the demo seeder and the
+  string-concatenation mutants in prose-building code are out of the
+  denominator. A coverage report assembled from fewer parts than were planned
+  is no longer published at all: the bundle records the coverage checks as
+  absent and the job fails, rather than presenting a partial measurement as a
+  whole one.
+
 - **A release is published only after its evidence passed.** `release.yml`
   now starts with the fleet `release-gate.yml`, which waits for `ci.yml` and
   `release-evidence.yml` to succeed at the tagged commit; the build, the
@@ -44,6 +87,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `1.x-dev`.
 
 ### Fixed
+
+- **Duplicating a record no longer damages its vault secrets.** Copying,
+  translating, copying into a language or synchronising an inline child writes
+  the new record through an inner save pass in which the vault field carries
+  the SOURCE record's identifier as a plain string — indistinguishable from a
+  freshly typed secret. A copy therefore left behind a secret whose plaintext
+  was an identifier, a translation ended up referencing that damaged secret,
+  and a copied inline child shared the source child's secret outright, so
+  rotating the copy changed the original and deleting the copy destroyed it.
+  Every duplicating command now gives each new record its own clone, for TCA
+  fields and FlexForm fields alike.
+
+- **A translation shares the default record's secret instead of forking it.**
+  A vault field is `l10n_mode = exclude`, so TYPO3 synchronises it into every
+  translation whenever the default-language record is saved. That path created
+  a secret whose plaintext was an identifier, and deleting a translation
+  deleted the credential the default record still used. The translation keeps
+  the default record's identifier, and a secret is deleted only when no live
+  record still references it.
+
+- **Revealing a secret no longer blocks the backend on TYPO3 13.** The list
+  opened a loading dialog for the AJAX call and dismissed it as soon as the
+  response arrived. TYPO3 13 renders a modal with Bootstrap, which ignores
+  `hide()` while the show transition is still running, so the dialog and its
+  backdrop stayed in the document — and that backdrop covers the whole
+  backend, module iframe included. After one reveal, rotating, toggling or
+  deleting a secret was impossible until the page was reloaded. The reveal
+  flow opens no loading dialog at all now; the button carries the wait.
+
+- **The revealed plaintext is wiped on TYPO3 13 as well.** The wipe ran when
+  the dialog reported itself closed, but TYPO3 13 takes the dialog out of the
+  document while it closes and puts an element with the same content back
+  afterwards, so the wipe found no field and the value stayed readable in the
+  page. It now runs at the start of the close, while the field is still
+  reachable.
+
+- **Rotating a secret from the list works again.** The dialog is rendered in
+  the outer backend document while its handler looked the input up inside the
+  module iframe, so the field was never found: the dialog reported a missing
+  value and no rotation request was ever sent.
+
+- **An invalid secret identifier is refused instead of silently rewritten.**
+  TCA evaluation stripped everything but letters and digits, so a value like
+  `<script>alert(1)</script>` was stored as `scriptalert1script` — a record
+  under an identifier nobody chose. The write is rejected and audited; records
+  already stored under such an identifier stay readable and deletable.
+
+- **The TYPO3 13 parent module opens the vault overview** instead of whichever
+  submodule the user opened last.
+
+- **State badges meet the WCAG AA contrast minimum** on both TYPO3 lines; the
+  success badge measured 3.6:1 before.
+
+- **The backup procedure names every table a restore needs.** The two
+  many-to-many tables holding per-secret group permissions were missing, so a
+  restore that followed the documentation produced decryptable secrets and a
+  verifying audit chain — and then refused a user whose group had access. The
+  `sys_registry` entries for the audit anchor and the break-glass session, and
+  the scheduler task rows, were missing for the same reason.
 
 - **The API snapshot check called a new interface method harmless.** It
   classified every added method as additive and told the author to regenerate
