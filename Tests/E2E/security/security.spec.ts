@@ -33,20 +33,27 @@ function rowFor(frame: FrameLocator, identifier: string): Locator {
  */
 async function filterByIdentifier(frame: FrameLocator, identifier: string): Promise<void> {
   await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
+
+  // Clear the readiness flag of the CURRENT document before submitting. The
+  // filter is a form submit, so the row and the flag both exist again in the
+  // new document — but they also still exist in the old one, and a wait that
+  // the old document already satisfies returns immediately. The click then
+  // lands while the new page is still importing SecretsList.js, where Reveal,
+  // Rotate and Delete are inert buttons: focused, doing nothing. Measured on a
+  // provisioned 13.4 instance, that is exactly what happened.
+  await frame.locator('html').evaluate((el) => el.removeAttribute('data-vault-secrets-list'));
+
   await frame.locator('button:has-text("Filter")').click();
+
+  // Now the flag can only come from the document the submit produced.
+  await frame
+    .locator('html[data-vault-secrets-list="ready"]')
+    .waitFor({ state: 'attached', timeout: 15000 });
   await frame
     .locator('table tbody tr')
     .filter({ hasText: identifier })
     .first()
     .waitFor({ state: 'visible', timeout: 15000 });
-  // The filter submits the form, so the row is in the new document before
-  // SecretsList.js has been imported and has bound the row actions. Clicking
-  // Rotate, Reveal or Delete in that window focuses the button and does
-  // nothing — which is what the failing CI run's snapshot shows. The module
-  // sets this flag once the handlers are attached.
-  await frame
-    .locator('html[data-vault-secrets-list="ready"]')
-    .waitFor({ state: 'attached', timeout: 15000 });
 }
 
 /**
