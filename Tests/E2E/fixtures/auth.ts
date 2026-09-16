@@ -81,12 +81,24 @@ export function getModuleFrame(page: Page): FrameLocator {
  */
 export async function waitForModuleContent(page: Page): Promise<void> {
   const frame = getModuleFrame(page);
-  // Wait for any heading or content to be visible
   try {
     await frame.locator('h1, .module-body, .module-docheader').first().waitFor({ timeout: 10000 });
+
+    return;
   } catch {
-    // If no content found, that's okay - module might have different structure
+    // Not every page the suite visits is a module template -- FormEngine and
+    // the install tool render none of those three -- so a miss is not yet a
+    // failure.
   }
+
+  // It is a failure when the iframe holds nothing at all: the helper used to
+  // return here regardless, and the caller then acted on an empty document,
+  // which surfaces much later as a timeout in an unrelated locator and reads
+  // as a defect in whatever that locator was looking for.
+  await frame
+    .locator('body :not(script):not(style)')
+    .first()
+    .waitFor({ state: 'attached', timeout: 10000 });
 }
 
 /**
@@ -112,7 +124,7 @@ export async function waitForSecretsListReady(frame: FrameLocator): Promise<void
  * and the next click lands in the new page's loading window. Clearing the
  * flag first means only the new document can set it.
  */
-export async function filterByIdentifier(
+export async function submitIdentifierFilter(
   frame: FrameLocator,
   identifier: string,
 ): Promise<void> {
@@ -122,6 +134,21 @@ export async function filterByIdentifier(
   });
   await frame.locator('button:has-text("Filter")').click();
   await waitForSecretsListReady(frame);
+}
+
+/**
+ * Apply the filter and wait for the row it must produce.
+ *
+ * Callers that expect the identifier to be gone -- after a delete, or for one
+ * that never existed -- take `submitIdentifierFilter()` instead and make their
+ * own assertion; waiting for a row here would turn their expected absence into
+ * a helper timeout.
+ */
+export async function filterByIdentifier(
+  frame: FrameLocator,
+  identifier: string,
+): Promise<void> {
+  await submitIdentifierFilter(frame, identifier);
   await frame
     .locator('table tbody tr')
     .filter({ hasText: identifier })

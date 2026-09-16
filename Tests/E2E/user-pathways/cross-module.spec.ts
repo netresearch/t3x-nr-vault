@@ -1,4 +1,4 @@
-import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import { test, expect, filterByIdentifier, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
 
 /**
  * E2E tests for Cross-Module User Pathways.
@@ -67,13 +67,7 @@ test.describe.serial('Cross-Module User Pathways', () => {
       await waitForModuleContent(page);
 
       const listFrame = getModuleFrame(page);
-      await listFrame.getByRole('textbox', { name: 'Identifier' }).fill(testIdentifier);
-      const filterResp = page.waitForResponse(
-        (resp) => resp.url().includes('admin_vault_secrets') && resp.status() === 200,
-        { timeout: 10000 },
-      );
-      await listFrame.locator('button:has-text("Filter")').click();
-      await filterResp.catch(() => undefined);
+      await filterByIdentifier(listFrame, testIdentifier);
 
       const filteredFrame = getModuleFrame(page);
       const secretRow = filteredFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
@@ -242,13 +236,7 @@ test.describe.serial('Cross-Module User Pathways', () => {
       await waitForModuleContent(page);
 
       const listFrame = getModuleFrame(page);
-      await listFrame.getByRole('textbox', { name: 'Identifier' }).fill(testIdentifier);
-      const filterResp = page.waitForResponse(
-        (resp) => resp.url().includes('admin_vault_secrets') && resp.status() === 200,
-        { timeout: 10000 },
-      );
-      await listFrame.locator('button:has-text("Filter")').click();
-      await filterResp.catch(() => undefined);
+      await filterByIdentifier(listFrame, testIdentifier);
 
       const filteredFrame = getModuleFrame(page);
       await expect(
@@ -300,13 +288,7 @@ test.describe.serial('Cross-Module User Pathways', () => {
       await waitForModuleContent(page);
 
       const listFrame = getModuleFrame(page);
-      await listFrame.getByRole('textbox', { name: 'Identifier' }).fill(testIdentifier);
-      const filterResp = page.waitForResponse(
-        (resp) => resp.url().includes('admin_vault_secrets') && resp.status() === 200,
-        { timeout: 10000 },
-      );
-      await listFrame.locator('button:has-text("Filter")').click();
-      await filterResp.catch(() => undefined);
+      await filterByIdentifier(listFrame, testIdentifier);
 
       const filteredFrame = getModuleFrame(page);
       await expect(

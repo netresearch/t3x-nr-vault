@@ -1,4 +1,4 @@
-import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import { test, expect, filterByIdentifier, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
 
 /**
  * E2E tests for TYPO3 FormEngine/TCA integration.
@@ -46,13 +46,7 @@ test.describe('TYPO3 FormEngine/TCA Integration', () => {
       await waitForModuleContent(page);
 
       frame = getModuleFrame(page);
-      await frame.getByRole('textbox', { name: 'Identifier' }).fill(testIdentifier);
-      const filterResp = page.waitForResponse(
-        (resp) => resp.url().includes('admin_vault_secrets') && resp.status() === 200,
-        { timeout: 10000 },
-      );
-      await frame.locator('button:has-text("Filter")').click();
-      await filterResp.catch(() => undefined);
+      await filterByIdentifier(frame, testIdentifier);
 
       // Find edit button in the filtered table row (pencil icon button)
       // The identifier is not shown in the table, so we select by the row in the filtered result
@@ -193,13 +187,7 @@ test.describe('TYPO3 FormEngine/TCA Integration', () => {
       await page.goto('/typo3/module/admin/vault/secrets');
       await waitForModuleContent(page);
       frame = getModuleFrame(page);
-      await frame.getByRole('textbox', { name: 'Identifier' }).fill(testIdentifier);
-      const filterResp = page.waitForResponse(
-        (resp) => resp.url().includes('admin_vault_secrets') && resp.status() === 200,
-        { timeout: 10000 },
-      );
-      await frame.locator('button:has-text("Filter")').click();
-      await filterResp.catch(() => undefined);
+      await filterByIdentifier(frame, testIdentifier);
 
       frame = getModuleFrame(page);
       await frame.locator('table tbody tr button[title*="Edit"], table tbody tr a[title*="Edit"]').first().click();

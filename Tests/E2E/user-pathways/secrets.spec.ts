@@ -1,4 +1,4 @@
-import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import { test, expect, getModuleFrame, submitIdentifierFilter, waitForModuleContent } from '../fixtures/auth';
 import type { Page, FrameLocator, Locator } from '@playwright/test';
 
 /**
@@ -38,21 +38,21 @@ async function applyIdentifierFilter(
   frame: FrameLocator,
   identifier: string,
 ): Promise<FrameLocator> {
-  await frame
-    .getByRole('textbox', { name: 'Identifier' })
-    .fill(identifier);
-  const filterResponse = page.waitForResponse(
-    (resp) => resp.url().includes('/admin_vault_secrets') && resp.status() === 200,
-    { timeout: 10000 },
-  );
-  await frame.locator('button:has-text("Filter")').click();
-  await filterResponse.catch(() => undefined);
-  // Stats panel re-renders after filter apply; wait for it.
+  // Delegates to the shared helper, which clears the readiness flag before
+  // submitting so a wait cannot be satisfied by the document being left.
+  // This one used to wait for the filter response and for the stats panel
+  // with both waits swallowed by `.catch(() => undefined)`, which means the
+  // caller acted on whatever was on screen when they timed out. It stops
+  // short of waiting for a row: three callers here filter for an identifier
+  // that must NOT be listed, and they assert that themselves.
+  await submitIdentifierFilter(frame, identifier);
+
   const newFrame = getModuleFrame(page);
-  await newFrame
-    .locator('[data-testid="secret-filter-stats"]')
-    .waitFor({ state: 'visible', timeout: 10000 })
-    .catch(() => undefined);
+  // `List.html` renders the stats panel unconditionally, so it is required.
+  await expect(newFrame.locator('[data-testid="secret-filter-stats"]')).toBeVisible({
+    timeout: 10000,
+  });
+
   return newFrame;
 }
 
