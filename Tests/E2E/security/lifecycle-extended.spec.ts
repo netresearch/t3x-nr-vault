@@ -1,5 +1,26 @@
 import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
-import type { Page } from '@playwright/test';
+import type { FrameLocator, Page } from '@playwright/test';
+
+/**
+ * Apply the identifier filter and wait for the table to actually show it.
+ *
+ * The previous shape — click Filter, then `waitFor(...).catch(() => undefined)`
+ * on the first row — swallowed the wait, so the next step acted on whatever
+ * stood on screen. The unfiltered list is never empty in a seeded instance, so
+ * the first row was usually a DIFFERENT secret and the test went on to rotate,
+ * edit or delete that one; the failing run's page snapshot shows exactly that
+ * unfiltered list. Waiting for a row that carries the identifier makes the
+ * filter a precondition instead of a hope.
+ */
+async function filterByIdentifier(frame: FrameLocator, identifier: string): Promise<void> {
+  await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
+  await frame.locator('button:has-text("Filter")').click();
+  await frame
+    .locator('table tbody tr')
+    .filter({ hasText: identifier })
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 });
+}
 
 /**
  * Extended lifecycle tests that fill gaps in UP-CROSS-001 / UP-CROSS-002 /
@@ -109,9 +130,7 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
     let toggle = frame.locator('button[data-vault-toggle], button[title*="Disable"]').first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
@@ -127,9 +146,7 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
     toggle = frame.locator('button[data-vault-toggle], button[title*="Enable"]').first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
@@ -140,9 +157,7 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
     const deleteButton = frame.locator('button[title*="Delete"]').first();
     if (await deleteButton.isVisible().catch(() => false)) {
       await deleteButton.click();
@@ -173,9 +188,7 @@ test.describe.serial('LC-EXT-002: Rotate produces an audit entry with success=tr
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
 
     const rotateButton = frame
       .locator('button[data-vault-rotate], button[title*="Rotate"]')
@@ -253,9 +266,7 @@ test.describe.serial('LC-EXT-003: Dashboard counter delta across lifecycle', () 
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
     const toggle = frame.locator('button[data-vault-toggle], button[title*="Disable"]').first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
@@ -273,9 +284,7 @@ test.describe.serial('LC-EXT-003: Dashboard counter delta across lifecycle', () 
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
     const deleteButton = frame.locator('button[title*="Delete"]').first();
     if (await deleteButton.isVisible().catch(() => false)) {
       await deleteButton.click();

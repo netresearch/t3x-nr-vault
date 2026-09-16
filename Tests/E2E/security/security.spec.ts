@@ -1,4 +1,5 @@
 import { test as base, expect, Page } from '@playwright/test';
+import type { FrameLocator } from '@playwright/test';
 import {
   test,
   getModuleFrame,
@@ -7,6 +8,27 @@ import {
   ADMIN_PASSWORD,
   isLoginRedirect,
 } from '../fixtures/auth';
+
+/**
+ * Apply the identifier filter and wait for the table to actually show it.
+ *
+ * The previous shape — click Filter, then `waitFor(...).catch(() => undefined)`
+ * on the first row — swallowed the wait, so the next step acted on whatever
+ * stood on screen. The unfiltered list is never empty in a seeded instance, so
+ * the first row was usually a DIFFERENT secret and the test went on to rotate,
+ * edit or delete that one; the failing run's page snapshot shows exactly that
+ * unfiltered list. Waiting for a row that carries the identifier makes the
+ * filter a precondition instead of a hope.
+ */
+async function filterByIdentifier(frame: FrameLocator, identifier: string): Promise<void> {
+  await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
+  await frame.locator('button:has-text("Filter")').click();
+  await frame
+    .locator('table tbody tr')
+    .filter({ hasText: identifier })
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 });
+}
 
 /**
  * Security and resilience E2E tests for nr-vault.
@@ -59,9 +81,7 @@ async function deleteSecretByIdentifier(page: Page, identifier: string): Promise
   await waitForModuleContent(page);
 
   const frame = getModuleFrame(page);
-  await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-  await frame.locator('button:has-text("Filter")').click();
-  await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
 
   const deleteButton = frame.locator('button[title*="Delete"]').first();
   if (await deleteButton.isVisible().catch(() => false)) {
@@ -192,9 +212,7 @@ test.describe('SEC-RESIL-005/006: XSS escaping', () => {
     await waitForModuleContent(page);
 
     const frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
 
     // The raw tag must not appear in the DOM as an executable script.
     const htmlContent = await frame.locator('table').innerHTML().catch(() => '');
@@ -276,9 +294,7 @@ test.describe('SEC-RESIL-007: Plaintext never leaks into list HTML', () => {
     await waitForModuleContent(page);
 
     const frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
 
     // The full page HTML (not just the iframe) must not contain the plaintext.
     const content = await page.content();
@@ -302,9 +318,7 @@ test.describe('SEC-RESIL-007: Plaintext never leaks into list HTML', () => {
     await waitForModuleContent(page);
 
     const frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
 
     const revealButton = frame
       .locator('button[data-vault-reveal], button[title*="Reveal"], button[aria-label*="Reveal"]')
@@ -411,9 +425,7 @@ test.describe('SEC-RESIL-009: Concurrent edit — two tabs on same secret', () =
       await p.goto(editUrl);
       await waitForModuleContent(p);
       const frame = getModuleFrame(p);
-      await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-      await frame.locator('button:has-text("Filter")').click();
-      await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
 
       const editButton = frame
         .locator('table tbody tr a[title*="Edit"], table tbody tr button[title*="Edit"]')
