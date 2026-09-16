@@ -118,6 +118,16 @@ export async function clickAndWaitForModule(page: Page, click: () => Promise<voi
  * success for it.
  */
 export async function saveRecord(page: Page, frame: FrameLocator): Promise<void> {
+  // Both waits are registered before the click, so neither can be missed.
+  // The POST alone is not enough: FormEngine answers it with a redirect and
+  // the form is re-rendered by the GET behind it, so a content wait placed
+  // directly after the response can be satisfied by the document being left --
+  // the same trap the list filter had. The frame's navigation is what says the
+  // new document has committed.
+  const navigated = page.waitForEvent('framenavigated', {
+    predicate: (candidate) => candidate !== page.mainFrame(),
+    timeout: 20000,
+  });
   const saved = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' && response.url().includes('/typo3/record/edit'),
@@ -125,6 +135,7 @@ export async function saveRecord(page: Page, frame: FrameLocator): Promise<void>
   );
   await frame.locator('button[name="_savedok"], button:has-text("Save")').first().click();
   await saved;
+  await navigated;
   await waitForModuleContent(page);
 }
 
