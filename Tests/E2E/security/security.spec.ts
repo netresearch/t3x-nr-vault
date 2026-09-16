@@ -1,5 +1,14 @@
 import { test as base, expect, Page } from '@playwright/test';
-import { test, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import {
+  test,
+  getModuleFrame,
+  waitForModuleContent,
+  ADMIN_USERNAME,
+  ADMIN_PASSWORD,
+  isLoginRedirect,
+  filterByIdentifier,
+  rowFor,
+} from '../fixtures/auth';
 
 /**
  * Security and resilience E2E tests for nr-vault.
@@ -52,11 +61,9 @@ async function deleteSecretByIdentifier(page: Page, identifier: string): Promise
   await waitForModuleContent(page);
 
   const frame = getModuleFrame(page);
-  await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-  await frame.locator('button:has-text("Filter")').click();
-  await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+  await filterByIdentifier(frame, identifier);
 
-  const deleteButton = frame.locator('button[title*="Delete"]').first();
+  const deleteButton = rowFor(frame, identifier).locator('button[title*="Delete"]').first();
   if (await deleteButton.isVisible().catch(() => false)) {
     await deleteButton.click();
     const confirmButton = page.getByRole('button', { name: 'Delete', exact: true });
@@ -113,16 +120,18 @@ test.describe('SEC-RESIL-002/003/004: AJAX endpoint access control and method en
     const response = await request.post('/typo3/ajax/vault/reveal', {
       data: { identifier: 'any' },
       failOnStatusCode: false,
+      // TYPO3 13 rejects with 302 → /typo3/login; do not follow it.
+      maxRedirects: 0,
     });
 
     // TYPO3 backend AJAX routes require a session. The response MUST be a
-    // pinned auth-failure code — 401 or 403. Reject both 500 (server error)
-    // and 200 (leak).
+    // pinned auth-failure code — 401 or 403, or TYPO3 13's redirect to the
+    // login form. Reject both 500 (server error) and 200 (leak).
     const status = response.status();
     expect(
-      [401, 403],
-      `vault/reveal without session returned ${status} — expected 401 or 403`,
-    ).toContain(status);
+      [401, 403].includes(status) || isLoginRedirect(response),
+      `vault/reveal without session returned ${status} — expected 401, 403 or a redirect to /typo3/login`,
+    ).toBe(true);
   });
 
   test('AJAX reveal via GET is rejected (POST-only route)', async ({ authenticatedPage: page, request }) => {
@@ -183,9 +192,7 @@ test.describe('SEC-RESIL-005/006: XSS escaping', () => {
     await waitForModuleContent(page);
 
     const frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
 
     // The raw tag must not appear in the DOM as an executable script.
     const htmlContent = await frame.locator('table').innerHTML().catch(() => '');
@@ -229,9 +236,23 @@ test.describe('SEC-RESIL-005/006: XSS escaping', () => {
       const listFrame = getModuleFrame(page);
       // Filter by the literal payload — must yield zero results.
       await listFrame.getByRole('textbox', { name: 'Identifier' }).fill(payload);
-      await listFrame.locator('button:has-text("Filter")').click();
 
-      const rows = listFrame.locator('table tbody tr');
+      // The filter posts and the module iframe re-renders. Waiting for that
+      // response is what makes the count below describe the FILTERED list:
+      // page.waitForLoadState('networkidle') returns before the frame has
+      // swapped documents, so counting behind it reads the unfiltered table
+      // and the assertion passes or fails on timing rather than on the
+      // validator. Verified against a live instance: the same POST returns 16
+      // rows unfiltered, 1 for an existing identifier and 0 for this payload.
+      const filtered = page.waitForResponse(
+        (resp) => resp.request().method() === 'POST' && resp.url().includes('/vault/secrets'),
+        { timeout: 10000 },
+      );
+      await listFrame.locator('button:has-text("Filter")').click();
+      await filtered.catch(() => undefined);
+      await page.waitForLoadState('networkidle');
+
+      const rows = getModuleFrame(page).locator('table tbody tr');
       // Allow empty table or a "0 results" row; flag any actual data row.
       const rowCount = await rows.count();
       expect(
@@ -253,9 +274,7 @@ test.describe('SEC-RESIL-007: Plaintext never leaks into list HTML', () => {
     await waitForModuleContent(page);
 
     const frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
 
     // The full page HTML (not just the iframe) must not contain the plaintext.
     const content = await page.content();
@@ -279,11 +298,9 @@ test.describe('SEC-RESIL-007: Plaintext never leaks into list HTML', () => {
     await waitForModuleContent(page);
 
     const frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
 
-    const revealButton = frame
+    const revealButton = rowFor(frame, identifier)
       .locator('button[data-vault-reveal], button[title*="Reveal"], button[aria-label*="Reveal"]')
       .first();
 
@@ -371,8 +388,8 @@ test.describe('SEC-RESIL-009: Concurrent edit — two tabs on same secret', () =
     // Login both.
     for (const p of [pageA, pageB]) {
       await p.goto('/typo3/login');
-      await p.fill('input[name="username"]', 'admin');
-      await p.fill('input[type="password"]', 'Joh316!!');
+      await p.fill('input[name="username"]', ADMIN_USERNAME);
+      await p.fill('input[type="password"]', ADMIN_PASSWORD);
       await p.click('button[type="submit"]');
       await p.waitForURL(/\/typo3\/(main|module)/);
     }
@@ -388,9 +405,7 @@ test.describe('SEC-RESIL-009: Concurrent edit — two tabs on same secret', () =
       await p.goto(editUrl);
       await waitForModuleContent(p);
       const frame = getModuleFrame(p);
-      await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-      await frame.locator('button:has-text("Filter")').click();
-      await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
 
       const editButton = frame
         .locator('table tbody tr a[title*="Edit"], table tbody tr button[title*="Edit"]')
@@ -443,12 +458,14 @@ test.describe('SEC-RESIL-013: UP-SEC-013 access-denied — unauthenticated AJAX'
     const response = await request.post('/typo3/ajax/vault/reveal', {
       data: { identifier: 'any_identifier_here' },
       failOnStatusCode: false,
+      // TYPO3 13 rejects with 302 → /typo3/login; do not follow it.
+      maxRedirects: 0,
     });
 
     const status = response.status();
     expect(
-      [401, 403],
-      `Unauthenticated POST /vault/reveal returned ${status} — expected 401 or 403`,
-    ).toContain(status);
+      [401, 403].includes(status) || isLoginRedirect(response),
+      `Unauthenticated POST /vault/reveal returned ${status} — expected 401, 403 or a redirect to /typo3/login`,
+    ).toBe(true);
   });
 });

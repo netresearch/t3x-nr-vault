@@ -7,6 +7,7 @@ import Modal from '@typo3/backend/modal.js';
 import Notification from '@typo3/backend/notification.js';
 import Severity from '@typo3/backend/severity.js';
 import { AUTO_HIDE_SECONDS, startRevealLifecycle } from '@netresearch/nr-vault/vault-reveal-lifecycle.js';
+import { dismissModal, openModal } from '@netresearch/nr-vault/vault-modal.js';
 
 /**
  * Look up a backend label registered via PageRenderer::addInlineLanguageLabelFile()
@@ -67,6 +68,15 @@ class SecretsList {
         document.querySelectorAll('[data-vault-rotate]').forEach(button => {
             button.addEventListener('click', this.handleRotate.bind(this));
         });
+
+        // The row actions are inert until the lines above have run, and the
+        // table is in the document well before this module is imported: a
+        // click that lands in between focuses the button and does nothing at
+        // all. Nothing in the markup says when that window closes, so this
+        // flag says it -- for the E2E specs, which otherwise race the import
+        // on a slow runner, and for anyone debugging a button that "did
+        // nothing".
+        document.documentElement.dataset.vaultSecretsList = 'ready';
     }
 
     handleDelete(event) {
@@ -166,11 +176,14 @@ class SecretsList {
         if (statusCell) {
             const badge = statusCell.querySelector('.badge');
             if (badge) {
+                // Same accessible classes the Fluid template paints — the live
+                // toggle must not drop the row back onto the core utilities,
+                // whose badge colours fail WCAG AA at this size (backend.css).
                 if (hidden) {
-                    badge.className = 'badge text-bg-secondary';
+                    badge.className = 'badge vault-badge vault-badge-secondary';
                     badge.textContent = 'Disabled';
                 } else {
-                    badge.className = 'badge text-bg-success';
+                    badge.className = 'badge vault-badge vault-badge-success';
                     badge.textContent = 'Active';
                 }
             }
@@ -219,15 +232,26 @@ class SecretsList {
             return;
         }
 
-        // Show loading modal
-        const loadingBody = lang('nrvault.reveal.loading.body', 'Fetching secret...');
-        const loadingModal = Modal.advanced({
-            title: lang('nrvault.reveal.loading.title', 'Loading Secret'),
-            content: '<div class="text-center p-4"><span class="spinner-border" role="status"></span><p class="mt-2">' + this.escapeHtml(loadingBody) + '</p></div>',
-            severity: Severity.info,
-            size: Modal.sizes.small,
-            buttons: []
-        });
+        // No loading dialog: the value dialog is the only modal this flow
+        // opens. TYPO3 13 shows one modal at a time, so a spinner dialog
+        // dismissed as its AJAX call returns either survives its own hide (the
+        // backdrop then covers the backend for good) or pushes the value
+        // dialog into the queue behind it. The button carries the wait
+        // instead.
+        const busyLabel = lang('nrvault.reveal.loadingAction', 'Loading...');
+        const previousLabel = button.getAttribute('aria-label');
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+        button.setAttribute('aria-label', busyLabel);
+        const releaseButton = () => {
+            button.disabled = false;
+            button.removeAttribute('aria-busy');
+            if (previousLabel === null) {
+                button.removeAttribute('aria-label');
+            } else {
+                button.setAttribute('aria-label', previousLabel);
+            }
+        };
 
         try {
             const response = await fetch(TYPO3.settings.ajaxUrls['vault_reveal'], {
@@ -239,7 +263,7 @@ class SecretsList {
             });
 
             const data = await response.json();
-            loadingModal.hideModal();
+            releaseButton();
 
             if (data.success && data.secret !== undefined) {
                 // Absent field = permissive (older backend); only an explicit
@@ -249,7 +273,7 @@ class SecretsList {
                 Notification.error(lang('nrvault.error', 'Error'), data.error || lang('nrvault.reveal.failed', 'Failed to reveal secret'), 5);
             }
         } catch (error) {
-            loadingModal.hideModal();
+            releaseButton();
             Notification.error(lang('nrvault.error', 'Error'), error.message || lang('nrvault.reveal.failed', 'Failed to reveal secret'), 5);
         }
     }
@@ -299,7 +323,7 @@ class SecretsList {
     showRevealModal(identifier, secret, copyAllowed) {
         const content = this.buildRevealModalContent(identifier, secret, copyAllowed);
 
-        const modal = Modal.advanced({
+        const modal = openModal({
             title: lang('nrvault.reveal.title', 'Secret Value'),
             content: content,
             severity: Severity.info,
@@ -330,7 +354,7 @@ class SecretsList {
                     input.value = '';
                     input.type = 'password';
                 }
-                modal.hideModal();
+                dismissModal(modal);
             },
             onTick: (secondsLeft) => {
                 const countdown = this.findModalElement('reveal-modal-countdown');
@@ -340,9 +364,19 @@ class SecretsList {
             },
         });
 
-        // Modal.advanced() returns the modal element in TYPO3 v13/v14, so its own
+        // openModal() returns the modal element in TYPO3 v13/v14, so its own
         // dismiss paths (ESC, backdrop, header close) run the wipe too.
-        modal.addEventListener?.('typo3-modal-hidden', () => this.closeRevealModal(modal), { once: true });
+        //
+        // `typo3-modal-hide` announces the start of the close, `typo3-modal-hidden`
+        // its end. The wipe has to run at the start: TYPO3 13 takes the dialog out
+        // of the document while it closes and may put an element back afterwards,
+        // and the field is unreachable in between — a wipe bound to the end of the
+        // close finds nothing and leaves the plaintext on the page. Both are wired
+        // because the guard is idempotent and a core that emits only one still
+        // wipes.
+        const wipeOnClose = () => this.closeRevealModal(modal);
+        modal.addEventListener?.('typo3-modal-hide', wipeOnClose, { once: true });
+        modal.addEventListener?.('typo3-modal-hidden', wipeOnClose, { once: true });
 
         // Add event listeners after modal is shown
         setTimeout(() => {
@@ -393,7 +427,7 @@ class SecretsList {
             return;
         }
 
-        modal.hideModal();
+        dismissModal(modal);
     }
 
     /**
@@ -410,7 +444,7 @@ class SecretsList {
 
         const content = this.buildRotateModalContent();
 
-        const modal = Modal.advanced({
+        const modal = openModal({
             title: lang('nrvault.rotate.title', 'Rotate Secret: {0}', identifier),
             content: content,
             severity: Severity.warning,
@@ -420,7 +454,7 @@ class SecretsList {
                     text: lang('nrvault.cancel', 'Cancel'),
                     active: true,
                     btnClass: 'btn-default',
-                    trigger: () => modal.hideModal()
+                    trigger: () => dismissModal(modal)
                 },
                 {
                     text: lang('nrvault.rotate.button', 'Rotate Secret'),
@@ -430,31 +464,53 @@ class SecretsList {
             ]
         });
 
-        // Add toggle visibility event listener
-        setTimeout(() => {
-            const toggleBtn = document.getElementById('rotate-modal-toggle');
-            const input = document.getElementById('rotate-modal-secret');
+        // Wire the dialog's own controls. Two things matter here.
+        //
+        // The fields belong to the modal, which the backend renders into
+        // the TOP document while this module runs inside the module iframe.
+        // They must be resolved through findModalElement(), never through this
+        // document alone — a plain document.getElementById() returns null from
+        // inside the iframe, which is what left the rotate dialog inert.
+        //
+        // And focus has to land inside the dialog reliably (WCAG 2.4.3). The
+        // modal moves focus itself when its show transition ends, so a focus
+        // set before that moment is undone again; `typo3-modal-shown` is that
+        // moment. The timer stays as a fallback for a core that does not emit
+        // the event, and focus is (re-)applied on every run while the click
+        // listener is attached only once.
+        let listenersAttached = false;
+        const wireRotateModal = () => {
+            const toggleBtn = this.findModalElement('rotate-modal-toggle');
+            const input = this.findModalElement('rotate-modal-secret');
 
-            if (toggleBtn && input) {
-                toggleBtn.addEventListener('click', () => {
-                    if (input.type === 'password') {
-                        input.type = 'text';
-                    } else {
-                        input.type = 'password';
-                    }
-                });
-
-                // Focus the input
-                input.focus();
+            if (!toggleBtn || !input) {
+                return;
             }
-        }, 100);
+
+            if (!listenersAttached) {
+                listenersAttached = true;
+                toggleBtn.addEventListener('click', () => {
+                    input.type = input.type === 'password' ? 'text' : 'password';
+                });
+            }
+
+            input.focus();
+        };
+
+        modal.addEventListener?.('typo3-modal-shown', wireRotateModal);
+        setTimeout(wireRotateModal, 100);
     }
 
     /**
      * Perform the actual rotation via AJAX.
      */
     async performRotate(modal, identifier) {
-        const input = document.getElementById('rotate-modal-secret');
+        // Same lookup rule as handleRotate(): the input lives in the modal's
+        // document, which is the top one whenever the module runs in an iframe.
+        // Reading it from `document` alone yielded null and turned every
+        // rotation into "Please enter a new secret value" — the endpoint was
+        // never called.
+        const input = this.findModalElement('rotate-modal-secret');
         const newSecret = input?.value || '';
 
         if (!newSecret) {
@@ -474,7 +530,7 @@ class SecretsList {
             const data = await response.json();
 
             if (data.success) {
-                modal.hideModal();
+                dismissModal(modal);
                 Notification.success(lang('nrvault.success', 'Success'), data.message || lang('nrvault.rotate.success', 'Secret rotated successfully'), 3);
             } else {
                 Notification.error(lang('nrvault.error', 'Error'), data.error || lang('nrvault.rotate.failed', 'Failed to rotate secret'), 5);

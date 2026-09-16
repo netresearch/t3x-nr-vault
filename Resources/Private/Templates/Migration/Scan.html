@@ -62,16 +62,16 @@
                             <h3>
                                 <f:switch expression="{severity}">
                                     <f:case value="critical">
-                                        <span class="badge text-bg-danger">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.critical')}</span>
+                                        <span class="badge vault-badge vault-badge-danger">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.critical')}</span>
                                     </f:case>
                                     <f:case value="high">
-                                        <span class="badge text-bg-warning">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.high')}</span>
+                                        <span class="badge vault-badge vault-badge-warning">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.high')}</span>
                                     </f:case>
                                     <f:case value="medium">
-                                        <span class="badge text-bg-info">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.medium')}</span>
+                                        <span class="badge vault-badge vault-badge-info">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.medium')}</span>
                                     </f:case>
                                     <f:defaultCase>
-                                        <span class="badge text-bg-secondary">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.low')}</span>
+                                        <span class="badge vault-badge vault-badge-secondary">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.severity.low')}</span>
                                     </f:defaultCase>
                                 </f:switch>
                                 ({f:count(subject: items)} {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.found')})
@@ -93,7 +93,7 @@
                                                     <f:if condition="{item.patterns}">
                                                         <f:then>
                                                             <f:for each="{item.patterns}" as="pattern">
-                                                                <span class="badge text-bg-dark">{pattern}</span>
+                                                                <span class="badge vault-badge vault-badge-dark">{pattern}</span>
                                                             </f:for>
                                                         </f:then>
                                                         <f:else>
@@ -104,7 +104,7 @@
                                                 <td>
                                                     <f:if condition="{item.source} == 'database'">
                                                         <f:then>
-                                                            <span class="badge text-bg-primary">{item.count} {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.records')}</span>
+                                                            <span class="badge vault-badge vault-badge-primary">{item.count} {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.records')}</span>
                                                         </f:then>
                                                         <f:else>
                                                             <span class="text-body-secondary" title="{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.records.hint')}">n/a</span>

@@ -300,13 +300,33 @@ test.describe('Vault Module Accessibility', () => {
       await modalInput.waitFor({ state: 'visible', timeout: 5000 });
 
       // Focus must be INSIDE the modal, not on the original trigger.
-      const focusInModal = await page.evaluate(() => {
-        const el = document.activeElement;
-        if (el === null) return false;
-        const modal = document.querySelector('.modal.show, .modal[aria-modal="true"]');
-        return modal !== null && modal.contains(el);
-      });
-      expect(focusInModal, 'Focus did not move into the rotate modal').toBe(true);
+      //
+      // Asking the focused element which dialog owns it, rather than looking a
+      // modal up by class: TYPO3 renders the dialog as
+      // <typo3-backend-modal><dialog class="modal t3js-modal …">, with neither
+      // a `show` class nor aria-modal, so `.modal.show, .modal[aria-modal]`
+      // matched nothing and the check could only ever report false — including
+      // for correctly placed focus (measured on TYPO3 14.3, 2026-09-14).
+      // Polled rather than read once: TYPO3 13 fades the dialog in, and both
+      // the modal's own focus handling and ours run when that transition ends
+      // — so the input is already visible while focus still sits on the
+      // trigger in the iframe. TYPO3 14 shows a native <dialog> without a
+      // fade, which is why a single read passed there and failed on 13.4.35.
+      // The assertion is the same one; it is only allowed the length of the
+      // fade to become true.
+      await expect
+        .poll(
+          () =>
+            page.evaluate(() => {
+              const el = document.activeElement;
+              if (el === null) return false;
+              return (
+                el.closest('typo3-backend-modal, dialog.modal, .modal, [role="dialog"]') !== null
+              );
+            }),
+          { message: 'Focus did not move into the rotate modal', timeout: 5000 },
+        )
+        .toBe(true);
 
       // Escape closes the modal.
       await page.keyboard.press('Escape');

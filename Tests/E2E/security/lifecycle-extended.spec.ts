@@ -1,4 +1,11 @@
-import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import {
+  test,
+  expect,
+  getModuleFrame,
+  waitForModuleContent,
+  filterByIdentifier,
+  rowFor,
+} from '../fixtures/auth';
 import type { Page } from '@playwright/test';
 
 /**
@@ -42,6 +49,23 @@ async function readOverviewCount(page: Page, label: RegExp): Promise<number> {
     }
   }
   return Number.NaN;
+}
+
+/**
+ * Confirm the delete dialog the secrets list opens.
+ *
+ * The dialog is a TYPO3 Modal rendered into the TOP document, one animation
+ * frame after the click. `isVisible()` is a point-in-time question — it
+ * answered `false` before the modal had been inserted, the confirmation was
+ * skipped, and the record survived a test that reported success. Waiting for
+ * the button is the assertion: if the dialog never appears, the delete path is
+ * broken and the caller must hear about it.
+ */
+async function confirmDeleteModal(page: Page): Promise<void> {
+  const confirm = page.getByRole('button', { name: 'Delete', exact: true });
+  await confirm.waitFor({ state: 'visible', timeout: 10000 });
+  await confirm.click();
+  await page.waitForLoadState('networkidle');
 }
 
 async function auditRowForIdentifier(
@@ -92,10 +116,10 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
-    let toggle = frame.locator('button[data-vault-toggle], button[title*="Disable"]').first();
+    await filterByIdentifier(frame, identifier);
+    let toggle = rowFor(frame, identifier)
+      .locator('button[data-vault-toggle], button[title*="Disable"]')
+      .first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
       await page.waitForLoadState('networkidle');
@@ -110,10 +134,10 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
-    toggle = frame.locator('button[data-vault-toggle], button[title*="Enable"]').first();
+    await filterByIdentifier(frame, identifier);
+    toggle = rowFor(frame, identifier)
+      .locator('button[data-vault-toggle], button[title*="Enable"]')
+      .first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
       await page.waitForLoadState('networkidle');
@@ -123,17 +147,11 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
-    const deleteButton = frame.locator('button[title*="Delete"]').first();
+    await filterByIdentifier(frame, identifier);
+    const deleteButton = rowFor(frame, identifier).locator('button[title*="Delete"]').first();
     if (await deleteButton.isVisible().catch(() => false)) {
       await deleteButton.click();
-      const confirm = page.getByRole('button', { name: 'Delete', exact: true });
-      if (await confirm.isVisible().catch(() => false)) {
-        await confirm.click();
-        await page.waitForLoadState('networkidle');
-      }
+      await confirmDeleteModal(page);
     }
 
     expect(
@@ -160,11 +178,9 @@ test.describe.serial('LC-EXT-002: Rotate produces an audit entry with success=tr
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
+    await filterByIdentifier(frame, identifier);
 
-    const rotateButton = frame
+    const rotateButton = rowFor(frame, identifier)
       .locator('button[data-vault-rotate], button[title*="Rotate"]')
       .first();
 
@@ -198,16 +214,11 @@ test.describe.serial('LC-EXT-002: Rotate produces an audit entry with success=tr
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    const delBtn = frame.locator('button[title*="Delete"]').first();
+    await filterByIdentifier(frame, identifier);
+    const delBtn = rowFor(frame, identifier).locator('button[title*="Delete"]').first();
     if (await delBtn.isVisible().catch(() => false)) {
       await delBtn.click();
-      const confirm = page.getByRole('button', { name: 'Delete', exact: true });
-      if (await confirm.isVisible().catch(() => false)) {
-        await confirm.click();
-        await page.waitForLoadState('networkidle');
-      }
+      await confirmDeleteModal(page);
     }
   });
 });
@@ -244,10 +255,10 @@ test.describe.serial('LC-EXT-003: Dashboard counter delta across lifecycle', () 
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
-    const toggle = frame.locator('button[data-vault-toggle], button[title*="Disable"]').first();
+    await filterByIdentifier(frame, identifier);
+    const toggle = rowFor(frame, identifier)
+      .locator('button[data-vault-toggle], button[title*="Disable"]')
+      .first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
       await page.waitForLoadState('networkidle');
@@ -264,17 +275,11 @@ test.describe.serial('LC-EXT-003: Dashboard counter delta across lifecycle', () 
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
-    await frame.locator('table tbody tr').first().waitFor({ state: 'visible' }).catch(() => undefined);
-    const deleteButton = frame.locator('button[title*="Delete"]').first();
+    await filterByIdentifier(frame, identifier);
+    const deleteButton = rowFor(frame, identifier).locator('button[title*="Delete"]').first();
     if (await deleteButton.isVisible().catch(() => false)) {
       await deleteButton.click();
-      const confirm = page.getByRole('button', { name: 'Delete', exact: true });
-      if (await confirm.isVisible().catch(() => false)) {
-        await confirm.click();
-        await page.waitForLoadState('networkidle');
-      }
+      await confirmDeleteModal(page);
     }
 
     const afterDeleteTotal = await readOverviewCount(page, /Total Secrets/i);

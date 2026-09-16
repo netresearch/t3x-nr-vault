@@ -14,6 +14,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 | `security-gates.yml` | Mutation ratchet over `Classes/Crypto`, `Classes/Security`, `Classes/Audit`, `Classes/Http` (`infection-security.json5`). Standalone precisely because `checks.yml` is drift-locked |
 | `check-template-drift.yml` | Verifies this repo still matches the `typo3-extension` template |
 | `docs.yml` | Renders `Documentation/` on PRs touching it |
+| `e2e.yml` | Playwright suite (chromium) against real TYPO3 13.4 / 14.3 installs provisioned by `Build/Scripts/e2e-provision.sh`, MariaDB 10.11 service, PHP built-in server. Repo-local because the fleet "Acceptance Tests" job has no web server, DB or browser |
 | `harness-verify.yml` | Agent-harness consistency check (`Build/Scripts/verify-harness.sh`) via the shared `script-check.yml` reusable; exit 2 (warnings) passes |
 | `release.yml` | Tag-triggered TER publish + GitHub release assets, gated by the fleet `release-gate.yml` on `ci.yml` and `release-evidence.yml` succeeding at the tagged commit (the gate job needs `actions: read`) |
 | `release-evidence.yml` | Publishes the security release-evidence bundle for a tag; a manual run with a commit SHA as `ref` is the pre-release check (publishes nothing, bundle `precheck-<commit>`). Coverage is four jobs: `coverage-plan` reads the shard list from `Tests/Unit/*`, a `coverage-unit` matrix and `coverage-functional` collect Xdebug path coverage, `coverage-merge` merges them via `Build/Scripts/merge-coverage.php`. Sharded because the whole unit suite under `--path-coverage` exceeds 40 minutes on one runner |
@@ -55,6 +56,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 │   ├── check-template-drift.yml
 │   ├── security-gates.yml
 │   ├── docs.yml
+│   ├── e2e.yml
 │   ├── harness-verify.yml
 │   ├── release.yml
 │   ├── release-evidence.yml

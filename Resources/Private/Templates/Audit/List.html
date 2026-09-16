@@ -62,8 +62,8 @@
 
         <!-- Stats -->
         <div class="mb-3" role="status" aria-live="polite">
-            <span class="badge text-bg-info">{totalCount} <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.stats.entries" /></span>
-            <span class="badge text-bg-secondary"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.pagination.page" arguments="{0: currentPage, 1: totalPages}" /></span>
+            <span class="badge vault-badge vault-badge-info">{totalCount} <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.stats.entries" /></span>
+            <span class="badge vault-badge vault-badge-secondary"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.pagination.page" arguments="{0: currentPage, 1: totalPages}" /></span>
         </div>
 
         <f:if condition="{entries}">
@@ -96,7 +96,7 @@
                                         </td>
                                         <td><code data-testid="audit-cell-identifier">{entry.secretIdentifier}</code></td>
                                         <td>
-                                            <span class="badge text-bg-{entry.actionBadgeClass}" data-testid="audit-cell-action">{entry.action}</span>
+                                            <span class="badge vault-badge vault-badge-{entry.actionBadgeClass}" data-testid="audit-cell-action">{entry.action}</span>
                                         </td>
                                         <td>
                                             <f:if condition="{entry.success}">

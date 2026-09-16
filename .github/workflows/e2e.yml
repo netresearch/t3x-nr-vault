@@ -1,0 +1,185 @@
+name: E2E
+
+# Runs the Playwright suite under Tests/E2E against a real TYPO3 installation
+# per supported LTS line.
+#
+# WHY A REPO-LOCAL WORKFLOW
+# =========================
+# The fleet `typo3-ci-workflows/ci.yml` "Acceptance Tests" job installs PHP and
+# composer and runs a PHPUnit command — no web server, no database service, no
+# browser — so it cannot host a browser suite. `checks.yml` is drift-locked
+# across every netresearch typo3-extension. A repo-local file is drift-safe
+# (see check-template-drift.yml).
+#
+# PROVISIONING
+# ============
+# Build/Scripts/e2e-provision.sh mirrors .ddev/commands/web/install-v14, the
+# DDEV instance the specs were written against: a cms-base-distribution project
+# with this checkout as a path repository, `typo3 setup`, `extension:setup` and
+# `vault:seed-demo`. Differences from DDEV, each deliberate:
+#   * Database: MariaDB 10.11 as a service container, the DDEV version. The
+#     audit-tamper spec writes to the audit table directly through the runner's
+#     `mysql` client (E2E_DB_EXEC), which sqlite would not exercise the same way.
+#   * Web server: PHP's built-in server with a router that sends every
+#     non-file request to public/index.php, which is what the TYPO3 root
+#     .htaccess does for Apache. PHP_CLI_SERVER_WORKERS makes it serve requests
+#     concurrently; a single-threaded server cannot keep up with parallel
+#     Playwright workers.
+#   * Plain http on 127.0.0.1. The cookie spec only expects `secure` on https.
+#   * Master key: the default `typo3` provider (TYPO3 encryption key written by
+#     `typo3 setup`), exactly as in DDEV — nothing extra to provision.
+#   * Browser: chromium only for now. firefox/webkit are configured in
+#     playwright.config.ts and remain a follow-up once chromium is stable here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playwright:
+    name: Playwright (TYPO3 ${{ matrix.typo3 }}, PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - typo3: '^13.4'
+            php: '8.2'
+            label: 'typo3-13.4'
+          - typo3: '^14.3'
+            php: '8.5'
+            label: 'typo3-14.3'
+    services:
+      db:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: typo3
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      # Throwaway credentials for an ephemeral instance, not secrets. They are
+      # the DDEV defaults Tests/E2E/fixtures/auth.ts falls back to.
+      E2E_ADMIN_USERNAME: admin
+      E2E_ADMIN_PASSWORD: 'Joh316!!'
+      E2E_DB_DRIVER: mysqli
+      E2E_DB_HOST: 127.0.0.1
+      E2E_DB_PORT: '3306'
+      E2E_DB_NAME: typo3
+      E2E_DB_USER: root
+      E2E_DB_PASSWORD: root
+      E2E_INSTANCE_DIR: ${{ github.workspace }}/../typo3-e2e
+      TYPO3_BASE_URL: http://127.0.0.1:8080
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: intl, mbstring, xml, sodium, json, mysqli, pdo_mysql, gd, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Provision TYPO3
+        env:
+          TYPO3_VERSION: ${{ matrix.typo3 }}
+          CAPTAINHOOK_DISABLE: 'true'
+        run: bash Build/Scripts/e2e-provision.sh
+
+      - name: Start web server
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/e2e-logs
+          # TYPO3_CONTEXT=Production like DDEV: the specs assert the absence of
+          # the Production error page, which Development would not render.
+          PHP_CLI_SERVER_WORKERS=8 TYPO3_CONTEXT=Production \
+            nohup php -S 127.0.0.1:8080 -t "$E2E_INSTANCE_DIR/public" "$E2E_INSTANCE_DIR/router.php" \
+            > .Build/e2e-logs/php-server.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null "$TYPO3_BASE_URL/typo3/login"; then
+              echo "Backend login page reachable."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::The TYPO3 backend did not answer on $TYPO3_BASE_URL/typo3/login within 120 s."
+          cat .Build/e2e-logs/php-server.log
+          exit 1
+
+      # `npm ci` from the committed lockfile, so the run installs the
+      # versions the repository pins rather than whatever the ranges resolve
+      # to today. `--ignore-scripts` keeps a dependency's lifecycle script out
+      # of a job that holds a database and a backend session; the browser is
+      # fetched explicitly in the next line, which is the only download this
+      # step needs. Both binaries come from node_modules rather than `npx`,
+      # which would otherwise be free to fetch a package on demand.
+      - name: Install Playwright
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund --ignore-scripts
+          ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Run Playwright
+        env:
+          CI: 'true'
+          E2E_DB_EXEC: mysql -h127.0.0.1 -P3306 -uroot -N -B typo3
+          MYSQL_PWD: root
+        # One worker: every spec logs in as the same backend admin, and
+        # parallel sessions of one user race in TYPO3 itself — the
+        # formProtection session token row in sys_registry collides
+        # (UniqueConstraintViolation, HTTP 500) and TYPO3 13 resolves the
+        # vault parent module to whichever submodule another worker opened
+        # last. Per-worker backend users would lift this; until then the
+        # suite is serial so failures describe the product, not the race.
+        run: ./node_modules/.bin/playwright test --project=chromium --workers=1
+
+      - name: Collect TYPO3 logs
+        if: failure()
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/e2e-logs/typo3
+          cp -r "$E2E_INSTANCE_DIR/var/log/." .Build/e2e-logs/typo3/ 2>/dev/null || true
+
+      - name: Upload report and traces
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-${{ matrix.label }}
+          path: |
+            .Build/playwright-report/
+            .Build/playwright-results/
+            .Build/e2e-logs/
+          retention-days: 14
+          if-no-files-found: warn

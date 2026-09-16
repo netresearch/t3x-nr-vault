@@ -61,8 +61,15 @@ return [
                 'type' => 'input',
                 'size' => 50,
                 'max' => 255,
-                'eval' => 'trim,alphanum_x',
-                'placeholder' => 'my-api-key',
+                // `trim` only. `alphanum_x` used to sit here and silently
+                // rewrote whatever the editor typed — `<script>alert(1)</script>`
+                // was stored as `scriptalert1script`, a record nobody asked for
+                // under an identifier nobody chose. SecretTcaHook now refuses
+                // such a value in the datamap hook (IdentifierValidator), which
+                // runs before checkValue(), so the editor is told what is wrong
+                // instead of getting a mangled secret.
+                'eval' => 'trim',
+                'placeholder' => 'my_api_key',
                 'required' => true,
                 'searchable' => true,
                 // Identifier is immutable after creation - use readOnly in edit context

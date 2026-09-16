@@ -112,6 +112,31 @@ parameters:
             path: Tests/scripts/*.php
             reportUnmatched: false
 
+        # ModuleInterface::hasSubmoduleOverview() exists on TYPO3 14 and not on
+        # 13.4, which is the whole point of asking method_exists() before
+        # calling it. PHPStan resolves one core per matrix leg, so the check
+        # reads as "always true" on the 14 leg and would read as "always false"
+        # on the 13 one; the guard is load-bearing on exactly the major that
+        # cannot be analysed at the same time. Calling it unguarded produced a
+        # 500 on every 13.4 vault overview page.
+        -
+            identifiers:
+                - function.alreadyNarrowedType
+            paths:
+                - Classes/Middleware/VaultOverviewModuleResolver.php
+                - Tests/Unit/Middleware/VaultOverviewModuleResolverTest.php
+            reportUnmatched: false
+
+        # phpstan-phpunit resolves the stub's methods from the running core's
+        # ModuleInterface, which has no hasSubmoduleOverview() before TYPO3 14.
+        # The test configures it only when the method exists, but that is a
+        # runtime guard and this rule is static, so it fires on the 13.4 leg
+        # alone.
+        -
+            message: '#Trying to mock an undefined method hasSubmoduleOverview\(\)#'
+            path: Tests/Unit/Middleware/VaultOverviewModuleResolverTest.php
+            reportUnmatched: false
+
         # setShortcutContext() is a v14-only method on DocHeaderComponent.
         # Code is guarded by method_exists() but PHPStan can't resolve the
         # named parameters when analysing against v13.
@@ -141,6 +166,14 @@ parameters:
 
     # TYPO3-specific settings
     treatPhpDocTypesAsCertain: false
+
+    typo3:
+        # `route` is set by core's backend-routing middleware and read by every
+        # middleware that runs after it (core's own BackendModuleValidator does
+        # the same). Declaring its type here is what phpstan-typo3's
+        # requestAttributeValidation rule asks for.
+        requestGetAttributeMapping:
+            route: TYPO3\CMS\Backend\Routing\Route
 
     # Type coverage
     typeAliases:

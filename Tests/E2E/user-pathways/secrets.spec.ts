@@ -543,6 +543,17 @@ test.describe('Secrets Module User Pathways', () => {
             | null;
           expect(preJson?.secret).toBe(originalValue);
         }
+
+        // Close the reveal dialog the way a user does. Left alone it stays up
+        // for the full 30 s auto-hide window, and on TYPO3 13 its Bootstrap
+        // backdrop covers the module iframe underneath — so the rotate button
+        // below it is genuinely unclickable until then, for a user as much as
+        // for this spec.
+        const revealInput = page.locator('#reveal-modal-secret');
+        if (await revealInput.isVisible().catch(() => false)) {
+          await page.getByRole('button', { name: 'Close', exact: true }).click();
+          await revealInput.waitFor({ state: 'hidden', timeout: 5000 });
+        }
       }
 
       // Click rotate button (opens modal)
@@ -630,7 +641,7 @@ test.describe('Secrets Module User Pathways', () => {
 
         const newRow = newFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
         await expect(newRow).toBeVisible({ timeout: 5000 });
-        const badge = newRow.locator('.text-bg-secondary');
+        const badge = newRow.locator('.vault-badge-secondary');
         await expect(badge).toBeVisible({ timeout: 5000 });
       }
     });
@@ -1090,8 +1101,11 @@ test.describe('Secrets Module User Pathways', () => {
         const frame = getModuleFrame(page);
 
         // Look for access denied or empty/restricted view
+        // `text=` swallows the rest of the selector string, so the old
+        // comma-separated form searched for one literal sentence that never
+        // exists. :has-text() is the form that composes in a CSS union.
         const accessDenied = frame.locator(
-          'text=Access Denied, text=access denied, text=not authorized, .callout-danger',
+          ':has-text("Access Denied"), :has-text("access denied"), :has-text("not authorized"), .callout-danger',
         );
         const hasAccessDenied = await accessDenied.first().isVisible();
         expect(hasAccessDenied).toBe(true);

@@ -26,9 +26,12 @@ use Netresearch\NrVault\Controller\SecretsController;
  *
  * Uses LLL:EXT: label format (compatible with TYPO3 v13+v14)
  *
- * v13 compatibility: 'admin_vault_overview' is registered as first submodule so that
- * v13 (which redirects to the first submodule) shows the overview page.
- * v14 uses 'showSubmoduleOverview' on the parent module for the same effect.
+ * v14 uses 'showSubmoduleOverview' on the parent module to render the overview.
+ * v13.4 has no such option and rewrites the parent route to the LAST-USED
+ * submodule, so registering 'admin_vault_overview' first only helps a user who
+ * has never opened one. `Netresearch\NrVault\Middleware\
+ * VaultOverviewModuleResolver` resolves the parent route to that submodule
+ * before core's BackendModuleValidator runs; see the class for the details.
  *
  * Access: every module is `'access' => 'user'` — the modules are reachable by
  * any authenticated backend user, and each controller action then asserts the

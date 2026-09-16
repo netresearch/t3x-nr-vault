@@ -41,7 +41,7 @@
                     aria-controls="vault-security-details"
                     data-testid="vault-security-toggle"
                 >
-                <span class="badge bg-secondary" data-testid="vault-security-profile">
+                <span class="badge vault-badge vault-badge-secondary" data-testid="vault-security-profile">
                     <core:icon identifier="actions-shield" size="small" />
                     <!--
                         Two explicit branches rather than a translation key built by
@@ -54,7 +54,7 @@
                         <f:else>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.profile.standard')}</f:else>
                     </f:if>
                 </span>
-                <span class="badge bg-{securityStatus.context}" data-testid="vault-security-ratio">
+                <span class="badge vault-badge vault-badge-{securityStatus.context}" data-testid="vault-security-ratio">
                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.controlsPassed', arguments: {0: securityStatus.passed, 1: securityStatus.total})}
                 </span>
                     <core:icon identifier="actions-chevron-down" size="small" />

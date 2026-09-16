@@ -145,7 +145,7 @@ final class SecretTcaHookTest extends TestCase
     public function preProcessRemovesSecretInputField(): void
     {
         $fieldArray = [
-            'identifier' => 'test-secret',
+            'identifier' => 'test_secret',
             'secret_input' => 'secret-value',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -166,6 +166,9 @@ final class SecretTcaHookTest extends TestCase
     public function preProcessExtractsOwnerUidFromGroupFormat(): void
     {
         $fieldArray = [
+            // A NEW record carries an identifier the vault accepts; the hook
+            // refuses one it cannot represent before it gets this far.
+            'identifier' => 'test_secret',
             'owner_uid' => 'be_users_42',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -185,6 +188,7 @@ final class SecretTcaHookTest extends TestCase
     public function preProcessExtractsScopePidFromGroupFormat(): void
     {
         $fieldArray = [
+            'identifier' => 'test_secret',
             'scope_pid' => 'pages_100',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -204,6 +208,7 @@ final class SecretTcaHookTest extends TestCase
     public function preProcessHandlesSimpleNumericOwnerUid(): void
     {
         $fieldArray = [
+            'identifier' => 'test_secret',
             'owner_uid' => '15',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -314,6 +319,7 @@ final class SecretTcaHookTest extends TestCase
     public function preProcessHandlesIntegerOwnerUid(): void
     {
         $fieldArray = [
+            'identifier' => 'test_secret',
             'owner_uid' => 42, // Integer, not string
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -334,6 +340,7 @@ final class SecretTcaHookTest extends TestCase
     public function preProcessIgnoresScopePidWithoutPagesPrefix(): void
     {
         $fieldArray = [
+            'identifier' => 'test_secret',
             'scope_pid' => '99', // No 'pages' prefix
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -354,7 +361,7 @@ final class SecretTcaHookTest extends TestCase
     public function preProcessStoresSecretInputForNewRecord(): void
     {
         $fieldArray = [
-            'identifier' => 'test-secret',
+            'identifier' => 'test_secret',
             'secret_input' => 'my-secret-value',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -378,7 +385,7 @@ final class SecretTcaHookTest extends TestCase
     public function preProcessIgnoresEmptySecretInput(): void
     {
         $fieldArray = [
-            'identifier' => 'test-secret',
+            'identifier' => 'test_secret',
             'secret_input' => '',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -451,7 +458,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         $fieldArray = [
-            'identifier' => 'test-secret',
+            'identifier' => 'test_secret',
             // Attempt to plant the secret as owned by user 42.
             'owner_uid' => 'be_users_42',
         ];
@@ -490,7 +497,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         $fieldArray = [
-            'identifier' => 'test-secret',
+            'identifier' => 'test_secret',
             // No owner_uid submitted (excludefield absent for this user).
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -511,7 +518,7 @@ final class SecretTcaHookTest extends TestCase
     {
         // setUp() default actor is admin → no coercion.
         $fieldArray = [
-            'identifier' => 'test-secret',
+            'identifier' => 'test_secret',
             'owner_uid' => 'be_users_42',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -549,7 +556,7 @@ final class SecretTcaHookTest extends TestCase
         $this->vaultService->expects($this->never())->method('store');
 
         $this->auditService->expects($this->once())->method('log')->with(
-            'squatted-identifier',
+            'squatted_identifier',
             'access_denied',
             false,
             'Create denied: missing secret.create permission',
@@ -562,7 +569,7 @@ final class SecretTcaHookTest extends TestCase
             $this->secretRepository,
         );
 
-        $fieldArray = ['identifier' => 'squatted-identifier', 'description' => 'no value'];
+        $fieldArray = ['identifier' => 'squatted_identifier', 'description' => 'no value'];
         $messages = [];
 
         $hook->processDatamap_preProcessFieldArray(
@@ -600,7 +607,7 @@ final class SecretTcaHookTest extends TestCase
         $accessControl->expects($this->never())->method('isGranted');
 
         $this->auditService->expects($this->once())->method('log')->with(
-            'denied-identifier',
+            'denied_identifier',
             'access_denied',
             false,
             'Create access denied',
@@ -613,7 +620,7 @@ final class SecretTcaHookTest extends TestCase
             $this->secretRepository,
         );
 
-        $fieldArray = ['identifier' => 'denied-identifier'];
+        $fieldArray = ['identifier' => 'denied_identifier'];
         $messages = [];
 
         $hook->processDatamap_preProcessFieldArray(
@@ -655,7 +662,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         $fieldArray = [
-            'identifier' => 'value-bearing',
+            'identifier' => 'value_bearing',
             'secret_input' => 'must-not-be-stored',
         ];
         $messages = [];
@@ -758,7 +765,7 @@ final class SecretTcaHookTest extends TestCase
 
         $this->auditService->expects($this->never())->method('log');
 
-        $fieldArray = ['identifier' => 'allowed-identifier'];
+        $fieldArray = ['identifier' => 'allowed_identifier'];
         $messages = [];
 
         $hook->processDatamap_preProcessFieldArray(
@@ -769,7 +776,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         self::assertIsArray($fieldArray);
-        self::assertSame('allowed-identifier', $fieldArray['identifier']);
+        self::assertSame('allowed_identifier', $fieldArray['identifier']);
         // ... and the creator owns what they created.
         self::assertSame(7, $fieldArray['owner_uid']);
         self::assertSame([], $messages);
@@ -798,7 +805,7 @@ final class SecretTcaHookTest extends TestCase
             $this->secretRepository,
         );
 
-        $fieldArray = ['identifier' => 'audit-fails'];
+        $fieldArray = ['identifier' => 'audit_fails'];
         $messages = [];
 
         $hook->processDatamap_preProcessFieldArray(
@@ -1822,7 +1829,9 @@ final class SecretTcaHookTest extends TestCase
     {
         $this->secretRepository->expects($this->never())->method('findByUidIncludingDisabled');
 
-        $fieldArray = ['identifier' => 'api/token'];
+        // An identifier the vault accepts: the create path judges it now, and
+        // this test is about the unresolvable-target refusal, not about that.
+        $fieldArray = ['identifier' => 'api_token'];
         $messages = [];
         $this->hook->processDatamap_preProcessFieldArray(
             $fieldArray,
@@ -1831,7 +1840,7 @@ final class SecretTcaHookTest extends TestCase
             $this->capturingDataHandler($messages),
         );
 
-        self::assertSame(['identifier' => 'api/token'], $fieldArray);
+        self::assertSame(['identifier' => 'api_token'], $fieldArray);
         self::assertSame([], $messages);
     }
 

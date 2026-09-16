@@ -1,4 +1,20 @@
 import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import type { Page } from '@playwright/test';
+
+/**
+ * The URL the module iframe currently shows.
+ *
+ * Navigation inside a backend module happens in that iframe. TYPO3 14 mirrors
+ * it into the address bar afterwards; TYPO3 13 does not, so `page.url()` still
+ * reports the route the shell was opened with and an assertion on it measures
+ * the wrong document. Falls back to the top URL when there is no iframe, so the
+ * helper is safe on a standalone page too.
+ */
+function frameUrl(page: Page): string {
+  const child = page.frames().find((frame) => frame !== page.mainFrame());
+
+  return child === undefined ? page.url() : child.url();
+}
 
 /**
  * E2E tests for Migration Module User Pathways.
@@ -95,17 +111,26 @@ test.describe('Migration Module User Pathways', () => {
       await page.goto('/typo3/module/admin/vault/migration?action=scan');
       await page.waitForLoadState('networkidle');
 
-      // Should show scan results, progress, or continue button
-      const scanResults = page.locator('.scan-results, .migration-results');
-      const continueButton = page.locator('a:has-text("Continue"), a:has-text("Review"), button:has-text("Next")');
-      const noSecretsMessage = page.locator('text=No secrets found, text=No plaintext secrets');
+      // The wizard renders inside the module iframe, so the whole search has to
+      // happen there. `text=` also consumes the rest of the selector string —
+      // 'text=No secrets found, text=No plaintext secrets' looked for that one
+      // literal sentence and could never match. :has-text() composes in a union.
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
+
+      const scanResults = frame.locator('.scan-results, .migration-results, table');
+      const continueButton = frame.locator(
+        'a:has-text("Continue"), a:has-text("Review"), button:has-text("Next")',
+      );
+      // Nothing to migrate renders as an infobox (f:be.infobox -> .callout).
+      const noSecretsMessage = frame.locator('.callout');
 
       const hasScanContent =
-        await scanResults.isVisible() ||
-        await continueButton.isVisible() ||
-        await noSecretsMessage.isVisible();
+        (await scanResults.first().isVisible().catch(() => false)) ||
+        (await continueButton.first().isVisible().catch(() => false)) ||
+        (await noSecretsMessage.first().isVisible().catch(() => false));
 
-      expect(hasScanContent).toBe(true);
+      expect(hasScanContent, 'Scan step rendered neither results, a continue action nor an infobox').toBe(true);
     });
 
     test('scan results show severity grouping', async ({ authenticatedPage: page }) => {
@@ -204,16 +229,16 @@ test.describe('Migration Module User Pathways', () => {
       await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
-    test('execute shows progress or results', async ({ authenticatedPage: page }) => {
+    test('execute page renders without an error page', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=execute');
       await page.waitForLoadState('networkidle');
 
-      // Should show progress indicator or results
-      const progress = page.locator('.progress, .spinner, text=Processing, text=Migrating');
-      const results = page.locator('.results, text=Complete, text=Success, text=migrated');
-      const continueButton = page.locator('a:has-text("Continue"), a:has-text("Verify")');
-
-      // Page should show something meaningful
+      // What this test measures is that the step renders at all. Three
+      // locators for progress, results and a Continue control used to stand
+      // here unasserted, which read as coverage and was none: a `:has-text()`
+      // union without an element prefix matches the whole document anyway, so
+      // asserting them would have passed on any page. The name says what is
+      // checked.
       await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
@@ -226,16 +251,13 @@ test.describe('Migration Module User Pathways', () => {
       await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
-    test('verify page shows migration summary', async ({ authenticatedPage: page }) => {
+    test('verify page renders without an error page', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=verify');
       await page.waitForLoadState('networkidle');
 
-      // Should show summary of migration results
-      const summary = page.locator('.migration-summary, .results-summary');
-      const successCount = page.locator('text=success, text=migrated, text=completed');
-      const returnLink = page.locator('a:has-text("Return"), a:has-text("Done"), a:has-text("Finish")');
-
-      // Page should have some content
+      // Same as the execute step: the summary, count and return-link
+      // locators that stood here were never asserted. This checks that the
+      // step renders.
       await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
@@ -247,15 +269,15 @@ test.describe('Migration Module User Pathways', () => {
 
       // If no secrets found, should show appropriate message
       const noSecretsMessage = page.locator(
-        'text=No secrets found, ' +
-        'text=No plaintext secrets, ' +
-        'text=all clear, ' +
+        ':has-text("No secrets found"), ' +
+        ':has-text("No plaintext secrets"), ' +
+        ':has-text("all clear"), ' +
         '.callout-success'
       );
 
-      const hasSecrets = page.locator('text=found, text=detected').first();
-
-      // Either shows "no secrets" message or lists found secrets
+      // Either branch is acceptable here — a seeded instance lists findings,
+      // a clean one shows the all-clear — so the check is that the scan step
+      // renders either of them rather than an error page.
       await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
@@ -265,17 +287,40 @@ test.describe('Migration Module User Pathways', () => {
       await page.goto('/typo3/module/admin/vault/migration?action=review');
       await page.waitForLoadState('networkidle');
 
-      const backButton = page.locator(
-        'a:has-text("Back"), ' +
-        'button:has-text("Back"), ' +
-        'a[href*="action=scan"]'
-      );
+      // The wizard's Back control is an <f:be.link> inside the module iframe,
+      // so both the click and the resulting URL belong to the frame. The top
+      // window's address only follows on TYPO3 14, which is why asserting
+      // page.url() passed there and failed on 13.4 — it was measuring the
+      // backend shell, not the navigation under test.
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
+      const backButton = frame
+        .locator('a:has-text("Back"), button:has-text("Back"), a[href*="action=scan"]')
+        .first();
 
-      if (await backButton.isVisible()) {
+      // Required, not optional: a conditional skip here would let the test
+      // pass precisely when the Back control has gone missing.
+      await expect(backButton).toBeVisible();
+
+      {
+        // Wait for the iframe's own navigation. `networkidle` on the top page
+        // returns before the module frame has re-rendered, so an assertion
+        // behind it reads the document from before the click.
+        const navigated = page.waitForResponse(
+          (resp) => resp.url().includes('/vault/migration') && resp.request().method() === 'GET',
+          { timeout: 10000 },
+        );
         await backButton.click();
-        await page.waitForLoadState('networkidle');
+        await navigated.catch(() => undefined);
 
-        expect(page.url()).toMatch(/action=scan|action=index/);
+        // The step is left behind — where it lands depends on the data: with
+        // findings the Back control carries action=scan, and on an instance
+        // with nothing to migrate the no-secrets branch links to the wizard
+        // start. Both are "no longer on review"; asserting one of them would
+        // pass or fail on the fixture rather than on the navigation.
+        await expect
+          .poll(() => frameUrl(page), { timeout: 10000 })
+          .not.toMatch(/action=review/);
       }
     });
 
@@ -283,18 +328,23 @@ test.describe('Migration Module User Pathways', () => {
       await page.goto('/typo3/module/admin/vault/migration?action=configure');
       await page.waitForLoadState('networkidle');
 
-      const backButton = page.locator(
-        'a:has-text("Back"), ' +
-        'button:has-text("Back"), ' +
-        'a[href*="action=review"]'
-      );
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
+      const backButton = frame
+        .locator('a:has-text("Back"), button:has-text("Back"), a[href*="action=review"]')
+        .first();
 
-      if (await backButton.isVisible()) {
-        await backButton.click();
-        await page.waitForLoadState('networkidle');
+      // Required for the same reason as the review step above.
+      await expect(backButton).toBeVisible();
 
-        expect(page.url()).toMatch(/action=review|action=scan/);
-      }
+      await backButton.click();
+
+      // `networkidle` observes the outer document, and on TYPO3 13 the module
+      // iframe can still carry action=configure when it returns — so the URL
+      // is polled until the frame itself has moved.
+      await expect
+        .poll(() => frameUrl(page), { timeout: 10000 })
+        .toMatch(/action=review|action=scan|admin_vault_migration/);
     });
 
     test('index page is accessible from any step', async ({ authenticatedPage: page }) => {
