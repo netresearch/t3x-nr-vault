@@ -44,44 +44,46 @@
 
 ## Coverage Matrix
 
+The spec column names files, not lines. It carried line numbers until 26 of the 34 rows were found to be pointing at the wrong place, which is what a reference nobody can check drifts into. A pathway ID is greppable across `Tests/E2E` -- most pathways have a `test.describe` whose name begins with it -- and that survives every edit to a spec.
+
 ### 1. Overview module
 
 | Pathway ID | Priority | Spec file | Status | Gaps |
 |---|---|---|---|---|
-| UP-OV-001 | P3 | `user-pathways/overview.spec.ts:15` (Dashboard Statistics describe) | FULL | All 5 steps covered (heading, total count, active/disabled cards, navigation cards). |
-| UP-OV-002 | P3 | `user-pathways/overview.spec.ts:82` (Navigate to Submodules describe) | FULL | All 3 submodule links clicked; module menu verified. |
+| UP-OV-001 | P3 | `user-pathways/overview.spec.ts` (Dashboard Statistics describe) | FULL | All 5 steps covered (heading, total count, active/disabled cards, navigation cards). |
+| UP-OV-002 | P3 | `user-pathways/overview.spec.ts` (Navigate to Submodules describe) | FULL | All 3 submodule links clicked; module menu verified. |
 
 ### 2. Secrets module
 
 | Pathway ID | Priority | Spec file | Status | Gaps |
 |---|---|---|---|---|
-| UP-SEC-001 | P2 | `secrets.spec.ts:31` | FULL | List page, table structure, create button all asserted. |
-| UP-SEC-002 | P2 | `secrets.spec.ts:79` | PARTIAL | Filter-by-identifier and status covered; filter-by-owner and clearing filters NOT exercised. |
-| UP-SEC-003 | P0 | `secrets.spec.ts:148` | FULL | FormEngine required + optional fields covered, list round-trip verified. |
-| UP-SEC-004 | P1 | `secrets.spec.ts:263` | PARTIAL | Empty identifier + value covered. Duplicate identifier covered but accepts "either error or success" (accepting a *success* for a duplicate identifier is a **security test gap**: duplicates MUST fail). Invalid-format identifier NOT tested. |
-| UP-SEC-005 | P2 | `secrets.spec.ts:352` | PARTIAL | Clicks the view link; asserts no error. Does NOT assert that the secret **value** is masked/absent (critical security invariant — covered in new `security.spec.ts`). |
-| UP-SEC-006 | P1 | `secrets.spec.ts:576` | PARTIAL | Reveal button clicked; does NOT assert that an audit "read" entry is created, does NOT intercept the AJAX response to assert JSON shape + status. Covered in new `security.spec.ts`. |
-| UP-SEC-007 | P2 | `secrets.spec.ts:626` | PARTIAL | Edit button + description update covered; users/groups, frontend flag, expiration NOT exercised; persistence after reload NOT re-asserted. |
-| UP-SEC-008 | P0 | `secrets.spec.ts:372` | FULL | Rotate modal, new value submission, no-error assertion — rotate + audit cross-check now added in `cross-module.spec.ts`. |
-| UP-SEC-009 | P1 | `secrets.spec.ts:446` | FULL | Disable covered with badge assertion. Re-enable NOT explicitly covered — added in new `lifecycle-extended.spec.ts`. |
-| UP-SEC-010 | P0 | `secrets.spec.ts:496` | FULL | Delete + confirm dialog + no-error assertion. Audit entry assertion added in new spec. |
-| UP-SEC-011 | P2 | `secrets.spec.ts:686` | FULL | Cancel flow + secret-still-present verification. |
-| UP-SEC-012 | P2 | `secrets.spec.ts:548` | PARTIAL | Only tests filter-no-results state. "No secrets at all" state NOT tested (cannot be, DB state shared across tests — this is an acceptable limitation). |
-| UP-SEC-013 | P1 | `secrets.spec.ts:749` | PARTIAL -> FULL | Original test silently `test.skip()`s when `editor` user absent. New `security.spec.ts` adds: (a) unauthenticated users redirected to login, (b) AJAX reveal responds 403 when session is missing, (c) fixture-independent coverage. |
+| UP-SEC-001 | P2 | `secrets.spec.ts` | FULL | List page, table structure, create button all asserted. |
+| UP-SEC-002 | P2 | `secrets.spec.ts` | PARTIAL | Filter-by-identifier and status covered; filter-by-owner and clearing filters NOT exercised. |
+| UP-SEC-003 | P0 | `secrets.spec.ts` | FULL | FormEngine required + optional fields covered, list round-trip verified. |
+| UP-SEC-004 | P1 | `secrets.spec.ts` | PARTIAL | Empty identifier + value covered. Duplicate identifier covered but accepts "either error or success" (accepting a *success* for a duplicate identifier is a **security test gap**: duplicates MUST fail). Invalid-format identifier NOT tested. |
+| UP-SEC-005 | P2 | `secrets.spec.ts` | PARTIAL | Clicks the view link; asserts no error. Does NOT assert that the secret **value** is masked/absent (critical security invariant — covered in new `security.spec.ts`). |
+| UP-SEC-006 | P1 | `secrets.spec.ts` | PARTIAL | Reveal button clicked; does NOT assert that an audit "read" entry is created, does NOT intercept the AJAX response to assert JSON shape + status. Covered in new `security.spec.ts`. |
+| UP-SEC-007 | P2 | `secrets.spec.ts` | PARTIAL | Edit button + description update covered; users/groups, frontend flag, expiration NOT exercised; persistence after reload NOT re-asserted. |
+| UP-SEC-008 | P0 | `secrets.spec.ts` | FULL | Rotate modal, new value submission, no-error assertion — rotate + audit cross-check now added in `cross-module.spec.ts`. |
+| UP-SEC-009 | P1 | `secrets.spec.ts` | FULL | Disable covered with badge assertion. Re-enable NOT explicitly covered — added in new `lifecycle-extended.spec.ts`. |
+| UP-SEC-010 | P0 | `secrets.spec.ts` | FULL | Delete + confirm dialog + no-error assertion. Audit entry assertion added in new spec. |
+| UP-SEC-011 | P2 | `secrets.spec.ts` | FULL | Cancel flow + secret-still-present verification. |
+| UP-SEC-012 | P2 | `secrets.spec.ts` | PARTIAL | Only tests filter-no-results state. "No secrets at all" state NOT tested (cannot be, DB state shared across tests — this is an acceptable limitation). |
+| UP-SEC-013 | P1 | `secrets.spec.ts` | PARTIAL -> FULL | Original test silently `test.skip()`s when `editor` user absent. New `security.spec.ts` adds: (a) unauthenticated users redirected to login, (b) AJAX reveal responds 403 when session is missing, (c) fixture-independent coverage. |
 
 ### 3. Audit module
 
 | Pathway ID | Priority | Spec file | Status | Gaps |
 |---|---|---|---|---|
-| UP-AUD-001 | P2 | `audit.spec.ts:17` | FULL | Page load, table/empty state, filter form all asserted. |
-| UP-AUD-002 | P2 | `audit.spec.ts:57` | PARTIAL | Filter by action covered conditionally. Filter by **secret identifier** NOT exercised. |
-| UP-AUD-003 | P2 | `audit.spec.ts:57` | PARTIAL | Action-type dropdown selected but not validated (options unchecked). |
-| UP-AUD-004 | P2 | `audit.spec.ts:80` | PARTIAL | Date `since` set; `until` NOT set; time-range result filtering NOT verified. |
-| UP-AUD-005 | P2 | `audit.spec.ts:103` | PARTIAL | Success-true covered; success-false NOT exercised. |
+| UP-AUD-001 | P2 | `audit.spec.ts` | FULL | Page load, table/empty state, filter form all asserted. |
+| UP-AUD-002 | P2 | `audit.spec.ts` | PARTIAL | Filter by action covered conditionally. Filter by **secret identifier** NOT exercised. |
+| UP-AUD-003 | P2 | `audit.spec.ts` | PARTIAL | Action-type dropdown selected but not validated (options unchecked). |
+| UP-AUD-004 | P2 | `audit.spec.ts` | PARTIAL | Date `since` set; `until` NOT set; time-range result filtering NOT verified. |
+| UP-AUD-005 | P2 | `audit.spec.ts` | PARTIAL | Success-true covered; success-false NOT exercised. |
 | UP-AUD-006 | P3 | (none) | NONE | No pagination test exists (depends on >50 audit rows — covered by new `audit-extended.spec.ts` with fixture seeding). |
-| UP-AUD-007 | P2 | `audit.spec.ts:125`, `vault-module.spec.ts:65` | PARTIAL | Returns <500 status; does NOT download the file, does NOT validate JSON schema. Extended in new `audit-extended.spec.ts`. |
+| UP-AUD-007 | P2 | `audit.spec.ts`, `vault-module.spec.ts` | PARTIAL | Returns <500 status; does NOT download the file, does NOT validate JSON schema. Extended in new `audit-extended.spec.ts`. |
 | UP-AUD-008 | P2 | (none explicit — generic export) | NONE | No CSV-specific test: headers, field count, escaping. Filled in new `audit-extended.spec.ts`. |
-| UP-AUD-009 | P0 | `audit.spec.ts:156`, `vault-module.spec.ts:71` | PARTIAL | Loads verifyChain page and asserts *some* status callout. **Does NOT tamper with the audit table and re-verify** (the whole point of the hash chain). Filled in new `audit-extended.spec.ts` via direct DB mutation + re-verify. |
+| UP-AUD-009 | P0 | `audit.spec.ts`, `vault-module.spec.ts` | PARTIAL | Loads verifyChain page and asserts *some* status callout. **Does NOT tamper with the audit table and re-verify** (the whole point of the hash chain). Filled in new `audit-extended.spec.ts` via direct DB mutation + re-verify. |
 | UP-AUD-010 | P2 | (none) | NONE | No "audit log entirely empty" test (shared DB state makes this infeasible — accepted limitation). |
 | UP-AUD-011 | P2 | (none) | PARTIAL | No combined-filter + pagination test. Filled in `audit-extended.spec.ts`. |
 
@@ -89,23 +91,23 @@
 
 | Pathway ID | Priority | Spec file | Status | Gaps |
 |---|---|---|---|---|
-| UP-MIG-001 | P2 | `migration.spec.ts:22` | FULL | Intro page, start button, explanation section. |
-| UP-MIG-002 | P2 | `migration.spec.ts:73` | PARTIAL | Navigates to scan; does NOT wait for the scan to complete and assert counts / grouping by severity. |
-| UP-MIG-003 | P2 | `migration.spec.ts:128` | PARTIAL | Loads review page only; filtering + selection UI not exercised. |
-| UP-MIG-004 | P2 | `migration.spec.ts:164` | PARTIAL | Loads configure page; pattern input is not filled, no configuration summary checked. |
-| UP-MIG-005 | P1 | `migration.spec.ts:199` | PARTIAL | Loads execute page; does not run an actual migration or check results. |
-| UP-MIG-006 | P2 | `migration.spec.ts:221` | PARTIAL | Loads verify page; summary numbers not asserted. |
-| UP-MIG-007 | P2 | `migration.spec.ts:243` | PARTIAL | Non-error assertion only. |
-| UP-MIG-008 | P2 | `migration.spec.ts:263` | PARTIAL | Back navigation conditionally tested; state-preservation NOT verified. |
-| UP-MIG-009 | P2 | `migration.spec.ts:317` | PARTIAL | Asserts that scan loads + content does NOT contain a static string. **No round-trip**: migrate -> re-scan -> verify candidate excluded. Filled in new `migration-extended.spec.ts`. |
+| UP-MIG-001 | P2 | `migration.spec.ts` | FULL | Intro page, start button, explanation section. |
+| UP-MIG-002 | P2 | `migration.spec.ts` | PARTIAL | Navigates to scan; does NOT wait for the scan to complete and assert counts / grouping by severity. |
+| UP-MIG-003 | P2 | `migration.spec.ts` | PARTIAL | Asserts that the step renders either the selectable candidate table or the empty-state notice, and the per-row checkboxes when it lists candidates. Steps 4 and 5 of the pathway (filter by source, filter by severity) are not implemented by the module — `Review.html` has no filter control — so the test that claimed to cover them was removed rather than rewritten. |
+| UP-MIG-004 | P2 | `migration.spec.ts` | PARTIAL | The step is reached by posting a selection, the way the review form does: a GET redirects back to review, which is why the earlier tests named after this step were in fact asserting against the review page. Covered: the redirect guard, one identifier-pattern input per selected row, the clear-originals option and the submit control. Not covered: filling the pattern and running the migration. Step 4 of the pathway (set default ownership) is not implemented by the module. |
+| UP-MIG-005 | P1 | `migration.spec.ts` | PARTIAL | Loads execute page; does not run an actual migration or check results. |
+| UP-MIG-006 | P2 | `migration.spec.ts` | PARTIAL | Loads verify page; summary numbers not asserted. |
+| UP-MIG-007 | P2 | `migration.spec.ts` | PARTIAL | Non-error assertion only. |
+| UP-MIG-008 | P2 | `migration.spec.ts` | PARTIAL | Back navigation conditionally tested; state-preservation NOT verified. |
+| UP-MIG-009 | P2 | `migration.spec.ts` | PARTIAL | Asserts that scan loads + content does NOT contain a static string. **No round-trip**: migrate -> re-scan -> verify candidate excluded. Filled in new `migration-extended.spec.ts`. |
 
 ### 5. Cross-module
 
 | Pathway ID | Priority | Spec file | Status | Gaps |
 |---|---|---|---|---|
-| UP-CROSS-001 | P1 | `cross-module.spec.ts:19` | PARTIAL | Creates + checks audit page + deletes. Does NOT verify that specific "create" / "delete" / "rotate" audit entries appear with correct fields. Extended in new `lifecycle-extended.spec.ts`. |
-| UP-CROSS-002 | P2 | `cross-module.spec.ts:77` | PARTIAL | Asserts cards exist. Does NOT read number, mutate state, re-read and diff. Filled in new `lifecycle-extended.spec.ts`. |
-| UP-CROSS-003 | P2 | `cross-module.spec.ts:114` | FULL | All module URLs tested, browser back tested, DocHeader asserted. |
+| UP-CROSS-001 | P1 | `cross-module.spec.ts` | PARTIAL | Creates + checks audit page + deletes. Does NOT verify that specific "create" / "delete" / "rotate" audit entries appear with correct fields. Extended in new `lifecycle-extended.spec.ts`. |
+| UP-CROSS-002 | P2 | `cross-module.spec.ts` | PARTIAL | Asserts cards exist. Does NOT read number, mutate state, re-read and diff. Filled in new `lifecycle-extended.spec.ts`. |
+| UP-CROSS-003 | P2 | `cross-module.spec.ts` | FULL | All module URLs tested, browser back tested, DocHeader asserted. |
 
 ## Untestable with current fixture setup
 

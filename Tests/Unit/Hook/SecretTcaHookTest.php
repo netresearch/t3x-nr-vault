@@ -516,20 +516,40 @@ final class SecretTcaHookTest extends TestCase
     #[Test]
     public function adminCreatingNewRecordKeepsSubmittedOwnerUid(): void
     {
-        // setUp() default actor is admin → no coercion.
+        // The counterpart of nonAdminCreatingNewRecordCannotAssignForeignOwnerUid():
+        // same actor uid, same submitted owner, only the admin flag differs, so
+        // the case turns on the coercion and on nothing else. It used to be a
+        // byte-identical copy of preProcessExtractsOwnerUidFromGroupFormat()
+        // running on the setUp() admin, whose uid is never stubbed: it did fail
+        // when the exemption was removed, but on the mock default 0, so the
+        // failure said nothing about whose uid had been substituted.
+        $accessControl = $this->createMock(AccessControlServiceInterface::class);
+        $accessControl->method('isCurrentActorAdmin')->willReturn(true);
+        $accessControl->method('getCurrentActorUid')->willReturn(7);
+        $accessControl->method('canCreate')->willReturn(true);
+        $accessControl->method('isGranted')->willReturn(true);
+
+        $hook = new SecretTcaHook(
+            $this->vaultService,
+            $this->auditService,
+            $accessControl,
+            $this->secretRepository,
+        );
+
         $fieldArray = [
             'identifier' => 'test_secret',
             'owner_uid' => 'be_users_42',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
 
-        $this->hook->processDatamap_preProcessFieldArray(
+        $hook->processDatamap_preProcessFieldArray(
             $fieldArray,
             'tx_nrvault_secret',
             'NEW123',
             $dataHandler,
         );
 
+        // 42 survives; the actor's own uid (7) would mean the coercion fired.
         self::assertIsArray($fieldArray, self::NOT_ABORTED);
         self::assertSame(42, $fieldArray['owner_uid']);
     }

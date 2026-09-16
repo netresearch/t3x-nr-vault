@@ -17,6 +17,54 @@ function frameUrl(page: Page): string {
 }
 
 /**
+ * Open the wizard's configure step with a selection, the way the review form
+ * does it.
+ *
+ * `configureAction()` renders `Migration/Configure` only for a POST carrying
+ * `selected[]`; a GET is answered with a redirect back to the review step. The
+ * review page emits that form only when the scan found database candidates,
+ * and a freshly provisioned instance has none — which is why every test that
+ * navigated to `action=configure` was looking at the review page instead. The
+ * step is reached here by posting the same field the review form posts, from
+ * inside the module iframe so the module token and the backend session come
+ * from the real document. The key names a column rather than a stored finding
+ * because the step does not validate it against the scan; what is under test
+ * is what the template makes of a selected row.
+ */
+async function openConfigureStep(page: Page, selection = 'database:tt_content.bodytext'): Promise<void> {
+  await page.goto('/typo3/module/admin/vault/migration?action=review');
+  await waitForModuleContent(page);
+
+  const frame = page.frames().find((candidate) => candidate !== page.mainFrame());
+  if (frame === undefined) {
+    throw new Error('The backend rendered no module iframe');
+  }
+
+  const token = new URL(frame.url()).searchParams.get('token');
+  if (token === null) {
+    throw new Error(`The module URL carried no token: ${frame.url()}`);
+  }
+
+  await frame.evaluate(
+    ([moduleToken, key]) => {
+      const form = document.createElement('form');
+      form.method = 'post';
+      form.action = `/typo3/module/admin/vault/migration?token=${moduleToken}&action=configure`;
+      const field = document.createElement('input');
+      field.type = 'hidden';
+      field.name = 'selected[]';
+      field.value = key;
+      form.append(field);
+      document.body.append(form);
+      form.submit();
+    },
+    [token, selection] as const
+  );
+
+  await frame.waitForURL(/action=configure/, { timeout: 15000 });
+}
+
+/**
  * E2E tests for Migration Module User Pathways.
  *
  * TYPO3 v14 uses an iframe-based backend structure where module content
@@ -133,20 +181,23 @@ test.describe('Migration Module User Pathways', () => {
       expect(hasScanContent, 'Scan step rendered neither results, a continue action nor an infobox').toBe(true);
     });
 
-    test('scan results show severity grouping', async ({ authenticatedPage: page }) => {
+    test('scan results show severity grouping or the all-clear', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=scan');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
 
-      // Look for severity indicators
-      const severityIndicators = page.locator(
-        '.badge:has-text("high"), ' +
-        '.badge:has-text("medium"), ' +
-        '.badge:has-text("low"), ' +
-        'text=severity'
-      );
+      // `Scan.html` branches on {totalCount}: findings render the by-severity
+      // section, an empty scan renders the all-clear infobox. Which of the two
+      // shows depends on the instance's data; that exactly one of them shows
+      // does not, and neither appears when the step fails to render.
+      const bySeverity = await frame.locator('text=Secrets by Severity').count();
+      const allClear = await frame.locator('text=No Plaintext Secrets Detected').count();
 
-      // May or may not have secrets, so just check page loads correctly
-      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
+      expect(
+        (bySeverity > 0) !== (allClear > 0),
+        `Scan step showed neither the severity grouping nor the all-clear (grouping=${bySeverity}, all-clear=${allClear})`
+      ).toBe(true);
+      await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
 
@@ -158,66 +209,72 @@ test.describe('Migration Module User Pathways', () => {
       await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
-    test('review page has filter options', async ({ authenticatedPage: page }) => {
+    test('review page offers a selection or reports that there is nothing to select', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=review');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
 
-      // Look for filter controls
-      const sourceFilter = page.locator('select[name="source"], input[name="source"], #filter-source');
-      const severityFilter = page.locator('select[name="severity"], input[name="severity"], #filter-severity');
+      // `Review.html` branches on the candidate count: the table carries the
+      // `#select-all` control and one `.secret-checkbox` per row, the empty
+      // case carries the "No Database Secrets Found" infobox.
+      const selectAll = await frame.locator('#select-all').count();
+      const nothingToSelect = await frame.locator('text=No Database Secrets Found').count();
 
-      // Filter controls may or may not exist depending on implementation
-      const hasFilters = await sourceFilter.isVisible() || await severityFilter.isVisible();
+      expect(
+        (selectAll > 0) !== (nothingToSelect > 0),
+        `Review step offered neither a selection nor an empty-state notice (select-all=${selectAll}, empty=${nothingToSelect})`
+      ).toBe(true);
 
-      // Either has filters or page loads correctly
-      expect(page.url()).toContain('action=review');
-    });
-
-    test('review page allows secret selection', async ({ authenticatedPage: page }) => {
-      await page.goto('/typo3/module/admin/vault/migration?action=review');
-      await page.waitForLoadState('networkidle');
-
-      // Look for checkboxes or selection mechanism
-      const checkboxes = page.locator('input[type="checkbox"]');
-      const selectButtons = page.locator('button:has-text("Select"), a:has-text("Select")');
-
-      // May have selection controls if secrets were found
-      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
+      if (selectAll > 0) {
+        await expect(frame.locator('.secret-checkbox').first()).toBeVisible();
+      }
+      await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
 
   test.describe('UP-MIG-004: Configure Migration Options', () => {
-    test('configure page loads without errors', async ({ authenticatedPage: page }) => {
+    test('configure step without a selection returns to the review step', async ({ authenticatedPage: page }) => {
       const response = await page.goto('/typo3/module/admin/vault/migration?action=configure');
 
       expect(response?.status()).toBeLessThan(500);
-      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
+
+      // This is what a plain GET of the configure step does, and every test
+      // in this group used to assert against the result without saying so.
+      expect(frameUrl(page)).toContain('action=review');
+      await expect(frame.locator('text=Selection Required')).toBeVisible();
+      await expect(frame.locator('text=No secrets selected for migration.')).toBeVisible();
+      await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
     test('configure page has identifier pattern input', async ({ authenticatedPage: page }) => {
-      await page.goto('/typo3/module/admin/vault/migration?action=configure');
-      await page.waitForLoadState('networkidle');
+      await openConfigureStep(page);
+      const frame = getModuleFrame(page);
 
-      // Look for configuration inputs
-      const patternInput = page.locator(
-        'input[name="identifierPattern"], ' +
-        'input[name="pattern"], ' +
-        '#identifier-pattern'
-      );
+      // One input per selected row, named `migrations[<i>][identifierPattern]`.
+      // The plain `identifierPattern` the old locator asked for is never
+      // emitted, so it could not have matched on any instance.
+      await expect(frame.locator('th:has-text("Identifier Pattern")')).toBeVisible();
 
-      // Configuration inputs may exist
-      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
+      const rows = await frame.locator('table tbody tr').count();
+      const patternInputs = await frame.locator('input[name$="[identifierPattern]"]').count();
+      expect(rows, 'The selected row must reach the configure table').toBeGreaterThan(0);
+      expect(patternInputs, 'Every selected row must offer an identifier pattern input').toBe(rows);
+      await expect(frame.locator('input[name$="[identifierPattern]"]').first()).toBeVisible();
+
+      await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
-    test('configure page has ownership options', async ({ authenticatedPage: page }) => {
-      await page.goto('/typo3/module/admin/vault/migration?action=configure');
-      await page.waitForLoadState('networkidle');
+    test('configure page offers the clear-originals option and a submit control', async ({ authenticatedPage: page }) => {
+      await openConfigureStep(page);
+      const frame = getModuleFrame(page);
 
-      // Look for owner selection
-      const ownerSelect = page.locator('select[name="owner"], #owner-select');
-
-      // Page should load correctly
-      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
+      // This step used to look for an owner selector, which the module does
+      // not have: `Configure.html` offers exactly one option, and it decides
+      // whether the original plaintext is replaced.
+      await expect(frame.locator('#clearOriginals')).toBeVisible();
+      await expect(frame.locator('button[type="submit"]:has-text("Execute Migration")')).toBeVisible();
     });
   });
 
@@ -265,20 +322,21 @@ test.describe('Migration Module User Pathways', () => {
   test.describe('UP-MIG-007: Migration - No Secrets Found', () => {
     test('handles case when no plaintext secrets exist', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=scan');
-      await page.waitForLoadState('networkidle');
-
-      // If no secrets found, should show appropriate message
-      const noSecretsMessage = page.locator(
-        ':has-text("No secrets found"), ' +
-        ':has-text("No plaintext secrets"), ' +
-        ':has-text("all clear"), ' +
-        '.callout-success'
-      );
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
 
       // Either branch is acceptable here — a seeded instance lists findings,
       // a clean one shows the all-clear — so the check is that the scan step
-      // renders either of them rather than an error page.
-      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
+      // renders one of them. The locator that stood here for that purpose
+      // searched the backend shell and was never asserted; a `:has-text()`
+      // union without an element prefix would have matched the whole document
+      // in any case.
+      const rendered =
+        (await frame.locator('text=Secrets by Severity').count()) +
+        (await frame.locator('text=No Plaintext Secrets Detected').count());
+
+      expect(rendered, 'Scan step rendered neither findings nor the all-clear').toBeGreaterThan(0);
+      await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
 
@@ -350,17 +408,20 @@ test.describe('Migration Module User Pathways', () => {
     test('index page is accessible from any step', async ({ authenticatedPage: page }) => {
       // Start from a later step
       await page.goto('/typo3/module/admin/vault/migration?action=configure');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
-      // Should be able to return to index
-      const indexLink = page.locator('a[href*="vault/migration"]:not([href*="action="])');
-      const moduleMenuLink = page.locator('.scaffold-modulemenu a[href*="vault/migration"]');
-
-      const canReturnToIndex = await indexLink.isVisible() || await moduleMenuLink.isVisible();
-
-      // Can at least use browser navigation
+      // Two locators for a link back to the index used to stand here without
+      // ever being asserted, and the check that followed them — that a URL
+      // just navigated to carries no `action=` — could not fail. What this
+      // step actually guarantees is that the index renders its own start view
+      // again, which is the control the wizard begins with.
       await page.goto('/typo3/module/admin/vault/migration');
-      expect(page.url()).not.toContain('action=');
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
+
+      await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(frame.locator('a[href*="action=scan"]').first()).toBeVisible();
+      expect(frameUrl(page)).not.toContain('action=');
     });
   });
 
