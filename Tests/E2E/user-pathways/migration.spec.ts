@@ -103,7 +103,7 @@ test.describe('Migration Module User Pathways', () => {
         await page.waitForLoadState('networkidle');
 
         // Should be on scan page or show scan results
-        await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+        await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
       }
     });
 
@@ -146,7 +146,7 @@ test.describe('Migration Module User Pathways', () => {
       );
 
       // May or may not have secrets, so just check page loads correctly
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
 
@@ -155,7 +155,7 @@ test.describe('Migration Module User Pathways', () => {
       const response = await page.goto('/typo3/module/admin/vault/migration?action=review');
 
       expect(response?.status()).toBeLessThan(500);
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
     test('review page has filter options', async ({ authenticatedPage: page }) => {
@@ -182,7 +182,7 @@ test.describe('Migration Module User Pathways', () => {
       const selectButtons = page.locator('button:has-text("Select"), a:has-text("Select")');
 
       // May have selection controls if secrets were found
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
 
@@ -191,7 +191,7 @@ test.describe('Migration Module User Pathways', () => {
       const response = await page.goto('/typo3/module/admin/vault/migration?action=configure');
 
       expect(response?.status()).toBeLessThan(500);
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
     test('configure page has identifier pattern input', async ({ authenticatedPage: page }) => {
@@ -206,7 +206,7 @@ test.describe('Migration Module User Pathways', () => {
       );
 
       // Configuration inputs may exist
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
     test('configure page has ownership options', async ({ authenticatedPage: page }) => {
@@ -217,7 +217,7 @@ test.describe('Migration Module User Pathways', () => {
       const ownerSelect = page.locator('select[name="owner"], #owner-select');
 
       // Page should load correctly
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
 
@@ -226,7 +226,7 @@ test.describe('Migration Module User Pathways', () => {
       const response = await page.goto('/typo3/module/admin/vault/migration?action=execute');
 
       expect(response?.status()).toBeLessThan(500);
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
     test('execute page renders without an error page', async ({ authenticatedPage: page }) => {
@@ -239,7 +239,7 @@ test.describe('Migration Module User Pathways', () => {
       // union without an element prefix matches the whole document anyway, so
       // asserting them would have passed on any page. The name says what is
       // checked.
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
 
@@ -248,7 +248,7 @@ test.describe('Migration Module User Pathways', () => {
       const response = await page.goto('/typo3/module/admin/vault/migration?action=verify');
 
       expect(response?.status()).toBeLessThan(500);
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
     test('verify page renders without an error page', async ({ authenticatedPage: page }) => {
@@ -258,7 +258,7 @@ test.describe('Migration Module User Pathways', () => {
       // Same as the execute step: the summary, count and return-link
       // locators that stood here were never asserted. This checks that the
       // step renders.
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
 
@@ -278,7 +278,7 @@ test.describe('Migration Module User Pathways', () => {
       // Either branch is acceptable here — a seeded instance lists findings,
       // a clean one shows the all-clear — so the check is that the scan step
       // renders either of them rather than an error page.
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
 
@@ -373,7 +373,7 @@ test.describe('Migration Module User Pathways', () => {
       await page.waitForLoadState('networkidle');
 
       // Page should load and show results
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
 
       // If there are results, they should not include vault identifiers
       const pageContent = await page.content();
@@ -407,7 +407,7 @@ test.describe('Migration Module User Pathways', () => {
       }
 
       // Verify no errors throughout
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
     test('wizard maintains state across steps', async ({ authenticatedPage: page }) => {
@@ -417,7 +417,7 @@ test.describe('Migration Module User Pathways', () => {
 
       // The wizard should maintain selection/state via session
       // This is implementation-specific but we verify pages load correctly
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
   });
 

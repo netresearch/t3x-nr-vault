@@ -13,6 +13,7 @@ import {
     removeCountdownElement,
     startRevealLifecycle,
 } from '@netresearch/nr-vault/vault-reveal-lifecycle.js';
+import { restoreFocusOnClose } from '@netresearch/nr-vault/vault-modal-focus.js';
 
 /**
  * Look up a backend label registered via PageRenderer::addInlineLanguageLabelFile()
@@ -267,7 +268,7 @@ class VaultSecretElement {
         const inputGroup = button.closest('.input-group');
         const input = inputGroup.querySelector('input');
 
-        Modal.confirm(
+        const modal = Modal.confirm(
             lang('nrvault.delete.title', 'Delete Secret'),
             lang(
                 'nrvault.clear.confirm',
@@ -292,6 +293,10 @@ class VaultSecretElement {
                 },
             ],
         );
+
+        // `clearSecret()` removes the button, so the field it cleared is where
+        // focus belongs once the dialog is gone.
+        restoreFocusOnClose(modal, button, input);
     }
 
     /**

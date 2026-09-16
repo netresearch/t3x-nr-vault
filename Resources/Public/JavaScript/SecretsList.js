@@ -8,6 +8,7 @@ import Notification from '@typo3/backend/notification.js';
 import Severity from '@typo3/backend/severity.js';
 import { AUTO_HIDE_SECONDS, startRevealLifecycle } from '@netresearch/nr-vault/vault-reveal-lifecycle.js';
 import { dismissModal, openModal } from '@netresearch/nr-vault/vault-modal.js';
+import { restoreFocusOnClose } from '@netresearch/nr-vault/vault-modal-focus.js';
 
 /**
  * Look up a backend label registered via PageRenderer::addInlineLanguageLabelFile()
@@ -86,7 +87,7 @@ class SecretsList {
         const row = button.closest('tr');
         const identifier = row?.dataset.identifier || form.querySelector('input[name="identifier"]')?.value || 'secret';
 
-        Modal.confirm(
+        const modal = Modal.confirm(
             lang('nrvault.delete.title', 'Delete Secret'),
             lang(
                 'nrvault.delete.confirm',
@@ -112,6 +113,8 @@ class SecretsList {
                 }
             ]
         );
+
+        restoreFocusOnClose(modal, button);
     }
 
     async handleToggle(event) {
@@ -268,7 +271,7 @@ class SecretsList {
             if (data.success && data.secret !== undefined) {
                 // Absent field = permissive (older backend); only an explicit
                 // `false` (hardened profile) suppresses the copy button.
-                this.showRevealModal(identifier, data.secret, data.copyAllowed !== false);
+                this.showRevealModal(identifier, data.secret, data.copyAllowed !== false, button);
             } else {
                 Notification.error(lang('nrvault.error', 'Error'), data.error || lang('nrvault.reveal.failed', 'Failed to reveal secret'), 5);
             }
@@ -319,8 +322,10 @@ class SecretsList {
      * @param {boolean} copyAllowed `false` in the hardened security profile —
      *                              the clipboard outlives the dialog, so no copy
      *                              button is offered at all.
+     * @param {HTMLElement} [trigger] Reveal button the dialog was opened from —
+     *                              focus goes back to it on close (WCAG 2.4.3).
      */
-    showRevealModal(identifier, secret, copyAllowed) {
+    showRevealModal(identifier, secret, copyAllowed, trigger) {
         const content = this.buildRevealModalContent(identifier, secret, copyAllowed);
 
         const modal = openModal({
@@ -378,13 +383,38 @@ class SecretsList {
         modal.addEventListener?.('typo3-modal-hide', wipeOnClose, { once: true });
         modal.addEventListener?.('typo3-modal-hidden', wipeOnClose, { once: true });
 
-        // Add event listeners after modal is shown
-        setTimeout(() => {
+        // Hand focus back to the reveal button on every close path — the
+        // auto-hide timer included, because that closes through the same event.
+        restoreFocusOnClose(modal, trigger);
+
+        // Wire the dialog's own controls and place focus, the same way the
+        // rotate dialog does: the modal moves focus itself when its show
+        // transition ends, so a focus set before that moment is undone again,
+        // and `typo3-modal-shown` is that moment. The timer stays as a fallback
+        // for a core that does not emit the event; listeners attach once while
+        // focus is (re-)applied on every run.
+        //
+        // Focus goes to the secret input rather than being left where the core
+        // puts it — on the footer's active button, which here is Close, the LAST
+        // control in the dialog. From there a single Tab hands focus to the
+        // browser chrome before wrapping back, which reads as a broken dialog.
+        let listenersAttached = false;
+        const wireRevealModal = () => {
             const toggleBtn = this.findModalElement('reveal-modal-toggle');
             const copyBtn = this.findModalElement('reveal-modal-copy');
             const input = this.findModalElement('reveal-modal-secret');
 
-            if (toggleBtn && input) {
+            if (!input) {
+                return;
+            }
+
+            if (listenersAttached) {
+                input.focus();
+                return;
+            }
+            listenersAttached = true;
+
+            if (toggleBtn) {
                 toggleBtn.addEventListener('click', () => {
                     if (input.type === 'password') {
                         input.type = 'text';
@@ -394,7 +424,7 @@ class SecretsList {
                 });
             }
 
-            if (copyBtn && input) {
+            if (copyBtn) {
                 copyBtn.addEventListener('click', async () => {
                     // Read from the input rather than closing over the plaintext:
                     // after a wipe there is nothing left to copy.
@@ -411,7 +441,12 @@ class SecretsList {
                     }
                 });
             }
-        }, 100);
+
+            input.focus();
+        };
+
+        modal.addEventListener?.('typo3-modal-shown', wireRevealModal);
+        setTimeout(wireRevealModal, 100);
     }
 
     /**
@@ -499,6 +534,8 @@ class SecretsList {
 
         modal.addEventListener?.('typo3-modal-shown', wireRotateModal);
         setTimeout(wireRotateModal, 100);
+
+        restoreFocusOnClose(modal, button);
     }
 
     /**

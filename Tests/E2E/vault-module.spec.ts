@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/auth';
+import { test, expect, getModuleFrame } from './fixtures/auth';
 
 /**
  * E2E tests for the Vault backend module.
@@ -12,22 +12,22 @@ test.describe('Vault Backend Module', () => {
 
     expect(response?.status()).toBe(200);
     await expect(page).toHaveTitle(/vault/i);
-    await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
-    await expect(page.locator('text=503')).not.toBeVisible();
+    await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
+    await expect(getModuleFrame(page).locator('text=503')).not.toBeVisible();
   });
 
   test('secrets submodule list page loads without errors', async ({ authenticatedPage: page }) => {
     const response = await page.goto('/typo3/module/admin/vault/secrets');
 
     expect(response?.status()).toBe(200);
-    await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+    await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
   });
 
   test('create secret page loads without errors', async ({ authenticatedPage: page }) => {
     const response = await page.goto('/typo3/module/admin/vault/secrets/create');
 
     expect(response?.status()).toBe(200);
-    await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+    await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
   });
 
   test('view secret page loads without errors when secret exists', async ({ authenticatedPage: page }) => {
@@ -37,7 +37,7 @@ test.describe('Vault Backend Module', () => {
 
     if (await viewLink.isVisible()) {
       await viewLink.click();
-      await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     }
   });
 
@@ -45,21 +45,21 @@ test.describe('Vault Backend Module', () => {
     const response = await page.goto('/typo3/module/admin/vault/audit');
 
     expect(response?.status()).toBe(200);
-    await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+    await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
   });
 
   test('secrets submodule handles empty list gracefully', async ({ authenticatedPage: page }) => {
     const response = await page.goto('/typo3/module/admin/vault/secrets');
 
     expect(response?.status()).toBe(200);
-    await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+    await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
   });
 
   test('audit submodule handles empty log gracefully', async ({ authenticatedPage: page }) => {
     const response = await page.goto('/typo3/module/admin/vault/audit');
 
     expect(response?.status()).toBe(200);
-    await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+    await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
   });
 
   test('export action returns valid response', async ({ authenticatedPage: page }) => {
@@ -78,6 +78,6 @@ test.describe('Vault Backend Module', () => {
     const response = await page.goto('/typo3/module/admin/vault/nonexistent');
 
     expect(response?.status()).toBeLessThan(500);
-    await expect(page.locator('text=Oops, an error occurred')).not.toBeVisible();
+    await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
   });
 });
