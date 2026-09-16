@@ -1,5 +1,12 @@
 import type { Page } from '@playwright/test';
-import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import {
+  test,
+  expect,
+  getModuleFrame,
+  waitForModuleContent,
+  filterByIdentifier,
+  rowFor,
+} from '../fixtures/auth';
 
 /**
  * Extended audit-module tests that fill gaps in UP-AUD-006 / UP-AUD-007 /
@@ -70,9 +77,8 @@ test.describe('AUD-EXT-001: JSON export returns a well-formed array', () => {
     await page.goto(`/typo3/module/admin/vault/secrets`);
     await waitForModuleContent(page);
     const cleanupFrame = getModuleFrame(page);
-    await cleanupFrame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await cleanupFrame.locator('button:has-text("Filter")').click();
-    const del = cleanupFrame.locator('button[title*="Delete"]').first();
+    await filterByIdentifier(cleanupFrame, identifier);
+    const del = rowFor(cleanupFrame, identifier).locator('button[title*="Delete"]').first();
     if (await del.isVisible().catch(() => false)) {
       await del.click();
       const confirm = page.getByRole('button', { name: 'Delete', exact: true });

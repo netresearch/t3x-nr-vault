@@ -1,55 +1,12 @@
-import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
-import type { FrameLocator, Locator, Page } from '@playwright/test';
-
-/**
- * The table row that carries this identifier.
- *
- * Every row action is taken from this row rather than from the table's first
- * row: the identifier filter does not narrow the list on every supported
- * TYPO3 version — the failing 13.4 run's snapshot shows the full list under a
- * test that had just filtered — and the first row is then somebody else's
- * secret. A spec that rotates or deletes that one measures nothing and
- * destroys unrelated data.
- */
-function rowFor(frame: FrameLocator, identifier: string): Locator {
-  return frame.locator('table tbody tr').filter({ hasText: identifier }).first();
-}
-
-/**
- * Apply the identifier filter and wait for the table to actually show it.
- *
- * The previous shape — click Filter, then `waitFor(...).catch(() => undefined)`
- * on the first row — swallowed the wait, so the next step acted on whatever
- * stood on screen. The unfiltered list is never empty in a seeded instance, so
- * the first row was usually a DIFFERENT secret and the test went on to rotate,
- * edit or delete that one; the failing run's page snapshot shows exactly that
- * unfiltered list. Waiting for a row that carries the identifier makes the
- * filter a precondition instead of a hope.
- */
-async function filterByIdentifier(frame: FrameLocator, identifier: string): Promise<void> {
-  await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-
-  // Clear the readiness flag of the CURRENT document before submitting. The
-  // filter is a form submit, so the row and the flag both exist again in the
-  // new document — but they also still exist in the old one, and a wait that
-  // the old document already satisfies returns immediately. The click then
-  // lands while the new page is still importing SecretsList.js, where Reveal,
-  // Rotate and Delete are inert buttons: focused, doing nothing. Measured on a
-  // provisioned 13.4 instance, that is exactly what happened.
-  await frame.locator('html').evaluate((el) => el.removeAttribute('data-vault-secrets-list'));
-
-  await frame.locator('button:has-text("Filter")').click();
-
-  // Now the flag can only come from the document the submit produced.
-  await frame
-    .locator('html[data-vault-secrets-list="ready"]')
-    .waitFor({ state: 'attached', timeout: 15000 });
-  await frame
-    .locator('table tbody tr')
-    .filter({ hasText: identifier })
-    .first()
-    .waitFor({ state: 'visible', timeout: 15000 });
-}
+import {
+  test,
+  expect,
+  getModuleFrame,
+  waitForModuleContent,
+  filterByIdentifier,
+  rowFor,
+} from '../fixtures/auth';
+import type { Page } from '@playwright/test';
 
 /**
  * Extended lifecycle tests that fill gaps in UP-CROSS-001 / UP-CROSS-002 /
@@ -257,8 +214,7 @@ test.describe.serial('LC-EXT-002: Rotate produces an audit entry with success=tr
     await page.goto('/typo3/module/admin/vault/secrets');
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
-    await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-    await frame.locator('button:has-text("Filter")').click();
+    await filterByIdentifier(frame, identifier);
     const delBtn = rowFor(frame, identifier).locator('button[title*="Delete"]').first();
     if (await delBtn.isVisible().catch(() => false)) {
       await delBtn.click();

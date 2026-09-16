@@ -1,4 +1,5 @@
 import { test as base, expect, Page, FrameLocator, APIResponse } from '@playwright/test';
+import type { Locator } from '@playwright/test';
 
 /**
  * Whether a backend response is TYPO3's redirect to the login form.
@@ -86,4 +87,53 @@ export async function waitForModuleContent(page: Page): Promise<void> {
   } catch {
     // If no content found, that's okay - module might have different structure
   }
+}
+
+/**
+ * Wait until the secrets list has bound its row actions.
+ *
+ * Reveal, rotate, delete and the status toggle are plain buttons until
+ * `SecretsList.js` has been imported: a click before that focuses the button
+ * and does nothing at all. The module sets `data-vault-secrets-list="ready"`
+ * on the documentElement once the handlers are attached, which is the only
+ * observable moment that window closes.
+ */
+export async function waitForSecretsListReady(frame: FrameLocator): Promise<void> {
+  await frame
+    .locator('html[data-vault-secrets-list="ready"]')
+    .waitFor({ state: 'attached', timeout: 15000 });
+}
+
+/**
+ * Apply the identifier filter and wait for the page it produces.
+ *
+ * The filter is a form submit, so the flag and the row exist in the document
+ * being left as well — a wait the old page already satisfies returns at once
+ * and the next click lands in the new page's loading window. Clearing the
+ * flag first means only the new document can set it.
+ */
+export async function filterByIdentifier(
+  frame: FrameLocator,
+  identifier: string,
+): Promise<void> {
+  await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
+  await frame.locator('html').evaluate((el) => el.removeAttribute('data-vault-secrets-list'));
+  await frame.locator('button:has-text("Filter")').click();
+  await waitForSecretsListReady(frame);
+  await frame
+    .locator('table tbody tr')
+    .filter({ hasText: identifier })
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 });
+}
+
+/**
+ * The table row carrying this identifier.
+ *
+ * Row actions must be taken from this row rather than the table's first one:
+ * the list is not always narrowed to a single row, and acting on the first
+ * one then touches an unrelated secret.
+ */
+export function rowFor(frame: FrameLocator, identifier: string): Locator {
+  return frame.locator('table tbody tr').filter({ hasText: identifier }).first();
 }
