@@ -1,14 +1,5 @@
 import { test as base, expect, Page } from '@playwright/test';
-import {
-  test,
-  getModuleFrame,
-  waitForModuleContent,
-  ADMIN_USERNAME,
-  ADMIN_PASSWORD,
-  isLoginRedirect,
-  filterByIdentifier,
-  rowFor,
-} from '../fixtures/auth';
+import { test, ADMIN_PASSWORD, ADMIN_USERNAME, filterByIdentifier, getModuleFrame, isLoginRedirect, rowFor, saveRecord, submitIdentifierFilter, waitForModuleContent } from '../fixtures/auth';
 
 /**
  * Security and resilience E2E tests for nr-vault.
@@ -52,8 +43,7 @@ async function createSecret(
     }
   }
 
-  await frame.locator('button[name="_savedok"]').first().click();
-  await page.waitForLoadState('networkidle');
+  await saveRecord(page, frame);
 }
 
 async function deleteSecretByIdentifier(page: Page, identifier: string): Promise<void> {
@@ -69,7 +59,7 @@ async function deleteSecretByIdentifier(page: Page, identifier: string): Promise
     const confirmButton = page.getByRole('button', { name: 'Delete', exact: true });
     if (await confirmButton.isVisible().catch(() => false)) {
       await confirmButton.click();
-      await page.waitForLoadState('networkidle');
+      await confirmButton.waitFor({ state: 'hidden', timeout: 15000 });
     }
   }
 }
@@ -225,8 +215,7 @@ test.describe('SEC-RESIL-005/006: XSS escaping', () => {
       const frame = getModuleFrame(page);
       await frame.locator('input[data-formengine-input-name*="identifier"]').fill(payload);
       await frame.locator('input[data-vault-is-new="1"]').first().fill('value');
-      await frame.locator('button[name="_savedok"]').first().click();
-      await page.waitForLoadState('networkidle');
+      await saveRecord(page, frame);
 
       // After save, we should NOT be on the list page (would indicate success)
       // and the record should not exist.
@@ -235,22 +224,17 @@ test.describe('SEC-RESIL-005/006: XSS escaping', () => {
 
       const listFrame = getModuleFrame(page);
       // Filter by the literal payload — must yield zero results.
-      await listFrame.getByRole('textbox', { name: 'Identifier' }).fill(payload);
-
-      // The filter posts and the module iframe re-renders. Waiting for that
-      // response is what makes the count below describe the FILTERED list:
-      // page.waitForLoadState('networkidle') returns before the frame has
-      // swapped documents, so counting behind it reads the unfiltered table
-      // and the assertion passes or fails on timing rather than on the
-      // validator. Verified against a live instance: the same POST returns 16
-      // rows unfiltered, 1 for an existing identifier and 0 for this payload.
-      const filtered = page.waitForResponse(
-        (resp) => resp.request().method() === 'POST' && resp.url().includes('/vault/secrets'),
-        { timeout: 10000 },
-      );
-      await listFrame.locator('button:has-text("Filter")').click();
-      await filtered.catch(() => undefined);
-      await page.waitForLoadState('networkidle');
+      //
+      // The count below has to describe the FILTERED list, so the wait has to
+      // be about the filtered document arriving. `networkidle` stood here and
+      // returns before the frame has swapped documents, so the count read the
+      // unfiltered table; the response wait that replaced it was swallowed.
+      // The fixture clears the list's readiness flag before submitting, so
+      // only the new document can satisfy it, and it stops short of waiting
+      // for a row — this payload must match none. Verified against a live
+      // instance: the same POST returns 16 rows unfiltered, 1 for an existing
+      // identifier and 0 for this payload.
+      await submitIdentifierFilter(listFrame, payload);
 
       const rows = getModuleFrame(page).locator('table tbody tr');
       // Allow empty table or a "0 results" row; flag any actual data row.
@@ -362,8 +346,7 @@ test.describe('SEC-RESIL-008: Session expiry mid-edit', () => {
     // Simulate session expiry by clearing cookies before submit.
     await page.context().clearCookies();
 
-    await frame.locator('button[name="_savedok"]').first().click();
-    await page.waitForLoadState('networkidle').catch(() => undefined);
+    await saveRecord(page, frame);
 
     // We must end up either at login or at an error page — NEVER with the
     // plaintext in the response HTML.
@@ -424,8 +407,7 @@ test.describe('SEC-RESIL-009: Concurrent edit — two tabs on same secret', () =
     if (await descA.isVisible().catch(() => false)) {
       await descA.fill('changed-by-tab-A');
     }
-    await frameA.locator('button[name="_savedok"]').first().click();
-    await pageA.waitForLoadState('networkidle');
+    await saveRecord(pageA, frameA);
 
     // Tab B changes description and saves (after A).
     const frameB = getModuleFrame(pageB);
@@ -435,8 +417,7 @@ test.describe('SEC-RESIL-009: Concurrent edit — two tabs on same secret', () =
     if (await descB.isVisible().catch(() => false)) {
       await descB.fill('changed-by-tab-B');
     }
-    await frameB.locator('button[name="_savedok"]').first().click();
-    await pageB.waitForLoadState('networkidle');
+    await saveRecord(pageB, frameB);
 
     // Neither save should have produced a 500 error.
     for (const p of [pageA, pageB]) {

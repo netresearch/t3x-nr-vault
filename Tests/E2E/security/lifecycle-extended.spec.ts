@@ -1,11 +1,4 @@
-import {
-  test,
-  expect,
-  getModuleFrame,
-  waitForModuleContent,
-  filterByIdentifier,
-  rowFor,
-} from '../fixtures/auth';
+import { expect, test, filterByIdentifier, getModuleFrame, rowFor, saveRecord, waitForModuleContent } from '../fixtures/auth';
 import type { Page } from '@playwright/test';
 
 /**
@@ -65,7 +58,9 @@ async function confirmDeleteModal(page: Page): Promise<void> {
   const confirm = page.getByRole('button', { name: 'Delete', exact: true });
   await confirm.waitFor({ state: 'visible', timeout: 10000 });
   await confirm.click();
-  await page.waitForLoadState('networkidle');
+  // The modal closes when the delete has gone through. `networkidle` stood
+  // here and reports on the browser's request queue, not on this dialog.
+  await confirm.waitFor({ state: 'hidden', timeout: 15000 });
 }
 
 async function auditRowForIdentifier(
@@ -104,8 +99,7 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
     let frame = getModuleFrame(page);
     await frame.locator('input[data-formengine-input-name*="identifier"]').fill(identifier);
     await frame.locator('input[data-vault-is-new="1"]').first().fill('lifecycle-value');
-    await frame.locator('button[name="_savedok"]').first().click();
-    await page.waitForLoadState('networkidle');
+    await saveRecord(page, frame);
 
     expect(
       await auditRowForIdentifier(page, identifier, 'create'),
@@ -122,7 +116,11 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
       .first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
-      await page.waitForLoadState('networkidle');
+      // The toggle is AJAX and repaints the row's badge in place, which is the
+      // observable the next assertion depends on.
+      await expect(rowFor(frame, identifier).locator('.badge').first()).toHaveText(/Disabled/i, {
+        timeout: 15000,
+      });
     }
 
     expect(
@@ -140,7 +138,9 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
       .first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
-      await page.waitForLoadState('networkidle');
+      await expect(rowFor(frame, identifier).locator('.badge').first()).toHaveText(/Active/i, {
+        timeout: 15000,
+      });
     }
 
     // DELETE
@@ -171,8 +171,7 @@ test.describe.serial('LC-EXT-002: Rotate produces an audit entry with success=tr
     let frame = getModuleFrame(page);
     await frame.locator('input[data-formengine-input-name*="identifier"]').fill(identifier);
     await frame.locator('input[data-vault-is-new="1"]').first().fill('original');
-    await frame.locator('button[name="_savedok"]').first().click();
-    await page.waitForLoadState('networkidle');
+    await saveRecord(page, frame);
 
     // Rotate via modal
     await page.goto('/typo3/module/admin/vault/secrets');
@@ -243,8 +242,7 @@ test.describe.serial('LC-EXT-003: Dashboard counter delta across lifecycle', () 
     let frame = getModuleFrame(page);
     await frame.locator('input[data-formengine-input-name*="identifier"]').fill(identifier);
     await frame.locator('input[data-vault-is-new="1"]').first().fill('counter-test');
-    await frame.locator('button[name="_savedok"]').first().click();
-    await page.waitForLoadState('networkidle');
+    await saveRecord(page, frame);
 
     const afterCreateTotal = await readOverviewCount(page, /Total Secrets/i);
     const afterCreateActive = await readOverviewCount(page, /Active/i);
@@ -261,7 +259,9 @@ test.describe.serial('LC-EXT-003: Dashboard counter delta across lifecycle', () 
       .first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
-      await page.waitForLoadState('networkidle');
+      await expect(rowFor(frame, identifier).locator('.badge').first()).toHaveText(/Disabled/i, {
+        timeout: 15000,
+      });
     }
 
     const afterDisableActive = await readOverviewCount(page, /Active/i);

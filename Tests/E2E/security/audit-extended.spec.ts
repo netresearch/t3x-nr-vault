@@ -1,12 +1,5 @@
 import type { Page } from '@playwright/test';
-import {
-  test,
-  expect,
-  getModuleFrame,
-  waitForModuleContent,
-  filterByIdentifier,
-  rowFor,
-} from '../fixtures/auth';
+import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, rowFor, saveRecord, waitForModuleContent } from '../fixtures/auth';
 
 /**
  * Extended audit-module tests that fill gaps in UP-AUD-006 / UP-AUD-007 /
@@ -45,8 +38,7 @@ test.describe('AUD-EXT-001: JSON export returns a well-formed array', () => {
     const frame = getModuleFrame(page);
     await frame.locator('input[data-formengine-input-name*="identifier"]').fill(identifier);
     await frame.locator('input[data-vault-is-new="1"]').first().fill('json-export-seed');
-    await frame.locator('button[name="_savedok"]').first().click();
-    await page.waitForLoadState('networkidle');
+    await saveRecord(page, frame);
 
     // Download through the export link the audit module offers. TYPO3 module
     // URLs carry a route token; a hand-built URL without it is sent to the
@@ -84,7 +76,7 @@ test.describe('AUD-EXT-001: JSON export returns a well-formed array', () => {
       const confirm = page.getByRole('button', { name: 'Delete', exact: true });
       if (await confirm.isVisible().catch(() => false)) {
         await confirm.click();
-        await page.waitForLoadState('networkidle');
+        await confirm.waitFor({ state: 'hidden', timeout: 15000 });
       }
     }
   });
@@ -131,8 +123,7 @@ test.describe('AUD-EXT-003: Audit list pagination', () => {
       const frame = getModuleFrame(page);
       await frame.locator('input[data-formengine-input-name*="identifier"]').fill(identifier);
       await frame.locator('input[data-vault-is-new="1"]').first().fill(`pagination-${i}`);
-      await frame.locator('button[name="_savedok"]').first().click();
-      await page.waitForLoadState('networkidle');
+      await saveRecord(page, frame);
     }
 
     await page.goto('/typo3/module/admin/vault/audit');
@@ -147,8 +138,7 @@ test.describe('AUD-EXT-003: Audit list pagination', () => {
       'a[rel="next"], a:has-text("Next"), [aria-label="Next page"]',
     );
     if (await nextLink.first().isVisible().catch(() => false)) {
-      await nextLink.first().click();
-      await page.waitForLoadState('networkidle');
+      await clickAndWaitForModule(page, () => nextLink.first().click());
 
       const newFrame = getModuleFrame(page);
       await expect(newFrame.locator('text=Oops, an error occurred')).not.toBeVisible();
@@ -157,8 +147,7 @@ test.describe('AUD-EXT-003: Audit list pagination', () => {
         'a[rel="prev"], a:has-text("Previous"), [aria-label="Previous page"]',
       );
       if (await prevLink.first().isVisible().catch(() => false)) {
-        await prevLink.first().click();
-        await page.waitForLoadState('networkidle');
+        await clickAndWaitForModule(page, () => prevLink.first().click());
 
         const prevFrame = getModuleFrame(page);
         await expect(prevFrame.locator('text=Oops, an error occurred')).not.toBeVisible();

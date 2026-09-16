@@ -1,4 +1,4 @@
-import { test, expect, filterByIdentifier, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import { expect, test, filterByIdentifier, getModuleFrame, saveRecord, waitForModuleContent } from '../fixtures/auth';
 
 /**
  * E2E tests for TYPO3 FormEngine/TCA integration.
@@ -35,11 +35,7 @@ test.describe('TYPO3 FormEngine/TCA Integration', () => {
       // For VaultSecretInputElement, new records have data-vault-is-new="1"
       const secretInput = frame.locator('input[data-vault-is-new="1"]').first();
       await secretInput.fill('formengine-test-secret');
-      // Click save button - try multiple selectors
-      const saveButton = frame.locator('button[name="_savedok"], button:has-text("Save")').first();
-      await saveButton.click();
-
-      await page.waitForLoadState('networkidle');
+      await saveRecord(page, frame);
 
       // Get the UID of the created record by finding it in the list
       await page.goto('/typo3/module/admin/vault/secrets');
@@ -180,8 +176,7 @@ test.describe('TYPO3 FormEngine/TCA Integration', () => {
       let frame = getModuleFrame(page);
       await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
       await frame.locator('input[data-vault-is-new="1"]').first().fill('resave-test-secret');
-      await frame.locator('button[name="_savedok"], button:has-text("Save")').first().click();
-      await page.waitForLoadState('networkidle');
+      await saveRecord(page, frame);
 
       // Re-open the record via the filtered list
       await page.goto('/typo3/module/admin/vault/secrets');
@@ -195,8 +190,7 @@ test.describe('TYPO3 FormEngine/TCA Integration', () => {
 
       // Hit save without touching anything — the issue #227 reproduction
       frame = getModuleFrame(page);
-      await frame.locator('button[name="_savedok"], button:has-text("Save")').first().click();
-      await page.waitForLoadState('networkidle');
+      await saveRecord(page, frame);
 
       // The form must still render (save succeeded) …
       frame = getModuleFrame(page);

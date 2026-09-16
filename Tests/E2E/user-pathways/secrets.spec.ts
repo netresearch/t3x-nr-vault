@@ -1,4 +1,4 @@
-import { test, expect, filterByIdentifier, getModuleFrame, submitIdentifierFilter, waitForModuleContent } from '../fixtures/auth';
+import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, saveRecord, submitIdentifierFilter, waitForModuleContent } from '../fixtures/auth';
 import type { Page, FrameLocator, Locator } from '@playwright/test';
 
 /**
@@ -123,13 +123,10 @@ async function createSecretAndReveal(page: Page, plaintext: string): Promise<str
 }
 
 async function saveFormEngine(page: Page, frame: FrameLocator): Promise<void> {
-  const saveResponse = page.waitForResponse(
-    (resp) => resp.request().method() === 'POST' && resp.status() < 400,
-    { timeout: 15000 },
-  );
-  await frame.locator('button[name="_savedok"], button:has-text("Save")').first().click();
-  await saveResponse.catch(() => undefined);
-  await page.waitForLoadState('networkidle');
+  // The response wait here was swallowed and the `networkidle` behind it
+  // watched the wrong document; the fixture waits for the POST FormEngine
+  // actually sends and then for the module content it renders.
+  await saveRecord(page, frame);
 }
 
 test.describe('Secrets Module User Pathways', () => {
@@ -452,28 +449,26 @@ test.describe('Secrets Module User Pathways', () => {
       await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
       const secretInput2 = frame.locator('input[data-vault-is-new="1"]').first();
       await secretInput2.fill('duplicate-secret');
-      await frame.locator('button[name="_savedok"], button:has-text("Save")').click();
-      await page.waitForLoadState('networkidle');
+      await saveRecord(page, frame);
 
       // Duplicate identifier MUST be rejected — the system should not silently
-      // overwrite a secret. Check for a concrete error indicator.
-      const newFrame = getModuleFrame(page);
-      const errorLocators = [
-        newFrame.locator('.alert-danger'),
-        newFrame.locator('.callout-danger'),
-        newFrame.locator('.typo3-message-error'),
-        newFrame.locator('.has-error, .is-invalid'),
-        newFrame.locator('text=already exists'),
-        newFrame.locator('text=duplicate'),
-      ];
-      let hasError = false;
-      for (const loc of errorLocators) {
-        if (await loc.first().isVisible().catch(() => false)) {
-          hasError = true;
-          break;
-        }
-      }
-      expect(hasError, 'Duplicate identifier must be rejected with a visible error').toBe(true);
+      // overwrite a secret.
+      //
+      // The six locators that stood here were sampled with `isVisible()`, one
+      // point in time each, and the `networkidle` before them happened to
+      // cover the gap. Measured on a provisioned instance: the rejection is
+      // painted into the module frame about 500 ms after the save response,
+      // so at the moment the save settles none of them is there yet. One
+      // waiting assertion states the same thing and survives the timing.
+      const rejection = getModuleFrame(page).locator(
+        '.alert-danger, .callout-danger, .typo3-message-error, .has-error, .is-invalid, ' +
+        ':text("already exists"), :text("duplicate")',
+      );
+
+      await expect(
+        rejection.first(),
+        'Duplicate identifier must be rejected with a visible error',
+      ).toBeVisible({ timeout: 15000 });
     });
   });
 
@@ -489,8 +484,7 @@ test.describe('Secrets Module User Pathways', () => {
         .first();
 
       if (await viewLink.isVisible()) {
-        await viewLink.click();
-        await page.waitForLoadState('networkidle');
+        await clickAndWaitForModule(page, () => viewLink.click());
 
         // Verify we're on the view page
         const newFrame = getModuleFrame(page);
@@ -998,8 +992,7 @@ test.describe('Secrets Module User Pathways', () => {
       const editButton = row.getByTestId('vault-edit-btn').first();
 
       if (await editButton.isVisible()) {
-        await editButton.click();
-        await page.waitForLoadState('networkidle');
+        await clickAndWaitForModule(page, () => editButton.click());
 
         // Should be on the edit form (FormEngine)
         const editFrame = getModuleFrame(page);

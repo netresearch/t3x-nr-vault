@@ -1,4 +1,4 @@
-import { test, expect, filterByIdentifier, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import { expect, test, filterByIdentifier, getModuleFrame, saveRecord, waitForModuleContent } from '../fixtures/auth';
 
 /**
  * E2E tests for Cross-Module User Pathways.
@@ -43,8 +43,7 @@ test.describe.serial('Cross-Module User Pathways', () => {
         await descriptionField.fill('Lifecycle test secret');
       }
 
-      await frame.locator('button[name="_savedok"], button:has-text("Save")').click();
-      await page.waitForLoadState('networkidle');
+      await saveRecord(page, frame);
 
       // Verify creation succeeded
       const newFrame = getModuleFrame(page);
@@ -80,7 +79,7 @@ test.describe.serial('Cross-Module User Pathways', () => {
         const confirm = page.getByRole('button', { name: 'Delete', exact: true });
         if (await confirm.isVisible().catch(() => false)) {
           await confirm.click();
-          await page.waitForLoadState('networkidle');
+          await confirm.waitFor({ state: 'hidden', timeout: 15000 });
         }
       }
     });
@@ -155,9 +154,9 @@ test.describe.serial('Cross-Module User Pathways', () => {
       await page.goto('/typo3/module/admin/vault/audit');
       await waitForModuleContent(page);
 
-      // Go back
+      // Go back. `page.goBack()` resolves on the navigation itself, so the
+      // `networkidle` that stood here added a wait for unrelated traffic.
       await page.goBack();
-      await page.waitForLoadState('networkidle');
 
       // URL should still be within vault module.
       const currentUrl = page.url();
@@ -228,8 +227,7 @@ test.describe.serial('Cross-Module User Pathways', () => {
       await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
       const secretInput = frame.locator('input[data-vault-is-new="1"]').first();
       await secretInput.fill('feedback-test');
-      await frame.locator('button[name="_savedok"], button:has-text("Save")').click();
-      await page.waitForLoadState('networkidle');
+      await saveRecord(page, frame);
 
       // Verify the secret exists in the list (concrete state check).
       await page.goto('/typo3/module/admin/vault/secrets');
@@ -253,7 +251,7 @@ test.describe.serial('Cross-Module User Pathways', () => {
         const confirmButton = page.getByRole('button', { name: 'Delete', exact: true });
         if (await confirmButton.isVisible().catch(() => false)) {
           await confirmButton.click();
-          await page.waitForLoadState('networkidle');
+          await confirmButton.waitFor({ state: 'hidden', timeout: 15000 });
         }
       }
     });
@@ -280,8 +278,7 @@ test.describe.serial('Cross-Module User Pathways', () => {
         await descField.fill(testDescription);
       }
 
-      await frame.locator('button[name="_savedok"], button:has-text("Save")').first().click();
-      await page.waitForLoadState('networkidle');
+      await saveRecord(page, frame);
 
       // Check in list view
       await page.goto('/typo3/module/admin/vault/secrets');
@@ -305,7 +302,7 @@ test.describe.serial('Cross-Module User Pathways', () => {
         const confirmButton = page.getByRole('button', { name: 'Delete', exact: true });
         if (await confirmButton.isVisible().catch(() => false)) {
           await confirmButton.click();
-          await page.waitForLoadState('networkidle');
+          await confirmButton.waitFor({ state: 'hidden', timeout: 15000 });
         }
       }
     });
