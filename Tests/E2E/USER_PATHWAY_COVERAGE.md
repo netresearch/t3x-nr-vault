@@ -91,8 +91,8 @@
 |---|---|---|---|---|
 | UP-MIG-001 | P2 | `migration.spec.ts:22` | FULL | Intro page, start button, explanation section. |
 | UP-MIG-002 | P2 | `migration.spec.ts:73` | PARTIAL | Navigates to scan; does NOT wait for the scan to complete and assert counts / grouping by severity. |
-| UP-MIG-003 | P2 | `migration.spec.ts:128` | PARTIAL | Loads review page only; filtering + selection UI not exercised. |
-| UP-MIG-004 | P2 | `migration.spec.ts:164` | PARTIAL | Loads configure page; pattern input is not filled, no configuration summary checked. |
+| UP-MIG-003 | P2 | `migration.spec.ts:204` | PARTIAL | Asserts that the step renders either the selectable candidate table or the empty-state notice, and the per-row checkboxes when it lists candidates. Steps 4 and 5 of the pathway (filter by source, filter by severity) are not implemented by the module — `Review.html` has no filter control — so the test that claimed to cover them was removed rather than rewritten. |
+| UP-MIG-004 | P2 | `migration.spec.ts:235` | PARTIAL | The step is reached by posting a selection, the way the review form does: a GET redirects back to review, which is why the earlier tests named after this step were in fact asserting against the review page. Covered: the redirect guard, one identifier-pattern input per selected row, the clear-originals option and the submit control. Not covered: filling the pattern and running the migration. Step 4 of the pathway (set default ownership) is not implemented by the module. |
 | UP-MIG-005 | P1 | `migration.spec.ts:199` | PARTIAL | Loads execute page; does not run an actual migration or check results. |
 | UP-MIG-006 | P2 | `migration.spec.ts:221` | PARTIAL | Loads verify page; summary numbers not asserted. |
 | UP-MIG-007 | P2 | `migration.spec.ts:243` | PARTIAL | Non-error assertion only. |

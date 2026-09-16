@@ -83,6 +83,11 @@ test.describe('TYPO3 FormEngine/TCA Integration', () => {
       // Try to load FormEngine for record UID 1 (might not exist, but should not 500/503)
       const response = await page.goto('/typo3/record/edit?edit[tx_nrvault_secret][1]=edit');
 
+      // The status was read and dropped here. A missing record is allowed to
+      // answer 4xx, a TCA fault is not: anything from 500 up is the failure
+      // this test exists for, and the frame checks below cannot see it.
+      expect(response?.status(), 'FormEngine answered a server error').toBeLessThan(500);
+
       // Even if record doesn't exist, FormEngine should handle gracefully
       // We're specifically checking for the str_starts_with error that was caused by pid conflict
       await waitForModuleContent(page);
@@ -112,17 +117,19 @@ test.describe('TYPO3 FormEngine/TCA Integration', () => {
       const settingsTab = frame.locator('text=Settings');
       if (await settingsTab.first().isVisible()) {
         await settingsTab.first().click();
-        // Wait for tab pane to become active instead of arbitrary sleep.
-        await frame
-          .locator('[role="tabpanel"].active, .tab-pane.active')
-          .first()
-          .waitFor({ state: 'visible', timeout: 5000 })
-          .catch(() => undefined);
 
-        // scope_pid should be rendered as a group element picker
-        const scopePidField = frame.locator('[data-field-name="scope_pid"], [id*="scope_pid"]');
+        // The wait for the pane was swallowed with `.catch(() => undefined)`,
+        // so the assertions below ran whether or not the tab ever opened.
+        await expect(frame.locator('[role="tabpanel"].active, .tab-pane.active').first())
+          .toBeVisible({ timeout: 5000 });
 
-        // Either the field exists and is properly rendered, or the tab is there without errors
+        // The `scope_pid` locator that stood here was never asserted, and it
+        // matched nothing: FormEngine writes `data-fieldname` (one word) on
+        // the group element's record picker, never `data-field-name`, and no
+        // element id carries the column name. The field is what the tab is
+        // opened for, so the picker is required now — rendering it is what
+        // the pid conflict broke.
+        await expect(frame.locator('input[data-fieldname="scope_pid"]').first()).toBeVisible();
         await expect(frame.locator('text=str_starts_with')).not.toBeVisible();
       }
     });
