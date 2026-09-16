@@ -30,7 +30,6 @@ Thumbs.db
 /.Build/
 /public/
 composer.lock
-package-lock.json
 
 # Rust (future)
 /rust/target/
