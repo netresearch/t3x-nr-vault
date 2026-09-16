@@ -153,7 +153,7 @@ test.describe('Overview Module User Pathways', () => {
 
     test('can navigate between submodules via module menu', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/secrets');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       // Use TYPO3 module menu for navigation (outside iframe)
       const moduleMenu = page.locator('nav[aria-label="Module Menu"]');

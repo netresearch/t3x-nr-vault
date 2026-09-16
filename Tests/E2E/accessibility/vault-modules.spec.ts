@@ -113,7 +113,7 @@ test.describe('Vault Module Accessibility', () => {
   test.describe('Secrets Module', () => {
     test('secrets list page has no moderate+ accessibility violations', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/secrets');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
@@ -131,7 +131,7 @@ test.describe('Vault Module Accessibility', () => {
 
     test('create secret form has proper labels and structure', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/secrets/create');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa'])
@@ -160,7 +160,7 @@ test.describe('Vault Module Accessibility', () => {
   test.describe('Audit Module', () => {
     test('audit log page has no moderate+ accessibility violations', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/audit');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
@@ -173,7 +173,7 @@ test.describe('Vault Module Accessibility', () => {
 
     test('audit table has proper data table structure', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/audit');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa'])
@@ -191,7 +191,7 @@ test.describe('Vault Module Accessibility', () => {
   test.describe('Migration Module', () => {
     test('migration wizard has no moderate+ accessibility violations', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
@@ -206,7 +206,7 @@ test.describe('Vault Module Accessibility', () => {
   test.describe('Parent Module', () => {
     test('submodule overview has proper heading hierarchy', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa'])
@@ -219,7 +219,7 @@ test.describe('Vault Module Accessibility', () => {
 
     test('navigation elements are accessible', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa'])
@@ -236,7 +236,7 @@ test.describe('Vault Module Accessibility', () => {
   test.describe('Color Contrast', () => {
     test('secrets module has sufficient color contrast', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/secrets');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2aa'])
@@ -265,7 +265,7 @@ test.describe('Vault Module Accessibility', () => {
   test.describe('Keyboard Navigation', () => {
     test('secrets list is navigable by keyboard', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/secrets');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       // Tab through interactive elements
       await page.keyboard.press('Tab');

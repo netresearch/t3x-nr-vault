@@ -1,20 +1,5 @@
-import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import { expect, test, clickAndWaitForModule, getModuleFrame, moduleFrameUrl, waitForModuleContent } from '../fixtures/auth';
 import type { Page } from '@playwright/test';
-
-/**
- * The URL the module iframe currently shows.
- *
- * Navigation inside a backend module happens in that iframe. TYPO3 14 mirrors
- * it into the address bar afterwards; TYPO3 13 does not, so `page.url()` still
- * reports the route the shell was opened with and an assertion on it measures
- * the wrong document. Falls back to the top URL when there is no iframe, so the
- * helper is safe on a standalone page too.
- */
-function frameUrl(page: Page): string {
-  const child = page.frames().find((frame) => frame !== page.mainFrame());
-
-  return child === undefined ? page.url() : child.url();
-}
 
 /**
  * Open the wizard's configure step with a selection, the way the review form
@@ -137,27 +122,27 @@ test.describe('Migration Module User Pathways', () => {
   test.describe('UP-MIG-002: Scan for Plaintext Secrets', () => {
     test('can navigate to scan step', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
-      // Click start scan
-      const startButton = page.locator(
+      // The control lives in the module iframe. This locator was page-scoped,
+      // so it was never visible and the step this test is named after never
+      // ran -- the test passed by doing nothing.
+      const startButton = getModuleFrame(page).locator(
         'a[href*="action=scan"], ' +
         'button:has-text("Scan"), ' +
         'a:has-text("Start Scan")'
       ).first();
 
-      if (await startButton.isVisible()) {
-        await startButton.click();
-        await page.waitForLoadState('networkidle');
+      await expect(startButton).toBeVisible();
+      await clickAndWaitForModule(page, () => startButton.click());
 
-        // Should be on scan page or show scan results
-        await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
-      }
+      expect(moduleFrameUrl(page)).toContain('action=scan');
+      await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
     });
 
     test('scan page shows results or progress', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=scan');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       // The wizard renders inside the module iframe, so the whole search has to
       // happen there. `text=` also consumes the rest of the selector string —
@@ -242,7 +227,7 @@ test.describe('Migration Module User Pathways', () => {
 
       // This is what a plain GET of the configure step does, and every test
       // in this group used to assert against the result without saying so.
-      expect(frameUrl(page)).toContain('action=review');
+      expect(moduleFrameUrl(page)).toContain('action=review');
       await expect(frame.locator('text=Selection Required')).toBeVisible();
       await expect(frame.locator('text=No secrets selected for migration.')).toBeVisible();
       await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
@@ -288,7 +273,7 @@ test.describe('Migration Module User Pathways', () => {
 
     test('execute page renders without an error page', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=execute');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       // What this test measures is that the step renders at all. Three
       // locators for progress, results and a Continue control used to stand
@@ -310,7 +295,7 @@ test.describe('Migration Module User Pathways', () => {
 
     test('verify page renders without an error page', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=verify');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       // Same as the execute step: the summary, count and return-link
       // locators that stood here were never asserted. This checks that the
@@ -343,7 +328,7 @@ test.describe('Migration Module User Pathways', () => {
   test.describe('UP-MIG-008: Migration Wizard - Back Navigation', () => {
     test('can navigate back from review to scan', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=review');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       // The wizard's Back control is an <f:be.link> inside the module iframe,
       // so both the click and the resulting URL belong to the frame. The top
@@ -377,15 +362,13 @@ test.describe('Migration Module User Pathways', () => {
         // start. Both are "no longer on review"; asserting one of them would
         // pass or fail on the fixture rather than on the navigation.
         await expect
-          .poll(() => frameUrl(page), { timeout: 10000 })
+          .poll(() => moduleFrameUrl(page), { timeout: 10000 })
           .not.toMatch(/action=review/);
       }
     });
 
     test('can navigate back from configure to review', async ({ authenticatedPage: page }) => {
       await page.goto('/typo3/module/admin/vault/migration?action=configure');
-      await page.waitForLoadState('networkidle');
-
       await waitForModuleContent(page);
       const frame = getModuleFrame(page);
       const backButton = frame
@@ -401,7 +384,7 @@ test.describe('Migration Module User Pathways', () => {
       // iframe can still carry action=configure when it returns — so the URL
       // is polled until the frame itself has moved.
       await expect
-        .poll(() => frameUrl(page), { timeout: 10000 })
+        .poll(() => moduleFrameUrl(page), { timeout: 10000 })
         .toMatch(/action=review|action=scan|admin_vault_migration/);
     });
 
@@ -421,7 +404,7 @@ test.describe('Migration Module User Pathways', () => {
 
       await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
       await expect(frame.locator('a[href*="action=scan"]').first()).toBeVisible();
-      expect(frameUrl(page)).not.toContain('action=');
+      expect(moduleFrameUrl(page)).not.toContain('action=');
     });
   });
 
@@ -431,7 +414,7 @@ test.describe('Migration Module User Pathways', () => {
       // It's hard to test directly without setup, so we verify the scan works
 
       await page.goto('/typo3/module/admin/vault/migration?action=scan');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       // Page should load and show results
       await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
@@ -449,22 +432,27 @@ test.describe('Migration Module User Pathways', () => {
     test('complete wizard flow navigation', async ({ authenticatedPage: page }) => {
       // Start at index
       await page.goto('/typo3/module/admin/vault/migration');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
-      // Step 1: Index -> Scan
-      const scanLink = page.locator('a[href*="action=scan"], button:has-text("Scan")').first();
-      if (await scanLink.isVisible()) {
-        await scanLink.click();
-        await page.waitForLoadState('networkidle');
-        expect(page.url()).toContain('action=scan');
-      }
+      // Both locators were page-scoped and matched nothing, so neither step of
+      // this "flow" ever ran. The links live in the module iframe, and on
+      // TYPO3 13 the address bar does not follow the iframe, so the URL claim
+      // has to be made about the frame.
+      const scanLink = getModuleFrame(page)
+        .locator('a[href*="action=scan"], button:has-text("Scan")')
+        .first();
+      await expect(scanLink).toBeVisible();
+      await clickAndWaitForModule(page, () => scanLink.click());
+      expect(moduleFrameUrl(page)).toContain('action=scan');
 
-      // Step 2: Scan -> Review (if continue link exists)
-      const reviewLink = page.locator('a[href*="action=review"], button:has-text("Review")').first();
+      // Step 2: Scan -> Review. The Continue control renders only when the
+      // scan found database candidates, so this step is conditional on data.
+      const reviewLink = getModuleFrame(page)
+        .locator('a[href*="action=review"], button:has-text("Review")')
+        .first();
       if (await reviewLink.isVisible()) {
-        await reviewLink.click();
-        await page.waitForLoadState('networkidle');
-        expect(page.url()).toContain('action=review');
+        await clickAndWaitForModule(page, () => reviewLink.click());
+        expect(moduleFrameUrl(page)).toContain('action=review');
       }
 
       // Verify no errors throughout
@@ -474,7 +462,7 @@ test.describe('Migration Module User Pathways', () => {
     test('wizard maintains state across steps', async ({ authenticatedPage: page }) => {
       // Navigate through wizard and verify session state is maintained
       await page.goto('/typo3/module/admin/vault/migration?action=scan');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       // The wizard should maintain selection/state via session
       // This is implementation-specific but we verify pages load correctly
@@ -493,7 +481,7 @@ test.describe('Migration Module User Pathways', () => {
       });
 
       await page.goto('/typo3/module/admin/vault/migration');
-      await page.waitForLoadState('networkidle');
+      await waitForModuleContent(page);
 
       const criticalErrors = consoleErrors.filter(
         (err) => !err.includes('favicon') && !err.includes('404')

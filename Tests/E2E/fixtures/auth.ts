@@ -77,6 +77,58 @@ export function getModuleFrame(page: Page): FrameLocator {
 }
 
 /**
+ * The URL the module iframe currently shows.
+ *
+ * Navigation inside a backend module happens in that iframe. TYPO3 14 mirrors
+ * it into the address bar afterwards; TYPO3 13 does not, so `page.url()` still
+ * reports the route the shell was opened with and a wait on it measures the
+ * wrong document. Falls back to the top URL when there is no iframe.
+ */
+export function moduleFrameUrl(page: Page): string {
+  const child = page.frames().find((frame) => frame !== page.mainFrame());
+
+  return child === undefined ? page.url() : child.url();
+}
+
+/**
+ * Run an action that navigates the module iframe and wait for the new document.
+ *
+ * `page.waitForLoadState('networkidle')` is the wrong instrument for this: it
+ * watches the top-level document, which is not the one navigating, and it
+ * answers a question about request traffic rather than about the page. The
+ * frame's URL is the observable that actually changes, and the content wait
+ * behind it is what the caller's next locator needs.
+ */
+export async function clickAndWaitForModule(page: Page, click: () => Promise<void>): Promise<void> {
+  const before = moduleFrameUrl(page);
+  await click();
+  await expect.poll(() => moduleFrameUrl(page), { timeout: 15000 }).not.toBe(before);
+  await waitForModuleContent(page);
+}
+
+/**
+ * Save the record FormEngine is showing, and wait for the save itself.
+ *
+ * FormEngine posts the form to `/typo3/record/edit` and follows the answer
+ * with a GET of the saved record. Waiting for that POST is a statement about
+ * the save; `networkidle` is a statement about the browser being quiet, which
+ * on a backend page full of polling widgets is neither necessary nor
+ * sufficient. Measured on a provisioned instance: a click issued before the
+ * module content is there sends no request at all, and `networkidle` reports
+ * success for it.
+ */
+export async function saveRecord(page: Page, frame: FrameLocator): Promise<void> {
+  const saved = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' && response.url().includes('/typo3/record/edit'),
+    { timeout: 20000 },
+  );
+  await frame.locator('button[name="_savedok"], button:has-text("Save")').first().click();
+  await saved;
+  await waitForModuleContent(page);
+}
+
+/**
  * Wait for the module content to load within the iframe.
  */
 export async function waitForModuleContent(page: Page): Promise<void> {

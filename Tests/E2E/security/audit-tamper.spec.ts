@@ -1,4 +1,4 @@
-import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import { expect, test, getModuleFrame, saveRecord, waitForModuleContent } from '../fixtures/auth';
 import { isDbExecConfigured, runSql } from '../fixtures/db';
 
 /**
@@ -51,8 +51,7 @@ test.describe.serial('UP-AUD-009 (extended): Hash chain detects tampering', () =
     let frame = getModuleFrame(page);
     await frame.locator('input[data-formengine-input-name*="identifier"]').fill(identifier);
     await frame.locator('input[data-vault-is-new="1"]').first().fill('tamper-test');
-    await frame.locator('button[name="_savedok"]').first().click();
-    await page.waitForLoadState('networkidle');
+    await saveRecord(page, frame);
 
     // Step 2: baseline verifyChain — expect valid.
     await page.goto('/typo3/module/admin/vault/audit/verifyChain');
