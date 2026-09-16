@@ -68,6 +68,15 @@ class SecretsList {
         document.querySelectorAll('[data-vault-rotate]').forEach(button => {
             button.addEventListener('click', this.handleRotate.bind(this));
         });
+
+        // The row actions are inert until the lines above have run, and the
+        // table is in the document well before this module is imported: a
+        // click that lands in between focuses the button and does nothing at
+        // all. Nothing in the markup says when that window closes, so this
+        // flag says it -- for the E2E specs, which otherwise race the import
+        // on a slow runner, and for anyone debugging a button that "did
+        // nothing".
+        document.documentElement.dataset.vaultSecretsList = 'ready';
     }
 
     handleDelete(event) {

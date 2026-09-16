@@ -28,6 +28,14 @@ async function filterByIdentifier(frame: FrameLocator, identifier: string): Prom
     .filter({ hasText: identifier })
     .first()
     .waitFor({ state: 'visible', timeout: 15000 });
+  // The filter submits the form, so the row is in the new document before
+  // SecretsList.js has been imported and has bound the row actions. Clicking
+  // Rotate, Reveal or Delete in that window focuses the button and does
+  // nothing — which is what the failing CI run's snapshot shows. The module
+  // sets this flag once the handlers are attached.
+  await frame
+    .locator('html[data-vault-secrets-list="ready"]')
+    .waitFor({ state: 'attached', timeout: 15000 });
 }
 
 /**
