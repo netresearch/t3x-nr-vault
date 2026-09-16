@@ -135,7 +135,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already stored under such an identifier stay readable and deletable.
 
 - **The TYPO3 13 parent module opens the vault overview** instead of whichever
-  submodule the user opened last.
+  submodule the user opened last. Only the parent's own path does: every route
+  of a module carries the same module identifier, so matching on that alone
+  also caught the parent's `help` route and opening Help rewrote the submodule
+  the backend remembers for that user.
 
 - **State badges meet the WCAG AA contrast minimum** on both TYPO3 lines; the
   success badge measured 3.6:1 before.
