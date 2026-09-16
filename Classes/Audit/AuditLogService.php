@@ -1200,8 +1200,8 @@ final readonly class AuditLogService implements AuditLogServiceInterface
 
         // Bound the length: forensic value is in the category of failure, not
         // a verbose dump. 200 chars is plenty for a human-readable summary.
-        if (mb_strlen($clean) > 200) {
-            return mb_substr($clean, 0, 197) . '...';
+        if (mb_strlen($clean, 'UTF-8') > 200) {
+            return mb_substr($clean, 0, 197, 'UTF-8') . '...';
         }
 
         return $clean;

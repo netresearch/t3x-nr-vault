@@ -84,7 +84,7 @@ final class SinkDeliveryStateRepository implements SinkDeliveryStateRepositoryIn
                 lastFailureAt: time(),
                 consecutiveFailures: $state->consecutiveFailures + 1,
                 totalFailures: $state->totalFailures + 1,
-                lastError: mb_substr($errorMessage, 0, self::ERROR_MESSAGE_MAX_LENGTH),
+                lastError: mb_substr($errorMessage, 0, self::ERROR_MESSAGE_MAX_LENGTH, 'UTF-8'),
             ));
         } catch (Throwable $e) {
             $this->logFailedBookkeeping($sinkIdentifier, $e);

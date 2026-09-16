@@ -1405,7 +1405,7 @@ final class SecretTcaHook
     {
         try {
             $this->auditService->log(
-                substr($identifier, 0, 255),
+                mb_substr($identifier, 0, 255, 'UTF-8'),
                 AuditAction::AccessDenied->value,
                 false,
                 'Create denied: identifier rejected by IdentifierValidator',

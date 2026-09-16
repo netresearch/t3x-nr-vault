@@ -73,6 +73,16 @@ final readonly class VaultOverviewModuleResolver implements MiddlewareInterface
             return $handler->handle($request);
         }
 
+        // The parent module registers a `help` route as well, and every route
+        // of the module carries the same `module` option — so identity alone
+        // would rewrite the remembered submodule when someone opens Help.
+        // Core registers the default route under the module's own path and
+        // every other one beneath it (`ModuleRegistry`), which is what
+        // separates them here.
+        if ($route->getPath() !== $module->getPath()) {
+            return $handler->handle($request);
+        }
+
         // TYPO3 14 and later: core renders the overview itself.
         //
         // `hasSubmoduleOverview()` arrived on ModuleInterface with TYPO3 14 —
