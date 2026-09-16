@@ -57,12 +57,18 @@ async function walkFocus(
         const modal = document.querySelector(selector);
         const dialog = modal?.querySelector('dialog');
         const dialogOpen = modal !== null && (dialog === null || dialog === undefined || dialog.open);
+        // A `<body>` step counts as the browser's wrap point only where a
+        // native <dialog> is doing the trapping — that is TYPO3 14. TYPO3 13
+        // renders a Bootstrap modal with no <dialog> element, and there a
+        // `<body>` step is focus genuinely leaving the dialog, which this
+        // exception must not excuse.
+        const nativeDialogOpen = dialog !== null && dialog !== undefined && dialog.open;
         if (el === null) {
           return { element: 'none', escaped: dialogOpen };
         }
         const name = `${el.tagName.toLowerCase()}${el.id === '' ? '' : '#' + el.id}`;
         const inside = modal !== null && modal.contains(el);
-        const atWrapPoint = el === document.body && dialogOpen;
+        const atWrapPoint = el === document.body && nativeDialogOpen;
         return { element: name, escaped: !inside && !atWrapPoint };
       }, container),
     );

@@ -24,23 +24,29 @@
  * Works on TYPO3 13 (Bootstrap modal, `hidden.bs.modal`) and 14 (native
  * `<dialog>`), which both emit `typo3-modal-hidden` when the dialog is gone.
  *
- * @param {HTMLElement|null|undefined} modal   Element returned by `Modal.advanced()` / `Modal.confirm()`.
- * @param {HTMLElement|null|undefined} trigger Control that opened the dialog.
+ * @param {HTMLElement|null|undefined} modal    Element returned by `Modal.advanced()` / `Modal.confirm()`.
+ * @param {HTMLElement|null|undefined} trigger  Control that opened the dialog.
+ * @param {HTMLElement|null|undefined} fallback Where focus goes when the action
+ *                                              the dialog confirmed removed the
+ *                                              trigger itself — the field a
+ *                                              cleared secret leaves behind, for
+ *                                              instance. Without it focus lands
+ *                                              on `<body>`, which is the failure
+ *                                              this module exists to prevent.
  */
-export function restoreFocusOnClose(modal, trigger) {
-    if (typeof modal?.addEventListener !== 'function' || !trigger) {
+export function restoreFocusOnClose(modal, trigger, fallback = null) {
+    if (typeof modal?.addEventListener !== 'function') {
         return;
     }
 
     modal.addEventListener(
         'typo3-modal-hidden',
         () => {
-            // The row may be gone by now (delete confirmed, list re-rendered);
-            // focusing a detached element would silently drop focus on <body>,
-            // which is exactly what this guards against.
-            if (trigger.isConnected) {
-                trigger.focus();
-            }
+            // The trigger may be gone by now: a confirmed delete re-renders the
+            // row, a confirmed clear removes the button. Focusing a detached
+            // element silently drops focus on <body>.
+            const target = [trigger, fallback].find((el) => el?.isConnected);
+            target?.focus();
         },
         { once: true },
     );

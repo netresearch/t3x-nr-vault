@@ -294,7 +294,9 @@ class VaultSecretElement {
             ],
         );
 
-        restoreFocusOnClose(modal, button);
+        // `clearSecret()` removes the button, so the field it cleared is where
+        // focus belongs once the dialog is gone.
+        restoreFocusOnClose(modal, button, input);
     }
 
     /**
