@@ -1,4 +1,4 @@
-import { test, expect, getModuleFrame, submitIdentifierFilter, waitForModuleContent } from '../fixtures/auth';
+import { test, expect, filterByIdentifier, getModuleFrame, submitIdentifierFilter, waitForModuleContent } from '../fixtures/auth';
 import type { Page, FrameLocator, Locator } from '@playwright/test';
 
 /**
@@ -37,15 +37,24 @@ async function applyIdentifierFilter(
   page: Page,
   frame: FrameLocator,
   identifier: string,
+  expectRow = true,
 ): Promise<FrameLocator> {
-  // Delegates to the shared helper, which clears the readiness flag before
+  // Delegates to the shared helpers, which clear the readiness flag before
   // submitting so a wait cannot be satisfied by the document being left.
   // This one used to wait for the filter response and for the stats panel
   // with both waits swallowed by `.catch(() => undefined)`, which means the
-  // caller acted on whatever was on screen when they timed out. It stops
-  // short of waiting for a row: three callers here filter for an identifier
-  // that must NOT be listed, and they assert that themselves.
-  await submitIdentifierFilter(frame, identifier);
+  // caller acted on whatever was on screen when they timed out.
+  //
+  // `expectRow` is false for the three callers that filter for an identifier
+  // which must NOT be listed -- after a delete, and for one that never
+  // existed. Waiting for a row there would turn their expected absence into a
+  // helper timeout; everywhere else the row is what the caller goes on to act
+  // on, so waiting for it belongs here rather than in each caller.
+  if (expectRow) {
+    await filterByIdentifier(frame, identifier);
+  } else {
+    await submitIdentifierFilter(frame, identifier);
+  }
 
   const newFrame = getModuleFrame(page);
   // `List.html` renders the stats panel unconditionally, so it is required.
@@ -191,7 +200,8 @@ test.describe('Secrets Module User Pathways', () => {
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
-      const newFrame = await applyIdentifierFilter(page, frame, 'test-filter-value');
+      // No secret is called that; the filter result is expected to be empty.
+      const newFrame = await applyIdentifierFilter(page, frame, 'test-filter-value', false);
 
       // Verify filter was applied - stats panel is visible and page is not errored.
       await expect(newFrame.locator('text=Oops, an error occurred')).not.toBeVisible();
@@ -695,6 +705,7 @@ test.describe('Secrets Module User Pathways', () => {
           page,
           getModuleFrame(page),
           testIdentifier,
+          false,
         );
         await expect(afterFrame.locator('text=Oops, an error occurred')).not.toBeVisible();
         await expect(
@@ -726,6 +737,7 @@ test.describe('Secrets Module User Pathways', () => {
         page,
         frame,
         'nonexistent_secret_xyz_123',
+        false,
       );
 
       // Should show empty state or no results - check for 0 secrets count
