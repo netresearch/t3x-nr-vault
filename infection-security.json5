@@ -46,7 +46,9 @@
     "testFrameworkOptions": "--testsuite=Unit,Fuzz",
     "mutators": {
         "@default": true,
-        // Kept identical to infection.json5 so the two runs stay comparable.
+        // The same mutator set as infection.json5 so the two runs stay comparable.
+        // infection.json5's Concat/ConcatOperandRemoval ignore list names no class
+        // in these four directories, so it needs no counterpart here.
         "CastString": false,
         "UnwrapArrayMerge": false
     },
@@ -103,6 +105,12 @@
     // run-to-run variance is one mutant — 0.03 points — measured across two
     // runs of an identical tree, so that margin is roughly forty mutants of
     // headroom.
+    //
+    // Re-measured 2026-09-14 (CI run 34848362108) after the Seeder exclusion and
+    // the Concat ignore list landed in infection.json5: 3508 mutants, MSI
+    // 87.12 %. Neither change touches these four directories, and the 0.02-point
+    // difference is the one-mutant jitter described above. The floor stays 86 —
+    // measurement minus one point, rounded down.
     //
     // 451 escapes remain (Http 171, Audit 164, Crypto 67, Security 49). They
     // are no longer clustered in one mechanism the way the SSRF ranges or the

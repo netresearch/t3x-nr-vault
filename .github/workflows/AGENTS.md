@@ -16,7 +16,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 | `docs.yml` | Renders `Documentation/` on PRs touching it |
 | `harness-verify.yml` | Agent-harness consistency check (`Build/Scripts/verify-harness.sh`) via the shared `script-check.yml` reusable; exit 2 (warnings) passes |
 | `release.yml` | Tag-triggered TER publish + GitHub release assets, gated by the fleet `release-gate.yml` on `ci.yml` and `release-evidence.yml` succeeding at the tagged commit (the gate job needs `actions: read`) |
-| `release-evidence.yml` | Publishes the security release-evidence bundle for a tag; a manual run with a commit SHA as `ref` is the pre-release check (publishes nothing, bundle `precheck-<commit>`) |
+| `release-evidence.yml` | Publishes the security release-evidence bundle for a tag; a manual run with a commit SHA as `ref` is the pre-release check (publishes nothing, bundle `precheck-<commit>`). Coverage is four jobs: `coverage-plan` reads the shard list from `Tests/Unit/*`, a `coverage-unit` matrix and `coverage-functional` collect Xdebug path coverage, `coverage-merge` merges them via `Build/Scripts/merge-coverage.php`. Sharded because the whole unit suite under `--path-coverage` exceeds 40 minutes on one runner |
 | `republish.yml` | Manual re-run of a publish target (ter / docs / packagist) for an existing tag |
 | `auto-merge-deps.yml` | Auto-merge dependency PRs when CI green (Renovate/Dependabot) |
 | `community.yml` | Community health: labeler, stale bot, welcome |

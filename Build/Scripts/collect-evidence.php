@@ -63,17 +63,45 @@ const SECURITY_MUTATION_CONFIG = 'infection-security.json5';
 const TEST_SUITES = ['unit', 'fuzz', 'functional'];
 
 /**
- * Overall line-coverage bar. Sourced from the `patch` target in codecov.yml
- * so the bundle does not invent a second, conflicting policy.
+ * Overall line-coverage bar, two percentage points under the measurement,
+ * rounded down: 95.65 % over the unit and functional suites together
+ * (CI run 34855976649, 2026-09-14).
+ *
+ * It used to be codecov.yml's 80 % `patch` target, which measures something
+ * else — the changed lines of one pull request — and left 15 points of silent
+ * room under what the suites actually cover.
  */
-const MIN_LINE_COVERAGE = 80.0;
+const MIN_LINE_COVERAGE = 93.0;
 
 /**
- * Bar for the security directories in SECURITY_DIRS. Deliberately stricter
- * than MIN_LINE_COVERAGE — crypto/audit/access-control code is the part an
- * auditor cares about. Override with --min-security-coverage.
+ * Line-coverage bar for each directory in SECURITY_DIRS, set from the weakest
+ * of the four minus two points, rounded down: Crypto 93.93 %, Http 94.09 %,
+ * Security 95.85 %, Audit 99.52 % (CI run 34855976649, 2026-09-14). Override
+ * with --min-security-coverage.
+ *
+ * Not to be confused with the 90 % in codecov.yml: that is a `patch` target on
+ * the changed lines of a pull request, this is a floor under the whole
+ * directory.
  */
-const MIN_SECURITY_COVERAGE = 90.0;
+const MIN_SECURITY_COVERAGE = 91.0;
+
+/**
+ * Overall branch-coverage bar. Branch data only exists in a clover written with
+ * Xdebug `--path-coverage`; a line-only report makes the check "warn", never
+ * "pass". Two points under the measurement, rounded down: 87.12 % over the unit
+ * and functional suites together (CI run 34855976649, 2026-09-14), so
+ * run-to-run noise cannot fail a release while a real regression still does.
+ */
+const MIN_BRANCH_COVERAGE = 85.0;
+
+/**
+ * Branch-coverage bar for each directory in SECURITY_DIRS, set the same way from
+ * the weakest of the four: Crypto 82.19 %, Http 88.06 %, Security 89.58 %,
+ * Audit 93.02 % (same run). Lower than the overall bar because a branch in
+ * envelope-encryption error handling is harder to reach from a test than the
+ * average branch, not because those directories matter less.
+ */
+const MIN_SECURITY_BRANCH_COVERAGE = 80.0;
 
 /** Lowest PHPStan level still recorded as "pass". */
 const MIN_PHPSTAN_LEVEL = 9;
@@ -278,7 +306,10 @@ function checkReleaseIdentity(?string $tag, string $commit, ?string $version): a
  *     branch: float|null,
  *     statements: int,
  *     covered: int,
- *     perPrefix: array<string, float|null>
+ *     conditionals: int,
+ *     coveredConditionals: int,
+ *     perPrefix: array<string, float|null>,
+ *     branchPerPrefix: array<string, float|null>
  * }
  */
 function parseClover(string $path, array $prefixes): array
@@ -304,9 +335,15 @@ function parseClover(string $path, array $prefixes): array
     $prefixStatements = [];
     /** @var array<string, int> $prefixCovered */
     $prefixCovered = [];
+    /** @var array<string, int> $prefixConditionals */
+    $prefixConditionals = [];
+    /** @var array<string, int> $prefixCoveredConditionals */
+    $prefixCoveredConditionals = [];
     foreach ($prefixes as $prefix) {
         $prefixStatements[$prefix] = 0;
         $prefixCovered[$prefix] = 0;
+        $prefixConditionals[$prefix] = 0;
+        $prefixCoveredConditionals[$prefix] = 0;
     }
 
     $files = $xml->xpath('//file');
@@ -335,22 +372,63 @@ function parseClover(string $path, array $prefixes): array
             }
             $prefixStatements[$prefix] += $fileStatements;
             $prefixCovered[$prefix] += $fileCovered;
+            $prefixConditionals[$prefix] += xmlInt($fileMetrics, 'conditionals') ?? 0;
+            $prefixCoveredConditionals[$prefix] += xmlInt($fileMetrics, 'coveredconditionals') ?? 0;
         }
     }
 
     /** @var array<string, float|null> $perPrefix */
     $perPrefix = [];
+    /** @var array<string, float|null> $branchPerPrefix */
+    $branchPerPrefix = [];
     foreach ($prefixStatements as $prefix => $total) {
         $perPrefix[$prefix] = percentage($prefixCovered[$prefix], $total);
+        $branchPerPrefix[$prefix] = percentage($prefixCoveredConditionals[$prefix], $prefixConditionals[$prefix]);
     }
 
     return [
         'line' => percentage($covered, $statements),
+        // A line-only driver (pcov) writes conditionals="0": that is "no branch
+        // data", which percentage() reports as null rather than 0 % or 100 %.
         'branch' => percentage($coveredConditionals, $conditionals),
         'statements' => $statements,
         'covered' => $covered,
+        'conditionals' => $conditionals,
+        'coveredConditionals' => $coveredConditionals,
         'perPrefix' => $perPrefix,
+        'branchPerPrefix' => $branchPerPrefix,
     ];
+}
+
+/**
+ * Path totals from PHPUnit's text coverage report (`--coverage-text`, summary
+ * only). Clover has no path metric, so this is the one standard report that
+ * carries it. The summary block holds lines like `  Paths:   51.20% (640/1250)`;
+ * the counts are read and the percentage recomputed, so the rounding matches the
+ * other coverage figures in the bundle.
+ *
+ * `Paths:` is only printed when the run collected path coverage. Its absence is
+ * "no path data" (null), not an error. A file without even a `Lines:` summary is
+ * not a coverage text report at all, and that is malformed.
+ *
+ * @return array{path: float|null, executedPaths: int, executablePaths: int}
+ */
+function parseCoverageText(string $path): array
+{
+    $contents = readFileOrFail($path);
+
+    if (preg_match('/^\s*Lines:\s+[0-9.]+%\s+\(\d+\/\d+\)/m', $contents) !== 1) {
+        throw new MalformedArtifactException("{$path}: no `Lines:` summary line — not a PHPUnit text coverage report", 7160552218);
+    }
+
+    if (preg_match('/^\s*Paths:\s+[0-9.]+%\s+\((\d+)\/(\d+)\)/m', $contents, $m) !== 1) {
+        return ['path' => null, 'executedPaths' => 0, 'executablePaths' => 0];
+    }
+
+    $executed = (int) $m[1];
+    $executable = (int) $m[2];
+
+    return ['path' => percentage($executed, $executable), 'executedPaths' => $executed, 'executablePaths' => $executable];
 }
 
 /**
@@ -441,24 +519,40 @@ function checkTestResults(array $suites): array
 }
 
 /**
- * @param array{line: float|null, branch: float|null, statements: int, covered: int, perPrefix: array<string, float|null>}|null $coverage
+ * The overall line figure, with the branch and path figures alongside it so a
+ * reader sees all three from one row. Only the line figure is gated here; branch
+ * coverage has its own check, and path coverage is reported, not gated — its
+ * denominator grows combinatorially with nested conditions, so a bar on it would
+ * punish readable branching rather than missing tests.
+ *
+ * @param array{line: float|null, branch: float|null, statements: int, covered: int, conditionals: int, coveredConditionals: int, perPrefix: array<string, float|null>, branchPerPrefix: array<string, float|null>}|null $coverage
+ * @param array{path: float|null, executedPaths: int, executablePaths: int}|null $paths
  *
  * @return array{id: string, status: string, summary: string, source: string}
  */
-function checkCoverage(?array $coverage): array
+function checkCoverage(?array $coverage, ?array $paths = null): array
 {
-    $source = 'clover.xml';
+    $source = $paths === null ? 'clover.xml' : 'clover.xml + coverage-text.txt';
 
     if ($coverage === null) {
-        return check('coverage-line', 'absent', 'no coverage report produced by this build', $source);
+        return check('coverage-line', 'absent', 'no coverage report produced by this build', 'clover.xml');
     }
 
+    $branch = $coverage['branch'] === null
+        ? 'branch n/a'
+        : sprintf('branch %s (%d/%d)', formatPercentage($coverage['branch']), $coverage['coveredConditionals'], $coverage['conditionals']);
+
+    $path = $paths === null || $paths['path'] === null
+        ? 'path n/a'
+        : sprintf('path %s (%d/%d)', formatPercentage($paths['path']), $paths['executedPaths'], $paths['executablePaths']);
+
     $summary = sprintf(
-        'line %s (%d/%d statements), branch %s — bar %s',
+        'line %s (%d/%d statements), %s, %s — bar %s',
         formatPercentage($coverage['line']),
         $coverage['covered'],
         $coverage['statements'],
-        formatPercentage($coverage['branch']),
+        $branch,
+        $path,
         formatPercentage(MIN_LINE_COVERAGE),
     );
 
@@ -466,7 +560,60 @@ function checkCoverage(?array $coverage): array
 }
 
 /**
- * @param array{line: float|null, branch: float|null, statements: int, covered: int, perPrefix: array<string, float|null>}|null $coverage
+ * Branch coverage overall and per security directory. A report without branch
+ * data — a line-only driver, or a run without `--path-coverage` — is a "warn":
+ * the report exists, but it cannot show the bar was met.
+ *
+ * @param array{line: float|null, branch: float|null, statements: int, covered: int, conditionals: int, coveredConditionals: int, perPrefix: array<string, float|null>, branchPerPrefix: array<string, float|null>}|null $coverage
+ *
+ * @return array{id: string, status: string, summary: string, source: string}
+ */
+function checkBranchCoverage(?array $coverage, float $minimum, float $securityMinimum): array
+{
+    $source = 'clover.xml';
+
+    if ($coverage === null) {
+        return check('coverage-branch', 'absent', 'no coverage report produced by this build', $source);
+    }
+
+    if ($coverage['branch'] === null) {
+        return check(
+            'coverage-branch',
+            'warn',
+            'branch n/a — the coverage report carries no branch data (collected without Xdebug --path-coverage)',
+            $source,
+        );
+    }
+
+    $status = thresholdStatus($coverage['branch'], $minimum);
+    $parts = [];
+    foreach ($coverage['branchPerPrefix'] as $prefix => $percent) {
+        $parts[] = $prefix . ' ' . formatPercentage($percent);
+        if ($percent === null) {
+            $status = $status === 'fail' ? 'fail' : 'warn';
+
+            continue;
+        }
+        if ($percent < $securityMinimum) {
+            $status = 'fail';
+        }
+    }
+
+    $summary = sprintf(
+        'branch %s (%d/%d) — bar %s; %s — bar %s',
+        formatPercentage($coverage['branch']),
+        $coverage['coveredConditionals'],
+        $coverage['conditionals'],
+        formatPercentage($minimum),
+        implode(', ', $parts),
+        formatPercentage($securityMinimum),
+    );
+
+    return check('coverage-branch', $status, $summary, $source);
+}
+
+/**
+ * @param array{line: float|null, branch: float|null, statements: int, covered: int, conditionals: int, coveredConditionals: int, perPrefix: array<string, float|null>, branchPerPrefix: array<string, float|null>}|null $coverage
  *
  * @return array{id: string, status: string, summary: string, source: string}
  */
@@ -969,12 +1116,15 @@ function buildManifest(array $context): array
 
     $clover = $inputs['clover'] ?? null;
     $coverage = $clover === null ? null : parseClover($clover, SECURITY_DIRS);
+    $coverageText = $inputs['coverageText'] ?? null;
+    $paths = $coverageText === null ? null : parseCoverageText($coverageText);
 
     $checks = [
         checkReleaseIdentity($context['tag'], $context['commit'], $version),
         checkTestResults(junitSuites($inputs)),
-        checkCoverage($coverage),
+        checkCoverage($coverage, $paths),
         checkSecurityCoverage($coverage, $context['minSecurityCoverage']),
+        checkBranchCoverage($coverage, MIN_BRANCH_COVERAGE, MIN_SECURITY_BRANCH_COVERAGE),
         checkMutation($inputs['infection'] ?? null, readMutationThresholds($root)),
         checkMutation(
             $inputs['infectionSecurity'] ?? null,
@@ -1153,6 +1303,7 @@ function bundleInputs(array $inputs, string $outputDir): array
 {
     $names = [
         'clover' => 'clover.xml',
+        'coverageText' => 'coverage-text.txt',
         'infection' => 'infection.json',
         'infectionSecurity' => 'infection-security.json',
         'infectionSummary' => 'infection-summary.log',
@@ -1207,7 +1358,7 @@ function parseArguments(array $argv): array
 {
     $known = [
         'output-dir', 'parts', 'tag', 'commit', 'built-at', 'repo', 'archive-prefix', 'extension-key',
-        'clover', 'junit', 'junit-unit', 'junit-fuzz', 'junit-functional',
+        'clover', 'coverage-text', 'junit', 'junit-unit', 'junit-fuzz', 'junit-functional',
         'infection', 'infection-security', 'infection-summary', 'audit', 'doctor',
         'min-security-coverage',
     ];
@@ -1254,6 +1405,7 @@ function usage(): string
                                   before the in-tree defaults. Expected names:
                                     junit-unit.xml, junit-fuzz.xml,
                                     junit-functional.xml, clover.xml,
+                                    coverage-text.txt,
                                     infection.json, infection-security.json,
                                     infection-summary.log,
                                     composer-audit.json, doctor.json
@@ -1266,6 +1418,9 @@ function usage(): string
       --archive-prefix=PREFIX     release archive prefix (default nr-vault)
       --extension-key=KEY         extension key (default nr_vault)
       --clover=FILE               default .Build/coverage/clover.xml
+      --coverage-text=FILE        PHPUnit text coverage summary, source of the
+                                  path metric (default
+                                  .Build/coverage/coverage-text.txt)
       --junit=FILE                unit-suite log, alias of --junit-unit
                                   (default .Build/logs/junit.xml)
       --junit-fuzz=FILE           default .Build/logs/junit-fuzz.xml
@@ -1426,6 +1581,12 @@ function run(array $options, string $root): int
             'junit-functional.xml',
         ),
         'clover' => resolveInput($options, 'clover', $root . '/.Build/coverage/clover.xml', 'clover.xml'),
+        'coverageText' => resolveInput(
+            $options,
+            'coverage-text',
+            $root . '/.Build/coverage/coverage-text.txt',
+            'coverage-text.txt',
+        ),
         'infection' => resolveInput($options, 'infection', $root . '/.Build/infection/infection.json', 'infection.json'),
         'infectionSecurity' => resolveInput(
             $options,
