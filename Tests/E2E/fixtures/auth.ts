@@ -117,7 +117,9 @@ export async function filterByIdentifier(
   identifier: string,
 ): Promise<void> {
   await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
-  await frame.locator('html').evaluate((el) => el.removeAttribute('data-vault-secrets-list'));
+  await frame.locator('html').evaluate((el) => {
+    delete el.dataset.vaultSecretsList;
+  });
   await frame.locator('button:has-text("Filter")').click();
   await waitForSecretsListReady(frame);
   await frame
