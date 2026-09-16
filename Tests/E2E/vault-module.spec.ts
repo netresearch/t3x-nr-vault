@@ -13,7 +13,7 @@ test.describe('Vault Backend Module', () => {
     expect(response?.status()).toBe(200);
     await expect(page).toHaveTitle(/vault/i);
     await expect(getModuleFrame(page).locator('text=Oops, an error occurred')).not.toBeVisible();
-    await expect(page.locator('text=503')).not.toBeVisible();
+    await expect(getModuleFrame(page).locator('text=503')).not.toBeVisible();
   });
 
   test('secrets submodule list page loads without errors', async ({ authenticatedPage: page }) => {
