@@ -543,6 +543,17 @@ test.describe('Secrets Module User Pathways', () => {
             | null;
           expect(preJson?.secret).toBe(originalValue);
         }
+
+        // Close the reveal dialog the way a user does. Left alone it stays up
+        // for the full 30 s auto-hide window, and on TYPO3 13 its Bootstrap
+        // backdrop covers the module iframe underneath — so the rotate button
+        // below it is genuinely unclickable until then, for a user as much as
+        // for this spec.
+        const revealInput = page.locator('#reveal-modal-secret');
+        if (await revealInput.isVisible().catch(() => false)) {
+          await page.getByRole('button', { name: 'Close', exact: true }).click();
+          await revealInput.waitFor({ state: 'hidden', timeout: 5000 });
+        }
       }
 
       // Click rotate button (opens modal)
