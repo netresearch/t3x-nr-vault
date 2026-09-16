@@ -1,5 +1,19 @@
 import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
-import type { FrameLocator, Page } from '@playwright/test';
+import type { FrameLocator, Locator, Page } from '@playwright/test';
+
+/**
+ * The table row that carries this identifier.
+ *
+ * Every row action is taken from this row rather than from the table's first
+ * row: the identifier filter does not narrow the list on every supported
+ * TYPO3 version — the failing 13.4 run's snapshot shows the full list under a
+ * test that had just filtered — and the first row is then somebody else's
+ * secret. A spec that rotates or deletes that one measures nothing and
+ * destroys unrelated data.
+ */
+function rowFor(frame: FrameLocator, identifier: string): Locator {
+  return frame.locator('table tbody tr').filter({ hasText: identifier }).first();
+}
 
 /**
  * Apply the identifier filter and wait for the table to actually show it.
@@ -139,7 +153,9 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
     await filterByIdentifier(frame, identifier);
-    let toggle = frame.locator('button[data-vault-toggle], button[title*="Disable"]').first();
+    let toggle = rowFor(frame, identifier)
+      .locator('button[data-vault-toggle], button[title*="Disable"]')
+      .first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
       await page.waitForLoadState('networkidle');
@@ -155,7 +171,9 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
     await filterByIdentifier(frame, identifier);
-    toggle = frame.locator('button[data-vault-toggle], button[title*="Enable"]').first();
+    toggle = rowFor(frame, identifier)
+      .locator('button[data-vault-toggle], button[title*="Enable"]')
+      .first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
       await page.waitForLoadState('networkidle');
@@ -166,7 +184,7 @@ test.describe.serial('LC-EXT-001: Lifecycle operations create matching audit ent
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
     await filterByIdentifier(frame, identifier);
-    const deleteButton = frame.locator('button[title*="Delete"]').first();
+    const deleteButton = rowFor(frame, identifier).locator('button[title*="Delete"]').first();
     if (await deleteButton.isVisible().catch(() => false)) {
       await deleteButton.click();
       await confirmDeleteModal(page);
@@ -198,7 +216,7 @@ test.describe.serial('LC-EXT-002: Rotate produces an audit entry with success=tr
     frame = getModuleFrame(page);
     await filterByIdentifier(frame, identifier);
 
-    const rotateButton = frame
+    const rotateButton = rowFor(frame, identifier)
       .locator('button[data-vault-rotate], button[title*="Rotate"]')
       .first();
 
@@ -234,7 +252,7 @@ test.describe.serial('LC-EXT-002: Rotate produces an audit entry with success=tr
     frame = getModuleFrame(page);
     await frame.getByRole('textbox', { name: 'Identifier' }).fill(identifier);
     await frame.locator('button:has-text("Filter")').click();
-    const delBtn = frame.locator('button[title*="Delete"]').first();
+    const delBtn = rowFor(frame, identifier).locator('button[title*="Delete"]').first();
     if (await delBtn.isVisible().catch(() => false)) {
       await delBtn.click();
       await confirmDeleteModal(page);
@@ -275,7 +293,9 @@ test.describe.serial('LC-EXT-003: Dashboard counter delta across lifecycle', () 
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
     await filterByIdentifier(frame, identifier);
-    const toggle = frame.locator('button[data-vault-toggle], button[title*="Disable"]').first();
+    const toggle = rowFor(frame, identifier)
+      .locator('button[data-vault-toggle], button[title*="Disable"]')
+      .first();
     if (await toggle.isVisible().catch(() => false)) {
       await toggle.click();
       await page.waitForLoadState('networkidle');
@@ -293,7 +313,7 @@ test.describe.serial('LC-EXT-003: Dashboard counter delta across lifecycle', () 
     await waitForModuleContent(page);
     frame = getModuleFrame(page);
     await filterByIdentifier(frame, identifier);
-    const deleteButton = frame.locator('button[title*="Delete"]').first();
+    const deleteButton = rowFor(frame, identifier).locator('button[title*="Delete"]').first();
     if (await deleteButton.isVisible().catch(() => false)) {
       await deleteButton.click();
       await confirmDeleteModal(page);

@@ -1,5 +1,5 @@
 import { test as base, expect, Page } from '@playwright/test';
-import type { FrameLocator } from '@playwright/test';
+import type { FrameLocator, Locator } from '@playwright/test';
 import {
   test,
   getModuleFrame,
@@ -8,6 +8,17 @@ import {
   ADMIN_PASSWORD,
   isLoginRedirect,
 } from '../fixtures/auth';
+
+/**
+ * The table row that carries this identifier.
+ *
+ * Row actions are taken from this row rather than the table's first row: the
+ * identifier filter does not narrow the list on every supported TYPO3
+ * version, and the first row is then a different secret.
+ */
+function rowFor(frame: FrameLocator, identifier: string): Locator {
+  return frame.locator('table tbody tr').filter({ hasText: identifier }).first();
+}
 
 /**
  * Apply the identifier filter and wait for the table to actually show it.
@@ -89,9 +100,9 @@ async function deleteSecretByIdentifier(page: Page, identifier: string): Promise
   await waitForModuleContent(page);
 
   const frame = getModuleFrame(page);
-    await filterByIdentifier(frame, identifier);
+  await filterByIdentifier(frame, identifier);
 
-  const deleteButton = frame.locator('button[title*="Delete"]').first();
+  const deleteButton = rowFor(frame, identifier).locator('button[title*="Delete"]').first();
   if (await deleteButton.isVisible().catch(() => false)) {
     await deleteButton.click();
     const confirmButton = page.getByRole('button', { name: 'Delete', exact: true });
@@ -328,7 +339,7 @@ test.describe('SEC-RESIL-007: Plaintext never leaks into list HTML', () => {
     const frame = getModuleFrame(page);
     await filterByIdentifier(frame, identifier);
 
-    const revealButton = frame
+    const revealButton = rowFor(frame, identifier)
       .locator('button[data-vault-reveal], button[title*="Reveal"], button[aria-label*="Reveal"]')
       .first();
 
