@@ -1,6 +1,12 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { test, expect, getModuleFrame, waitForModuleContent } from '../fixtures/auth';
+import {
+  test,
+  expect,
+  getModuleFrame,
+  waitForModuleContent,
+  waitForSecretsListReady,
+} from '../fixtures/auth';
 
 /**
  * Accessibility tests for Vault backend modules.
@@ -48,32 +54,44 @@ async function walkFocus(
   steps: number,
   container = 'typo3-backend-modal',
 ): Promise<FocusStep[]> {
-  const visited: FocusStep[] = [];
-  for (let i = 0; i < steps; i++) {
+  // Raw first, verdict after: whether a `<body>` step was the browser's wrap
+  // point or focus genuinely leaving is only decidable from what happens NEXT.
+  // One step more than asked for: the verdict on a `<body>` step depends on the
+  // one after it, so the last reported step needs a successor to be judged by.
+  // The extra step is not reported.
+  const raw: { element: string; inside: boolean; dialogOpen: boolean }[] = [];
+  for (let i = 0; i < steps + 1; i++) {
     await page.keyboard.press(key);
-    visited.push(
+    raw.push(
       await page.evaluate((selector) => {
         const el = document.activeElement;
         const modal = document.querySelector(selector);
         const dialog = modal?.querySelector('dialog');
         const dialogOpen = modal !== null && (dialog === null || dialog === undefined || dialog.open);
-        // A `<body>` step counts as the browser's wrap point only where a
-        // native <dialog> is doing the trapping — that is TYPO3 14. TYPO3 13
-        // renders a Bootstrap modal with no <dialog> element, and there a
-        // `<body>` step is focus genuinely leaving the dialog, which this
-        // exception must not excuse.
-        const nativeDialogOpen = dialog !== null && dialog !== undefined && dialog.open;
         if (el === null) {
-          return { element: 'none', escaped: dialogOpen };
+          return { element: 'none', inside: false, dialogOpen };
         }
-        const name = `${el.tagName.toLowerCase()}${el.id === '' ? '' : '#' + el.id}`;
-        const inside = modal !== null && modal.contains(el);
-        const atWrapPoint = el === document.body && nativeDialogOpen;
-        return { element: name, escaped: !inside && !atWrapPoint };
+        return {
+          element: `${el.tagName.toLowerCase()}${el.id === '' ? '' : '#' + el.id}`,
+          inside: modal !== null && modal.contains(el),
+          dialogOpen,
+        };
       }, container),
     );
   }
-  return visited;
+
+  // Both majors put focus on `<body>` for one step as the cycle wraps —
+  // measured on 13.4.35, where the modal is a Bootstrap one with no <dialog>
+  // element: toggle, copy, button, body, button, input, toggle, copy. What
+  // separates that from an escape is the step after it: the wrap comes back,
+  // an escape does not.
+  return raw.slice(0, steps).map((step, i) => {
+    const returnsImmediately = step.element === 'body' && (raw[i + 1]?.inside ?? false);
+    return {
+      element: step.element,
+      escaped: step.dialogOpen && !step.inside && !returnsImmediately,
+    };
+  });
 }
 
 /**
@@ -317,6 +335,10 @@ test.describe('Vault Module Accessibility', () => {
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
+      // The row actions are inert until SecretsList.js has bound them, and a
+      // click in that window only moves focus — which is precisely what this
+      // file measures, so the race would read as a focus defect.
+      await waitForSecretsListReady(frame);
       const input = frame.getByRole('textbox', { name: 'Identifier' });
       await input.focus();
       await input.fill('keyboard-test');
@@ -343,6 +365,10 @@ test.describe('Vault Module Accessibility', () => {
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
+      // The row actions are inert until SecretsList.js has bound them, and a
+      // click in that window only moves focus — which is precisely what this
+      // file measures, so the race would read as a focus defect.
+      await waitForSecretsListReady(frame);
       const rotateButton = frame.getByTestId('vault-rotate-btn').first();
 
       if (!(await rotateButton.isVisible().catch(() => false))) {
@@ -409,6 +435,10 @@ test.describe('Vault Module Accessibility', () => {
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
+      // The row actions are inert until SecretsList.js has bound them, and a
+      // click in that window only moves focus — which is precisely what this
+      // file measures, so the race would read as a focus defect.
+      await waitForSecretsListReady(frame);
       const revealButton = frame.getByTestId('vault-reveal-btn').first();
 
       if (!(await revealButton.isVisible().catch(() => false))) {
@@ -513,6 +543,10 @@ test.describe('Vault Module Accessibility', () => {
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
+      // The row actions are inert until SecretsList.js has bound them, and a
+      // click in that window only moves focus — which is precisely what this
+      // file measures, so the race would read as a focus defect.
+      await waitForSecretsListReady(frame);
       const deleteButton = frame.getByTestId('vault-delete-btn').first();
 
       if (!(await deleteButton.isVisible().catch(() => false))) {
