@@ -631,6 +631,12 @@ usable external sink is reported as a ``NO_EXTERNAL_SINK`` finding.
       available. A refusal is not silent — it is logged, counted, and reported
       as a ``SINK_FAILURE`` finding.
 
+      The same entry is needed for a collector whose name is not in DNS,
+      whether its address is public or not: the guard resolves with
+      ``dns_get_record()`` and refuses any host it cannot resolve to a checked
+      address, because the transport would otherwise resolve the name through
+      ``/etc/hosts``, NSS or mDNS and connect to an address nothing checked.
+
 .. _configuration-audit-sink-scheduling:
 
 Scheduling

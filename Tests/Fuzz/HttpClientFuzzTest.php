@@ -15,8 +15,10 @@ use InvalidArgumentException;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Http\SecretPlacement;
+use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Http\VaultHttpClient;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Tests\Unit\Fixtures\AlwaysPublicDnsResolver;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -55,6 +57,8 @@ final class HttpClientFuzzTest extends TestCase
     /** @var ClientInterface&Stub */
     private ClientInterface $innerClient;
 
+    private SecureHttpClientFactory $httpClientFactory;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -65,6 +69,12 @@ final class HttpClientFuzzTest extends TestCase
 
         // Ensure allowed_hosts is not set so all hosts pass the factory check
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = [];
+
+        // With no allowlist the gate still requires a checked address for the
+        // request host. These cases are about how a secret is placed into a
+        // request, so the resolver answers every host with a fixed public
+        // address rather than sending the suite to the machine's DNS.
+        $this->httpClientFactory = new SecureHttpClientFactory(new AlwaysPublicDnsResolver());
     }
 
     protected function tearDown(): void
@@ -358,6 +368,7 @@ final class HttpClientFuzzTest extends TestCase
             $this->innerClient,
             self::TEST_IDENTIFIER,
             SecretPlacement::Bearer,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $client->sendRequest(new Request('GET', 'https://api.example.com/secure'));
@@ -431,6 +442,7 @@ final class HttpClientFuzzTest extends TestCase
             $options['headerName'] ?? null,
             $options['queryParam'] ?? null,
             $options['bodyField'] ?? null,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
     }
 }

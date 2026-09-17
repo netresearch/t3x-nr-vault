@@ -444,6 +444,12 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             }
         };
 
+        // The token endpoint is a stub URL with no DNS behind it, and the host
+        // gate requires a checked address. Listing it literally is the same
+        // opt-in an operator uses for an endpoint only their own resolver
+        // knows about.
+        $this->allowHosts('auth.example.test');
+
         $config = OAuthConfig::refreshToken(
             tokenEndpoint: 'https://auth.example.test/token',
             clientIdSecret: 'fallback_client_id',
@@ -556,6 +562,12 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             }
         };
 
+        // The token endpoint is a stub URL with no DNS behind it, and the host
+        // gate requires a checked address. Listing it literally is the same
+        // opt-in an operator uses for an endpoint only their own resolver
+        // knows about.
+        $this->allowHosts('auth.example.test');
+
         $config = OAuthConfig::refreshToken(
             tokenEndpoint: 'https://auth.example.test/token',
             clientIdSecret: 'double_fail_client_id',
@@ -619,15 +631,24 @@ final class OAuthIntegrationTest extends FunctionalTestCase
      */
     private function allowMockServerHosts(): void
     {
+        $this->allowHosts(
+            (string) parse_url($this->mockOAuthUrl, PHP_URL_HOST),
+            self::LOOPBACK_HOST,
+        );
+    }
+
+    /**
+     * Put `$hosts` into `allowed_hosts`; `backupGlobals` restores the setting
+     * after the test.
+     */
+    private function allowHosts(string ...$hosts): void
+    {
         $confVars = $GLOBALS['TYPO3_CONF_VARS'];
         self::assertIsArray($confVars);
         $httpConfig = $confVars['HTTP'] ?? [];
         self::assertIsArray($httpConfig);
 
-        $httpConfig['allowed_hosts'] = array_values(array_unique([
-            (string) parse_url($this->mockOAuthUrl, PHP_URL_HOST),
-            self::LOOPBACK_HOST,
-        ]));
+        $httpConfig['allowed_hosts'] = array_values(array_unique($hosts));
         $confVars['HTTP'] = $httpConfig;
         $GLOBALS['TYPO3_CONF_VARS'] = $confVars;
     }

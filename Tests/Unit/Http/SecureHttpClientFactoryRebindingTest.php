@@ -14,6 +14,7 @@ use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Promise\Create;
 use GuzzleHttp\Promise\PromiseInterface;
+use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use Netresearch\NrVault\Http\DnsResolverInterface;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
@@ -60,6 +61,12 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
 
     private const IPV6_EXAMPLE = '2001:db8::1';
 
+    /** Distinguishing fragment of the disallowed-range rejection. */
+    private const DISALLOWED_RANGE = 'disallowed IP range';
+
+    /** Distinguishing fragment of the no-verified-address rejection. */
+    private const NOT_VERIFIABLE = 'could not be resolved to a verifiable';
+
     private const PUBLIC_IPV6 = '2606:4700:4700::1111';
 
     private SecureHttpClientFactory $subject;
@@ -102,8 +109,8 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // The middleware runs on every hop, including redirects that never
         // passed the caller-side isHostAllowed() gate, so the literal must be
         // range-checked here rather than assumed pre-validated.
-        self::assertNull($this->callBuildResolveEntries(self::METADATA_IP, 80));
-        self::assertNull($this->callBuildResolveEntries('::1', 443));
+        $this->assertRejects(self::DISALLOWED_RANGE, self::METADATA_IP, 80);
+        $this->assertRejects(self::DISALLOWED_RANGE, '::1', 443);
     }
 
     #[Test]
@@ -115,13 +122,35 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     }
 
     #[Test]
-    public function buildResolveEntriesReturnsEmptyForUnresolvableHost(): void
+    public function buildResolveEntriesRejectsUnresolvableHost(): void
     {
-        // Resolver returns no records → middleware lets curl produce the
-        // usual connection-failure error path.
-        $entries = $this->callBuildResolveEntries('unknown.example', 443);
+        // Resolver returns no records. That is not "nothing is reachable" —
+        // this factory resolves with dns_get_record(), which speaks DNS, while
+        // the transport resolves with getaddrinfo(), which also reads
+        // /etc/hosts, NSS and mDNS. Handing the name on would let it connect
+        // to an address no range check ever saw, so the request stops here.
+        $this->assertRejects(self::NOT_VERIFIABLE, 'unknown.example', 443);
+    }
 
-        self::assertSame([], $entries);
+    #[Test]
+    public function buildResolveEntriesPassesAnUnresolvableHostTheOperatorAllowlisted(): void
+    {
+        // A literal `allowed_hosts` entry is the documented opt-in, and it is
+        // exactly what a host served by /etc/hosts rather than DNS needs. The
+        // transport's own error path is then the operator's business.
+        self::assertSame([], $this->callBuildResolveEntries('unknown.example', 443, true));
+    }
+
+    #[Test]
+    public function buildResolveEntriesRejectsAnswersThatCarryNoWellFormedAddress(): void
+    {
+        // DnsResolverInterface is a public seam. An answer that is not a
+        // parseable IP cannot be range-checked and cannot be pinned, so it
+        // leaves the request in the same position as an empty answer —
+        // unverified — and must end the same way rather than counting as safe.
+        $this->dnsResolver->program('garbage.example.com', [['ip' => 'not-an-ip']]);
+
+        $this->assertRejects(self::NOT_VERIFIABLE, 'garbage.example.com', 443);
     }
 
     #[Test]
@@ -197,7 +226,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     }
 
     #[Test]
-    public function buildResolveEntriesReturnsNullWhenAnyRecordIsDangerous(): void
+    public function buildResolveEntriesRejectsWhenAnyRecordIsDangerous(): void
     {
         // Split-horizon: resolver returns one public + one internal IP. ANY
         // dangerous answer must kill the request — curl could otherwise pick
@@ -207,9 +236,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
             ['ip' => self::METADATA_IP], // AWS metadata
         ]);
 
-        $entries = $this->callBuildResolveEntries('rebind.example.com', 443);
-
-        self::assertNull($entries);
+        $this->assertRejects(self::DISALLOWED_RANGE, 'rebind.example.com', 443);
     }
 
     #[Test]
@@ -234,9 +261,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // still rejects (this is the request-time middleware's default).
         $this->dnsResolver->program('ollama', [['ip' => self::DOCKER_IP]]);
 
-        $entries = $this->callBuildResolveEntries('ollama', 11434);
-
-        self::assertNull($entries);
+        $this->assertRejects(self::DISALLOWED_RANGE, 'ollama', 11434);
     }
 
     #[Test]
@@ -270,6 +295,129 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         $this->expectExceptionMessageMatches('/DNS rebinding defence/i');
 
         $client->get('http://evil.example/');
+    }
+
+    #[Test]
+    public function middlewareNeverCallsTheTransportForAnUnresolvableHost(): void
+    {
+        // The finding this test exists for: an empty resolver answer used to
+        // mean "no pin, let curl report the connection error". curl does not
+        // resolve through dns_get_record() — it resolves through getaddrinfo(),
+        // which reads /etc/hosts, NSS and mDNS as well, so a name that is empty
+        // here can still connect there, to an address nothing range-checked.
+        //
+        // Counting the handler rather than catching the exception is the point:
+        // an exception thrown AFTER the transport ran would satisfy a message
+        // assertion and leak the request anyway.
+        $client = $this->buildRedirectingClient(self::SAFE_ORIGIN, $reachedHosts);
+
+        try {
+            $client->get(self::HTTP_SCHEME . 'unresolvable.example/');
+            self::fail('Expected the middleware to refuse an unresolvable host.');
+        } catch (RequestException $exception) {
+            self::assertStringContainsString(self::NOT_VERIFIABLE, $exception->getMessage());
+        }
+
+        self::assertSame([], $reachedHosts, 'The transport must not be reached.');
+        self::assertSame(['unresolvable.example'], $this->dnsResolver->queriedHosts());
+    }
+
+    #[Test]
+    public function middlewareNeverCallsTheTransportOnARedirectHopThatCannotBeResolved(): void
+    {
+        // The middleware sits below Guzzle's RedirectMiddleware, so a hop that
+        // never passed the caller-side gate re-enters it. An unresolvable hop
+        // target must stop there for the same reason the first request does.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allow_redirects'] = true;
+        $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
+        $client = $this->buildRedirectingClient(
+            self::HTTP_SCHEME . 'unresolvable.example/',
+            $reachedHosts,
+        );
+
+        try {
+            $client->get(self::SAFE_ORIGIN);
+            self::fail('Expected the middleware to refuse the unresolvable redirect target.');
+        } catch (RequestException $exception) {
+            self::assertStringContainsString(self::NOT_VERIFIABLE, $exception->getMessage());
+        }
+
+        self::assertSame(
+            ['safe.example'],
+            $reachedHosts,
+            'The hop the gate never saw must not reach the transport either.',
+        );
+    }
+
+    #[Test]
+    public function isHostAllowedRefusesAHostThatResolvesToNothing(): void
+    {
+        // Same rule at the caller-side gate, so the two cannot disagree: a
+        // consumer that asks first and sends later gets one answer, not a
+        // "yes" the middleware then overrules.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [];
+
+        self::assertFalse($this->subject->isHostAllowed('unresolvable.example'));
+    }
+
+    #[Test]
+    public function isHostAllowedAcceptsAHostThatResolvesToAPublicAddress(): void
+    {
+        // The other half of the same assertion: the gate rejects for want of a
+        // checked address, not for want of an allowlist.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [];
+        $this->dnsResolver->program('api.example.com', [['ip' => self::PUBLIC_IP]]);
+
+        self::assertTrue($this->subject->isHostAllowed('api.example.com'));
+    }
+
+    #[Test]
+    public function isHostAllowedRefusesAnAnswerThatCarriesNoWellFormedAddress(): void
+    {
+        // The gate needs this on its own, not only through the middleware: an
+        // answer that is not a parseable IP cannot be range-checked, so
+        // counting it as safe would let a resolver hand the gate a "yes" for a
+        // host whose address nothing ever looked at.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [];
+        $this->dnsResolver->program('garbage.example.com', [['ip' => 'not-an-ip']]);
+
+        self::assertFalse($this->subject->isHostAllowed('garbage.example.com'));
+    }
+
+    #[Test]
+    public function isHostAllowedAcceptsASafeIpLiteralWithoutResolvingAnything(): void
+    {
+        // The address requirement applies to names. A literal is already an
+        // address and is range-checked directly; sending it through the
+        // resolver would refuse every IP-addressed endpoint, because a
+        // dotted quad has no A record. The resolver here answers nothing for
+        // every host, so this passes only if the literal never reaches it.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [];
+
+        self::assertTrue($this->subject->isHostAllowed(self::PUBLIC_IP));
+        self::assertTrue($this->subject->isHostAllowed(self::PUBLIC_IPV6));
+        self::assertSame([], $this->dnsResolver->queriedHosts());
+    }
+
+    #[Test]
+    public function isHostAllowedAcceptsAnUnresolvableHostListedLiterally(): void
+    {
+        // The documented escape hatch for a host served by /etc/hosts or
+        // another non-DNS source.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['vault.internal'];
+
+        self::assertTrue($this->subject->isHostAllowed('vault.internal'));
+    }
+
+    #[Test]
+    public function isHostAllowedRefusesAnUnresolvableHostCoveredOnlyByAWildcard(): void
+    {
+        // A wildcard entry has never bypassed the IP guard — it cannot bypass
+        // the address requirement either, or the guard would be optional for
+        // anyone who owns a zone.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['*.internal'];
+
+        self::assertFalse($this->subject->isHostAllowed('vault.internal'));
     }
 
     #[Test]
@@ -529,14 +677,50 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     }
 
     /**
-     * @return list<string>|null
+     * @return list<string>
      */
-    private function callBuildResolveEntries(string $host, int $port, bool $allowlisted = false): ?array
+    private function callBuildResolveEntries(string $host, int $port, bool $allowlisted = false): array
     {
         $method = (new ReflectionClass(SecureHttpClientFactory::class))
             ->getMethod('buildResolveEntries');
 
-        return $method->invoke($this->subject, $host, $port, $allowlisted);
+        // The URI only has to carry the host so the exception can quote the
+        // request; IPv6 literals need their brackets back to survive parsing.
+        $uriHost = str_contains($host, ':') ? '[' . $host . ']' : $host;
+
+        /** @var list<string> */
+        return $method->invoke(
+            $this->subject,
+            new Request('GET', self::HTTP_SCHEME . $uriHost . '/'),
+            $host,
+            $port,
+            $allowlisted,
+        );
+    }
+
+    /**
+     * The helper rejects by throwing, so every rejection assertion also pins
+     * WHICH rejection it is. The two causes read alike from the outside and
+     * mean opposite things to an operator: a disallowed range is a host that
+     * answered with an address we refuse, an unverifiable one is a host that
+     * answered with nothing at all — a typo in a configured URL looks exactly
+     * like that, and must not be logged as a rebinding attempt.
+     */
+    private function assertRejects(
+        string $expectedMessageFragment,
+        string $host,
+        int $port,
+        bool $allowlisted = false,
+    ): void {
+        try {
+            $this->callBuildResolveEntries($host, $port, $allowlisted);
+        } catch (RequestException $exception) {
+            self::assertStringContainsString($expectedMessageFragment, $exception->getMessage());
+
+            return;
+        }
+
+        self::fail(\sprintf('Expected host "%s" to be rejected, but it was accepted.', $host));
     }
 }
 
