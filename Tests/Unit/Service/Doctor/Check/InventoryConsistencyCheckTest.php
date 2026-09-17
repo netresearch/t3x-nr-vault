@@ -101,7 +101,7 @@ final class InventoryConsistencyCheckTest extends TestCase
     public function acomparisonThatCannotRunIsReportedRatherThanPassed(): void
     {
         $pool = $this->pool(static function (): Result {
-            throw new RuntimeException('Table not found');
+            throw new RuntimeException('Table not found', 1789652426);
         });
 
         $findings = (new InventoryConsistencyCheck($pool))->run($this->doctorContext(SecurityProfile::Standard));
