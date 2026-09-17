@@ -1412,6 +1412,23 @@ secrets.dead
    credential and the JSON report travels into CI logs. Use the Analytics module
    to see which secrets.
 
+inventory.missing_secrets
+   Every identifier the audit log records as created still has a row in
+   ``tx_nrvault_secret``. Critical with the count otherwise. A delete is a soft
+   delete — the row stays with ``deleted = 1`` — and nothing removes a secret
+   row outright, so a create entry with nothing behind it is a lost row rather
+   than a deleted one, and the plaintext exists nowhere else. The comparison is
+   zero against zero on a fresh installation, which is why an empty vault does
+   not raise it. See :ref:`operations-backup-and-restore-verification` for what
+   it does *not* catch.
+
+inventory.orphan_permissions
+   Every row in the two MM tables belongs to a stored secret. Warning with the
+   count otherwise: the permission tables and the secret table came from
+   different moments. The opposite half — a secret whose permission rows are
+   gone — cannot be detected from the data and locks legitimate users out; the
+   restore procedure covers it with a non-admin read check.
+
 environment.production_context
    ``Environment::getContext()`` is Production. *Pass* / *warning* — a
    Development context is the normal state of a developer machine, and only a
