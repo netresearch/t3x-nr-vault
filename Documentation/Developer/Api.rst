@@ -821,7 +821,12 @@ badge:
 
 ``Request refused before any secret was read: host is not in the allowed hosts list``
    ``$GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']`` refused the
-   destination. The host is on the row, in the context.
+   destination. The host is on the row, in the context. The gate also refuses a
+   hostname it cannot resolve to a checked address, so this message covers a
+   destination that is not in DNS at all — a host served by ``/etc/hosts``, by
+   an NSS module or by a container runtime's resolver needs a literal
+   ``allowed_hosts`` entry, and
+   :ref:`adr-038-unresolvable-host-is-refused` says why.
 
 ``Credential injection failed; nothing was sent: …``
    The vault read, or the OAuth token leg, threw. Nothing egressed.

@@ -26,9 +26,14 @@ interface DnsResolverInterface
      * mirroring `dns_get_record()`'s shape so the SSRF defence can keep
      * iterating the same structure.
      *
-     * Returns the empty list when the host cannot be resolved; the
-     * caller treats that case as "let the HTTP client produce a normal
-     * connection-failure error".
+     * Returns the empty list when the host cannot be resolved. That is
+     * not evidence that the host is unreachable — an implementation that
+     * speaks DNS cannot see `/etc/hosts`, NSS or mDNS, which the HTTP
+     * transport's own resolver does read — so the caller reads it as "no
+     * address was checked" and refuses the request. The one exception is
+     * a host listed literally in `allowed_hosts`: there the operator has
+     * opted in, the empty list yields no pin, and the transport's error
+     * path is theirs. See ADR-038.
      *
      * @return list<array{ip?: string, ipv6?: string}>
      */

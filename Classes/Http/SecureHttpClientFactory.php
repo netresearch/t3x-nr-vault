@@ -224,6 +224,13 @@ final class SecureHttpClientFactory
      * services (169.254.169.254) and internal RFC1918 networks even on
      * installations that left `allowed_hosts` unconfigured.
      *
+     * A hostname must also resolve to at least one address, or it is refused.
+     * An answer this factory cannot use is not evidence that nothing is
+     * reachable — it resolves with `dns_get_record()`, which speaks DNS, while
+     * the transport resolves with getaddrinfo(), which also reads /etc/hosts,
+     * NSS and mDNS. A host served only by one of those needs a literal
+     * `allowed_hosts` entry; see ADR-038.
+     *
      * Accepts either a bare hostname/IP or a `host:port` / `[ipv6]:port` /
      * `[ipv6]` form — port and IPv6 brackets are normalised away before
      * filtering. Callers passing PSR-7 `UriInterface::getHost()` get the
@@ -251,8 +258,18 @@ final class SecureHttpClientFactory
             return false;
         }
 
-        // Hard block: hostname that resolves into dangerous ranges (DNS rebind defence)
-        if ($this->resolvesToDangerousIp($host)) {
+        // Hard block: a hostname must resolve to at least one address AND no
+        // answer may point into a dangerous range (DNS rebind defence). An
+        // unresolvable name is rejected rather than waved through: this gate
+        // resolves with `dns_get_record()`, which speaks DNS only, while the
+        // transport resolves with getaddrinfo(), which also reads /etc/hosts,
+        // NSS modules and mDNS. An empty answer here therefore does NOT mean
+        // the transport will fail to connect — it means no address was checked.
+        // Hosts that live in /etc/hosts rather than DNS belong in
+        // `allowed_hosts` literally, which is matched above.
+        if (filter_var($host, FILTER_VALIDATE_IP) === false
+            && !$this->resolvesToVerifiedSafeAddress($host)
+        ) {
             return false;
         }
 
@@ -592,8 +609,12 @@ final class SecureHttpClientFactory
      *    curl uses them without re-resolving.
      *  - Host that resolves to a dangerous IP → the request is rejected
      *    with a `RequestException` BEFORE the socket opens.
-     *  - Host that cannot be resolved at all → no pin is added; curl handles
-     *    the resolution failure with its usual error path.
+     *  - Host that this factory's resolver cannot resolve → the request is
+     *    rejected before the socket opens. No address was range-checked and
+     *    no pin can be set, and the transport's own resolver reads sources
+     *    (`/etc/hosts`, NSS, mDNS) that `dns_get_record()` never sees, so
+     *    "we found nothing" is not "nothing is reachable". A literal
+     *    `allowed_hosts` entry opts such a host back in.
      *  - IP-literal hosts (already an IPv4/IPv6 address) → no pin needed, but
      *    the literal is range-checked here as well: this middleware also runs
      *    for redirect hops, which never pass the caller's `isHostAllowed()`
@@ -653,18 +674,18 @@ final class SecureHttpClientFactory
                 $pinWillBeHonoured = \function_exists('curl_init')
                     && !(bool) ($options['stream'] ?? false);
 
-                $resolveEntries = $this->buildResolveEntries($host, $port, $allowlisted, $pinWillBeHonoured);
-
-                if ($resolveEntries === null) {
-                    throw new RequestException(
-                        \sprintf(
-                            'Refused to send request: host "%s" resolves to a disallowed IP range '
-                            . '(DNS rebinding defence).',
-                            $host,
-                        ),
-                        $request,
-                    );
-                }
+                // Throws rather than returning a sentinel: the two rejections
+                // have different causes (a disallowed range vs. an address
+                // that could not be established at all) and an operator
+                // reading the log must be able to tell a typo in a URL from a
+                // rebinding attempt.
+                $resolveEntries = $this->buildResolveEntries(
+                    $request,
+                    $host,
+                    $port,
+                    $allowlisted,
+                    $pinWillBeHonoured,
+                );
 
                 // Attach the pin only when ext-curl exists: without it the
                 // `\CURLOPT_RESOLVE` constant is undefined (referencing it
@@ -706,15 +727,23 @@ final class SecureHttpClientFactory
      * is unchanged, since every usable address is still one we resolved and
      * checked here.
      *
+     * Throws a `RequestException` — the transport is never reached — when:
+     *  - the host resolved to AT LEAST ONE dangerous IP and is NOT explicitly
+     *    allowlisted (even if some A records look safe, the presence of a
+     *    dangerous answer signals an active rebinding attempt), or the host IS
+     *    an IP literal in a dangerous range and is NOT explicitly allowlisted;
+     *  - the host is a name that yielded no usable A/AAAA address and is NOT
+     *    explicitly allowlisted. Nothing was range-checked and nothing can be
+     *    pinned, and the transport resolves through getaddrinfo(), which reads
+     *    `/etc/hosts`, NSS and mDNS where `dns_get_record()` sees only DNS —
+     *    so handing the name on would let it connect to an address this
+     *    factory never checked. Verified locally: a name `dns_get_record()`
+     *    answers `false` for can still be reached by curl over loopback.
+     *
      * Returns:
-     *  - `null` if the host resolved to AT LEAST ONE dangerous IP and is NOT
-     *    explicitly allowlisted (the entire request must be rejected — even if
-     *    some A records look safe, the presence of a dangerous answer signals
-     *    an active rebinding attempt), or if the host IS an IP literal in a
-     *    dangerous range and is NOT explicitly allowlisted.
      *  - `[]` if the host is a safe (or allowlisted) IP literal — no pin
-     *    needed —, if resolution failed entirely, or if it yielded no usable
-     *    A/AAAA address (let curl handle the error path).
+     *    needed — or an allowlisted name that yielded no address: the operator
+     *    opted that exact host in, so the transport's error path is theirs.
      *  - a single-element `list<string>` carrying the pin entry for safe
      *    multi-record hosts.
      *
@@ -732,14 +761,15 @@ final class SecureHttpClientFactory
      *                                its own resolve-and-check is the rebind defence. Defaults to false
      *                                (fresh), the safe side.
      *
-     * @return list<string>|null
+     * @return list<string>
      */
     private function buildResolveEntries(
+        RequestInterface $request,
         string $host,
         int $port,
         bool $allowlisted = false,
         bool $pinWillBeHonoured = false,
-    ): ?array {
+    ): array {
         // IP literal — no DNS to pin, but the literal itself is still
         // range-checked HERE. The middleware must be self-sufficient: it runs
         // below Guzzle's RedirectMiddleware, so EVERY redirect hop re-enters
@@ -749,7 +779,7 @@ final class SecureHttpClientFactory
         // A literal `allowed_hosts` entry still opts the host back in.
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
             if (!$allowlisted && $this->isDangerousIpLiteral($host)) {
-                return null;
+                throw $this->dangerousRangeRejection($request, $host);
             }
 
             return [];
@@ -772,10 +802,6 @@ final class SecureHttpClientFactory
         $records = $pinWillBeHonoured
             ? $this->memoisedResolve($host)
             : $this->freshResolve($host);
-        if ($records === []) {
-            // Resolution failed — let curl produce the usual connection error.
-            return [];
-        }
 
         $addresses = [];
         foreach ($records as $record) {
@@ -795,7 +821,7 @@ final class SecureHttpClientFactory
                 // allowed_hosts opt-in skips this rejection but still pins the
                 // resolved IP below, so rebinding to a *different* address
                 // remains blocked.
-                return null;
+                throw $this->dangerousRangeRejection($request, $host);
             }
             // IPv6 addresses contain colons, so they MUST be bracketed inside
             // the resolve entry or curl misparses it (brackets supported since
@@ -804,13 +830,52 @@ final class SecureHttpClientFactory
         }
 
         if ($addresses === []) {
-            return [];
+            // No address to check and none to pin. Allowlisted hosts are the
+            // operator's explicit opt-in and keep the transport's own error
+            // path; everything else stops here, because handing the name on
+            // means the transport resolves it through sources this factory
+            // never saw and connects to whatever comes back.
+            if ($allowlisted) {
+                return [];
+            }
+
+            throw new RequestException(
+                \sprintf(
+                    'Refused to send request: host "%s" could not be resolved to a verifiable '
+                    . 'IP address, so no address was range-checked and no pin could be set. '
+                    . 'Sending it would let the transport resolve the name itself, unchecked. '
+                    . 'A host served by /etc/hosts or another non-DNS source belongs in '
+                    . '$GLOBALS[\'TYPO3_CONF_VARS\'][\'HTTP\'][\'allowed_hosts\'] literally.',
+                    $host,
+                ),
+                $request,
+            );
         }
 
         // One entry with every safe address (see the method docblock): a later
         // entry for the same host:port would REPLACE this one in curl's cache,
         // so all fallback addresses must travel in a single entry.
         return [\sprintf('%s:%d:%s', $host, $port, implode(',', array_unique($addresses)))];
+    }
+
+    /**
+     * The rejection for an address inside a range this factory refuses to
+     * reach — an IP literal or a resolved answer, both worded the same because
+     * to an operator they are the same event.
+     *
+     * Kept apart from the unresolvable-host rejection on purpose: a typo in a
+     * configured URL must not read like a rebinding attempt in the log.
+     */
+    private function dangerousRangeRejection(RequestInterface $request, string $host): RequestException
+    {
+        return new RequestException(
+            \sprintf(
+                'Refused to send request: host "%s" resolves to a disallowed IP range '
+                . '(DNS rebinding defence).',
+                $host,
+            ),
+            $request,
+        );
     }
 
     /**
@@ -1120,27 +1185,40 @@ final class SecureHttpClientFactory
     }
 
     /**
-     * Resolve a hostname and reject if any A/AAAA record points into a dangerous range.
+     * Whether `$host` resolves to at least one well-formed address and no
+     * answer points into a dangerous range.
      *
-     * Returns false if resolution fails (caller will then pass the host through;
-     * upstream HTTP client will produce a connection error rather than a security
-     * bypass).
+     * Both halves are rejections, and the first one is the reason this method
+     * exists in this shape. A resolver answer of `[]` means nothing was
+     * checked, not that nothing is reachable: `dns_get_record()` speaks DNS,
+     * the transport's getaddrinfo() also reads /etc/hosts, NSS modules and
+     * mDNS, so a name this resolver cannot see can still connect — and would
+     * then connect to an address no range check ever saw. The operator's
+     * escape hatch for such a host is a literal `allowed_hosts` entry, which
+     * the caller matches before asking this method.
+     *
+     * Callers pass hostnames only; an IP literal is range-checked directly.
      */
-    private function resolvesToDangerousIp(string $host): bool
+    private function resolvesToVerifiedSafeAddress(string $host): bool
     {
-        // Already an IP literal — handled by isDangerousIpLiteral
-        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
-            return false;
-        }
-
+        $verified = 0;
         foreach ($this->memoisedResolve($host) as $record) {
             $ip = $record['ip'] ?? $record['ipv6'] ?? null;
-            if (\is_string($ip) && $this->isDangerousIpLiteral($ip)) {
-                return true;
+            // DnsResolverInterface is a public seam: an answer that is not a
+            // well-formed IP cannot be range-checked, so it counts for nothing
+            // rather than counting as safe.
+            if (!\is_string($ip) || filter_var($ip, FILTER_VALIDATE_IP) === false) {
+                continue;
             }
+
+            if ($this->isDangerousIpLiteral($ip)) {
+                return false;
+            }
+
+            ++$verified;
         }
 
-        return false;
+        return $verified > 0;
     }
 
     /**
@@ -1148,7 +1226,7 @@ final class SecureHttpClientFactory
      * `DNS_MEMO_TTL_SECONDS` after a fresh lookup.
      *
      * Serves the two callers issue #304 established MAY share an answer: the
-     * `isHostAllowed()` gate (via `resolvesToDangerousIp()`), and the
+     * `isHostAllowed()` gate (via `resolvesToVerifiedSafeAddress()`), and the
      * `ssrf-dns-pin` middleware when — and only when — the `CURLOPT_RESOLVE`
      * pin will actually be honoured for the transfer (the middleware closure
      * decides that per hop — ext-curl present and no `stream => true` — and
@@ -1173,12 +1251,11 @@ final class SecureHttpClientFactory
     /**
      * One real resolver lookup, memoised for `memoisedResolve()`.
      *
-     * A failed resolution (the empty list) is never memoised — today an empty
-     * answer means "no pin, let the HTTP client surface the connection error",
-     * and a transient DNS failure frozen for the TTL would also blind the
-     * middleware's re-resolve where a fresh attempt might have succeeded.
-     * Memoising only non-empty answers keeps every failure-path behaviour
-     * byte-identical to the un-memoised code.
+     * A failed resolution (the empty list) is never memoised. An empty answer
+     * now REJECTS the request, so freezing a transient DNS failure for the TTL
+     * would turn one lost packet into a minute of refused requests — and it
+     * would blind the middleware's re-resolve where a fresh attempt might have
+     * succeeded. Only answers that carry records are worth remembering.
      *
      * @return list<array{ip?: string, ipv6?: string}>
      */

@@ -13,12 +13,13 @@ ADR-026: DNS-rebinding defence via CURLOPT_RESOLVE
 Status
 ======
 
-Accepted
+Accepted (amended 2026-09-17 — an unresolvable host is refused, see
+:ref:`adr-038-unresolvable-host-is-refused`)
 
 Date
 ====
 
-2026-05-22
+2026-05-22, amended 2026-09-17
 
 Context
 =======
@@ -82,7 +83,11 @@ middleware runs per outgoing request:
     redirect middleware, so it also runs for redirect hops, and
     those never pass the caller's ``isHostAllowed()`` gate — only
     the first request URI does. Unresolvable hosts pass through
-    without a pin.
+    without a pin. **Superseded.** A host that yields no usable
+    address is now refused unless it carries a literal
+    ``allowed_hosts`` entry — see
+    :ref:`adr-038-unresolvable-host-is-refused`, which also records
+    why the assumption behind the pass-through was wrong.
 
 curl then skips its own DNS step and connects to the IP we just
 validated. No second resolution, no rebinding window.
@@ -126,7 +131,8 @@ Verified
 
 -  Unit tests cover the resolution outcomes (safe IPs → pin,
    any-dangerous → reject, safe or allowlisted IP literal → no pin,
-   dangerous IP literal → reject, unresolvable → no pin) plus a
+   dangerous IP literal → reject, unresolvable → reject since
+   :ref:`adr-038-unresolvable-host-is-refused`) plus a
    redirect hop to ``169.254.169.254`` at middleware level.
 -  Integration tests assert the ``ssrf-dns-pin`` middleware is
    registered on every factory-built ``HandlerStack``.

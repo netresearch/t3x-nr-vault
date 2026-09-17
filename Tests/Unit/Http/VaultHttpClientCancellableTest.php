@@ -89,6 +89,8 @@ final class VaultHttpClientCancellableTest extends TestCase
 
     private const API_HOST = 'api.example.com';
 
+    private const TOKEN_HOST = 'auth.example.com';
+
     private const PUBLIC_IP = '93.184.216.34';
 
     /**
@@ -137,6 +139,9 @@ final class VaultHttpClientCancellableTest extends TestCase
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
         $this->dnsResolver = new ProgrammedDnsResolver();
         $this->dnsResolver->program(self::API_HOST, [['ip' => self::PUBLIC_IP]]);
+        // The OAuth-leg cases route their token request through the same host
+        // gate, which requires a checked address for every host it sees.
+        $this->dnsResolver->program(self::TOKEN_HOST, [['ip' => self::PUBLIC_IP]]);
 
         $this->clientFactory = new SecureHttpClientFactory($this->dnsResolver);
 
@@ -1150,16 +1155,25 @@ final class VaultHttpClientCancellableTest extends TestCase
         // transfer on the handler to advance), and the rejection must still
         // produce an audit row, because this is a call that was refused after
         // the credential had been injected.
-        $this->dnsResolver->programSequence(self::API_HOST, [
-            [],
-            [['ip' => '127.0.0.1']],
-        ]);
+        // Two factories, because the gap this scenario needs is the one the
+        // DNS memo deliberately closes: within one factory the middleware
+        // reuses the answer the gate just checked. It re-resolves where no pin
+        // can be honoured — an install without ext-curl, a `stream => true`
+        // transfer — and where the memo has expired, and separate instances
+        // reproduce exactly that: the gate sees the public address, the
+        // middleware resolves fresh and sees loopback.
+        $middlewareResolver = new ProgrammedDnsResolver();
+        $middlewareResolver->program(self::API_HOST, [['ip' => '127.0.0.1']]);
 
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StubbedTransfer();
         $ticker = new ClosureTicker(static function (): void {});
-        $transport = $this->transportWith($transfer, $ticker);
+        $transport = $this->transportWith(
+            $transfer,
+            $ticker,
+            new SecureHttpClientFactory($middlewareResolver),
+        );
 
         $auditedRows = [];
         $this->recordAuditRows($auditedRows);
@@ -1481,7 +1495,7 @@ final class VaultHttpClientCancellableTest extends TestCase
             vaultService: $this->vaultService,
             auditLogService: $this->auditLogService,
             oauthConfig: OAuthConfig::clientCredentials(
-                tokenEndpoint: 'https://auth.example.com/token',
+                tokenEndpoint: 'https://' . self::TOKEN_HOST . '/token',
                 clientIdSecret: 'oauth/cid',
                 clientSecretSecret: 'oauth/csec',
             ),
@@ -1555,7 +1569,7 @@ final class VaultHttpClientCancellableTest extends TestCase
             auditLogService: $this->auditLogService,
             innerClient: $callerSuppliedClient,
             oauthConfig: OAuthConfig::clientCredentials(
-                tokenEndpoint: 'https://auth.example.com/token',
+                tokenEndpoint: 'https://' . self::TOKEN_HOST . '/token',
                 clientIdSecret: 'oauth/cid',
                 clientSecretSecret: 'oauth/csec',
             ),
@@ -1584,9 +1598,12 @@ final class VaultHttpClientCancellableTest extends TestCase
      * `ssrf-dns-pin` middleware — is the production article, which is what makes
      * tests 6 and 7 meaningful.
      */
-    private function transportWith(StubbedTransfer $transfer, TransportTickerInterface $ticker): CancellableTransport
-    {
-        $real = $this->clientFactory->createCancellable();
+    private function transportWith(
+        StubbedTransfer $transfer,
+        TransportTickerInterface $ticker,
+        ?SecureHttpClientFactory $factory = null,
+    ): CancellableTransport {
+        $real = ($factory ?? $this->clientFactory)->createCancellable();
         self::assertInstanceOf(CancellableTransport::class, $real);
 
         $client = $real->client();

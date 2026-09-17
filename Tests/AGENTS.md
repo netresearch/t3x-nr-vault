@@ -149,6 +149,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
 | `Tests/Unit/Traits/ExceptionMessageExpectationTrait.php` | `expectExceptionMessageToContain()` — the substring form of the exception-message expectation. PHPUnit 13.2 soft-deprecated `expectExceptionMessage()` and its replacement `expectExceptionMessageIsOrContains()` does not exist before 13.2, while the matrix still resolves PHPUnit 11.5 on PHP 8.2 and 12.5 on PHP 8.3. Use this instead of either |
 | `Tests/Unit/Fixtures/SecretFixtureBuilder.php` | Fluent builder for `SecretDetails` / `SecretMetadata` / `Secret` DTOs (replaces ~6 hand-rolled factory methods) |
 | `Tests/Unit/Fixtures/FailingStreamWrapper.php` | Stream wrapper that stats as a healthy writable file but fails at a chosen point (`fopen` refused/throwing, `flock` refused, short write) — the audit-sink write layers a real filesystem cannot reach |
+| `Tests/Unit/Fixtures/AlwaysPublicDnsResolver.php` | Resolves every host to one TEST-NET-3 address, so a test that only needs to get past the SSRF host gate does not ask the machine's real DNS. Tests that are *about* resolution program an `InMemoryDnsResolver` instead |
 | `Tests/Unit/Fixtures/AuditChainLockHost.php` | Host exposing `AuditChainLockTrait`'s private lock primitives so the raw-vs-savepoint lock protocol can be tested without a consumer's write path |
 | `Tests/scripts/check-test-base-class.php` | Architecture check enforcing the project base on new unit tests |
 

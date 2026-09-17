@@ -197,6 +197,19 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function aCancelledCallThroughTheVaultHttpClientIsAuditedAndReachesTheConsumerSink(): void
     {
+        // The host gate runs before the signal is read and requires a checked
+        // address; `api.example.com` has no DNS behind it. The literal
+        // allowlist entry is what a consuming extension's operator configures
+        // for an endpoint their own resolver serves, and it keeps this case
+        // about the cancellation path rather than about DNS.
+        $confVars = $GLOBALS['TYPO3_CONF_VARS'];
+        self::assertIsArray($confVars);
+        $httpConfig = $confVars['HTTP'] ?? [];
+        self::assertIsArray($httpConfig);
+        $httpConfig['allowed_hosts'] = ['api.example.com'];
+        $confVars['HTTP'] = $httpConfig;
+        $GLOBALS['TYPO3_CONF_VARS'] = $confVars;
+
         $client = $this->get(ApiTokenClient::class);
         self::assertInstanceOf(ApiTokenClient::class, $client);
         $client->storeToken(self::TOKEN_IDENTIFIER, 'cancelled-call-' . bin2hex(random_bytes(4)));
