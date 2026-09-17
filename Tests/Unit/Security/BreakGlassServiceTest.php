@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Tests\Unit\Security;
 use DateTimeImmutable;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Event\BreakGlassActivatedEvent;
 use Netresearch\NrVault\Event\BreakGlassDeactivatedEvent;
 use Netresearch\NrVault\Exception\AccessDeniedException;
@@ -389,6 +390,79 @@ final class BreakGlassServiceTest extends TestCase
             );
 
         $this->subject->deactivate('INC-4711 closed');
+    }
+
+    /**
+     * The audit row is the whole point of break-glass.
+     *
+     * The window itself leaves no other trace: once it closes, the only record
+     * that an administrator held an override is this row, and it is worth
+     * nothing unless it names who, until when, and for how long. Eleven
+     * mutations of this context — dropping `actorUid`, or turning any of the
+     * pairs into a comparison — survived the suite, which is to say every field
+     * could have been lost and every test would still have passed.
+     */
+    #[Test]
+    public function theActivationAuditRowNamesTheOperatorAndTheWindow(): void
+    {
+        $this->givenBackendActor(isAdmin: true);
+
+        $context = null;
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->willReturnCallback(
+                function (...$arguments) use (&$context): void {
+                    $context = $arguments[7];
+                },
+            );
+
+        $session = $this->subject->activate('INC-4711 rotate leaked key', 15);
+
+        self::assertInstanceOf(GenericContext::class, $context);
+        self::assertSame(
+            [
+                'actorUid' => 5,
+                'actorUsername' => 'alice',
+                'expiresAt' => $session->expiresAt->getTimestamp(),
+                'ttlMinutes' => 15,
+            ],
+            $context->toArray(),
+        );
+    }
+
+    /**
+     * Deactivation names both operators: the one closing the window and the one
+     * who opened it. They are not always the same person, and which of the two
+     * a row is missing changes what the record means.
+     */
+    #[Test]
+    public function theDeactivationAuditRowNamesBothOperatorsAndTheWindowItCloses(): void
+    {
+        $this->givenBackendActor(isAdmin: true);
+        $this->givenOpenWindow();
+        $session = $this->openSession();
+
+        $context = null;
+        $this->auditLogService
+            ->expects(self::once())
+            ->method('log')
+            ->willReturnCallback(
+                function (...$arguments) use (&$context): void {
+                    $context = $arguments[7];
+                },
+            );
+
+        $this->subject->deactivate('INC-4711 closed');
+
+        self::assertInstanceOf(GenericContext::class, $context);
+        $data = $context->toArray();
+        self::assertSame(5, $data['actorUid'] ?? null);
+        self::assertSame('alice', $data['actorUsername'] ?? null);
+        self::assertSame($session->activatedByUid, $data['activatedByUid'] ?? null);
+        self::assertSame($session->activatedByUsername, $data['activatedByUsername'] ?? null);
+        self::assertSame($session->reason, $data['activationReason'] ?? null);
+        self::assertArrayHasKey('expiresAt', $data);
     }
 
     #[Test]
