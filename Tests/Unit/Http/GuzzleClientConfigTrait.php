@@ -34,4 +34,27 @@ trait GuzzleClientConfigTrait
         /** @var array<string, mixed> $config */
         return $config;
     }
+
+    /**
+     * The same configuration with object values reduced to their class name.
+     *
+     * Two clients built the same way hold equal options but not identical
+     * objects, and Guzzle 8 adds four PSR-17 factory defaults
+     * (`request_factory`, `uri_factory`, `stream_factory`, `response_factory`)
+     * that are a fresh instance per client. Comparing raw arrays therefore
+     * reports a difference in the infrastructure rather than in the
+     * configuration under test. The class name is kept so a client built with
+     * a different factory still fails the comparison.
+     *
+     * @param array<string, mixed> $config
+     *
+     * @return array<string, mixed>
+     */
+    private function comparableGuzzleConfig(array $config): array
+    {
+        return array_map(
+            static fn (mixed $value): mixed => \is_object($value) ? $value::class : $value,
+            $config,
+        );
+    }
 }

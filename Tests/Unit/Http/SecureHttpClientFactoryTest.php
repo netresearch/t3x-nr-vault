@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Client\ClientInterface;
+use stdClass;
 use TYPO3\CMS\Core\Log\LogLevel;
 use TYPO3\CMS\Core\Log\LogRecord;
 use TYPO3\CMS\Core\Log\Writer\AbstractWriter;
@@ -23,6 +24,12 @@ use TYPO3\CMS\Core\Log\Writer\AbstractWriter;
 final class SecureHttpClientFactoryTest extends TestCase
 {
     use GuzzleClientConfigTrait;
+
+    private const CA_BUNDLE = '/path/to/ca.pem';
+
+    private const CLIENT_CERT = '/path/to/cert.pem';
+
+    private const PROXY_URL = 'http://proxy.example:8080';
 
     protected bool $resetSingletonInstances = true;
 
@@ -110,12 +117,242 @@ final class SecureHttpClientFactoryTest extends TestCase
         self::assertInstanceOf(ClientInterface::class, $client);
     }
 
+    /**
+     * The one narrowing that must never round a value the other way.
+     *
+     * Guzzle disables certificate verification on `verify === false` and takes
+     * a CA bundle on a string; every other type reaches neither branch and
+     * leaves cURL's defaults standing. So a platform setting the factory does
+     * not recognise has to disappear, not become `false` — mapping `0`, `''`
+     * or an array to `false` would turn a typo in LocalConfiguration into a
+     * transport that accepts any certificate.
+     */
+    #[Test]
+    #[DataProvider('unrecognisedVerifyValues')]
+    public function anUnrecognisedVerifySettingIsDroppedRatherThanReadAsDisabled(mixed $verify): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['verify' => $verify];
+
+        $config = $this->getGuzzleConfig($this->factory->create());
+
+        // The key is still there: Guzzle fills in its own default when the
+        // option is unset, which is exactly the outcome being asserted —
+        // verification stays on, and the platform's value never arrived.
+        self::assertTrue($config['verify'], 'TLS verification must stay enabled');
+        self::assertNotSame($verify, $config['verify']);
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function unrecognisedVerifyValues(): iterable
+    {
+        yield 'zero' => [0];
+        yield 'one' => [1];
+        yield 'float' => [1.0];
+        yield 'array' => [[self::CA_BUNDLE]];
+        yield 'object' => [new stdClass()];
+    }
+
+    #[Test]
+    public function aRecognisedVerifySettingIsPassedOnUnchanged(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['verify' => self::CA_BUNDLE];
+        self::assertSame(self::CA_BUNDLE, $this->getGuzzleConfig($this->factory->create())['verify']);
+
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['verify' => false];
+        self::assertFalse($this->getGuzzleConfig($this->factory->create())['verify']);
+
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['verify' => true];
+        self::assertTrue($this->getGuzzleConfig($this->factory->create())['verify']);
+    }
+
+    /**
+     * `protocols` decides whether a redirect to plain `http` is followed with
+     * the credential still attached, so an entry Guzzle cannot read is dropped
+     * rather than passed on.
+     */
+    #[Test]
+    public function redirectSettingsKeepTheEntriesGuzzleDocumentsAndDropTheRest(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
+            'allow_redirects' => [
+                'max' => 5,
+                'strict' => true,
+                'referer' => 'yes',
+                'protocols' => ['https', 42],
+                'track_redirects' => false,
+                'unknown' => 'dropped',
+            ],
+        ];
+
+        $config = $this->getGuzzleConfig($this->factory->create());
+
+        self::assertSame(
+            ['max' => 5, 'strict' => true, 'track_redirects' => false, 'protocols' => ['https']],
+            $config['allow_redirects'] ?? null,
+        );
+    }
+
+    #[Test]
+    #[DataProvider('unusableRedirectSettings')]
+    public function anUnusableRedirectSettingFallsBackToNoRedirects(mixed $value): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['allow_redirects' => $value];
+
+        self::assertFalse($this->getGuzzleConfig($this->factory->create())['allow_redirects'] ?? null);
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function unusableRedirectSettings(): iterable
+    {
+        yield 'string' => ['yes'];
+        yield 'int' => [1];
+        yield 'null' => [null];
+    }
+
+    #[Test]
+    public function aProxySettingIsReducedToTheSchemesGuzzleReads(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
+            'proxy' => [
+                'http' => self::PROXY_URL,
+                'https' => 42,
+                'no' => ['internal.example', 7],
+                'ftp' => 'dropped',
+            ],
+        ];
+
+        $config = $this->getGuzzleConfig($this->factory->create());
+
+        self::assertSame(
+            ['http' => self::PROXY_URL, 'no' => ['internal.example']],
+            $config['proxy'] ?? null,
+        );
+    }
+
+    #[Test]
+    public function aCertificateSettingKeepsItsPassphrasePairAndDropsAnythingElse(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
+            'cert' => [self::CLIENT_CERT, 'secret'],
+            'ssl_key' => [42],
+        ];
+
+        $config = $this->getGuzzleConfig($this->factory->create());
+
+        self::assertSame([self::CLIENT_CERT, 'secret'], $config['cert'] ?? null);
+        self::assertArrayNotHasKey('ssl_key', $config);
+    }
+
+    #[Test]
+    public function aProxySettingWithNoUsableSchemeLeavesTheOptionUnset(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['proxy' => ['ftp' => self::PROXY_URL]];
+
+        // Guzzle reads `http`, `https` and `no`; an array carrying none of them
+        // says nothing, so the option is left for the environment fallback
+        // rather than handed on as an empty map.
+        self::assertArrayNotHasKey('proxy', $this->getGuzzleConfig($this->factory->create()));
+    }
+
+    #[Test]
+    #[DataProvider('unusableProxySettings')]
+    public function anUnusableProxySettingLeavesTheOptionUnset(mixed $value): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['proxy' => $value];
+
+        self::assertArrayNotHasKey('proxy', $this->getGuzzleConfig($this->factory->create()));
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function unusableProxySettings(): iterable
+    {
+        yield 'int' => [42];
+        yield 'float' => [1.5];
+        yield 'object' => [new stdClass()];
+    }
+
+    #[Test]
+    public function aProxyExclusionListMayBeASingleHost(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
+            'proxy' => ['https' => self::PROXY_URL, 'no' => 'internal.example'],
+        ];
+
+        self::assertSame(
+            ['https' => self::PROXY_URL, 'no' => 'internal.example'],
+            $this->getGuzzleConfig($this->factory->create())['proxy'] ?? null,
+        );
+    }
+
+    #[Test]
+    public function aCertificatePairWithoutAPassphraseKeepsItsPathAlone(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['cert' => [self::CLIENT_CERT]];
+
+        self::assertSame([self::CLIENT_CERT], $this->getGuzzleConfig($this->factory->create())['cert'] ?? null);
+    }
+
+    #[Test]
+    public function aRedirectCallbackSurvivesAndAnEmptyProtocolListDoesNot(): void
+    {
+        $onRedirect = static fn (): null => null;
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
+            'allow_redirects' => ['on_redirect' => $onRedirect, 'protocols' => [42]],
+        ];
+
+        $allowRedirects = $this->getGuzzleConfig($this->factory->create())['allow_redirects'] ?? null;
+
+        self::assertIsArray($allowRedirects);
+        self::assertSame($onRedirect, $allowRedirects['on_redirect'] ?? null);
+        // Every entry was unusable, so no protocol restriction is claimed —
+        // Guzzle's own default decides, rather than an empty list.
+        self::assertArrayNotHasKey('protocols', $allowRedirects);
+    }
+
+    /**
+     * The wall-clock bound the cancellable transport is given.
+     *
+     * It is the sum the factory computes from the two timeouts plus a fixed
+     * margin, and it is what stops a cancelled send from hanging when the
+     * ticker never fires. Nothing asserted the arithmetic, so a transport built
+     * with the platform's connect timeout dropped would have looked identical
+     * from the outside.
+     */
+    #[Test]
+    public function theCancellableTransportBoundsItselfByBothTimeoutsPlusTheMargin(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['timeout' => 30, 'connect_timeout' => 7];
+
+        $transport = $this->factory->createCancellable(11);
+
+        self::assertNotNull($transport);
+        // 11 from the per-client override, 7 from the platform, 5 fixed margin.
+        self::assertSame(23.0, $transport->wallClockBudgetSeconds());
+    }
+
+    #[Test]
+    public function theCancellableTransportFallsBackToThePlatformTimeoutWithoutAnOverride(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['timeout' => 30, 'connect_timeout' => 7];
+
+        $transport = $this->factory->createCancellable();
+
+        self::assertNotNull($transport);
+        self::assertSame(42.0, $transport->wallClockBudgetSeconds());
+    }
+
     #[Test]
     public function createWithSslConfig(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
             'verify' => false,
-            'cert' => '/path/to/cert.pem',
+            'cert' => self::CLIENT_CERT,
             'ssl_key' => '/path/to/key.pem',
         ];
 
@@ -166,7 +403,7 @@ final class SecureHttpClientFactoryTest extends TestCase
         yield 'verify true' => [['verify' => true], false];
         yield 'verify zero' => [['verify' => 0], false];
         yield 'verify empty string' => [['verify' => ''], false];
-        yield 'verify ca bundle path' => [['verify' => '/path/to/ca.pem'], false];
+        yield 'verify ca bundle path' => [['verify' => self::CA_BUNDLE], false];
     }
 
     #[Test]

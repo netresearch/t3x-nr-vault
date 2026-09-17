@@ -279,10 +279,17 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         $handler = $client->getConfig('handler');
 
         self::assertInstanceOf(HandlerStack::class, $handler);
-        self::assertStringContainsString(
+
+        // Guzzle 7 listed the middleware names in `HandlerStack::__toString()`;
+        // Guzzle 8 removed that method and the stack is private, so the name
+        // is only reachable through an operation that resolves it. `before()`
+        // does, and throws `Middleware not found` when the name is absent --
+        // which makes the failure say what is missing rather than that an
+        // object cannot be cast to a string.
+        $handler->before(
             'ssrf-dns-pin',
-            (string) $handler,
-            'The factory must push the ssrf-dns-pin middleware onto the stack.',
+            static fn (callable $next): callable => $next,
+            'ssrf-dns-pin-probe',
         );
     }
 
