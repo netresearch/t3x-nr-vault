@@ -170,8 +170,12 @@ final class InventoryConsistencyCheckTest extends TestCase
      * A ConnectionPool whose query builder answers every read with one callback.
      *
      * The builder is a stub rather than a real one because the assertion is
-     * about what the check makes of the counts, not about the SQL it builds —
-     * that is what the functional suite covers.
+     * about what the check makes of the counts, not about the SQL it builds.
+     * That distinction cuts both ways and has cost once already: a stub answers
+     * any query shape, so a query no database could run passed here and reached
+     * a release. The SQL itself is covered by
+     * {@see \Netresearch\NrVault\Tests\Functional\Service\Doctor\InventoryConsistencyCheckTest},
+     * which runs it against a real one.
      *
      * @param callable(): Result $execute
      */
@@ -188,6 +192,7 @@ final class InventoryConsistencyCheckTest extends TestCase
         $queryBuilder->method('quoteIdentifier')->willReturnArgument(0);
         $queryBuilder->method('createNamedParameter')->willReturn(':p');
         $queryBuilder->method('count')->willReturnSelf();
+        $queryBuilder->method('selectLiteral')->willReturnSelf();
         $queryBuilder->method('from')->willReturnSelf();
         $queryBuilder->method('leftJoin')->willReturnSelf();
         $queryBuilder->method('where')->willReturnSelf();
