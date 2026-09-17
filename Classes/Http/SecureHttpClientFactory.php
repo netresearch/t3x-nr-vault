@@ -205,8 +205,8 @@ final class SecureHttpClientFactory
         $stack->push($this->buildSsrfDefenceMiddleware(), 'ssrf-dns-pin');
         $options['handler'] = $stack;
 
-        $timeout = \is_int($options['timeout'] ?? null) ? $options['timeout'] : 30;
-        $connectTimeout = \is_int($options['connect_timeout'] ?? null) ? $options['connect_timeout'] : 10;
+        $timeout = $options['timeout'];
+        $connectTimeout = $options['connect_timeout'];
 
         return new CancellableTransport(
             new Client($options),
@@ -293,7 +293,20 @@ final class SecureHttpClientFactory
      *
      * @param int|null $timeoutSeconds Optional `timeout` override; see `create()`
      *
-     * @return array<string, mixed>
+     * @return array{
+     *     debug: false,
+     *     http_errors: false,
+     *     timeout: int,
+     *     connect_timeout: int,
+     *     version: string,
+     *     proxy?: string|array{http?: string|null, https?: string|null, no?: string|array<array-key, string>|null},
+     *     verify?: bool|string,
+     *     cert?: string|array{0: string, 1?: string|null},
+     *     ssl_key?: string|array{0: string, 1?: string|null},
+     *     allow_redirects: bool|array{max?: int, strict?: bool, referer?: bool, protocols?: non-empty-list<string>, on_redirect?: callable(RequestInterface, \Psr\Http\Message\ResponseInterface, \Psr\Http\Message\UriInterface): mixed, track_redirects?: bool}
+     * } Guzzle request options; every value taken from the platform
+     *   configuration is narrowed to a type Guzzle acts on at the point it is
+     *   read, so a malformed setting cannot decide transport behaviour.
      */
     private function buildOptions(?int $timeoutSeconds): array
     {
@@ -302,7 +315,6 @@ final class SecureHttpClientFactory
         /** @var array<string, mixed> $typo3Config */
         $typo3Config = $confVars['HTTP'] ?? [];
 
-        /** @var array<string, mixed> $options */
         $options = [
             // Security: Always disable debug to prevent secret logging
             'debug' => false,
@@ -327,12 +339,22 @@ final class SecureHttpClientFactory
             $options['timeout'] = $timeoutSeconds;
         }
 
-        // Proxy settings (critical for corporate networks)
+        // Proxy settings (critical for corporate networks). Guzzle takes a
+        // string or a per-scheme array here; anything else it would ignore, so
+        // it is dropped at this boundary rather than handed on.
         if (!empty($typo3Config['proxy'])) {
-            $options['proxy'] = $typo3Config['proxy'];
+            $proxy = $this->narrowProxy($typo3Config['proxy']);
+            if ($proxy !== null) {
+                $options['proxy'] = $proxy;
+            }
         } else {
-            // Fall back to environment variables (common in containers)
-            $options['proxy'] = $this->getProxyFromEnvironment();
+            // Fall back to environment variables (common in containers). The
+            // helper answers null when neither variable is set; Guzzle has no
+            // meaning for a null proxy, so the option stays unset.
+            $environmentProxy = $this->getProxyFromEnvironment();
+            if ($environmentProxy !== null) {
+                $options['proxy'] = $environmentProxy;
+            }
         }
 
         // SSL/TLS settings. The operator warning for `verify => false` is NOT
@@ -342,24 +364,155 @@ final class SecureHttpClientFactory
         // emitted from create() instead, which every VaultHttpClient goes
         // through (the constructor builds its inner client there), so the
         // warning still reaches the log exactly as before this change.
+        //
+        // `verify` is passed on only as the two types Guzzle acts on, a bool or
+        // a CA-bundle path. Dropping the others changes nothing: Guzzle tests
+        // `=== false` to disable verification and `is_string()` to take a
+        // bundle, so a `null` (which `isset()` already hides from it), a `0` or
+        // any other scalar reaches neither branch and leaves cURL's defaults
+        // standing. Mapping those to `false` instead would be the one change
+        // that must not happen here — it would turn a malformed setting into
+        // disabled TLS verification. An empty string keeps its current
+        // behaviour, a "SSL CA bundle not found" at request time.
         if (\array_key_exists('verify', $typo3Config)) {
-            $options['verify'] = $typo3Config['verify'];
+            $verify = $typo3Config['verify'];
+            if (\is_bool($verify) || \is_string($verify)) {
+                $options['verify'] = $verify;
+            }
         }
+        // `cert` and `ssl_key` are a path, or a [path, passphrase] pair.
         if (!empty($typo3Config['cert'])) {
-            $options['cert'] = $typo3Config['cert'];
+            $cert = $this->narrowCertificate($typo3Config['cert']);
+            if ($cert !== null) {
+                $options['cert'] = $cert;
+            }
         }
         if (!empty($typo3Config['ssl_key'])) {
-            $options['ssl_key'] = $typo3Config['ssl_key'];
+            $sslKey = $this->narrowCertificate($typo3Config['ssl_key']);
+            if ($sslKey !== null) {
+                $options['ssl_key'] = $sslKey;
+            }
         }
 
-        // Redirect settings: disable by default to prevent credential leakage on cross-origin redirects
-        if (\array_key_exists('allow_redirects', $typo3Config)) {
-            $options['allow_redirects'] = $typo3Config['allow_redirects'];
-        } else {
-            $options['allow_redirects'] = false;
-        }
+        // Redirect settings: disable by default to prevent credential leakage
+        // on cross-origin redirects. Guzzle takes `true`, `false` or a settings
+        // array; anything else falls back to the safe default rather than being
+        // handed on, because what Guzzle makes of an unexpected type here is
+        // what decides whether a redirect carries the credential.
+        $options['allow_redirects'] = $this->narrowRedirectSettings($typo3Config['allow_redirects'] ?? false);
 
         return $options;
+    }
+
+    /**
+     * The platform's proxy setting, reduced to what Guzzle documents.
+     *
+     * A single URL, or a per-scheme map of `http`, `https` and `no`. Null when
+     * the platform value is neither, so the caller leaves the option unset.
+     *
+     * @return string|array{http?: string|null, https?: string|null, no?: string|array<array-key, string>|null}|null
+     */
+    private function narrowProxy(mixed $value): string|array|null
+    {
+        if (\is_string($value)) {
+            return $value;
+        }
+
+        if (!\is_array($value)) {
+            return null;
+        }
+
+        $proxy = [];
+        foreach (['http', 'https'] as $scheme) {
+            if (\is_string($value[$scheme] ?? null)) {
+                $proxy[$scheme] = $value[$scheme];
+            }
+        }
+
+        $no = $value['no'] ?? null;
+        if (\is_string($no)) {
+            $proxy['no'] = $no;
+        } elseif (\is_array($no)) {
+            $hosts = array_filter($no, static fn (mixed $host): bool => \is_string($host));
+            if ($hosts !== []) {
+                $proxy['no'] = $hosts;
+            }
+        }
+
+        return $proxy === [] ? null : $proxy;
+    }
+
+    /**
+     * A client certificate or key, reduced to what Guzzle documents.
+     *
+     * A path, or a `[path, passphrase]` pair. Null when the platform value is
+     * neither, so the caller leaves the option unset rather than handing on a
+     * value whose use Guzzle would have to guess.
+     *
+     * @return string|array{0: string, 1?: string|null}|null
+     */
+    private function narrowCertificate(mixed $value): string|array|null
+    {
+        if (\is_string($value)) {
+            return $value;
+        }
+
+        if (!\is_array($value) || !\is_string($value[0] ?? null)) {
+            return null;
+        }
+
+        $passphrase = $value[1] ?? null;
+
+        return \is_string($passphrase) ? [$value[0], $passphrase] : [$value[0]];
+    }
+
+    /**
+     * The platform's redirect setting, reduced to what Guzzle documents.
+     *
+     * Guzzle takes `true`, `false`, or a settings array whose keys each have a
+     * type. The platform value is arbitrary, and an entry Guzzle does not
+     * understand is not inert here: `protocols`, for one, decides whether a
+     * redirect to `http` is followed with the credential still attached. Known
+     * keys are carried over when their type matches and dropped when it does
+     * not, so a malformed setting falls back to Guzzle's own default for that
+     * entry rather than being handed on. Anything that is neither a bool nor an
+     * array becomes `false`, which is this factory's default anyway.
+     *
+     * @return bool|array{max?: int, strict?: bool, referer?: bool, protocols?: non-empty-list<string>, on_redirect?: callable(RequestInterface, \Psr\Http\Message\ResponseInterface, \Psr\Http\Message\UriInterface): mixed, track_redirects?: bool}
+     */
+    private function narrowRedirectSettings(mixed $value): bool|array
+    {
+        if (\is_bool($value)) {
+            return $value;
+        }
+
+        if (!\is_array($value)) {
+            return false;
+        }
+
+        $settings = [];
+
+        if (\is_int($value['max'] ?? null)) {
+            $settings['max'] = $value['max'];
+        }
+        foreach (['strict', 'referer', 'track_redirects'] as $flag) {
+            if (\is_bool($value[$flag] ?? null)) {
+                $settings[$flag] = $value[$flag];
+            }
+        }
+        if (\is_callable($value['on_redirect'] ?? null)) {
+            $settings['on_redirect'] = $value['on_redirect'];
+        }
+
+        $protocols = $value['protocols'] ?? null;
+        if (\is_array($protocols)) {
+            $names = array_values(array_filter($protocols, static fn (mixed $p): bool => \is_string($p)));
+            if ($names !== []) {
+                $settings['protocols'] = $names;
+            }
+        }
+
+        return $settings;
     }
 
     /**
@@ -1053,11 +1206,15 @@ final class SecureHttpClientFactory
     /**
      * Get proxy configuration from environment variables.
      *
-     * @return array<string, list<string>|string>|null
+     * The shape is Guzzle's own: a per-scheme map with an optional exclusion
+     * list. Stating it here rather than a generic map is what lets the option
+     * array keep its type all the way to the client constructor.
+     *
+     * @return array{http?: string, https?: string, no?: list<string>}|null
      */
     private function getProxyFromEnvironment(): ?array
     {
-        /** @var array<string, list<string>|string> $proxy */
+        /** @var array{http?: string, https?: string, no?: list<string>} $proxy */
         $proxy = [];
 
         // HTTP_PROXY is only trusted in CLI due to PHP limitations

@@ -1120,8 +1120,8 @@ final class VaultHttpClientCancellableTest extends TestCase
         $cancellableClient = $cancellable->client();
         self::assertInstanceOf(Client::class, $cancellableClient);
 
-        $blockingConfig = $this->getGuzzleConfig($blocking);
-        $cancellableConfig = $this->getGuzzleConfig($cancellableClient);
+        $blockingConfig = $this->comparableGuzzleConfig($this->getGuzzleConfig($blocking));
+        $cancellableConfig = $this->comparableGuzzleConfig($this->getGuzzleConfig($cancellableClient));
         unset($blockingConfig['handler'], $cancellableConfig['handler']);
 
         self::assertSame($blockingConfig, $cancellableConfig);
