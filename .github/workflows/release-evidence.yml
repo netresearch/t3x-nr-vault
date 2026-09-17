@@ -293,13 +293,27 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Tests live in subdirectories by convention, and every one of them
-          # becomes a shard. A test file placed directly in Tests/Unit/ would
-          # belong to no shard and would therefore go unmeasured without anything
-          # saying so, so it gets a shard of its own (`__root`) instead.
+          # Tests live in subdirectories by convention, and every subdirectory
+          # that holds at least one test becomes a shard. A test file placed
+          # directly in Tests/Unit/ would belong to no shard and would therefore
+          # go unmeasured without anything saying so, so it gets a shard of its
+          # own (`__root`) instead.
+          #
+          # The "at least one test" part is load-bearing: Tests/Unit also holds
+          # directories of helpers with no test class in them (Fixtures), and a
+          # shard over one of those runs PHPUnit against an empty selection.
+          # Since `failOnEmptyTestSuite` is on, that is a failed job — the whole
+          # evidence bundle red because of a directory with nothing to measure.
+          # Directories are still discovered rather than listed, so a new one
+          # with tests in it is sharded the day it appears.
           SHARDS="$(
             {
-              find Tests/Unit -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
+              find Tests/Unit -mindepth 1 -maxdepth 1 -type d -printf '%p\n' \
+                | while IFS= read -r dir; do
+                    if find "$dir" -name '*Test.php' -print -quit | grep -q .; then
+                      basename "$dir"
+                    fi
+                  done
               find Tests/Unit -maxdepth 1 -type f -name '*Test.php' -printf '__root\n' | sort -u
             } | sort | jq -R . | jq -sc .
           )"
