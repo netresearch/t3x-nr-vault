@@ -440,8 +440,11 @@ final class BreakGlassServiceTest extends TestCase
     public function theDeactivationAuditRowNamesBothOperatorsAndTheWindowItCloses(): void
     {
         $this->givenBackendActor(isAdmin: true);
-        $this->givenOpenWindow();
+        // One session, used both as the stored window and as the expectation.
+        // `givenOpenWindow()` builds its own, so the two expiry timestamps
+        // would differ and the assertion below could only check the key.
         $session = $this->openSession();
+        $this->registry->method('get')->willReturn($session->toArray());
 
         $context = null;
         $this->auditLogService
@@ -462,7 +465,7 @@ final class BreakGlassServiceTest extends TestCase
         self::assertSame($session->activatedByUid, $data['activatedByUid'] ?? null);
         self::assertSame($session->activatedByUsername, $data['activatedByUsername'] ?? null);
         self::assertSame($session->reason, $data['activationReason'] ?? null);
-        self::assertArrayHasKey('expiresAt', $data);
+        self::assertSame($session->expiresAt->getTimestamp(), $data['expiresAt'] ?? null);
     }
 
     #[Test]
