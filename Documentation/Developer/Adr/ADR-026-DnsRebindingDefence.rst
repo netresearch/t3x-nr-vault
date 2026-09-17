@@ -13,12 +13,13 @@ ADR-026: DNS-rebinding defence via CURLOPT_RESOLVE
 Status
 ======
 
-Accepted
+Accepted (amended 2026-09-17 — an unresolvable host is refused, see
+:ref:`adr-038-unresolvable-host-is-refused`)
 
 Date
 ====
 
-2026-05-22
+2026-05-22, amended 2026-09-17
 
 Context
 =======

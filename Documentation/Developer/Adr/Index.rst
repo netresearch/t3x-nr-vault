@@ -50,7 +50,7 @@ ADR      Title                                                    Status
 023      :ref:`adr-023-audit-hash-chain-hmac`                     Accepted
 024      :ref:`adr-024-audit-hash-forensic-fields`                Accepted
 025      :ref:`adr-025-secret-entity-readonly`                    Accepted
-026      :ref:`adr-026-dns-rebinding-defence`                     Accepted
+026      :ref:`adr-026-dns-rebinding-defence`                     Amended
 027      :ref:`adr-027-oauth-client-unification`                  Accepted
 028      :ref:`adr-028-phpat-http-client-lock`                    Accepted
 029      :ref:`adr-029-technical-actor-context`                   Accepted
@@ -62,6 +62,7 @@ ADR      Title                                                    Status
 035      :ref:`adr-035-frontend-placeholder-allow-set`            Amended
 036      :ref:`adr-036-mutation-audit-atomicity`                  Accepted
 037      :ref:`adr-037-cancellable-outbound-send`                 Accepted
+038      :ref:`adr-038-unresolvable-host-is-refused`              Accepted
 =======  =======================================================  ========
 
 .. toctree::
