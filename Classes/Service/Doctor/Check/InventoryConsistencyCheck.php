@@ -176,8 +176,18 @@ final readonly class InventoryConsistencyCheck implements ReadinessCheckInterfac
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::AUDIT_TABLE);
         $queryBuilder->getRestrictions()->removeAll();
 
+        // `count()` quotes its whole argument as one identifier, so
+        // `count('DISTINCT audit.secret_identifier')` asks every platform for a
+        // column by that name and gets "no such column" — which this check then
+        // reports as a comparison it could not run. `selectLiteral()` with the
+        // identifier quoted on its own is the QueryBuilder's way to say
+        // COUNT(DISTINCT …), and the distinctness is load-bearing: the question
+        // is how many identifiers lost their row, not how many audit rows name
+        // one.
         $count = $queryBuilder
-            ->count('DISTINCT audit.secret_identifier')
+            ->selectLiteral(
+                'COUNT(DISTINCT ' . $queryBuilder->quoteIdentifier('audit.secret_identifier') . ')',
+            )
             ->from(self::AUDIT_TABLE, 'audit')
             ->leftJoin(
                 'audit',
