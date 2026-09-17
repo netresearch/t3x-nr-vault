@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-17
+
 ### Added
 
 - **A custom master-key provider can finally be selected.**
@@ -41,6 +43,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release; every other interface is for calling and may gain methods in a
   minor one.
 
+- **`vault:doctor` notices a half-restored database.** Its controls read the
+  master-key provider, the security profile, CLI access and the audit chain,
+  and not one of them read `tx_nrvault_secret` or the two permission tables —
+  so a restore that brought back the audit log without the secrets, or the
+  secrets without their permission rows, reported ready. Two comparisons under
+  a new `inventory` group close the half that is visible from the data:
+  `inventory.missing_secrets` is critical and names identifiers the audit log
+  records as created that have no secret row; `inventory.orphan_permissions`
+  warns about permission rows whose secret is gone. Both read zero against zero
+  on a fresh installation, so an empty vault stays silent, and the restore
+  documentation now says which half is covered and which is not.
+
 - **A pre-release check without publishing.** A manual run of
   `release-evidence.yml` with a commit SHA as `ref` runs every check against
   that commit and publishes a bundle labelled `precheck-<commit>`, whose
@@ -50,6 +64,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the branch the run was started from.
 
 ### Changed
+
+- **The platform's transport settings reach Guzzle only in the shapes it acts
+  on.** `$GLOBALS['TYPO3_CONF_VARS']['HTTP']` is operator input, and five of
+  its keys — `proxy`, `verify`, `cert`, `ssl_key` and `allow_redirects` —
+  were passed through whatever their type. Guzzle tests `verify === false`
+  strictly, so a value like `"0"` or `0` disabled nothing while looking as
+  though it did; a malformed `proxy` or certificate entry reached the
+  transport unchecked. Each of the five is narrowed at the boundary now, and
+  an unrecognised value is dropped rather than mapped to the permissive
+  reading of it.
 
 - **The test suites are strict about their own noise.** `failOnNotice`,
   `failOnPhpunitDeprecation`, `failOnEmptyTestSuite` and
@@ -208,6 +232,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `encryptionAlgorithm` on hosts with hardware AES support; both files and the
   security overview now say so, and the README no longer calls XChaCha20-Poly1305
   a fallback.
+
+- **Keyboard focus returns to the control that opened a vault dialog.** Reveal,
+  rotate and delete open a modal from a button in the list; closing it dropped
+  focus to the document, so a keyboard or screen-reader user landed at the top
+  of the page and had to traverse the list again to reach the row they were
+  working in.
+
+- **The coverage shard planner no longer turns a helper directory into a test
+  run.** Every direct subdirectory of `Tests/Unit` became a shard, including
+  `Fixtures`, which holds no test class — `failOnEmptyTestSuite` then failed
+  that job and with it the whole evidence bundle for the commit. A directory
+  becomes a shard only if it contains a test file. The check reads the file
+  system directly rather than through a pipe: under `set -o pipefail` a
+  `find … | grep -q` answers "no tests here" whenever `grep` exits first and
+  `find` dies on the closed pipe, which would have dropped a directory that
+  does hold tests, with nothing red to say so.
+
+### Security
+
+- **The SSRF guard refuses a host it could not resolve, instead of handing the
+  name to the transport unpinned.** A failed resolution was read as "nothing is
+  reachable", on the reasoning that a name nobody can resolve cannot be
+  connected to either. The two resolvers are not the same resolver:
+  `dns_get_record()` speaks DNS and nothing else, while the HTTP transport
+  resolves through `getaddrinfo()`, which also reads `/etc/hosts`, NSS modules
+  and mDNS. An empty answer therefore meant "no address was checked", and the
+  request went out for the transport to resolve and connect to whatever came
+  back. Both halves of the guard now fail closed — the caller-side
+  `isHostAllowed()` gate and the `ssrf-dns-pin` middleware — and an answer
+  whose records are not parseable addresses counts as no answer. Installing
+  ext-curl never closed this path; a literal `allowed_hosts` entry still opens
+  it deliberately. See ADR-038.
+
+  **Upgrade note:** an endpoint served by `/etc/hosts`, by an NSS module or by
+  a container runtime's embedded resolver rather than by DNS is now refused
+  until its host is listed literally in
+  `$GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']` — the same opt-in the
+  guard already documents for private addresses. The rejection message names
+  it, and it is distinct from the message for a disallowed IP range.
 
 ## [0.16.0] - 2026-09-05
 
@@ -2011,7 +2074,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.16.0...v1.0.0
 [0.16.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.13.0...v0.14.0
