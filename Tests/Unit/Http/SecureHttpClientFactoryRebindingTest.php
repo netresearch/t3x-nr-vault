@@ -372,6 +372,34 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     }
 
     #[Test]
+    public function isHostAllowedRefusesAnAnswerThatCarriesNoWellFormedAddress(): void
+    {
+        // The gate needs this on its own, not only through the middleware: an
+        // answer that is not a parseable IP cannot be range-checked, so
+        // counting it as safe would let a resolver hand the gate a "yes" for a
+        // host whose address nothing ever looked at.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [];
+        $this->dnsResolver->program('garbage.example.com', [['ip' => 'not-an-ip']]);
+
+        self::assertFalse($this->subject->isHostAllowed('garbage.example.com'));
+    }
+
+    #[Test]
+    public function isHostAllowedAcceptsASafeIpLiteralWithoutResolvingAnything(): void
+    {
+        // The address requirement applies to names. A literal is already an
+        // address and is range-checked directly; sending it through the
+        // resolver would refuse every IP-addressed endpoint, because a
+        // dotted quad has no A record. The resolver here answers nothing for
+        // every host, so this passes only if the literal never reaches it.
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [];
+
+        self::assertTrue($this->subject->isHostAllowed(self::PUBLIC_IP));
+        self::assertTrue($this->subject->isHostAllowed(self::PUBLIC_IPV6));
+        self::assertSame([], $this->dnsResolver->queriedHosts());
+    }
+
+    #[Test]
     public function isHostAllowedAcceptsAnUnresolvableHostListedLiterally(): void
     {
         // The documented escape hatch for a host served by /etc/hosts or

@@ -224,6 +224,13 @@ final class SecureHttpClientFactory
      * services (169.254.169.254) and internal RFC1918 networks even on
      * installations that left `allowed_hosts` unconfigured.
      *
+     * A hostname must also resolve to at least one address, or it is refused.
+     * An answer this factory cannot use is not evidence that nothing is
+     * reachable — it resolves with `dns_get_record()`, which speaks DNS, while
+     * the transport resolves with getaddrinfo(), which also reads /etc/hosts,
+     * NSS and mDNS. A host served only by one of those needs a literal
+     * `allowed_hosts` entry; see ADR-038.
+     *
      * Accepts either a bare hostname/IP or a `host:port` / `[ipv6]:port` /
      * `[ipv6]` form — port and IPv6 brackets are normalised away before
      * filtering. Callers passing PSR-7 `UriInterface::getHost()` get the
