@@ -46,6 +46,8 @@ use TYPO3\CMS\Core\Registry;
 #[AllowMockObjectsWithoutExpectations]
 final class BreakGlassServiceTest extends TestCase
 {
+    private const ACTIVATION_REASON = 'INC-4711 rotate leaked key';
+
     private Registry&MockObject $registry;
 
     private AccessControlServiceInterface&MockObject $accessControlService;
@@ -91,9 +93,9 @@ final class BreakGlassServiceTest extends TestCase
         $this->givenBackendActor(isAdmin: true);
         $this->registry->expects(self::once())->method('set');
 
-        $session = $this->subject->activate('INC-4711 rotate leaked key');
+        $session = $this->subject->activate(self::ACTIVATION_REASON);
 
-        self::assertSame('INC-4711 rotate leaked key', $session->reason);
+        self::assertSame(self::ACTIVATION_REASON, $session->reason);
         self::assertSame(5, $session->activatedByUid);
         self::assertSame('alice', $session->activatedByUsername);
     }
@@ -417,7 +419,7 @@ final class BreakGlassServiceTest extends TestCase
                 },
             );
 
-        $session = $this->subject->activate('INC-4711 rotate leaked key', 15);
+        $session = $this->subject->activate(self::ACTIVATION_REASON, 15);
 
         self::assertInstanceOf(GenericContext::class, $context);
         self::assertSame(
