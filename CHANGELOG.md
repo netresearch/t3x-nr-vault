@@ -49,11 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a restore that brought back the audit log without the secrets, or the
   secrets without their permission rows, reported ready. Two comparisons under
   a new `inventory` group close the half that is visible from the data:
-  `inventory.missing_secrets` is critical and names identifiers the audit log
-  records as created that have no secret row; `inventory.orphan_permissions`
-  warns about permission rows whose secret is gone. Both read zero against zero
-  on a fresh installation, so an empty vault stays silent, and the restore
-  documentation now says which half is covered and which is not.
+  `inventory.missing_secrets` is critical and counts the identifiers the audit
+  log records as created that have no secret row; `inventory.orphan_permissions`
+  warns about permission rows whose secret is gone. Neither finding carries an
+  identifier — the report travels into CI logs, and an identifier names a
+  credential — so both report counts. Both read zero against zero on a fresh
+  installation, so an empty vault stays silent, and the restore documentation
+  now says which half is covered and which is not.
 
 - **A pre-release check without publishing.** A manual run of
   `release-evidence.yml` with a commit SHA as `ref` runs every check against
