@@ -29,6 +29,8 @@ final class SecureHttpClientFactoryTest extends TestCase
 
     private const CLIENT_CERT = '/path/to/cert.pem';
 
+    private const PROXY_URL = 'http://proxy.example:8080';
+
     protected bool $resetSingletonInstances = true;
 
     private SecureHttpClientFactory $factory;
@@ -216,7 +218,7 @@ final class SecureHttpClientFactoryTest extends TestCase
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
             'proxy' => [
-                'http' => 'http://proxy.example:8080',
+                'http' => self::PROXY_URL,
                 'https' => 42,
                 'no' => ['internal.example', 7],
                 'ftp' => 'dropped',
@@ -226,7 +228,7 @@ final class SecureHttpClientFactoryTest extends TestCase
         $config = $this->getGuzzleConfig($this->factory->create());
 
         self::assertSame(
-            ['http' => 'http://proxy.example:8080', 'no' => ['internal.example']],
+            ['http' => self::PROXY_URL, 'no' => ['internal.example']],
             $config['proxy'] ?? null,
         );
     }
@@ -248,7 +250,7 @@ final class SecureHttpClientFactoryTest extends TestCase
     #[Test]
     public function aProxySettingWithNoUsableSchemeLeavesTheOptionUnset(): void
     {
-        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['proxy' => ['ftp' => 'http://proxy.example:8080']];
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['proxy' => ['ftp' => self::PROXY_URL]];
 
         // Guzzle reads `http`, `https` and `no`; an array carrying none of them
         // says nothing, so the option is left for the environment fallback
@@ -279,11 +281,11 @@ final class SecureHttpClientFactoryTest extends TestCase
     public function aProxyExclusionListMayBeASingleHost(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
-            'proxy' => ['https' => 'http://proxy.example:8080', 'no' => 'internal.example'],
+            'proxy' => ['https' => self::PROXY_URL, 'no' => 'internal.example'],
         ];
 
         self::assertSame(
-            ['https' => 'http://proxy.example:8080', 'no' => 'internal.example'],
+            ['https' => self::PROXY_URL, 'no' => 'internal.example'],
             $this->getGuzzleConfig($this->factory->create())['proxy'] ?? null,
         );
     }
