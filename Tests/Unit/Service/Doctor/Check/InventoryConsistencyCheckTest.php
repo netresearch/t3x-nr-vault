@@ -40,6 +40,17 @@ final class InventoryConsistencyCheckTest extends TestCase
     }
 
     /**
+     * The group id is an interface, not an implementation detail: it prefixes
+     * every finding, keys the JSON report, and is what the restore
+     * documentation and Commands.rst name.
+     */
+    #[Test]
+    public function theGroupIdIsTheOneTheReportAndTheDocumentationName(): void
+    {
+        self::assertSame('inventory', $this->check([0, 0, 0])->getId());
+    }
+
+    /**
      * The case that must not raise an alarm: a vault nobody has used yet.
      *
      * Both comparisons read zero against zero there, which is the reason they
