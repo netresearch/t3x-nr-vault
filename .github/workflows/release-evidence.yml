@@ -310,7 +310,7 @@ jobs:
             {
               find Tests/Unit -mindepth 1 -maxdepth 1 -type d -printf '%p\n' \
                 | while IFS= read -r dir; do
-                    if find "$dir" -name '*Test.php' -print -quit | grep -q .; then
+                    if [ -n "$(find "$dir" -type f -name '*Test.php' -print -quit)" ]; then
                       basename "$dir"
                     fi
                   done
