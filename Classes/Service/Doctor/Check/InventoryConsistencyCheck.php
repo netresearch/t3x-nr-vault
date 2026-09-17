@@ -9,13 +9,13 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Service\Doctor\Check;
 
+use Doctrine\DBAL\Exception as DbalException;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Configuration\SecurityProfile;
 use Netresearch\NrVault\Service\Doctor\DocsLink;
 use Netresearch\NrVault\Service\Doctor\DoctorContext;
 use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
-use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 /**
@@ -96,7 +96,7 @@ final readonly class InventoryConsistencyCheck implements ReadinessCheckInterfac
 
         try {
             $missing = $this->countCreatedButAbsent();
-        } catch (Throwable $throwable) {
+        } catch (DbalException $throwable) {
             return $this->unreadable($id, 'the audit log against the secret table', $throwable);
         }
 
@@ -137,7 +137,7 @@ final readonly class InventoryConsistencyCheck implements ReadinessCheckInterfac
             foreach (self::PERMISSION_TABLES as $table) {
                 $orphans += $this->countOrphanPermissionRows($table);
             }
-        } catch (Throwable $throwable) {
+        } catch (DbalException $throwable) {
             return $this->unreadable($id, 'the permission tables against the secret table', $throwable);
         }
 
@@ -229,8 +229,15 @@ final readonly class InventoryConsistencyCheck implements ReadinessCheckInterfac
      * The whole point of this check is that a green report must not be the
      * default answer after a restore. A missing table or a refused query is
      * itself a reason to look, so it is a finding rather than a silent pass.
+     *
+     * Only a database failure lands here. Anything else -- a TypeError, an
+     * Error, a bug in this class -- is left to propagate into
+     * `VaultDoctorService::runContained()`, which files it as the critical
+     * `check.crashed` and makes the command exit 2. Catching it here would
+     * quietly demote a broken check to a warning, which is the opposite of
+     * what this class is for.
      */
-    private function unreadable(string $id, string $what, Throwable $throwable): Finding
+    private function unreadable(string $id, string $what, DbalException $throwable): Finding
     {
         return Finding::warning(
             id: $id,

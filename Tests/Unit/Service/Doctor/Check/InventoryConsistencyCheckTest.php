@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Service\Doctor\Check;
 
+use Doctrine\DBAL\Driver\Exception as DriverException;
+use Doctrine\DBAL\Exception\TableNotFoundException;
 use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Configuration\SecurityProfile;
 use Netresearch\NrVault\Service\Doctor\Check\InventoryConsistencyCheck;
@@ -17,7 +19,7 @@ use Netresearch\NrVault\Tests\Unit\TestCase;
 use Netresearch\NrVault\Tests\Unit\Traits\DoctorFindingTrait;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
-use RuntimeException;
+use TypeError;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -100,8 +102,12 @@ final class InventoryConsistencyCheckTest extends TestCase
     #[Test]
     public function acomparisonThatCannotRunIsReportedRatherThanPassed(): void
     {
-        $pool = $this->pool(static function (): Result {
-            throw new RuntimeException('Table not found', 1789652426);
+        // The concrete exception a missing table actually produces, rather than
+        // a generic one: the check catches `Doctrine\DBAL\Exception` on
+        // purpose and must not be satisfied by something broader.
+        $driverException = self::createStub(DriverException::class);
+        $pool = $this->pool(static function () use ($driverException): Result {
+            throw new TableNotFoundException($driverException, null);
         });
 
         $findings = (new InventoryConsistencyCheck($pool))->run($this->doctorContext(SecurityProfile::Standard));
@@ -109,8 +115,29 @@ final class InventoryConsistencyCheckTest extends TestCase
         foreach (['inventory.missing_secrets', 'inventory.orphan_permissions'] as $id) {
             $finding = $this->findingById($findings, $id);
             self::assertSame(FindingSeverity::Warning, $finding->severity, $id);
-            self::assertStringContainsString('Table not found', (string) ($finding->details['error'] ?? ''));
+            self::assertNotSame('', (string) ($finding->details['error'] ?? ''));
         }
+    }
+
+    /**
+     * A bug in this class must not come back as a warning.
+     *
+     * `VaultDoctorService::runContained()` turns an unexpected throwable into
+     * the critical `check.crashed` finding, and `DoctorReport::exitCode()` then
+     * answers 2 rather than 1. Catching `Throwable` here would take that away
+     * and report a broken check as a mild one — the opposite of what a check
+     * against a silent half-restore is for.
+     */
+    #[Test]
+    public function afailureThatIsNotADatabaseErrorIsLeftToTheCrashHandler(): void
+    {
+        $pool = $this->pool(static function (): Result {
+            throw new TypeError('someone changed a signature', 1789653678);
+        });
+
+        $this->expectException(TypeError::class);
+
+        (new InventoryConsistencyCheck($pool))->run($this->doctorContext(SecurityProfile::Standard));
     }
 
     /**
