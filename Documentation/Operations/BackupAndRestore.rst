@@ -257,25 +257,40 @@ AES will fail the second while passing the first.
 Every probe writes an audit row, which is the intended side effect: the
 restore verification leaves its own evidence.
 
+``vault:doctor`` reads the inventory as well, under the ``inventory`` control
+group. Two comparisons run there, and both are silent on a vault nobody has
+used yet:
+
+``inventory.missing_secrets``
+    Identifiers the audit log records as created that have no row in
+    ``tx_nrvault_secret``. A delete is a soft delete — the row stays with
+    ``deleted = 1`` — and nothing removes a secret row outright, so a create
+    with nothing behind it is a lost row rather than a deleted one. Reported as
+    CRITICAL: the plaintext exists nowhere else.
+
+``inventory.orphan_permissions``
+    Rows in either MM table whose ``uid_local`` names no secret. The rows grant
+    nothing by themselves; what they prove is that the tables came from
+    different moments.
+
 ..  warning::
 
-    ``vault:doctor`` does not establish that a restore is COMPLETE, and no
-    command in the current release does. Its controls cover the master-key
-    provider, the security profile, CLI access and the audit chain; none of
-    them reads ``tx_nrvault_secret`` or the two MM tables. A restore that
-    brought back no secrets at all, or every secret without its ACL tiers,
-    therefore passes ``provider.available`` and
-    ``provider.master_key_readable`` exactly like a complete one.
+    Two gaps remain, and they are the reason the manual steps below stay part
+    of the procedure.
 
-    The audit table is the one exception: a chain shorter than the published
-    anchor is reported — as ``TABLE_RESET`` by ``vault:audit-verify``, and by
-    the ``audit.anchor`` control where an external anchor exists. Missing
-    secrets and missing group tiers have no equivalent.
+    A secret whose permission rows are missing cannot be detected from the
+    data. ``vault:store`` writes the MM table without the counter column
+    DataHandler maintains, so a secret with no rows is indistinguishable from
+    one that was never granted to anybody. This is the case that locks every
+    legitimate user out, and only the non-admin ACL check below finds it.
 
-    Completeness is the operator's own step. Compare row counts against the
-    source database — ``tx_nrvault_secret`` and both MM tables — and treat the
-    probe decrypt and the non-admin ACL check above as part of the procedure
-    rather than as optional extras.
+    Secrets lost together with their audit rows are equally invisible: the
+    comparison needs the create entry to know the secret existed. A restore
+    that dropped both tables passes.
+
+    So: compare row counts against the source database — ``tx_nrvault_secret``
+    and both MM tables — and treat the probe decrypt and the non-admin ACL
+    check above as part of the procedure rather than as optional extras.
 
 .. _operations-backup-and-restore-symptoms:
 

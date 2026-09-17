@@ -56,5 +56,7 @@ final class DocsLink
 
     public const DEPLOYMENT_GATE = self::BASE . 'Security/Index.html#security-deployment-gate';
 
+    public const BACKUP_AND_RESTORE = self::BASE . 'Operations/BackupAndRestore.html#operations-backup-and-restore-verification';
+
     public const COMMANDS = self::BASE . 'Developer/Commands.html#developer-commands';
 }
