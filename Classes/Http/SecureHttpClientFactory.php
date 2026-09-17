@@ -357,42 +357,7 @@ final class SecureHttpClientFactory
             }
         }
 
-        // SSL/TLS settings. The operator warning for `verify => false` is NOT
-        // emitted here: this method runs for every client the factory builds,
-        // and the cancellable transport is built per send. A warning that
-        // repeats once per outbound call trains operators to ignore it. It is
-        // emitted from create() instead, which every VaultHttpClient goes
-        // through (the constructor builds its inner client there), so the
-        // warning still reaches the log exactly as before this change.
-        //
-        // `verify` is passed on only as the two types Guzzle acts on, a bool or
-        // a CA-bundle path. Dropping the others changes nothing: Guzzle tests
-        // `=== false` to disable verification and `is_string()` to take a
-        // bundle, so a `null` (which `isset()` already hides from it), a `0` or
-        // any other scalar reaches neither branch and leaves cURL's defaults
-        // standing. Mapping those to `false` instead would be the one change
-        // that must not happen here — it would turn a malformed setting into
-        // disabled TLS verification. An empty string keeps its current
-        // behaviour, a "SSL CA bundle not found" at request time.
-        if (\array_key_exists('verify', $typo3Config)) {
-            $verify = $typo3Config['verify'];
-            if (\is_bool($verify) || \is_string($verify)) {
-                $options['verify'] = $verify;
-            }
-        }
-        // `cert` and `ssl_key` are a path, or a [path, passphrase] pair.
-        if (!empty($typo3Config['cert'])) {
-            $cert = $this->narrowCertificate($typo3Config['cert']);
-            if ($cert !== null) {
-                $options['cert'] = $cert;
-            }
-        }
-        if (!empty($typo3Config['ssl_key'])) {
-            $sslKey = $this->narrowCertificate($typo3Config['ssl_key']);
-            if ($sslKey !== null) {
-                $options['ssl_key'] = $sslKey;
-            }
-        }
+        $options = array_merge($options, $this->tlsOptions($typo3Config));
 
         // Redirect settings: disable by default to prevent credential leakage
         // on cross-origin redirects. Guzzle takes `true`, `false` or a settings
@@ -400,6 +365,58 @@ final class SecureHttpClientFactory
         // handed on, because what Guzzle makes of an unexpected type here is
         // what decides whether a redirect carries the credential.
         $options['allow_redirects'] = $this->narrowRedirectSettings($typo3Config['allow_redirects'] ?? false);
+
+        return $options;
+    }
+
+    /**
+     * The TLS options the platform configured, at the types Guzzle reads.
+     *
+     * The operator warning for `verify => false` is NOT emitted here: this runs
+     * for every client the factory builds, and the cancellable transport is
+     * built per send. A warning that repeats once per outbound call trains
+     * operators to ignore it. It comes from `create()` instead, which every
+     * VaultHttpClient goes through.
+     *
+     * `verify` is passed on only as the two types Guzzle acts on, a bool or a
+     * CA-bundle path. Dropping the others changes nothing: Guzzle tests
+     * `=== false` to disable verification and `is_string()` to take a bundle,
+     * so a `null` (which `isset()` already hides from it), a `0` or any other
+     * scalar reaches neither branch and leaves cURL's defaults standing.
+     * Mapping those to `false` instead is the one change that must not happen
+     * here -- it would turn a malformed setting into disabled TLS
+     * verification. An empty string keeps its current behaviour, a
+     * "SSL CA bundle not found" at request time.
+     *
+     * @param array<string, mixed> $typo3Config
+     *
+     * @return array{verify?: bool|string, cert?: string|array{0: string, 1?: string|null}, ssl_key?: string|array{0: string, 1?: string|null}}
+     */
+    private function tlsOptions(array $typo3Config): array
+    {
+        $options = [];
+
+        if (\array_key_exists('verify', $typo3Config)) {
+            $verify = $typo3Config['verify'];
+            if (\is_bool($verify) || \is_string($verify)) {
+                $options['verify'] = $verify;
+            }
+        }
+
+        // `cert` and `ssl_key` are a path, or a [path, passphrase] pair.
+        if (!empty($typo3Config['cert'])) {
+            $cert = $this->narrowCertificate($typo3Config['cert']);
+            if ($cert !== null) {
+                $options['cert'] = $cert;
+            }
+        }
+
+        if (!empty($typo3Config['ssl_key'])) {
+            $sslKey = $this->narrowCertificate($typo3Config['ssl_key']);
+            if ($sslKey !== null) {
+                $options['ssl_key'] = $sslKey;
+            }
+        }
 
         return $options;
     }

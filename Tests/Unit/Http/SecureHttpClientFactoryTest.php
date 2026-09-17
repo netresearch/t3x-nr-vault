@@ -25,6 +25,10 @@ final class SecureHttpClientFactoryTest extends TestCase
 {
     use GuzzleClientConfigTrait;
 
+    private const CA_BUNDLE = '/path/to/ca.pem';
+
+    private const CLIENT_CERT = '/path/to/cert.pem';
+
     protected bool $resetSingletonInstances = true;
 
     private SecureHttpClientFactory $factory;
@@ -144,15 +148,15 @@ final class SecureHttpClientFactoryTest extends TestCase
         yield 'zero' => [0];
         yield 'one' => [1];
         yield 'float' => [1.0];
-        yield 'array' => [['/path/to/ca.pem']];
+        yield 'array' => [[self::CA_BUNDLE]];
         yield 'object' => [new stdClass()];
     }
 
     #[Test]
     public function aRecognisedVerifySettingIsPassedOnUnchanged(): void
     {
-        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['verify' => '/path/to/ca.pem'];
-        self::assertSame('/path/to/ca.pem', $this->getGuzzleConfig($this->factory->create())['verify']);
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['verify' => self::CA_BUNDLE];
+        self::assertSame(self::CA_BUNDLE, $this->getGuzzleConfig($this->factory->create())['verify']);
 
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['verify' => false];
         self::assertFalse($this->getGuzzleConfig($this->factory->create())['verify']);
@@ -231,14 +235,82 @@ final class SecureHttpClientFactoryTest extends TestCase
     public function aCertificateSettingKeepsItsPassphrasePairAndDropsAnythingElse(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
-            'cert' => ['/path/to/cert.pem', 'secret'],
+            'cert' => [self::CLIENT_CERT, 'secret'],
             'ssl_key' => [42],
         ];
 
         $config = $this->getGuzzleConfig($this->factory->create());
 
-        self::assertSame(['/path/to/cert.pem', 'secret'], $config['cert'] ?? null);
+        self::assertSame([self::CLIENT_CERT, 'secret'], $config['cert'] ?? null);
         self::assertArrayNotHasKey('ssl_key', $config);
+    }
+
+    #[Test]
+    public function aProxySettingWithNoUsableSchemeLeavesTheOptionUnset(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['proxy' => ['ftp' => 'http://proxy.example:8080']];
+
+        // Guzzle reads `http`, `https` and `no`; an array carrying none of them
+        // says nothing, so the option is left for the environment fallback
+        // rather than handed on as an empty map.
+        self::assertArrayNotHasKey('proxy', $this->getGuzzleConfig($this->factory->create()));
+    }
+
+    #[Test]
+    #[DataProvider('unusableProxySettings')]
+    public function anUnusableProxySettingLeavesTheOptionUnset(mixed $value): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['proxy' => $value];
+
+        self::assertArrayNotHasKey('proxy', $this->getGuzzleConfig($this->factory->create()));
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function unusableProxySettings(): iterable
+    {
+        yield 'int' => [42];
+        yield 'float' => [1.5];
+        yield 'object' => [new stdClass()];
+    }
+
+    #[Test]
+    public function aProxyExclusionListMayBeASingleHost(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
+            'proxy' => ['https' => 'http://proxy.example:8080', 'no' => 'internal.example'],
+        ];
+
+        self::assertSame(
+            ['https' => 'http://proxy.example:8080', 'no' => 'internal.example'],
+            $this->getGuzzleConfig($this->factory->create())['proxy'] ?? null,
+        );
+    }
+
+    #[Test]
+    public function aCertificatePairWithoutAPassphraseKeepsItsPathAlone(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['cert' => [self::CLIENT_CERT]];
+
+        self::assertSame([self::CLIENT_CERT], $this->getGuzzleConfig($this->factory->create())['cert'] ?? null);
+    }
+
+    #[Test]
+    public function aRedirectCallbackSurvivesAndAnEmptyProtocolListDoesNot(): void
+    {
+        $onRedirect = static fn (): null => null;
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
+            'allow_redirects' => ['on_redirect' => $onRedirect, 'protocols' => [42]],
+        ];
+
+        $allowRedirects = $this->getGuzzleConfig($this->factory->create())['allow_redirects'] ?? null;
+
+        self::assertIsArray($allowRedirects);
+        self::assertSame($onRedirect, $allowRedirects['on_redirect'] ?? null);
+        // Every entry was unusable, so no protocol restriction is claimed —
+        // Guzzle's own default decides, rather than an empty list.
+        self::assertArrayNotHasKey('protocols', $allowRedirects);
     }
 
     #[Test]
@@ -246,7 +318,7 @@ final class SecureHttpClientFactoryTest extends TestCase
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
             'verify' => false,
-            'cert' => '/path/to/cert.pem',
+            'cert' => self::CLIENT_CERT,
             'ssl_key' => '/path/to/key.pem',
         ];
 
@@ -297,7 +369,7 @@ final class SecureHttpClientFactoryTest extends TestCase
         yield 'verify true' => [['verify' => true], false];
         yield 'verify zero' => [['verify' => 0], false];
         yield 'verify empty string' => [['verify' => ''], false];
-        yield 'verify ca bundle path' => [['verify' => '/path/to/ca.pem'], false];
+        yield 'verify ca bundle path' => [['verify' => self::CA_BUNDLE], false];
     }
 
     #[Test]
