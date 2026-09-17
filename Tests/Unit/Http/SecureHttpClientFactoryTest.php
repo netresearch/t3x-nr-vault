@@ -315,6 +315,38 @@ final class SecureHttpClientFactoryTest extends TestCase
         self::assertArrayNotHasKey('protocols', $allowRedirects);
     }
 
+    /**
+     * The wall-clock bound the cancellable transport is given.
+     *
+     * It is the sum the factory computes from the two timeouts plus a fixed
+     * margin, and it is what stops a cancelled send from hanging when the
+     * ticker never fires. Nothing asserted the arithmetic, so a transport built
+     * with the platform's connect timeout dropped would have looked identical
+     * from the outside.
+     */
+    #[Test]
+    public function theCancellableTransportBoundsItselfByBothTimeoutsPlusTheMargin(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['timeout' => 30, 'connect_timeout' => 7];
+
+        $transport = $this->factory->createCancellable(11);
+
+        self::assertNotNull($transport);
+        // 11 from the per-client override, 7 from the platform, 5 fixed margin.
+        self::assertSame(23.0, $transport->wallClockBudgetSeconds());
+    }
+
+    #[Test]
+    public function theCancellableTransportFallsBackToThePlatformTimeoutWithoutAnOverride(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['timeout' => 30, 'connect_timeout' => 7];
+
+        $transport = $this->factory->createCancellable();
+
+        self::assertNotNull($transport);
+        self::assertSame(42.0, $transport->wallClockBudgetSeconds());
+    }
+
     #[Test]
     public function createWithSslConfig(): void
     {
