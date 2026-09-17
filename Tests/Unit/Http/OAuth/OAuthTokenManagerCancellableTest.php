@@ -24,12 +24,12 @@ use Netresearch\NrVault\Exception\OAuthException;
 use Netresearch\NrVault\Exception\RequestCancelledException;
 use Netresearch\NrVault\Http\CancellableTransport;
 use Netresearch\NrVault\Http\CancellationSignalInterface;
-use Netresearch\NrVault\Http\DnsResolverInterface;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
 use Netresearch\NrVault\Http\OAuth\OAuthTokenManager;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Http\TransportTickerInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Tests\Unit\Fixtures\AlwaysPublicDnsResolver;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -438,7 +438,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         return new OAuthTokenManager(
             $this->vaultService,
             $this->blockingClient,
-            new SecureHttpClientFactory(new AlwaysEmptyDnsResolver()),
+            new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
             null,
             null,
             null,
@@ -454,19 +454,6 @@ final class OAuthTokenManagerCancellableTest extends TestCase
             'token_type' => 'Bearer',
             'expires_in' => 3600,
         ], JSON_THROW_ON_ERROR));
-    }
-}
-
-/**
- * Deterministic stand-in for DNS during the host gate: every host resolves to
- * nothing, which the gate treats as "let the client surface the connection
- * error" — no network, no real resolver.
- */
-final class AlwaysEmptyDnsResolver implements DnsResolverInterface
-{
-    public function resolve(string $host): array
-    {
-        return [];
     }
 }
 

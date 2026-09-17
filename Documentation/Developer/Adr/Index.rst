@@ -105,3 +105,4 @@ ADR      Title                                                    Status
    ADR-035-FrontendPlaceholderAllowSet
    ADR-036-MutationAuditAtomicity
    ADR-037-CancellableOutboundSend
+   ADR-038-UnresolvableHostIsRefused

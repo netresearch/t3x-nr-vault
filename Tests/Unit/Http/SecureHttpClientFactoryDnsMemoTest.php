@@ -230,13 +230,15 @@ final class SecureHttpClientFactoryDnsMemoTest extends TestCase
     #[Test]
     public function aFailedResolutionIsNotMemoised(): void
     {
-        // Sequence: first NXDOMAIN, then a dangerous answer. If the failure
-        // were memoised, the second gate check would reuse the empty answer
-        // and pass a host whose fresh answer is dangerous.
-        $this->dnsResolver->answer(self::HOST, [], [['ip' => self::DOCKER_IP]]);
+        // Sequence: first NXDOMAIN, then a safe answer. An empty answer
+        // rejects the host, and memoising it would hold that rejection for the
+        // whole TTL — one lost DNS packet would then refuse every request to
+        // the host for a minute, long after the name resolves again. The
+        // second check must therefore see the fresh answer and pass.
+        $this->dnsResolver->answer(self::HOST, [], [['ip' => self::PUBLIC_IP]]);
 
-        self::assertTrue($this->subject->isHostAllowed(self::HOST), 'An unresolvable host passes the gate (connection error surfaces later).');
-        self::assertFalse($this->subject->isHostAllowed(self::HOST), 'The second check must see the fresh, dangerous answer.');
+        self::assertFalse($this->subject->isHostAllowed(self::HOST), 'An unresolvable host is refused: no address was checked.');
+        self::assertTrue($this->subject->isHostAllowed(self::HOST), 'The second check must see the fresh answer, not a memoised failure.');
 
         self::assertSame(2, $this->dnsResolver->queryCount(self::HOST));
     }

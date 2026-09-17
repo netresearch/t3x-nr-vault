@@ -256,6 +256,16 @@ three kinds.
     refusal is not silent: it surfaces as a ``SINK_FAILURE`` and is reported by
     ``vault:audit-verify``.
 
+    **A collector whose name is not in DNS needs the same entry**, even on a
+    public address. The guard resolves with ``dns_get_record()``, which speaks
+    DNS only, and refuses any host it cannot resolve to a checked address —
+    handing the name on would let the transport resolve it through
+    ``/etc/hosts``, NSS or mDNS and connect to an address nothing checked. A
+    collector reachable through a hosts file, a container runtime's embedded
+    resolver or an NSS module is therefore refused until it is listed here. The
+    rejection message says so; see
+    :ref:`adr-038-unresolvable-host-is-refused`.
+
 The scheme is restricted to ``http`` and ``https``. An enabled-but-unconfigured
 webhook reports itself disabled rather than claiming to be external evidence
 while delivering nothing.

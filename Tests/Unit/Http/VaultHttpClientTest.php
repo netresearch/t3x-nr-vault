@@ -23,6 +23,7 @@ use Netresearch\NrVault\Http\SecretPlacement;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Http\VaultHttpClient;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Tests\Unit\Fixtures\AlwaysPublicDnsResolver;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -59,6 +60,8 @@ final class VaultHttpClientTest extends TestCase
     /** @phpstan-ignore property.uninitialized */
     private ClientInterface&MockObject $innerClient;
 
+    private SecureHttpClientFactory $httpClientFactory;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -66,6 +69,12 @@ final class VaultHttpClientTest extends TestCase
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
         $this->innerClient = $this->createMock(ClientInterface::class);
+        // Every request runs through the host gate, which requires a checked
+        // address. These cases are about headers, audit rows and retries, not
+        // about DNS — left to the production resolver they would ask the
+        // machine's real DNS for `api.example.com` and measure the network the
+        // suite runs on.
+        $this->httpClientFactory = new SecureHttpClientFactory(new AlwaysPublicDnsResolver());
     }
 
     #[Test]
@@ -75,6 +84,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         self::assertInstanceOf(ClientInterface::class, $client);
@@ -100,6 +110,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $request = new Request('GET', self::API_URL);
@@ -115,6 +126,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::Bearer);
@@ -145,6 +157,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::Bearer);
@@ -177,6 +190,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::ApiKey);
@@ -207,6 +221,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication(
@@ -242,6 +257,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication(
@@ -277,6 +293,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_credentials', SecretPlacement::BasicAuth);
@@ -309,6 +326,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication(
@@ -343,6 +361,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::QueryParam);
@@ -391,6 +410,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::QueryParam);
@@ -420,6 +440,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication(
@@ -456,6 +477,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::QueryParam);
@@ -477,6 +499,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('nonexistent_key', SecretPlacement::Bearer);
@@ -515,6 +538,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client
@@ -537,6 +561,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $timeoutClient = $client->withTimeout(300);
@@ -556,6 +581,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $config = $this->getInnerGuzzleConfig($client->withTimeout(300));
@@ -571,9 +597,10 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
-        $platformConfig = $this->getGuzzleConfig((new SecureHttpClientFactory())->create());
+        $platformConfig = $this->getGuzzleConfig((new SecureHttpClientFactory(new AlwaysPublicDnsResolver()))->create());
         $config = $this->getInnerGuzzleConfig($client->withTimeout($seconds));
 
         self::assertSame($platformConfig['timeout'], $config['timeout']);
@@ -595,6 +622,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $chained = $client
@@ -614,6 +642,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         ))
             ->withAuthentication('my_key', SecretPlacement::Bearer, ['reason' => 'API call'])
             ->withTimeout(300);
@@ -649,6 +678,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_key', SecretPlacement::Bearer);
@@ -698,6 +728,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_key', SecretPlacement::Bearer);
@@ -721,6 +752,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         // Should be able to chain fluently
@@ -757,6 +789,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
@@ -793,6 +826,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_secret', SecretPlacement::BodyField);
@@ -828,6 +862,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication(
@@ -866,6 +901,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
@@ -905,6 +941,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
@@ -946,6 +983,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
@@ -984,6 +1022,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
@@ -1021,6 +1060,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
@@ -1059,6 +1099,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
@@ -1105,6 +1146,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_key', SecretPlacement::Bearer);
@@ -1174,8 +1216,9 @@ final class VaultHttpClientTest extends TestCase
             oauthManager: new OAuthTokenManager(
                 $this->vaultService,
                 $tokenEndpointClient,
-                new SecureHttpClientFactory(),
+                new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
             ),
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $oauthClient = $client->withOAuth(OAuthConfig::clientCredentials(
@@ -1194,6 +1237,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $oauthConfig = OAuthConfig::clientCredentials(
@@ -1215,6 +1259,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $oauthConfig = OAuthConfig::clientCredentials(
@@ -1246,6 +1291,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $request = new Request('GET', self::API_URL);
@@ -1276,6 +1322,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $request = new Request('GET', self::API_URL);
@@ -1305,6 +1352,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         // Header placement without custom headerName
@@ -1338,6 +1386,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
@@ -1374,6 +1423,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::BodyField);
@@ -1393,6 +1443,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $request = new Request('GET', 'ftp://files.example.com/data');
@@ -1410,6 +1461,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $request = new Request('GET', 'file:///etc/passwd');
@@ -1429,6 +1481,7 @@ final class VaultHttpClientTest extends TestCase
                 $this->vaultService,
                 $this->auditLogService,
                 $this->innerClient,
+                secureHttpClientFactory: $this->httpClientFactory,
             );
 
             $request = new Request('GET', 'https://untrusted.other.com/data');
@@ -1457,6 +1510,7 @@ final class VaultHttpClientTest extends TestCase
                 $this->vaultService,
                 $this->auditLogService,
                 $this->innerClient,
+                secureHttpClientFactory: $this->httpClientFactory,
             );
 
             $request = new Request('GET', self::API_URL);
@@ -1486,6 +1540,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         try {
@@ -1513,6 +1568,7 @@ final class VaultHttpClientTest extends TestCase
                 $this->vaultService,
                 $this->auditLogService,
                 $this->innerClient,
+                secureHttpClientFactory: $this->httpClientFactory,
             );
 
             try {
@@ -1544,6 +1600,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         try {
@@ -1576,6 +1633,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         try {
@@ -1607,6 +1665,7 @@ final class VaultHttpClientTest extends TestCase
                 $this->vaultService,
                 $this->auditLogService,
                 $this->innerClient,
+                secureHttpClientFactory: $this->httpClientFactory,
             );
 
             try {
@@ -1660,6 +1719,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         try {
@@ -1724,6 +1784,7 @@ final class VaultHttpClientTest extends TestCase
                 $this->vaultService,
                 $this->auditLogService,
                 $this->innerClient,
+                secureHttpClientFactory: $this->httpClientFactory,
             );
 
             try {
@@ -1776,6 +1837,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         // Chain withAuthentication and withReason
@@ -1807,6 +1869,7 @@ final class VaultHttpClientTest extends TestCase
             $this->vaultService,
             $this->auditLogService,
             $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
         );
 
         $originalManager = $this->extractOAuthManager($client);

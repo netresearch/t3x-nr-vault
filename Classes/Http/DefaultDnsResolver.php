@@ -15,8 +15,11 @@ namespace Netresearch\NrVault\Http;
  *
  * Resolution failures (NXDOMAIN, SERVFAIL, timeouts, missing
  * `dns_get_record` extension support for a given record type) collapse
- * to the empty list — the caller treats that as "let the HTTP client
- * surface the usual connection-error path".
+ * to the empty list. The caller treats that as "no address was checked"
+ * and refuses the request, because this function speaks DNS only while
+ * the HTTP transport resolves through getaddrinfo(), which also reads
+ * `/etc/hosts`, NSS modules and mDNS — a name that is empty here can
+ * still connect there.
  */
 final class DefaultDnsResolver implements DnsResolverInterface
 {

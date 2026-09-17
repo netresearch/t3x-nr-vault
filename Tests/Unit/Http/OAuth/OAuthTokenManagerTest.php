@@ -22,6 +22,7 @@ use Netresearch\NrVault\Http\OAuth\OAuthConfig;
 use Netresearch\NrVault\Http\OAuth\OAuthTokenManager;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Tests\Unit\Fixtures\AlwaysPublicDnsResolver;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -81,7 +82,7 @@ final class OAuthTokenManagerTest extends TestCase
         $this->subject = new OAuthTokenManager(
             $this->vaultService,
             $this->httpClient,
-            new SecureHttpClientFactory(),
+            new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
             $this->logger,
             $this->requestFactory,
             $this->streamFactory,
@@ -1083,7 +1084,7 @@ final class OAuthTokenManagerTest extends TestCase
         $subject = new OAuthTokenManager(
             $this->vaultService,
             $this->httpClient,
-            new SecureHttpClientFactory(),
+            new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
             $this->logger,
             $this->requestFactory,
             $this->streamFactory,
@@ -1634,7 +1635,7 @@ final class OAuthTokenManagerTest extends TestCase
         return new OAuthTokenManager(
             $this->vaultService,
             $this->httpClient,
-            new SecureHttpClientFactory(),
+            new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
             $this->logger,
             $this->requestFactory,
             $this->streamFactory,

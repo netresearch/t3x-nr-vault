@@ -18,6 +18,7 @@ use Netresearch\NrVault\Http\OAuth\OAuthToken;
 use Netresearch\NrVault\Http\OAuth\OAuthTokenManager;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Tests\Unit\Fixtures\AlwaysPublicDnsResolver;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -169,7 +170,7 @@ final class OAuthFuzzTest extends TestCase
         $manager = new OAuthTokenManager(
             $this->vaultService,
             $this->httpClient,
-            new SecureHttpClientFactory(),
+            new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
             new NullLogger(),
         );
 
@@ -221,7 +222,7 @@ final class OAuthFuzzTest extends TestCase
         $manager = new OAuthTokenManager(
             $this->vaultService,
             $this->httpClient,
-            new SecureHttpClientFactory(),
+            new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
             new NullLogger(),
         );
 

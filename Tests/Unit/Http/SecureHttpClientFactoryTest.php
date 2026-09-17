@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Http;
 
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
+use Netresearch\NrVault\Tests\Unit\Fixtures\AlwaysPublicDnsResolver;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -38,7 +39,13 @@ final class SecureHttpClientFactoryTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->factory = new SecureHttpClientFactory();
+        // The allowlist assertions below are about the allowlist. The host
+        // gate also requires a checked address, and left to the production
+        // resolver these cases would ask the machine's real DNS for
+        // `any.example.com` — so what they measure would depend on the network
+        // the suite runs on. A fixed public answer keeps the allowlist the
+        // only variable.
+        $this->factory = new SecureHttpClientFactory(new AlwaysPublicDnsResolver());
         $GLOBALS['TYPO3_CONF_VARS'] = [];
     }
 
