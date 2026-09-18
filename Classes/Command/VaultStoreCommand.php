@@ -147,15 +147,20 @@ final class VaultStoreCommand extends Command
 
             $io->success(\sprintf('Secret "%s" stored successfully', $identifier));
 
-            // Clear the value from memory
-            sodium_memzero($value);
-
             return Command::SUCCESS;
         } catch (VaultException $e) {
-            sodium_memzero($value);
             $io->error($e->getMessage());
 
             return Command::FAILURE;
+        } finally {
+            // In `finally`, not on each branch: the two branches cover a
+            // successful store and a VaultException, and everything else left
+            // the plaintext in memory. `runAs()` resolves the actor before the
+            // callback runs and can fail with something that is not a
+            // VaultException; so can an audit write underneath the store. Both
+            // restore their own state and neither wipes this copy, and there is
+            // no outer cleanup that would (CWE-316).
+            sodium_memzero($value);
         }
     }
 
