@@ -2013,6 +2013,58 @@ final class SecretTcaHookTest extends TestCase
     }
 
     /**
+     * A creation whose secret the vault refused must not leave its row behind.
+     *
+     * DataHandler has already inserted the row by the time this hook runs, and
+     * the value it was inserted for was never stored. A surviving row squats
+     * the identifier: the next legitimate creation under that name collides
+     * with a record holding no secret, and the ACL columns the policy forced
+     * onto it belong to the refused actor.
+     *
+     * Reached only through the outcome dispatch in completeRecordCreation(),
+     * which is why the case is driven end to end from the two DataHandler
+     * hooks rather than by calling the private method.
+     */
+    #[Test]
+    public function aCreationWhoseSecretWasRefusedDeletesTheRowAgain(): void
+    {
+        $this->stubBackendRecords([
+            ['identifier' => 'refused_secret', 'owner_uid' => 1, 'allowed_groups' => 0, 'scope_pid' => 0],
+        ]);
+        $this->vaultService->method('store')->willThrowException(new RuntimeException('refused'));
+
+        $deleted = [];
+        $connection = $this->createMock(Connection::class);
+        $connection->method('delete')->willReturnCallback(
+            static function (string $table, array $criteria) use (&$deleted): int {
+                $deleted[] = [$table, $criteria];
+
+                return 1;
+            },
+        );
+
+        $reads = [];
+        $pool = self::createStub(ConnectionPool::class);
+        $pool->method('getConnectionForTable')->willReturn($connection);
+        $pool->method('getQueryBuilderForTable')->willReturnCallback($this->queryBuilderFactory([], $reads));
+        $hook = $this->hookWith($pool);
+
+        $messages = [];
+        $dataHandler = $this->capturingDataHandler($messages);
+        $dataHandler->substNEWwithIDs = ['NEW1' => 42];
+
+        $fieldArray = ['identifier' => 'refused_secret', 'secret_input' => 'plaintext'];
+        $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 'NEW1', $dataHandler);
+        self::assertIsArray($fieldArray, self::NOT_ABORTED);
+        $hook->processDatamap_afterDatabaseOperations('new', self::TABLE, 'NEW1', $fieldArray, $dataHandler);
+
+        self::assertSame([[self::TABLE, ['uid' => 42]]], $deleted, 'the refused creation must be deleted again');
+        self::assertNotSame([], $messages, 'the editor must be told the record was removed');
+        self::assertStringContainsString('no vault secret was created', implode(' | ', $messages));
+        self::assertStringContainsString('removed again', implode(' | ', $messages));
+    }
+
+    /**
      * Build the hook with the optional ConnectionPool wired, leaving the
      * services from setUp() in place.
      */

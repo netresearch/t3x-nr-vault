@@ -21,6 +21,7 @@ use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use RuntimeException;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -232,6 +233,35 @@ final class VaultStoreCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exitCode);
+    }
+
+    /**
+     * The path the plaintext wipe used to miss.
+     *
+     * Actor resolution runs before the callback and can fail with something
+     * that is not a VaultException, and so can an audit write underneath the
+     * store. Neither branch of the old try/catch covered that, so `$value`
+     * survived in memory (CWE-316); the wipe now sits in `finally`.
+     *
+     * What this pins is the path, not the wipe: a zeroed local variable leaves
+     * no seam a test can read. It fails if the failure ever stops propagating
+     * — which is the assumption `finally` rests on.
+     */
+    #[Test]
+    public function aFailureOutsideTheVaultExceptionHierarchyPropagates(): void
+    {
+        $this->configuration->method('getProvisioningBeUserUid')->willReturn(991);
+        $this->technicalActorContext
+            ->method('runAs')
+            ->willThrowException(new RuntimeException('actor resolution failed'));
+
+        $this->expectException(RuntimeException::class);
+
+        $this->commandTester->execute([
+            'identifier' => 'openai_api_key',
+            '--value' => 'secret-value',
+            '--as-provisioner' => true,
+        ]);
     }
 
     #[Test]

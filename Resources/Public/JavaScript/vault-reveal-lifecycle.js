@@ -95,7 +95,7 @@ export function ensureCountdownElement(inputGroup) {
     const element = document.createElement('div');
     element.className = 'form-text text-muted t3js-vault-autohide';
     element.dataset.testid = 'vault-autohide-countdown';
-    inputGroup.insertAdjacentElement('afterend', element);
+    inputGroup.after(element);
 
     return element;
 }

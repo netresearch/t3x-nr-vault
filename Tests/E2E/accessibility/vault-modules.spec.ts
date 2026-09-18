@@ -412,7 +412,13 @@ test.describe('Vault Module Accessibility', () => {
 
       // Escape closes the modal.
       await page.keyboard.press('Escape');
-      await modalInput.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => undefined);
+      // Asserted, not waited-and-swallowed. The focus check below is only
+      // meaningful once the modal is actually gone: with the dialog still open
+      // its own focus trap holds focus, so a modal that never closed would send
+      // this test looking for a focus defect that is really a close defect.
+      // The delete-confirmation test one block down already asserts its close
+      // the same way.
+      await expect(modalInput).toBeHidden({ timeout: 5000 });
 
       // After close, focus returns to the trigger (WCAG 2.4.3 focus order).
       // Asserted, not annotated: TYPO3 renders the dialog into the TOP document
