@@ -794,18 +794,24 @@ final class SecretTcaHook
         array $fieldArray,
         DataHandler $dataHandler,
     ): void {
-        switch ($outcome) {
-            case RecordCreationOutcome::ValueLess:
-                $this->auditRecordCreationOrCompensate($identifier, $uid, $fieldArray, $dataHandler);
-                break;
-            case RecordCreationOutcome::Rejected:
-                $this->revertRejectedCreation($uid, $dataHandler);
-                break;
-            case RecordCreationOutcome::Stored:
-                // VaultService::store() wrote the create entry itself, with
-                // its own compensating rollback. Nothing to add.
-                break;
-        }
+        // `match`, not `switch`: this is the only place that decides whether a
+        // creation gets its audit entry, and a `switch` over an enum answers a
+        // case it does not know by doing nothing. A fourth outcome added later
+        // would then create rows that are never audited, silently. `match`
+        // throws `UnhandledMatchError` instead, so the gap surfaces the first
+        // time that outcome occurs rather than months later in the audit trail.
+        match ($outcome) {
+            RecordCreationOutcome::ValueLess => $this->auditRecordCreationOrCompensate(
+                $identifier,
+                $uid,
+                $fieldArray,
+                $dataHandler,
+            ),
+            RecordCreationOutcome::Rejected => $this->revertRejectedCreation($uid, $dataHandler),
+            // VaultService::store() wrote the create entry itself, with its own
+            // compensating rollback. Nothing to add.
+            RecordCreationOutcome::Stored => null,
+        };
     }
 
     /**

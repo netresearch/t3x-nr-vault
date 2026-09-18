@@ -31,19 +31,22 @@ function lang(key, fallback, ...args) {
 }
 
 class SecretsList {
+    // The handle of the running reveal lifecycle, and the only state this class
+    // keeps about a revealed secret.
+    //
+    // No in-memory secret cache: every reveal MUST hit the AJAX endpoint so
+    // VaultService::retrieve() fires and an audit-log row is written. Caching
+    // the plaintext across reveal-modal opens would silently bypass the audit
+    // log on every reveal-after-first (violation of the "Audit every access"
+    // rule — see root AGENTS.md, Security Requirements item 5).
+    //
+    // The plaintext lives only in the reveal modal's input element, and only
+    // for as long as the lifecycle guard allows. JS strings cannot be reliably
+    // zeroized, so the goal is minimizing exposure duration — not guaranteed
+    // memory clearing.
+    cancelRevealLifecycle = null;
+
     constructor() {
-        // No in-memory secret cache: every reveal MUST hit the AJAX endpoint
-        // so VaultService::retrieve() fires and an audit-log row is written.
-        // Caching the plaintext across reveal-modal opens would silently bypass
-        // the audit log on every reveal-after-first (violation of the
-        // "Audit every access" rule — see root AGENTS.md, Security
-        // Requirements item 5).
-        //
-        // The plaintext lives only in the reveal modal's input element, and only
-        // for as long as the lifecycle guard allows. JS strings cannot be
-        // reliably zeroized, so the goal is minimizing exposure duration — not
-        // guaranteed memory clearing.
-        this.cancelRevealLifecycle = null;
         this.init();
     }
 

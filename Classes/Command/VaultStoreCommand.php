@@ -10,7 +10,6 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Command;
 
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
-use Netresearch\NrVault\Exception\TechnicalActorException;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -152,7 +151,7 @@ final class VaultStoreCommand extends Command
             sodium_memzero($value);
 
             return Command::SUCCESS;
-        } catch (VaultException|TechnicalActorException $e) {
+        } catch (VaultException $e) {
             sodium_memzero($value);
             $io->error($e->getMessage());
 
