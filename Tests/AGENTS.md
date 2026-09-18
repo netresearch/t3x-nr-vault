@@ -86,6 +86,18 @@ Tests/
   stays correct where the expectation genuinely is a pattern.
 - One assertion concept per test; split by behaviour, not by line count.
 - No real HTTP / filesystem calls — mock adapters (`VaultAdapterInterface`).
+- **A stubbed `ConnectionPool` proves the logic, never the SQL.** A stub answers
+  any query shape, including one no database can parse, so a unit test built on
+  one says nothing about the query the code assembles. `vault:doctor`'s
+  inventory check shipped `count('DISTINCT audit.secret_identifier')` this way —
+  TYPO3's QueryBuilder quotes the whole argument of `count()` as one identifier,
+  every platform answered "no such column", and the control never compared
+  anything. It reached a release; the release-evidence reference posture caught
+  it, not the 3864 unit tests. **Anything that assembles a query needs a
+  functional test that executes it** against the real schema, and that test is
+  where the query-shape assertions belong (distinctness, a removed `deleted`
+  restriction, sums across tables) — the unit test keeps what it is good at,
+  which is what the code makes of the returned counts.
 - Functional fixtures: `Tests/.../Fixtures/*.csv`, loaded via `$this->importCSVDataSet()`.
 
 ## Security
@@ -99,6 +111,7 @@ Tests/
 - [ ] `make test-functional` passes
 - [ ] New src file has a matching `Tests/Unit/...Test.php`
 - [ ] Public API change has a functional test exercising it
+- [ ] Code that assembles a query has a functional test that runs it (a stubbed `ConnectionPool` cannot fail on bad SQL)
 - [ ] No hardcoded secrets — generate at runtime or use placeholders
 - [ ] Fixtures are minimal (smallest CSV that reproduces the case)
 - [ ] Mutation score not regressed on touched files (spot-check with `make test-mutation`)
