@@ -64,7 +64,7 @@ jobs:
             label: 'typo3-14.3'
     services:
       db:
-        image: mariadb:10.11
+        image: mariadb:12.2
         env:
           MARIADB_ROOT_PASSWORD: root
           MARIADB_DATABASE: typo3
