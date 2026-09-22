@@ -388,7 +388,7 @@ the list below is what is actually declared here.
         -   CodeQL results in the repository's security tab
 
     *   -   Secret scanning
-        -   ``checks.yml`` → shared ``gitleaks.yml``
+        -   ``checks.yml`` → shared ``betterleaks.yml``
         -   Scans every pull request against the in-repo
             :file:`.gitleaks.toml`; findings reported to code scanning
 
@@ -462,7 +462,7 @@ the list below is what is actually declared here.
     that reads as "custom SAST rules are applied in CI" when nothing applies
     them. Treat it as local or historical tooling unless someone wires it up.
 
-    :file:`.gitleaks.toml` **is** wired: the ``gitleaks`` job in
+    :file:`.gitleaks.toml` **is** wired: the ``betterleaks`` job in
     :file:`.github/workflows/checks.yml` scans every pull request against it
     and reports to code scanning.
 

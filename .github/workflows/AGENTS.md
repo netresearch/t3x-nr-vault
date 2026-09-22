@@ -10,7 +10,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 | File | Purpose |
 |------|---------|
 | `ci.yml` | Extension-specific test matrix — a thin call into `typo3-ci-workflows/ci.yml` |
-| `checks.yml` | Security + quality jobs (security, gitleaks, zizmor, codeql, scorecard, fuzz, license-check, dependency-review, pr-quality, labeler). **Byte-identical and drift-enforced across every netresearch typo3-extension — never add a repo-specific job here** |
+| `checks.yml` | Security + quality jobs (security, betterleaks, zizmor, codeql, scorecard, fuzz, license-check, dependency-review, pr-quality, labeler). **Byte-identical and drift-enforced across every netresearch typo3-extension — never add a repo-specific job here** |
 | `security-gates.yml` | Mutation ratchet over `Classes/Crypto`, `Classes/Security`, `Classes/Audit`, `Classes/Http` (`infection-security.json5`). Standalone precisely because `checks.yml` is drift-locked |
 | `check-template-drift.yml` | Verifies this repo still matches the `typo3-extension` template |
 | `docs.yml` | Renders `Documentation/` on PRs touching it |
@@ -93,7 +93,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
     TER_TOKEN: ${{ secrets.TER_TOKEN }}
   ```
 - **Pin third-party actions to commit SHAs** (not tags) — mitigates tag-hijack supply-chain attacks.
-- **Secret scanning is enforced** — the `gitleaks` job in `checks.yml` runs on every PR against the root `.gitleaks.toml`; `zizmor` audits these workflow files themselves (config in `.github/zizmor.yml`).
+- **Secret scanning is enforced** — the `betterleaks` job in `checks.yml` runs on every PR against the root `.gitleaks.toml`; `zizmor` audits these workflow files themselves (config in `.github/zizmor.yml`).
 - **Mask dynamic values** with `::add-mask::` before logging.
 - **Environment protection** for release/deploy — require reviewers.
 - **OIDC** over long-lived credentials where possible.

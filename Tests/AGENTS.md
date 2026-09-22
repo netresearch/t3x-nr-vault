@@ -101,7 +101,7 @@ Tests/
 - Functional fixtures: `Tests/.../Fixtures/*.csv`, loaded via `$this->importCSVDataSet()`.
 
 ## Security
-- **Never commit real secrets** — fixtures use clearly synthetic values. The `gitleaks` job in `.github/workflows/checks.yml` scans every PR against the root `.gitleaks.toml`, so a fixture that trips a rule fails CI. Automated scanning is a backstop, not a substitute: a synthetic value the config happens to allow is still your responsibility to review.
+- **Never commit real secrets** — fixtures use clearly synthetic values. The `betterleaks` job in `.github/workflows/checks.yml` scans every PR against the root `.gitleaks.toml`, so a fixture that trips a rule fails CI. Automated scanning is a backstop, not a substitute: a synthetic value the config happens to allow is still your responsibility to review.
 - **Master keys in tests** are generated per-test (`sodium_crypto_secretbox_keygen()`), never hard-coded.
 - **Do not** test against production vault backends.
 - **Audit logs** in tests must still verify HMAC chain integrity when the code path produces entries.
