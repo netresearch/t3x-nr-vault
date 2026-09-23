@@ -435,7 +435,7 @@ v4: chapter 10 (Malicious Code), chapter 14 (Configuration).*
             :ref:`auditor-evidence-collection`
 
     *   -   Secret scanning on every pull request
-        -   ``gitleaks`` job against the in-repo :file:`.gitleaks.toml`,
+        -   ``betterleaks`` job against the in-repo :file:`.gitleaks.toml`,
             reporting to GitHub code scanning
         -   :file:`.github/workflows/checks.yml`
 

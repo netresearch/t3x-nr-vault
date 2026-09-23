@@ -109,7 +109,7 @@ This extension handles sensitive data. Non-negotiable rules:
 - Changing public API signatures of `*Interface.php`. Rotating / regenerating cryptographic keys in fixtures.
 
 ### Never Do
-- Commit secrets, credentials, or real master keys (test fixtures only — synthetic values; `.gitleaks.toml` tunes the `gitleaks` job in `.github/workflows/checks.yml`, so a new fixture that trips a rule fails CI).
+- Commit secrets, credentials, or real master keys (test fixtures only — synthetic values; `.gitleaks.toml` tunes the `betterleaks` job in `.github/workflows/checks.yml`, so a new fixture that trips a rule fails CI).
 - Commit `composer.lock` (extension, not application).
 - Push directly to `main` — open a PR. Merge a PR before all review threads are resolved.
 - Squash or rebase-merge (loses GPG signatures — use merge commits).
