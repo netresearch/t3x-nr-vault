@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-24
+
 ### Security
 
 - **The SSRF guard refuses the local-use NAT64 prefix `64:ff9b:1::/48` (RFC 8215).** Only the well-known prefix `64:ff9b::/96` was refused, so on a network whose NAT64 gateway uses the local-use prefix an address like `64:ff9b:1:a9fe:a9:fe00::` reached `169.254.169.254`.
+
+### Fixed
+
+- **`SecretTcaHook::processDatamap_preProcessFieldArray()` takes `?array &$fieldArray`.** The hook refuses a record by setting the array to `null`, as documented; the native `array` type contradicted that, and PHPStan 2.2.15 reports every test of it as impossible. A field array another hook already nulled is left alone.
 
 ## [1.0.0] - 2026-09-17
 
@@ -2080,7 +2086,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.16.0...v1.0.0
 [0.16.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.14.0...v0.15.0
