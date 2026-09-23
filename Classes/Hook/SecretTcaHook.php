@@ -277,12 +277,12 @@ final class SecretTcaHook
      *            record: core skips it entirely (see both gates below)
      */
     public function processDatamap_preProcessFieldArray(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
-        array &$fieldArray,
+        ?array &$fieldArray,
         string $table,
         string|int $id,
         DataHandler $dataHandler,
     ): void {
-        if ($table !== self::TABLE) {
+        if ($table !== self::TABLE || $fieldArray === null) {
             return;
         }
 

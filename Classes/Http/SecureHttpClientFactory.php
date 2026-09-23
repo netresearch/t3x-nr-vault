@@ -1093,6 +1093,7 @@ final class SecureHttpClientFactory
      *   ::ffff:0:0/96       (IPv4-mapped — recurse to v4 check)
      *   ::a.b.c.d/96        (IPv4-compatible, deprecated — recurse to v4 check)
      *   64:ff9b::/96        (NAT64 well-known prefix)
+     *   64:ff9b:1::/48      (NAT64 local-use prefix, RFC 8215)
      *   2002::/16           (6to4 — recurse on the embedded IPv4)
      *   2001::/32           (Teredo — recurse on the embedded client+server IPv4)
      *   100::/64            (discard-only)
@@ -1131,6 +1132,9 @@ final class SecureHttpClientFactory
         }
         if (substr($packed, 0, 12) === "\x00\x64\xff\x9b\x00\x00\x00\x00\x00\x00\x00\x00") {
             return true; // 64:ff9b::/96 NAT64
+        }
+        if (str_starts_with($packed, "\x00\x64\xff\x9b\x00\x01")) {
+            return true; // 64:ff9b:1::/48 local-use NAT64 (RFC 8215)
         }
         if (substr($packed, 0, 8) === "\x01\x00\x00\x00\x00\x00\x00\x00") {
             return true; // 100::/64 discard

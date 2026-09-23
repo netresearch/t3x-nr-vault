@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **The SSRF guard refuses the local-use NAT64 prefix `64:ff9b:1::/48` (RFC 8215).** Only the well-known prefix `64:ff9b::/96` was refused, so on a network whose NAT64 gateway uses the local-use prefix an address like `64:ff9b:1:a9fe:a9:fe00::` reached `169.254.169.254`.
+
 ## [1.0.0] - 2026-09-17
 
 ### Added
