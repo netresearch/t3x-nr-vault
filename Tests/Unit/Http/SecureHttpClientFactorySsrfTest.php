@@ -103,6 +103,9 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
         yield 'ipv4-mapped loopback ::ffff:127.0.0.1' => ['::ffff:127.0.0.1'];
         yield '6to4 metadata 2002:a9fe:a9fe::' => ['2002:a9fe:a9fe::'];
         yield 'nat64 metadata 64:ff9b::169.254.169.254' => ['64:ff9b::169.254.169.254'];
+        // RFC 8215 local-use NAT64 prefix: on a network whose NAT64 gateway
+        // uses it, this address reaches 169.254.169.254.
+        yield 'local-use nat64 metadata 64:ff9b:1::a9fe:a9fe' => ['64:ff9b:1::a9fe:a9fe'];
         yield 'ipv4-compatible loopback ::127.0.0.1' => ['::127.0.0.1'];
         // Teredo (2001:0::/32): server 8.8.8.8 (public), client 127.0.0.1
         // stored obfuscated (XOR 0xffffffff). The client IPv4 alone is enough
