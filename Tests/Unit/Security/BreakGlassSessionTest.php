@@ -86,10 +86,10 @@ final class BreakGlassSessionTest extends TestCase
             yield 'missing ' . $missing => [$payload];
         }
 
-        yield 'non-numeric expiry' => [[...$valid, 'expiresAt' => 'never']];
-        yield 'non-string reason' => [[...$valid, 'reason' => ['incident']]];
-        yield 'non-string username' => [[...$valid, 'activatedByUsername' => 42]];
-        yield 'non-numeric uid' => [[...$valid, 'activatedByUid' => 'alice']];
+        yield 'non-numeric expiry' => [array_replace($valid, ['expiresAt' => 'never'])];
+        yield 'non-string reason' => [array_replace($valid, ['reason' => ['incident']])];
+        yield 'non-string username' => [array_replace($valid, ['activatedByUsername' => 42])];
+        yield 'non-numeric uid' => [array_replace($valid, ['activatedByUid' => 'alice'])];
     }
 
     #[Test]

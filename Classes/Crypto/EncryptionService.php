@@ -102,6 +102,9 @@ final readonly class EncryptionService implements EncryptionServiceInterface
                 sodium_memzero($macKey);
             }
 
+            // PHPStan does not model that sodium_memzero() above nulled the
+            // parameter, so it calls this check redundant; it is not.
+            /** @phpstan-ignore isset.variable */
             if (isset($plaintext)) {
                 sodium_memzero($plaintext);
             }
