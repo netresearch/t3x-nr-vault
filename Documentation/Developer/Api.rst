@@ -947,8 +947,9 @@ What the body does:
     exception is the transport's. It never ends as a short body.
 *   :php:`__toString()` throws instead of returning part of a body — a
     deliberate deviation from PSR-7, whose ``__toString()`` must not throw. It
-    returns the whole body whenever the transfer completes, error statuses
-    such as ``401`` included, and throws only when the transfer failed, was
+    returns the rest of the body — all of it if nothing was read yet —
+    whenever the transfer completes, error statuses such as ``401`` included,
+    and throws only when the transfer failed, was
     cancelled or passed the limit below. If you must not see an exception —
     say, while turning a ``4xx`` body into your own error message — call
     :php:`getContents()` in a ``try``.
@@ -965,15 +966,18 @@ What the body does:
 *   A stalled stream ends. With a total ``timeout`` (the platform value or
     :php:`withTimeout()`), it ends at that timeout, and a long stream needs a
     long timeout, as a long blocking call does. Without one (``timeout = 0``,
-    the default on TYPO3 13.4 and 14.3), a stream that keeps delivering lives, and one that
-    receives nothing — no headers, no bytes — for 60 seconds ends with
-    ``Streaming transfer received nothing within its idle limit and was
-    aborted``. A server trickling a byte every few seconds is not stopped in
+    the default on TYPO3 13.4 and 14.3), a stream that keeps delivering lives,
+    and one whose server sends nothing — no headers, no bytes — for 60 seconds
+    ends with ``Streaming transfer received nothing within its idle limit and
+    was aborted``. Pausing between your own reads does not count: what the
+    server sent meanwhile is collected first. A server trickling a byte every few seconds is not stopped in
     that case, exactly as on :php:`sendRequest()`; set a ``timeout`` for a hard
     ceiling. Only reading drives the transfer.
 *   Any exception while the body is read — including one from a signal that
     breaks its "must not throw" rule — closes the body and releases the
-    connection at once.
+    connection at once. After such a failure :php:`eof()` stays false, so a
+    loop on :php:`eof()` cannot mistake a truncated body for a complete one;
+    it becomes true only when you call :php:`close()`.
 *   At most 16 MiB of unread body is buffered. A single transport step that
     delivers more — typically a small compressed body that decodes to a very
     large one — fails the transfer with the message ``Streaming transfer

@@ -48,8 +48,10 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 final class SecureHttpClientFactory
 {
     /**
-     * How long a streaming transfer may go without receiving anything — no
-     * response head, no body byte — when the platform sets no total `timeout`.
+     * How long a streaming transfer may go without the server sending anything —
+     * no response head, no body byte — when the platform sets no total
+     * `timeout`. Measured on the server's silence: what arrived while the
+     * consumer paused between two reads is counted before the check.
      *
      * `timeout = 0` (the default on TYPO3 13.4 and 14.3) gives libcurl no total bound, and a
      * wall-clock budget of `connect_timeout` plus the margin would kill a

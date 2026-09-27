@@ -69,7 +69,8 @@ interface StreamingHttpClientInterface
      *   fails the transfer with its own message instead of filling memory;
      * - a stall ends: at the total `timeout` when one is configured, otherwise
      *   after `SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS` without
-     *   receiving anything, so a stream that keeps delivering is not cut off;
+     *   receiving anything from the server — a pause between the caller's own
+     *   reads does not count — so a stream that keeps delivering is not cut off;
      * - `getContents()` and `__toString()` return at most 16 MiB, and
      *   `__toString()` throws rather than return a partial body — a deliberate
      *   deviation from PSR-7 (ADR-039).
