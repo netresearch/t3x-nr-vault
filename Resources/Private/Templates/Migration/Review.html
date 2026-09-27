@@ -113,13 +113,7 @@
                 </div>
             </form>
 
-            <f:asset.script identifier="vault-select-all" useNonce="true">
-                document.getElementById('select-all').addEventListener('change', function() {
-                    document.querySelectorAll('.secret-checkbox').forEach(function(checkbox) {
-                        checkbox.checked = this.checked;
-                    }.bind(this));
-                });
-            </f:asset.script>
+            <f:asset.module identifier="@netresearch/nr-vault/migration-review.js" />
         </f:then>
         <f:else>
             <f:be.infobox title="{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.review.no_secrets.title')}" state="1">

@@ -14,6 +14,7 @@ use DOMElement;
 use DOMNodeList;
 use DOMXPath;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
+use TYPO3\CMS\Core\Page\AssetCollector;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
@@ -209,6 +210,24 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         self::assertSame('badge badge-default', $this->badgeClassFor($html, 'Low'));
         self::assertSame('badge badge-default', $this->badgeClassFor($html, 'password'));
         $this->assertNoFixedColourBadge($html);
+    }
+
+    /**
+     * The review step's "select all" script is an ES module from the import
+     * map, not an inline `<f:asset.script>`: an inline script needs a CSP nonce,
+     * requested by `useNonce` on 13.4 and by `csp` on 14.3, where `useNonce`
+     * is deprecated. A module needs neither on both versions.
+     */
+    public function testTheReviewSelectAllScriptIsAJavaScriptModuleNotAnInlineScript(): void
+    {
+        $assets = $this->get(AssetCollector::class);
+        $this->renderTemplate('Migration/Review', [
+            'secrets' => ['tx_demo.a' => ['table' => 'tx_demo', 'column' => 'a', 'count' => 1, 'severity' => 'low', 'patterns' => []]],
+        ]);
+
+        self::assertContains('@netresearch/nr-vault/migration-review.js', $assets->getJavaScriptModules());
+        self::assertSame([], $assets->getInlineJavaScripts());
+        self::assertFileExists(__DIR__ . '/../../../Resources/Public/JavaScript/migration-review.js');
     }
 
     public function testMigrationVerifyMapsEachOutcomeToItsCoreBadge(): void
