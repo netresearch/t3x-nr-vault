@@ -14,6 +14,7 @@ namespace Netresearch\NrVault\Http;
 
 use GuzzleHttp\ClientInterface as GuzzleClientInterface;
 use GuzzleHttp\Promise\Utils as PromiseUtils;
+use GuzzleHttp\Psr7\BufferStream;
 use GuzzleHttp\Psr7\Utils;
 use GuzzleHttp\RequestOptions;
 use JsonException;
@@ -75,7 +76,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * @see SecureHttpClientFactory for TYPO3 HTTP configuration handling
  */
-final readonly class VaultHttpClient implements VaultHttpClientInterface, CancellableHttpClientInterface
+final readonly class VaultHttpClient implements VaultHttpClientInterface, CancellableHttpClientInterface, StreamingHttpClientInterface
 {
     /**
      * Fixed literal for a call refused before anything was sent.
@@ -176,6 +177,35 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      */
     private const TRANSPORT_RESOLUTION_FAILED_MESSAGE
         = 'Cancellable transport could not be built; nothing was sent';
+
+    /**
+     * Fixed literal for a streaming transfer that hit the wall-clock bound
+     * before its response headers arrived. Same meaning as
+     * `TICK_BUDGET_EXHAUSTED_MESSAGE`, named for the send it belongs to.
+     */
+    private const STREAMING_BUDGET_EXHAUSTED_MESSAGE
+        = 'Streaming transfer exceeded its wall-clock budget and was aborted';
+
+    /**
+     * Fixed literal for a streaming transfer that ended before any final
+     * response head was seen and without a response value to fall back on.
+     */
+    private const STREAMING_NO_RESPONSE_MESSAGE
+        = 'Streaming transport settled with a value that is not an HTTP response';
+
+    /**
+     * Fixed literal for a streaming transfer rejected with a reason that is
+     * not a Throwable, so there is no foreign message to append.
+     */
+    private const STREAMING_REJECTED_MESSAGE = 'Streaming transfer was rejected';
+
+    /**
+     * Fixed literal for a throw from code this class does not own — Guzzle's
+     * option handling, the caller's signal, a ticker — after the credential
+     * was injected on the streaming path.
+     */
+    private const STREAMING_UNEXPECTED_OUTCOME_MESSAGE
+        = 'Streaming transfer aborted by an unexpected error after the credential was injected';
 
     private ClientInterface $innerClient;
 
@@ -566,6 +596,70 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         }
 
         return $this->sendCancellably($transport, $request, $authenticatedRequest, $secretForAudit, $signal);
+    }
+
+    public function supportsStreaming(): bool
+    {
+        // Streaming runs on the cancellable transport, so the two capabilities
+        // are one fact: a factory-built inner client and a platform with
+        // `curl_multi_*` (or an injected transport).
+        return $this->supportsCancellation();
+    }
+
+    /**
+     * Send an HTTP request and return once the response headers arrived; the
+     * body advances the transfer as it is read.
+     *
+     * The guard sequence is `sendCancellable()`'s, statement for statement and
+     * through the same private methods: scheme allowlist, host allowlist, the
+     * pre-flight signal check, the transport, credential injection. The audit
+     * row is written when this method returns or throws — see ADR-039 for why
+     * it is not deferred to the end of the body.
+     *
+     * @throws RequestCancelledException When the signal aborted the call before the headers arrived
+     * @throws ClientExceptionInterface When the transfer failed before the headers arrived
+     * @throws VaultException If the scheme/host is rejected, secret retrieval fails, or the bound is exceeded
+     */
+    public function sendStreaming(
+        RequestInterface $request,
+        ?CancellationSignalInterface $signal = null,
+    ): ResponseInterface {
+        $this->assertSchemeIsAllowed($request);
+        $this->assertHostIsAllowed($request);
+
+        $secretForAudit = $this->getSecretIdentifierForAudit();
+
+        // Same refusal, same row and same literal as `sendCancellable()`'s
+        // pre-flight check: nothing has been read or sent yet.
+        if ($signal?->isCancelled() === true) {
+            $this->logHttpCall(
+                $secretForAudit,
+                $request->getMethod(),
+                (string) $request->getUri(),
+                0,
+                false,
+                self::CANCELLED_BEFORE_SEND_MESSAGE,
+                AuditAction::HttpCallCancelledBeforeSend,
+            );
+
+            throw new RequestCancelledException(self::CANCELLED_BEFORE_SEND_MESSAGE, 1790475701);
+        }
+
+        $transport = $this->resolveCancellableTransportAudited($request, $secretForAudit);
+
+        $authenticatedRequest = $this->injectAuthenticationAudited(
+            $request,
+            $secretForAudit,
+            $transport instanceof CancellableTransport ? $signal : null,
+        );
+
+        if (!$transport instanceof CancellableTransport) {
+            // Degraded: the body is complete when it is returned, and the call
+            // is audited by the one blocking send-and-audit helper.
+            return $this->sendBlocking($request, $authenticatedRequest, $secretForAudit);
+        }
+
+        return $this->sendStreamingly($transport, $request, $authenticatedRequest, $secretForAudit, $signal);
     }
 
     /**
@@ -1042,6 +1136,163 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 // request; the literal below, plus the original message, is what
                 // identifies this one.
                 $auditMessage = self::UNEXPECTED_OUTCOME_MESSAGE . ': ' . $throwable->getMessage();
+            }
+
+            throw $throwable;
+        } finally {
+            $this->logHttpCall(
+                $secretForAudit,
+                $request->getMethod(),
+                (string) $request->getUri(),
+                $auditStatus,
+                $auditSuccess,
+                $auditMessage,
+                $auditAction,
+            );
+        }
+    }
+
+    /**
+     * Start one transfer on the cancellable transport and return at its
+     * response head, with a body that reads the rest from the wire.
+     *
+     * Built like `sendCancellably()`, and deliberately not merged with it: the
+     * two differ in when they return, and the audit ladder below has to
+     * describe the moment this method returns, not the end of the body.
+     *
+     * - The transport's `stream` option is never set. It would route the
+     *   request to Guzzle's StreamHandler, which ignores `CURLOPT_RESOLVE` —
+     *   the DNS pin the `ssrf-dns-pin` middleware sets. The body is delivered
+     *   through `sink` and `on_headers` instead, which the curl handler serves.
+     * - `allow_redirects` is pinned off per request, as on the cancellable
+     *   path: an async send would otherwise fall back to the platform default,
+     *   and a followed redirect leaves the pin computed for the original host.
+     * - Exactly one audit row, written from the `finally`: success with the
+     *   status once the head arrived, the transport's message when it failed
+     *   first, `http_call_cancelled` when the signal stopped it first.
+     *
+     * @throws RequestCancelledException
+     * @throws ClientExceptionInterface
+     * @throws VaultException
+     */
+    private function sendStreamingly(
+        CancellableTransport $transport,
+        RequestInterface $request,
+        RequestInterface $authenticatedRequest,
+        string $secretForAudit,
+        ?CancellationSignalInterface $signal,
+    ): ResponseInterface {
+        $auditAction = AuditAction::HttpCall;
+        $auditStatus = 0;
+        $auditSuccess = false;
+        $auditMessage = self::STREAMING_UNEXPECTED_OUTCOME_MESSAGE;
+        $outcomeRecorded = false;
+
+        $promise = null;
+
+        try {
+            // The curl handler writes the body into this buffer as it arrives
+            // and the returned body reads it out. The high-water mark is
+            // unbounded on purpose: BufferStream::write() answers 0 once the
+            // buffer reaches the mark, and curl takes a short write as a
+            // transfer error.
+            $sink = new BufferStream(PHP_INT_MAX);
+
+            // The final response head, as the curl handler built it. A 1xx
+            // interim head (`100 Continue`) passes through `on_headers` as well
+            // and is skipped. Recording only — a throw here would abort the
+            // transfer from inside a curl callback.
+            $head = null;
+
+            $promise = $transport->client()->sendAsync($authenticatedRequest, [
+                RequestOptions::ALLOW_REDIRECTS => false,
+                RequestOptions::HTTP_ERRORS => false,
+                RequestOptions::SINK => $sink,
+                RequestOptions::ON_HEADERS => static function (ResponseInterface $response) use (&$head): void {
+                    if ($response->getStatusCode() >= 200) {
+                        $head = $response;
+                    }
+                },
+            ]);
+
+            $transfer = new StreamingTransfer(
+                $promise,
+                $transport->ticker(),
+                $transport->wallClockBudgetSeconds(),
+                $signal,
+            );
+
+            while (!$head instanceof ResponseInterface && !$transfer->isSettled()) {
+                $step = $transfer->advance();
+
+                if ($step === StreamingTransfer::CANCELLED) {
+                    $auditAction = AuditAction::HttpCallCancelled;
+                    $auditMessage = self::CANCELLED_IN_FLIGHT_MESSAGE;
+                    $outcomeRecorded = true;
+
+                    throw new RequestCancelledException(self::CANCELLED_IN_FLIGHT_MESSAGE, 1790475702);
+                }
+
+                if ($step === StreamingTransfer::BUDGET_EXHAUSTED) {
+                    $auditMessage = self::STREAMING_BUDGET_EXHAUSTED_MESSAGE;
+                    $outcomeRecorded = true;
+
+                    throw new VaultException(self::STREAMING_BUDGET_EXHAUSTED_MESSAGE, 1790475709);
+                }
+            }
+
+            // Checked before the head: a transfer that already failed when this
+            // method is about to return is reported as the failure it is, the
+            // way the blocking send reports it — not handed out as a response
+            // whose body will throw on the first read.
+            if ($transfer->isRejected()) {
+                $reason = $transfer->settledValue();
+                $auditMessage = $reason instanceof Throwable
+                    ? $reason->getMessage()
+                    : self::STREAMING_REJECTED_MESSAGE;
+                $outcomeRecorded = true;
+
+                if ($reason instanceof Throwable) {
+                    throw $reason;
+                }
+
+                throw new VaultException(self::STREAMING_REJECTED_MESSAGE, 1790475710);
+            }
+
+            if (!$head instanceof ResponseInterface) {
+                // Settled without a head passing through `on_headers`. The curl
+                // handler always calls it, so only a handler that does not can
+                // get here; its response is complete and is returned as it is.
+                $value = $transfer->settledValue();
+                if (!$value instanceof ResponseInterface) {
+                    $auditMessage = self::STREAMING_NO_RESPONSE_MESSAGE;
+                    $outcomeRecorded = true;
+
+                    throw new VaultException(self::STREAMING_NO_RESPONSE_MESSAGE, 1790475711);
+                }
+
+                $auditStatus = $value->getStatusCode();
+                $auditSuccess = true;
+                $auditMessage = null;
+                $outcomeRecorded = true;
+
+                return $value;
+            }
+
+            $auditStatus = $head->getStatusCode();
+            $auditSuccess = true;
+            $auditMessage = null;
+            $outcomeRecorded = true;
+
+            return $head->withBody(new StreamingResponseBody($transfer, $sink));
+        } catch (Throwable $throwable) {
+            // Every way out other than a returned response tears the transfer
+            // down here; on a settled promise this does nothing. Null only when
+            // sendAsync() itself threw.
+            $promise?->cancel();
+
+            if (!$outcomeRecorded) {
+                $auditMessage = self::STREAMING_UNEXPECTED_OUTCOME_MESSAGE . ': ' . $throwable->getMessage();
             }
 
             throw $throwable;
