@@ -2248,6 +2248,14 @@ final class ClosureTicker implements TransportTickerInterface
     public function tick(): void
     {
         ++$this->ticks;
+
+        // A loop that lost its bound would otherwise spin until the runner's
+        // timeout; fail it as a test instead. Well above anything a test here
+        // ticks on purpose, including the 250-tick ceiling of the timed ones.
+        if ($this->ticks > 1000) {
+            throw new RuntimeException('The transport was ticked without end; nothing bounded the loop.', 1790500105);
+        }
+
         ($this->onTick)($this->ticks);
     }
 

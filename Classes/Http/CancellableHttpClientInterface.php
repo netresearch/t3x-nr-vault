@@ -148,7 +148,7 @@ interface CancellableHttpClientInterface
      * `SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS` (60 s), with the
      * fixed literal `Cancellable transfer received nothing within its idle
      * limit and was aborted` (ADR-040;
-     * `withoutATotalTimeoutACallStillDeliveringOutlivesTheWallClockBudget()`).
+     * `withoutATotalTimeoutASilentServerEndsAtTheIdleBound()`).
      *
      * When :php:`supportsCancellation()` is false the call still completes —
      * blocking, through the ordinary path, with an ordinary ``http_call`` audit
