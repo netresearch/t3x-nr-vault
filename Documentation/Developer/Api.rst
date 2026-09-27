@@ -751,6 +751,22 @@ caller unchanged
    without that extension it degrades. Ask
    :php:`supportsCancellation()` rather than assuming either.
 
+How long a call may run follows the transport's total ``timeout``. With one
+set — the platform value or :php:`withTimeout()` — libcurl enforces it, and a
+defensive wall-clock bound of ``timeout + connect_timeout + 5 s`` sits above
+it. Without one (``timeout = 0``, the default on TYPO3 13.4 and 14.3), the call
+is not bounded in duration, as :php:`sendRequest()` is not: it ends when the
+server has sent nothing — no final response head, no body byte after one — for
+60 seconds (:php:`SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS`).
+Interim ``1xx`` heads and the raw bytes after an unsolicited
+``101 Switching Protocols`` count as nothing. A server trickling a byte every
+few seconds keeps the call open, exactly as it keeps :php:`sendRequest()` open;
+set a ``timeout`` or call :php:`withTimeout()` for a hard ceiling. The OAuth
+token leg follows the same rule. Before this rule, a call without a total
+timeout was aborted after ``connect_timeout + 5 s`` however much the server was
+still sending; :ref:`adr-040-cancellable-send-bounds-silence` records the
+change.
+
 Every :php:`sendCancellable()` writes exactly one audit row — and so does every
 :php:`sendRequest()` and every :php:`sendStreaming()`, which writes the same
 three actions (see below) — so the log is complete with respect to calls and not
@@ -777,9 +793,10 @@ to be understood:
 ``http_call`` with ``success = false``
    Everything that failed rather than was cancelled — a refused scheme or host,
    a transport that could not be built, a credential that could not be obtained,
-   a transport error, the defensive wall-clock bound, a settlement that is not a
-   response, or a throw from your signal or the ticker. Nobody asked for those,
-   so they sit with the other failures. ADR-037 lists the test for each.
+   a transport error, the defensive wall-clock bound, the idle bound, a
+   settlement that is not a response, or a throw from your signal or the
+   ticker. Nobody asked for those, so they sit with the other failures. ADR-037
+   and ADR-040 list the test for each.
 
 Within an action, the row's error message is a fixed literal shown under the
 badge:
@@ -795,6 +812,10 @@ badge:
 ``Cancellable transfer exceeded its wall-clock budget and was aborted``
    The defensive bound above the curl timeouts tripped, i.e. the transport
    stopped settling its promise.
+
+``Cancellable transfer received nothing within its idle limit and was aborted``
+   No total ``timeout`` is set, and the server sent nothing — no final head, no
+   body byte after one — for 60 seconds.
 
 ``Cancellable transport settled with a value that is not an HTTP response``
    The transfer settled with something unusable.
