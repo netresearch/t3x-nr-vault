@@ -68,6 +68,7 @@ final class StreamingSinkTest extends TestCase
         $sink->write('0123456789');
 
         self::assertSame('012', $sink->read(3));
+        self::assertSame(7, $sink->getSize(), 'Unread bytes are counted from the read offset.');
         self::assertSame('34567', $sink->read(5), 'Past the half-way point the consumed prefix is dropped.');
         self::assertSame(2, $sink->getSize());
         self::assertSame(8, $sink->tell());
