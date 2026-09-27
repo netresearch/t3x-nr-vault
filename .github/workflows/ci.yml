@@ -14,13 +14,15 @@ permissions:
 # Per-extension test matrix (intentional-drift). Security/quality jobs are in checks.yml.
 jobs:
   ci:
-    uses: netresearch/typo3-ci-workflows/.github/workflows/ci.yml@main
+    uses: netresearch/typo3-ci-workflows/.github/workflows/ci.yml@feat/lowest-deps-cell
     permissions:
       contents: read
     with:
       php-versions: '["8.2","8.3","8.4","8.5"]'
       typo3-versions: '["^13.4","^14.3"]'
       run-functional-tests: true
+      # Throwaway: exercises netresearch/typo3-ci-workflows#258.
+      lowest-deps: true
       # Repo-specific checks (composer ci:test:repo: arch + doc-cli + its
       # self-test + the evidence-collector self-test). All four are static
       # file scans needing no dependency tree, which is the shared job's
