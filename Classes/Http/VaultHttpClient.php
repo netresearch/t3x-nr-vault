@@ -1207,8 +1207,10 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             // and the returned body reads it out. It is bounded: libcurl
             // decodes Content-Encoding inside one step, so a small gzip body
             // can expand to hundreds of MiB before this method regains control.
-            // Past the bound the sink refuses the write and the transfer fails
-            // with cURL error 23, which is translated below.
+            // Past the bound the sink refuses the write, the curl handler
+            // aborts the transfer on the short write — Guzzle 7 reports cURL
+            // error 23, Guzzle 8 "Unable to write to stream" — and the
+            // rejection is translated below via `overflowed()`.
             $sink = new StreamingSink();
 
             // The latest response head the curl handler saw. Every head passes
@@ -1271,6 +1273,11 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                     // connection.
                     $auditMessage = self::STREAMING_BUFFER_LIMIT_MESSAGE;
                     $outcomeRecorded = true;
+
+                    // The transport's exception carries the response it had
+                    // built, whose body is this sink — close to 16 MiB that a
+                    // caller holding the exception would otherwise keep alive.
+                    $sink->close();
 
                     throw new VaultException(
                         self::STREAMING_BUFFER_LIMIT_MESSAGE,

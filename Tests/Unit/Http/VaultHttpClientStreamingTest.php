@@ -375,9 +375,11 @@ final class VaultHttpClientStreamingTest extends TestCase
         $ticker = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static function (StreamStubTransfer $t) use ($failure): void {
-                // One step decodes more than the sink holds; curl then fails
-                // the transfer on the short write, as both Guzzle majors do.
-                $t->deliverRefused(str_repeat("\0", 16 * 1024 * 1024 + 1));
+                // One step decodes more than the sink holds: it fills almost
+                // to the limit, the next write is refused, and curl fails the
+                // transfer on the short write, as both Guzzle majors do.
+                $t->deliverBytes(str_repeat("\0", 16 * 1024 * 1024 - 10));
+                $t->deliverRefused(str_repeat("\0", 20));
                 $t->fail($failure);
             },
         ]);
@@ -392,6 +394,14 @@ final class VaultHttpClientStreamingTest extends TestCase
             self::assertSame(self::BUFFER_LIMIT_MESSAGE, $e->getMessage());
             self::assertSame($failure, $e->getPrevious());
         }
+
+        $sink = $transfer->options()['sink'] ?? null;
+        self::assertInstanceOf(StreamingSink::class, $sink);
+        self::assertSame(
+            0,
+            $sink->getSize(),
+            'The transport exception references the sink; its buffered bytes must not outlive the throw.',
+        );
 
         self::assertSame(
             [['action' => 'http_call', 'success' => false, 'error' => self::BUFFER_LIMIT_MESSAGE, 'status' => 0]],

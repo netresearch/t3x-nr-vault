@@ -35,6 +35,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Client\ClientExceptionInterface;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 use ReflectionProperty;
 use RuntimeException;
@@ -460,6 +461,20 @@ final class StreamingSendTest extends FunctionalTestCase
         );
         self::assertCount(1, $this->auditRows);
         if ($caught->getCode() === 1790487102) {
+            // The transport's exception keeps the response it built, whose body
+            // is the sink: a caller holding the exception must not hold the
+            // buffered bytes with it.
+            // Guzzle 7 rejects with a RequestException, Guzzle 8 with a
+            // ResponseException; both carry getResponse(), on different classes.
+            $previous = $caught->getPrevious();
+            self::assertIsObject($previous);
+            self::assertTrue(method_exists($previous, 'getResponse'), 'The transport exception must carry its response.');
+            $response = $previous->getResponse();
+            self::assertInstanceOf(ResponseInterface::class, $response);
+            $retained = $response->getBody();
+            self::assertInstanceOf(StreamingSink::class, $retained);
+            self::assertSame(0, $retained->getSize());
+
             // Overflowed before sendStreaming() returned: the call failed, and
             // the row names the bound rather than the cURL write error.
             self::assertFalse($this->auditRows[0]['success']);
