@@ -334,6 +334,63 @@ final class VaultHttpClientStreamingTest extends TestCase
     }
 
     #[Test]
+    public function theSchemeGuardRefusesBeforeAnySecretIsReadOrAnythingIsSent(): void
+    {
+        $this->vaultService->expects(self::never())->method('retrieve');
+
+        $transfer = new StreamStubTransfer();
+        $client = $this->clientWithTransport($this->transportWith($transfer, new StreamStepTicker($transfer, [])))
+            ->withAuthentication('api_key', SecretPlacement::Bearer);
+
+        try {
+            $client->sendStreaming(new Request('GET', 'file:///etc/passwd'));
+            self::fail('Expected the scheme guard to refuse a file:// URI.');
+        } catch (VaultException $e) {
+            self::assertSame(1735858523, $e->getCode());
+        }
+
+        self::assertFalse($transfer->wasReached());
+        self::assertSame(
+            [[
+                'action' => 'http_call',
+                'success' => false,
+                'error' => 'Request refused before any secret was read: unsupported URI scheme "file"',
+                'status' => 0,
+            ]],
+            $this->auditRows,
+        );
+    }
+
+    #[Test]
+    public function theHostAllowlistRefusesBeforeAnySecretIsReadOrAnythingIsSent(): void
+    {
+        $this->vaultService->expects(self::never())->method('retrieve');
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['other.example.com'];
+
+        $transfer = new StreamStubTransfer();
+        $client = $this->clientWithTransport($this->transportWith($transfer, new StreamStepTicker($transfer, [])))
+            ->withAuthentication('api_key', SecretPlacement::Bearer);
+
+        try {
+            $client->sendStreaming(new Request('GET', self::API_URL));
+            self::fail('Expected the allowlist to refuse a host it does not list.');
+        } catch (VaultException $e) {
+            self::assertSame(1735858522, $e->getCode());
+        }
+
+        self::assertFalse($transfer->wasReached());
+        self::assertSame(
+            [[
+                'action' => 'http_call',
+                'success' => false,
+                'error' => 'Request refused before any secret was read: host is not in the allowed hosts list',
+                'status' => 0,
+            ]],
+            $this->auditRows,
+        );
+    }
+
+    #[Test]
     public function aSignalBeforeTheHeadAbortsTheTransferAndAuditsItAsCancelled(): void
     {
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
