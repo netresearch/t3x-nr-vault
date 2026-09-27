@@ -18,7 +18,6 @@ use GuzzleHttp\Promise\Create;
 use GuzzleHttp\Promise\Promise;
 use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Promise\Utils as PromiseUtils;
-use GuzzleHttp\Psr7\BufferStream;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use InvalidArgumentException;
@@ -33,6 +32,7 @@ use Netresearch\NrVault\Http\SecretPlacement;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Http\StreamingHttpClientInterface;
 use Netresearch\NrVault\Http\StreamingResponseBody;
+use Netresearch\NrVault\Http\StreamingSink;
 use Netresearch\NrVault\Http\StreamingTransfer;
 use Netresearch\NrVault\Http\TransportTickerInterface;
 use Netresearch\NrVault\Http\VaultHttpClient;
@@ -101,6 +101,9 @@ final class VaultHttpClientStreamingTest extends TestCase
 
     private const BODY_CLOSED_MESSAGE = 'Streaming response body is closed';
 
+    private const BUFFER_LIMIT_MESSAGE
+        = 'Streaming transfer aborted: one step delivered more body than the 16 MiB streaming buffer holds';
+
     private VaultServiceInterface&MockObject $vaultService;
 
     private AuditLogServiceInterface&Stub $auditLogService;
@@ -161,7 +164,7 @@ final class VaultHttpClientStreamingTest extends TestCase
     // =========================================================================
 
     #[Test]
-    public function itReturnsAtTheHeadAndReadsTheBodyAsItArrives(): void
+    public function itReturnsAtTheFirstBodyBytesAndReadsTheRestAsItArrives(): void
     {
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
@@ -177,13 +180,17 @@ final class VaultHttpClientStreamingTest extends TestCase
             ->withAuthentication('api_key', SecretPlacement::Bearer)
             ->sendStreaming(new Request('GET', self::API_URL));
 
-        self::assertSame(1, $ticker->ticks(), 'sendStreaming() must return on the tick that delivered the head.');
+        self::assertSame(
+            2,
+            $ticker->ticks(),
+            'sendStreaming() must return on the tick that delivered the first body bytes, not earlier and not later.',
+        );
         self::assertSame(200, $response->getStatusCode());
         self::assertSame('text/event-stream', $response->getHeaderLine('Content-Type'));
         self::assertSame(
             [['action' => 'http_call', 'success' => true, 'error' => null, 'status' => 200]],
             $this->auditRows,
-            'The row is written when the head arrived, not when the body ends.',
+            'The row is written when sendStreaming() returns, not when the body ends.',
         );
 
         $body = $response->getBody();
@@ -191,10 +198,11 @@ final class VaultHttpClientStreamingTest extends TestCase
         self::assertFalse($body->eof(), 'Nothing is at an end while the transfer runs.');
 
         self::assertSame("data: one\n", $body->read(8192));
-        self::assertSame(2, $ticker->ticks(), 'A read steps the transport only until bytes are there.');
+        self::assertSame(2, $ticker->ticks(), 'Bytes already buffered are served without a step.');
         self::assertSame(10, $body->tell());
 
-        self::assertSame('da', $body->read(2), 'A short read leaves the rest in the buffer.');
+        self::assertSame('da', $body->read(2), 'A read steps the transport only until bytes are there.');
+        self::assertSame(3, $ticker->ticks());
         self::assertSame("ta: two\n", $body->read(8192));
         self::assertSame(3, $ticker->ticks(), 'Buffered bytes are served without another step.');
         self::assertSame(20, $body->tell());
@@ -219,6 +227,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $transfer = new StreamStubTransfer();
         $ticker = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('x'),
         ]);
 
         $this->clientWithTransport($this->transportWith($transfer, $ticker))
@@ -236,15 +245,17 @@ final class VaultHttpClientStreamingTest extends TestCase
             $options['timeout'] ?? null,
             'The transfer keeps the client timeout; a stream without one could hold the worker indefinitely.',
         );
-        self::assertInstanceOf(StreamInterface::class, $options['sink'] ?? null);
+        $sink = $options['sink'] ?? null;
+        self::assertInstanceOf(StreamingSink::class, $sink, 'The body goes into the bounded sink.');
+        self::assertSame(16 * 1024 * 1024, $sink->limitBytes());
         self::assertIsCallable($options['on_headers'] ?? null);
 
         $curl = $options['curl'] ?? null;
         self::assertIsArray($curl);
         self::assertSame(
-            [self::API_HOST . ':443:' . self::PUBLIC_IP],
-            $curl[\CURLOPT_RESOLVE] ?? null,
-            'The ssrf-dns-pin middleware must have pinned the vetted address on this path too.',
+            [\CURLOPT_RESOLVE => [self::API_HOST . ':443:' . self::PUBLIC_IP]],
+            $curl,
+            'The pin is the only raw cURL option: the vetted array carries nothing this send added.',
         );
     }
 
@@ -256,6 +267,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $transfer = new StreamStubTransfer();
         $ticker = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('x'),
         ]);
 
         $this->clientWithTransport($this->transportWith($transfer, $ticker))
@@ -274,6 +286,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $ticker = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(100),
             2 => static fn (StreamStubTransfer $t) => $t->deliverHead(201),
+            3 => static fn (StreamStubTransfer $t) => $t->deliverBytes('created'),
         ]);
 
         $response = $this->clientWithTransport($this->transportWith($transfer, $ticker))
@@ -281,8 +294,143 @@ final class VaultHttpClientStreamingTest extends TestCase
             ->sendStreaming(new Request('POST', self::API_URL));
 
         self::assertSame(201, $response->getStatusCode());
-        self::assertSame(2, $ticker->ticks());
+        self::assertSame(3, $ticker->ticks());
         self::assertSame(201, $this->auditRows[0]['status'] ?? null);
+    }
+
+    #[Test]
+    public function aProxyConnectHeadIsReplacedByTheOriginHead(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // Guzzle 7 hands a tunnelling proxy's CONNECT reply to on_headers
+        // before the origin's own head; the origin answers 401 here.
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker($transfer, [
+            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200, ['X-Proxy' => 'yes'], 'Connection established'),
+            2 => static fn (StreamStubTransfer $t) => $t->deliverHead(401, ['X-Origin' => 'target']),
+            3 => static fn (StreamStubTransfer $t) => $t->deliverBytes('denied'),
+            4 => static fn (StreamStubTransfer $t) => $t->complete(),
+        ]);
+
+        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendStreaming(new Request('GET', self::API_URL));
+
+        self::assertSame(401, $response->getStatusCode(), "The proxy's CONNECT reply must never be returned as the response.");
+        self::assertSame('target', $response->getHeaderLine('X-Origin'));
+        self::assertFalse($response->hasHeader('X-Proxy'));
+        self::assertSame('denied', (string) $response->getBody());
+        self::assertSame([['action' => 'http_call', 'success' => true, 'error' => null, 'status' => 401]], $this->auditRows);
+    }
+
+    #[Test]
+    public function aHeadAloneDoesNotReturnUntilBodyBytesArrive(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker($transfer, [
+            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            4 => static fn (StreamStubTransfer $t) => $t->deliverBytes('late'),
+        ]);
+
+        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendStreaming(new Request('GET', self::API_URL));
+
+        self::assertSame(4, $ticker->ticks(), 'A head may still be replaced until body bytes arrive.');
+        self::assertSame('late', $response->getBody()->read(8192));
+    }
+
+    #[Test]
+    public function aHeadWhoseTransferEndsWithoutABodyIsReturned(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker($transfer, [
+            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(204),
+            2 => static fn (StreamStubTransfer $t) => $t->complete(),
+        ]);
+
+        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendStreaming(new Request('DELETE', self::API_URL));
+
+        self::assertSame(204, $response->getStatusCode());
+        self::assertSame(2, $ticker->ticks());
+        self::assertSame('', $response->getBody()->read(8192));
+        self::assertTrue($response->getBody()->eof());
+        self::assertSame([['action' => 'http_call', 'success' => true, 'error' => null, 'status' => 204]], $this->auditRows);
+    }
+
+    #[Test]
+    public function aStepThatOverflowsTheSinkBeforeReturnFailsWithItsOwnLiteral(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StreamStubTransfer();
+        $failure = new RequestException('cURL error 23: Failure writing output to destination', new Request('GET', self::API_URL));
+        $ticker = new StreamStepTicker($transfer, [
+            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            2 => static function (StreamStubTransfer $t) use ($failure): void {
+                // One step decodes more than the sink holds; curl then fails
+                // the transfer on the short write, as both Guzzle majors do.
+                $t->deliverRefused(str_repeat("\0", 16 * 1024 * 1024 + 1));
+                $t->fail($failure);
+            },
+        ]);
+
+        try {
+            $this->clientWithTransport($this->transportWith($transfer, $ticker))
+                ->withAuthentication('api_key', SecretPlacement::Bearer)
+                ->sendStreaming(new Request('GET', self::API_URL));
+            self::fail('An overflowing step must fail the call.');
+        } catch (VaultException $e) {
+            self::assertSame(1790487102, $e->getCode());
+            self::assertSame(self::BUFFER_LIMIT_MESSAGE, $e->getMessage());
+            self::assertSame($failure, $e->getPrevious());
+        }
+
+        self::assertSame(
+            [['action' => 'http_call', 'success' => false, 'error' => self::BUFFER_LIMIT_MESSAGE, 'status' => 0]],
+            $this->auditRows,
+            'The row names the bound, not the cURL write error.',
+        );
+    }
+
+    #[Test]
+    public function aStepThatOverflowsTheSinkWhileReadingThrowsItsOwnLiteral(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StreamStubTransfer();
+        $failure = new RequestException('cURL error 23: Failure writing output to destination', new Request('GET', self::API_URL));
+        $ticker = new StreamStepTicker($transfer, [
+            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('x'),
+            3 => static function (StreamStubTransfer $t) use ($failure): void {
+                $t->deliverRefused(str_repeat("\0", 16 * 1024 * 1024 + 1));
+                $t->fail($failure);
+            },
+        ]);
+
+        $body = $this->clientWithTransport($this->transportWith($transfer, $ticker))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendStreaming(new Request('GET', self::API_URL))
+            ->getBody();
+
+        self::assertSame('x', $body->read(8192));
+
+        try {
+            $body->read(8192);
+            self::fail('An overflowing step must fail the read.');
+        } catch (VaultException $e) {
+            self::assertSame(1790487103, $e->getCode());
+            self::assertSame(self::BUFFER_LIMIT_MESSAGE, $e->getMessage());
+            self::assertSame($failure, $e->getPrevious());
+        }
     }
 
     #[Test]
@@ -621,10 +769,8 @@ final class VaultHttpClientStreamingTest extends TestCase
         $failure = new RequestException('cURL error 18: transfer closed', new Request('GET', self::API_URL));
         $ticker = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
-            2 => static function (StreamStubTransfer $t) use ($failure): void {
-                $t->deliverBytes('partial');
-                $t->fail($failure);
-            },
+            2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('partial'),
+            3 => static fn (StreamStubTransfer $t) => $t->fail($failure),
         ]);
 
         $body = $this->clientWithTransport($this->transportWith($transfer, $ticker))
@@ -710,14 +856,17 @@ final class VaultHttpClientStreamingTest extends TestCase
         $transfer = new StreamStubTransfer();
         $ticker = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
         ]);
-        // Pre-flight, the step that delivers the head, then cancelled.
-        $signal = new StreamCountdownSignal(2);
+        // Pre-flight and the two steps that deliver head and bytes, then cancelled.
+        $signal = new StreamCountdownSignal(3);
 
         $body = $this->clientWithTransport($this->transportWith($transfer, $ticker))
             ->withAuthentication('api_key', SecretPlacement::Bearer)
             ->sendStreaming(new Request('GET', self::API_URL), $signal)
             ->getBody();
+
+        self::assertSame('first', $body->read(8192), 'Buffered bytes are served without asking the signal.');
 
         try {
             $body->read(8192);
@@ -819,7 +968,7 @@ final class VaultHttpClientStreamingTest extends TestCase
 
         $body = new StreamingResponseBody(
             new StreamingTransfer($promise, $ticker, 0.0, null),
-            new BufferStream(),
+            new StreamingSink(),
         );
 
         try {
@@ -939,6 +1088,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $transfer = new StreamStubTransfer();
         $ticker = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
         ]);
 
         return $this->clientWithTransport($this->transportWith($transfer, $ticker))
@@ -1046,13 +1196,26 @@ final class StreamStubTransfer
     /**
      * @param array<string, string> $headers
      */
-    public function deliverHead(int $status, array $headers = []): void
+    public function deliverHead(int $status, array $headers = [], ?string $reason = null): void
     {
         $onHeaders = $this->options['on_headers'] ?? null;
         $sink = $this->options['sink'] ?? null;
         \assert(\is_callable($onHeaders) && $sink instanceof StreamInterface);
 
-        $onHeaders(new Response($status, $headers, $sink));
+        $onHeaders(new Response($status, $headers, $sink, '1.1', $reason));
+    }
+
+    /**
+     * Write bytes the sink must refuse, as curl's write callback would.
+     */
+    public function deliverRefused(string $bytes): void
+    {
+        $sink = $this->options['sink'] ?? null;
+        \assert($sink instanceof StreamInterface);
+
+        if ($sink->write($bytes) !== 0) {
+            throw new RuntimeException('The sink accepted a write past its limit.', 1790487105);
+        }
     }
 
     public function deliverBytes(string $bytes): void
@@ -1060,8 +1223,9 @@ final class StreamStubTransfer
         $sink = $this->options['sink'] ?? null;
         \assert($sink instanceof StreamInterface);
 
-        $written = $sink->write($bytes);
-        \assert($written === \strlen($bytes), 'The sink must accept every byte, or curl aborts the transfer.');
+        if ($sink->write($bytes) !== \strlen($bytes)) {
+            throw new RuntimeException('The sink must accept every byte, or curl aborts the transfer.', 1790487104);
+        }
     }
 
     public function complete(): void

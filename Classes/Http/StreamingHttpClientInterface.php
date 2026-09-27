@@ -44,7 +44,12 @@ use Psr\Http\Message\ResponseInterface;
 interface StreamingHttpClientInterface
 {
     /**
-     * Send an HTTP request and return as soon as the response headers arrived.
+     * Send an HTTP request and return once the final response head and the
+     * first bytes of its body have arrived, or the transfer has ended.
+     *
+     * The head is the origin's: a later head replaces an earlier one until
+     * body bytes arrive, so neither a `1xx` interim head nor a tunnelling
+     * proxy's `200 Connection established` is ever returned as the response.
      *
      * Runs the same guard sequence as :php:`sendRequest()` — scheme allowlist,
      * host allowlist, credential injection — and writes exactly one audit row,
@@ -58,7 +63,10 @@ interface StreamingHttpClientInterface
      * - `close()`, `detach()` or dropping the body before the end removes the
      *   transfer from the transport and closes it;
      * - `$signal` is polled before the send and on every step, headers and body
-     *   alike; a signal that fires aborts the transfer.
+     *   alike; a signal that fires aborts the transfer;
+     * - at most 16 MiB of unread body is buffered: a step that delivers more —
+     *   typically a small compressed body that decodes to a very large one —
+     *   fails the transfer with its own message instead of filling memory.
      *
      * Redirects are not followed: a 3xx response is returned as it is.
      *
@@ -69,9 +77,10 @@ interface StreamingHttpClientInterface
      * @param RequestInterface $request PSR-7 request
      * @param CancellationSignalInterface|null $signal Polled before the send and on every transport step
      *
-     * @throws RequestCancelledException When the signal aborted the call before the headers arrived
-     * @throws ClientExceptionInterface When the transfer failed before the headers arrived
-     * @throws VaultException When the scheme or host is rejected, secret retrieval fails, or the transfer overran its bound
+     * @throws RequestCancelledException When the signal aborted the call before it returned
+     * @throws ClientExceptionInterface When the transfer failed before it returned
+     * @throws VaultException When the scheme or host is rejected, secret retrieval fails, the transfer overran its time bound,
+     *                        or one step delivered more body than the buffer holds
      *
      * @return ResponseInterface PSR-7 response whose body is read from the wire
      */

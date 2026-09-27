@@ -19,7 +19,7 @@ use GuzzleHttp\Promise\Utils as PromiseUtils;
  * One transfer on the curl-multi transport, driven one step at a time.
  *
  * Shared by the two phases of `VaultHttpClient::sendStreaming()`: the wait for
- * the response headers, and every `read()` of the body afterwards. Both need
+ * the final head and its first body bytes, and every `read()` afterwards. Both need
  * the same step — poll the signal, check the wall-clock bound, tick the
  * transport, run the promise queue — and the same teardown, so it lives here
  * once.

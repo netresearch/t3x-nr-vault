@@ -24,6 +24,9 @@ declare(strict_types=1);
  *   /redirect                   302 to /redirect-target
  *   /redirect-target            records that it was reached
  *   /echo-auth                  the Authorization header it received, as a line
+ *   /large?mb=N                 N MiB of plain bytes, in 64 KiB writes
+ *   /bomb?mb=N                  N MiB of zero bytes, gzip-compressed, sent as
+ *                               Content-Encoding: gzip whatever was asked for
  *
  * NR_VAULT_STREAM_HITS names a directory; each route that is reached drops a
  * file there named after itself, so a test can prove a route was never hit.
@@ -42,6 +45,8 @@ $hitNames = [
     '/redirect' => 'redirect',
     '/redirect-target' => 'redirect-target',
     '/echo-auth' => 'echo-auth',
+    '/large' => 'large',
+    '/bomb' => 'bomb',
 ];
 if (is_string($hitsDirectory) && $hitsDirectory !== '' && is_dir($hitsDirectory) && isset($hitNames[$path])) {
     touch($hitsDirectory . '/' . $hitNames[$path]);
@@ -103,6 +108,40 @@ switch ($path) {
         header('Content-Type: text/plain');
         $authorization = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
         $line('authorization=' . (is_string($authorization) ? $authorization : ''));
+
+        return true;
+    case '/large':
+        $megabytes = max(1, (int) ($query['mb'] ?? 1));
+        header('Content-Type: application/octet-stream');
+        header('Content-Length: ' . $megabytes * 1024 * 1024);
+        $block = str_repeat('x', 64 * 1024);
+        for ($i = 0; $i < $megabytes * 16; ++$i) {
+            echo $block;
+            flush();
+        }
+
+        return true;
+    case '/bomb':
+        $megabytes = max(1, (int) ($query['mb'] ?? 1));
+        $deflate = deflate_init(ZLIB_ENCODING_GZIP, ['level' => 9]);
+        if ($deflate === false) {
+            http_response_code(500);
+
+            return true;
+        }
+
+        $zeros = str_repeat("\0", 1024 * 1024);
+        $compressed = '';
+        for ($i = 0; $i < $megabytes; ++$i) {
+            $compressed .= (string) deflate_add($deflate, $zeros, ZLIB_NO_FLUSH);
+        }
+
+        $compressed .= (string) deflate_add($deflate, '', ZLIB_FINISH);
+        header('Content-Type: application/octet-stream');
+        header('Content-Encoding: gzip');
+        header('Content-Length: ' . strlen($compressed));
+        echo $compressed;
+        flush();
 
         return true;
     case '/ready':

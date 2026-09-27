@@ -14,7 +14,6 @@ namespace Netresearch\NrVault\Http;
 
 use GuzzleHttp\ClientInterface as GuzzleClientInterface;
 use GuzzleHttp\Promise\Utils as PromiseUtils;
-use GuzzleHttp\Psr7\BufferStream;
 use GuzzleHttp\Psr7\Utils;
 use GuzzleHttp\RequestOptions;
 use JsonException;
@@ -180,7 +179,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
     /**
      * Fixed literal for a streaming transfer that hit the wall-clock bound
-     * before its response headers arrived. Same meaning as
+     * before `sendStreaming()` returned. Same meaning as
      * `TICK_BUDGET_EXHAUSTED_MESSAGE`, named for the send it belongs to.
      */
     private const STREAMING_BUDGET_EXHAUSTED_MESSAGE
@@ -198,6 +197,14 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      * not a Throwable, so there is no foreign message to append.
      */
     private const STREAMING_REJECTED_MESSAGE = 'Streaming transfer was rejected';
+
+    /**
+     * Fixed literal for a streaming transfer the bounded sink stopped: one
+     * transport step delivered more unread body than `StreamingSink` holds,
+     * typically a small compressed body that decodes to a very large one.
+     */
+    private const STREAMING_BUFFER_LIMIT_MESSAGE
+        = 'Streaming transfer aborted: one step delivered more body than the 16 MiB streaming buffer holds';
 
     /**
      * Fixed literal for a throw from code this class does not own — Guzzle's
@@ -607,8 +614,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
     }
 
     /**
-     * Send an HTTP request and return once the response headers arrived; the
-     * body advances the transfer as it is read.
+     * Send an HTTP request and return once the origin's response head and the
+     * first body bytes have arrived, or the transfer has ended; the body
+     * advances the transfer as it is read.
      *
      * The guard sequence is `sendCancellable()`'s, statement for statement and
      * through the same private methods: scheme allowlist, host allowlist, the
@@ -616,9 +624,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      * row is written when this method returns or throws — see ADR-039 for why
      * it is not deferred to the end of the body.
      *
-     * @throws RequestCancelledException When the signal aborted the call before the headers arrived
-     * @throws ClientExceptionInterface When the transfer failed before the headers arrived
-     * @throws VaultException If the scheme/host is rejected, secret retrieval fails, or the bound is exceeded
+     * @throws RequestCancelledException When the signal aborted the call before it returned
+     * @throws ClientExceptionInterface When the transfer failed before it returned
+     * @throws VaultException If the scheme/host is rejected, secret retrieval fails, or a time or buffer bound is exceeded
      */
     public function sendStreaming(
         RequestInterface $request,
@@ -1153,8 +1161,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
     }
 
     /**
-     * Start one transfer on the cancellable transport and return at its
-     * response head, with a body that reads the rest from the wire.
+     * Start one transfer on the cancellable transport and return at the
+     * origin's head and its first body bytes, with a body that reads the rest
+     * from the wire.
      *
      * Built like `sendCancellably()`, and deliberately not merged with it: the
      * two differ in when they return, and the audit ladder below has to
@@ -1167,9 +1176,12 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      * - `allow_redirects` is pinned off per request, as on the cancellable
      *   path: an async send would otherwise fall back to the platform default,
      *   and a followed redirect leaves the pin computed for the original host.
+     * - No raw cURL option is added: the `curl` array reaching the handler
+     *   carries the pin and nothing else.
      * - Exactly one audit row, written from the `finally`: success with the
-     *   status once the head arrived, the transport's message when it failed
-     *   first, `http_call_cancelled` when the signal stopped it first.
+     *   origin's status when this method returns, the transport's message (or
+     *   the buffer-limit literal) when it failed first, `http_call_cancelled`
+     *   when the signal stopped it first.
      *
      * @throws RequestCancelledException
      * @throws ClientExceptionInterface
@@ -1192,16 +1204,23 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
         try {
             // The curl handler writes the body into this buffer as it arrives
-            // and the returned body reads it out. The high-water mark is
-            // unbounded on purpose: BufferStream::write() answers 0 once the
-            // buffer reaches the mark, and curl takes a short write as a
-            // transfer error.
-            $sink = new BufferStream(PHP_INT_MAX);
+            // and the returned body reads it out. It is bounded: libcurl
+            // decodes Content-Encoding inside one step, so a small gzip body
+            // can expand to hundreds of MiB before this method regains control.
+            // Past the bound the sink refuses the write and the transfer fails
+            // with cURL error 23, which is translated below.
+            $sink = new StreamingSink();
 
-            // The final response head, as the curl handler built it. A 1xx
-            // interim head (`100 Continue`) passes through `on_headers` as well
-            // and is skipped. Recording only — a throw here would abort the
-            // transfer from inside a curl callback.
+            // The latest response head the curl handler saw. Every head passes
+            // through `on_headers`: a 1xx interim head, and — on Guzzle 7, which
+            // does not set CURLOPT_SUPPRESS_CONNECT_HEADERS — a proxy's
+            // `200 Connection established` before the origin's own head. A later
+            // head replaces an earlier one, as it does on the blocking path, and
+            // a head only counts as final once body bytes have arrived or the
+            // transfer has ended: RFC 9110 §9.3.6 gives a 2xx CONNECT reply no
+            // content, so a body byte always belongs to the origin's head.
+            // Recording only — a throw here would abort the transfer from inside
+            // a curl callback.
             $head = null;
 
             $promise = $transport->client()->sendAsync($authenticatedRequest, [
@@ -1209,9 +1228,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 RequestOptions::HTTP_ERRORS => false,
                 RequestOptions::SINK => $sink,
                 RequestOptions::ON_HEADERS => static function (ResponseInterface $response) use (&$head): void {
-                    if ($response->getStatusCode() >= 200) {
-                        $head = $response;
-                    }
+                    $head = $response->getStatusCode() >= 200 ? $response : null;
                 },
             ]);
 
@@ -1222,7 +1239,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 $signal,
             );
 
-            while (!$head instanceof ResponseInterface && !$transfer->isSettled()) {
+            while ((!$head instanceof ResponseInterface || $sink->getSize() <= 0) && !$transfer->isSettled()) {
                 $step = $transfer->advance();
 
                 if ($step === StreamingTransfer::CANCELLED) {
@@ -1247,6 +1264,21 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             // whose body will throw on the first read.
             if ($transfer->isRejected()) {
                 $reason = $transfer->settledValue();
+
+                if ($sink->overflowed()) {
+                    // Refused by the bound, not by the network: its own literal,
+                    // so an operator can tell an oversized step from a dropped
+                    // connection.
+                    $auditMessage = self::STREAMING_BUFFER_LIMIT_MESSAGE;
+                    $outcomeRecorded = true;
+
+                    throw new VaultException(
+                        self::STREAMING_BUFFER_LIMIT_MESSAGE,
+                        1790487102,
+                        $reason instanceof Throwable ? $reason : null,
+                    );
+                }
+
                 $auditMessage = $reason instanceof Throwable
                     ? $reason->getMessage()
                     : self::STREAMING_REJECTED_MESSAGE;

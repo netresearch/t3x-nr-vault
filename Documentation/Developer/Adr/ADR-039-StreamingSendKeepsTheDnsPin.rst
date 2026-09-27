@@ -63,30 +63,63 @@ The transport is the pinned one, and ``stream`` is never set
 ------------------------------------------------------------
 
 The transfer runs on ``SecureHttpClientFactory::createCancellable()``'s transport: the hardened option set, the ``ssrf-dns-pin`` middleware, and a ``CurlMultiHandler`` at the bottom.
-``sendAsync()`` receives four options and no others:
+``sendAsync()`` receives four request options and adds no raw cURL option:
 
 ``allow_redirects => false``
    Pinned per request, as on the cancellable path: an async send would otherwise take the platform default, and a followed redirect leaves a pin computed for the original host.
 ``http_errors => false``
    The status is the caller's to judge.
 ``sink``
-   A ``BufferStream`` the curl handler writes the body into as it arrives. Its high-water mark is unbounded, because ``BufferStream::write()`` answers ``0`` once the mark is reached and curl takes a short write as a transfer error.
+   A ``StreamingSink``, the bounded buffer the curl handler writes the body into as it arrives (see `One step cannot flood memory`_).
 ``on_headers``
-   A callback that records the final response head. A ``1xx`` interim head passes through it too and is skipped; the callback never throws, because it runs inside a curl callback and a throw there aborts the transfer.
+   A callback that records the latest response head (see `The returned head is the origin's`_). It never throws, because it runs inside a curl callback and a throw there aborts the transfer.
 
-``stream`` and ``synchronous`` are absent (``theTransportGetsSinkAndOnHeadersAndNeverTheStreamOption()``, which also reads the ``CURLOPT_RESOLVE`` entry off the options that reached the bottom handler).
+``stream`` and ``synchronous`` are absent, and the ``curl`` array that reaches the bottom handler holds exactly one key, the ``CURLOPT_RESOLVE`` pin the middleware added (``theTransportGetsSinkAndOnHeadersAndNeverTheStreamOption()``).
 On the wire, every request in ``StreamingSendTest`` goes to a name under ``.test``, which no resolver answers, so a transfer that reaches the server reached it through the pin (``theTransferReachesTheServerOnlyThroughTheDnsPin()``); a pin to a loopback address nothing listens on fails instead of falling back to DNS (``aPinToAnotherAddressFailsInsteadOfFallingBackToDns()``).
 
-Return at the head, advance on read
------------------------------------
+Return at the first body bytes, advance on read
+-----------------------------------------------
 
-``sendStreaming()`` steps the transport until ``on_headers`` has seen a final head or the promise has settled, and returns the head with a ``StreamingResponseBody`` in place of the sink.
+``sendStreaming()`` steps the transport until ``on_headers`` has seen a final head *and* body bytes have reached the sink, or until the promise has settled, and returns the head with a ``StreamingResponseBody`` in place of the sink.
+For a streaming consumer the time to the first readable byte is the same as returning at the head and reading at once; the audit row is written at this moment (see below).
 The step is one class, ``StreamingTransfer``, shared by the wait for the head and every ``read()``: poll the signal, check the wall-clock bound, ``tick()``, run the promise queue.
 
 ``StreamingResponseBody::read()`` returns buffered bytes when there are any and otherwise steps the transport until bytes arrive or the transfer ends.
 ``StreamingSendTest::theFirstBytesAreReadableBeforeTheServerHasFinished()`` pins the property the issue asks for with timestamps from both ends: against a server that sends three lines 600 ms apart, ``sendStreaming()`` returns and the first line is readable before the server has sent the third.
 
-Settlement is observed through ``then()`` handlers, never through promise state, and ``wait()`` is never called — the reasons are those of :ref:`adr-037-cancellable-outbound-send`, and the stubbed transfer counts wait calls (``itReturnsAtTheHeadAndReadsTheBodyAsItArrives()``).
+Settlement is observed through ``then()`` handlers, never through promise state, and ``wait()`` is never called — the reasons are those of :ref:`adr-037-cancellable-outbound-send`, and the stubbed transfer counts wait calls (``itReturnsAtTheFirstBodyBytesAndReadsTheRestAsItArrives()``).
+
+The returned head is the origin's
+---------------------------------
+
+Every head the transfer sees passes through ``on_headers``: a ``1xx`` interim head, and — on Guzzle 7 — the ``200 Connection established`` reply of a tunnelling proxy, before the origin's own head.
+Guzzle 8 sets ``CURLOPT_SUPPRESS_CONNECT_HEADERS`` itself; Guzzle 7.10 to 7.15 do not, and ``composer.json`` allows both majors.
+A first version of this send returned the first head of status 200 or above, so behind a proxy configured in ``$GLOBALS['TYPO3_CONF_VARS']['HTTP']['proxy']`` or ``HTTPS_PROXY`` an origin's ``401`` came back as ``200 Connection established`` with the proxy's headers — and was audited as ``success = true``, status ``200`` (found by an adversarial review of `#392 <https://github.com/netresearch/t3x-nr-vault/pull/392>`__).
+
+The rule is the one the blocking path follows: a later head replaces an earlier one, and a ``1xx`` head is never final.
+A head counts as final once body bytes have arrived or the transfer has ended; RFC 9110 §9.3.6 gives a 2xx reply to ``CONNECT`` no content, so a body byte always belongs to the origin's head.
+The rule does not depend on the Guzzle major or on how the proxy was configured (``aProxyConnectHeadIsReplacedByTheOriginHead()``, ``aHeadAloneDoesNotReturnUntilBodyBytesArrive()``, ``aHeadWhoseTransferEndsWithoutABodyIsReturned()``; on the wire, through a real ``CONNECT`` proxy to a TLS origin, ``throughATunnellingProxyTheOriginHeadIsReturnedNotTheProxyReply()``, which is red without the rule on Guzzle 7 and passes either way on Guzzle 8).
+
+Setting ``CURLOPT_SUPPRESS_CONNECT_HEADERS`` on this send was the alternative, and it was not taken: it is a raw cURL option in the same ``curl`` array that carries the pin, Guzzle 7.12 and later emit a deprecation for it on every call, and Guzzle 8 rejects raw options outside its allow-list — so it would need a gate on the Guzzle major and would still leave a ``1xx`` head to a separate rule.
+
+One step cannot flood memory
+----------------------------
+
+libcurl decodes ``Content-Encoding`` inside a transport step, and a step runs until the socket has no more data.
+With an unbounded buffer, 260,934 bytes of gzip grew the process by about 190 MiB before ``sendStreaming()`` returned, against 14 MiB on the blocking path, which spills its body to ``php://temp`` (same review).
+
+``StreamingSink`` holds at most 16 MiB of unread body.
+A write that would pass that bound is refused whole and ``write()`` answers ``0``; both Guzzle majors turn a short write into cURL error 23, so the transfer fails closed.
+The failure carries its own fixed literal, ``Streaming transfer aborted: one step delivered more body than the 16 MiB streaming buffer holds``, from ``sendStreaming()`` (code ``1790487102``, and the literal is the audit row's message with ``success = false``) or from ``read()`` (code ``1790487103``), with the cURL error as the previous exception — so an operator can tell the bound from a dropped connection.
+
+The bound counts unread bytes, and ``read()`` steps the transport only when the buffer is empty, so it limits what one step may deliver.
+Measured on loopback against a server writing 64 MiB of plain data in 64 KiB writes, the largest single step delivered 360,448 bytes (three runs, all equal), and the whole body streamed to the end (``aLargePlainBodyStreamsToTheEndUnderTheBufferLimit()``).
+A 128 MiB gzip body fails before ``sendStreaming()`` returns and grows the process by about 28 MiB (``aCompressionBombFailsClosedWithBoundedMemory()``, which bounds the growth at 64 MiB).
+
+``decode_content`` keeps Guzzle's default, as on :php:`sendRequest()`.
+Turning it off would hand a caller compressed bytes it never asked for, and it would not remove the need for a bound: a server can send ``Content-Encoding`` unasked, and plain bytes per step are not bounded by anything else either.
+
+``StreamingSink::read()`` moves an offset instead of copying the rest of the buffer on every call, and drops the consumed prefix once it is at least half the buffer, so draining a full buffer in small reads costs linear time (``StreamingSinkTest``).
 
 A transfer that fails is never a short body
 -------------------------------------------
@@ -94,7 +127,7 @@ A transfer that fails is never a short body
 End of stream is reported only when the transport fulfilled its promise.
 A rejected transfer throws from ``read()`` once the bytes that did arrive have been handed out, as a ``VaultException`` with a fixed literal and the transport's exception as its previous one; ``eof()`` stays false, and ``getContents()`` and ``__toString()`` throw rather than return what arrived (``aFailureAfterTheHeadThrowsFromReadOnceTheArrivedBytesAreOut()``, ``getContentsAndToStringThrowInsteadOfReturningAShortBody()``; on the wire ``aTransferThatFailsMidStreamThrowsFromReadAfterTheBytesThatArrived()``, a response that announces 1000 bytes and sends 16).
 
-A transfer that has already failed when the head is about to be returned is reported as the failure, the way the blocking send reports it, rather than handed out as a response whose first read throws (``aHeadAndAFailureInTheSameStepAreReportedAsTheFailure()``).
+A transfer that has already failed when ``sendStreaming()`` is about to return is reported as the failure, the way the blocking send reports it, rather than handed out as a response whose first read throws (``aHeadAndAFailureInTheSameStepAreReportedAsTheFailure()``).
 
 A stalled stream ends
 ---------------------
@@ -116,8 +149,8 @@ Unit tests count the cancel calls (``closingTheBodyCancelsTheTransfer()``, ``det
 Exactly one audit row, written when ``sendStreaming()`` returns or throws
 -------------------------------------------------------------------------
 
-The row is the one :php:`sendRequest()` writes — ``http_call``, the status, ``success = true`` for any HTTP status — and it is written at the point the method returns: when the head arrived.
-Every outcome before the head takes the ladder of the cancellable path, from a ``finally`` that opens on the first statement after the credential was injected:
+The row is the one :php:`sendRequest()` writes — ``http_call``, the status, ``success = true`` for any HTTP status — and it is written at the point the method returns: when the origin's head and the first body bytes have arrived, or the transfer has ended.
+Every outcome before that takes the ladder of the cancellable path, from a ``finally`` that opens on the first statement after the credential was injected:
 
 .. list-table::
    :header-rows: 1
@@ -126,10 +159,10 @@ Every outcome before the head takes the ladder of the cancellable path, from a `
      - Action
      - success
      - Test in ``VaultHttpClientStreamingTest``
-   * - The head arrived (any HTTP status)
+   * - The head and the first body bytes arrived, or the transfer ended (any HTTP status)
      - ``http_call``
      - true
-     - ``itReturnsAtTheHeadAndReadsTheBodyAsItArrives()``
+     - ``itReturnsAtTheFirstBodyBytesAndReadsTheRestAsItArrives()``, ``aProxyConnectHeadIsReplacedByTheOriginHead()`` (the status is the origin's)
    * - The signal was already true on entry
      - ``http_call_cancelled_before_send``
      - false
@@ -154,17 +187,22 @@ Every outcome before the head takes the ladder of the cancellable path, from a `
      - ``http_call``
      - false
      - ``aThrowFromTheSendItselfStillLeavesARow()``, ``aSignalThatThrowsBeforeTheHeadStillLeavesARowAndTearsTheTransferDown()``
+   * - One step delivered more body than the 16 MiB buffer holds
+     - ``http_call``
+     - false
+     - ``aStepThatOverflowsTheSinkBeforeReturnFailsWithItsOwnLiteral()`` (the message is the bound's literal, not cURL's)
 
 The body is never logged: the row is built from the pre-injection request by ``logHttpCall()``, as on every other send, and nothing in ``StreamingResponseBody`` writes a row.
 
 The row is not deferred to the end of the body.
 Writing it from the body's last read, ``close()`` or destructor would be the handle object :ref:`adr-037-cancellable-outbound-send` rejected: whether a call that put a credential on the wire leaves a row would depend on what the consumer does with the body.
-Written at the head, it cannot be skipped by a consumer that stops reading, and it records what an auditor needs to know — which secret went to which host, and what the server answered.
+Written when the method returns, it cannot be skipped by a consumer that stops reading, and it records what an auditor needs to know — which secret went to which host, and what the server answered.
 
 Where the guarantee stops
 =========================
 
-**A failure or an abandon after the head writes no second row.**
+**A failure or an abandon after the method returned writes no second row.**
+That includes a step that overflows the buffer while the body is read.
 The row says the call was made and what status came back; it does not say whether the body arrived complete, or whether a signal stopped the read.
 The caller learns it from the exception ``read()`` throws.
 Recording it would take a second row per call, which breaks "every call leaves exactly one row", or a new audit action, which is Ask First in this repository and is not needed to answer the question the audit log exists for.
@@ -177,8 +215,12 @@ libcurl's timeout counts that time too, so the next read after a long pause can 
 It precedes the transfer and runs as :ref:`adr-037-cancellable-outbound-send` describes; only the call it authenticates streams.
 
 **TLS to a public provider is not measured here.**
-The functional tests run over plain HTTP on loopback, like the probe in #391.
+The functional tests run over plain HTTP on loopback, like the probe in #391, apart from the proxy case, which tunnels to a loopback TLS origin with verification off.
 libcurl applies ``CURLOPT_RESOLVE`` before the TLS handshake and verifies the certificate against the requested name, so nothing in this change depends on the transport being plain HTTP — but it has not been observed against a provider.
+
+**CI resolves Guzzle 8 only.**
+The CONNECT-head defect exists on Guzzle 7 alone, and ``composer.json`` allows ``^7.10``; the shared CI workflow has no input that pins a single dependency, so no matrix cell runs Guzzle 7.
+The unit tests carry the rule on both majors; the proxy test proves it on the wire only when run against Guzzle 7, which was done locally for this change.
 
 **The tick loop runs a process-global queue**, as on the cancellable path: reading a streaming body runs pending callbacks of unrelated Guzzle clients in the same process.
 
