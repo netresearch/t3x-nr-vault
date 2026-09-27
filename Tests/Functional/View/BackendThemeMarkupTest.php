@@ -34,6 +34,8 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
 {
     private const OVERVIEW = 'Overview/Index';
 
+    private const REVIEW = 'Migration/Review';
+
     /**
      * Stand-in for the core `Module` layout: renders the `Content` section only.
      * The core layout needs a module request, and the markup under test is ours.
@@ -196,7 +198,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         $secret = static fn (string $column, string $severity, string $pattern): array => [
             'table' => 'tx_demo', 'column' => $column, 'count' => 1, 'severity' => $severity, 'patterns' => [$pattern],
         ];
-        $html = $this->renderTemplate('Migration/Review', [
+        $html = $this->renderTemplate(self::REVIEW, [
             'secrets' => [
                 'tx_demo.a' => $secret('a', 'critical', 'password'),
                 'tx_demo.b' => $secret('b', 'high', 'api_key'),
@@ -222,7 +224,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     public function testTheReviewSelectAllScriptIsAJavaScriptModuleNotAnInlineScript(): void
     {
         $assets = $this->get(AssetCollector::class);
-        $this->renderTemplate('Migration/Review', [
+        $this->renderTemplate(self::REVIEW, [
             'secrets' => ['tx_demo.a' => ['table' => 'tx_demo', 'column' => 'a', 'count' => 1, 'severity' => 'low', 'patterns' => []]],
         ]);
 
@@ -242,7 +244,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     public static function wizardSteps(): iterable
     {
         yield 'scan' => ['Migration/Scan', ['totalCount' => 0, 'databaseCount' => 0, 'configCount' => 0, 'groupedSecrets' => []], 1];
-        yield 'review' => ['Migration/Review', ['secrets' => []], 2];
+        yield 'review' => [self::REVIEW, ['secrets' => []], 2];
         yield 'configure' => ['Migration/Configure', ['migrations' => []], 3];
         yield 'verify' => ['Migration/Verify', ['totalMigrated' => 0, 'totalFailed' => 0, 'clearOriginals' => false, 'results' => []], 5];
     }
