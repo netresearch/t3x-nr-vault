@@ -20,9 +20,12 @@ use Throwable;
 /**
  * One transfer on the curl-multi transport, driven one step at a time.
  *
- * Shared by the two phases of `VaultHttpClient::sendStreaming()`: the wait for
- * the final head and its first body bytes, and every `read()` afterwards. Both need
- * the same step — poll the signal, tick the transport, run the promise queue,
+ * Shared by every send on the cancellable transport:
+ * `VaultHttpClient::sendStreaming()` in both its phases (the wait for the
+ * final head and its first body bytes, and every `read()` afterwards),
+ * `sendCancellable()`, and the OAuth token leg `sendCancellable()` may run
+ * first (ADR-040). All of them need the
+ * same step — poll the signal, tick the transport, run the promise queue,
  * enforce the bound — and the same teardown, so it lives here once.
  *
  * The bound is one of two. With a total timeout it is a wall-clock budget
@@ -38,9 +41,9 @@ use Throwable;
  * `CurlMultiHandler::execute()`, which does not return until every transfer on
  * the handler has finished.
  *
- * @internal Nothing outside `VaultHttpClient` and `StreamingResponseBody`
- *           constructs or receives one; it never leaves the package's
- *           response object.
+ * @internal Nothing outside `VaultHttpClient`, `OAuthTokenManager` and
+ *           `StreamingResponseBody` constructs or receives one; it never
+ *           leaves the package's response object.
  */
 final class StreamingTransfer
 {
@@ -88,7 +91,7 @@ final class StreamingTransfer
      *                                      off while one that stalls still ends
      * @param (Closure(): int)|null $progress A counter that grows whenever the transfer received
      *                                        something the caller counts as progress
-     *                                        (`VaultHttpClient`: a final response head, body
+     *                                        (`TransferProgress`: a final response head, body
      *                                        bytes after it) and never shrinks; required in
      *                                        idle mode
      */

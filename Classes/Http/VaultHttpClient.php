@@ -13,7 +13,6 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Http;
 
 use GuzzleHttp\ClientInterface as GuzzleClientInterface;
-use GuzzleHttp\Promise\Utils as PromiseUtils;
 use GuzzleHttp\Psr7\Utils;
 use GuzzleHttp\RequestOptions;
 use JsonException;
@@ -116,6 +115,14 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      */
     private const TICK_BUDGET_EXHAUSTED_MESSAGE
         = 'Cancellable transfer exceeded its wall-clock budget and was aborted';
+
+    /**
+     * Fixed literal for a cancellable transfer on a transport without a total
+     * timeout that received nothing — no final head, no body byte — for
+     * `SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS` (issue #394).
+     */
+    private const IDLE_EXHAUSTED_MESSAGE
+        = 'Cancellable transfer received nothing within its idle limit and was aborted';
 
     /**
      * Fixed literal for a transport that settled with something that is not a
@@ -950,6 +957,13 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      * seam. A throw from any of them would otherwise escape a method whose
      * entire purpose is to leave a trace when a credential went out.
      *
+     * The step is `StreamingTransfer::advance()`, the one `sendStreaming()`
+     * uses, and so is the bound: with a total timeout a wall-clock budget,
+     * without one an idle bound on the server's silence (issue #394). The
+     * transfer is handed a sink and an `on_headers` callback only so that
+     * progress can be counted; the sink is a plain temporary stream with no
+     * limit, and the whole body is returned as before.
+     *
      * @throws RequestCancelledException
      * @throws ClientExceptionInterface
      * @throws VaultException
@@ -978,14 +992,21 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         $promise = null;
 
         try {
+            // The body lands here, as it would in the temporary stream the
+            // curl handler opens when no sink is given; passing it ourselves
+            // lets the idle bound see bytes arrive. Unbounded on purpose —
+            // this send returns the whole body, as `sendRequest()` does.
+            $sink = Utils::streamFor(Utils::tryFopen('php://temp', 'w+'));
+            $progress = new TransferProgress(static fn (): int => $sink->getSize() ?? 0);
+
             // Inside the try, deliberately. `Client::applyOptions()` raises
             // InvalidArgumentException OUTSIDE `Client::transfer()`'s own
             // try/catch, so a bad option set leaves sendAsync() as a THROW
             // rather than as a rejected promise. The credential is already
             // injected by the time this method is entered, so a throw here
             // without an audit row would be exactly the hole the pre-flight
-            // decision exists to close. Same reasoning for the `then()`
-            // registration and the two transport accessors below.
+            // decision exists to close. Same reasoning for the transfer's
+            // `then()` registration and the transport accessors below.
             $promise = $transport->client()->sendAsync($authenticatedRequest, [
                 // Client::sendRequest() pins these per request; an async send
                 // sets neither, so allow_redirects would fall back to the client
@@ -998,96 +1019,75 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 // asynchronously.
                 RequestOptions::ALLOW_REDIRECTS => false,
                 RequestOptions::HTTP_ERRORS => false,
+                RequestOptions::SINK => $sink,
+                RequestOptions::ON_HEADERS => $progress->onHeaders(...),
                 // RequestOptions::SYNCHRONOUS is deliberately absent: setting it
                 // routes the send back to the blocking CurlHandler, whose
                 // promise is already settled and whose cancel() is a no-op — an
                 // abort that fails by doing nothing.
             ]);
 
-            // Settlement is observed through a handler, NOT through getState(): a
-            // promise counts as fulfilled the moment it is resolved WITH ANOTHER
-            // PROMISE, which may still be pending. State alone would therefore call
-            // an unfinished transfer done and hand the caller a value that is not a
-            // response. A handler fires only when the chain has resolved all the way
-            // down to a real value.
-            $settled = false;
-            $rejected = false;
-            $settledValue = null;
-            $promise->then(
-                static function (mixed $value) use (&$settled, &$settledValue): void {
-                    $settled = true;
-                    $settledValue = $value;
-                },
-                static function (mixed $reason) use (&$settled, &$rejected, &$settledValue): void {
-                    $settled = true;
-                    $rejected = true;
-                    $settledValue = $reason;
-                },
+            // The transfer observes settlement through `then()` handlers, NOT
+            // through getState(): a promise counts as fulfilled the moment it
+            // is resolved WITH ANOTHER PROMISE, which may still be pending. It
+            // also drains the promise queue before the first tick, so a promise
+            // the SSRF middleware rejected synchronously settles without the
+            // transport being touched. Each step polls the signal, applies the
+            // bound, ticks and drains the queue; a refusal tears the transfer
+            // down before it is returned, and the catch below cancels once more
+            // for the throws that come from the signal or the ticker — a no-op
+            // on a promise that already settled.
+            $transfer = new StreamingTransfer(
+                $promise,
+                $transport->ticker(),
+                $transport->wallClockBudgetSeconds(),
+                $signal,
+                $transport->idleBudgetSeconds(),
+                $progress->count(...),
             );
 
-            $ticker = $transport->ticker();
-            $deadline = microtime(true) + $transport->wallClockBudgetSeconds();
+            while (!$transfer->isSettled()) {
+                $step = $transfer->advance();
 
-            // Drained BEFORE the first tick. sendAsync() can return an ALREADY
-            // rejected promise — the SSRF middleware rejects synchronously and
-            // Client::transfer() converts the throw into a rejection — whose
-            // handler is queued rather than run inline. Draining first settles
-            // that case without touching the transport at all, instead of
-            // ticking a handler that has nothing on it.
-            PromiseUtils::queue()->run();
+                if ($step === StreamingTransfer::CANCELLED) {
+                    $auditAction = AuditAction::HttpCallCancelled;
+                    $auditMessage = self::CANCELLED_IN_FLIGHT_MESSAGE;
+                    $outcomeRecorded = true;
 
-            $cancelled = false;
-            $budgetExhausted = false;
-
-            while (!$settled) {
-                // Neither branch tears the transfer down here. Every way out of
-                // this loop other than a settled promise ends in a throw, and
-                // the catch below cancels exactly once for all of them —
-                // including the throws that come from the signal or the ticker,
-                // which no branch here could have caught. One teardown site
-                // instead of three, and no path that aborts without one.
-                if ($signal->isCancelled()) {
-                    $cancelled = true;
-                    break;
+                    throw new RequestCancelledException(self::CANCELLED_IN_FLIGHT_MESSAGE, 1786579202);
                 }
 
-                if (microtime(true) >= $deadline) {
-                    $budgetExhausted = true;
-                    break;
+                if ($step === StreamingTransfer::BUDGET_EXHAUSTED) {
+                    // A FAILURE, not a cancellation: nobody asked for this. The
+                    // defensive bound only trips when the handler stopped
+                    // settling its promise, which is a bug in the transport and
+                    // belongs with the other transport failures under
+                    // `http_call` / `success = false`. `http_call_cancelled`
+                    // answers exactly one question — which calls did a caller
+                    // abandon after their credential went out — and a second
+                    // meaning on it would make that query wrong again. The
+                    // fixed literal below is what tells this failure apart from
+                    // a connection refusal.
+                    $auditMessage = self::TICK_BUDGET_EXHAUSTED_MESSAGE;
+                    $outcomeRecorded = true;
+
+                    throw new VaultException(self::TICK_BUDGET_EXHAUSTED_MESSAGE, 1786579203);
                 }
 
-                $ticker->tick();
+                if ($step === StreamingTransfer::IDLE_EXHAUSTED) {
+                    // A failure for the same reason as the budget: the server
+                    // went silent, nobody cancelled. Only reachable without a
+                    // total timeout, where libcurl bounds nothing after the
+                    // connect.
+                    $auditMessage = self::IDLE_EXHAUSTED_MESSAGE;
+                    $outcomeRecorded = true;
 
-                // The tick advances the transfer; this propagates the result up
-                // the middleware chain. Done here rather than relying on the
-                // ticker so the loop's progress does not depend on which ticker
-                // implementation it was handed.
-                PromiseUtils::queue()->run();
+                    throw new VaultException(self::IDLE_EXHAUSTED_MESSAGE, 1786579206);
+                }
             }
 
-            if ($cancelled) {
-                $auditAction = AuditAction::HttpCallCancelled;
-                $auditMessage = self::CANCELLED_IN_FLIGHT_MESSAGE;
-                $outcomeRecorded = true;
-
-                throw new RequestCancelledException(self::CANCELLED_IN_FLIGHT_MESSAGE, 1786579202);
-            }
-
-            if ($budgetExhausted) {
-                // A FAILURE, not a cancellation: nobody asked for this. The
-                // defensive bound only trips when the handler stopped settling
-                // its promise, which is a bug in the transport and belongs with
-                // the other transport failures under `http_call` /
-                // `success = false`. `http_call_cancelled` answers exactly one
-                // question — which calls did a caller abandon after their
-                // credential went out — and a second meaning on it would make
-                // that query wrong again. The fixed literal below is what tells
-                // this failure apart from a connection refusal.
-                $auditMessage = self::TICK_BUDGET_EXHAUSTED_MESSAGE;
-                $outcomeRecorded = true;
-
-                throw new VaultException(self::TICK_BUDGET_EXHAUSTED_MESSAGE, 1786579203);
-            }
+            $rejected = $transfer->isRejected();
+            $settledValue = $transfer->settledValue();
 
             if ($rejected) {
                 // Audited more widely than sendRequest()'s catch on purpose: an
@@ -1132,14 +1132,14 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
             return $settledValue;
         } catch (Throwable $throwable) {
-            // THE teardown. Every abort — a signalled one, the wall-clock bound,
-            // and a throw from the caller's signal or the ticker — leaves the
-            // try block through here with the transfer still running, and this
-            // is what closes the socket: Promise::cancel() runs the cancel
-            // function CurlMultiHandler attached, which removes the easy handle
-            // from the multi handle and drops the last reference to it. On a
-            // promise that already settled it returns immediately, so the
-            // outcomes that need no teardown pay nothing. Null only when
+            // The last teardown. `StreamingTransfer::advance()` has already
+            // cancelled for a signalled abort, either bound, and a throw from
+            // the caller's signal or the ticker; this covers every other throw
+            // that leaves the try block with a transfer in hand. Promise::cancel()
+            // runs the cancel function CurlMultiHandler attached, which removes
+            // the easy handle from the multi handle and drops the last
+            // reference to it. On a promise that already settled — including
+            // one cancelled before — it returns immediately. Null only when
             // sendAsync() itself threw, i.e. when there is no transfer yet.
             $promise?->cancel();
 
@@ -1173,9 +1173,11 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      * origin's head and its first body bytes, with a body that reads the rest
      * from the wire.
      *
-     * Built like `sendCancellably()`, and deliberately not merged with it: the
-     * two differ in when they return, and the audit ladder below has to
-     * describe the moment this method returns, not the end of the body.
+     * Built like `sendCancellably()`, with the same step (`StreamingTransfer`)
+     * and the same progress rule (`TransferProgress`), and deliberately not
+     * merged with it: the two differ in when they return, and the audit ladder
+     * below has to describe the moment this method returns, not the end of the
+     * body.
      *
      * - The transport's `stream` option is never set. It would route the
      *   request to Guzzle's StreamHandler, which ignores `CURLOPT_RESOLVE` —
@@ -1221,46 +1223,24 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             // rejection is translated below via `overflowed()`.
             $sink = new StreamingSink();
 
-            // The latest response head the curl handler saw. Every head passes
-            // through `on_headers`: a 1xx interim head, and — on Guzzle 7, which
-            // does not set CURLOPT_SUPPRESS_CONNECT_HEADERS — a proxy's
-            // `200 Connection established` before the origin's own head. A later
-            // head replaces an earlier one, as it does on the blocking path, and
-            // a head only counts as final once body bytes have arrived or the
-            // transfer has ended: RFC 9110 §9.3.6 gives a 2xx CONNECT reply no
-            // content, so a body byte always belongs to the origin's head.
-            // Recording only — a throw here would abort the transfer from inside
-            // a curl callback.
-            $head = null;
-
-            // Final heads seen (status 200 and above). A 1xx head is not
-            // counted: Guzzle 7 calls `on_headers` for every one, so a server
-            // repeating `100 Continue` would otherwise keep a transfer without
-            // a total timeout alive for ever.
-            $finalHeadsSeen = 0;
-
-            // What the idle bound counts as progress: final heads, and the
-            // bytes the sink accepted while a final head was the current one.
-            // While `$head` is null — before the first final head, or after
-            // a 1xx head replaced one — it stays where it is, so bytes behind
-            // an unsolicited `101 Switching Protocols` (raw bytes that land in
-            // the sink) buy no time, on any Guzzle version. It never shrinks.
-            $progress = 0;
+            // The latest final response head the curl handler saw, and what the
+            // idle bound counts as progress (see `TransferProgress`). Every head
+            // passes through `on_headers`: a 1xx interim head, and — on Guzzle
+            // 7, which does not set CURLOPT_SUPPRESS_CONNECT_HEADERS — a
+            // proxy's `200 Connection established` before the origin's own
+            // head. A later head replaces an earlier one, as it does on the
+            // blocking path, and a head only counts as final once body bytes
+            // have arrived or the transfer has ended: RFC 9110 §9.3.6 gives a
+            // 2xx CONNECT reply no content, so a body byte always belongs to
+            // the origin's head. The bytes counted are the ones the sink
+            // accepted, which only grow, not what is still unread.
+            $progress = new TransferProgress($sink->bytesAccepted(...));
 
             $promise = $transport->client()->sendAsync($authenticatedRequest, [
                 RequestOptions::ALLOW_REDIRECTS => false,
                 RequestOptions::HTTP_ERRORS => false,
                 RequestOptions::SINK => $sink,
-                RequestOptions::ON_HEADERS => static function (ResponseInterface $response) use (&$head, &$finalHeadsSeen): void {
-                    if ($response->getStatusCode() < 200) {
-                        $head = null;
-
-                        return;
-                    }
-
-                    $head = $response;
-                    ++$finalHeadsSeen;
-                },
+                RequestOptions::ON_HEADERS => $progress->onHeaders(...),
             ]);
 
             // Without a total timeout the bound is on silence, not duration:
@@ -1271,16 +1251,10 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 $transport->wallClockBudgetSeconds(),
                 $signal,
                 $transport->idleBudgetSeconds(),
-                static function () use (&$head, &$finalHeadsSeen, &$progress, $sink): int {
-                    if ($head instanceof ResponseInterface) {
-                        $progress = $finalHeadsSeen + $sink->bytesAccepted();
-                    }
-
-                    return $progress;
-                },
+                $progress->count(...),
             );
 
-            while ((!$head instanceof ResponseInterface || $sink->getSize() <= 0) && !$transfer->isSettled()) {
+            while ((!$progress->head() instanceof ResponseInterface || $sink->getSize() <= 0) && !$transfer->isSettled()) {
                 $step = $transfer->advance();
 
                 if ($step === StreamingTransfer::CANCELLED) {
@@ -1344,6 +1318,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 throw new VaultException(self::STREAMING_REJECTED_MESSAGE, 1790475710);
             }
 
+            $head = $progress->head();
             if (!$head instanceof ResponseInterface) {
                 // Settled with no final head current. Two ways here: a handler
                 // that never calls `on_headers`, and the curl handler when the

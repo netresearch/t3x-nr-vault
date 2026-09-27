@@ -48,18 +48,21 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 final class SecureHttpClientFactory
 {
     /**
-     * How long a streaming transfer may go without the server sending anything —
-     * no response head, no body byte — when the platform sets no total
-     * `timeout`. Measured on the server's silence: what arrived while the
-     * consumer paused between two reads is counted before the check.
+     * How long a transfer on the cancellable transport may go without the
+     * server sending anything — no final response head, no body byte after
+     * one — when the platform sets no total `timeout`. Measured on the
+     * server's silence: what arrived while a streaming consumer paused between
+     * two reads is counted before the check.
      *
      * `timeout = 0` (the default on TYPO3 13.4 and 14.3) gives libcurl no total bound, and a
      * wall-clock budget of `connect_timeout` plus the margin would kill a
-     * stream that is still delivering. A streaming send therefore bounds
-     * silence instead of duration in that case. TYPO3 has no idle setting to
-     * derive this from; 60 seconds is the default read timeout of common
-     * reverse proxies, which would cut a stream silent for longer anyway.
-     * Only `VaultHttpClient::sendStreaming()` reads it (ADR-039).
+     * transfer that is still delivering. Every send on the cancellable
+     * transport therefore bounds silence instead of duration in that case:
+     * `VaultHttpClient::sendStreaming()` (ADR-039), `sendCancellable()` and its
+     * OAuth token leg (ADR-040). The name predates the last two and is kept
+     * for compatibility. TYPO3 has no idle setting to derive this from; 60
+     * seconds is the default read timeout of common reverse proxies, which
+     * would cut a transfer silent for longer anyway.
      */
     public const STREAMING_IDLE_BUDGET_SECONDS = 60.0;
 
@@ -228,7 +231,8 @@ final class SecureHttpClientFactory
             new Client($options),
             new CurlMultiTicker($multiHandler),
             $timeout + $connectTimeout + self::CANCELLABLE_WALL_CLOCK_MARGIN_SECONDS,
-            // No total timeout: a streaming transfer is bounded by silence.
+            // No total timeout: every transfer on this transport is bounded by
+            // silence, not by the wall-clock budget above.
             $timeout > 0 ? null : self::STREAMING_IDLE_BUDGET_SECONDS,
         );
     }

@@ -54,14 +54,19 @@ final readonly class CancellableTransport
      *                                      have. If it does fire, the handler
      *                                      misbehaved — better to abort and
      *                                      audit than to hang a TYPO3 request.
+     *                                      Not applied while an idle budget is
+     *                                      set: without a total `timeout`
+     *                                      libcurl has no deadline for it to sit
+     *                                      above.
      * @param float|null $idleBudgetSeconds Set when the transport has no total
-     *                                      `timeout`: a streaming send then ends a
-     *                                      transfer that receives nothing for this
-     *                                      long, instead of applying the wall-clock
-     *                                      budget, which would kill a stream that is
-     *                                      still delivering. Null when a total
-     *                                      timeout exists. `sendCancellable()` does
-     *                                      not read it.
+     *                                      `timeout`: every send on it — streaming,
+     *                                      cancellable, the OAuth token leg — then
+     *                                      ends a transfer that receives nothing for
+     *                                      this long, instead of applying the
+     *                                      wall-clock budget, which would kill a
+     *                                      transfer that is still delivering
+     *                                      (ADR-039, ADR-040). Null when a total
+     *                                      timeout exists.
      */
     public function __construct(
         private GuzzleClientInterface $client,

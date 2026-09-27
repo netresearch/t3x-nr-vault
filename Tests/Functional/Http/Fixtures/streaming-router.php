@@ -11,7 +11,8 @@
 declare(strict_types=1);
 
 /**
- * Router for PHP's built-in web server, used by StreamingSendTest.
+ * Router for PHP's built-in web server, used by StreamingSendTest for the
+ * streaming and the cancellable send.
  *
  * Every route writes to the socket as it goes — output buffering off, one
  * flush per line — so the client can observe when each line was sent. Each
@@ -20,6 +21,7 @@ declare(strict_types=1);
  * Routes:
  *   /chunks?count=N&delay_ms=D  N lines, D milliseconds apart
  *   /stall                      one line, then silence for 30 seconds
+ *   /silent                     nothing, not even a head, for 10 seconds, then one line
  *   /truncated                  announces 1000 bytes, sends 16, and exits 0.5 s later
  *   /redirect                   302 to /redirect-target
  *   /redirect-target            records that it was reached
@@ -41,6 +43,7 @@ $hitsDirectory = getenv('NR_VAULT_STREAM_HITS');
 $hitNames = [
     '/chunks' => 'chunks',
     '/stall' => 'stall',
+    '/silent' => 'silent',
     '/truncated' => 'truncated',
     '/redirect' => 'redirect',
     '/redirect-target' => 'redirect-target',
@@ -84,6 +87,14 @@ switch ($path) {
         $line('before stall');
         sleep(30);
         $line('after stall');
+
+        return true;
+    case '/silent':
+        // The built-in server sends the head with the first output, so
+        // nothing at all leaves before this sleep ends.
+        sleep(10);
+        header('Content-Type: text/plain');
+        $line('after silence');
 
         return true;
     case '/truncated':

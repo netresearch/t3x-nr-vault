@@ -47,6 +47,7 @@ use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UriInterface;
 use ReflectionClass;
 use ReflectionMethod;
@@ -58,8 +59,9 @@ use stdClass;
 /**
  * The cancellable outbound send.
  *
- * Every test here is deterministic: no sockets, no sleeps, no wall-clock
- * dependence. The transport under test is the REAL one the factory builds —
+ * Every test here is deterministic — no sockets, no sleeps, no wall-clock
+ * dependence — except section 18, whose subject is an idle bound and therefore
+ * a duration; its ticks sleep with the streaming suite's margins. The transport under test is the REAL one the factory builds —
  * full hardened option set, `ssrf-dns-pin` middleware installed — with only its
  * bottom handler replaced by a stub that returns a promise nobody settles, and
  * its ticker replaced by a closure that settles that promise on the Nth call.
@@ -112,6 +114,9 @@ final class VaultHttpClientCancellableTest extends TestCase
 
     private const TICK_BUDGET_EXHAUSTED_MESSAGE
         = 'Cancellable transfer exceeded its wall-clock budget and was aborted';
+
+    private const IDLE_EXHAUSTED_MESSAGE
+        = 'Cancellable transfer received nothing within its idle limit and was aborted';
 
     private const NON_RESPONSE_SETTLEMENT_MESSAGE
         = 'Cancellable transport settled with a value that is not an HTTP response';
@@ -1587,8 +1592,264 @@ final class VaultHttpClientCancellableTest extends TestCase
     }
 
     // =========================================================================
+    // 18 — without a total timeout the bound is on silence (issue #394)
+    //
+    // The only tests in this file that measure time: an idle bound is a
+    // duration. Each tick sleeps 20 ms against a 50 ms bound (50 ms ticks
+    // against 200 ms where a gap has to fit), the margins the streaming suite
+    // uses, and the wall-clock budget is zero so that applying it would end
+    // the call on the first pass.
+    // =========================================================================
+
+    #[Test]
+    public function withoutATotalTimeoutACallStillDeliveringOutlivesTheWallClockBudget(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // A head, then a byte on every 20 ms tick, complete on the thirteenth:
+        // far past the 50 ms idle bound and past the zero budget.
+        $transfer = new StubbedTransfer();
+        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
+            usleep(20_000);
+            match (true) {
+                $tick === 1 => $transfer->deliverHead(200),
+                $tick === 13 => $transfer->complete(),
+                default => $transfer->deliverBytes((string) ($tick % 10)),
+            };
+        });
+
+        $auditedRows = [];
+        $this->recordAuditRows($auditedRows);
+
+        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker, budget: 0.0, idle: 0.05))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendCancellable(new Request('GET', self::API_URL), new NeverCancelledSignal());
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('23456789012', (string) $response->getBody());
+        self::assertSame(0, $transfer->cancelCalls());
+        self::assertSame([['http_call', true, null]], $auditedRows);
+    }
+
+    #[Test]
+    public function withoutATotalTimeoutASilentServerEndsAtTheIdleBound(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StubbedTransfer();
+        $ticker = new ClosureTicker(static function (): void {
+            usleep(20_000);
+        });
+
+        $this->assertIdleAbort($transfer, $ticker);
+    }
+
+    #[Test]
+    public function withoutATotalTimeoutACallThatGoesQuietAfterItsHeadEndsAtTheIdleBound(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StubbedTransfer();
+        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
+            usleep(20_000);
+            match ($tick) {
+                1 => $transfer->deliverHead(200),
+                2 => $transfer->deliverBytes('first'),
+                default => null,
+            };
+        });
+
+        $this->assertIdleAbort($transfer, $ticker);
+        self::assertGreaterThan(2, $ticker->ticks(), 'The bound fired after the server went quiet, not before.');
+    }
+
+    #[Test]
+    public function aRepeatedInterimHeadBuysNoTime(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // Guzzle 7 calls on_headers for every 1xx head. A server that sends
+        // `100 Continue` on every step and never a final head must still end
+        // at the idle bound.
+        $transfer = new StubbedTransfer();
+        $ticker = new ClosureTicker(static function () use ($transfer): void {
+            usleep(20_000);
+            $transfer->deliverHead(100);
+        });
+
+        $this->assertIdleAbort($transfer, $ticker);
+    }
+
+    #[Test]
+    public function bytesAfterAnUnsolicitedSwitchingProtocolsHeadBuyNoTime(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // After a `101`, curl hands the raw connection bytes to the sink. They
+        // are no body of a final head and must not count as progress.
+        $transfer = new StubbedTransfer();
+        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
+            usleep(20_000);
+            if ($tick === 1) {
+                $transfer->deliverHead(101);
+
+                return;
+            }
+
+            $transfer->deliverBytes('x');
+        });
+
+        $this->assertIdleAbort($transfer, $ticker);
+    }
+
+    #[Test]
+    public function aTrickleAfterAFinalHeadCompletesAlthoughAnInterimHeadCameFirst(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // 50 ms per tick, 200 ms idle bound: `100` at 50 ms, the final head at
+        // 150 ms, then a byte every 150 ms until the transfer completes at
+        // 600 ms. Each gap is inside the bound, the whole is three times it,
+        // so both the final head and each byte have to count.
+        $transfer = new StubbedTransfer();
+        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
+            usleep(50_000);
+            match ($tick) {
+                1 => $transfer->deliverHead(100),
+                3 => $transfer->deliverHead(200),
+                6 => $transfer->deliverBytes('a'),
+                9 => $transfer->deliverBytes('b'),
+                12 => $transfer->complete(),
+                default => null,
+            };
+        });
+
+        $this->auditLogService->expects(self::once())->method('log');
+
+        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker, budget: 0.0, idle: 0.2))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendCancellable(new Request('GET', self::API_URL), new NeverCancelledSignal());
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('ab', (string) $response->getBody());
+        self::assertSame(0, $transfer->cancelCalls());
+    }
+
+    #[Test]
+    public function withATotalTimeoutProgressDoesNotExtendTheWallClockBudget(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // No idle bound — the transport has a total timeout — and a server
+        // that keeps delivering: the 100 ms budget still ends the call, and
+        // with the budget's own literal.
+        $transfer = new StubbedTransfer();
+        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
+            usleep(20_000);
+            if ($tick === 1) {
+                $transfer->deliverHead(200);
+
+                return;
+            }
+
+            // Bounded, so a loop that lost its budget fails instead of hanging.
+            if ($tick > 250) {
+                throw new RuntimeException('The transport was ticked without end; nothing bounded the loop.', 1790500102);
+            }
+
+            $transfer->deliverBytes('x');
+        });
+
+        $auditedRows = [];
+        $this->recordAuditRows($auditedRows);
+
+        try {
+            $this->clientWithTransport($this->transportWith($transfer, $ticker, budget: 0.1))
+                ->withAuthentication('api_key', SecretPlacement::Bearer)
+                ->sendCancellable(new Request('GET', self::API_URL), new NeverCancelledSignal());
+            self::fail('Expected the wall-clock bound to abort a delivering transfer.');
+        } catch (VaultException $e) {
+            self::assertSame(1786579203, $e->getCode());
+            self::assertSame(self::TICK_BUDGET_EXHAUSTED_MESSAGE, $e->getMessage());
+        }
+
+        self::assertGreaterThan(2, $ticker->ticks());
+        self::assertSame(1, $transfer->cancelCalls());
+        self::assertSame([['http_call', false, self::TICK_BUDGET_EXHAUSTED_MESSAGE]], $auditedRows);
+    }
+
+    #[Test]
+    public function theFactoryGivesTheCancellableSendAnIdleBoundOnlyWithoutATotalTimeout(): void
+    {
+        $this->vaultService->expects(self::never())->method('retrieve');
+        $this->auditLogService->expects(self::never())->method('log');
+
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout'] = 0;
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['connect_timeout'] = 10;
+        $withoutTimeout = $this->clientFactory->createCancellable();
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout'] = 30;
+        $withTimeout = $this->clientFactory->createCancellable();
+
+        self::assertInstanceOf(CancellableTransport::class, $withoutTimeout);
+        self::assertInstanceOf(CancellableTransport::class, $withTimeout);
+        self::assertSame(SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS, $withoutTimeout->idleBudgetSeconds());
+        self::assertNull($withTimeout->idleBudgetSeconds());
+        self::assertSame(45.0, $withTimeout->wallClockBudgetSeconds(), 'timeout + connect_timeout + 5 s, as before.');
+    }
+
+    #[Test]
+    public function aBodyLargerThanTheStreamingBufferIsReturnedWhole(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+        $this->auditLogService->expects(self::once())->method('log');
+
+        // The sink that feeds the idle bound must not bring the streaming
+        // send's 16 MiB limit with it: this send buffers the whole body, as
+        // it always did.
+        $transfer = new StubbedTransfer();
+        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
+            match ($tick) {
+                1 => $transfer->deliverHead(200),
+                2 => $transfer->deliverBytes(str_repeat('a', 17 * 1024 * 1024)),
+                default => $transfer->complete(),
+            };
+        });
+
+        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker, idle: 0.5))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendCancellable(new Request('GET', self::API_URL), new NeverCancelledSignal());
+
+        self::assertSame(17 * 1024 * 1024, $response->getBody()->getSize());
+    }
+
+    // =========================================================================
     // Harness
     // =========================================================================
+
+    /**
+     * The call must end at the idle bound — with its own literal, audited as
+     * a failure — and not at the ticker's ceiling or the zero budget.
+     */
+    private function assertIdleAbort(StubbedTransfer $transfer, ClosureTicker $ticker): void
+    {
+        $auditedRows = [];
+        $this->recordAuditRows($auditedRows);
+
+        try {
+            $this->clientWithTransport($this->transportWith($transfer, $ticker, budget: 0.0, idle: 0.05))
+                ->withAuthentication('api_key', SecretPlacement::Bearer)
+                ->sendCancellable(new Request('GET', self::API_URL), new NeverCancelledSignal());
+            self::fail('Expected the idle bound to abort the transfer.');
+        } catch (VaultException $e) {
+            self::assertSame(1786579206, $e->getCode());
+            self::assertSame(self::IDLE_EXHAUSTED_MESSAGE, $e->getMessage());
+        }
+
+        self::assertGreaterThan(0, $ticker->ticks());
+        self::assertLessThan(20, $ticker->ticks(), 'The bound fired within a few 20 ms steps of a 50 ms window.');
+        self::assertSame(1, $transfer->cancelCalls(), 'The bound must tear the transfer down.');
+        self::assertSame([['http_call', false, self::IDLE_EXHAUSTED_MESSAGE]], $auditedRows);
+    }
 
     /**
      * Build the REAL cancellable transport, then replace only its bottom handler
@@ -1602,6 +1863,8 @@ final class VaultHttpClientCancellableTest extends TestCase
         StubbedTransfer $transfer,
         TransportTickerInterface $ticker,
         ?SecureHttpClientFactory $factory = null,
+        ?float $budget = null,
+        ?float $idle = null,
     ): CancellableTransport {
         $real = ($factory ?? $this->clientFactory)->createCancellable();
         self::assertInstanceOf(CancellableTransport::class, $real);
@@ -1613,7 +1876,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         self::assertInstanceOf(HandlerStack::class, $handler);
         $handler->setHandler($transfer->handler());
 
-        return new CancellableTransport($client, $ticker, $real->wallClockBudgetSeconds());
+        return new CancellableTransport($client, $ticker, $budget ?? $real->wallClockBudgetSeconds(), $idle);
     }
 
     private function clientWithTransport(CancellableTransport $transport): VaultHttpClient
@@ -1838,6 +2101,45 @@ final class StubbedTransfer
     {
         $this->promise?->reject($reason);
         PromiseUtils::queue()->run();
+    }
+
+    /**
+     * Hand a response head to the `on_headers` option, as the curl handler
+     * does for every head it parses, interim ones included.
+     */
+    public function deliverHead(int $status): void
+    {
+        $onHeaders = $this->options['on_headers'] ?? null;
+        $sink = $this->options['sink'] ?? null;
+        \assert(\is_callable($onHeaders) && $sink instanceof StreamInterface);
+
+        $onHeaders(new Response($status, [], $sink));
+    }
+
+    /**
+     * Write body bytes into the `sink` option, as curl's write callback does.
+     */
+    public function deliverBytes(string $bytes): void
+    {
+        $sink = $this->options['sink'] ?? null;
+        \assert($sink instanceof StreamInterface);
+
+        if ($sink->write($bytes) !== \strlen($bytes)) {
+            throw new RuntimeException('The sink must accept every byte, or curl aborts the transfer.', 1790500101);
+        }
+    }
+
+    /**
+     * End the transfer with a 200 whose body is the sink, as the curl handler
+     * settles a completed transfer.
+     */
+    public function complete(): void
+    {
+        $sink = $this->options['sink'] ?? null;
+        \assert($sink instanceof StreamInterface);
+
+        $sink->rewind();
+        $this->settleWithValue(new Response(200, [], $sink));
     }
 
     public function cancelCalls(): int
