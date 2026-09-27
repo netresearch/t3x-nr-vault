@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **TYPO3 v14 no longer logs the `ext_emconf.php` deprecation for nr_vault.** `composer.json` declares `extra.typo3/cms.version` and an empty `Package.providesPackages` (TYPO3 #108345: an extension that still ships `ext_emconf.php` must name both). The version is now stated in `ext_emconf.php`, `composer.json` and `Documentation/guides.xml`; `VersionConsistencyTest` fails when a release commit misses one of them.
+- **TYPO3 v14 no longer logs a TCA migration deprecation for `tx_nrvault_secret`.** The table no longer sets `ctrl.searchFields`, which v14 removed (#106972) and strips with a deprecation. The backend search scope is unchanged: v14 searches `identifier`, `description` and `context` through the per-column `searchable` flag, now set to `false` on the five other searchable columns (`expires_at`, `metadata`, `last_rotated_at`, `last_read_at`, `adapter`) exactly as the automatic migration did, and v13, which ignores that flag, gets `searchFields` from a TCA override that applies on v13 only.
 
 ## [1.0.1] - 2026-09-24
 
