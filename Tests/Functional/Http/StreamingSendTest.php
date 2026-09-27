@@ -84,6 +84,8 @@ final class StreamingSendTest extends FunctionalTestCase
 
     private const TLS_ORIGIN_NAME = 'tls-origin.test';
 
+    private const LINE_READ_TIMEOUT_SECONDS = 15.0;
+
     private const BUFFER_LIMIT_MESSAGE
         = 'Streaming transfer aborted: one step delivered more body than the 16 MiB streaming buffer holds';
 
@@ -168,10 +170,8 @@ final class StreamingSendTest extends FunctionalTestCase
         $returnedAt = $this->nowMicroseconds();
 
         $body = $response->getBody();
-        $lines = [];
-        while (\count($lines) < 3) {
-            $lines = [...$lines, ...$this->readLines($body)];
-        }
+        $pending = '';
+        $lines = $this->readCompleteLines($body, 3, $pending);
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame(['chunk 1', 'chunk 2', 'chunk 3'], array_column($lines, 'text'));
@@ -180,7 +180,7 @@ final class StreamingSendTest extends FunctionalTestCase
         self::assertLessThan(
             $lastSentAt,
             $returnedAt,
-            'sendStreaming() must return at the headers, before the server has sent its last line.',
+            'sendStreaming() must return before the server has sent its last line.',
         );
         self::assertLessThan(
             $lastSentAt,
@@ -193,6 +193,7 @@ final class StreamingSendTest extends FunctionalTestCase
             'The second line must be readable before the third.',
         );
 
+        self::assertSame('', $pending, 'Nothing may be left over after the last complete line.');
         self::assertSame('', $body->read(8192), 'A completed transfer ends with an empty read.');
         self::assertTrue($body->eof());
         self::assertSame(
@@ -273,7 +274,8 @@ final class StreamingSendTest extends FunctionalTestCase
         $response = $this->client()->withTimeout(2)->sendStreaming(new Request('GET', $this->url('/stall')));
         $body = $response->getBody();
 
-        $firstLine = $this->readLines($body);
+        $pending = '';
+        $firstLine = $this->readCompleteLines($body, 1, $pending);
         self::assertSame('before stall', $firstLine[0]['text'] ?? null);
 
         $start = microtime(true);
@@ -299,7 +301,8 @@ final class StreamingSendTest extends FunctionalTestCase
         [$client, $multi] = $this->clientWithObservableTransport();
 
         $body = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=50&delay_ms=100')))->getBody();
-        $this->readLines($body);
+        $pending = '';
+        $this->readCompleteLines($body, 1, $pending);
         self::assertSame(1, $this->activeTransfers($multi), 'The transfer is on the multi handle while it is read.');
 
         $body->close();
@@ -313,7 +316,8 @@ final class StreamingSendTest extends FunctionalTestCase
         [$client, $multi] = $this->clientWithObservableTransport();
 
         $response = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=50&delay_ms=100')));
-        $this->readLines($response->getBody());
+        $pending = '';
+        $this->readCompleteLines($response->getBody(), 1, $pending);
         self::assertSame(1, $this->activeTransfers($multi));
 
         unset($response);
@@ -328,7 +332,8 @@ final class StreamingSendTest extends FunctionalTestCase
         $signal = new SwitchableSignal();
 
         $body = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=50&delay_ms=100')), $signal)->getBody();
-        $this->readLines($body);
+        $pending = '';
+        $this->readCompleteLines($body, 1, $pending);
 
         $signal->cancel();
 
@@ -576,22 +581,41 @@ final class StreamingSendTest extends FunctionalTestCase
     }
 
     /**
-     * Read once, then split what arrived into the router's lines.
+     * Read until `$wanted` complete router lines have arrived.
+     *
+     * A read returns whatever bytes are there, and a line can end anywhere
+     * between two reads — the router's lines left the server as several
+     * `sendto()` calls, and a read on a busy CI runner landed between them. So
+     * bytes after the last newline are kept in `$pending` for the next call,
+     * and a line's `readAt` is the moment the read that completed it returned.
+     * Bounded by end of stream and by a deadline, so a transfer that stops
+     * delivering fails the test instead of hanging the suite.
+     *
+     * @param-out string $pending
      *
      * @return list<array{text: string, sentAt: int, readAt: int}>
      */
-    private function readLines(StreamInterface $body): array
+    private function readCompleteLines(StreamInterface $body, int $wanted, string &$pending): array
     {
-        $chunk = $body->read(8192);
-        $readAt = $this->nowMicroseconds();
-
         $lines = [];
-        foreach (explode("\n", trim($chunk)) as $raw) {
-            if (preg_match('/^(.*) sent_us=(\d+)$/', $raw, $matches) !== 1) {
-                continue;
+        $deadline = microtime(true) + self::LINE_READ_TIMEOUT_SECONDS;
+
+        while (\count($lines) < $wanted) {
+            self::assertLessThan($deadline, microtime(true), \sprintf('Only %d of %d lines arrived in time.', \count($lines), $wanted));
+
+            $chunk = $body->read(8192);
+            $readAt = $this->nowMicroseconds();
+            if ($chunk === '') {
+                self::fail(\sprintf('The stream ended after %d of %d lines; left over: %s', \count($lines), $wanted, var_export($pending, true)));
             }
 
-            $lines[] = ['text' => $matches[1], 'sentAt' => (int) $matches[2], 'readAt' => $readAt];
+            $pending .= $chunk;
+            while (($end = strpos($pending, "\n")) !== false) {
+                $raw = substr($pending, 0, $end);
+                $pending = substr($pending, $end + 1);
+                self::assertSame(1, preg_match('/^(.*) sent_us=(\d+)$/', $raw, $matches), 'Not a router line: ' . var_export($raw, true));
+                $lines[] = ['text' => $matches[1], 'sentAt' => (int) $matches[2], 'readAt' => $readAt];
+            }
         }
 
         return $lines;
