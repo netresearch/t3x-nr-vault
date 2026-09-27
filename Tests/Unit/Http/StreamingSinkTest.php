@@ -97,6 +97,24 @@ final class StreamingSinkTest extends TestCase
     }
 
     #[Test]
+    public function bytesAcceptedOnlyEverGrows(): void
+    {
+        $sink = new StreamingSink(10);
+        self::assertSame(0, $sink->bytesAccepted());
+
+        $sink->write('abcdef');
+        $sink->read(4);
+        self::assertSame(6, $sink->bytesAccepted(), 'Reading does not take progress back.');
+
+        $sink->write('ghijklmnop');
+        self::assertSame(6, $sink->bytesAccepted(), 'A refused write is no progress.');
+
+        $sink->write('gh');
+        $sink->close();
+        self::assertSame(8, $sink->bytesAccepted(), 'Closing does not take progress back.');
+    }
+
+    #[Test]
     public function aNegativeLengthIsRefusedAndConsumesNothing(): void
     {
         $sink = new StreamingSink(100);

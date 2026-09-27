@@ -1233,12 +1233,18 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             // a curl callback.
             $head = null;
 
+            // Every head seen, interim ones included. Only ever grows, unlike
+            // `$head`, which a later 1xx head resets — so it can serve as
+            // progress for the idle bound.
+            $headsSeen = 0;
+
             $promise = $transport->client()->sendAsync($authenticatedRequest, [
                 RequestOptions::ALLOW_REDIRECTS => false,
                 RequestOptions::HTTP_ERRORS => false,
                 RequestOptions::SINK => $sink,
-                RequestOptions::ON_HEADERS => static function (ResponseInterface $response) use (&$head): void {
+                RequestOptions::ON_HEADERS => static function (ResponseInterface $response) use (&$head, &$headsSeen): void {
                     $head = $response->getStatusCode() >= 200 ? $response : null;
+                    ++$headsSeen;
                 },
             ]);
 
@@ -1250,8 +1256,8 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 $transport->wallClockBudgetSeconds(),
                 $signal,
                 $transport->idleBudgetSeconds(),
-                static function () use (&$head, $sink): int {
-                    return $sink->tell() + $sink->getSize() + ($head instanceof ResponseInterface ? 1 : 0);
+                static function () use (&$headsSeen, $sink): int {
+                    return $sink->bytesAccepted() + $headsSeen;
                 },
             );
 
