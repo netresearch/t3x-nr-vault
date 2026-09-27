@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A streaming send that keeps the DNS pin (#391).** `VaultHttpClient` implements the new calling interface `StreamingHttpClientInterface`: `sendStreaming()` returns once the response headers have arrived, and reading the body drives the transfer, so a caller sees a provider's streamed answer as it arrives instead of at the end. The transfer runs on the curl-multi transport of `sendCancellable()` with the `CURLOPT_RESOLVE` pin, the SSRF middleware, the host allowlist and the same credential injection; Guzzle's `stream` option, which bypasses the pin, is never set. Redirects are returned, not followed. A transfer that fails after the headers throws from `read()` instead of ending as a short body, a stalled one ends at the transfer timeout, and closing or dropping the body, or the cancellation signal, removes the transfer from the transport. Each call writes one `http_call` audit row when the headers arrive; the body is never logged. Consumers feature-detect with `instanceof` and `supportsStreaming()`. See ADR-039.
+
 ### Changed
 
 - **`typo3/cms-install` moved from `require` to `suggest` (and `require-dev`).** With `version` and `providesPackages` declared, TYPO3 v14 and the testing framework read nr_vault's dependencies from `composer.json` instead of `ext_emconf.php`, so a `require` on `typo3/cms-install` would make EXT:install a hard dependency and stop every functional test that loads nr_vault without it (`Package "nr_vault" depends on package "install" which does not exist`), here and in consuming extensions. Nothing needs it at runtime: the TYPO3 14 upgrade wizard uses the upgrade API in EXT:core, and the TYPO3 13 wizard shell is registered only when EXT:install's interface exists (`Configuration/Services.php`), the way the core's own EXT:extensionmanager ships its v13 wizards with a `require` on `typo3/cms-core` alone. EXT:install is a protected core extension, so every installation still offers the wizard.

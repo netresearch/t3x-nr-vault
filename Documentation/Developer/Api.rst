@@ -886,6 +886,113 @@ OAuth-authenticated call is not cancellable.
       Return true to abort the in-flight request. Must not throw, and must be
       cheap.
 
+.. _api-http-streaming:
+
+Reading a response while it arrives
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:php:`sendRequest()` and :php:`sendCancellable()` return once the whole body
+has arrived, so a caller that asked a provider for a streamed answer sees the
+first byte only at the end. :php:`StreamingHttpClientInterface` adds a send
+that returns as soon as the response headers are in, with a body that reads
+the rest from the wire.
+
+The transfer runs on the same curl-multi transport as
+:php:`sendCancellable()`, with the ``CURLOPT_RESOLVE`` DNS pin, the SSRF
+middleware and the hardened options. Guzzle's ``stream`` option is never set:
+it would route the request to a handler that ignores the pin. The scheme
+allowlist, the ``allowed_hosts`` gate and the credential injection run through
+the same code as :php:`sendRequest()`.
+
+Like :php:`CancellableHttpClientInterface`, the interface is separate and
+additive, so consumers feature-detect it:
+
+.. code-block:: php
+   :caption: Reading a server-sent event stream line by line
+
+   use Netresearch\NrVault\Http\StreamingHttpClientInterface;
+
+   $client = $this->vaultService->http()
+       ->withAuthentication('openai_api_key')
+       ->withReason('Chat completion stream')
+       ->withTimeout(120);
+
+   if ($client instanceof StreamingHttpClientInterface && $client->supportsStreaming()) {
+       $response = $client->sendStreaming($request, $signal);
+   } else {
+       $response = $client->sendRequest($request);
+   }
+
+   $body = $response->getBody();
+   $buffer = '';
+   while (!$body->eof()) {
+       $buffer .= $body->read(8192);
+       while (($end = strpos($buffer, "\n")) !== false) {
+           $this->handleLine(substr($buffer, 0, $end));
+           $buffer = substr($buffer, $end + 1);
+       }
+   }
+
+What the body does:
+
+*   :php:`read()` returns the bytes that have arrived. When none have, it drives
+    the transport until some arrive or the transfer ends.
+*   End of stream means the transfer completed. A transfer that fails after the
+    headers throws from :php:`read()` once the bytes that did arrive are handed
+    out — a ``VaultException`` whose previous exception is the transport's. It
+    never ends as a short body, and :php:`getContents()` and
+    :php:`__toString()` throw rather than return part of it.
+*   :php:`close()`, :php:`detach()` or dropping the body before the end removes
+    the transfer from the transport and closes the connection. So does the
+    signal, which is polled before the send and on every step; a signal that
+    fires while the body is read throws ``RequestCancelledException``.
+*   A stalled stream ends at the transfer timeout — the platform ``timeout`` or
+    :php:`withTimeout()`. Only reading drives the transfer, so a long stream
+    needs a long timeout, as a long blocking call does.
+*   Redirects are not followed; a ``3xx`` response is returned as it is.
+*   The body is not seekable and not writable, and its metadata is empty.
+
+**One audit row per call, written when** :php:`sendStreaming()` **returns or
+throws.** It is the row :php:`sendRequest()` writes: ``http_call`` with the
+status once the headers arrived, and the actions and literals listed above for
+everything that ends the call before them. A failure or an abandon *after* the
+headers writes no second row; the exception from :php:`read()` is how you learn
+of it. The body is never logged. See
+:ref:`adr-039-streaming-send-keeps-the-dns-pin`, which names the test for each
+property.
+
+.. php:interface:: StreamingHttpClientInterface
+
+   An outbound send whose response body can be read while it arrives.
+   Implemented by :php:`VaultHttpClient`. A calling interface: a minor release
+   may add methods to it.
+
+   .. php:method:: sendStreaming(RequestInterface $request, ?CancellationSignalInterface $signal = null): ResponseInterface
+
+      Send an HTTP request and return once the response headers arrived. The
+      body advances the transfer as it is read. Runs the same guard sequence
+      as :php:`sendRequest()`: scheme allowlist, host allowlist, credential
+      injection, one audit row.
+
+      Accepts no per-request transport options, for the reason given in
+      :ref:`adr-037-cancellable-outbound-send`.
+
+      When :php:`supportsStreaming()` is false the call still completes,
+      blocking, and the body is complete when it is returned.
+
+      :param RequestInterface $request: PSR-7 request.
+      :param CancellationSignalInterface|null $signal: Polled before the send and on every transport step, headers and body alike.
+      :returns: PSR-7 response whose body reads from the wire.
+      :throws RequestCancelledException: If the signal aborted the call before the headers arrived.
+      :throws ClientExceptionInterface: If the transfer failed before the headers arrived.
+      :throws VaultException: If the scheme or host is rejected, secret retrieval fails, or the transfer overran its bound.
+
+   .. php:method:: supportsStreaming(): bool
+
+      Whether :php:`sendStreaming()` delivers the body while it arrives. The
+      same answer as :php:`supportsCancellation()`: false when the inner
+      client was supplied by the caller, and false without ``curl_multi_*``.
+
 .. _api-http-auth-options:
 
 Authentication options

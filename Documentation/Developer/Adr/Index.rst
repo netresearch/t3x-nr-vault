@@ -63,6 +63,7 @@ ADR      Title                                                    Status
 036      :ref:`adr-036-mutation-audit-atomicity`                  Accepted
 037      :ref:`adr-037-cancellable-outbound-send`                 Accepted
 038      :ref:`adr-038-unresolvable-host-is-refused`              Accepted
+039      :ref:`adr-039-streaming-send-keeps-the-dns-pin`          Accepted
 =======  =======================================================  ========
 
 .. toctree::
@@ -107,3 +108,4 @@ ADR      Title                                                    Status
    ADR-036-MutationAuditAtomicity
    ADR-037-CancellableOutboundSend
    ADR-038-UnresolvableHostIsRefused
+   ADR-039-StreamingSendKeepsTheDnsPin
