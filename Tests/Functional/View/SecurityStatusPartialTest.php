@@ -39,6 +39,7 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
     /** @var array<non-empty-string> */
     protected array $coreExtensionsToLoad = [
         'backend',
+        'install',
         'fluid',
     ];
 

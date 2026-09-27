@@ -21,7 +21,7 @@ final class AuditChainSeederTest extends FunctionalTestCase
 {
     protected array $testExtensionsToLoad = ['netresearch/nr-vault'];
 
-    protected array $coreExtensionsToLoad = ['backend'];
+    protected array $coreExtensionsToLoad = ['backend', 'install'];
 
     protected array $configurationToUseInTestInstance = [
         'EXTENSIONS' => [

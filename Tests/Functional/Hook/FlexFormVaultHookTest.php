@@ -54,6 +54,7 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
     /** @var list<string> */
     protected array $coreExtensionsToLoad = [
         'backend',
+        'install',
         'frontend',
     ];
 

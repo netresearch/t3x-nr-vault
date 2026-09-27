@@ -23,7 +23,7 @@ final class VaultSeedDemoCommandTest extends FunctionalTestCase
 {
     protected array $testExtensionsToLoad = ['netresearch/nr-vault'];
 
-    protected array $coreExtensionsToLoad = ['backend'];
+    protected array $coreExtensionsToLoad = ['backend', 'install'];
 
     protected array $configurationToUseInTestInstance = [
         'EXTENSIONS' => ['nr_vault' => ['masterKeyProvider' => 'file']],

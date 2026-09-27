@@ -55,6 +55,7 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
     /** @var list<string> */
     protected array $coreExtensionsToLoad = [
         'backend',
+        'install',
         'frontend',
     ];
 

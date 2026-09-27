@@ -35,7 +35,7 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
      *
      * @var list<string>
      */
-    protected array $coreExtensionsToLoad = ['backend', 'scheduler'];
+    protected array $coreExtensionsToLoad = ['backend', 'install', 'scheduler'];
 
     /** @var array<string, mixed> */
     protected array $extensionConfiguration = [

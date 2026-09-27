@@ -10,7 +10,7 @@
 
 ## Project Overview
 
-- **Stack:** PHP 8.2+, TYPO3 ^13.4 || ^14.3, libsodium (XChaCha20-Poly1305 / AES-256-GCM envelope encryption). Version: see `ext_emconf.php`.
+- **Stack:** PHP 8.2+, TYPO3 ^13.4 || ^14.3, libsodium (XChaCha20-Poly1305 / AES-256-GCM envelope encryption). Version: `ext_emconf.php`, repeated in `composer.json` (`extra.typo3/cms.version`, TYPO3 #108345) and `Documentation/guides.xml` (`release`, major.minor in `version`); the `chore(release)` commit bumps all three plus `CHANGELOG.md`, and `Tests/Unit/VersionConsistencyTest.php` fails on drift.
 - **Environment:** DDEV for local development · **License:** GPL-2.0-or-later
 - **Namespace:** `Netresearch\NrVault\` (PSR-4 from `Classes/`) · **Extension key:** `nr_vault`
 - **Component map + key interfaces + CLI command list:** `docs/ARCHITECTURE.md`

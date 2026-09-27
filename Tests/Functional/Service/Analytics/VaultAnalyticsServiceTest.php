@@ -27,7 +27,7 @@ final class VaultAnalyticsServiceTest extends FunctionalTestCase
 
     protected array $testExtensionsToLoad = ['netresearch/nr-vault'];
 
-    protected array $coreExtensionsToLoad = ['backend'];
+    protected array $coreExtensionsToLoad = ['backend', 'install'];
 
     #[Test]
     public function computesKpisAndCandidates(): void

@@ -45,6 +45,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
     protected array $coreExtensionsToLoad = [
         'backend',
+        'install',
     ];
 
     protected array $configurationToUseInTestInstance = [

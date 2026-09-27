@@ -77,6 +77,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
     protected array $coreExtensionsToLoad = [
         'backend',
+        'install',
     ];
 
     private ?VaultServiceInterface $vaultService = null;

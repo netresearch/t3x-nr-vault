@@ -35,6 +35,10 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 #[CoversClass(MasterKeyProviderRegistry::class)]
 final class MasterKeyProviderWiringTest extends FunctionalTestCase
 {
+    protected array $coreExtensionsToLoad = [
+        'install',
+    ];
+
     protected array $testExtensionsToLoad = [
         'netresearch/nr-vault',
     ];

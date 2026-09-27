@@ -46,6 +46,7 @@ final class LocalEncryptionAdapterMetadataTest extends FunctionalTestCase
 
     protected array $coreExtensionsToLoad = [
         'backend',
+        'install',
     ];
 
     private SecretRepositoryInterface $repository;

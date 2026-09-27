@@ -39,6 +39,7 @@ final class SecretRepositoryTest extends FunctionalTestCase
 
     protected array $coreExtensionsToLoad = [
         'backend',
+        'install',
     ];
 
     private SecretRepositoryInterface $subject;

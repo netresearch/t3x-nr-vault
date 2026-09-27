@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A functional test that loads nr_vault must also load the core extension `install`.** With `version` and `providesPackages` declared, TYPO3 v14 and the testing framework read nr_vault's dependencies from `composer.json` instead of `ext_emconf.php`, and `require` names `typo3/cms-install`, whose classes the upgrade wizards import. The testing framework loads `core`, `backend`, `frontend`, `extbase` and `fluid` by default, so a test case that loads nr_vault without `install` stops with `Package "nr_vault" depends on package "install" which does not exist`. Add `'install'` to its `$coreExtensionsToLoad`. Installations are not affected: EXT:install is a protected core extension and always active.
+
+### Fixed
+
+- **TYPO3 v14 no longer logs the `ext_emconf.php` deprecation for nr_vault.** `composer.json` declares `extra.typo3/cms.version` and an empty `Package.providesPackages` (TYPO3 #108345: an extension that still ships `ext_emconf.php` must name both). The version is now stated in `ext_emconf.php`, `composer.json` and `Documentation/guides.xml`; `VersionConsistencyTest` fails when a release commit misses one of them.
+
 ## [1.0.1] - 2026-09-24
 
 ### Security
