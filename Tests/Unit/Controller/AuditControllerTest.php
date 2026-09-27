@@ -158,7 +158,7 @@ final class AuditControllerTest extends TestCase
         self::assertSame('warning', $badgeClass->invoke($subject, 'http_call_cancelled'));
         self::assertSame('info', $badgeClass->invoke($subject, 'http_call_cancelled_before_send'));
         self::assertSame(
-            'secondary',
+            'default',
             $badgeClass->invoke($subject, 'http_call'),
             'An ordinary completed call keeps the neutral badge, or the new ones signal nothing.',
         );

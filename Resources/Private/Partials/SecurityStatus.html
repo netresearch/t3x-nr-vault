@@ -41,7 +41,7 @@
                     aria-controls="vault-security-details"
                     data-testid="vault-security-toggle"
                 >
-                <span class="badge vault-badge vault-badge-secondary" data-testid="vault-security-profile">
+                <span class="badge badge-default" data-testid="vault-security-profile">
                     <core:icon identifier="actions-shield" size="small" />
                     <!--
                         Two explicit branches rather than a translation key built by
@@ -54,7 +54,7 @@
                         <f:else>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.profile.standard')}</f:else>
                     </f:if>
                 </span>
-                <span class="badge vault-badge vault-badge-{securityStatus.context}" data-testid="vault-security-ratio">
+                <span class="badge badge-{securityStatus.context}" data-testid="vault-security-ratio">
                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.controlsPassed', arguments: {0: securityStatus.passed, 1: securityStatus.total})}
                 </span>
                     <core:icon identifier="actions-chevron-down" size="small" />
@@ -66,20 +66,27 @@
 
             <f:if condition="{securityStatus.auditReady}">
                 <f:then>
-                    <div class="alert alert-success" role="alert" data-testid="vault-security-ready">
-                        <core:icon identifier="actions-check" size="small" />
-                        {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.auditReady')}
+                    <div class="callout callout-success" role="status" data-testid="vault-security-ready">
+                        <div class="callout-icon"><span class="icon-emphasized"><core:icon identifier="actions-check" size="small" /></span></div>
+                        <div class="callout-content"><div class="callout-body">
+                            {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.auditReady')}
+                        </div></div>
                     </div>
                 </f:then>
                 <f:else>
                     <f:if condition="{securityStatus.detailed}">
                         <f:then>
                             <f:for each="{securityStatus.findings}" as="finding">
-                                <div class="alert alert-{finding.context}" role="alert" data-testid="vault-security-finding">
-                                    <h3 class="alert-heading h5">
-                                        <core:icon identifier="actions-exclamation-triangle" size="small" />
-                                        <code>{finding.id}</code>
-                                    </h3>
+                                <div class="callout callout-{finding.context}" role="alert" data-testid="vault-security-finding">
+                                    <div class="callout-icon"><span class="icon-emphasized">
+                                        <f:if condition="{finding.context} == 'danger'">
+                                            <f:then><core:icon identifier="actions-close" size="small" /></f:then>
+                                            <f:else><core:icon identifier="actions-exclamation" size="small" /></f:else>
+                                        </f:if>
+                                    </span></div>
+                                    <div class="callout-content">
+                                    <h3 class="callout-title"><code>{finding.id}</code></h3>
+                                    <div class="callout-body">
                                     <p class="mb-2">{finding.summary}</p>
                                     <f:if condition="{finding.risk}">
                                         <p class="mb-2 small">
@@ -100,17 +107,21 @@
                                             </a>
                                         </p>
                                     </f:if>
+                                    </div>
+                                    </div>
                                 </div>
                             </f:for>
-                            <p class="text-body-secondary small mb-0">
+                            <p class="text-variant small mb-0">
                                 {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.cliHint')}
                                 <code>vendor/bin/typo3 vault:doctor</code>
                             </p>
                         </f:then>
                         <f:else>
-                            <div class="alert alert-warning" role="alert" data-testid="vault-security-restricted">
-                                <core:icon identifier="actions-exclamation-triangle" size="small" />
-                                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.restricted', arguments: {0: securityStatus.criticalCount, 1: securityStatus.warningCount})}
+                            <div class="callout callout-warning" role="alert" data-testid="vault-security-restricted">
+                                <div class="callout-icon"><span class="icon-emphasized"><core:icon identifier="actions-exclamation" size="small" /></span></div>
+                                <div class="callout-content"><div class="callout-body">
+                                    {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.restricted', arguments: {0: securityStatus.criticalCount, 1: securityStatus.warningCount})}
+                                </div></div>
                             </div>
                         </f:else>
                     </f:if>
@@ -119,10 +130,12 @@
             </div>
         </f:then>
         <f:else>
-            <div class="alert alert-warning" role="alert" data-testid="vault-security-unavailable">
-                <core:icon identifier="actions-exclamation-triangle" size="small" />
-                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.unavailable')}
-                <code>vendor/bin/typo3 vault:doctor</code>
+            <div class="callout callout-warning" role="alert" data-testid="vault-security-unavailable">
+                <div class="callout-icon"><span class="icon-emphasized"><core:icon identifier="actions-exclamation" size="small" /></span></div>
+                <div class="callout-content"><div class="callout-body">
+                    {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.status.unavailable')}
+                    <code>vendor/bin/typo3 vault:doctor</code>
+                </div></div>
             </div>
         </f:else>
     </f:if>

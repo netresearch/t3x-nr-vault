@@ -3,6 +3,7 @@
  */
 import Notification from '@typo3/backend/notification.js';
 import AjaxRequest from '@typo3/core/ajax/ajax-request.js';
+import '@typo3/backend/element/spinner-element.js';
 
 /**
  * Look up a backend label registered via PageRenderer::addInlineLanguageLabelFile()
@@ -41,8 +42,10 @@ class VaultBackend {
         const originalChildren = Array.from(button.childNodes);
 
         button.disabled = true;
-        const spinner = document.createElement('span');
-        spinner.className = 'spinner-border spinner-border-sm';
+        // Core's spinner element: Bootstrap's .spinner-border is not part of the
+        // TYPO3 14 backend CSS, so that span rendered as nothing there.
+        const spinner = document.createElement('typo3-backend-spinner');
+        spinner.setAttribute('size', 'small');
         button.replaceChildren(spinner, document.createTextNode(' ' + lang('nrvault.verify.running', 'Verifying...')));
 
         try {

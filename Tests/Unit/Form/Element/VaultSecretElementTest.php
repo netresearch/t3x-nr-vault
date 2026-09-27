@@ -264,6 +264,26 @@ final class VaultSecretElementTest extends TestCase
         self::assertStringContainsString('t3js-vault-clear', $result['html']);
     }
 
+    /**
+     * The action buttons beside the field are neutral controls. Core's
+     * `btn-secondary` is a dark tile in the light and the dark backend scheme
+     * alike; `btn-default` is the neutral button that follows the scheme.
+     */
+    #[Test]
+    public function actionButtonsUseTheSchemeAwareNeutralButton(): void
+    {
+        $this->setUpExistingSecretData();
+
+        $result = $this->subject->render();
+
+        self::assertIsString($result['html']);
+        foreach (['t3js-vault-toggle-visibility', 't3js-vault-copy', 't3js-vault-clear'] as $hook) {
+            self::assertStringContainsString('class="btn btn-default ' . $hook . '"', $result['html']);
+        }
+
+        self::assertStringNotContainsString('btn-secondary', $result['html']);
+    }
+
     #[Test]
     public function renderOutputIncludesJavaScriptModule(): void
     {

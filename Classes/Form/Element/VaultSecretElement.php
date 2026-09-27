@@ -291,19 +291,19 @@ final class VaultSecretElement extends AbstractFormElement
         $parts[] = '<input ' . GeneralUtility::implodeAttributes($attributes, true) . ' />';
 
         if ($permissions['reveal']) {
-            $parts[] = '<button type="button" class="btn btn-secondary t3js-vault-toggle-visibility" title="Toggle visibility">';
+            $parts[] = '<button type="button" class="btn btn-default t3js-vault-toggle-visibility" title="Toggle visibility">';
             $parts[] = $this->renderIcon('actions-eye');
             $parts[] = '</button>';
         }
 
         if ($permissions['copy'] && $hasValue) {
-            $parts[] = '<button type="button" class="btn btn-secondary t3js-vault-copy" title="Copy to clipboard">';
+            $parts[] = '<button type="button" class="btn btn-default t3js-vault-copy" title="Copy to clipboard">';
             $parts[] = $this->renderIcon('actions-clipboard');
             $parts[] = '</button>';
         }
 
         if ($hasValue && $permissions['edit'] && !$permissions['readOnly']) {
-            $parts[] = '<button type="button" class="btn btn-secondary t3js-vault-clear" title="Clear secret">';
+            $parts[] = '<button type="button" class="btn btn-default t3js-vault-clear" title="Clear secret">';
             $parts[] = $this->renderIcon('actions-delete');
             $parts[] = '</button>';
         }

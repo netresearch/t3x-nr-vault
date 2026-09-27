@@ -6,19 +6,21 @@
 
 <f:section name="Content">
     <h1>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.title')}</h1>
-    <p class="text-body-secondary mb-4">
+    <p class="text-variant mb-4">
         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.subtitle')}
     </p>
 
     <f:render partial="BreakGlassBanner" arguments="{breakGlass: breakGlass}" />
 
-    <!-- Health Check Alerts -->
+    <!-- Health Check Alerts: core callout markup (same structure f:be.infobox renders) -->
     <f:if condition="{healthChecks.hasIssues}">
-        <div class="alert alert-danger mb-4" role="alert">
-            <h4 class="alert-heading">
-                <core:icon identifier="actions-exclamation-triangle" size="small" />
+        <div class="callout callout-danger mb-4" role="alert" data-testid="vault-health-issue">
+            <div class="callout-icon"><span class="icon-emphasized"><core:icon identifier="actions-close" size="small" /></span></div>
+            <div class="callout-content">
+            <h2 class="callout-title">
                 {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.issue.heading')}
-            </h4>
+            </h2>
+            <div class="callout-body">
             <f:if condition="!{healthChecks.masterKeyAvailable}">
                 <p class="mb-1">
                     <strong>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.encryption_not_available')}</strong>
@@ -42,12 +44,18 @@
                     <strong>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.encryption_broken', arguments: {0: healthChecks.masterKeyProvider})}</strong>
                 </p>
             </f:if>
+            </div>
+            </div>
         </div>
     </f:if>
     <f:if condition="{healthChecks.masterKeyAvailable} && {healthChecks.encryptionWorking}">
-        <div class="alert alert-success mb-4" role="alert">
-            <core:icon identifier="actions-check" size="small" />
-            {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.encryption_active', arguments: {0: healthChecks.masterKeyProvider})}
+        <div class="callout callout-success mb-4" role="status" data-testid="vault-health-ok">
+            <div class="callout-icon"><span class="icon-emphasized"><core:icon identifier="actions-check" size="small" /></span></div>
+            <div class="callout-content">
+                <div class="callout-body">
+                    {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.health.encryption_active', arguments: {0: healthChecks.masterKeyProvider})}
+                </div>
+            </div>
         </div>
     </f:if>
 
@@ -90,7 +98,7 @@
                 <f:be.link route="{submodule.route}" class="card-link">
                     <div class="card-header">
                         <div class="card-icon">
-                            <core:icon identifier="{submodule.icon}" size="medium" />
+                            <core:icon identifier="{submodule.icon}" size="medium" alternativeMarkupIdentifier="inline" />
                         </div>
                         <div class="card-header-body">
                             <h3 class="card-title">{submodule.title}</h3>
@@ -131,7 +139,7 @@
             <div class="card h-100">
                 <div class="card-body">
                     <h3 class="card-title h5">
-                        <core:icon identifier="mimetypes-x-content-site-config" size="small" />
+                        <core:icon identifier="apps-pagetree-root" size="small" />
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.site_keys.title')}
                     </h3>
                     <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.site_keys.description')}</p>
@@ -257,7 +265,7 @@ lib.mapsKey.stdWrap.cache.disable = 1</code></pre>
     <!-- CLI Commands Reference -->
     <h2>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.cli.title')}</h2>
     <div class="table-fit mb-4">
-        <table class="table table-striped table-sm">
+        <table class="table table-striped">
             <thead>
                 <tr>
                     <th>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.cli.col.command')}</th>

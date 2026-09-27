@@ -6,6 +6,7 @@
 import Modal from '@typo3/backend/modal.js';
 import Notification from '@typo3/backend/notification.js';
 import Severity from '@typo3/backend/severity.js';
+import '@typo3/backend/element/spinner-element.js';
 import { AUTO_HIDE_SECONDS, startRevealLifecycle } from '@netresearch/nr-vault/vault-reveal-lifecycle.js';
 import { dismissModal, openModal } from '@netresearch/nr-vault/vault-modal.js';
 import { restoreFocusOnClose } from '@netresearch/nr-vault/vault-modal-focus.js';
@@ -130,8 +131,10 @@ class SecretsList {
         // Disable button and show loading state
         button.disabled = true;
         const originalChildren = Array.from(button.childNodes);
-        const spinner = document.createElement('span');
-        spinner.className = 'spinner-border spinner-border-sm';
+        // Core's spinner element: Bootstrap's .spinner-border is not part of the
+        // TYPO3 14 backend CSS, so that span rendered as nothing there.
+        const spinner = document.createElement('typo3-backend-spinner');
+        spinner.setAttribute('size', 'small');
         spinner.setAttribute('role', 'status');
         spinner.setAttribute('aria-hidden', 'true');
         button.replaceChildren(spinner);
@@ -182,14 +185,14 @@ class SecretsList {
         if (statusCell) {
             const badge = statusCell.querySelector('.badge');
             if (badge) {
-                // Same accessible classes the Fluid template paints — the live
-                // toggle must not drop the row back onto the core utilities,
-                // whose badge colours fail WCAG AA at this size (backend.css).
+                // Same core badge variants the Fluid template paints: they follow
+                // the backend colour scheme, where Bootstrap's fixed .text-bg-*
+                // pairs do not reach WCAG AA at badge size.
                 if (hidden) {
-                    badge.className = 'badge vault-badge vault-badge-secondary';
+                    badge.className = 'badge badge-default';
                     badge.textContent = 'Disabled';
                 } else {
-                    badge.className = 'badge vault-badge vault-badge-success';
+                    badge.className = 'badge badge-success';
                     badge.textContent = 'Active';
                 }
             }

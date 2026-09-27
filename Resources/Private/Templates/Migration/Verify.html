@@ -68,7 +68,7 @@
                             <td>
                                 <f:if condition="{result.error}">
                                     <f:then>
-                                        <span class="badge vault-badge vault-badge-danger" title="{result.error}">
+                                        <span class="badge badge-danger" title="{result.error}">
                                             <core:icon identifier="actions-close" size="small" />
                                             {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.verify.status.error')}
                                         </span>
@@ -76,13 +76,13 @@
                                     <f:else>
                                         <f:if condition="{result.failed}">
                                             <f:then>
-                                                <span class="badge vault-badge vault-badge-warning">
+                                                <span class="badge badge-warning">
                                                     <core:icon identifier="actions-exclamation-triangle" size="small" />
                                                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.verify.status.partial')}
                                                 </span>
                                             </f:then>
                                             <f:else>
-                                                <span class="badge vault-badge vault-badge-success">
+                                                <span class="badge badge-success">
                                                     <core:icon identifier="actions-check" size="small" />
                                                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.verify.status.complete')}
                                                 </span>

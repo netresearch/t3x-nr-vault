@@ -11,6 +11,7 @@ import {
     removeCountdownElement,
     startRevealLifecycle,
 } from '@netresearch/nr-vault/vault-reveal-lifecycle.js';
+import '@typo3/backend/element/spinner-element.js';
 
 /**
  * Look up a backend label registered via PageRenderer::addInlineLanguageLabelFile()
@@ -104,8 +105,10 @@ class VaultSecretInput {
         // Show loading state
         button.disabled = true;
         const originalChildren = Array.from(button.childNodes);
-        const spinner = document.createElement('span');
-        spinner.className = 'spinner-border spinner-border-sm';
+        // Core's spinner element: Bootstrap's .spinner-border is not part of the
+        // TYPO3 14 backend CSS, so that span rendered as nothing there.
+        const spinner = document.createElement('typo3-backend-spinner');
+        spinner.setAttribute('size', 'small');
         spinner.setAttribute('role', 'status');
         button.replaceChildren(spinner);
 
