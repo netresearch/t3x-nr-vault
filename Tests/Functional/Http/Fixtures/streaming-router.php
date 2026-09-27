@@ -58,8 +58,10 @@ while (ob_get_level() > 0) {
 
 ob_implicit_flush(true);
 
+// One echo per line: PHP sends each echo argument as its own write, and a
+// line split across writes can be split across the client's reads.
 $line = static function (string $text): void {
-    echo $text, ' sent_us=', (int) (microtime(true) * 1_000_000), "\n";
+    echo $text . ' sent_us=' . (int) (microtime(true) * 1_000_000) . "\n";
     flush();
 };
 
