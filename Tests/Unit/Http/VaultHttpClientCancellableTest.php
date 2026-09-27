@@ -1609,8 +1609,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // A head, then a byte on every 20 ms tick, complete on the thirteenth:
         // far past the 50 ms idle bound and past the zero budget.
         $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
-            usleep(20_000);
+        $ticker = $this->timedTicker(static function (int $tick) use ($transfer): void {
             match (true) {
                 $tick === 1 => $transfer->deliverHead(200),
                 $tick === 13 => $transfer->complete(),
@@ -1637,9 +1636,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function (): void {
-            usleep(20_000);
-        });
+        $ticker = $this->timedTicker(static function (): void {});
 
         $this->assertIdleAbort($transfer, $ticker);
     }
@@ -1650,8 +1647,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
-            usleep(20_000);
+        $ticker = $this->timedTicker(static function (int $tick) use ($transfer): void {
             match ($tick) {
                 1 => $transfer->deliverHead(200),
                 2 => $transfer->deliverBytes('first'),
@@ -1672,8 +1668,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // `100 Continue` on every step and never a final head must still end
         // at the idle bound.
         $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function () use ($transfer): void {
-            usleep(20_000);
+        $ticker = $this->timedTicker(static function () use ($transfer): void {
             $transfer->deliverHead(100);
         });
 
@@ -1688,8 +1683,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // After a `101`, curl hands the raw connection bytes to the sink. They
         // are no body of a final head and must not count as progress.
         $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
-            usleep(20_000);
+        $ticker = $this->timedTicker(static function (int $tick) use ($transfer): void {
             if ($tick === 1) {
                 $transfer->deliverHead(101);
 
@@ -1712,8 +1706,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // 600 ms. Each gap is inside the bound, the whole is three times it,
         // so both the final head and each byte have to count.
         $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
-            usleep(50_000);
+        $ticker = $this->timedTicker(static function (int $tick) use ($transfer): void {
             match ($tick) {
                 1 => $transfer->deliverHead(100),
                 3 => $transfer->deliverHead(200),
@@ -1722,7 +1715,7 @@ final class VaultHttpClientCancellableTest extends TestCase
                 12 => $transfer->complete(),
                 default => null,
             };
-        });
+        }, 50_000);
 
         $this->auditLogService->expects(self::once())->method('log');
 
@@ -1744,17 +1737,11 @@ final class VaultHttpClientCancellableTest extends TestCase
         // that keeps delivering: the 100 ms budget still ends the call, and
         // with the budget's own literal.
         $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
-            usleep(20_000);
+        $ticker = $this->timedTicker(static function (int $tick) use ($transfer): void {
             if ($tick === 1) {
                 $transfer->deliverHead(200);
 
                 return;
-            }
-
-            // Bounded, so a loop that lost its budget fails instead of hanging.
-            if ($tick > 250) {
-                throw new RuntimeException('The transport was ticked without end; nothing bounded the loop.', 1790500102);
             }
 
             $transfer->deliverBytes('x');
@@ -1825,6 +1812,26 @@ final class VaultHttpClientCancellableTest extends TestCase
     // =========================================================================
     // Harness
     // =========================================================================
+
+    /**
+     * A ticker for the timed tests of section 18: every tick takes
+     * `$microseconds`, as a `curl_multi_select` would, then runs `$step`. A
+     * loop that lost its bound would otherwise spin until the runner's
+     * timeout, so the 251st tick fails the test instead.
+     *
+     * @param Closure(int): void $step Receives the 1-based tick number
+     */
+    private function timedTicker(Closure $step, int $microseconds = 20_000): ClosureTicker
+    {
+        return new ClosureTicker(static function (int $tick) use ($step, $microseconds): void {
+            usleep($microseconds);
+            if ($tick > 250) {
+                throw new RuntimeException('The transport was ticked without end; nothing bounded the loop.', 1790500102);
+            }
+
+            $step($tick);
+        });
+    }
 
     /**
      * The call must end at the idle bound — with its own literal, audited as

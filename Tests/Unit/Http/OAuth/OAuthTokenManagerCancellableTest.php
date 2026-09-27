@@ -678,6 +678,13 @@ final class TokenLoopTicker implements TransportTickerInterface
     public function tick(): void
     {
         ++$this->ticks;
+
+        // A loop that lost its bound would otherwise spin until the runner's
+        // timeout; fail it as a test instead.
+        if ($this->ticks > 250) {
+            throw new RuntimeException('The token transport was ticked without end; nothing bounded the loop.', 1790500104);
+        }
+
         ($this->onTick)($this->ticks);
     }
 
