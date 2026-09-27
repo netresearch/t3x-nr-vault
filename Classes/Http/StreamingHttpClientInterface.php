@@ -53,7 +53,11 @@ interface StreamingHttpClientInterface
      *
      * Runs the same guard sequence as :php:`sendRequest()` — scheme allowlist,
      * host allowlist, credential injection — and writes exactly one audit row,
-     * when this method returns or throws. The body of the returned response
+     * when this method returns or throws: `http_call` when it returns or fails,
+     * `http_call_cancelled` when `$signal` stops the transfer before it
+     * returns, `http_call_cancelled_before_send` when `$signal` was already
+     * set on entry. Nothing that happens while the body is read writes a
+     * second row. The body of the returned response
      * advances the transfer when it is read:
      *
      * - `read()` returns the bytes that have arrived, or drives the transport
