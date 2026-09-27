@@ -157,6 +157,7 @@ A first version of this send still applied the wall-clock budget, which is then 
 The bound is on silence instead: ``SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS``, 60 s, carried by ``CancellableTransport::idleBudgetSeconds()`` only when no total timeout exists.
 Every step that received something — a final response head, body bytes after it — moves the deadline forward, so a stream that keeps delivering lives, and one that falls silent ends with its own literal (``Streaming transfer received nothing within its idle limit and was aborted``; code ``1790487201`` before :php:`sendStreaming()` returns, also the audit message, ``1790487202`` from ``read()``).
 The window also covers the wait for the head: a server that accepts the connection and sends nothing ends after 60 s.
+:ref:`adr-040-cancellable-send-bounds-silence` applies the same rule, through the same ``StreamingTransfer`` and the same progress rule, to :php:`sendCancellable()` and its OAuth token leg.
 
 The window measures the server's silence, not the consumer's: each step ticks first, counts what arrived — while the consumer was away, too — and only then compares with the deadline, and a transfer that has settled is never aborted by it.
 A first version compared before ticking, so a consumer that paused between two reads for longer than the window got the idle error although the server had kept sending (round-4 review: an event every second, a 61 s pause, an abort at 61.00 s).
