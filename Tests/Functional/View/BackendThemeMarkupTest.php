@@ -70,8 +70,9 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     {
         $html = $this->renderTemplate(self::OVERVIEW, $this->overviewVariables());
 
-        // As <img>, a currentColor glyph cannot inherit anything and paints black,
-        // 1.23:1 on the dark card. Inline, it takes the card's text colour.
+        // As <img>, a currentColor glyph cannot inherit anything and paints black:
+        // dominant ink #080808 on the dark card, 1.18:1, measured with a screenshot
+        // of the card icon on TYPO3 14.3.7. Inline, it takes the card's text colour.
         self::assertStringContainsString('<svg', $this->between($html, 'class="card-icon"', 'class="card-header-body"'));
         self::assertStringNotContainsString('<img', $this->between($html, 'class="card-icon"', 'class="card-header-body"'));
     }
@@ -127,8 +128,73 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
 
         self::assertSame(4, substr_count($html, '<details class="vault-faq'));
         self::assertSame(4, substr_count($html, '<summary>'));
+        // One shared name: opening an item closes the others, as the accordion did.
+        self::assertSame(4, substr_count($html, 'name="vault-faq"'));
         self::assertStringNotContainsString('class="accordion', $html);
         self::assertStringNotContainsString('data-bs-toggle', $html);
+    }
+
+    public function testTheSecretsListPaintsStatusWithCoreBadges(): void
+    {
+        $html = $this->renderTemplate('Secrets/List', [
+            'breakGlass' => ['active' => false],
+            'filters' => [],
+            'ownerOptions' => [],
+            'totalCount' => 2,
+            'canReveal' => false, 'canManagePolicy' => false, 'canRotate' => false, 'canDelete' => false,
+            'secrets' => [
+                $this->secretRow('api_active', hidden: false),
+                $this->secretRow('api_disabled', hidden: true),
+            ],
+        ]);
+
+        self::assertStringContainsString('class="badge badge-info" aria-label="2 secrets found"', $html);
+        self::assertSame('badge badge-success', $this->badgeClassFor($html, 'Active'));
+        self::assertSame('badge badge-default', $this->badgeClassFor($html, 'Disabled'));
+        $this->assertNoFixedColourBadge($html);
+    }
+
+    public function testMigrationScanMapsEachSeverityToItsCoreBadge(): void
+    {
+        $item = static fn (string $pattern, int $count): array => ['patterns' => [$pattern], 'source' => 'database', 'count' => $count];
+        $html = $this->renderTemplate('Migration/Scan', [
+            'totalCount' => 4, 'databaseCount' => 4, 'configCount' => 0,
+            'groupedSecrets' => [
+                'critical' => ['tx_a.password' => $item('password', 3)],
+                'high' => ['tx_b.api_key' => $item('api_key', 5)],
+                'medium' => ['tx_c.token' => $item('token', 7)],
+                'low' => ['tx_d.secret' => $item('secret', 9)],
+            ],
+        ]);
+
+        self::assertSame('badge badge-danger', $this->badgeClassFor($html, 'Critical'));
+        self::assertSame('badge badge-warning', $this->badgeClassFor($html, 'High'));
+        self::assertSame('badge badge-info', $this->badgeClassFor($html, 'Medium'));
+        self::assertSame('badge badge-default', $this->badgeClassFor($html, 'Low'));
+        self::assertSame('badge badge-default', $this->badgeClassFor($html, 'password'));
+        self::assertSame('badge badge-primary', $this->badgeClassFor($html, '3 records'));
+        $this->assertNoFixedColourBadge($html);
+    }
+
+    public function testTheAuditLogUsesCoreBadgesForCountsAndActions(): void
+    {
+        $entry = [
+            'time' => '12:00:00', 'secretIdentifier' => 'api_key', 'action' => 'delete', 'actionBadgeClass' => 'danger',
+            'success' => true, 'errorMessage' => '', 'reason' => '', 'actorUsername' => 'admin', 'actorType' => 'backend',
+            'ipAddress' => '127.0.0.1', 'entryHash' => str_repeat('a', 64), 'entryHashShort' => 'aaaaaaaa...',
+        ];
+        $html = $this->renderTemplate('Audit/List', [
+            'filters' => ['_form' => []],
+            'actions' => ['delete'],
+            'entries' => [$entry],
+            'groupedEntries' => ['2026-09-27' => [$entry]],
+            'totalCount' => 1, 'currentPage' => 1, 'totalPages' => 1,
+        ]);
+
+        self::assertSame('badge badge-info', $this->badgeClassFor($html, '1 entries'));
+        self::assertSame('badge badge-default', $this->badgeClassFor($html, 'Page 1 of 1'));
+        self::assertStringContainsString('class="badge badge-danger" data-testid="audit-cell-action">delete<', $html);
+        $this->assertNoFixedColourBadge($html);
     }
 
     /**
@@ -155,6 +221,41 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
                 ],
             ],
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function secretRow(string $identifier, bool $hidden): array
+    {
+        return [
+            'identifier' => $identifier, 'description' => '', 'hidden' => $hidden, 'owner_name' => 'admin',
+            'created' => '2026-09-27', 'read_count' => 0, 'last_read' => '',
+        ];
+    }
+
+    /**
+     * The class attribute of the one badge whose whitespace-normalised text is $text.
+     */
+    private function badgeClassFor(string $html, string $text): string
+    {
+        preg_match_all('#<span class="(badge[^"]*)"[^>]*>(.*?)</span>#s', $html, $matches, PREG_SET_ORDER);
+        $found = [];
+        foreach ($matches as $match) {
+            if (trim((string) preg_replace('/\s+/', ' ', strip_tags($match[2]))) === $text) {
+                $found[] = $match[1];
+            }
+        }
+
+        self::assertCount(1, $found, 'Expected exactly one badge reading "' . $text . '"');
+
+        return $found[0];
+    }
+
+    private function assertNoFixedColourBadge(string $html): void
+    {
+        self::assertStringNotContainsString('vault-badge', $html);
+        self::assertDoesNotMatchRegularExpression('/\b(text-bg|bg)-(primary|secondary|success|info|warning|danger|dark|light)\b/', $html);
     }
 
     private function between(string $html, string $from, string $to): string

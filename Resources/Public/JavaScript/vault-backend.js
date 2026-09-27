@@ -46,6 +46,7 @@ class VaultBackend {
         // TYPO3 14 backend CSS, so that span rendered as nothing there.
         const spinner = document.createElement('typo3-backend-spinner');
         spinner.setAttribute('size', 'small');
+        spinner.setAttribute('aria-hidden', 'true');
         button.replaceChildren(spinner, document.createTextNode(' ' + lang('nrvault.verify.running', 'Verifying...')));
 
         try {

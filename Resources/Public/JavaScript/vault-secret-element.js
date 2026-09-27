@@ -149,7 +149,7 @@ class VaultSecretElement {
         // TYPO3 14 backend CSS, so that span rendered as nothing there.
         const spinner = document.createElement('typo3-backend-spinner');
         spinner.setAttribute('size', 'small');
-        spinner.setAttribute('role', 'status');
+        spinner.setAttribute('aria-hidden', 'true');
         button.appendChild(spinner);
     }
 

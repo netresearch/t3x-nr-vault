@@ -43,7 +43,7 @@
             <p>
                 {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.getting_started.step3.text')}
             </p>
-            <pre class="vault-codeblock p-3 rounded"><code>%vault(stripe_api_key)%</code></pre>
+            <pre class="vault-codeblock p-3"><code>%vault(stripe_api_key)%</code></pre>
             <p>
                 {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.getting_started.step3.text2')}
             </p>
@@ -157,30 +157,30 @@
             <!-- Native disclosure widgets: Bootstrap's accordion is not part of the
                  TYPO3 backend CSS (13.4 or 14.3), so its buttons rendered as unstyled
                  browser buttons. <details> needs no script and follows the scheme. -->
-            <details class="vault-faq mb-2" data-testid="vault-faq-1">
+            <details class="vault-faq mb-2" name="vault-faq" data-testid="vault-faq-1">
                 <summary>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.site_config.question')}</summary>
                 <p>
                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.site_config.answer')}
                 </p>
             </details>
-            <details class="vault-faq mb-2" data-testid="vault-faq-2">
+            <details class="vault-faq mb-2" name="vault-faq" data-testid="vault-faq-2">
                 <summary>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.lost_key.question')}</summary>
                 <p>
                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.lost_key.answer')}
                 </p>
             </details>
-            <details class="vault-faq mb-2" data-testid="vault-faq-3">
+            <details class="vault-faq mb-2" name="vault-faq" data-testid="vault-faq-3">
                 <summary>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.editors.question')}</summary>
                 <p>
                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.editors.answer')}
                 </p>
             </details>
-            <details class="vault-faq mb-2" data-testid="vault-faq-4">
+            <details class="vault-faq mb-2" name="vault-faq" data-testid="vault-faq-4">
                 <summary>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.cicd.question')}</summary>
                 <p>
                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.cicd.answer.intro')}
                 </p>
-                <pre class="vault-codeblock p-2 rounded"><code>bin/typo3 vault:store api_key "$NEW_API_KEY"
+                <pre class="vault-codeblock p-2"><code>bin/typo3 vault:store api_key "$NEW_API_KEY"
 bin/typo3 vault:rotate smtp_password "$NEW_SMTP_PASS"</code></pre>
                 <p>
                     {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.cicd.answer.outro')}

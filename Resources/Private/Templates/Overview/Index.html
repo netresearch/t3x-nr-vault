@@ -94,8 +94,8 @@
     <h2>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.modules')}</h2>
     <nav class="card-container mb-5" aria-label="{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.modules')}">
         <f:for each="{submodules}" as="submodule">
-            <div class="card card-size-fixed-small card-has-hover">
-                <f:be.link route="{submodule.route}" class="card-link">
+            <div class="card card-size-fixed-small">
+                <f:be.link route="{submodule.route}">
                     <div class="card-header">
                         <div class="card-icon">
                             <core:icon identifier="{submodule.icon}" size="medium" alternativeMarkupIdentifier="inline" />
@@ -117,7 +117,7 @@
             <div class="card h-100">
                 <div class="card-body">
                     <h3 class="card-title h5">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.quickstart.store.title')}</h3>
-                    <p class="card-text">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.quickstart.store.description')}</p>
+                    <p>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.quickstart.store.description')}</p>
                 </div>
             </div>
         </div>
@@ -125,8 +125,8 @@
             <div class="card h-100">
                 <div class="card-body">
                     <h3 class="card-title h5">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.quickstart.use.title')}</h3>
-                    <p class="card-text">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.quickstart.use.description')}</p>
-                    <pre class="vault-codeblock p-2 rounded mb-0"><code>%vault(stripe_api_key)%</code></pre>
+                    <p>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.quickstart.use.description')}</p>
+                    <pre class="vault-codeblock p-2 mb-0"><code>%vault(stripe_api_key)%</code></pre>
                 </div>
             </div>
         </div>
@@ -142,8 +142,8 @@
                         <core:icon identifier="apps-pagetree-root" size="small" />
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.site_keys.title')}
                     </h3>
-                    <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.site_keys.description')}</p>
-                    <pre class="vault-codeblock p-3 rounded mb-0"><code>settings:
+                    <p class="small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.site_keys.description')}</p>
+                    <pre class="vault-codeblock p-3 mb-0"><code>settings:
   stripeKey: '%vault(stripe_api_key)%'
   mailchimpKey: '%vault(mailchimp_key)%'</code></pre>
                 </div>
@@ -156,8 +156,8 @@
                         <core:icon identifier="actions-database" size="small" />
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.per_record.title')}
                     </h3>
-                    <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.per_record.description')}</p>
-                    <pre class="vault-codeblock p-3 rounded mb-0"><code>'api_key' => [
+                    <p class="small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.per_record.description')}</p>
+                    <pre class="vault-codeblock p-3 mb-0"><code>'api_key' => [
     'label' => 'Client API Key',
     'config' => [
         'type' => 'input',
@@ -174,8 +174,8 @@
                         <core:icon identifier="mimetypes-text-php" size="small" />
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.extension.title')}
                     </h3>
-                    <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.extension.description')}</p>
-                    <pre class="vault-codeblock p-3 rounded mb-0"><code>public function __construct(
+                    <p class="small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.extension.description')}</p>
+                    <pre class="vault-codeblock p-3 mb-0"><code>public function __construct(
     private readonly VaultServiceInterface $vault,
 ) {}
 
@@ -194,8 +194,8 @@ public function callExternalApi(): Response
                         <core:icon identifier="actions-cloud" size="small" />
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.http_client.title')}
                     </h3>
-                    <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.http_client.description')}</p>
-                    <pre class="vault-codeblock p-3 rounded mb-0"><code>public function __construct(
+                    <p class="small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.http_client.description')}</p>
+                    <pre class="vault-codeblock p-3 mb-0"><code>public function __construct(
     private readonly VaultHttpClientInterface $http,
 ) {}
 
@@ -219,8 +219,8 @@ public function fetchData(): array
                         <core:icon identifier="actions-terminal" size="small" />
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.deployment.title')}
                     </h3>
-                    <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.deployment.description')}</p>
-                    <pre class="vault-codeblock p-3 rounded mb-0"><code># In deployment script
+                    <p class="small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.deployment.description')}</p>
+                    <pre class="vault-codeblock p-3 mb-0"><code># In deployment script
 bin/typo3 vault:store smtp_password "$SMTP_PASS"
 bin/typo3 vault:store api_key "$API_KEY"
 
@@ -236,8 +236,8 @@ bin/typo3 vault:rotate api_key "$NEW_KEY"</code></pre>
                         <core:icon identifier="mimetypes-text-typoscript" size="small" />
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.frontend.title')} <small class="text-warning">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.frontend.sparingly')}</small>
                     </h3>
-                    <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.frontend.description')}</p>
-                    <pre class="vault-codeblock p-3 rounded mb-0"><code>lib.mapsKey = TEXT
+                    <p class="small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.frontend.description')}</p>
+                    <pre class="vault-codeblock p-3 mb-0"><code>lib.mapsKey = TEXT
 lib.mapsKey.value = %vault(google_maps_key)%
 lib.mapsKey.stdWrap.cache.disable = 1</code></pre>
                 </div>
@@ -250,8 +250,8 @@ lib.mapsKey.stdWrap.cache.disable = 1</code></pre>
                         <core:icon identifier="actions-cog" size="small" />
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.tca_helper.title')}
                     </h3>
-                    <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.tca_helper.description')}</p>
-                    <pre class="vault-codeblock p-3 rounded mb-0"><code>use Netresearch\NrVault\TCA\VaultFieldHelper;
+                    <p class="small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.usage.tca_helper.description')}</p>
+                    <pre class="vault-codeblock p-3 mb-0"><code>use Netresearch\NrVault\TCA\VaultFieldHelper;
 
 'api_key' => VaultFieldHelper::getSecureFieldConfig(
     'API Key',
@@ -301,7 +301,7 @@ lib.mapsKey.stdWrap.cache.disable = 1</code></pre>
                         <core:icon identifier="actions-lock" size="small" />
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.envelope.title')}
                     </h3>
-                    <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.envelope.description')}</p>
+                    <p class="small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.envelope.description')}</p>
                 </div>
             </div>
         </div>
@@ -312,7 +312,7 @@ lib.mapsKey.stdWrap.cache.disable = 1</code></pre>
                         <core:icon identifier="actions-shield" size="small" />
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.access.title')}
                     </h3>
-                    <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.access.description')}</p>
+                    <p class="small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.access.description')}</p>
                 </div>
             </div>
         </div>
@@ -323,7 +323,7 @@ lib.mapsKey.stdWrap.cache.disable = 1</code></pre>
                         <core:icon identifier="actions-document-history-open" size="small" />
                         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.audit.title')}
                     </h3>
-                    <p class="card-text small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.audit.description')}</p>
+                    <p class="small">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.security.audit.description')}</p>
                 </div>
             </div>
         </div>
