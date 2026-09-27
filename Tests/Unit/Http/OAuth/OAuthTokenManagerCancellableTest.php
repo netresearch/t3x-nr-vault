@@ -36,6 +36,8 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\Stub;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\StreamInterface;
+use RuntimeException;
 
 /**
  * The cancellable OAuth token round trip (issue #303).
@@ -69,6 +71,9 @@ final class OAuthTokenManagerCancellableTest extends TestCase
 
     private const TICK_BUDGET_EXHAUSTED_MESSAGE
         = 'Cancellable OAuth token transfer exceeded its wall-clock budget and was aborted';
+
+    private const IDLE_EXHAUSTED_MESSAGE
+        = 'Cancellable OAuth token transfer received nothing within its idle limit and was aborted';
 
     /** A stub by default; tests that pin a call count swap in a mock before building the manager. */
     private VaultServiceInterface&Stub $vaultService;
@@ -285,6 +290,63 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         self::assertSame(self::TICK_BUDGET_EXHAUSTED_MESSAGE, $error);
     }
 
+    /**
+     * Issue #394, token leg: without a total timeout the transport carries an
+     * idle bound instead of a wall-clock budget. The zero budget below would
+     * end the call on the first pass if it were applied; a head and a byte
+     * every 20 ms keep it inside the 50 ms idle bound until it completes.
+     */
+    #[Test]
+    public function withoutATotalTimeoutASlowTokenEndpointStillCompletes(): void
+    {
+        $this->programCredentialReads();
+
+        $transfer = new TokenTransfer();
+        $ticker = new TokenLoopTicker(static function (int $tick) use ($transfer): void {
+            usleep(20_000);
+            match (true) {
+                $tick === 1 => $transfer->deliverHead(200),
+                $tick === 13 => $transfer->settleWith(self::tokenResponse('slow-access-token')),
+                default => $transfer->deliverBytes('x'),
+            };
+        });
+
+        $rows = [];
+        $subject = $this->managerWith($transfer, $ticker, $rows, wallClockBudgetSeconds: 0.0, idleBudgetSeconds: 0.05);
+
+        self::assertSame('slow-access-token', $subject->getAccessToken($this->config(), new TokenNeverCancelledSignal()));
+        self::assertSame(0, $transfer->cancelCalls());
+        self::assertCount(1, $rows);
+        self::assertTrue($rows[0][2]);
+    }
+
+    #[Test]
+    public function withoutATotalTimeoutASilentTokenEndpointEndsAtTheIdleBound(): void
+    {
+        $this->programCredentialReads();
+
+        $transfer = new TokenTransfer();
+        $ticker = new TokenLoopTicker(static function (): void {
+            usleep(20_000);
+        });
+
+        $this->assertTokenIdleAbort($transfer, $ticker);
+    }
+
+    #[Test]
+    public function aRepeatedInterimHeadBuysTheTokenLegNoTime(): void
+    {
+        $this->programCredentialReads();
+
+        $transfer = new TokenTransfer();
+        $ticker = new TokenLoopTicker(static function () use ($transfer): void {
+            usleep(20_000);
+            $transfer->deliverHead(100);
+        });
+
+        $this->assertTokenIdleAbort($transfer, $ticker);
+    }
+
     #[Test]
     public function aCancelledRefreshNeverFallsBackToClientCredentials(): void
     {
@@ -388,6 +450,33 @@ final class OAuthTokenManagerCancellableTest extends TestCase
     }
 
     /**
+     * The token fetch must end at the idle bound with its own literal, audited
+     * as a failed round trip, and not at the zero budget or the ticker ceiling.
+     */
+    private function assertTokenIdleAbort(TokenTransfer $transfer, TokenLoopTicker $ticker): void
+    {
+        $rows = [];
+        $subject = $this->managerWith($transfer, $ticker, $rows, wallClockBudgetSeconds: 0.0, idleBudgetSeconds: 0.05);
+
+        try {
+            $subject->getAccessToken($this->config(), new TokenNeverCancelledSignal());
+            self::fail('Expected the idle bound to throw.');
+        } catch (OAuthException $e) {
+            self::assertSame(self::IDLE_EXHAUSTED_MESSAGE, $e->getMessage());
+            self::assertSame(1786579307, $e->getCode());
+        }
+
+        self::assertGreaterThan(0, $ticker->ticks());
+        self::assertLessThan(20, $ticker->ticks(), 'The bound fired within a few 20 ms steps of a 50 ms window.');
+        self::assertSame(1, $transfer->cancelCalls(), 'The bound must tear the transfer down.');
+        self::assertCount(1, $rows);
+        [, $action, $success, $error] = $rows[0];
+        self::assertSame('oauth_token_request', $action);
+        self::assertFalse($success);
+        self::assertSame(self::IDLE_EXHAUSTED_MESSAGE, $error);
+    }
+
+    /**
      * A manager whose injected cancellable transport bottoms out in
      * `$transfer` and whose audit rows are captured into `$rows` as
      * `[identifier, action, success, error]`.
@@ -402,6 +491,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         array &$rows,
         float $wallClockBudgetSeconds = 45.0,
         bool $clientFollowsRedirects = false,
+        ?float $idleBudgetSeconds = null,
     ): OAuthTokenManager {
         $rows = [];
         $auditLogService = self::createStub(AuditLogServiceInterface::class);
@@ -433,6 +523,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
             new Client($clientConfig),
             $ticker,
             $wallClockBudgetSeconds,
+            $idleBudgetSeconds,
         );
 
         return new OAuthTokenManager(
@@ -514,6 +605,32 @@ final class TokenTransfer
         PromiseUtils::queue()->run();
     }
 
+    /**
+     * Hand a response head to the `on_headers` option, as the curl handler
+     * does for every head it parses, interim ones included.
+     */
+    public function deliverHead(int $status): void
+    {
+        $onHeaders = $this->options['on_headers'] ?? null;
+        $sink = $this->options['sink'] ?? null;
+        \assert(\is_callable($onHeaders) && $sink instanceof StreamInterface);
+
+        $onHeaders(new Response($status, [], $sink));
+    }
+
+    /**
+     * Write body bytes into the `sink` option, as curl's write callback does.
+     */
+    public function deliverBytes(string $bytes): void
+    {
+        $sink = $this->options['sink'] ?? null;
+        \assert($sink instanceof StreamInterface);
+
+        if ($sink->write($bytes) !== \strlen($bytes)) {
+            throw new RuntimeException('The sink must accept every byte, or curl aborts the transfer.', 1790500103);
+        }
+    }
+
     public function request(): ?RequestInterface
     {
         return $this->request;
@@ -562,6 +679,11 @@ final class TokenLoopTicker implements TransportTickerInterface
     {
         ++$this->ticks;
         ($this->onTick)($this->ticks);
+    }
+
+    public function ticks(): int
+    {
+        return $this->ticks;
     }
 }
 
