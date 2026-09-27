@@ -13,6 +13,9 @@ use Netresearch\NrVault\Controller\OverviewController;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Backend\Module\ModuleInterface;
+use TYPO3\CMS\Backend\Routing\Router;
+use TYPO3\CMS\Backend\Routing\UriBuilder;
 
 /**
  * Functional smoke tests for {@see OverviewController} wiring.
@@ -47,5 +50,40 @@ final class OverviewControllerTest extends AbstractVaultFunctionalTestCase
         $controller = $this->get(OverviewController::class);
 
         self::assertInstanceOf(OverviewController::class, $controller);
+    }
+
+    /**
+     * The Help tab and the Dashboard tab must reach their own action on
+     * TYPO3 13.4 as well. There, core's BackendModuleValidator::process()
+     * rewrites any route whose module has a parent AND submodules
+     * (`$module->getParentModule() && $module->hasSubModules()`) to a
+     * submodule's `_default` target, so a link to `admin_vault.help` rendered
+     * the overview. The link routes therefore have to belong to a module the
+     * rewrite does not touch, and resolve to the intended action.
+     */
+    #[Test]
+    public function theDocHeaderLinksTargetRoutesCoreDoesNotRewrite(): void
+    {
+        $router = $this->get(Router::class);
+        $uriBuilder = $this->get(UriBuilder::class);
+
+        foreach ([OverviewController::HELP_ROUTE => '::helpAction', OverviewController::OVERVIEW_ROUTE => '::indexAction'] as $routeName => $action) {
+            self::assertTrue($router->hasRoute($routeName), $routeName . ' is registered');
+            $route = $router->getRoute($routeName);
+            self::assertNotNull($route);
+
+            $module = $route->getOption('module');
+            self::assertInstanceOf(ModuleInterface::class, $module);
+            self::assertFalse(
+                $module->getParentModule() instanceof ModuleInterface && $module->hasSubModules(),
+                $routeName . ' belongs to ' . $module->getIdentifier() . ', which TYPO3 13.4 reroutes to a submodule',
+            );
+            self::assertSame(OverviewController::class . $action, $route->getOption('target'));
+
+            $path = $uriBuilder->buildUriFromRoute($routeName)->getPath();
+            self::assertSame($route->getPath(), preg_replace('#^/typo3#', '', $path));
+        }
+
+        self::assertSame('/module/admin/vault/overview/help', $router->getRoute(OverviewController::HELP_ROUTE)?->getPath());
     }
 }

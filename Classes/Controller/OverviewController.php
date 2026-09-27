@@ -28,6 +28,18 @@ use TYPO3\CMS\Core\Page\PageRenderer;
 #[AsController]
 final readonly class OverviewController
 {
+    /**
+     * Link targets for the overview and its help page: the `admin_vault_overview`
+     * submodule, not the `admin_vault` parent. TYPO3 13.4's BackendModuleValidator
+     * rewrites every route of a second-level module that has submodules to a
+     * submodule's `_default` route, so a link to `admin_vault.help` rendered the
+     * overview (or the submodule used last) instead of the help page. A submodule
+     * has no submodules of its own and is never rewritten.
+     */
+    public const OVERVIEW_ROUTE = 'admin_vault_overview';
+
+    public const HELP_ROUTE = self::OVERVIEW_ROUTE . '.help';
+
     private const MODULE_NAME = 'admin_vault';
 
     public function __construct(
@@ -105,7 +117,7 @@ final readonly class OverviewController
         $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
         $moduleTemplate->assignMultiple([
-            'dashboardUrl' => (string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME),
+            'dashboardUrl' => (string) $this->backendUriBuilder->buildUriFromRoute(self::OVERVIEW_ROUTE),
         ]);
 
         return $moduleTemplate->renderResponse('Overview/Help');
@@ -195,7 +207,7 @@ final readonly class OverviewController
 
         $dashboardItem = $menu->makeMenuItem()
             ->setTitle($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.tab.dashboard'))
-            ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME));
+            ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::OVERVIEW_ROUTE));
         if ($activeTab === 'dashboard') {
             $dashboardItem->setActive(true);
         }
@@ -204,7 +216,7 @@ final readonly class OverviewController
 
         $helpItem = $menu->makeMenuItem()
             ->setTitle($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.tab.help'))
-            ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME . '.help'));
+            ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::HELP_ROUTE));
         if ($activeTab === 'help') {
             $helpItem->setActive(true);
         }

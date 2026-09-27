@@ -9,6 +9,10 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\View;
 
+use DOMDocument;
+use DOMElement;
+use DOMNodeList;
+use DOMXPath;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
@@ -64,6 +68,11 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         self::assertStringContainsString('<h2 class="callout-title">', $html);
         self::assertStringContainsString('class="callout-body"', $html);
         self::assertStringNotContainsString('alert', str_replace('role="alert"', '', $html));
+        // The icon core's ContextualFeedbackSeverity::ERROR gives danger callouts
+        // (13.4.35 and 14.3.7), inside the callout-icon slot f:be.infobox renders.
+        $iconSlot = $this->between($html, 'class="callout-icon"', 'class="callout-content"');
+        self::assertStringContainsString('actions-close', $iconSlot);
+        self::assertStringNotContainsString('actions-exclamation-triangle', $iconSlot);
     }
 
     public function testTheSubmoduleCardIconsAreInlinedSoTheyTakeTheTextColour(): void
@@ -80,6 +89,10 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     public function testTheOverviewUsesCoreCalloutsTablesAndAnExistingIcon(): void
     {
         $html = $this->renderTemplate(self::OVERVIEW, $this->overviewVariables(masterKeyAvailable: false));
+
+        // The help link in the health callout targets the overview submodule's
+        // help route: TYPO3 13.4 reroutes `admin_vault.help` to a submodule.
+        self::assertStringContainsString('/module/admin/vault/overview/help', $html);
 
         self::assertStringContainsString('class="callout callout-danger mb-4"', $html);
         self::assertStringContainsString('<h2 class="callout-title">', $html);
@@ -176,6 +189,44 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         $this->assertNoFixedColourBadge($html);
     }
 
+    public function testMigrationReviewMapsEachSeverityToItsCoreBadge(): void
+    {
+        $secret = static fn (string $column, string $severity, string $pattern): array => [
+            'table' => 'tx_demo', 'column' => $column, 'count' => 1, 'severity' => $severity, 'patterns' => [$pattern],
+        ];
+        $html = $this->renderTemplate('Migration/Review', [
+            'secrets' => [
+                'tx_demo.a' => $secret('a', 'critical', 'password'),
+                'tx_demo.b' => $secret('b', 'high', 'api_key'),
+                'tx_demo.c' => $secret('c', 'medium', 'token'),
+                'tx_demo.d' => $secret('d', 'low', 'secret'),
+            ],
+        ]);
+
+        self::assertSame('badge badge-danger', $this->badgeClassFor($html, 'Critical'));
+        self::assertSame('badge badge-warning', $this->badgeClassFor($html, 'High'));
+        self::assertSame('badge badge-info', $this->badgeClassFor($html, 'Medium'));
+        self::assertSame('badge badge-default', $this->badgeClassFor($html, 'Low'));
+        self::assertSame('badge badge-default', $this->badgeClassFor($html, 'password'));
+        $this->assertNoFixedColourBadge($html);
+    }
+
+    public function testMigrationVerifyMapsEachOutcomeToItsCoreBadge(): void
+    {
+        $result = static fn (string $column, int $failed, string $error): array => [
+            'table' => 'tx_demo', 'column' => $column, 'migrated' => 1, 'skipped' => 0, 'failed' => $failed, 'error' => $error,
+        ];
+        $html = $this->renderTemplate('Migration/Verify', [
+            'totalMigrated' => 3, 'totalFailed' => 2, 'clearOriginals' => false,
+            'results' => [$result('a', 1, 'boom'), $result('b', 1, ''), $result('c', 0, '')],
+        ]);
+
+        self::assertSame('badge badge-danger', $this->badgeClassFor($html, 'Error'));
+        self::assertSame('badge badge-warning', $this->badgeClassFor($html, 'Partial'));
+        self::assertSame('badge badge-success', $this->badgeClassFor($html, 'Complete'));
+        $this->assertNoFixedColourBadge($html);
+    }
+
     public function testTheAuditLogUsesCoreBadgesForCountsAndActions(): void
     {
         $entry = [
@@ -236,14 +287,22 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
 
     /**
      * The class attribute of the one badge whose whitespace-normalised text is $text.
+     * Parsed as a DOM, because some badges nest an icon <span>.
      */
     private function badgeClassFor(string $html, string $text): string
     {
-        preg_match_all('#<span class="(badge[^"]*)"[^>]*>(.*?)</span>#s', $html, $matches, PREG_SET_ORDER);
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="utf-8"?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
         $found = [];
-        foreach ($matches as $match) {
-            if (trim((string) preg_replace('/\s+/', ' ', strip_tags($match[2]))) === $text) {
-                $found[] = $match[1];
+        $badges = (new DOMXPath($document))->query('//*[contains(concat(" ", normalize-space(@class), " "), " badge ")]');
+        self::assertInstanceOf(DOMNodeList::class, $badges);
+        foreach ($badges as $badge) {
+            if ($badge instanceof DOMElement && trim((string) preg_replace('/\s+/', ' ', $badge->textContent)) === $text) {
+                $found[] = $badge->getAttribute('class');
             }
         }
 
