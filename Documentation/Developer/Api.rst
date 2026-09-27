@@ -941,18 +941,39 @@ What the body does:
 
 *   :php:`read()` returns the bytes that have arrived. When none have, it drives
     the transport until some arrive or the transfer ends.
-*   End of stream means the transfer completed. A transfer that fails after the
-    headers throws from :php:`read()` once the bytes that did arrive are handed
-    out — a ``VaultException`` whose previous exception is the transport's. It
-    never ends as a short body, and :php:`getContents()` and
-    :php:`__toString()` throw rather than return part of it.
+*   End of stream means the transfer completed and every byte was read. A
+    transfer that fails after the headers throws from :php:`read()` once the
+    bytes that did arrive are handed out — a ``VaultException`` whose previous
+    exception is the transport's. It never ends as a short body.
+*   :php:`__toString()` throws instead of returning part of a body — a
+    deliberate deviation from PSR-7, whose ``__toString()`` must not throw. It
+    returns the whole body whenever the transfer completes, error statuses
+    such as ``401`` included, and throws only when the transfer failed, was
+    cancelled or passed the limit below. If you must not see an exception —
+    say, while turning a ``4xx`` body into your own error message — call
+    :php:`getContents()` in a ``try``.
+*   :php:`getContents()` and :php:`__toString()` return at most 16 MiB; past
+    that they tear the transfer down and throw ``Streaming response body is
+    larger than getContents() returns; read it in chunks with read()``. Use
+    them for bodies known to be small and :php:`read()` for anything else.
+*   ``read(0)`` returns ``''`` without driving the transfer; a negative length
+    throws.
 *   :php:`close()`, :php:`detach()` or dropping the body before the end removes
     the transfer from the transport and closes the connection. So does the
     signal, which is polled before the send and on every step; a signal that
     fires while the body is read throws ``RequestCancelledException``.
-*   A stalled stream ends at the transfer timeout — the platform ``timeout`` or
-    :php:`withTimeout()`. Only reading drives the transfer, so a long stream
-    needs a long timeout, as a long blocking call does.
+*   A stalled stream ends. With a total ``timeout`` (the platform value or
+    :php:`withTimeout()`), it ends at that timeout, and a long stream needs a
+    long timeout, as a long blocking call does. Without one (``timeout = 0``,
+    the default on TYPO3 13.4 and 14.3), a stream that keeps delivering lives, and one that
+    receives nothing — no headers, no bytes — for 60 seconds ends with
+    ``Streaming transfer received nothing within its idle limit and was
+    aborted``. A server trickling a byte every few seconds is not stopped in
+    that case, exactly as on :php:`sendRequest()`; set a ``timeout`` for a hard
+    ceiling. Only reading drives the transfer.
+*   Any exception while the body is read — including one from a signal that
+    breaks its "must not throw" rule — closes the body and releases the
+    connection at once.
 *   At most 16 MiB of unread body is buffered. A single transport step that
     delivers more — typically a small compressed body that decodes to a very
     large one — fails the transfer with the message ``Streaming transfer

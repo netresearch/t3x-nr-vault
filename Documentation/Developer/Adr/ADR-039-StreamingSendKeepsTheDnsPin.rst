@@ -129,24 +129,57 @@ A transfer that fails is never a short body
 End of stream is reported only when the transport fulfilled its promise.
 A rejected transfer throws from ``read()`` once the bytes that did arrive have been handed out, as a ``VaultException`` with a fixed literal and the transport's exception as its previous one; ``eof()`` stays false, and ``getContents()`` and ``__toString()`` throw rather than return what arrived (``aFailureAfterTheHeadThrowsFromReadOnceTheArrivedBytesAreOut()``, ``getContentsAndToStringThrowInsteadOfReturningAShortBody()``; on the wire ``aTransferThatFailsMidStreamThrowsFromReadAfterTheBytesThatArrived()``, a response that announces 1000 bytes and sends 16).
 
+End of stream also requires the buffer to be empty: a step that delivers the last bytes and completes the transfer leaves ``eof()`` false until those bytes are read, so a ``while (!eof()) read()`` loop does not lose the final event (``bytesAndCompletionInOneStepAreNotAnEndUntilTheBytesAreRead()``).
+
 A transfer that has already failed when ``sendStreaming()`` is about to return is reported as the failure, the way the blocking send reports it, rather than handed out as a response whose first read throws (``aHeadAndAFailureInTheSameStepAreReportedAsTheFailure()``).
 
 A stalled stream ends
 ---------------------
 
-Two bounds, one per layer, both derived from settings the transport already has:
+Which bound applies depends on whether a total ``timeout`` is configured.
 
-- libcurl enforces the transport's ``timeout`` (``CURLOPT_TIMEOUT_MS``) on every tick, and every ``read()`` that waits is a loop of ticks — so a read cannot outlive the timeout that ``withTimeout()`` or the platform configured. ``StreamingSendTest::aStalledStreamEndsAtTheTransferTimeout()`` reads the first line of a route that then stalls for 30 s, under ``withTimeout(2)``, and requires the next read to throw within 5 s.
-- ``StreamingTransfer`` checks the transport's wall-clock budget (``timeout + connect_timeout + 5 s``, measured from the start of the transfer) before every step, head and body alike. It only trips when the handler stopped settling its promise, and it is the bound a test can drive without a socket (``anExhaustedBudgetBeforeTheHeadAbortsTheTransferAndAuditsAFailure()``, ``anExhaustedBudgetWhileReadingEndsTheRead()``).
+**With a total timeout** (``timeout > 0``, the platform value or ``withTimeout()``), two bounds, one per layer:
 
-There is no separate idle bound: an idle stream ends at the transfer timeout, and a long stream needs ``withTimeout()`` exactly as a long blocking call does.
+- libcurl enforces the transport's ``timeout`` (``CURLOPT_TIMEOUT_MS``) on every tick, and every ``read()`` that waits is a loop of ticks — so a read cannot outlive the configured timeout. ``StreamingSendTest::aStalledStreamEndsAtTheTransferTimeout()`` reads the first line of a route that then stalls for 30 s, under ``withTimeout(2)``, and requires the next read to throw within 5 s.
+- ``StreamingTransfer`` checks the transport's wall-clock budget (``timeout + connect_timeout + 5 s``, measured from the start of the transfer) before every step, head and body alike. It only trips when the handler stopped settling its promise. It holds before the first step and between steps (``anExhaustedBudgetBeforeTheHeadAbortsTheTransferAndAuditsAFailure()``, ``anExhaustedBudgetWhileReadingEndsTheRead()``, ``theWallClockBudgetAlsoEndsATransferAfterItHasBeenStepped()``).
+
+A long stream needs ``withTimeout()`` exactly as a long blocking call does.
+
+**Without a total timeout** (``timeout = 0``, the default on TYPO3 13.4 and 14.3), libcurl has no total bound and :php:`sendRequest()` waits as long as the server takes.
+A first version of this send still applied the wall-clock budget, which is then ``connect_timeout + 5 s``: an event stream that was still delivering died at that point — 9 of 12 events at 6.00 s in the round-3 review's probe, where :php:`sendRequest()` completed in 7.72 s.
+
+The bound is on silence instead: ``SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS``, 60 s, carried by ``CancellableTransport::idleBudgetSeconds()`` only when no total timeout exists.
+Every step that received something — the response head, body bytes — moves the deadline forward, so a stream that keeps delivering lives, and one that falls silent ends with its own literal (``Streaming transfer received nothing within its idle limit and was aborted``; code ``1790487201`` before :php:`sendStreaming()` returns, also the audit message, ``1790487202`` from ``read()``).
+The window also covers the wait for the head: a server that accepts the connection and sends nothing ends after 60 s.
+TYPO3 has no idle setting to derive the window from; 60 s is the default read timeout of common reverse proxies, which would cut a longer-silent stream anyway.
+Tests: ``withoutATotalTimeoutADeliveringStreamOutlivesTheIdleBound()``, ``withoutATotalTimeoutAStallWhileReadingEndsAtTheIdleBound()``, ``withoutATotalTimeoutASilentServerEndsAtTheIdleBoundBeforeReturn()``, ``theFactoryGivesAnIdleBoundOnlyWhenNoTotalTimeoutIsSet()``; on the wire ``withoutATotalTimeoutAStreamStillDeliveringOutlivesTheOldBudget()`` (12 lines 700 ms apart under ``timeout = 0, connect_timeout = 1``) and ``withoutATotalTimeoutAStalledStreamEndsAtTheIdleBound()``.
+
+What the idle bound does not bound is a trickle: a server that sends one byte every few seconds keeps the transfer alive indefinitely.
+That is the blocking path's behaviour at ``timeout = 0`` too; the only per-transfer remedy, ``CURLOPT_LOW_SPEED_LIMIT``, is a raw cURL option this send does not add (see above). An operator who needs a hard ceiling sets ``timeout`` or calls ``withTimeout()``.
 
 An abandoned body closes the transfer
 -------------------------------------
 
 ``close()``, ``detach()`` and the destructor of ``StreamingResponseBody`` cancel the transport's promise, which runs the cancel function ``CurlMultiHandler`` attached: the easy handle is removed from the multi handle and closed.
 A signal that fires while the body is read does the same and throws ``RequestCancelledException``.
+So does any throw during a step — a signal that breaks its "must not throw" contract, the ticker: ``StreamingTransfer::advance()`` tears the transfer down before the throwable leaves, and the body is closed, so the connection does not wait for the object to be destroyed (``aSignalThatThrowsWhileReadingTearsTheTransferDown()``, on the wire ``aSignalThatThrowsWhileReadingReleasesTheTransferAtOnce()``).
 Unit tests count the cancel calls (``closingTheBodyCancelsTheTransfer()``, ``detachingTheBodyCancelsTheTransferAndHandsOutNoResource()``, ``droppingTheResponseCancelsTheTransfer()``, ``aSignalWhileReadingAbortsTheTransferAndClosesTheBody()``); on the wire, ``StreamingSendTest`` reads the handle count of the real ``CurlMultiHandler`` before and after (``closingTheBodyRemovesTheTransferFromTheMultiHandle()``, ``droppingTheBodyRemovesTheTransferFromTheMultiHandle()``, ``aSignalFiredWhileReadingAbortsTheTransfer()``).
+
+The body's PSR-7 contract, and the one deliberate deviation
+-----------------------------------------------------------
+
+``__toString()`` throws.
+PSR-7 (psr/http-message 2.0) says it MUST NOT, and asks for ``''`` or a partial string on error instead — which is exactly the short body this class exists to refuse: a caller could not tell a truncated answer from a complete one.
+So ``(string) $body`` returns the whole body whenever the transfer completes, error statuses included — a ``401`` with its JSON error document is returned as a string like any other body — and throws only when the transfer failed, was cancelled, or exceeded the limit below.
+A caller that must not see an exception, for example one that formats a ``4xx`` body into its own error message, calls ``getContents()`` inside a ``try`` and decides what a failed read means for it.
+
+``getContents()`` and ``__toString()`` are bounded at ``StreamingSink::DEFAULT_LIMIT_BYTES`` (16 MiB).
+Without a bound, calling either on an endless stream ended in a PHP memory fatal, where ``read()`` throws a catchable timeout.
+Past the limit the transfer is torn down and a ``VaultException`` with the literal ``Streaming response body is larger than getContents() returns; read it in chunks with read()`` (code ``1790487205``) is thrown (``getContentsPastTheLimitThrowsAndTearsTheTransferDown()``).
+Both are for bodies known to be small; a large or open-ended body is read in chunks with ``read()``.
+
+``read(0)`` returns ``''`` without stepping the transport, so a zero-length read never moves the transfer or trips a bound (``aZeroLengthReadReturnsNothingAndDoesNotStepTheTransport()``).
+A negative length is refused with a ``VaultException`` (code ``1790487203``, and ``1790487204`` from ``StreamingSink::read()``): ``substr()`` would read it as "all but the last n bytes" and hand out a truncated chunk (``aNegativeLengthIsRefusedAndConsumesNothing()`` in both test classes).
 
 Exactly one audit row, written when ``sendStreaming()`` returns or throws
 -------------------------------------------------------------------------
@@ -185,6 +218,10 @@ Every outcome before that takes the ladder of the cancellable path, from a ``fin
      - ``http_call``
      - false
      - ``aRejectionWithoutAThrowableIsRefusedWithAFixedLiteral()``, ``aSettlementThatIsNotAResponseIsRefused()``
+   * - Nothing received for the idle bound (no total timeout configured)
+     - ``http_call``
+     - false
+     - ``withoutATotalTimeoutASilentServerEndsAtTheIdleBoundBeforeReturn()``
    * - A throw from Guzzle's option handling or the caller's signal
      - ``http_call``
      - false
