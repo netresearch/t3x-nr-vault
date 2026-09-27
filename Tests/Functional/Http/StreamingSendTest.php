@@ -26,6 +26,7 @@ use Netresearch\NrVault\Http\CurlMultiTicker;
 use Netresearch\NrVault\Http\SecretPlacement;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Http\StreamingResponseBody;
+use Netresearch\NrVault\Http\StreamingSink;
 use Netresearch\NrVault\Http\StreamingTransfer;
 use Netresearch\NrVault\Http\VaultHttpClient;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -80,6 +81,13 @@ final class StreamingSendTest extends FunctionalTestCase
 
     private const SECRET = 'streaming-test-token';
 
+    private const TLS_ORIGIN_NAME = 'tls-origin.test';
+
+    private const BUFFER_LIMIT_MESSAGE
+        = 'Streaming transfer aborted: one step delivered more body than the 16 MiB streaming buffer holds';
+
+    private const TUNNEL_SCRIPT = __DIR__ . '/Fixtures/tunnel-server.php';
+
     protected array $testExtensionsToLoad = [
         'netresearch/nr-vault',
     ];
@@ -92,6 +100,11 @@ final class StreamingSendTest extends FunctionalTestCase
     private static string $serverLogFile = '';
 
     private static string $hitsDirectory = '';
+
+    private static string $tunnelDirectory = '';
+
+    /** @var list<resource> */
+    private array $tunnelProcesses = [];
 
     /** @var list<array{identifier: string, action: string, success: bool, status: mixed, error: string|null}> */
     private array $auditRows = [];
@@ -126,6 +139,22 @@ final class StreamingSendTest extends FunctionalTestCase
             'timeout' => 10,
             'connect_timeout' => 2,
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->tunnelProcesses as $process) {
+            proc_terminate($process);
+            proc_close($process);
+        }
+
+        $this->tunnelProcesses = [];
+        if (self::$tunnelDirectory !== '') {
+            GeneralUtility::rmdir(self::$tunnelDirectory, true);
+            self::$tunnelDirectory = '';
+        }
+
+        parent::tearDown();
     }
 
     #[Test]
@@ -351,6 +380,93 @@ final class StreamingSendTest extends FunctionalTestCase
         self::assertFalse($body->eof(), 'A failed transfer never reports end of stream.');
     }
 
+    #[Test]
+    public function throughATunnellingProxyTheOriginHeadIsReturnedNotTheProxyReply(): void
+    {
+        $origin = $this->startTunnelServer('origin');
+        $proxy = $this->startTunnelServer('proxy', (string) $origin);
+        $this->setHttpConfiguration([
+            'allowed_hosts' => [self::TLS_ORIGIN_NAME],
+            'proxy' => 'http://' . self::LOOPBACK_HOST . ':' . $proxy, // NOSONAR — test-only loopback proxy
+            // The origin's certificate is a throwaway; this test is about which
+            // head is returned, not about TLS.
+            'verify' => false,
+        ]);
+        $url = 'https://' . self::TLS_ORIGIN_NAME . ':' . $origin . '/protected';
+
+        $blocking = $this->client()->sendRequest(new Request('GET', $url));
+        $streamed = $this->client()->sendStreaming(new Request('GET', $url));
+
+        self::assertSame(401, $blocking->getStatusCode(), 'Control: the blocking send returns the origin head.');
+        self::assertSame(401, $streamed->getStatusCode(), "The proxy's 200 Connection established is not the response.");
+        self::assertSame('target', $streamed->getHeaderLine('X-Origin'));
+        self::assertFalse($streamed->hasHeader('X-Proxy'));
+        self::assertSame("target said: 401\n", (string) $streamed->getBody());
+        self::assertSame([401, 401], array_column($this->auditRows, 'status'), 'Both rows carry the origin status.');
+        self::assertStringContainsString(
+            'CONNECT ' . self::TLS_ORIGIN_NAME . ':' . $origin,
+            (string) file_get_contents(self::$tunnelDirectory . '/proxy.port.log'),
+            'Both sends must have gone through the tunnel, or this test proves nothing about it.',
+        );
+    }
+
+    #[Test]
+    public function aLargePlainBodyStreamsToTheEndUnderTheBufferLimit(): void
+    {
+        $body = $this->client()->sendStreaming(new Request('GET', $this->url('/large?mb=64')))->getBody();
+
+        $total = 0;
+        $largestStep = 0;
+        // Each read drains the whole buffer, so a chunk is what one step delivered.
+        while (($chunk = $body->read(64 * 1024 * 1024)) !== '') {
+            $total += \strlen($chunk);
+            $largestStep = max($largestStep, \strlen($chunk));
+        }
+
+        self::assertSame(64 * 1024 * 1024, $total, 'A legitimate large body must not trip the limit.');
+        self::assertLessThan(StreamingSink::DEFAULT_LIMIT_BYTES, $largestStep);
+    }
+
+    #[Test]
+    public function aCompressionBombFailsClosedWithBoundedMemory(): void
+    {
+        gc_collect_cycles();
+        memory_reset_peak_usage();
+        $before = memory_get_usage(true);
+
+        $caught = null;
+
+        try {
+            $response = $this->client()->sendStreaming(new Request('GET', $this->url('/bomb?mb=128')));
+            $body = $response->getBody();
+            for ($read = 0; $read < 100_000; ++$read) {
+                if ($body->read(1024 * 1024) === '') {
+                    break;
+                }
+            }
+        } catch (VaultException $e) {
+            $caught = $e;
+        }
+
+        $growth = memory_get_peak_usage(true) - $before;
+
+        self::assertInstanceOf(VaultException::class, $caught, '128 MiB decoded from about 128 KiB must not be buffered or returned.');
+        self::assertContains($caught->getCode(), [1790487102, 1790487103]);
+        self::assertSame(self::BUFFER_LIMIT_MESSAGE, $caught->getMessage());
+        self::assertLessThan(
+            64 * 1024 * 1024,
+            $growth,
+            'Memory must stay near the 16 MiB bound, not follow the decoded size.',
+        );
+        self::assertCount(1, $this->auditRows);
+        if ($caught->getCode() === 1790487102) {
+            // Overflowed before sendStreaming() returned: the call failed, and
+            // the row names the bound rather than the cURL write error.
+            self::assertFalse($this->auditRows[0]['success']);
+            self::assertSame(self::BUFFER_LIMIT_MESSAGE, $this->auditRows[0]['error']);
+        }
+    }
+
     // =========================================================================
     // Harness
     // =========================================================================
@@ -556,6 +672,38 @@ final class StreamingSendTest extends FunctionalTestCase
         if (self::$hitsDirectory !== '') {
             GeneralUtility::rmdir(self::$hitsDirectory, true);
         }
+    }
+
+    /**
+     * Start one `tunnel-server.php` process and return the port it listens on.
+     */
+    private function startTunnelServer(string $mode, string ...$arguments): int
+    {
+        if (self::$tunnelDirectory === '') {
+            self::$tunnelDirectory = self::$serverLogFile . '-tunnel-' . bin2hex(random_bytes(4));
+            mkdir(self::$tunnelDirectory, 0o700);
+        }
+
+        $portFile = self::$tunnelDirectory . '/' . $mode . '.port';
+        $logFile = self::$tunnelDirectory . '/' . $mode . '.out';
+        // nosemgrep: php.lang.security.exec-use.exec-use - fixed argv (PHP_BINARY + test fixture), no shell
+        $command = array_merge([PHP_BINARY, '-d', 'xdebug.mode=off', self::TUNNEL_SCRIPT, $portFile, $mode], array_values($arguments));
+        $process = proc_open(
+            $command,
+            [0 => ['file', '/dev/null', 'r'], 1 => ['file', $logFile, 'a'], 2 => ['file', $logFile, 'a']],
+            $pipes,
+        );
+        self::assertIsResource($process);
+        $this->tunnelProcesses[] = $process;
+
+        $deadline = microtime(true) + self::SERVER_READY_TIMEOUT_SECONDS;
+        while (!is_file($portFile) && microtime(true) < $deadline) {
+            usleep(20_000);
+        }
+
+        self::assertFileExists($portFile, 'The ' . $mode . ' server did not start: ' . (is_file($logFile) ? (string) file_get_contents($logFile) : ''));
+
+        return (int) file_get_contents($portFile);
     }
 
     /**

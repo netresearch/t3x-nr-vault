@@ -894,8 +894,12 @@ Reading a response while it arrives
 :php:`sendRequest()` and :php:`sendCancellable()` return once the whole body
 has arrived, so a caller that asked a provider for a streamed answer sees the
 first byte only at the end. :php:`StreamingHttpClientInterface` adds a send
-that returns as soon as the response headers are in, with a body that reads
-the rest from the wire.
+that returns as soon as the response head and the first body bytes are in, or
+the transfer has ended, with a body that reads the rest from the wire.
+
+The returned head is always the origin's. A ``1xx`` interim head, and the
+``200 Connection established`` reply of a tunnelling proxy (which Guzzle 7
+reports as a head of its own), are replaced by the head that follows them.
 
 The transfer runs on the same curl-multi transport as
 :php:`sendCancellable()`, with the ``CURLOPT_RESOLVE`` DNS pin, the SSRF
@@ -949,14 +953,22 @@ What the body does:
 *   A stalled stream ends at the transfer timeout — the platform ``timeout`` or
     :php:`withTimeout()`. Only reading drives the transfer, so a long stream
     needs a long timeout, as a long blocking call does.
+*   At most 16 MiB of unread body is buffered. A single transport step that
+    delivers more — typically a small compressed body that decodes to a very
+    large one — fails the transfer with the message ``Streaming transfer
+    aborted: one step delivered more body than the 16 MiB streaming buffer
+    holds``, instead of filling memory. A step on a fast link delivers a few
+    hundred kilobytes, and reading drains the buffer before the next step.
 *   Redirects are not followed; a ``3xx`` response is returned as it is.
 *   The body is not seekable and not writable, and its metadata is empty.
 
 **One audit row per call, written when** :php:`sendStreaming()` **returns or
 throws.** It is the row :php:`sendRequest()` writes: ``http_call`` with the
-status once the headers arrived, and the actions and literals listed above for
-everything that ends the call before them. A failure or an abandon *after* the
-headers writes no second row; the exception from :php:`read()` is how you learn
+origin's status when the method returns, and the actions and literals listed
+above for everything that ends the call before that — plus the buffer-limit
+literal above, with ``success = false``, when the bound stops the call before
+it returns. A failure or an abandon *after* the method returned writes no
+second row; the exception from :php:`read()` is how you learn
 of it. The body is never logged. See
 :ref:`adr-039-streaming-send-keeps-the-dns-pin`, which names the test for each
 property.
@@ -969,8 +981,9 @@ property.
 
    .. php:method:: sendStreaming(RequestInterface $request, ?CancellationSignalInterface $signal = null): ResponseInterface
 
-      Send an HTTP request and return once the response headers arrived. The
-      body advances the transfer as it is read. Runs the same guard sequence
+      Send an HTTP request and return once the origin's response head and the
+      first body bytes have arrived, or the transfer has ended. The body
+      advances the transfer as it is read. Runs the same guard sequence
       as :php:`sendRequest()`: scheme allowlist, host allowlist, credential
       injection, one audit row.
 
@@ -983,9 +996,9 @@ property.
       :param RequestInterface $request: PSR-7 request.
       :param CancellationSignalInterface|null $signal: Polled before the send and on every transport step, headers and body alike.
       :returns: PSR-7 response whose body reads from the wire.
-      :throws RequestCancelledException: If the signal aborted the call before the headers arrived.
-      :throws ClientExceptionInterface: If the transfer failed before the headers arrived.
-      :throws VaultException: If the scheme or host is rejected, secret retrieval fails, or the transfer overran its bound.
+      :throws RequestCancelledException: If the signal aborted the call before it returned.
+      :throws ClientExceptionInterface: If the transfer failed before it returned.
+      :throws VaultException: If the scheme or host is rejected, secret retrieval fails, the transfer overran its time bound, or one step delivered more body than the 16 MiB buffer holds.
 
    .. php:method:: supportsStreaming(): bool
 

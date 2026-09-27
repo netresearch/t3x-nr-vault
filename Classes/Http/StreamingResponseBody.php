@@ -30,6 +30,9 @@ use Throwable;
  * - **An abandoned body closes the transfer.** `close()`, `detach()` and the
  *   destructor cancel the transport's promise, which removes the easy handle
  *   from the multi handle and closes it.
+ * - **A step cannot flood memory.** The sink holds at most
+ *   `StreamingSink::DEFAULT_LIMIT_BYTES` unread bytes; a step that delivers
+ *   more fails the transfer, and `read()` reports it with its own literal.
  * - **A read cannot hang the worker.** Every step checks the caller's signal
  *   and the wall-clock bound of the transfer, and libcurl's own `timeout`
  *   applies on every tick.
@@ -51,6 +54,9 @@ final class StreamingResponseBody implements StreamInterface
 
     private const FAILED_MESSAGE = 'Streaming transfer failed after the headers arrived; the body is incomplete';
 
+    private const BUFFER_LIMIT_MESSAGE
+        = 'Streaming transfer aborted: one step delivered more body than the 16 MiB streaming buffer holds';
+
     private const NOT_SEEKABLE_MESSAGE = 'Streaming response body is not seekable';
 
     private const NOT_WRITABLE_MESSAGE = 'Streaming response body is not writable';
@@ -61,11 +67,11 @@ final class StreamingResponseBody implements StreamInterface
 
     /**
      * @param StreamingTransfer $transfer The transfer this body is read from
-     * @param StreamInterface $sink The buffer the transport writes into; consumed by `read()`
+     * @param StreamingSink $sink The bounded buffer the transport writes into; consumed by `read()`
      */
     public function __construct(
         private readonly StreamingTransfer $transfer,
-        private readonly StreamInterface $sink,
+        private readonly StreamingSink $sink,
     ) {}
 
     /**
@@ -168,6 +174,14 @@ final class StreamingResponseBody implements StreamInterface
             if ($this->transfer->isSettled()) {
                 if ($this->transfer->isRejected()) {
                     $reason = $this->transfer->settledValue();
+
+                    if ($this->sink->overflowed()) {
+                        throw new VaultException(
+                            self::BUFFER_LIMIT_MESSAGE,
+                            1790487103,
+                            $reason instanceof Throwable ? $reason : null,
+                        );
+                    }
 
                     throw new VaultException(
                         self::FAILED_MESSAGE,
