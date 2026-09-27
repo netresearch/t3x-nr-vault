@@ -81,6 +81,7 @@ Return at the first body bytes, advance on read
 -----------------------------------------------
 
 ``sendStreaming()`` steps the transport until ``on_headers`` has seen a final head *and* body bytes have reached the sink, or until the promise has settled, and returns the head with a ``StreamingResponseBody`` in place of the sink.
+When the transfer settled with no final head current — after an unsolicited ``101 Switching Protocols`` whose raw bytes filled the sink before the server closed — the settled response keeps its own status and headers, and its body is wrapped the same way, so the sink is never handed out (``aSwitchingProtocolsResponseThatEndsIsReturnedWithAStreamingBodyNotTheSink()``).
 For a streaming consumer the time to the first readable byte is the same as returning at the head and reading at once; the audit row is written at this moment (see below).
 The step is one class, ``StreamingTransfer``, shared by the wait for the head and every ``read()``: poll the signal, check the wall-clock bound, ``tick()``, run the promise queue.
 
@@ -215,15 +216,15 @@ Every outcome before that takes the ladder of the cancellable path, from a ``fin
      - ``http_call_cancelled_before_send``
      - false
      - ``anAlreadyCancelledSignalReadsNoSecretAndSendsNothing()``
-   * - The signal stopped the transfer before the head
+   * - The signal stopped the transfer before the method returns
      - ``http_call_cancelled``
      - false
      - ``aSignalBeforeTheHeadAbortsTheTransferAndAuditsItAsCancelled()``
-   * - The transport failed before the head, or together with it
+   * - The transport failed before the method returns, or together with the head
      - ``http_call``
      - false
      - ``aTransportRejectionBeforeTheHeadIsRethrownAndAudited()``, ``aHeadAndAFailureInTheSameStepAreReportedAsTheFailure()``
-   * - The wall-clock bound before the head
+   * - The wall-clock bound before the method returns
      - ``http_call``
      - false
      - ``anExhaustedBudgetBeforeTheHeadAbortsTheTransferAndAuditsAFailure()``

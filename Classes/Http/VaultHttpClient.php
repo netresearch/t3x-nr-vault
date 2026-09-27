@@ -1345,9 +1345,14 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             }
 
             if (!$head instanceof ResponseInterface) {
-                // Settled without a head passing through `on_headers`. The curl
-                // handler always calls it, so only a handler that does not can
-                // get here; its response is complete and is returned as it is.
+                // Settled with no final head current. Two ways here: a handler
+                // that never calls `on_headers`, and the curl handler when the
+                // last head it reported was a 1xx — an unsolicited `101
+                // Switching Protocols` whose raw bytes went into the sink before
+                // the server closed. The settled response is returned with its
+                // own status and headers; when its body is our sink, it is
+                // wrapped like every other streamed body, so the caller never
+                // holds the internal buffer.
                 $value = $transfer->settledValue();
                 if (!$value instanceof ResponseInterface) {
                     $auditMessage = self::STREAMING_NO_RESPONSE_MESSAGE;
@@ -1360,6 +1365,10 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 $auditSuccess = true;
                 $auditMessage = null;
                 $outcomeRecorded = true;
+
+                if ($value->getBody() === $sink) {
+                    return $value->withBody(new StreamingResponseBody($transfer, $sink));
+                }
 
                 return $value;
             }
