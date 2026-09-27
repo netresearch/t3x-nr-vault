@@ -1233,31 +1233,50 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             // a curl callback.
             $head = null;
 
-            // Every head seen, interim ones included. Only ever grows, unlike
-            // `$head`, which a later 1xx head resets — so it can serve as
-            // progress for the idle bound.
-            $headsSeen = 0;
+            // Final heads seen (status 200 and above). A 1xx head is not
+            // counted: Guzzle 7 calls `on_headers` for every one, so a server
+            // repeating `100 Continue` would otherwise keep a transfer without
+            // a total timeout alive for ever.
+            $finalHeadsSeen = 0;
+
+            // What the idle bound counts as progress: final heads, and the
+            // bytes the sink accepted while a final head was the current one.
+            // While `$head` is null — before the first final head, or after
+            // a 1xx head replaced one — it stays where it is, so bytes behind
+            // an unsolicited `101 Switching Protocols` (raw bytes that land in
+            // the sink) buy no time, on any Guzzle version. It never shrinks.
+            $progress = 0;
 
             $promise = $transport->client()->sendAsync($authenticatedRequest, [
                 RequestOptions::ALLOW_REDIRECTS => false,
                 RequestOptions::HTTP_ERRORS => false,
                 RequestOptions::SINK => $sink,
-                RequestOptions::ON_HEADERS => static function (ResponseInterface $response) use (&$head, &$headsSeen): void {
-                    $head = $response->getStatusCode() >= 200 ? $response : null;
-                    ++$headsSeen;
+                RequestOptions::ON_HEADERS => static function (ResponseInterface $response) use (&$head, &$finalHeadsSeen): void {
+                    if ($response->getStatusCode() < 200) {
+                        $head = null;
+
+                        return;
+                    }
+
+                    $head = $response;
+                    ++$finalHeadsSeen;
                 },
             ]);
 
             // Without a total timeout the bound is on silence, not duration:
-            // anything received — a head, a body byte — moves it forward.
+            // a final head, and body bytes after it, move it forward.
             $transfer = new StreamingTransfer(
                 $promise,
                 $transport->ticker(),
                 $transport->wallClockBudgetSeconds(),
                 $signal,
                 $transport->idleBudgetSeconds(),
-                static function () use (&$headsSeen, $sink): int {
-                    return $sink->bytesAccepted() + $headsSeen;
+                static function () use (&$head, &$finalHeadsSeen, &$progress, $sink): int {
+                    if ($head instanceof ResponseInterface) {
+                        $progress = $finalHeadsSeen + $sink->bytesAccepted();
+                    }
+
+                    return $progress;
                 },
             );
 
