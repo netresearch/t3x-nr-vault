@@ -129,6 +129,9 @@ A transfer that fails is never a short body
 End of stream is reported only when the transport fulfilled its promise.
 A rejected transfer throws from ``read()`` once the bytes that did arrive have been handed out, as a ``VaultException`` with a fixed literal and the transport's exception as its previous one; ``eof()`` stays false, and ``getContents()`` and ``__toString()`` throw rather than return what arrived (``aFailureAfterTheHeadThrowsFromReadOnceTheArrivedBytesAreOut()``, ``getContentsAndToStringThrowInsteadOfReturningAShortBody()``; on the wire ``aTransferThatFailsMidStreamThrowsFromReadAfterTheBytesThatArrived()``, a response that announces 1000 bytes and sends 16).
 
+``eof()`` stays false after every other failure too — cancellation, a time or idle bound, a throw during a step, the ``getContents()`` limit — so a consumer that swallows the exception and loops on ``eof()`` cannot take a truncated body for a complete one.
+The body records the failure separately from being closed; only an explicit ``close()`` or ``detach()`` makes ``eof()`` true after it (``aFailedBodyIsNoEndOfStreamUntilItIsClosed()``, one case per failure path).
+
 End of stream also requires the buffer to be empty: a step that delivers the last bytes and completes the transfer leaves ``eof()`` false until those bytes are read, so a ``while (!eof()) read()`` loop does not lose the final event (``bytesAndCompletionInOneStepAreNotAnEndUntilTheBytesAreRead()``).
 
 A transfer that has already failed when ``sendStreaming()`` is about to return is reported as the failure, the way the blocking send reports it, rather than handed out as a response whose first read throws (``aHeadAndAFailureInTheSameStepAreReportedAsTheFailure()``).
@@ -149,8 +152,12 @@ A long stream needs ``withTimeout()`` exactly as a long blocking call does.
 A first version of this send still applied the wall-clock budget, which is then ``connect_timeout + 5 s``: an event stream that was still delivering died at that point — 9 of 12 events at 6.00 s in the round-3 review's probe, where :php:`sendRequest()` completed in 7.72 s.
 
 The bound is on silence instead: ``SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS``, 60 s, carried by ``CancellableTransport::idleBudgetSeconds()`` only when no total timeout exists.
-Every step that received something — the response head, body bytes — moves the deadline forward, so a stream that keeps delivering lives, and one that falls silent ends with its own literal (``Streaming transfer received nothing within its idle limit and was aborted``; code ``1790487201`` before :php:`sendStreaming()` returns, also the audit message, ``1790487202`` from ``read()``).
+Every step that received something — a response head, body bytes — moves the deadline forward, so a stream that keeps delivering lives, and one that falls silent ends with its own literal (``Streaming transfer received nothing within its idle limit and was aborted``; code ``1790487201`` before :php:`sendStreaming()` returns, also the audit message, ``1790487202`` from ``read()``).
 The window also covers the wait for the head: a server that accepts the connection and sends nothing ends after 60 s.
+
+The window measures the server's silence, not the consumer's: each step ticks first, counts what arrived — while the consumer was away, too — and only then compares with the deadline, and a transfer that has settled is never aborted by it.
+A first version compared before ticking, so a consumer that paused between two reads for longer than the window got the idle error although the server had kept sending (round-4 review: an event every second, a 61 s pause, an abort at 61.00 s).
+Progress is a counter that only grows — bytes the sink accepted plus heads seen — and only growth moves the deadline, so a ``1xx`` head arriving after a final one cannot buy time (``aConsumerPausingLongerThanTheIdleBoundGetsWhatArrivedMeanwhile()``, ``aTransferThatCompletedDuringAPauseEndsCleanly()``, ``aShrinkingProgressCounterBuysNoTime()``, ``theHeadCountsAsProgressForTheIdleBound()``; on the wire ``aConsumerPausingLongerThanTheIdleBoundMissesNothing()``).
 TYPO3 has no idle setting to derive the window from; 60 s is the default read timeout of common reverse proxies, which would cut a longer-silent stream anyway.
 Tests: ``withoutATotalTimeoutADeliveringStreamOutlivesTheIdleBound()``, ``withoutATotalTimeoutAStallWhileReadingEndsAtTheIdleBound()``, ``withoutATotalTimeoutASilentServerEndsAtTheIdleBoundBeforeReturn()``, ``theFactoryGivesAnIdleBoundOnlyWhenNoTotalTimeoutIsSet()``; on the wire ``withoutATotalTimeoutAStreamStillDeliveringOutlivesTheOldBudget()`` (12 lines 700 ms apart under ``timeout = 0, connect_timeout = 1``) and ``withoutATotalTimeoutAStalledStreamEndsAtTheIdleBound()``.
 
@@ -170,7 +177,7 @@ The body's PSR-7 contract, and the one deliberate deviation
 
 ``__toString()`` throws.
 PSR-7 (psr/http-message 2.0) says it MUST NOT, and asks for ``''`` or a partial string on error instead — which is exactly the short body this class exists to refuse: a caller could not tell a truncated answer from a complete one.
-So ``(string) $body`` returns the whole body whenever the transfer completes, error statuses included — a ``401`` with its JSON error document is returned as a string like any other body — and throws only when the transfer failed, was cancelled, or exceeded the limit below.
+So ``(string) $body`` returns the rest of the body — all of it when nothing was read before, what remains after the current position otherwise — whenever the transfer completes, error statuses included: a ``401`` with its JSON error document is returned as a string like any other body. It throws only when the transfer failed, was cancelled, or exceeded the limit below.
 A caller that must not see an exception, for example one that formats a ``4xx`` body into its own error message, calls ``getContents()`` inside a ``try`` and decides what a failed read means for it.
 
 ``getContents()`` and ``__toString()`` are bounded at ``StreamingSink::DEFAULT_LIMIT_BYTES`` (16 MiB).
