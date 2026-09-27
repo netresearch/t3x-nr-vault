@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Functional\View;
 
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -25,6 +26,17 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
  */
 final class BackendThemeMarkupTest extends FunctionalTestCase
 {
+    private const OVERVIEW = 'Overview/Index';
+
+    /**
+     * Stand-in for the core `Module` layout: renders the `Content` section only.
+     * The core layout needs a module request, and the markup under test is ours.
+     * Written at runtime so no Fluid file outside Resources/Private reaches the
+     * HTML analysers, which read Fluid as a standalone page.
+     */
+    private const MODULE_LAYOUT = '<html xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers" data-namespace-typo3-fluid="true">'
+        . '<f:render section="Content" /></html>';
+
     /** @var array<non-empty-string> */
     protected array $testExtensionsToLoad = [
         'netresearch/nr-vault',
@@ -56,7 +68,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
 
     public function testTheSubmoduleCardIconsAreInlinedSoTheyTakeTheTextColour(): void
     {
-        $html = $this->renderTemplate('Overview/Index', $this->overviewVariables());
+        $html = $this->renderTemplate(self::OVERVIEW, $this->overviewVariables());
 
         // As <img>, a currentColor glyph cannot inherit anything and paints black,
         // 1.23:1 on the dark card. Inline, it takes the card's text colour.
@@ -66,7 +78,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
 
     public function testTheOverviewUsesCoreCalloutsTablesAndAnExistingIcon(): void
     {
-        $html = $this->renderTemplate('Overview/Index', $this->overviewVariables(masterKeyAvailable: false));
+        $html = $this->renderTemplate(self::OVERVIEW, $this->overviewVariables(masterKeyAvailable: false));
 
         self::assertStringContainsString('class="callout callout-danger mb-4"', $html);
         self::assertStringContainsString('<h2 class="callout-title">', $html);
@@ -81,7 +93,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
 
     public function testTheHealthyStateIsACoreSuccessCallout(): void
     {
-        $html = $this->renderTemplate('Overview/Index', $this->overviewVariables());
+        $html = $this->renderTemplate(self::OVERVIEW, $this->overviewVariables());
 
         self::assertStringContainsString('class="callout callout-success mb-4"', $html);
         self::assertStringNotContainsString('alert-', $html);
@@ -172,9 +184,8 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     }
 
     /**
-     * Same approach as {@see SecurityStatusPartialTest::render()}. The `Module`
-     * layout is replaced by a stub that renders only the `Content` section: the
-     * core layout needs a module request, and the markup under test is ours.
+     * Same approach as {@see SecurityStatusPartialTest::render()}, with the
+     * `Module` layout replaced by {@see self::MODULE_LAYOUT}.
      *
      * @param list<string> $templateRootPaths
      * @param array<string, mixed> $variables
@@ -183,10 +194,14 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     {
         $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->createFromUserPreferences(null);
 
+        $layoutPath = $this->instancePath . '/typo3temp/var/tests/nr_vault-layouts/';
+        GeneralUtility::mkdir_deep($layoutPath);
+        GeneralUtility::writeFile($layoutPath . 'Module.html', self::MODULE_LAYOUT);
+
         $view = $this->get(ViewFactoryInterface::class)->create(new ViewFactoryData(
             templateRootPaths: $templateRootPaths,
             partialRootPaths: ['EXT:nr_vault/Resources/Private/Partials/'],
-            layoutRootPaths: [__DIR__ . '/Fixtures/Layouts/'],
+            layoutRootPaths: [$layoutPath],
         ));
 
         return $view->assignMultiple($variables)->render($name);
