@@ -14,7 +14,7 @@ use Netresearch\NrVault\Form\Element\VaultSecretInputElement;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
-use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Container\ContainerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -25,7 +25,13 @@ use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
-#[CoversClass(VaultSecretInputElement::class)]
+/**
+ * The SUT is excluded from unit coverage in Build/phpunit.xml, so this test is
+ * `CoversNothing`: with CoversClass, PHPUnit 12 raises "not a valid target for
+ * code coverage" in coverage runs, which `failOnWarning=true` turns into a
+ * failure (seen in CI, Unit Tests 8.3/^13.4).
+ */
+#[CoversNothing]
 #[AllowMockObjectsWithoutExpectations]
 final class VaultSecretInputElementTest extends TestCase
 {
