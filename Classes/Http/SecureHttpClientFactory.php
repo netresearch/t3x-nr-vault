@@ -48,6 +48,20 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 final class SecureHttpClientFactory
 {
     /**
+     * How long a streaming transfer may go without receiving anything — no
+     * response head, no body byte — when the platform sets no total `timeout`.
+     *
+     * `timeout = 0` (the default on TYPO3 13.4 and 14.3) gives libcurl no total bound, and a
+     * wall-clock budget of `connect_timeout` plus the margin would kill a
+     * stream that is still delivering. A streaming send therefore bounds
+     * silence instead of duration in that case. TYPO3 has no idle setting to
+     * derive this from; 60 seconds is the default read timeout of common
+     * reverse proxies, which would cut a stream silent for longer anyway.
+     * Only `VaultHttpClient::sendStreaming()` reads it (ADR-039).
+     */
+    public const STREAMING_IDLE_BUDGET_SECONDS = 60.0;
+
+    /**
      * How long one tick of the cancellable transport may block inside
      * `curl_multi_select` — and therefore the worst-case delay between a
      * cancellation signal turning true and the socket being torn down.
@@ -212,6 +226,8 @@ final class SecureHttpClientFactory
             new Client($options),
             new CurlMultiTicker($multiHandler),
             $timeout + $connectTimeout + self::CANCELLABLE_WALL_CLOCK_MARGIN_SECONDS,
+            // No total timeout: a streaming transfer is bounded by silence.
+            $timeout > 0 ? null : self::STREAMING_IDLE_BUDGET_SECONDS,
         );
     }
 

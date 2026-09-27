@@ -12,8 +12,10 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Http;
 
+use Closure;
 use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Promise\Utils as PromiseUtils;
+use Throwable;
 
 /**
  * One transfer on the curl-multi transport, driven one step at a time.
@@ -49,13 +51,21 @@ final class StreamingTransfer
      */
     public const BUDGET_EXHAUSTED = 2;
 
+    /**
+     * `advance()` found that nothing arrived for the idle budget and tore the
+     * transfer down. Only possible when the transport has no total timeout.
+     */
+    public const IDLE_EXHAUSTED = 3;
+
     private bool $settled = false;
 
     private bool $rejected = false;
 
     private mixed $settledValue = null;
 
-    private readonly float $deadline;
+    private float $deadline;
+
+    private int $lastProgress = 0;
 
     /**
      * @param PromiseInterface $promise The transport's promise for this transfer
@@ -65,14 +75,25 @@ final class StreamingTransfer
      *                                      `connect_timeout` plus a margin, so it only
      *                                      fires after libcurl's own deadline should have
      * @param CancellationSignalInterface|null $signal The caller's abort question, if any
+     * @param float|null $idleBudgetSeconds When set, the bound is on silence instead of
+     *                                      duration: the deadline moves forward every
+     *                                      time `$progress` reports something new. Set
+     *                                      when the transport has no total timeout, so
+     *                                      that a stream still delivering is not cut
+     *                                      off while one that stalls still ends
+     * @param (Closure(): int)|null $progress Grows whenever the transfer received something
+     *                                        (a response head, body bytes); required in
+     *                                        idle mode
      */
     public function __construct(
         private readonly PromiseInterface $promise,
         private readonly TransportTickerInterface $ticker,
         float $wallClockBudgetSeconds,
         private readonly ?CancellationSignalInterface $signal,
+        private readonly ?float $idleBudgetSeconds = null,
+        private readonly ?Closure $progress = null,
     ) {
-        $this->deadline = microtime(true) + $wallClockBudgetSeconds;
+        $this->deadline = microtime(true) + ($idleBudgetSeconds ?? $wallClockBudgetSeconds);
 
         $promise->then(
             function (mixed $value): void {
@@ -95,31 +116,48 @@ final class StreamingTransfer
     /**
      * Make one step of progress, or refuse to.
      *
-     * Checks the signal first and the wall-clock bound second; either one
-     * tears the transfer down before it returns its answer, so a caller that
-     * gets `CANCELLED` or `BUDGET_EXHAUSTED` has nothing left to clean up.
+     * Checks the signal first and the bound second; either one tears the
+     * transfer down before it returns its answer, so a caller that gets
+     * `CANCELLED`, `BUDGET_EXHAUSTED` or `IDLE_EXHAUSTED` has nothing left to
+     * clean up. So does a throw — from the caller's signal, which must not
+     * throw but might, or from the ticker: the transfer is torn down before
+     * the throwable leaves, on the body path as on the head path.
      *
-     * @return self::STEPPED|self::CANCELLED|self::BUDGET_EXHAUSTED
+     * @return self::STEPPED|self::CANCELLED|self::BUDGET_EXHAUSTED|self::IDLE_EXHAUSTED
      */
     public function advance(): int
     {
-        if ($this->signal?->isCancelled() === true) {
+        try {
+            if ($this->signal?->isCancelled() === true) {
+                $this->abandon();
+
+                return self::CANCELLED;
+            }
+
+            if (microtime(true) >= $this->deadline) {
+                $this->abandon();
+
+                return $this->idleBudgetSeconds !== null ? self::IDLE_EXHAUSTED : self::BUDGET_EXHAUSTED;
+            }
+
+            $this->ticker->tick();
+
+            // The tick advances libcurl; this propagates the result up the
+            // middleware chain, whichever ticker implementation was handed in.
+            PromiseUtils::queue()->run();
+        } catch (Throwable $throwable) {
             $this->abandon();
 
-            return self::CANCELLED;
+            throw $throwable;
         }
 
-        if (microtime(true) >= $this->deadline) {
-            $this->abandon();
-
-            return self::BUDGET_EXHAUSTED;
+        if ($this->idleBudgetSeconds !== null && $this->progress instanceof Closure) {
+            $progress = ($this->progress)();
+            if ($progress !== $this->lastProgress) {
+                $this->lastProgress = $progress;
+                $this->deadline = microtime(true) + $this->idleBudgetSeconds;
+            }
         }
-
-        $this->ticker->tick();
-
-        // The tick advances libcurl; this propagates the result up the
-        // middleware chain, whichever ticker implementation was handed in.
-        PromiseUtils::queue()->run();
 
         return self::STEPPED;
     }

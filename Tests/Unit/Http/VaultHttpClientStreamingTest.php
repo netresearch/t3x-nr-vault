@@ -101,6 +101,11 @@ final class VaultHttpClientStreamingTest extends TestCase
 
     private const BODY_CLOSED_MESSAGE = 'Streaming response body is closed';
 
+    private const IDLE_EXHAUSTED_MESSAGE = 'Streaming transfer received nothing within its idle limit and was aborted';
+
+    private const CONTENTS_LIMIT_MESSAGE
+        = 'Streaming response body is larger than getContents() returns; read it in chunks with read()';
+
     private const BUFFER_LIMIT_MESSAGE
         = 'Streaming transfer aborted: one step delivered more body than the 16 MiB streaming buffer holds';
 
@@ -114,6 +119,8 @@ final class VaultHttpClientStreamingTest extends TestCase
 
     /** @var list<array{action: string, success: bool, error: ?string, status: mixed}> */
     private array $auditRows = [];
+
+    private ?StreamStepTicker $lastTicker = null;
 
     protected function setUp(): void
     {
@@ -441,6 +448,267 @@ final class VaultHttpClientStreamingTest extends TestCase
             self::assertSame(self::BUFFER_LIMIT_MESSAGE, $e->getMessage());
             self::assertSame($failure, $e->getPrevious());
         }
+    }
+
+    // =========================================================================
+    // Review round 3
+    // =========================================================================
+
+    #[Test]
+    public function withoutATotalTimeoutADeliveringStreamOutlivesTheIdleBound(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // Each tick takes 20 ms and delivers a byte; twelve of them run far
+        // past the 50 ms idle bound, and past the zero wall-clock budget that
+        // would end the call at once if it were applied.
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker(
+            $transfer,
+            [
+                1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+                13 => static fn (StreamStubTransfer $t) => $t->complete(),
+            ],
+            20_000,
+            static fn (StreamStubTransfer $t, int $tick) => $t->deliverBytes((string) ($tick % 10)),
+        );
+
+        $body = $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.05))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendStreaming(new Request('GET', self::API_URL))
+            ->getBody();
+
+        self::assertSame('23456789012', $body->getContents());
+        self::assertSame(0, $transfer->cancelCalls());
+    }
+
+    #[Test]
+    public function withoutATotalTimeoutAStallWhileReadingEndsAtTheIdleBound(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker($transfer, [
+            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
+        ], 20_000);
+
+        $body = $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.05))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendStreaming(new Request('GET', self::API_URL))
+            ->getBody();
+
+        self::assertSame('first', $body->read(8192));
+
+        try {
+            $body->read(8192);
+            self::fail('A transfer that stops delivering must end at the idle bound.');
+        } catch (VaultException $e) {
+            self::assertSame(1790487202, $e->getCode());
+            self::assertSame(self::IDLE_EXHAUSTED_MESSAGE, $e->getMessage());
+        }
+
+        self::assertGreaterThan(2, $ticker->ticks(), 'The bound fired after the stream went quiet, not before.');
+        self::assertSame(1, $transfer->cancelCalls());
+        self::assertFalse($body->isReadable());
+    }
+
+    #[Test]
+    public function withoutATotalTimeoutASilentServerEndsAtTheIdleBoundBeforeReturn(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker($transfer, [], 20_000);
+
+        try {
+            $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.05))
+                ->withAuthentication('api_key', SecretPlacement::Bearer)
+                ->sendStreaming(new Request('GET', self::API_URL));
+            self::fail('A server that sends nothing must be abandoned at the idle bound.');
+        } catch (VaultException $e) {
+            self::assertSame(1790487201, $e->getCode());
+            self::assertSame(self::IDLE_EXHAUSTED_MESSAGE, $e->getMessage());
+        }
+
+        self::assertGreaterThan(0, $ticker->ticks());
+        self::assertSame(1, $transfer->cancelCalls());
+        self::assertSame(
+            [['action' => 'http_call', 'success' => false, 'error' => self::IDLE_EXHAUSTED_MESSAGE, 'status' => 0]],
+            $this->auditRows,
+        );
+    }
+
+    #[Test]
+    public function theFactoryGivesAnIdleBoundOnlyWhenNoTotalTimeoutIsSet(): void
+    {
+        $this->vaultService->expects(self::never())->method('retrieve');
+
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout'] = 0;
+        $withoutTimeout = $this->clientFactory->createCancellable();
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout'] = 30;
+        $withTimeout = $this->clientFactory->createCancellable();
+
+        self::assertInstanceOf(CancellableTransport::class, $withoutTimeout);
+        self::assertInstanceOf(CancellableTransport::class, $withTimeout);
+        self::assertSame(60.0, $withoutTimeout->idleBudgetSeconds());
+        self::assertSame(SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS, $withoutTimeout->idleBudgetSeconds());
+        self::assertNull($withTimeout->idleBudgetSeconds());
+    }
+
+    #[Test]
+    public function bytesAndCompletionInOneStepAreNotAnEndUntilTheBytesAreRead(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker($transfer, [
+            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            2 => static function (StreamStubTransfer $t): void {
+                $t->deliverBytes("data: last\n");
+                $t->complete();
+            },
+        ]);
+
+        $body = $this->clientWithTransport($this->transportWith($transfer, $ticker))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendStreaming(new Request('GET', self::API_URL))
+            ->getBody();
+
+        self::assertFalse($body->eof(), 'A completed transfer with unread bytes is not at its end; a while (!eof()) loop would lose them.');
+        self::assertSame("data: last\n", $body->read(1024));
+        self::assertTrue($body->eof());
+    }
+
+    #[Test]
+    public function theWallClockBudgetAlsoEndsATransferAfterItHasBeenStepped(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker($transfer, [], 30_000);
+
+        try {
+            $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.05))
+                ->withAuthentication('api_key', SecretPlacement::Bearer)
+                ->sendStreaming(new Request('GET', self::API_URL));
+            self::fail('Expected the wall-clock bound to end the call.');
+        } catch (VaultException $e) {
+            self::assertSame(1790475709, $e->getCode());
+        }
+
+        self::assertGreaterThan(0, $ticker->ticks(), 'The bound must hold between steps, not only before the first.');
+        self::assertSame(1, $transfer->cancelCalls());
+    }
+
+    #[Test]
+    public function aZeroLengthReadReturnsNothingAndDoesNotStepTheTransport(): void
+    {
+        $body = $this->bodyAfterHead($transfer);
+        self::assertSame('first', $body->read(8192));
+
+        $ticker = $this->lastTicker;
+        self::assertInstanceOf(StreamStepTicker::class, $ticker);
+        $ticks = $ticker->ticks();
+
+        self::assertSame('', $body->read(0));
+        self::assertSame($ticks, $ticker->ticks(), 'read(0) must not drive the transfer.');
+        self::assertFalse($body->eof());
+    }
+
+    #[Test]
+    public function aNegativeLengthIsRefusedAndConsumesNothing(): void
+    {
+        $body = $this->bodyAfterHead($transfer);
+
+        try {
+            $body->read(-5);
+            self::fail('A negative length must be refused.');
+        } catch (VaultException $e) {
+            self::assertSame(1790487203, $e->getCode());
+        }
+
+        self::assertSame('first', $body->read(8192), 'The refused read took nothing from the buffer.');
+    }
+
+    #[Test]
+    public function getContentsPastTheLimitThrowsAndTearsTheTransferDown(): void
+    {
+        $this->vaultService->expects(self::exactly(2))->method('retrieve')->willReturn('s3cret');
+
+        $readers = [
+            'getContents' => static fn (StreamInterface $body): string => $body->getContents(),
+            '__toString' => static fn (StreamInterface $body): string => (string) $body,
+        ];
+
+        foreach ($readers as $method => $readAll) {
+            // Four MiB per step never overflows the sink; only the sum does.
+            // The stream ends after 28 MiB, so a missing limit shows as a
+            // returned string rather than as a memory fatal.
+            $transfer = new StreamStubTransfer();
+            $ticker = new StreamStepTicker(
+                $transfer,
+                [
+                    1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+                    9 => static fn (StreamStubTransfer $t) => $t->complete(),
+                ],
+                0,
+                static function (StreamStubTransfer $t, int $tick): void {
+                    if ($tick < 9) {
+                        $t->deliverBytes(str_repeat('x', 4 * 1024 * 1024));
+                    }
+                },
+            );
+
+            $body = $this->clientWithTransport($this->transportWith($transfer, $ticker))
+                ->withAuthentication('api_key', SecretPlacement::Bearer)
+                ->sendStreaming(new Request('GET', self::API_URL))
+                ->getBody();
+
+            try {
+                $readAll($body);
+                self::fail($method . '() must not accumulate an endless stream.');
+            } catch (VaultException $e) {
+                self::assertSame(1790487205, $e->getCode(), $method);
+                self::assertSame(self::CONTENTS_LIMIT_MESSAGE, $e->getMessage());
+            }
+
+            self::assertSame(1, $transfer->cancelCalls(), $method);
+            self::assertFalse($body->isReadable(), $method);
+            self::assertLessThan(8, $ticker->ticks(), $method . ' stopped at the limit, not later.');
+        }
+    }
+
+    #[Test]
+    public function aSignalThatThrowsWhileReadingTearsTheTransferDown(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker($transfer, [
+            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
+        ]);
+        // Pre-flight and the two steps before return answer; the next one throws.
+        $signal = new StreamThrowingSignal(3);
+
+        $body = $this->clientWithTransport($this->transportWith($transfer, $ticker))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendStreaming(new Request('GET', self::API_URL), $signal)
+            ->getBody();
+
+        self::assertSame('first', $body->read(8192));
+
+        try {
+            $body->read(8192);
+            self::fail('Expected the signal to throw.');
+        } catch (RuntimeException $e) {
+            self::assertSame(1790475902, $e->getCode());
+        }
+
+        self::assertSame(1, $transfer->cancelCalls(), 'The transfer must be torn down at the throw, not when the body is dropped.');
+        self::assertFalse($body->isReadable());
+        $this->assertReadRefusedAsClosed($body);
     }
 
     #[Test]
@@ -789,7 +1057,7 @@ final class VaultHttpClientStreamingTest extends TestCase
             ->getBody();
 
         self::assertSame('partial', $body->read(8192), 'The bytes that arrived are handed out first.');
-        self::assertFalse($body->eof(), 'A failed transfer never reports end of stream.');
+        self::assertFalse($body->eof(), 'A transfer still running is not at its end.');
 
         try {
             $body->read(8192);
@@ -799,6 +1067,8 @@ final class VaultHttpClientStreamingTest extends TestCase
             self::assertSame(self::BODY_FAILED_MESSAGE, $e->getMessage());
             self::assertSame($failure, $e->getPrevious());
         }
+
+        self::assertFalse($body->eof(), 'A failed transfer never reports end of stream.');
 
         self::assertCount(1, $this->auditRows, 'The row was written at the head; the body writes none.');
     }
@@ -1100,6 +1370,7 @@ final class VaultHttpClientStreamingTest extends TestCase
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
         ]);
+        $this->lastTicker = $ticker;
 
         return $this->clientWithTransport($this->transportWith($transfer, $ticker))
             ->withAuthentication('api_key', SecretPlacement::Bearer)
@@ -1122,6 +1393,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         StreamStubTransfer $transfer,
         TransportTickerInterface $ticker,
         ?float $budget = null,
+        ?float $idle = null,
     ): CancellableTransport {
         $real = $this->clientFactory->createCancellable();
         self::assertInstanceOf(CancellableTransport::class, $real);
@@ -1133,7 +1405,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         self::assertInstanceOf(HandlerStack::class, $handler);
         $handler->setHandler($transfer->handler());
 
-        return new CancellableTransport($client, $ticker, $budget ?? $real->wallClockBudgetSeconds());
+        return new CancellableTransport($client, $ticker, $budget ?? $real->wallClockBudgetSeconds(), $idle);
     }
 
     private function clientWithTransport(CancellableTransport $transport): VaultHttpClient
@@ -1301,25 +1573,36 @@ final class StreamStepTicker implements TransportTickerInterface
 
     /**
      * @param array<int, Closure(StreamStubTransfer): void> $script
+     * @param int $sleepMicroseconds How long each tick takes, as a curl_multi_select would
+     * @param (Closure(StreamStubTransfer, int): void)|null $otherwise Runs on ticks the script does not name
      */
     public function __construct(
         private readonly StreamStubTransfer $transfer,
         private readonly array $script,
+        private readonly int $sleepMicroseconds = 0,
+        private readonly ?Closure $otherwise = null,
     ) {}
 
     public function tick(): void
     {
         ++$this->ticks;
 
+        if ($this->sleepMicroseconds > 0) {
+            usleep($this->sleepMicroseconds);
+        }
+
         // A loop that lost its bound would otherwise spin until the runner's
-        // timeout; fail it as a test instead.
-        if ($this->ticks > 10_000) {
+        // timeout; fail it as a test instead. A sleeping ticker gets a lower
+        // ceiling so that failure still arrives within seconds.
+        if ($this->ticks > ($this->sleepMicroseconds > 0 ? 250 : 10_000)) {
             throw new RuntimeException('The transport was ticked without end; nothing bounded the loop.', 1790475903);
         }
 
         $step = $this->script[$this->ticks] ?? null;
         if ($step !== null) {
             $step($this->transfer);
+        } elseif ($this->otherwise instanceof Closure) {
+            ($this->otherwise)($this->transfer, $this->ticks);
         }
     }
 
