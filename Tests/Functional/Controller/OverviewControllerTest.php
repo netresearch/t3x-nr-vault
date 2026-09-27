@@ -110,9 +110,10 @@ final class OverviewControllerTest extends AbstractVaultFunctionalTestCase
         $html = $this->renderHelpPage();
         $links = $this->linkPaths($html);
 
-        // The docheader tab menu: one entry per tab, titled like the tab.
-        self::assertSame(['typo3/module/admin/vault/overview/help'], $links['title=Help'] ?? null);
-        self::assertSame(['typo3/module/admin/vault/overview'], $links['title=Dashboard'] ?? null);
+        // The docheader tab menu: one entry per tab. 13.4 renders it as a
+        // <select>, 14.3 as a dropdown of titled links.
+        self::assertSame(['typo3/module/admin/vault/overview/help'], $links['menu=Help'] ?? null);
+        self::assertSame(['typo3/module/admin/vault/overview'], $links['menu=Dashboard'] ?? null);
         // The "Visit the Dashboard" link in the page body carries no title.
         self::assertSame(['typo3/module/admin/vault/overview'], $links['text=Dashboard'] ?? null);
     }
@@ -135,9 +136,11 @@ final class OverviewControllerTest extends AbstractVaultFunctionalTestCase
     }
 
     /**
-     * Paths of the links in $html, keyed by `title=<title>` for links with a
-     * title and `text=<text>` for links without one. The route token is
-     * dropped: it differs per route and says nothing about the target.
+     * Link targets in $html without the leading slash (14.3 renders relative
+     * hrefs) and without the route token, which differs per route and says
+     * nothing about the target. Docheader menu entries are keyed
+     * `menu=<label>`: an <option> on 13.4, a titled link on 14.3. Links
+     * without a title are keyed `text=<text>`.
      *
      * @return array<string, list<string>>
      */
@@ -150,15 +153,28 @@ final class OverviewControllerTest extends AbstractVaultFunctionalTestCase
         libxml_use_internal_errors($previous);
 
         $links = [];
+        foreach ($document->getElementsByTagName('option') as $option) {
+            $links['menu=' . $this->text($option->textContent)][] = $this->path($option->getAttribute('value'));
+        }
+
         foreach ($document->getElementsByTagName('a') as $anchor) {
-            $path = (string) parse_url($anchor->getAttribute('href'), PHP_URL_PATH);
             $key = $anchor->getAttribute('title') !== ''
-                ? 'title=' . $anchor->getAttribute('title')
-                : 'text=' . trim((string) preg_replace('/\s+/', ' ', $anchor->textContent));
-            $links[$key][] = $path;
+                ? 'menu=' . $anchor->getAttribute('title')
+                : 'text=' . $this->text($anchor->textContent);
+            $links[$key][] = $this->path($anchor->getAttribute('href'));
         }
 
         return $links;
+    }
+
+    private function path(string $url): string
+    {
+        return ltrim((string) parse_url($url, PHP_URL_PATH), '/');
+    }
+
+    private function text(string $text): string
+    {
+        return trim((string) preg_replace('/\s+/', ' ', $text));
     }
 
     private function renderHelpPage(): string
