@@ -937,6 +937,10 @@ additive, so consumers feature-detect it:
        }
    }
 
+The loop has no ``try`` on purpose. When :php:`read()` throws, stop reading:
+a failed body never reaches :php:`eof()`, so a loop that catches the exception
+and goes on asking :php:`eof()` never ends.
+
 What the body does:
 
 *   :php:`read()` returns the bytes that have arrived. When none have, it drives
@@ -967,17 +971,22 @@ What the body does:
     :php:`withTimeout()`), it ends at that timeout, and a long stream needs a
     long timeout, as a long blocking call does. Without one (``timeout = 0``,
     the default on TYPO3 13.4 and 14.3), a stream that keeps delivering lives,
-    and one whose server sends nothing — no headers, no bytes — for 60 seconds
-    ends with ``Streaming transfer received nothing within its idle limit and
-    was aborted``. Pausing between your own reads does not count: what the
-    server sent meanwhile is collected first. A server trickling a byte every few seconds is not stopped in
-    that case, exactly as on :php:`sendRequest()`; set a ``timeout`` for a hard
-    ceiling. Only reading drives the transfer.
-*   Any exception while the body is read — including one from a signal that
-    breaks its "must not throw" rule — closes the body and releases the
-    connection at once. After such a failure :php:`eof()` stays false, so a
-    loop on :php:`eof()` cannot mistake a truncated body for a complete one;
-    it becomes true only when you call :php:`close()`.
+    and one whose server sends nothing for 60 seconds — no final head, no body
+    bytes after it — ends with ``Streaming transfer received nothing within its
+    idle limit and was aborted``. Interim ``1xx`` heads and the raw bytes after
+    an unsolicited ``101 Switching Protocols`` count as nothing. Pausing
+    between your own reads does not count either: what the server sent
+    meanwhile is collected first. A server trickling a byte every few seconds
+    after its head is not stopped in that case, exactly as on
+    :php:`sendRequest()`; set a ``timeout`` for a hard ceiling. Only reading
+    drives the transfer.
+*   Any exception while the body is read — a failed transfer, or one from a
+    signal that breaks its "must not throw" rule — closes the body and
+    releases the connection at once: :php:`isReadable()` turns false and every
+    further :php:`read()` throws. After such a failure :php:`eof()` stays false,
+    so a loop on :php:`eof()` cannot mistake a truncated body for a complete
+    one; it becomes true only when you call :php:`close()` or :php:`detach()`.
+    Stop at the first exception.
 *   At most 16 MiB of unread body is buffered. A single transport step that
     delivers more — typically a small compressed body that decodes to a very
     large one — fails the transfer with the message ``Streaming transfer
