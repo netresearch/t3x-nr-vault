@@ -920,6 +920,52 @@ final class VaultHttpClientStreamingTest extends TestCase
         self::assertSame(0, $transfer->cancelCalls());
     }
 
+    // =========================================================================
+    // Review round 6
+    // =========================================================================
+
+    #[Test]
+    public function aSwitchingProtocolsResponseThatEndsIsReturnedWithAStreamingBodyNotTheSink(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // The curl handler's path after an unsolicited `101`: on_headers sees
+        // the 101 (no final head), the raw bytes land in the sink, the server
+        // closes, and the transfer settles with the 101 whose body is the sink.
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker($transfer, [
+            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(101, ['Upgrade' => 'websocket'], 'Switching Protocols'),
+            2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('RAWBYTES'),
+            3 => static function (StreamStubTransfer $t): void {
+                $sink = $t->options()['sink'] ?? null;
+                \assert($sink instanceof StreamInterface);
+                $t->settleWithValue(new Response(101, ['Upgrade' => 'websocket'], $sink, '1.1', 'Switching Protocols'));
+            },
+        ]);
+
+        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendStreaming(new Request('GET', self::API_URL));
+
+        self::assertSame(101, $response->getStatusCode());
+        self::assertSame('websocket', $response->getHeaderLine('Upgrade'));
+
+        $body = $response->getBody();
+        self::assertInstanceOf(StreamingResponseBody::class, $body, 'The internal sink must never be handed out as the body.');
+
+        $read = '';
+        for ($i = 0; $i < 10 && !$body->eof(); ++$i) {
+            $read .= $body->read(8192);
+        }
+
+        self::assertSame('RAWBYTES', $read);
+        self::assertTrue($body->eof());
+        self::assertSame(
+            [['action' => 'http_call', 'success' => true, 'error' => null, 'status' => 101]],
+            $this->auditRows,
+        );
+    }
+
     /**
      * @return iterable<string, array{0: Closure(StreamStubTransfer): void, 1: int}>
      */
