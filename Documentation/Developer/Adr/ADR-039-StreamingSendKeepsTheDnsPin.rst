@@ -109,8 +109,10 @@ libcurl decodes ``Content-Encoding`` inside a transport step, and a step runs un
 With an unbounded buffer, 260,934 bytes of gzip grew the process by about 190 MiB before ``sendStreaming()`` returned, against 14 MiB on the blocking path, which spills its body to ``php://temp`` (same review).
 
 ``StreamingSink`` holds at most 16 MiB of unread body.
-A write that would pass that bound is refused whole and ``write()`` answers ``0``; both Guzzle majors turn a short write into cURL error 23, so the transfer fails closed.
-The failure carries its own fixed literal, ``Streaming transfer aborted: one step delivered more body than the 16 MiB streaming buffer holds``, from ``sendStreaming()`` (code ``1790487102``, and the literal is the audit row's message with ``success = false``) or from ``read()`` (code ``1790487103``), with the cURL error as the previous exception — so an operator can tell the bound from a dropped connection.
+A write that would pass that bound is refused whole and ``write()`` answers ``0``; both Guzzle majors abort the transfer on a short write, so it fails closed — Guzzle 7 reports cURL error 23, Guzzle 8.2 ``Unable to write to stream``.
+The sink records the refusal, and that record, not the transport's message, is what the translation below keys on.
+The failure carries its own fixed literal, ``Streaming transfer aborted: one step delivered more body than the 16 MiB streaming buffer holds``, from ``sendStreaming()`` (code ``1790487102``, and the literal is the audit row's message with ``success = false``) or from ``read()`` (code ``1790487103``), with the transport's exception as the previous one — so an operator can tell the bound from a dropped connection.
+Before throwing from ``sendStreaming()`` the sink is closed: the transport's exception carries the response it had built, whose body is the sink, and a caller holding the exception would otherwise keep up to 16 MiB alive (``aStepThatOverflowsTheSinkBeforeReturnFailsWithItsOwnLiteral()``, ``aCompressionBombFailsClosedWithBoundedMemory()``).
 
 The bound counts unread bytes, and ``read()`` steps the transport only when the buffer is empty, so it limits what one step may deliver.
 Measured on loopback against a server writing 64 MiB of plain data in 64 KiB writes, the largest single step delivered 360,448 bytes (three runs, all equal), and the whole body streamed to the end (``aLargePlainBodyStreamsToTheEndUnderTheBufferLimit()``).

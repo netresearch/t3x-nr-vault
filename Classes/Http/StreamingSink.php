@@ -21,9 +21,10 @@ use Psr\Http\Message\StreamInterface;
  * Bounded because one transport step can deliver far more than the network
  * carried: libcurl decodes `Content-Encoding` inside the step, so 255 KiB of
  * gzip becomes 256 MiB of body before `sendStreaming()` gets control back.
- * Past the limit, `write()` accepts nothing and answers 0; both supported Guzzle
- * majors turn a short write into cURL error 23, so the transfer fails closed
- * and `overflowed()` tells the caller why.
+ * Past the limit, `write()` accepts nothing and answers 0. Both supported Guzzle
+ * majors abort the transfer on a short write, so it fails closed — Guzzle 7
+ * reports cURL error 23, Guzzle 8 "Unable to write to stream" — and
+ * `overflowed()` is what tells the caller why, whichever message came back.
  *
  * Reads move an offset instead of copying the rest of the buffer on every call,
  * and the consumed prefix is dropped once it is at least half the buffer, so
