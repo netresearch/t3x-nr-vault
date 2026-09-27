@@ -77,6 +77,15 @@ final class StreamingResponseBody implements StreamInterface
 
     private bool $closed = false;
 
+    /**
+     * Set together with `$closed` on every failure path — cancellation, a
+     * bound, a throw during a step, the `getContents()` limit. While it is set
+     * `eof()` answers false, so a consumer that swallows the exception and
+     * loops on `eof()` cannot take a truncated body for a complete one. Only an
+     * explicit `close()` or `detach()` clears it.
+     */
+    private bool $failed = false;
+
     private int $position = 0;
 
     /**
@@ -114,6 +123,7 @@ final class StreamingResponseBody implements StreamInterface
     public function close(): void
     {
         $this->closed = true;
+        $this->failed = false;
         $this->transfer->abandon();
     }
 
@@ -136,6 +146,10 @@ final class StreamingResponseBody implements StreamInterface
 
     public function eof(): bool
     {
+        if ($this->failed) {
+            return false;
+        }
+
         return $this->closed
             || ($this->transfer->isSettled() && !$this->transfer->isRejected() && $this->sink->getSize() === 0);
     }
@@ -228,26 +242,26 @@ final class StreamingResponseBody implements StreamInterface
                 $step = $this->transfer->advance();
             } catch (Throwable $throwable) {
                 // advance() tore the transfer down already; the body is
-                // finished too.
-                $this->closed = true;
+                // finished too, and did not complete.
+                $this->fail();
 
                 throw $throwable;
             }
 
             if ($step === StreamingTransfer::CANCELLED) {
-                $this->closed = true;
+                $this->fail();
 
                 throw new RequestCancelledException(self::CANCELLED_MESSAGE, 1790475704);
             }
 
             if ($step === StreamingTransfer::BUDGET_EXHAUSTED) {
-                $this->closed = true;
+                $this->fail();
 
                 throw new VaultException(self::BUDGET_EXHAUSTED_MESSAGE, 1790475705);
             }
 
             if ($step === StreamingTransfer::IDLE_EXHAUSTED) {
-                $this->closed = true;
+                $this->fail();
 
                 throw new VaultException(self::IDLE_EXHAUSTED_MESSAGE, 1790487202);
             }
@@ -273,7 +287,8 @@ final class StreamingResponseBody implements StreamInterface
             $contents .= $chunk;
 
             if (\strlen($contents) > StreamingSink::DEFAULT_LIMIT_BYTES) {
-                $this->close();
+                $this->transfer->abandon();
+                $this->fail();
 
                 throw new VaultException(self::CONTENTS_LIMIT_MESSAGE, 1790487205);
             }
@@ -285,5 +300,15 @@ final class StreamingResponseBody implements StreamInterface
     public function getMetadata(?string $key = null)
     {
         return $key === null ? [] : null;
+    }
+
+    /**
+     * Finish the body without completing it: no further reads, and no end of
+     * stream to report. The transfer has been torn down by the caller.
+     */
+    private function fail(): void
+    {
+        $this->closed = true;
+        $this->failed = true;
     }
 }

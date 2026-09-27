@@ -414,6 +414,35 @@ final class StreamingSendTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function aConsumerPausingLongerThanTheIdleBoundMissesNothing(): void
+    {
+        $this->setHttpConfiguration(['timeout' => 0, 'connect_timeout' => 1]);
+
+        // A one-second idle bound, a line every 200 ms, and a consumer that
+        // stops reading for two seconds after the first line: the server never
+        // went quiet, so the stream must not be cut.
+        $factory = new SecureHttpClientFactory(new PinnedDnsResolver(self::LOOPBACK_HOST));
+        $real = $factory->createCancellable();
+        self::assertInstanceOf(CancellableTransport::class, $real);
+        $client = new VaultHttpClient(
+            vaultService: $this->vaultService(),
+            auditLogService: $this->auditLogService(),
+            secureHttpClientFactory: $factory,
+            cancellableTransport: new CancellableTransport($real->client(), $real->ticker(), $real->wallClockBudgetSeconds(), 1.0),
+        );
+
+        $body = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=10&delay_ms=200')))->getBody();
+        $pending = '';
+        $lines = $this->readCompleteLines($body, 1, $pending);
+
+        usleep(2_000_000);
+
+        $lines = [...$lines, ...$this->readCompleteLines($body, 9, $pending)];
+        self::assertSame(['chunk 1', 'chunk 2', 'chunk 3', 'chunk 4', 'chunk 5', 'chunk 6', 'chunk 7', 'chunk 8', 'chunk 9', 'chunk 10'], array_column($lines, 'text'));
+        self::assertSame('', $body->read(8192));
+    }
+
+    #[Test]
     public function aSignalThatThrowsWhileReadingReleasesTheTransferAtOnce(): void
     {
         [$client, $multi] = $this->clientWithObservableTransport();
@@ -886,9 +915,6 @@ final class StreamingSendTest extends FunctionalTestCase
 }
 
 /**
- * A signal the test sets by hand.
- */
-/**
  * Breaks the "MUST NOT throw" contract once armed.
  */
 final class ArmableThrowingSignal implements CancellationSignalInterface
@@ -910,6 +936,9 @@ final class ArmableThrowingSignal implements CancellationSignalInterface
     }
 }
 
+/**
+ * A signal the test sets by hand.
+ */
 final class SwitchableSignal implements CancellationSignalInterface
 {
     private bool $cancelled = false;

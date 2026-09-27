@@ -54,6 +54,8 @@ final class StreamingSink implements StreamInterface
 
     private int $consumed = 0;
 
+    private int $accepted = 0;
+
     private bool $overflowed = false;
 
     public function __construct(private readonly int $limitBytes = self::DEFAULT_LIMIT_BYTES) {}
@@ -74,6 +76,15 @@ final class StreamingSink implements StreamInterface
     public function limitBytes(): int
     {
         return $this->limitBytes;
+    }
+
+    /**
+     * Every byte ever accepted, read or not. Only grows — `close()` and reads
+     * leave it alone — so it can measure progress.
+     */
+    public function bytesAccepted(): int
+    {
+        return $this->accepted;
     }
 
     public function close(): void
@@ -145,6 +156,7 @@ final class StreamingSink implements StreamInterface
         }
 
         $this->buffer .= $string;
+        $this->accepted += \strlen($string);
 
         return \strlen($string);
     }

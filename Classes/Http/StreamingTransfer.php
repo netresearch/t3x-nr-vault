@@ -22,9 +22,14 @@ use Throwable;
  *
  * Shared by the two phases of `VaultHttpClient::sendStreaming()`: the wait for
  * the final head and its first body bytes, and every `read()` afterwards. Both need
- * the same step — poll the signal, check the wall-clock bound, tick the
- * transport, run the promise queue — and the same teardown, so it lives here
- * once.
+ * the same step — poll the signal, tick the transport, run the promise queue,
+ * enforce the bound — and the same teardown, so it lives here once.
+ *
+ * The bound is one of two. With a total timeout it is a wall-clock budget
+ * from the start of the transfer, checked before each tick. Without one it is
+ * an idle bound on silence, checked after each tick: the step first collects
+ * whatever arrived while nobody was reading, so a consumer's own pause between
+ * two reads is never mistaken for a silent server.
  *
  * Settlement is observed through `then()` handlers, never through the promise
  * state: a promise resolved with another promise reads as fulfilled while the
@@ -81,9 +86,9 @@ final class StreamingTransfer
      *                                      when the transport has no total timeout, so
      *                                      that a stream still delivering is not cut
      *                                      off while one that stalls still ends
-     * @param (Closure(): int)|null $progress Grows whenever the transfer received something
-     *                                        (a response head, body bytes); required in
-     *                                        idle mode
+     * @param (Closure(): int)|null $progress A counter that grows whenever the transfer received
+     *                                        something (a response head, body bytes) and
+     *                                        never shrinks; required in idle mode
      */
     public function __construct(
         private readonly PromiseInterface $promise,
@@ -116,17 +121,24 @@ final class StreamingTransfer
     /**
      * Make one step of progress, or refuse to.
      *
-     * Checks the signal first and the bound second; either one tears the
-     * transfer down before it returns its answer, so a caller that gets
-     * `CANCELLED`, `BUDGET_EXHAUSTED` or `IDLE_EXHAUSTED` has nothing left to
-     * clean up. So does a throw — from the caller's signal, which must not
-     * throw but might, or from the ticker: the transfer is torn down before
-     * the throwable leaves, on the body path as on the head path.
+     * Checks the signal first. Any of the three refusals tears the transfer
+     * down before it returns its answer, so a caller that gets `CANCELLED`,
+     * `BUDGET_EXHAUSTED` or `IDLE_EXHAUSTED` has nothing left to clean up. So
+     * does a throw — from the caller's signal, which must not throw but might,
+     * or from the ticker: the transfer is torn down before the throwable
+     * leaves, on the body path as on the head path.
+     *
+     * The wall-clock bound is checked before the tick. The idle bound is
+     * checked after it, once what arrived meanwhile has been counted: time the
+     * consumer spent between two reads is not silence if the server sent
+     * something in it, and a transfer that has settled is not aborted.
      *
      * @return self::STEPPED|self::CANCELLED|self::BUDGET_EXHAUSTED|self::IDLE_EXHAUSTED
      */
     public function advance(): int
     {
+        $idle = $this->idleBudgetSeconds !== null && $this->progress instanceof Closure;
+
         try {
             if ($this->signal?->isCancelled() === true) {
                 $this->abandon();
@@ -134,10 +146,10 @@ final class StreamingTransfer
                 return self::CANCELLED;
             }
 
-            if (microtime(true) >= $this->deadline) {
+            if (!$idle && microtime(true) >= $this->deadline) {
                 $this->abandon();
 
-                return $this->idleBudgetSeconds !== null ? self::IDLE_EXHAUSTED : self::BUDGET_EXHAUSTED;
+                return self::BUDGET_EXHAUSTED;
             }
 
             $this->ticker->tick();
@@ -151,11 +163,20 @@ final class StreamingTransfer
             throw $throwable;
         }
 
-        if ($this->idleBudgetSeconds !== null && $this->progress instanceof Closure) {
+        if ($idle) {
+            // Only growth counts: a counter that went down (it cannot, by
+            // contract, but the closure is not ours to trust) must not buy the
+            // transfer more time.
             $progress = ($this->progress)();
-            if ($progress !== $this->lastProgress) {
+            if ($progress > $this->lastProgress) {
                 $this->lastProgress = $progress;
-                $this->deadline = microtime(true) + $this->idleBudgetSeconds;
+                $this->deadline = microtime(true) + (float) $this->idleBudgetSeconds;
+            }
+
+            if (!$this->settled && microtime(true) >= $this->deadline) {
+                $this->abandon();
+
+                return self::IDLE_EXHAUSTED;
             }
         }
 
