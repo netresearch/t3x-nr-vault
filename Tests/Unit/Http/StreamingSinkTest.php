@@ -97,6 +97,23 @@ final class StreamingSinkTest extends TestCase
     }
 
     #[Test]
+    public function aNegativeLengthIsRefusedAndConsumesNothing(): void
+    {
+        $sink = new StreamingSink(100);
+        $sink->write('event: one');
+
+        try {
+            $sink->read(-5);
+            self::fail('substr() would hand out all but the last five bytes.');
+        } catch (VaultException $e) {
+            self::assertSame(1790487204, $e->getCode());
+        }
+
+        self::assertSame(10, $sink->getSize());
+        self::assertSame('event: one', $sink->read(100));
+    }
+
+    #[Test]
     public function itIsWritableButNeitherSeekableNorExposingMetadata(): void
     {
         $sink = new StreamingSink();

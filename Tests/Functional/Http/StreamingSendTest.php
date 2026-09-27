@@ -358,6 +358,91 @@ final class StreamingSendTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function withoutATotalTimeoutAStreamStillDeliveringOutlivesTheOldBudget(): void
+    {
+        // TYPO3 14.3's default: no total timeout. The wall-clock budget would
+        // be 0 + 1 + 5 = 6 s; the stream takes about 7.7 s and keeps
+        // delivering, so only an idle bound lets it finish.
+        $this->setHttpConfiguration(['timeout' => 0, 'connect_timeout' => 1]);
+
+        $start = microtime(true);
+        $body = $this->client()->sendStreaming(new Request('GET', $this->url('/chunks?count=12&delay_ms=700')))->getBody();
+        $pending = '';
+        $lines = $this->readCompleteLines($body, 12, $pending);
+
+        self::assertCount(12, $lines);
+        self::assertGreaterThan(6.0, microtime(true) - $start, 'Control: the stream ran longer than the old budget.');
+        self::assertSame('', $body->read(8192));
+        self::assertTrue($body->eof());
+    }
+
+    #[Test]
+    public function withoutATotalTimeoutAStalledStreamEndsAtTheIdleBound(): void
+    {
+        $this->setHttpConfiguration(['timeout' => 0, 'connect_timeout' => 1]);
+
+        // The factory's own transport, with the 60-second idle bound shortened
+        // to one so the test does not wait a minute; the route then stays
+        // silent for 30 seconds.
+        $factory = new SecureHttpClientFactory(new PinnedDnsResolver(self::LOOPBACK_HOST));
+        $real = $factory->createCancellable();
+        self::assertInstanceOf(CancellableTransport::class, $real);
+        self::assertSame(SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS, $real->idleBudgetSeconds());
+        $client = new VaultHttpClient(
+            vaultService: $this->vaultService(),
+            auditLogService: $this->auditLogService(),
+            secureHttpClientFactory: $factory,
+            cancellableTransport: new CancellableTransport($real->client(), $real->ticker(), $real->wallClockBudgetSeconds(), 1.0),
+        );
+
+        $body = $client->sendStreaming(new Request('GET', $this->url('/stall')))->getBody();
+        $pending = '';
+        self::assertSame('before stall', $this->readCompleteLines($body, 1, $pending)[0]['text']);
+
+        $start = microtime(true);
+        $caught = null;
+
+        try {
+            $body->read(8192);
+        } catch (VaultException $e) {
+            $caught = $e;
+        }
+
+        self::assertInstanceOf(VaultException::class, $caught, 'A silent stream must end without a total timeout too.');
+        self::assertSame(1790487202, $caught->getCode());
+        self::assertLessThan(5.0, microtime(true) - $start, 'The one-second idle bound must end it, not the 30-second stall.');
+    }
+
+    #[Test]
+    public function aSignalThatThrowsWhileReadingReleasesTheTransferAtOnce(): void
+    {
+        [$client, $multi] = $this->clientWithObservableTransport();
+        $signal = new ArmableThrowingSignal();
+
+        $body = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=50&delay_ms=100')), $signal)->getBody();
+        $pending = '';
+        $this->readCompleteLines($body, 1, $pending);
+        self::assertSame(1, $this->activeTransfers($multi));
+
+        $signal->arm();
+        $caught = null;
+
+        try {
+            for ($read = 0; $read < 1000; ++$read) {
+                if ($body->read(8192) === '') {
+                    break;
+                }
+            }
+        } catch (RuntimeException $e) {
+            $caught = $e;
+        }
+
+        self::assertInstanceOf(RuntimeException::class, $caught);
+        self::assertSame(0, $this->activeTransfers($multi), 'The transfer must be released at the throw, while the body is still held.');
+        self::assertFalse($body->isReadable());
+    }
+
+    #[Test]
     public function aTransferThatFailsMidStreamThrowsFromReadAfterTheBytesThatArrived(): void
     {
         $response = $this->client()->sendStreaming(new Request('GET', $this->url('/truncated')));
@@ -803,6 +888,28 @@ final class StreamingSendTest extends FunctionalTestCase
 /**
  * A signal the test sets by hand.
  */
+/**
+ * Breaks the "MUST NOT throw" contract once armed.
+ */
+final class ArmableThrowingSignal implements CancellationSignalInterface
+{
+    private bool $armed = false;
+
+    public function arm(): void
+    {
+        $this->armed = true;
+    }
+
+    public function isCancelled(): bool
+    {
+        if ($this->armed) {
+            throw new RuntimeException('the signal broke its contract', 1790487301);
+        }
+
+        return false;
+    }
+}
+
 final class SwitchableSignal implements CancellationSignalInterface
 {
     private bool $cancelled = false;

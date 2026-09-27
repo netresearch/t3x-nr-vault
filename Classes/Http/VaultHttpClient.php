@@ -199,6 +199,14 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
     private const STREAMING_REJECTED_MESSAGE = 'Streaming transfer was rejected';
 
     /**
+     * Fixed literal for a streaming transfer on a transport without a total
+     * timeout that received nothing — no head, no body byte — for
+     * `SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS`.
+     */
+    private const STREAMING_IDLE_EXHAUSTED_MESSAGE
+        = 'Streaming transfer received nothing within its idle limit and was aborted';
+
+    /**
      * Fixed literal for a streaming transfer the bounded sink stopped: one
      * transport step delivered more unread body than `StreamingSink` holds,
      * typically a small compressed body that decodes to a very large one.
@@ -1234,11 +1242,17 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 },
             ]);
 
+            // Without a total timeout the bound is on silence, not duration:
+            // anything received — a head, a body byte — moves it forward.
             $transfer = new StreamingTransfer(
                 $promise,
                 $transport->ticker(),
                 $transport->wallClockBudgetSeconds(),
                 $signal,
+                $transport->idleBudgetSeconds(),
+                static function () use (&$head, $sink): int {
+                    return $sink->tell() + $sink->getSize() + ($head instanceof ResponseInterface ? 1 : 0);
+                },
             );
 
             while ((!$head instanceof ResponseInterface || $sink->getSize() <= 0) && !$transfer->isSettled()) {
@@ -1257,6 +1271,13 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                     $outcomeRecorded = true;
 
                     throw new VaultException(self::STREAMING_BUDGET_EXHAUSTED_MESSAGE, 1790475709);
+                }
+
+                if ($step === StreamingTransfer::IDLE_EXHAUSTED) {
+                    $auditMessage = self::STREAMING_IDLE_EXHAUSTED_MESSAGE;
+                    $outcomeRecorded = true;
+
+                    throw new VaultException(self::STREAMING_IDLE_EXHAUSTED_MESSAGE, 1790487201);
                 }
             }
 

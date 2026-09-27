@@ -46,6 +46,8 @@ final class StreamingSink implements StreamInterface
 
     private const NOT_SEEKABLE_MESSAGE = 'Streaming sink is not seekable';
 
+    private const NEGATIVE_LENGTH_MESSAGE = 'Streaming sink cannot read a negative length';
+
     private string $buffer = '';
 
     private int $offset = 0;
@@ -154,6 +156,12 @@ final class StreamingSink implements StreamInterface
 
     public function read(int $length): string
     {
+        // substr() would read a negative length as "all but the last n bytes"
+        // and hand out a truncated chunk.
+        if ($length < 0) {
+            throw new VaultException(self::NEGATIVE_LENGTH_MESSAGE, 1790487204);
+        }
+
         $chunk = substr($this->buffer, $this->offset, $length);
         $this->offset += \strlen($chunk);
         $this->consumed += \strlen($chunk);

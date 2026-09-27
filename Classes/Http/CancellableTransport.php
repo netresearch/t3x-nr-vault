@@ -54,11 +54,20 @@ final readonly class CancellableTransport
      *                                      have. If it does fire, the handler
      *                                      misbehaved — better to abort and
      *                                      audit than to hang a TYPO3 request.
+     * @param float|null $idleBudgetSeconds Set when the transport has no total
+     *                                      `timeout`: a streaming send then ends a
+     *                                      transfer that receives nothing for this
+     *                                      long, instead of applying the wall-clock
+     *                                      budget, which would kill a stream that is
+     *                                      still delivering. Null when a total
+     *                                      timeout exists. `sendCancellable()` does
+     *                                      not read it.
      */
     public function __construct(
         private GuzzleClientInterface $client,
         private TransportTickerInterface $ticker,
         private float $wallClockBudgetSeconds,
+        private ?float $idleBudgetSeconds = null,
     ) {}
 
     public function client(): GuzzleClientInterface
@@ -74,5 +83,10 @@ final readonly class CancellableTransport
     public function wallClockBudgetSeconds(): float
     {
         return $this->wallClockBudgetSeconds;
+    }
+
+    public function idleBudgetSeconds(): ?float
+    {
+        return $this->idleBudgetSeconds;
     }
 }
