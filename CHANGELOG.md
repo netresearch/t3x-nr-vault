@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A streaming send that keeps the DNS pin (#391).** `VaultHttpClient` implements the new calling interface `StreamingHttpClientInterface`: `sendStreaming()` returns once the response headers have arrived, and reading the body drives the transfer, so a caller sees a provider's streamed answer as it arrives instead of at the end. The transfer runs on the curl-multi transport of `sendCancellable()` with the `CURLOPT_RESOLVE` pin, the SSRF middleware, the host allowlist and the same credential injection; Guzzle's `stream` option, which bypasses the pin, is never set. Redirects are returned, not followed. A transfer that fails after the headers throws from `read()` instead of ending as a short body, a stalled one ends at the transfer timeout, and closing or dropping the body, or the cancellation signal, removes the transfer from the transport. Each call writes one `http_call` audit row when the headers arrive; the body is never logged. Consumers feature-detect with `instanceof` and `supportsStreaming()`. See ADR-039.
+
 ## [1.0.1] - 2026-09-24
 
 ### Security
