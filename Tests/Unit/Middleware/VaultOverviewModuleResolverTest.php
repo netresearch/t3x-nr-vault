@@ -16,9 +16,11 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\UriInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use TYPO3\CMS\Backend\Module\ModuleInterface;
 use TYPO3\CMS\Backend\Routing\Route;
+use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 
 /**
@@ -136,7 +138,7 @@ final class VaultOverviewModuleResolverTest extends TestCase
 
         self::assertSame(
             $expected,
-            (new VaultOverviewModuleResolver())->process($request, $this->handler($expected)),
+            $this->subject()->process($request, $this->handler($expected)),
         );
     }
 
@@ -156,7 +158,7 @@ final class VaultOverviewModuleResolverTest extends TestCase
 
         self::assertSame(
             $expected,
-            (new VaultOverviewModuleResolver())->process($request, $this->handler($expected)),
+            $this->subject()->process($request, $this->handler($expected)),
         );
     }
 
@@ -170,6 +172,67 @@ final class VaultOverviewModuleResolverTest extends TestCase
         // identifier alone would rewrite the remembered submodule when
         // somebody opens Help.
         $this->process($this->parentRoute(false, self::PARENT_PATH . '/help'));
+    }
+
+    /**
+     * TYPO3 13.4 rewrites every route of the parent module to a submodule's
+     * `_default` target, so `/module/admin/vault/help` rendered the overview or
+     * the submodule used last. A bookmark of that URL is redirected to the
+     * overview submodule's help route, whose module core does not rewrite.
+     */
+    #[Test]
+    public function theParentModulesHelpRouteRedirectsToTheOverviewSubmodulesHelp(): void
+    {
+        // The redirect does not touch the remembered submodule either.
+        $this->backendUser(['action' => 'admin_vault_secrets'])->expects($this->never())->method('pushModuleData');
+        $uriBuilder = $this->createMock(UriBuilder::class);
+        $uriBuilder->expects($this->once())
+            ->method('buildUriFromRoute')
+            ->with('admin_vault_overview.help')
+            ->willReturn($this->uri('/typo3/module/admin/vault/overview/help?token=t'));
+
+        $request = self::createStub(ServerRequestInterface::class);
+        $request->method('getAttribute')->willReturn($this->parentRoute(false, self::PARENT_PATH . '/help'));
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->expects($this->never())->method('handle');
+
+        $response = (new VaultOverviewModuleResolver($uriBuilder))->process($request, $handler);
+
+        self::assertSame(303, $response->getStatusCode());
+        self::assertSame('/typo3/module/admin/vault/overview/help?token=t', $response->getHeaderLine('Location'));
+    }
+
+    /**
+     * The overview itself and every other route of the parent keep reaching
+     * the handler: only the parent's `help` path is redirected.
+     */
+    #[Test]
+    public function onlyTheParentModulesHelpPathIsRedirected(): void
+    {
+        $this->backendUser(['action' => 'admin_vault_overview'])->expects($this->never())->method('pushModuleData');
+        $uriBuilder = $this->createMock(UriBuilder::class);
+        $uriBuilder->expects($this->never())->method('buildUriFromRoute');
+
+        foreach ([self::PARENT_PATH, self::PARENT_PATH . '/overview/help', self::PARENT_PATH . '/helpdesk'] as $path) {
+            $expected = self::createStub(ResponseInterface::class);
+            $request = self::createStub(ServerRequestInterface::class);
+            $request->method('getAttribute')->willReturn($this->parentRoute(false, $path));
+
+            self::assertSame($expected, (new VaultOverviewModuleResolver($uriBuilder))->process($request, $this->handler($expected)), $path);
+        }
+    }
+
+    private function uri(string $value): UriInterface
+    {
+        $uri = self::createStub(UriInterface::class);
+        $uri->method('__toString')->willReturn($value);
+
+        return $uri;
+    }
+
+    private function subject(): VaultOverviewModuleResolver
+    {
+        return new VaultOverviewModuleResolver(self::createStub(UriBuilder::class));
     }
 
     private function coreKnowsSubmoduleOverview(): bool
@@ -212,7 +275,7 @@ final class VaultOverviewModuleResolverTest extends TestCase
         $request = self::createStub(ServerRequestInterface::class);
         $request->method('getAttribute')->willReturn($route);
 
-        (new VaultOverviewModuleResolver())->process($request, $this->handler(self::createStub(ResponseInterface::class)));
+        $this->subject()->process($request, $this->handler(self::createStub(ResponseInterface::class)));
     }
 
     private function handler(ResponseInterface $response): RequestHandlerInterface

@@ -15,7 +15,9 @@ use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use TYPO3\CMS\Backend\Module\ModuleInterface;
 use TYPO3\CMS\Backend\Routing\Route;
+use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Http\RedirectResponse;
 
 /**
  * Make `/typo3/module/admin/vault` render the vault overview on every supported
@@ -50,6 +52,13 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
  *
  * On TYPO3 14 the module reports `hasSubmoduleOverview()`, core renders the
  * overview itself, and this middleware returns untouched.
+ *
+ * The parent's own `help` route (`/module/admin/vault/help`) is answered with a
+ * redirect to the overview submodule's help route. TYPO3 13.4 rewrites every
+ * route of the parent module, `help` included, to a submodule's `_default`
+ * target, so that URL rendered the overview or the submodule used last. The
+ * module links point at `admin_vault_overview.help`; the redirect keeps an old
+ * bookmark of the parent route working, identically on 13.4 and 14.3.
  */
 final readonly class VaultOverviewModuleResolver implements MiddlewareInterface
 {
@@ -61,6 +70,8 @@ final readonly class VaultOverviewModuleResolver implements MiddlewareInterface
     // only resolve a parent module to one of its children.
     private const OVERVIEW_MODULE = 'admin_vault_overview';
 
+    public function __construct(private UriBuilder $uriBuilder) {}
+
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         $route = $request->getAttribute('route');
@@ -71,6 +82,16 @@ final readonly class VaultOverviewModuleResolver implements MiddlewareInterface
         $module = $route->getOption('module');
         if (!$module instanceof ModuleInterface || $module->getIdentifier() !== self::PARENT_MODULE) {
             return $handler->handle($request);
+        }
+
+        // The route token in the target URL is issued for the logged-in user;
+        // without one there is nothing to redirect.
+        if ($route->getPath() === $module->getPath() . '/help' && ($GLOBALS['BE_USER'] ?? null) instanceof BackendUserAuthentication) {
+            /** @phpstan-ignore new.internalClass, method.internalClass */
+            return new RedirectResponse(
+                (string) $this->uriBuilder->buildUriFromRoute(self::OVERVIEW_MODULE . '.help'),
+                303,
+            );
         }
 
         // The parent module registers a `help` route as well, and every route

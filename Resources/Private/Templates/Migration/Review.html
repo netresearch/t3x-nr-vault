@@ -11,13 +11,7 @@
 <f:section name="Content">
     <h1><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.title" /></h1>
 
-    <!-- TYPO3 v14 native progress tracker -->
-    <div class="mb-4">
-        <typo3-backend-progress-tracker
-            active="1"
-            stages='["{f:translate(key: \'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan\')}","{f:translate(key: \'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.review\')}","{f:translate(key: \'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.configure\')}","Execute","{f:translate(key: \'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.verify\')}"]'>
-        </typo3-backend-progress-tracker>
-    </div>
+    <f:render partial="MigrationProgress" arguments="{stage: 2}" />
 
     <h2>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.review.title')}</h2>
     <p class="text-variant mb-4">
@@ -113,7 +107,7 @@
                 </div>
             </form>
 
-            <f:asset.module identifier="@netresearch/nr-vault/migration-review.js" />
+            <f:asset.module identifier="@netresearch/nr-vault/MigrationReview.js" />
         </f:then>
         <f:else>
             <f:be.infobox title="{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.review.no_secrets.title')}" state="1">

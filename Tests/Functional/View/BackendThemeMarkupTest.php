@@ -13,6 +13,7 @@ use DOMDocument;
 use DOMElement;
 use DOMNodeList;
 use DOMXPath;
+use PHPUnit\Framework\Attributes\DataProvider;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Page\AssetCollector;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -225,9 +226,39 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
             'secrets' => ['tx_demo.a' => ['table' => 'tx_demo', 'column' => 'a', 'count' => 1, 'severity' => 'low', 'patterns' => []]],
         ]);
 
-        self::assertContains('@netresearch/nr-vault/migration-review.js', $assets->getJavaScriptModules());
+        self::assertContains('@netresearch/nr-vault/MigrationReview.js', $assets->getJavaScriptModules());
         self::assertSame([], $assets->getInlineJavaScripts());
-        self::assertFileExists(__DIR__ . '/../../../Resources/Public/JavaScript/migration-review.js');
+        self::assertFileExists(__DIR__ . '/../../../Resources/Public/JavaScript/MigrationReview.js');
+    }
+
+    /**
+     * Each wizard step hands core's progress tracker a `stages` attribute that
+     * JSON.parse() accepts and a 1-based `active` step. The attribute used to be
+     * cut off by an escaped quote, so Lit's Array converter produced null and
+     * the element threw "Cannot read properties of null (reading 'length')".
+     *
+     * @return iterable<string, array{string, array<string, mixed>, int}>
+     */
+    public static function wizardSteps(): iterable
+    {
+        yield 'scan' => ['Migration/Scan', ['totalCount' => 0, 'databaseCount' => 0, 'configCount' => 0, 'groupedSecrets' => []], 1];
+        yield 'review' => ['Migration/Review', ['secrets' => []], 2];
+        yield 'configure' => ['Migration/Configure', ['migrations' => []], 3];
+        yield 'verify' => ['Migration/Verify', ['totalMigrated' => 0, 'totalFailed' => 0, 'clearOriginals' => false, 'results' => []], 5];
+    }
+
+    /**
+     * @param array<string, mixed> $variables
+     */
+    #[DataProvider('wizardSteps')]
+    public function testTheWizardProgressTrackerGetsParseableStagesAndItsOwnStep(string $template, array $variables, int $step): void
+    {
+        $html = $this->renderTemplate($template, $variables);
+
+        self::assertSame(1, preg_match('/<typo3-backend-progress-tracker\s+active="(\d+)"\s+stages="([^"]*)"/', $html, $match), 'tracker rendered');
+        $stages = json_decode(html_entity_decode($match[2], ENT_QUOTES | ENT_HTML5), true, 4, JSON_THROW_ON_ERROR);
+        self::assertSame(['Scan', 'Review', 'Configure', 'Execute', 'Verify'], $stages);
+        self::assertSame((string) $step, $match[1]);
     }
 
     public function testMigrationVerifyMapsEachOutcomeToItsCoreBadge(): void

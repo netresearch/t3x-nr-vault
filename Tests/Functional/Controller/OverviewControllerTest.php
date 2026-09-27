@@ -9,13 +9,24 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Controller;
 
+use DOMDocument;
 use Netresearch\NrVault\Controller\OverviewController;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Http\Message\ServerRequestInterface;
+use Symfony\Component\Routing\Route as SymfonyRoute;
+use TYPO3\CMS\Backend\Module\ModuleData;
 use TYPO3\CMS\Backend\Module\ModuleInterface;
+use TYPO3\CMS\Backend\Module\ModuleProvider;
+use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Backend\Routing\Router;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Http\NormalizedParams;
+use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 
 /**
  * Functional smoke tests for {@see OverviewController} wiring.
@@ -85,5 +96,93 @@ final class OverviewControllerTest extends AbstractVaultFunctionalTestCase
         }
 
         self::assertSame('/module/admin/vault/overview/help', $router->getRoute(OverviewController::HELP_ROUTE)?->getPath());
+    }
+
+    /**
+     * The links the Help page actually renders, read from its response: the
+     * Help and Dashboard entries of the docheader tab menu, and the dashboard
+     * link in the page body. Each must reach the overview submodule, not the
+     * `admin_vault` parent, which TYPO3 13.4 reroutes.
+     */
+    #[Test]
+    public function theHelpPageLinksItsTabsAndDashboardToTheOverviewSubmodule(): void
+    {
+        $html = $this->renderHelpPage();
+        $links = $this->linkPaths($html);
+
+        // The docheader tab menu: one entry per tab, titled like the tab.
+        self::assertSame(['typo3/module/admin/vault/overview/help'], $links['title=Help'] ?? null);
+        self::assertSame(['typo3/module/admin/vault/overview'], $links['title=Dashboard'] ?? null);
+        // The "Visit the Dashboard" link in the page body carries no title.
+        self::assertSame(['typo3/module/admin/vault/overview'], $links['text=Dashboard'] ?? null);
+    }
+
+    private function withModuleContext(ServerRequestInterface $request, Route|SymfonyRoute $route, ModuleInterface $module): ServerRequestInterface
+    {
+        /** @phpstan-ignore classConstant.internal */
+        $applicationType = SystemEnvironmentBuilder::REQUESTTYPE_BE;
+
+        $request = $request
+            ->withAttribute('applicationType', $applicationType)
+            ->withAttribute('route', $route)
+            ->withAttribute('module', $module)
+            ->withAttribute('moduleData', ModuleData::createFromModule($module, []));
+
+        /** @phpstan-ignore staticMethod.internal */
+        $normalizedParams = NormalizedParams::createFromRequest($request);
+
+        return $request->withAttribute('normalizedParams', $normalizedParams);
+    }
+
+    /**
+     * Paths of the links in $html, keyed by `title=<title>` for links with a
+     * title and `text=<text>` for links without one. The route token is
+     * dropped: it differs per route and says nothing about the target.
+     *
+     * @return array<string, list<string>>
+     */
+    private function linkPaths(string $html): array
+    {
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="utf-8"?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $links = [];
+        foreach ($document->getElementsByTagName('a') as $anchor) {
+            $path = (string) parse_url($anchor->getAttribute('href'), PHP_URL_PATH);
+            $key = $anchor->getAttribute('title') !== ''
+                ? 'title=' . $anchor->getAttribute('title')
+                : 'text=' . trim((string) preg_replace('/\s+/', ' ', $anchor->textContent));
+            $links[$key][] = $path;
+        }
+
+        return $links;
+    }
+
+    private function renderHelpPage(): string
+    {
+        $backendUser = $GLOBALS['BE_USER'];
+        self::assertInstanceOf(BackendUserAuthentication::class, $backendUser);
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->createFromUserPreferences($backendUser);
+
+        $route = $this->get(Router::class)->getRoute(OverviewController::HELP_ROUTE);
+        self::assertNotNull($route);
+        $module = $this->get(ModuleProvider::class)->getModule(OverviewController::OVERVIEW_ROUTE, $backendUser);
+        self::assertInstanceOf(ModuleInterface::class, $module);
+
+        // Same construction as SecretsControllerToggleAclTest: core marks
+        // ServerRequest, the request-type constant and NormalizedParams
+        // @internal and offers no public equivalent.
+        /** @phpstan-ignore new.internalClass, method.internalClass */
+        $request = new ServerRequest('https://localhost/typo3' . $route->getPath(), 'GET');
+        $request = $this->withModuleContext($request, $route, $module);
+        $GLOBALS['TYPO3_REQUEST'] = $request;
+
+        $response = $this->get(OverviewController::class)->helpAction($request);
+        self::assertSame(200, $response->getStatusCode());
+
+        return $response->getBody()->__toString();
     }
 }

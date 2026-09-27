@@ -1,0 +1,27 @@
+<html xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+      data-namespace-typo3-fluid="true">
+
+<!--
+    Progress tracker of the migration wizard: core's
+    <typo3-backend-progress-tracker> (13.4 and 14.3).
+
+    Expects `stage`, the 1-based position of the current step: the element
+    shows `stages[active - 1]` and clamps `active` to 1..count.
+
+    `stages` is a JSON array that the element's Lit `Array` converter parses
+    with JSON.parse(). It is built with f:format.json from the translated
+    labels, so a label containing a quote cannot break the JSON; a parse
+    failure leaves `stages` null and the element throws on `.length`.
+-->
+<f:variable name="stageScan"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan" /></f:variable>
+<f:variable name="stageReview"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.review" /></f:variable>
+<f:variable name="stageConfigure"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.configure" /></f:variable>
+<f:variable name="stageVerify"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.verify" /></f:variable>
+<div class="mb-4">
+    <typo3-backend-progress-tracker
+        active="{stage}"
+        stages="{f:format.json(value: {0: stageScan, 1: stageReview, 2: stageConfigure, 3: 'Execute', 4: stageVerify})}">
+    </typo3-backend-progress-tracker>
+</div>
+
+</html>

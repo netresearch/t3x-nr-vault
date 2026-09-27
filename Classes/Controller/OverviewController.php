@@ -16,11 +16,13 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\UriBuilder as BackendUriBuilder;
+use TYPO3\CMS\Backend\Template\Components\Menu\MenuItem;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Backend module controller for vault overview/dashboard.
@@ -205,7 +207,9 @@ final readonly class OverviewController
         $menu = $menuRegistry->makeMenu();
         $menu->setIdentifier('VaultOverviewMenu');
 
-        $dashboardItem = $menu->makeMenuItem()
+        // Menu::makeMenuItem() is deprecated in 14.3; core names
+        // makeInstance(MenuItem::class) as the replacement, which 13.4 supports too.
+        $dashboardItem = GeneralUtility::makeInstance(MenuItem::class)
             ->setTitle($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.tab.dashboard'))
             ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::OVERVIEW_ROUTE));
         if ($activeTab === 'dashboard') {
@@ -214,7 +218,7 @@ final readonly class OverviewController
 
         $menu->addMenuItem($dashboardItem);
 
-        $helpItem = $menu->makeMenuItem()
+        $helpItem = GeneralUtility::makeInstance(MenuItem::class)
             ->setTitle($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.tab.help'))
             ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::HELP_ROUTE));
         if ($activeTab === 'help') {

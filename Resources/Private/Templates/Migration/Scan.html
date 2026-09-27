@@ -11,13 +11,7 @@
 <f:section name="Content">
     <h1><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.title" /></h1>
 
-    <!-- TYPO3 v14 native progress tracker -->
-    <div class="mb-4">
-        <typo3-backend-progress-tracker
-            active="0"
-            stages='["{f:translate(key: \'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan\')}","{f:translate(key: \'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.review\')}","{f:translate(key: \'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.configure\')}","Execute","{f:translate(key: \'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.verify\')}"]'>
-        </typo3-backend-progress-tracker>
-    </div>
+    <f:render partial="MigrationProgress" arguments="{stage: 1}" />
 
     <h2>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan.title')}</h2>
         <p class="text-variant mb-4">
