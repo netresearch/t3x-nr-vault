@@ -22,11 +22,16 @@ use Throwable;
  *
  * Reading it advances the transfer: `read()` returns what has arrived, and
  * when nothing has, it steps the transport until bytes arrive or the transfer
- * ends. Three rules hold for every way out:
+ * ends. Five rules hold for every way out:
  *
  * - **A failed transfer is never a short body.** End of stream is reported only
  *   when the transport fulfilled its promise; a rejected one throws from
- *   `read()` once the bytes that did arrive have been handed out.
+ *   `read()` once the bytes that did arrive have been handed out. Every
+ *   failure — a rejected transfer, cancellation, a bound, a throw during a
+ *   step, the `getContents()` limit — closes the body, and a failed body never
+ *   reaches `eof()`: after it, `eof()` stays false and every `read()` throws
+ *   until `close()` or `detach()`. A caller stops at the first exception; a
+ *   `while (!eof())` loop that swallows it never ends.
  * - **An abandoned body closes the transfer.** `close()`, `detach()` and the
  *   destructor cancel the transport's promise, which removes the easy handle
  *   from the multi handle and closes it.
@@ -78,8 +83,9 @@ final class StreamingResponseBody implements StreamInterface
     private bool $closed = false;
 
     /**
-     * Set together with `$closed` on every failure path — cancellation, a
-     * bound, a throw during a step, the `getContents()` limit. While it is set
+     * Set together with `$closed` on every failure path — a transfer the
+     * transport rejected, cancellation, a bound, a throw during a step, the
+     * `getContents()` limit. While it is set
      * `eof()` answers false, so a consumer that swallows the exception and
      * loops on `eof()` cannot take a truncated body for a complete one. Only an
      * explicit `close()` or `detach()` clears it.
@@ -106,14 +112,20 @@ final class StreamingResponseBody implements StreamInterface
     }
 
     /**
-     * The whole body, or an exception.
+     * The rest of the body, or an exception.
      *
      * A deliberate deviation from PSR-7, whose `__toString()` MUST NOT throw
      * and returns `''` on error: a string that silently stops where the
      * transfer failed is exactly the short body this class exists to rule
-     * out. It returns the complete body whenever the transfer completes,
-     * error statuses included, and throws only when the transfer failed, was
-     * cancelled or exceeded the `getContents()` limit (ADR-039).
+     * out. It is `getContents()`, so what it returns depends on the state:
+     *
+     * - transfer completes, error statuses included: everything after the
+     *   current position — the whole body if nothing was read before;
+     * - transfer failed, was cancelled or exceeded the `getContents()` limit
+     *   (now or earlier): throws, and the body is closed;
+     * - body closed by `close()` or `detach()`: throws.
+     *
+     * See ADR-039.
      */
     public function __toString(): string
     {
@@ -218,6 +230,10 @@ final class StreamingResponseBody implements StreamInterface
 
             if ($this->transfer->isSettled()) {
                 if ($this->transfer->isRejected()) {
+                    // The same failed state as every other failure: closed,
+                    // and no end of stream.
+                    $this->fail();
+
                     $reason = $this->transfer->settledValue();
 
                     if ($this->sink->overflowed()) {

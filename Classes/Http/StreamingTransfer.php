@@ -87,8 +87,10 @@ final class StreamingTransfer
      *                                      that a stream still delivering is not cut
      *                                      off while one that stalls still ends
      * @param (Closure(): int)|null $progress A counter that grows whenever the transfer received
-     *                                        something (a response head, body bytes) and
-     *                                        never shrinks; required in idle mode
+     *                                        something the caller counts as progress
+     *                                        (`VaultHttpClient`: a final response head, body
+     *                                        bytes after it) and never shrinks; required in
+     *                                        idle mode
      */
     public function __construct(
         private readonly PromiseInterface $promise,

@@ -831,6 +831,151 @@ final class VaultHttpClientStreamingTest extends TestCase
         self::assertSame(0, $transfer->cancelCalls());
     }
 
+    // =========================================================================
+    // Review round 5
+    // =========================================================================
+
+    #[Test]
+    public function aRepeatedInterimHeadBuysNoTime(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // Guzzle 7 calls on_headers for every 1xx head. A server that sends
+        // `100 Continue` on every step and never a final head must still end
+        // at the idle bound.
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker(
+            $transfer,
+            [],
+            20_000,
+            static fn (StreamStubTransfer $t) => $t->deliverHead(100),
+        );
+
+        $this->assertIdleAbortBeforeReturn($transfer, $ticker);
+    }
+
+    #[Test]
+    public function bytesAfterAnUnsolicitedSwitchingProtocolsHeadBuyNoTime(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // After a `101`, curl hands the raw connection bytes to the sink. They
+        // are no body of a final head and must not count as progress.
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker(
+            $transfer,
+            [1 => static fn (StreamStubTransfer $t) => $t->deliverHead(101)],
+            20_000,
+            static fn (StreamStubTransfer $t) => $t->deliverBytes('x'),
+        );
+
+        $this->assertIdleAbortBeforeReturn($transfer, $ticker);
+    }
+
+    #[Test]
+    public function behindATunnellingProxyBytesAfterASwitchingProtocolsHeadBuyNoTime(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // The proxy's `200 Connection established` is a final head as far as
+        // on_headers can tell. The `101` that follows replaces it, and from
+        // then on the raw bytes count as nothing.
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker(
+            $transfer,
+            [
+                1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200, ['X-Proxy' => 'yes'], 'Connection established'),
+                2 => static fn (StreamStubTransfer $t) => $t->deliverHead(101),
+            ],
+            20_000,
+            static fn (StreamStubTransfer $t) => $t->deliverBytes('x'),
+        );
+
+        $this->assertIdleAbortBeforeReturn($transfer, $ticker);
+    }
+
+    #[Test]
+    public function aTrickleAfterAFinalHeadCompletesAlthoughAnInterimHeadCameFirst(): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        // 50 ms per tick, 200 ms idle bound: `100` at 50 ms, the final head at
+        // 150 ms, then a byte every 150 ms until the transfer completes at
+        // 600 ms. Each gap is inside the bound, the whole is three times it.
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker($transfer, [
+            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(100),
+            3 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            6 => static fn (StreamStubTransfer $t) => $t->deliverBytes('a'),
+            9 => static fn (StreamStubTransfer $t) => $t->deliverBytes('b'),
+            12 => static fn (StreamStubTransfer $t) => $t->complete(),
+        ], 50_000);
+
+        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.2))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendStreaming(new Request('GET', self::API_URL));
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('ab', $response->getBody()->getContents());
+        self::assertSame(0, $transfer->cancelCalls());
+    }
+
+    /**
+     * @return iterable<string, array{0: Closure(StreamStubTransfer): void, 1: int}>
+     */
+    public static function transportRejections(): iterable
+    {
+        yield 'transport failure' => [
+            static fn (StreamStubTransfer $t) => $t->fail(new RequestException('cURL error 18: transfer closed', new Request('GET', self::API_URL))),
+            1790475706,
+        ];
+        yield 'buffer limit' => [
+            static function (StreamStubTransfer $t): void {
+                $t->deliverRefused(str_repeat("\0", 16 * 1024 * 1024 + 1));
+                $t->fail(new RequestException('cURL error 23: Failure writing output to destination', new Request('GET', self::API_URL)));
+            },
+            1790487103,
+        ];
+    }
+
+    /**
+     * @param Closure(StreamStubTransfer): void $reject
+     */
+    #[Test]
+    #[DataProvider('transportRejections')]
+    public function aTransferTheTransportRejectsLeavesTheBodyFailedLikeEveryOtherFailure(Closure $reject, int $code): void
+    {
+        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+
+        $transfer = new StreamStubTransfer();
+        $ticker = new StreamStepTicker($transfer, [
+            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+            2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('partial'),
+            3 => $reject,
+        ]);
+
+        $body = $this->clientWithTransport($this->transportWith($transfer, $ticker))
+            ->withAuthentication('api_key', SecretPlacement::Bearer)
+            ->sendStreaming(new Request('GET', self::API_URL))
+            ->getBody();
+
+        self::assertSame('partial', $body->read(8192));
+
+        try {
+            $body->read(8192);
+            self::fail('A rejected transfer must throw.');
+        } catch (VaultException $e) {
+            self::assertSame($code, $e->getCode());
+        }
+
+        self::assertFalse($body->isReadable(), 'A rejected transfer closes the body, as every other failure does.');
+        self::assertFalse($body->eof(), 'A failed body never reaches end of stream.');
+        $this->assertReadRefusedAsClosed($body);
+
+        $body->close();
+        self::assertTrue($body->eof(), 'An explicit close() ends the stream.');
+    }
+
     #[Test]
     public function getContentsReturnsExactlyTheLimitAndRefusesOneByteMore(): void
     {
@@ -1599,6 +1744,30 @@ final class VaultHttpClientStreamingTest extends TestCase
     // =========================================================================
     // Harness
     // =========================================================================
+
+    /**
+     * The call must end at the idle bound before it returns — not at the
+     * ticker's ceiling, which is what a loop without a bound runs into.
+     */
+    private function assertIdleAbortBeforeReturn(StreamStubTransfer $transfer, StreamStepTicker $ticker): void
+    {
+        try {
+            $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.05))
+                ->withAuthentication('api_key', SecretPlacement::Bearer)
+                ->sendStreaming(new Request('GET', self::API_URL));
+            self::fail('A transfer that never delivers a final head must end at the idle bound.');
+        } catch (VaultException $e) {
+            self::assertSame(1790487201, $e->getCode());
+            self::assertSame(self::IDLE_EXHAUSTED_MESSAGE, $e->getMessage());
+        }
+
+        self::assertLessThan(20, $ticker->ticks(), 'The bound fired within a few 20 ms steps of a 50 ms window.');
+        self::assertSame(1, $transfer->cancelCalls());
+        self::assertSame(
+            [['action' => 'http_call', 'success' => false, 'error' => self::IDLE_EXHAUSTED_MESSAGE, 'status' => 0]],
+            $this->auditRows,
+        );
+    }
 
     private function assertReadRefusedAsClosed(StreamInterface $body): void
     {
