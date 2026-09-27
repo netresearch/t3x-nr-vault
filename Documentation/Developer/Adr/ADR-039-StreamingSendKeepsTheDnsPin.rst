@@ -197,7 +197,7 @@ A negative length is refused with a ``VaultException`` (code ``1790487203``, and
 Exactly one audit row, written when ``sendStreaming()`` returns or throws
 -------------------------------------------------------------------------
 
-The row is the one :php:`sendRequest()` writes — ``http_call``, the status, ``success = true`` for any HTTP status — and it is written at the point the method returns: when the origin's head and the first body bytes have arrived, or the transfer has ended.
+When the method returns, the row is the one :php:`sendRequest()` writes — ``http_call``, the status, ``success = true`` for any HTTP status. The two cancellation actions of ADR-037 are written by this send too (table below), which makes ``sendCancellable()`` and ``sendStreaming()`` their only writers. The row is written at the point the method returns: when the origin's head and the first body bytes have arrived, or the transfer has ended.
 Every outcome before that takes the ladder of the cancellable path, from a ``finally`` that opens on the first statement after the credential was injected:
 
 .. list-table::

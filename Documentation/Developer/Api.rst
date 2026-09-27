@@ -752,7 +752,8 @@ caller unchanged
    :php:`supportsCancellation()` rather than assuming either.
 
 Every :php:`sendCancellable()` writes exactly one audit row — and so does every
-:php:`sendRequest()` — so the log is complete with respect to calls and not
+:php:`sendRequest()` and every :php:`sendStreaming()`, which writes the same
+three actions (see below) — so the log is complete with respect to calls and not
 merely to egress. The outcome-to-test table in
 :ref:`adr-037-cancellable-outbound-send` is the enumeration that backs this
 sentence: one row per way a call can end, one named test per row. Three actions
@@ -997,13 +998,14 @@ What the body does:
 *   The body is not seekable and not writable, and its metadata is empty.
 
 **One audit row per call, written when** :php:`sendStreaming()` **returns or
-throws.** It is the row :php:`sendRequest()` writes: ``http_call`` with the
-origin's status when the method returns, and the actions and literals listed
-above for everything that ends the call before that — plus the buffer-limit
-literal above, with ``success = false``, when the bound stops the call before
-it returns. A failure or an abandon *after* the method returned writes no
-second row; the exception from :php:`read()` is how you learn
-of it. The body is never logged. See
+throws.** The actions are the three of :php:`sendCancellable()` above:
+``http_call`` with the origin's status when the method returns, and with
+``success = false`` when the call fails before that — the buffer-limit literal
+above included; ``http_call_cancelled`` when the signal stops the transfer
+before the method returns; ``http_call_cancelled_before_send`` when the signal
+was already set on entry. A failure, a cancellation or an abandon *after* the
+method returned writes no second row; the exception from :php:`read()` is how
+you learn of it. The body is never logged. See
 :ref:`adr-039-streaming-send-keeps-the-dns-pin`, which names the test for each
 property.
 

@@ -34,7 +34,10 @@ enum AuditAction: string
     case HttpCall = 'http_call';
     /**
      * The cancellation signal stopped an IN-FLIGHT request — written by
-     * `VaultHttpClient::sendCancellable()` only, and by nothing else.
+     * `VaultHttpClient::sendCancellable()` and `VaultHttpClient::sendStreaming()`,
+     * and by nothing else. `sendStreaming()` writes it only when the signal
+     * stops the transfer before the method returns; a cancellation while the
+     * returned body is read writes no row (ADR-039).
      *
      * This action means exactly one thing: the credential was retrieved,
      * injected into the request and handed to the transport, and then the
@@ -61,8 +64,8 @@ enum AuditAction: string
     case HttpCallCancelled = 'http_call_cancelled';
     /**
      * The cancellation signal was already true when
-     * `VaultHttpClient::sendCancellable()` was entered, so the call was refused
-     * before the send began.
+     * `VaultHttpClient::sendCancellable()` or `VaultHttpClient::sendStreaming()`
+     * was entered, so the call was refused before the send began.
      *
      * The one abandoned outcome in which NO credential was involved: the vault
      * was never read and nothing was handed to the transport. It is a separate
