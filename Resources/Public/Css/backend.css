@@ -12,13 +12,16 @@
 
 /* Distribution bars (Analytics module).
  *
- * Bootstrap's .progress is not part of the TYPO3 14 backend CSS, so the old
- * markup rendered no bar at all there. These bars use core tokens chosen for
- * contrast in both schemes, measured on 13.4.35 and 14.3.7 against the card
- * surface: the fill (--typo3-component-primary-color) is at least 6.1:1 to the
- * card and 5.3:1 to the track (--typo3-surface-container-high), above the 3:1
- * WCAG 1.4.11 asks of graphical objects. The count is printed next to the
- * bar in the base text colour instead of inside the fill. */
+ * A native <progress>, which carries the progressbar role, its value, range
+ * and accessible name itself (the fleet rule; SonarCloud flags a div with
+ * role="progressbar"). Bootstrap's .progress is not part of the TYPO3 14
+ * backend CSS, and core's <typo3-backend-progress-bar> is @internal and
+ * cannot be named. Each engine draws the bar through its own pseudo-elements,
+ * so each needs a rule of its own: a selector list with an unknown
+ * pseudo-element would drop the whole rule. Colours are core tokens, fill
+ * --typo3-component-primary-color on a --typo3-surface-container-high track;
+ * the contrast figures are in the PR that introduced this. The count and
+ * percentage are printed beside the bar in the base text colour. */
 .vault-bar-row {
     display: flex;
     align-items: center;
@@ -31,21 +34,38 @@
 }
 
 .vault-bar {
-    flex-grow: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    flex: 1 1 auto;
+    min-width: 3rem;
+    /* A <progress> is about 10em wide by default, and that width would become
+       its flex basis; start small and grow into the card instead. */
+    width: 3rem;
     height: .75rem;
     overflow: hidden;
-    background-color: var(--typo3-surface-container-high);
+    border: 0;
     border-radius: var(--typo3-component-border-radius);
+    background-color: var(--typo3-surface-container-high);
+    color: var(--typo3-component-primary-color);
 }
 
-.vault-bar-fill {
-    height: 100%;
+.vault-bar::-webkit-progress-bar {
+    background-color: var(--typo3-surface-container-high);
+}
+
+.vault-bar::-webkit-progress-value {
+    background-color: var(--typo3-component-primary-color);
+}
+
+.vault-bar::-moz-progress-bar {
     background-color: var(--typo3-component-primary-color);
 }
 
 .vault-bar-value {
     min-width: 2rem;
     text-align: end;
+    white-space: nowrap;
     font-variant-numeric: tabular-nums;
 }
 

@@ -65,10 +65,8 @@
             <f:for each="{stats.byAdapter}" as="bar">
                 <div class="vault-bar-row">
                     <span class="vault-bar-label" aria-hidden="true">{bar.label}</span>
-                    <div class="vault-bar" role="progressbar" aria-label="{bar.label}" aria-valuenow="{bar.percent}" aria-valuemin="0" aria-valuemax="100" aria-valuetext="{bar.value} ({bar.percent}%)" data-testid="analytics-bar">
-                        <div class="vault-bar-fill" style="width:{bar.percent}%"></div>
-                    </div>
-                    <span class="vault-bar-value" aria-hidden="true">{bar.value}</span>
+                    <progress class="vault-bar" value="{bar.percent}" max="100" aria-label="{bar.label}" aria-valuetext="{bar.value} ({bar.percent}%)" data-testid="analytics-bar">{bar.percent}%</progress>
+                    <span class="vault-bar-value" aria-hidden="true">{bar.value} ({bar.percent}%)</span>
                 </div>
             </f:for>
         </div></div></div>
@@ -77,10 +75,8 @@
             <f:for each="{stats.byContext}" as="bar">
                 <div class="vault-bar-row">
                     <span class="vault-bar-label" aria-hidden="true">{bar.label}</span>
-                    <div class="vault-bar" role="progressbar" aria-label="{bar.label}" aria-valuenow="{bar.percent}" aria-valuemin="0" aria-valuemax="100" aria-valuetext="{bar.value} ({bar.percent}%)" data-testid="analytics-bar">
-                        <div class="vault-bar-fill" style="width:{bar.percent}%"></div>
-                    </div>
-                    <span class="vault-bar-value" aria-hidden="true">{bar.value}</span>
+                    <progress class="vault-bar" value="{bar.percent}" max="100" aria-label="{bar.label}" aria-valuetext="{bar.value} ({bar.percent}%)" data-testid="analytics-bar">{bar.percent}%</progress>
+                    <span class="vault-bar-value" aria-hidden="true">{bar.value} ({bar.percent}%)</span>
                 </div>
             </f:for>
         </div></div></div>

@@ -196,7 +196,27 @@ final class OverviewControllerTest extends AbstractVaultFunctionalTestCase
         $request = $this->withModuleContext($request, $route, $module);
         $GLOBALS['TYPO3_REQUEST'] = $request;
 
-        $response = $this->get(OverviewController::class)->helpAction($request);
+        // Collect every deprecation the action raises. Core 14.3 deprecates
+        // Menu::makeMenuItem(), which the tab menu used; a regression back to
+        // it keeps the page working and only adds a deprecation, so the
+        // assertion has to look at the deprecations themselves.
+        $deprecations = [];
+        set_error_handler(
+            static function (int $level, string $message) use (&$deprecations): bool {
+                $deprecations[] = $message;
+
+                return true;
+            },
+            E_DEPRECATED | E_USER_DEPRECATED,
+        );
+
+        try {
+            $response = $this->get(OverviewController::class)->helpAction($request);
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertSame([], $deprecations, 'Rendering the Help page raised deprecations');
         self::assertSame(200, $response->getStatusCode());
 
         return $response->getBody()->__toString();

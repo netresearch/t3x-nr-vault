@@ -14,6 +14,7 @@ use DOMElement;
 use DOMNodeList;
 use DOMXPath;
 use PHPUnit\Framework\Attributes\DataProvider;
+use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Page\AssetCollector;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -131,10 +132,15 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
             'candidates' => [],
         ]);
 
-        self::assertSame(2, substr_count($html, 'role="progressbar"'));
-        self::assertStringContainsString('role="progressbar" aria-label="local"', $html);
-        self::assertStringContainsString('role="progressbar" aria-label="payment"', $html);
-        self::assertStringContainsString('class="vault-bar-fill"', $html);
+        // Native <progress>: it carries the progressbar role, the value, the
+        // range and the name itself, so no element may carry them by ARIA.
+        $bars = $this->progressBars($html);
+        self::assertSame([
+            ['value' => '100', 'max' => '100', 'name' => 'local', 'valuetext' => '2 (100%)'],
+            ['value' => '50', 'max' => '100', 'name' => 'payment', 'valuetext' => '1 (50%)'],
+        ], $bars);
+        self::assertStringNotContainsString('role="progressbar"', $html);
+        self::assertStringNotContainsString('aria-valuenow', $html);
         self::assertStringNotContainsString('class="progress', $html);
         self::assertStringNotContainsString('text-body-secondary', $html);
     }
@@ -263,6 +269,47 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         self::assertSame((string) $step, $match[1]);
     }
 
+    /**
+     * Labels come from translation files an integrator can override, so the
+     * JSON must survive whatever a label holds. Each hostile label is fed
+     * through a real locallang override and must come back out of the
+     * parsed `stages` attribute byte for byte.
+     */
+    public function testTheWizardProgressTrackerCarriesHostileLabelsUnchanged(): void
+    {
+        $labels = [
+            'migration.scan' => 'Scan "quoted" & \'single\'',
+            'migration.review' => '<script>alert(1)</script> Review',
+            'migration.configure' => 'Konfigurieren – äöüß 日本語',
+            'migration.verify' => 'Verify \\ back/slash </typo3-backend-progress-tracker>',
+        ];
+        $this->overrideModuleLabels($labels);
+
+        try {
+            $html = $this->renderTemplate('Migration/Scan', ['totalCount' => 0, 'databaseCount' => 0, 'configCount' => 0, 'groupedSecrets' => []]);
+        } finally {
+            // The labels must not leak into the other tests of this class.
+            $this->overrideModuleLabels([]);
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="utf-8"?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $tracker = $document->getElementsByTagName('typo3-backend-progress-tracker')->item(0);
+        self::assertInstanceOf(DOMElement::class, $tracker);
+
+        // What the element's Lit Array converter does: JSON.parse() of the
+        // attribute value as the browser decoded it.
+        $stages = json_decode($tracker->getAttribute('stages'), true, 4, JSON_THROW_ON_ERROR);
+        self::assertSame(
+            [$labels['migration.scan'], $labels['migration.review'], $labels['migration.configure'], 'Execute', $labels['migration.verify']],
+            $stages,
+        );
+        self::assertStringNotContainsString('<script>alert(1)</script>', $html);
+    }
+
     public function testMigrationVerifyMapsEachOutcomeToItsCoreBadge(): void
     {
         $result = static fn (string $column, int $failed, string $error): array => [
@@ -298,6 +345,55 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         self::assertSame('badge badge-default', $this->badgeClassFor($html, 'Page 1 of 1'));
         self::assertStringContainsString('class="badge badge-danger" data-testid="audit-cell-action">delete<', $html);
         $this->assertNoFixedColourBadge($html);
+    }
+
+    private function setLabelOverride(string $section, string $option, string $key, ?string $file): void
+    {
+        $configuration = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
+        $sectionConfiguration = \is_array($configuration[$section] ?? null) ? $configuration[$section] : [];
+        $overrides = \is_array($sectionConfiguration[$option] ?? null) ? $sectionConfiguration[$option] : [];
+
+        if ($file === null) {
+            unset($overrides[$key]);
+        } else {
+            $overrides[$key] = [$file];
+        }
+
+        $sectionConfiguration[$option] = $overrides;
+        $configuration[$section] = $sectionConfiguration;
+        $GLOBALS['TYPO3_CONF_VARS'] = $configuration;
+    }
+
+    /**
+     * Override locallang_mod.xlf labels through the integrator mechanism of
+     * the running major: LANG.resourceOverrides on 14.3,
+     * SYS.locallangXMLOverride on 13.4. An empty list removes the override.
+     *
+     * @param array<string, string> $labels
+     */
+    private function overrideModuleLabels(array $labels): void
+    {
+        $units = '';
+        foreach ($labels as $id => $source) {
+            $units .= '<trans-unit id="' . htmlspecialchars($id, ENT_XML1 | ENT_QUOTES) . '"><source>'
+                . htmlspecialchars($source, ENT_XML1 | ENT_QUOTES) . '</source></trans-unit>';
+        }
+
+        $file = $this->instancePath . '/typo3temp/var/tests/nr_vault-labels/locallang_mod.xlf';
+        GeneralUtility::mkdir_deep(\dirname($file));
+        GeneralUtility::writeFile(
+            $file,
+            '<?xml version="1.0" encoding="UTF-8"?><xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">'
+            . '<file source-language="en" datatype="plaintext" original="messages"><body>' . $units . '</body></file></xliff>',
+        );
+
+        $key = 'EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf';
+        $this->setLabelOverride('LANG', 'resourceOverrides', $key, $labels === [] ? null : $file);
+        $this->setLabelOverride('SYS', 'locallangXMLOverride', $key, $labels === [] ? null : $file);
+
+        $cacheManager = $this->get(CacheManager::class);
+        $cacheManager->getCache('l10n')->flush();
+        $cacheManager->getCache('runtime')->flush();
     }
 
     /**
@@ -361,6 +457,30 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         self::assertCount(1, $found, 'Expected exactly one badge reading "' . $text . '"');
 
         return $found[0];
+    }
+
+    /**
+     * @return list<array{value: string, max: string, name: string, valuetext: string}>
+     */
+    private function progressBars(string $html): array
+    {
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="utf-8"?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $bars = [];
+        foreach ($document->getElementsByTagName('progress') as $bar) {
+            $bars[] = [
+                'value' => $bar->getAttribute('value'),
+                'max' => $bar->getAttribute('max'),
+                'name' => $bar->getAttribute('aria-label'),
+                'valuetext' => $bar->getAttribute('aria-valuetext'),
+            ];
+        }
+
+        return $bars;
     }
 
     private function assertNoFixedColourBadge(string $html): void
