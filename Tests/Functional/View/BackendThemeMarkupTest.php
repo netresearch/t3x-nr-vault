@@ -128,7 +128,10 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
                 'total' => 2, 'expired' => 0, 'frontendAccessible' => 0, 'neverRotated' => 0,
                 'automatedReads' => 0, 'manualReveals' => 0,
                 'byAdapter' => [['label' => 'local', 'value' => 2, 'percent' => 100]],
-                'byContext' => [['label' => 'payment', 'value' => 1, 'percent' => 50]],
+                'byContext' => [
+                    ['label' => 'payment', 'value' => 1, 'percent' => 50],
+                    ['label' => 'mail', 'value' => 1, 'percent' => 50],
+                ],
             ],
             'candidateCount' => 0,
             'candidates' => [],
@@ -136,13 +139,18 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
 
         // Native <progress>: it carries the progressbar role, the value, the
         // range and the name itself, so no element may carry them by ARIA.
+        // The count is more than the percentage the element exposes, and
+        // Chromium drops aria-valuetext on <progress>, so the visible count
+        // text is the bar's description: referenced once, and not hidden.
         $bars = $this->progressBars($html);
         self::assertSame([
-            ['value' => '100', 'max' => '100', 'name' => 'local', 'valuetext' => '2 (100%)'],
-            ['value' => '50', 'max' => '100', 'name' => 'payment', 'valuetext' => '1 (50%)'],
+            ['value' => '100', 'max' => '100', 'name' => 'local', 'description' => '2 (100%)', 'descriptionHidden' => false],
+            ['value' => '50', 'max' => '100', 'name' => 'payment', 'description' => '1 (50%)', 'descriptionHidden' => false],
+            ['value' => '50', 'max' => '100', 'name' => 'mail', 'description' => '1 (50%)', 'descriptionHidden' => false],
         ], $bars);
         self::assertStringNotContainsString('role="progressbar"', $html);
         self::assertStringNotContainsString('aria-valuenow', $html);
+        self::assertStringNotContainsString('aria-valuetext', $html);
         self::assertStringNotContainsString('class="progress', $html);
         self::assertStringNotContainsString('text-body-secondary', $html);
     }
@@ -454,19 +462,44 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     }
 
     /**
-     * @return list<array{value: string, max: string, name: string, valuetext: string}>
+     * Each <progress> with its name and the text of the elements its
+     * aria-describedby references; every referenced id must resolve to
+     * exactly one element. descriptionHidden is true when a referenced
+     * element or one of its ancestors is aria-hidden or hidden.
+     *
+     * @return list<array{value: string, max: string, name: string, description: string, descriptionHidden: bool}>
      */
     private function progressBars(string $html): array
     {
         $document = $this->parseHtml($html);
+        $xpath = new DOMXPath($document);
 
         $bars = [];
         foreach ($document->getElementsByTagName('progress') as $bar) {
+            $texts = [];
+            $hidden = false;
+            $ids = preg_split('/\s+/', trim($bar->getAttribute('aria-describedby')), -1, PREG_SPLIT_NO_EMPTY);
+            self::assertIsArray($ids);
+            foreach ($ids as $id) {
+                $targets = $xpath->query('//*[@id="' . $id . '"]');
+                self::assertInstanceOf(DOMNodeList::class, $targets);
+                self::assertSame(1, $targets->length, 'aria-describedby id "' . $id . '" must resolve to exactly one element');
+                $target = $targets->item(0);
+                self::assertInstanceOf(DOMElement::class, $target);
+                $texts[] = trim((string) preg_replace('/\s+/', ' ', $target->textContent));
+                for ($node = $target; $node instanceof DOMElement; $node = $node->parentNode) {
+                    if ($node->getAttribute('aria-hidden') === 'true' || $node->hasAttribute('hidden')) {
+                        $hidden = true;
+                    }
+                }
+            }
+
             $bars[] = [
                 'value' => $bar->getAttribute('value'),
                 'max' => $bar->getAttribute('max'),
                 'name' => $bar->getAttribute('aria-label'),
-                'valuetext' => $bar->getAttribute('aria-valuetext'),
+                'description' => implode(' ', $texts),
+                'descriptionHidden' => $hidden,
             ];
         }
 
