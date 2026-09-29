@@ -1,4 +1,14 @@
-import { expect, test, filterByIdentifier, getModuleFrame, saveRecord, waitForModuleContent } from '../fixtures/auth';
+import type { Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  filterByIdentifier,
+  getModuleFrame,
+  rowFor,
+  saveRecord,
+  submitIdentifierFilter,
+  waitForModuleContent,
+} from '../fixtures/auth';
 
 /**
  * E2E tests for TYPO3 FormEngine/TCA integration.
@@ -19,6 +29,28 @@ import { expect, test, filterByIdentifier, getModuleFrame, saveRecord, waitForMo
 
 // Generate unique identifier for test isolation
 const generateTestId = () => `e2e_tca_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+
+/**
+ * Delete a secret through the list's delete button and its confirmation
+ * modal, then check the row is gone. Throws when any step fails.
+ */
+async function deleteSecret(page: Page, identifier: string): Promise<void> {
+  await page.goto('/typo3/module/admin/vault/secrets');
+  await waitForModuleContent(page);
+  let frame = getModuleFrame(page);
+  await filterByIdentifier(frame, identifier);
+
+  await rowFor(frame, identifier).getByTestId('vault-delete-btn').click();
+  const confirmButton = page.getByRole('button', { name: 'Delete', exact: true });
+  await confirmButton.click();
+  await confirmButton.waitFor({ state: 'hidden', timeout: 15000 });
+
+  await page.goto('/typo3/module/admin/vault/secrets');
+  await waitForModuleContent(page);
+  frame = getModuleFrame(page);
+  await submitIdentifierFilter(frame, identifier);
+  await expect(frame.locator('table tbody tr').filter({ hasText: identifier })).toHaveCount(0);
+}
 
 test.describe('TYPO3 FormEngine/TCA Integration', () => {
   test.describe('TCA-001: FormEngine Edit Form Rendering', () => {
@@ -107,34 +139,47 @@ test.describe('TYPO3 FormEngine/TCA Integration', () => {
       await frame.locator('input[data-vault-is-new="1"]').first().fill('reveal-name-test-secret');
       await saveRecord(page, frame);
 
-      await page.goto('/typo3/module/admin/vault/secrets');
-      await waitForModuleContent(page);
-      frame = getModuleFrame(page);
-      await filterByIdentifier(frame, testIdentifier);
+      try {
+        await page.goto('/typo3/module/admin/vault/secrets');
+        await waitForModuleContent(page);
+        frame = getModuleFrame(page);
+        await filterByIdentifier(frame, testIdentifier);
 
-      frame = getModuleFrame(page);
-      await frame.locator('table tbody tr button[title*="Edit"], table tbody tr a[title*="Edit"]').first().click();
-      await waitForModuleContent(page);
+        frame = getModuleFrame(page);
+        await rowFor(frame, testIdentifier).locator('button[title*="Edit"], a[title*="Edit"]').first().click();
+        await waitForModuleContent(page);
 
-      frame = getModuleFrame(page);
-      const button = frame.locator('.t3js-vault-input-reveal');
-      await expect(button).toHaveAccessibleName('Reveal secret');
-      await expect(button).toHaveAttribute('title', 'Reveal secret');
+        frame = getModuleFrame(page);
+        await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
+        await expect(frame.locator('.callout-danger:has-text("503")')).not.toBeVisible();
 
-      await button.click();
+        const button = frame.locator('.t3js-vault-input-reveal');
+        await expect(button).toHaveAccessibleName('Reveal secret');
+        await expect(button).toHaveAttribute('title', 'Reveal secret');
 
-      const shown = frame.locator('input[data-vault-display="true"]');
-      await expect(shown).toHaveValue('reveal-name-test-secret');
-      const hideButton = frame.locator('.t3js-vault-input-hide');
-      await expect(hideButton).toHaveAccessibleName('Hide secret');
-      await expect(hideButton).toHaveAttribute('title', 'Hide secret');
+        await button.click();
 
-      // Hiding masks the value again and gives the button its first name back.
-      await hideButton.click();
-      await expect(shown).toHaveAttribute('type', 'password');
-      await expect(shown).not.toHaveValue('reveal-name-test-secret');
-      await expect(button).toHaveAccessibleName('Reveal secret');
-      await expect(button).toHaveAttribute('title', 'Reveal secret');
+        const shown = frame.locator('input[data-vault-display="true"]');
+        await expect(shown).toHaveValue('reveal-name-test-secret');
+        const hideButton = frame.locator('.t3js-vault-input-hide');
+        await expect(hideButton).toHaveAccessibleName('Hide secret');
+        await expect(hideButton).toHaveAttribute('title', 'Hide secret');
+
+        // Hiding masks the value again and gives the button its first name back.
+        await hideButton.click();
+        await expect(shown).toHaveAttribute('type', 'password');
+        await expect(shown).not.toHaveValue('reveal-name-test-secret');
+        await expect(button).toHaveAccessibleName('Reveal secret');
+        await expect(button).toHaveAttribute('title', 'Reveal secret');
+      } finally {
+        // Soft, so a failed cleanup fails the test without replacing an error
+        // the try block already threw.
+        const cleanupError = await deleteSecret(page, testIdentifier).then(
+          () => '',
+          (error: Error) => error.message,
+        );
+        expect.soft(cleanupError, 'Deleting the test secret failed').toBe('');
+      }
     });
   });
 
