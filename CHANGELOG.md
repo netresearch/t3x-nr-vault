@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-29
+
 ### Added
 
 - **A streaming send that keeps the DNS pin (#391).** `VaultHttpClient` implements the new calling interface `StreamingHttpClientInterface`: `sendStreaming()` returns once the origin's response head and the first body bytes have arrived, and reading the body drives the transfer, so a caller sees a provider's streamed answer as it arrives instead of at the end. The transfer runs on the curl-multi transport of `sendCancellable()` with the `CURLOPT_RESOLVE` pin, the SSRF middleware, the host allowlist and the same credential injection; Guzzle's `stream` option, which bypasses the pin, is never set. Redirects are returned, not followed, and a tunnelling proxy's `200 Connection established` is never returned as the response. At most 16 MiB of unread body is buffered; a step that delivers more, such as a small gzip body that decodes to hundreds of MiB, fails with its own message instead of filling memory. A transfer that fails after the headers throws from `read()` instead of ending as a short body, a stalled one ends — at the transfer timeout, or, when no total timeout is configured (`timeout = 0`), after 60 seconds without a final head or body bytes (interim `1xx` heads do not count), so a stream that keeps delivering is not cut off — and closing or dropping the body, or the cancellation signal, removes the transfer from the transport. `getContents()` and `__toString()` return at most 16 MiB and throw past that; `__toString()` throws instead of returning a partial body, a deliberate deviation from PSR-7. Each call writes exactly one audit row when `sendStreaming()` returns or throws: `http_call` when it returns or fails, `http_call_cancelled` when the signal stops the transfer before it returns, `http_call_cancelled_before_send` when the signal was already set on entry. A failure or a cancellation while the body is read writes no second row; the body is never logged. Consumers feature-detect with `instanceof` and `supportsStreaming()`. See ADR-039.
@@ -2109,7 +2111,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.16.0...v1.0.0
 [0.16.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.15.0...v0.16.0
