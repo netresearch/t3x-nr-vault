@@ -315,6 +315,27 @@ final class VaultSecretElementTest extends TestCase
         }
     }
 
+    /**
+     * A translation is text, so quotes and angle brackets in it must reach
+     * the attributes escaped rather than end them.
+     */
+    #[Test]
+    public function actionButtonNamesAreEscaped(): void
+    {
+        $langService = $this->createMock(LanguageService::class);
+        $langService->method('sL')->willReturnCallback(
+            static fn (string $key): string => str_contains($key, 'locallang_js.xlf:') ? 'a"b<' : '',
+        );
+        $GLOBALS['LANG'] = $langService;
+        $this->setUpExistingSecretData();
+
+        $result = $this->subject->render();
+
+        self::assertIsString($result['html']);
+        self::assertSame(3, substr_count($result['html'], 'title="a&quot;b&lt;" aria-label="a&quot;b&lt;"'));
+        self::assertStringNotContainsString('a"b<', $result['html']);
+    }
+
     #[Test]
     public function renderOutputIncludesJavaScriptModule(): void
     {

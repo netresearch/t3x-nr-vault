@@ -246,7 +246,10 @@ final class VaultSecretInputElement extends AbstractFormElement
             // Reveal button
             $html[] = '<button type="button" class="btn btn-default t3js-vault-input-reveal" ';
             $html[] = 'data-identifier="' . htmlspecialchars($identifier) . '" ';
-            $html[] = $this->buttonName('nrvault.reveal.button', 'Reveal secret') . '>';
+            // The script swaps the name to the hide label while the value is shown.
+            $html[] = $this->buttonName('nrvault.reveal.button', 'Reveal secret')
+                . ' data-label-reveal="' . $this->buttonLabel('nrvault.reveal.button', 'Reveal secret') . '"'
+                . ' data-label-hide="' . $this->buttonLabel('nrvault.hide.button', 'Hide secret') . '">';
             $html[] = $this->renderIcon('actions-eye');
             $html[] = '</button>';
 
@@ -393,13 +396,21 @@ final class VaultSecretInputElement extends AbstractFormElement
      */
     private function buttonName(string $key, string $fallback): string
     {
-        $name = htmlspecialchars(LocalisationHelper::translateOrFallback(
+        $name = $this->buttonLabel($key, $fallback);
+
+        return 'title="' . $name . '" aria-label="' . $name . '"';
+    }
+
+    /**
+     * A locallang_js.xlf label, HTML-escaped for use in an attribute value.
+     */
+    private function buttonLabel(string $key, string $fallback): string
+    {
+        return htmlspecialchars(LocalisationHelper::translateOrFallback(
             $this->getLanguageService(),
             'LLL:EXT:nr_vault/Resources/Private/Language/locallang_js.xlf:' . $key,
             $fallback,
         ));
-
-        return 'title="' . $name . '" aria-label="' . $name . '"';
     }
 
     /**

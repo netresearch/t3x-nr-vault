@@ -91,6 +91,53 @@ test.describe('TYPO3 FormEngine/TCA Integration', () => {
     });
   });
 
+  test.describe('TCA-004: Secret Input Buttons', () => {
+    test('the reveal button is renamed to hide while the secret is shown, and hides it', async ({ authenticatedPage: page }) => {
+      // The button carries only an icon, so its title and aria-label are its
+      // accessible name. After a reveal it hides the value, and the name must
+      // say so; the script takes the labels from data-label-hide and
+      // data-label-reveal. A click in that state must hide, not reveal again.
+      const testIdentifier = generateTestId();
+
+      await page.goto('/typo3/module/admin/vault/secrets/create');
+      await waitForModuleContent(page);
+
+      let frame = getModuleFrame(page);
+      await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
+      await frame.locator('input[data-vault-is-new="1"]').first().fill('reveal-name-test-secret');
+      await saveRecord(page, frame);
+
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      frame = getModuleFrame(page);
+      await filterByIdentifier(frame, testIdentifier);
+
+      frame = getModuleFrame(page);
+      await frame.locator('table tbody tr button[title*="Edit"], table tbody tr a[title*="Edit"]').first().click();
+      await waitForModuleContent(page);
+
+      frame = getModuleFrame(page);
+      const button = frame.locator('.t3js-vault-input-reveal');
+      await expect(button).toHaveAccessibleName('Reveal secret');
+      await expect(button).toHaveAttribute('title', 'Reveal secret');
+
+      await button.click();
+
+      const shown = frame.locator('input[data-vault-display="true"]');
+      await expect(shown).toHaveValue('reveal-name-test-secret');
+      const hideButton = frame.locator('.t3js-vault-input-hide');
+      await expect(hideButton).toHaveAccessibleName('Hide secret');
+      await expect(hideButton).toHaveAttribute('title', 'Hide secret');
+
+      // Hiding masks the value again and gives the button its first name back.
+      await hideButton.click();
+      await expect(shown).toHaveAttribute('type', 'password');
+      await expect(shown).not.toHaveValue('reveal-name-test-secret');
+      await expect(button).toHaveAccessibleName('Reveal secret');
+      await expect(button).toHaveAttribute('title', 'Reveal secret');
+    });
+  });
+
   test.describe('TCA-002: Group Field Rendering', () => {
     test('scope_pid group field renders correctly (not conflicting with system pid)', async ({ authenticatedPage: page }) => {
       // Navigate to FormEngine

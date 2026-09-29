@@ -61,6 +61,9 @@
       <trans-unit id="nrvault.reveal.button">
         <source>Reveal secret</source>
       </trans-unit>
+      <trans-unit id="nrvault.hide.button">
+        <source>Hide secret</source>
+      </trans-unit>
       <trans-unit id="nrvault.reveal.title">
         <source>Secret Value</source>
       </trans-unit>
