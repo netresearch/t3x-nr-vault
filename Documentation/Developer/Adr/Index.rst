@@ -61,9 +61,10 @@ ADR      Title                                                    Status
 034      :ref:`adr-034-audit-chain-tip-anchor`                    Accepted
 035      :ref:`adr-035-frontend-placeholder-allow-set`            Amended
 036      :ref:`adr-036-mutation-audit-atomicity`                  Accepted
-037      :ref:`adr-037-cancellable-outbound-send`                 Accepted
+037      :ref:`adr-037-cancellable-outbound-send`                 Amended
 038      :ref:`adr-038-unresolvable-host-is-refused`              Accepted
 039      :ref:`adr-039-streaming-send-keeps-the-dns-pin`          Accepted
+040      :ref:`adr-040-cancellable-send-bounds-silence`           Accepted
 =======  =======================================================  ========
 
 .. toctree::
@@ -109,3 +110,4 @@ ADR      Title                                                    Status
    ADR-037-CancellableOutboundSend
    ADR-038-UnresolvableHostIsRefused
    ADR-039-StreamingSendKeepsTheDnsPin
+   ADR-040-CancellableSendBoundsSilence

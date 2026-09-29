@@ -354,6 +354,27 @@ final class SecureHttpClientFactoryTest extends TestCase
         self::assertSame(42.0, $transport->wallClockBudgetSeconds());
     }
 
+    /**
+     * Without a total timeout (`0`, the TYPO3 default) every send on the
+     * transport is bounded by silence; with one, by the wall-clock budget
+     * alone (ADR-039, ADR-040). Both directions, at the boundary: `0` must
+     * give the idle budget, `1`, the smallest total timeout, must not.
+     */
+    #[Test]
+    public function theCancellableTransportCarriesAnIdleBudgetOnlyWithoutATotalTimeout(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['timeout' => 0, 'connect_timeout' => 7];
+        $withoutTimeout = $this->factory->createCancellable();
+
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['timeout' => 1, 'connect_timeout' => 7];
+        $withTimeout = $this->factory->createCancellable();
+
+        self::assertNotNull($withoutTimeout);
+        self::assertNotNull($withTimeout);
+        self::assertSame(60.0, $withoutTimeout->idleBudgetSeconds());
+        self::assertNull($withTimeout->idleBudgetSeconds());
+    }
+
     #[Test]
     public function createWithSslConfig(): void
     {

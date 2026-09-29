@@ -13,12 +13,13 @@ ADR-037: A cancellable send is a method, not an exported handle
 Status
 ======
 
-Accepted
+Accepted (amended 2026-09-27 — without a total timeout the bound is on
+silence, not duration, see :ref:`adr-040-cancellable-send-bounds-silence`)
 
 Date
 ====
 
-2026-08-13
+2026-08-13, amended 2026-09-27
 
 Context
 =======
@@ -218,6 +219,7 @@ Between the other two the measurement shows no latency problem at 0.1, so the CP
 
 A defensive wall-clock bound of ``timeout + connect_timeout + 5 s`` sits strictly above libcurl's own deadlines (``theFactoryBuildsACancellableTransportWithABudgetAboveTheTransferDeadlines()``).
 If it ever trips, the handler stopped settling its promise — better to abort and audit than to hang a TYPO3 request.
+**Amended:** that holds only with a total ``timeout``. At ``timeout = 0``, the TYPO3 default, libcurl has no total deadline and this bound ended every call longer than ``connect_timeout + 5 s``; :ref:`adr-040-cancellable-send-bounds-silence` replaces it there with an idle bound on the server's silence.
 
 ``withTimeout()`` does not carry a transport across.
 A client rebuilt with a new timeout while the caller keeps ticking the previous client's event loop would tick a loop that serves nothing, and spin to the wall-clock bound.
@@ -296,6 +298,11 @@ Three of these rows are new here — the scheme guard, the host guard and the va
      - false
      - 0
      - ``anExhaustedWallClockBudgetAbortsTheTransferAndAuditsIt()``
+   * - The idle bound, without a total timeout (ADR-040)
+     - ``http_call``
+     - false
+     - 0
+     - ``withoutATotalTimeoutASilentServerEndsAtTheIdleBound()``
    * - A throw from the signal, the ticker or Guzzle's option handling
      - ``http_call``
      - false
@@ -355,6 +362,9 @@ Five of them append one variable: the offending scheme, or the original message 
    * - ``Cancellable transfer exceeded its wall-clock budget and was aborted``
      - ``http_call``
      - The defensive bound tripped; the handler stopped settling its promise.
+   * - ``Cancellable transfer received nothing within its idle limit and was aborted``
+     - ``http_call``
+     - No total timeout, and the server sent nothing for the idle bound (ADR-040).
    * - ``Cancellable transport settled with a value that is not an HTTP response``
      - ``http_call``
      - The transfer settled with something unusable.

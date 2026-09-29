@@ -13,8 +13,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Http\OAuth;
 
 use DateTimeImmutable;
-use GuzzleHttp\Promise\Utils as PromiseUtils;
 use GuzzleHttp\Psr7\HttpFactory;
+use GuzzleHttp\Psr7\Utils;
 use GuzzleHttp\RequestOptions;
 use JsonException;
 use Netresearch\NrVault\Audit\AuditAction;
@@ -26,6 +26,8 @@ use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Http\CancellableTransport;
 use Netresearch\NrVault\Http\CancellationSignalInterface;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
+use Netresearch\NrVault\Http\StreamingTransfer;
+use Netresearch\NrVault\Http\TransferProgress;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
@@ -80,6 +82,14 @@ final class OAuthTokenManager
      */
     private const TOKEN_TICK_BUDGET_EXHAUSTED_MESSAGE
         = 'Cancellable OAuth token transfer exceeded its wall-clock budget and was aborted';
+
+    /**
+     * Fixed literal for a token transfer on a transport without a total
+     * timeout that received nothing for the idle bound (issue #394). Mirrors
+     * `VaultHttpClient::IDLE_EXHAUSTED_MESSAGE`.
+     */
+    private const TOKEN_IDLE_EXHAUSTED_MESSAGE
+        = 'Cancellable OAuth token transfer received nothing within its idle limit and was aborted';
 
     /**
      * Fixed literal for a transport that settled with something that is not a
@@ -607,15 +617,15 @@ final class OAuthTokenManager
      * `VaultHttpClient::sendCancellably()` and follows the same mechanics for
      * the same measured reasons documented there — `SYNCHRONOUS` deliberately
      * absent (it would route back to the blocking handler whose cancel is a
-     * no-op), `ALLOW_REDIRECTS`/`HTTP_ERRORS` pinned per request, settlement
-     * observed through a `then()` handler rather than `getState()`, the
-     * global promise queue drained before the first tick and after every
-     * tick, and one teardown site: every abnormal exit cancels the promise,
-     * which is what closes the socket. It stays a private copy rather than a
-     * shared helper because the two callers classify outcomes differently —
-     * this one throws OAuth-flavoured exceptions and leaves the audit
-     * bookkeeping to `fetchToken()`'s wrapper, while `sendCancellably()`
-     * interleaves its own audit state with the loop.
+     * no-op), `ALLOW_REDIRECTS`/`HTTP_ERRORS` pinned per request, and every
+     * abnormal exit cancelling the promise, which is what closes the socket.
+     * The step itself — settlement through `then()` handlers, the queue
+     * drained before the first tick and after every tick, the bound — is
+     * `StreamingTransfer::advance()`, shared with both sends, and so is the
+     * progress rule the idle bound reads (`TransferProgress`). What stays
+     * local is the classification: this one throws OAuth-flavoured exceptions
+     * and leaves the audit bookkeeping to `fetchToken()`'s wrapper, while
+     * `sendCancellably()` interleaves its own audit state with the loop.
      *
      * When no transport can be built (no `curl_multi_*` on this platform),
      * the call degrades to the manager's blocking client — the same degraded
@@ -640,46 +650,51 @@ final class OAuthTokenManager
         $promise = null;
 
         try {
+            // A sink and an `on_headers` callback only so that progress can be
+            // counted for the idle bound; the token response is read whole, as
+            // before.
+            $sink = Utils::streamFor(Utils::tryFopen('php://temp', 'w+'));
+            $progress = new TransferProgress(static fn (): int => $sink->getSize() ?? 0);
+
             $promise = $transport->client()->sendAsync($request, [
                 RequestOptions::ALLOW_REDIRECTS => false,
                 RequestOptions::HTTP_ERRORS => false,
+                RequestOptions::SINK => $sink,
+                RequestOptions::ON_HEADERS => $progress->onHeaders(...),
             ]);
 
-            $settled = false;
-            $rejected = false;
-            $settledValue = null;
-            $promise->then(
-                static function (mixed $value) use (&$settled, &$settledValue): void {
-                    $settled = true;
-                    $settledValue = $value;
-                },
-                static function (mixed $reason) use (&$settled, &$rejected, &$settledValue): void {
-                    $settled = true;
-                    $rejected = true;
-                    $settledValue = $reason;
-                },
+            // The step `VaultHttpClient` uses: settlement through `then()`
+            // handlers, the queue drained before the first tick (an
+            // already-rejected promise has its handler queued, not run inline)
+            // and after every tick, and the bound — a wall-clock budget with a
+            // total timeout, an idle bound on silence without one (issue #394).
+            $transfer = new StreamingTransfer(
+                $promise,
+                $transport->ticker(),
+                $transport->wallClockBudgetSeconds(),
+                $cancellationSignal,
+                $transport->idleBudgetSeconds(),
+                $progress->count(...),
             );
 
-            $ticker = $transport->ticker();
-            $deadline = microtime(true) + $transport->wallClockBudgetSeconds();
+            while (!$transfer->isSettled()) {
+                $step = $transfer->advance();
 
-            // Drained before the first tick: an already-rejected promise (the
-            // SSRF middleware rejects synchronously) has its handler queued,
-            // not run inline.
-            PromiseUtils::queue()->run();
-
-            while (!$settled) {
-                if ($cancellationSignal->isCancelled()) {
+                if ($step === StreamingTransfer::CANCELLED) {
                     throw new RequestCancelledException(self::TOKEN_CANCELLED_IN_FLIGHT_MESSAGE, 1786579303);
                 }
 
-                if (microtime(true) >= $deadline) {
+                if ($step === StreamingTransfer::BUDGET_EXHAUSTED) {
                     throw new OAuthException(self::TOKEN_TICK_BUDGET_EXHAUSTED_MESSAGE, 1786579304);
                 }
 
-                $ticker->tick();
-                PromiseUtils::queue()->run();
+                if ($step === StreamingTransfer::IDLE_EXHAUSTED) {
+                    throw new OAuthException(self::TOKEN_IDLE_EXHAUSTED_MESSAGE, 1786579307);
+                }
             }
+
+            $rejected = $transfer->isRejected();
+            $settledValue = $transfer->settledValue();
 
             if ($rejected) {
                 // A throwable reason (the SSRF middleware's RequestException,

@@ -43,7 +43,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 /**
- * `VaultHttpClient::sendStreaming()` against a real HTTP server.
+ * `VaultHttpClient::sendStreaming()` against a real HTTP server, and
+ * `sendCancellable()` where it shares the streaming send's bound (issue #394).
  *
  * The server is PHP's built-in web server running
  * `Fixtures/streaming-router.php` on a free loopback port chosen at runtime,
@@ -599,6 +600,78 @@ final class StreamingSendTest extends FunctionalTestCase
             self::assertFalse($this->auditRows[0]['success']);
             self::assertSame(self::BUFFER_LIMIT_MESSAGE, $this->auditRows[0]['error']);
         }
+    }
+
+    // =========================================================================
+    // The cancellable send on the same transport (issue #394)
+    // =========================================================================
+
+    #[Test]
+    public function withoutATotalTimeoutACancellableCallStillDeliveringOutlivesTheOldBudget(): void
+    {
+        // The measurement from issue #394: no total timeout, connect_timeout
+        // 1, twelve lines 700 ms apart. The old wall-clock budget, 0 + 1 + 5 =
+        // 6 s, aborted the call at about 6.0 s; the stream takes about 7.7 s.
+        $this->setHttpConfiguration(['timeout' => 0, 'connect_timeout' => 1]);
+        $client = $this->client();
+        self::assertTrue($client->supportsCancellation(), 'A degraded blocking send would complete as well and prove nothing.');
+
+        $start = microtime(true);
+        $response = $client->sendCancellable(
+            new Request('GET', $this->url('/chunks?count=12&delay_ms=700')),
+            new SwitchableSignal(),
+        );
+        $elapsed = microtime(true) - $start;
+
+        self::assertSame(200, $response->getStatusCode());
+        $pending = '';
+        $lines = $this->readCompleteLines($response->getBody(), 12, $pending);
+        self::assertSame('chunk 12', $lines[11]['text']);
+        self::assertSame('', $pending);
+        self::assertGreaterThan(6.0, $elapsed, 'Control: the call ran longer than the old budget.');
+        self::assertSame(
+            [['identifier' => 'none', 'action' => 'http_call', 'success' => true, 'status' => 200, 'error' => null]],
+            $this->auditRows,
+        );
+    }
+
+    #[Test]
+    public function withoutATotalTimeoutASilentServerEndsACancellableCallAtTheIdleBound(): void
+    {
+        $this->setHttpConfiguration(['timeout' => 0, 'connect_timeout' => 1]);
+
+        // The factory's own transport, with the 60-second idle bound shortened
+        // to one; the route sends nothing, not even a head, for 10 seconds.
+        $factory = new SecureHttpClientFactory(new PinnedDnsResolver(self::LOOPBACK_HOST));
+        $real = $factory->createCancellable();
+        self::assertInstanceOf(CancellableTransport::class, $real);
+        self::assertSame(SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS, $real->idleBudgetSeconds());
+        $client = new VaultHttpClient(
+            vaultService: $this->vaultService(),
+            auditLogService: $this->auditLogService(),
+            secureHttpClientFactory: $factory,
+            cancellableTransport: new CancellableTransport($real->client(), $real->ticker(), $real->wallClockBudgetSeconds(), 1.0),
+        );
+
+        $start = microtime(true);
+        $caught = null;
+
+        try {
+            $client->sendCancellable(new Request('GET', $this->url('/silent')), new SwitchableSignal());
+        } catch (VaultException $e) {
+            $caught = $e;
+        }
+
+        $elapsed = microtime(true) - $start;
+
+        self::assertInstanceOf(VaultException::class, $caught, 'A silent server must end the call without a total timeout too.');
+        self::assertSame(1786579206, $caught->getCode());
+        self::assertGreaterThan(1.0, $elapsed, 'Not before the idle bound.');
+        self::assertLessThan(5.0, $elapsed, 'The one-second idle bound must end it, not the 10-second silence.');
+        self::assertFileExists(self::$hitsDirectory . '/silent', "The request reached the server; the silence was the server's.");
+        self::assertCount(1, $this->auditRows);
+        self::assertFalse($this->auditRows[0]['success']);
+        self::assertSame($caught->getMessage(), $this->auditRows[0]['error']);
     }
 
     // =========================================================================
