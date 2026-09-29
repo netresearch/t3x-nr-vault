@@ -291,19 +291,19 @@ final class VaultSecretElement extends AbstractFormElement
         $parts[] = '<input ' . GeneralUtility::implodeAttributes($attributes, true) . ' />';
 
         if ($permissions['reveal']) {
-            $parts[] = '<button type="button" class="btn btn-default t3js-vault-toggle-visibility" title="Toggle visibility">';
+            $parts[] = '<button type="button" class="btn btn-default t3js-vault-toggle-visibility" ' . $this->buttonName('nrvault.toggle.visibility', 'Toggle visibility') . '>';
             $parts[] = $this->renderIcon('actions-eye');
             $parts[] = '</button>';
         }
 
         if ($permissions['copy'] && $hasValue) {
-            $parts[] = '<button type="button" class="btn btn-default t3js-vault-copy" title="Copy to clipboard">';
+            $parts[] = '<button type="button" class="btn btn-default t3js-vault-copy" ' . $this->buttonName('nrvault.copy.clipboard', 'Copy to clipboard') . '>';
             $parts[] = $this->renderIcon('actions-clipboard');
             $parts[] = '</button>';
         }
 
         if ($hasValue && $permissions['edit'] && !$permissions['readOnly']) {
-            $parts[] = '<button type="button" class="btn btn-default t3js-vault-clear" title="Clear secret">';
+            $parts[] = '<button type="button" class="btn btn-default t3js-vault-clear" ' . $this->buttonName('nrvault.clear.button', 'Clear secret') . '>';
             $parts[] = $this->renderIcon('actions-delete');
             $parts[] = '</button>';
         }
@@ -311,6 +311,21 @@ final class VaultSecretElement extends AbstractFormElement
         $parts[] = '</div>'; // input-group
 
         return implode(self::LINE_FEED, $parts);
+    }
+
+    /**
+     * `title` and `aria-label` of an icon-only button, translated from
+     * locallang_js.xlf with the English text as fallback.
+     */
+    private function buttonName(string $key, string $fallback): string
+    {
+        $name = htmlspecialchars(LocalisationHelper::translateOrFallback(
+            $this->getLanguageService(),
+            'LLL:EXT:nr_vault/Resources/Private/Language/locallang_js.xlf:' . $key,
+            $fallback,
+        ));
+
+        return 'title="' . $name . '" aria-label="' . $name . '"';
     }
 
     /**

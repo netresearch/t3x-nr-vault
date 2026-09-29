@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Form\Element;
 
+use Netresearch\NrVault\Domain\Dto\SecretDetails;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Form\Element\VaultSecretInputElement;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -89,5 +90,55 @@ final class VaultSecretInputElementTest extends TestCase
         self::assertStringContainsString('<div class="callout-content"><div class="callout-body">', $html);
         self::assertStringContainsString('No secret value stored.', $html);
         self::assertStringNotContainsString('alert', $html);
+    }
+
+    /**
+     * The reveal, copy and visibility buttons carry only an icon, so their
+     * `title` and `aria-label` are their accessible name. Both come from
+     * locallang_js.xlf, so the name follows the backend user's language.
+     */
+    #[Test]
+    public function iconButtonsAreNamedInTheBackendLanguage(): void
+    {
+        $prefix = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_js.xlf:';
+        $languageService = $this->createMock(LanguageService::class);
+        $languageService->method('sL')->willReturnCallback(
+            static fn (string $key): string => str_starts_with($key, $prefix) ? '[' . substr($key, \strlen($prefix)) . ']' : '',
+        );
+        $GLOBALS['LANG'] = $languageService;
+
+        $vaultService = $this->createMock(VaultServiceInterface::class);
+        $vaultService->method('getMetadata')->willReturn($this->createMock(SecretDetails::class));
+        GeneralUtility::addInstance(VaultServiceInterface::class, $vaultService);
+
+        $icon = $this->createMock(Icon::class);
+        $icon->method('render')->willReturn('<span class="icon"></span>');
+        $runtimeCache = $this->createMock(FrontendInterface::class);
+        $runtimeCache->method('get')->willReturn($icon);
+        $iconFactory = new IconFactory(
+            $this->createMock(EventDispatcherInterface::class),
+            $this->createMock(IconRegistry::class),
+            $this->createMock(ContainerInterface::class),
+            $runtimeCache,
+        );
+
+        $subject = new VaultSecretInputElement($iconFactory);
+        $subject->setData([
+            'parameterArray' => [
+                'itemFormElName' => 'data[tx_nrvault_secret][7][secret]',
+                'fieldConf' => ['config' => []],
+            ],
+            'databaseRow' => ['uid' => 7, 'identifier' => 'stored_key'],
+        ]);
+
+        $html = $subject->render()['html'];
+
+        self::assertIsString($html);
+        self::assertStringContainsString('title="[nrvault.reveal.button]" aria-label="[nrvault.reveal.button]">', $html);
+        self::assertStringContainsString('title="[nrvault.copy.clipboard]" aria-label="[nrvault.copy.clipboard]" style="display: none;">', $html);
+        self::assertStringContainsString(
+            'class="btn btn-default t3js-vault-input-toggle" title="[nrvault.toggle.visibility]" aria-label="[nrvault.toggle.visibility]"',
+            $html,
+        );
     }
 }

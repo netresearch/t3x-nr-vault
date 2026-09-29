@@ -16,11 +16,12 @@
 <f:variable name="stageScan"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.scan" /></f:variable>
 <f:variable name="stageReview"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.review" /></f:variable>
 <f:variable name="stageConfigure"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.configure" /></f:variable>
+<f:variable name="stageExecute"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.execute" /></f:variable>
 <f:variable name="stageVerify"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.verify" /></f:variable>
 <div class="mb-4">
     <typo3-backend-progress-tracker
         active="{stage}"
-        stages="{f:format.json(value: {0: stageScan, 1: stageReview, 2: stageConfigure, 3: 'Execute', 4: stageVerify})}">
+        stages="{f:format.json(value: {0: stageScan, 1: stageReview, 2: stageConfigure, 3: stageExecute, 4: stageVerify})}">
     </typo3-backend-progress-tracker>
 </div>
 

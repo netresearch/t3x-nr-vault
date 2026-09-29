@@ -284,6 +284,37 @@ final class VaultSecretElementTest extends TestCase
         self::assertStringNotContainsString('btn-secondary', $result['html']);
     }
 
+    /**
+     * The action buttons carry only an icon, so their `title` and
+     * `aria-label` are their accessible name. Both come from locallang_js.xlf,
+     * so the name follows the backend user's language.
+     */
+    #[Test]
+    public function actionButtonsAreNamedInTheBackendLanguage(): void
+    {
+        $prefix = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_js.xlf:';
+        $langService = $this->createMock(LanguageService::class);
+        $langService->method('sL')->willReturnCallback(
+            static fn (string $key): string => str_starts_with($key, $prefix) ? '[' . substr($key, \strlen($prefix)) . ']' : '',
+        );
+        $GLOBALS['LANG'] = $langService;
+        $this->setUpExistingSecretData();
+
+        $result = $this->subject->render();
+
+        self::assertIsString($result['html']);
+        foreach ([
+            't3js-vault-toggle-visibility' => '[nrvault.toggle.visibility]',
+            't3js-vault-copy' => '[nrvault.copy.clipboard]',
+            't3js-vault-clear' => '[nrvault.clear.button]',
+        ] as $hook => $name) {
+            self::assertStringContainsString(
+                'class="btn btn-default ' . $hook . '" title="' . $name . '" aria-label="' . $name . '"',
+                $result['html'],
+            );
+        }
+    }
+
     #[Test]
     public function renderOutputIncludesJavaScriptModule(): void
     {

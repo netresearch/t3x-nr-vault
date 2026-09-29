@@ -233,7 +233,7 @@ test.describe('Migration Module User Pathways', () => {
         test.skip(true, 'No database client available to seed a migration candidate');
       }
 
-      const marker = `e2e_select_all_${Date.now()}`;
+      const marker = `e2e_select_all_${crypto.randomUUID()}`;
       const seeded = runSql(
         'INSERT INTO sys_reaction (pid, name, reaction_type, identifier, secret) VALUES ' +
           `(0, '${marker}', 'create-record', '${crypto.randomUUID()}', 'e2e select-all plaintext one'), ` +
@@ -258,7 +258,11 @@ test.describe('Migration Module User Pathways', () => {
         await selectAll.uncheck();
         expect(await states()).not.toContain(true);
       } finally {
-        runSql(`DELETE FROM sys_reaction WHERE name = '${marker}'`);
+        // Soft, so a failed cleanup marks the test failed without replacing
+        // an error the try block already threw.
+        expect
+          .soft(runSql(`DELETE FROM sys_reaction WHERE name = '${marker}'`), 'Removing the seeded candidate failed')
+          .not.toBeNull();
       }
     });
   });

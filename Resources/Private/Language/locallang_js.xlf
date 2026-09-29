@@ -58,6 +58,9 @@
       <trans-unit id="nrvault.reveal.loading.body">
         <source>Fetching secret...</source>
       </trans-unit>
+      <trans-unit id="nrvault.reveal.button">
+        <source>Reveal secret</source>
+      </trans-unit>
       <trans-unit id="nrvault.reveal.title">
         <source>Secret Value</source>
       </trans-unit>
@@ -131,6 +134,9 @@
       </trans-unit>
 
       <!-- Clear secret (TCA form element) -->
+      <trans-unit id="nrvault.clear.button">
+        <source>Clear secret</source>
+      </trans-unit>
       <trans-unit id="nrvault.clear.confirm">
         <source>Are you sure you want to clear this secret? Saving the record deletes it, and the vault cannot restore it.</source>
       </trans-unit>

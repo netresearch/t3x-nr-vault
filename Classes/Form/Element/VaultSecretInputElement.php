@@ -185,7 +185,7 @@ final class VaultSecretInputElement extends AbstractFormElement
         $html[] = '<input ' . GeneralUtility::implodeAttributes($attributes, true) . ' />';
 
         // Toggle visibility button
-        $html[] = '<button type="button" class="btn btn-default t3js-vault-input-toggle" title="Toggle visibility">';
+        $html[] = '<button type="button" class="btn btn-default t3js-vault-input-toggle" ' . $this->buttonName('nrvault.toggle.visibility', 'Toggle visibility') . '>';
         $html[] = $this->renderIcon('actions-eye');
         $html[] = '</button>';
 
@@ -246,14 +246,14 @@ final class VaultSecretInputElement extends AbstractFormElement
             // Reveal button
             $html[] = '<button type="button" class="btn btn-default t3js-vault-input-reveal" ';
             $html[] = 'data-identifier="' . htmlspecialchars($identifier) . '" ';
-            $html[] = 'title="Reveal secret">';
+            $html[] = $this->buttonName('nrvault.reveal.button', 'Reveal secret') . '>';
             $html[] = $this->renderIcon('actions-eye');
             $html[] = '</button>';
 
             // Copy button
             $html[] = '<button type="button" class="btn btn-default t3js-vault-input-copy" ';
             $html[] = 'data-identifier="' . htmlspecialchars($identifier) . '" ';
-            $html[] = 'title="Copy to clipboard" style="display: none;">';
+            $html[] = $this->buttonName('nrvault.copy.clipboard', 'Copy to clipboard') . ' style="display: none;">';
             $html[] = $this->renderIcon('actions-clipboard');
             $html[] = '</button>';
 
@@ -326,7 +326,7 @@ final class VaultSecretInputElement extends AbstractFormElement
         $html[] = '<input ' . GeneralUtility::implodeAttributes($inputAttributes, true) . ' />';
 
         // Toggle visibility button
-        $html[] = '<button type="button" class="btn btn-default t3js-vault-input-toggle" title="Toggle visibility">';
+        $html[] = '<button type="button" class="btn btn-default t3js-vault-input-toggle" ' . $this->buttonName('nrvault.toggle.visibility', 'Toggle visibility') . '>';
         $html[] = $this->renderIcon('actions-eye');
         $html[] = '</button>';
 
@@ -385,6 +385,21 @@ final class VaultSecretInputElement extends AbstractFormElement
         $iconFactory = $this->iconFactory;
 
         return $iconFactory->getIcon($identifier, IconSize::SMALL)->render();
+    }
+
+    /**
+     * `title` and `aria-label` of an icon-only button, translated from
+     * locallang_js.xlf with the English text as fallback.
+     */
+    private function buttonName(string $key, string $fallback): string
+    {
+        $name = htmlspecialchars(LocalisationHelper::translateOrFallback(
+            $this->getLanguageService(),
+            'LLL:EXT:nr_vault/Resources/Private/Language/locallang_js.xlf:' . $key,
+            $fallback,
+        ));
+
+        return 'title="' . $name . '" aria-label="' . $name . '"';
     }
 
     /**

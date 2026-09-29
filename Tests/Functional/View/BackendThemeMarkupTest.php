@@ -39,6 +39,8 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
 
     private const SCAN = 'Migration/Scan';
 
+    private const WHITESPACE_RUN = '/\s+/';
+
     /**
      * Stand-in for the core `Module` layout: renders the `Content` section only.
      * The core layout needs a module request, and the markup under test is ours.
@@ -291,6 +293,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
             'migration.scan' => 'Scan "quoted" & \'single\'',
             'migration.review' => '<script>alert(1)</script> Review',
             'migration.configure' => 'Konfigurieren – äöüß 日本語',
+            'migration.execute' => 'Ausführen',
             'migration.verify' => 'Verify \\ back/slash </typo3-backend-progress-tracker>',
         ];
         $this->overrideModuleLabels($labels);
@@ -310,7 +313,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         // attribute value as the browser decoded it.
         $stages = json_decode($tracker->getAttribute('stages'), true, 4, JSON_THROW_ON_ERROR);
         self::assertSame(
-            [$labels['migration.scan'], $labels['migration.review'], $labels['migration.configure'], 'Execute', $labels['migration.verify']],
+            [$labels['migration.scan'], $labels['migration.review'], $labels['migration.configure'], $labels['migration.execute'], $labels['migration.verify']],
             $stages,
         );
         self::assertStringNotContainsString('<script>alert(1)</script>', $html);
@@ -451,7 +454,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         $badges = (new DOMXPath($document))->query('//*[contains(concat(" ", normalize-space(@class), " "), " badge ")]');
         self::assertInstanceOf(DOMNodeList::class, $badges);
         foreach ($badges as $badge) {
-            if ($badge instanceof DOMElement && trim((string) preg_replace('/\s+/', ' ', $badge->textContent)) === $text) {
+            if ($badge instanceof DOMElement && trim((string) preg_replace(self::WHITESPACE_RUN, ' ', $badge->textContent)) === $text) {
                 $found[] = $badge->getAttribute('class');
             }
         }
@@ -478,7 +481,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         foreach ($document->getElementsByTagName('progress') as $bar) {
             $texts = [];
             $hidden = false;
-            $ids = preg_split('/\s+/', trim($bar->getAttribute('aria-describedby')), -1, PREG_SPLIT_NO_EMPTY);
+            $ids = preg_split(self::WHITESPACE_RUN, trim($bar->getAttribute('aria-describedby')), -1, PREG_SPLIT_NO_EMPTY);
             self::assertIsArray($ids);
             foreach ($ids as $id) {
                 $targets = $xpath->query('//*[@id="' . $id . '"]');
@@ -486,7 +489,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
                 self::assertSame(1, $targets->length, 'aria-describedby id "' . $id . '" must resolve to exactly one element');
                 $target = $targets->item(0);
                 self::assertInstanceOf(DOMElement::class, $target);
-                $texts[] = trim((string) preg_replace('/\s+/', ' ', $target->textContent));
+                $texts[] = trim((string) preg_replace(self::WHITESPACE_RUN, ' ', $target->textContent));
                 for ($node = $target; $node instanceof DOMElement; $node = $node->parentNode) {
                     if ($node->getAttribute('aria-hidden') === 'true' || $node->hasAttribute('hidden')) {
                         $hidden = true;

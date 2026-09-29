@@ -259,6 +259,9 @@
       <trans-unit id="migration.configure">
         <source>Configure</source>
       </trans-unit>
+      <trans-unit id="migration.execute">
+        <source>Execute</source>
+      </trans-unit>
       <trans-unit id="migration.verify">
         <source>Verify</source>
       </trans-unit>
