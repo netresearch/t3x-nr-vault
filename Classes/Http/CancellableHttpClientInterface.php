@@ -116,7 +116,10 @@ interface CancellableHttpClientInterface
      *   (`aFailedCredentialInjectionOnTheCancellablePathLeavesARow()`), a
      *   transport rejection
      *   (`anSsrfRejectionSettlesBeforeTheFirstTickAndStillWritesItsRow()`), the
-     *   tick loop's defensive wall-clock bound, a settlement that is not a
+     *   tick loop's defensive wall-clock bound, its idle bound when no total
+     *   `timeout` is set
+     *   (`withoutATotalTimeoutASilentServerEndsAtTheIdleBound()`), a
+     *   settlement that is not a
      *   response (`aNonResponseSettlementIsRefusedInsteadOfReturned()`), or a
      *   throw from the signal, the ticker or Guzzle's option handling
      *   (`aThrowFromTheSendItselfStillLeavesAnAuditRow()`). Which one it was is
@@ -138,6 +141,14 @@ interface CancellableHttpClientInterface
      * than the send it replaces would be the opposite of one. A client a caller
      * passed to the constructor is never replaced by a transport; see
      * :php:`supportsCancellation()`.
+     *
+     * Without a total `timeout` (`0`, the default on TYPO3 13.4 and 14.3) the
+     * call is not bounded in duration, as :php:`sendRequest()` is not: it ends
+     * when nothing — no final response head, no body byte — has arrived for
+     * `SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS` (60 s), with the
+     * fixed literal `Cancellable transfer received nothing within its idle
+     * limit and was aborted` (ADR-040;
+     * `withoutATotalTimeoutASilentServerEndsAtTheIdleBound()`).
      *
      * When :php:`supportsCancellation()` is false the call still completes —
      * blocking, through the ordinary path, with an ordinary ``http_call`` audit

@@ -751,8 +751,25 @@ caller unchanged
    without that extension it degrades. Ask
    :php:`supportsCancellation()` rather than assuming either.
 
+How long a call may run follows the transport's total ``timeout``. With one
+set — the platform value or :php:`withTimeout()` — libcurl enforces it, and a
+defensive wall-clock bound of ``timeout + connect_timeout + 5 s`` sits above
+it. Without one (``timeout = 0``, the default on TYPO3 13.4 and 14.3), the call
+is not bounded in duration, as :php:`sendRequest()` is not: it ends when the
+server has sent nothing — no final response head, no body byte after one — for
+60 seconds (:php:`SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS`).
+Interim ``1xx`` heads and the raw bytes after an unsolicited
+``101 Switching Protocols`` count as nothing. A server trickling a byte every
+few seconds keeps the call open, exactly as it keeps :php:`sendRequest()` open;
+set a ``timeout`` or call :php:`withTimeout()` for a hard ceiling. The OAuth
+token leg follows the same rule. Before this rule, a call without a total
+timeout was aborted after ``connect_timeout + 5 s`` however much the server was
+still sending; :ref:`adr-040-cancellable-send-bounds-silence` records the
+change.
+
 Every :php:`sendCancellable()` writes exactly one audit row — and so does every
-:php:`sendRequest()` — so the log is complete with respect to calls and not
+:php:`sendRequest()` and every :php:`sendStreaming()`, which writes the same
+three actions (see below) — so the log is complete with respect to calls and not
 merely to egress. The outcome-to-test table in
 :ref:`adr-037-cancellable-outbound-send` is the enumeration that backs this
 sentence: one row per way a call can end, one named test per row. Three actions
@@ -776,9 +793,10 @@ to be understood:
 ``http_call`` with ``success = false``
    Everything that failed rather than was cancelled — a refused scheme or host,
    a transport that could not be built, a credential that could not be obtained,
-   a transport error, the defensive wall-clock bound, a settlement that is not a
-   response, or a throw from your signal or the ticker. Nobody asked for those,
-   so they sit with the other failures. ADR-037 lists the test for each.
+   a transport error, the defensive wall-clock bound, the idle bound, a
+   settlement that is not a response, or a throw from your signal or the
+   ticker. Nobody asked for those, so they sit with the other failures. ADR-037
+   and ADR-040 list the test for each.
 
 Within an action, the row's error message is a fixed literal shown under the
 badge:
@@ -794,6 +812,10 @@ badge:
 ``Cancellable transfer exceeded its wall-clock budget and was aborted``
    The defensive bound above the curl timeouts tripped, i.e. the transport
    stopped settling its promise.
+
+``Cancellable transfer received nothing within its idle limit and was aborted``
+   No total ``timeout`` is set, and the server sent nothing — no final head, no
+   body byte after one — for 60 seconds.
 
 ``Cancellable transport settled with a value that is not an HTTP response``
    The transfer settled with something unusable.
@@ -885,6 +907,161 @@ OAuth-authenticated call is not cancellable.
 
       Return true to abort the in-flight request. Must not throw, and must be
       cheap.
+
+.. _api-http-streaming:
+
+Reading a response while it arrives
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:php:`sendRequest()` and :php:`sendCancellable()` return once the whole body
+has arrived, so a caller that asked a provider for a streamed answer sees the
+first byte only at the end. :php:`StreamingHttpClientInterface` adds a send
+that returns as soon as the response head and the first body bytes are in, or
+the transfer has ended, with a body that reads the rest from the wire.
+
+The returned head is always the origin's. A ``1xx`` interim head, and the
+``200 Connection established`` reply of a tunnelling proxy (which Guzzle 7
+reports as a head of its own), are replaced by the head that follows them.
+
+The transfer runs on the same curl-multi transport as
+:php:`sendCancellable()`, with the ``CURLOPT_RESOLVE`` DNS pin, the SSRF
+middleware and the hardened options. Guzzle's ``stream`` option is never set:
+it would route the request to a handler that ignores the pin. The scheme
+allowlist, the ``allowed_hosts`` gate and the credential injection run through
+the same code as :php:`sendRequest()`.
+
+Like :php:`CancellableHttpClientInterface`, the interface is separate and
+additive, so consumers feature-detect it:
+
+.. code-block:: php
+   :caption: Reading a server-sent event stream line by line
+
+   use Netresearch\NrVault\Http\StreamingHttpClientInterface;
+
+   $client = $this->vaultService->http()
+       ->withAuthentication('openai_api_key')
+       ->withReason('Chat completion stream')
+       ->withTimeout(120);
+
+   if ($client instanceof StreamingHttpClientInterface && $client->supportsStreaming()) {
+       $response = $client->sendStreaming($request, $signal);
+   } else {
+       $response = $client->sendRequest($request);
+   }
+
+   $body = $response->getBody();
+   $buffer = '';
+   while (!$body->eof()) {
+       $buffer .= $body->read(8192);
+       while (($end = strpos($buffer, "\n")) !== false) {
+           $this->handleLine(substr($buffer, 0, $end));
+           $buffer = substr($buffer, $end + 1);
+       }
+   }
+
+The loop has no ``try`` on purpose. When :php:`read()` throws, stop reading:
+a failed body never reaches :php:`eof()`, so a loop that catches the exception
+and goes on asking :php:`eof()` never ends.
+
+What the body does:
+
+*   :php:`read()` returns the bytes that have arrived. When none have, it drives
+    the transport until some arrive or the transfer ends.
+*   End of stream means the transfer completed and every byte was read. A
+    transfer that fails after the headers throws from :php:`read()` once the
+    bytes that did arrive are handed out — a ``VaultException`` whose previous
+    exception is the transport's. It never ends as a short body.
+*   :php:`__toString()` throws instead of returning part of a body — a
+    deliberate deviation from PSR-7, whose ``__toString()`` must not throw. It
+    returns the rest of the body — all of it if nothing was read yet —
+    whenever the transfer completes, error statuses such as ``401`` included,
+    and throws only when the transfer failed, was
+    cancelled or passed the limit below. If you must not see an exception —
+    say, while turning a ``4xx`` body into your own error message — call
+    :php:`getContents()` in a ``try``.
+*   :php:`getContents()` and :php:`__toString()` return at most 16 MiB; past
+    that they tear the transfer down and throw ``Streaming response body is
+    larger than getContents() returns; read it in chunks with read()``. Use
+    them for bodies known to be small and :php:`read()` for anything else.
+*   ``read(0)`` returns ``''`` without driving the transfer; a negative length
+    throws.
+*   :php:`close()`, :php:`detach()` or dropping the body before the end removes
+    the transfer from the transport and closes the connection. So does the
+    signal, which is polled before the send and on every step; a signal that
+    fires while the body is read throws ``RequestCancelledException``.
+*   A stalled stream ends. With a total ``timeout`` (the platform value or
+    :php:`withTimeout()`), it ends at that timeout, and a long stream needs a
+    long timeout, as a long blocking call does. Without one (``timeout = 0``,
+    the default on TYPO3 13.4 and 14.3), a stream that keeps delivering lives,
+    and one whose server sends nothing for 60 seconds — no final head, no body
+    bytes after it — ends with ``Streaming transfer received nothing within its
+    idle limit and was aborted``. Interim ``1xx`` heads and the raw bytes after
+    an unsolicited ``101 Switching Protocols`` count as nothing. Pausing
+    between your own reads does not count either: what the server sent
+    meanwhile is collected first. A server trickling a byte every few seconds
+    after its head is not stopped in that case, exactly as on
+    :php:`sendRequest()`; set a ``timeout`` for a hard ceiling. Only reading
+    drives the transfer.
+*   Any exception while the body is read — a failed transfer, or one from a
+    signal that breaks its "must not throw" rule — closes the body and
+    releases the connection at once: :php:`isReadable()` turns false and every
+    further :php:`read()` throws. After such a failure :php:`eof()` stays false,
+    so a loop on :php:`eof()` cannot mistake a truncated body for a complete
+    one; it becomes true only when you call :php:`close()` or :php:`detach()`.
+    Stop at the first exception.
+*   At most 16 MiB of unread body is buffered. A single transport step that
+    delivers more — typically a small compressed body that decodes to a very
+    large one — fails the transfer with the message ``Streaming transfer
+    aborted: one step delivered more body than the 16 MiB streaming buffer
+    holds``, instead of filling memory. A step on a fast link delivers a few
+    hundred kilobytes, and reading drains the buffer before the next step.
+*   Redirects are not followed; a ``3xx`` response is returned as it is.
+*   The body is not seekable and not writable, and its metadata is empty.
+
+**One audit row per call, written when** :php:`sendStreaming()` **returns or
+throws.** The actions are the three of :php:`sendCancellable()` above:
+``http_call`` with the origin's status when the method returns, and with
+``success = false`` when the call fails before that — the buffer-limit literal
+above included; ``http_call_cancelled`` when the signal stops the transfer
+before the method returns; ``http_call_cancelled_before_send`` when the signal
+was already set on entry. A failure, a cancellation or an abandon *after* the
+method returned writes no second row; the exception from :php:`read()` is how
+you learn of it. The body is never logged. See
+:ref:`adr-039-streaming-send-keeps-the-dns-pin`, which names the test for each
+property.
+
+.. php:interface:: StreamingHttpClientInterface
+
+   An outbound send whose response body can be read while it arrives.
+   Implemented by :php:`VaultHttpClient`. A calling interface: a minor release
+   may add methods to it.
+
+   .. php:method:: sendStreaming(RequestInterface $request, ?CancellationSignalInterface $signal = null): ResponseInterface
+
+      Send an HTTP request and return once the origin's response head and the
+      first body bytes have arrived, or the transfer has ended. The body
+      advances the transfer as it is read. Runs the same guard sequence
+      as :php:`sendRequest()`: scheme allowlist, host allowlist, credential
+      injection, one audit row.
+
+      Accepts no per-request transport options, for the reason given in
+      :ref:`adr-037-cancellable-outbound-send`.
+
+      When :php:`supportsStreaming()` is false the call still completes,
+      blocking, and the body is complete when it is returned.
+
+      :param RequestInterface $request: PSR-7 request.
+      :param CancellationSignalInterface|null $signal: Polled before the send and on every transport step, headers and body alike.
+      :returns: PSR-7 response whose body reads from the wire.
+      :throws RequestCancelledException: If the signal aborted the call before it returned.
+      :throws ClientExceptionInterface: If the transfer failed before it returned.
+      :throws VaultException: If the scheme or host is rejected, secret retrieval fails, the transfer overran its time bound, or one step delivered more body than the 16 MiB buffer holds.
+
+   .. php:method:: supportsStreaming(): bool
+
+      Whether :php:`sendStreaming()` delivers the body while it arrives. The
+      same answer as :php:`supportsCancellation()`: false when the inner
+      client was supplied by the caller, and false without ``curl_multi_*``.
 
 .. _api-http-auth-options:
 

@@ -763,6 +763,10 @@ Netresearch\NrVault\Http\SecretPlacement (enum)
   property readonly name: string
   property readonly value: string
 
+Netresearch\NrVault\Http\StreamingHttpClientInterface (interface)
+  method sendStreaming(Psr\Http\Message\RequestInterface $request, ?Netresearch\NrVault\Http\CancellationSignalInterface $signal = …): Psr\Http\Message\ResponseInterface
+  method supportsStreaming(): bool
+
 Netresearch\NrVault\Http\TransportTickerInterface (interface)
   method tick(): void
 
