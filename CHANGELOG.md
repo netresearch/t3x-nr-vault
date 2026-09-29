@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`typo3/cms-install` moved from `require` to `suggest` (and `require-dev`).** With `version` and `providesPackages` declared, TYPO3 v14 and the testing framework read nr_vault's dependencies from `composer.json` instead of `ext_emconf.php`, so a `require` on `typo3/cms-install` would make EXT:install a hard dependency and stop every functional test that loads nr_vault without it (`Package "nr_vault" depends on package "install" which does not exist`), here and in consuming extensions. Nothing needs it at runtime: the TYPO3 14 upgrade wizard uses the upgrade API in EXT:core, and the TYPO3 13 wizard shell is registered only when EXT:install's interface exists (`Configuration/Services.php`), the way the core's own EXT:extensionmanager ships its v13 wizards with a `require` on `typo3/cms-core` alone. EXT:install is a protected core extension, so every installation still offers the wizard.
+- **Columns built with `VaultFieldHelper` are no longer searched by the TYPO3 v14 backend search.** `getFieldConfig()`, `getSecureFieldConfig()` and `addVaultFields()` set `'searchable' => false` in the column config. TYPO3 v14 searches every input column that does not opt out, so on a consumer table that no longer sets `ctrl.searchFields` (v14 removed it; its migration marks only the columns a still-present list leaves out) the backend search included the vault columns, which hold secret identifiers. TYPO3 v13 ignores the flag; there the consumer's `ctrl.searchFields` still decides.
+
+### Fixed
+
+- **TYPO3 v14 no longer logs the `ext_emconf.php` deprecation for nr_vault.** `composer.json` declares `extra.typo3/cms.version` and an empty `Package.providesPackages` (TYPO3 #108345: an extension that still ships `ext_emconf.php` must name both). The version is now stated in `ext_emconf.php`, `composer.json` and `Documentation/guides.xml`; `VersionConsistencyTest` fails when a release commit misses one of them.
+- **TYPO3 v14 no longer logs a TCA migration deprecation for `tx_nrvault_secret`.** The table no longer sets `ctrl.searchFields`, which v14 removed (#106972) and strips with a deprecation. The backend search scope is unchanged: v14 searches `identifier`, `description` and `context` through the per-column `searchable` flag, now set to `false` on the five other searchable columns (`expires_at`, `metadata`, `last_rotated_at`, `last_read_at`, `adapter`) exactly as the automatic migration did, and v13, which ignores that flag, gets `searchFields` from a TCA override that applies on v13 only.
+
 ## [1.0.1] - 2026-09-24
 
 ### Security

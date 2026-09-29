@@ -58,10 +58,15 @@ Use the ``vaultSecret`` renderType in your TCA configuration:
                    'type' => 'input',
                    'renderType' => 'vaultSecret',
                    'size' => 30,
+                   'searchable' => false,
                ],
            ],
        ],
    ];
+
+``'searchable' => false`` keeps the column out of the TYPO3 v14 backend
+search, which otherwise searches every input column. On TYPO3 v13, which
+ignores the flag, leave the column out of ``ctrl.searchFields``.
 
 .. _tca-step3-database:
 
@@ -159,6 +164,9 @@ Option              Type    Description
 ``l10n_mode``       string  Localization mode.
 ``exclude``         bool    Exclude from non-admin access.
 ==================  ======  ===================================================
+
+Every column the helper builds sets ``'searchable' => false``, so the TYPO3
+v14 backend search leaves it out.
 
 
 .. _tca-flexform:

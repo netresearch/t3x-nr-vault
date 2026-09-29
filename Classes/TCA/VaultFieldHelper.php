@@ -12,7 +12,9 @@ namespace Netresearch\NrVault\TCA;
 /**
  * Helper for creating vault secret TCA field configurations.
  *
- * Provides a convenient API for defining vault-backed fields in TCA.
+ * Provides a convenient API for defining vault-backed fields in TCA. Every
+ * column it builds sets `searchable => false`, so TYPO3 v14's backend search
+ * leaves it out.
  *
  * Example usage in Configuration/TCA/tx_myext_settings.php:
  *
@@ -55,6 +57,10 @@ final class VaultFieldHelper
             'type' => 'input',
             'renderType' => 'vaultSecret',
             'size' => $options['size'] ?? 30,
+            // TYPO3 v14 searches every input column that does not opt out
+            // (#106972); the column holds a secret's vault identifier and is
+            // never a search target. TYPO3 v13 ignores the flag.
+            'searchable' => false,
         ];
 
         // Add required validation if specified

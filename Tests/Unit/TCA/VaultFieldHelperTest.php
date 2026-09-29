@@ -30,6 +30,21 @@ final class VaultFieldHelperTest extends TestCase
         self::assertSame(30, $config['config']['size']);
     }
 
+    /**
+     * TYPO3 v14 searches every input column unless its config says
+     * `searchable => false`; a vault column holds the identifier of a secret
+     * and must never be a search target.
+     */
+    #[Test]
+    public function everyHelperMarksTheVaultColumnNotSearchable(): void
+    {
+        $tca = VaultFieldHelper::addVaultFields([], ['api_key' => ['label' => self::LABEL_API_KEY]]);
+
+        self::assertFalse(VaultFieldHelper::getFieldConfig()['config']['searchable']);
+        self::assertFalse(VaultFieldHelper::getSecureFieldConfig(self::LABEL_API_KEY)['config']['searchable']);
+        self::assertFalse($tca['columns']['api_key']['config']['searchable']);
+    }
+
     #[Test]
     public function getFieldConfigAcceptsLabel(): void
     {

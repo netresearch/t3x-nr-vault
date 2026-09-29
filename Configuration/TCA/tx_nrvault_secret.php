@@ -22,10 +22,10 @@ return [
         'crdate' => 'crdate',
         'delete' => 'deleted',
         'default_sortby' => 'identifier ASC',
-        // searchFields is ignored on v14 (option removed, see #106972 — the
-        // backend derives searchable fields from per-column `searchable`
-        // flags there) but enables backend live-search on v13.
-        'searchFields' => 'identifier,description,context',
+        // No `searchFields` here: TYPO3 v14 removed the option (#106972) and
+        // logs a deprecation for every table that still sets it. The search
+        // scope is the per-column `searchable` flag; TYPO3 v13 ignores that
+        // flag, so Overrides/tx_nrvault_secret.php sets `searchFields` for v13.
         'hideTable' => false,
         'enablecolumns' => [
             'disabled' => 'hidden',
@@ -193,6 +193,7 @@ return [
                 'type' => 'datetime',
                 'format' => 'datetime',
                 'default' => 0,
+                'searchable' => false,
             ],
         ],
 
@@ -204,6 +205,7 @@ return [
                 'renderType' => 'codeEditor',
                 'format' => 'json',
                 'rows' => 5,
+                'searchable' => false,
             ],
         ],
 
@@ -238,6 +240,7 @@ return [
                 'type' => 'datetime',
                 'format' => 'datetime',
                 'readOnly' => true,
+                'searchable' => false,
             ],
         ],
 
@@ -255,6 +258,7 @@ return [
                 'type' => 'datetime',
                 'format' => 'datetime',
                 'readOnly' => true,
+                'searchable' => false,
             ],
         ],
 
@@ -263,6 +267,7 @@ return [
             'config' => [
                 'type' => 'input',
                 'readOnly' => true,
+                'searchable' => false,
             ],
         ],
 
