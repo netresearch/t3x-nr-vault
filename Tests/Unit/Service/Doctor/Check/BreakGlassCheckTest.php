@@ -84,16 +84,19 @@ final class BreakGlassCheckTest extends TestCase
     #[Test]
     public function theRemainingMinutesAreRoundedUp(): void
     {
+        // `$now` is pinned: 61 seconds from the wall clock become 60 when the
+        // second ticks over before the check runs, and 60 seconds are 1 minute.
+        $now = (new DateTimeImmutable())->setTimestamp(1_760_000_000);
         $session = new BreakGlassSession(
             activatedByUid: 1,
             activatedByUsername: 'bob',
             reason: 'incident',
-            activatedAt: new DateTimeImmutable(),
-            expiresAt: (new DateTimeImmutable())->setTimestamp(time() + 61),
+            activatedAt: $now,
+            expiresAt: $now->setTimestamp(1_760_000_061),
         );
 
         $finding = $this->findingById(
-            $this->check($session)->run($this->doctorContext(SecurityProfile::Standard)),
+            $this->check($session)->run($this->doctorContext(SecurityProfile::Standard), $now),
             'breakglass.window_open',
         );
 

@@ -54,8 +54,11 @@ final class BreakGlassBannerProviderTest extends TestCase
     public function roundsTheRemainingMinutesUp(): void
     {
         // Showing "0 minutes left" while the bypass is still live understates
-        // the exposure the banner exists to warn about.
-        $banner = $this->createSubject($this->session(time() + 1))->forView();
+        // the exposure the banner exists to warn about. `$now` is pinned: a
+        // window one second from the wall clock closes when the second ticks
+        // over between building the session and rendering the banner.
+        $now = (new DateTimeImmutable())->setTimestamp(1_760_000_000);
+        $banner = $this->createSubject($this->session(1_760_000_001))->forView($now);
 
         self::assertSame(1, $banner['remainingMinutes']);
     }
