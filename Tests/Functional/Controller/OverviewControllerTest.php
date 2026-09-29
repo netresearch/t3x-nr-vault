@@ -203,7 +203,7 @@ final class OverviewControllerTest extends AbstractVaultFunctionalTestCase
         $deprecations = [];
         set_error_handler(
             static function (int $level, string $message) use (&$deprecations): bool {
-                $deprecations[] = $message;
+                $deprecations[] = ($level === E_USER_DEPRECATED ? 'E_USER_DEPRECATED: ' : 'E_DEPRECATED: ') . $message;
 
                 return true;
             },

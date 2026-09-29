@@ -37,6 +37,8 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
 
     private const REVIEW = 'Migration/Review';
 
+    private const SCAN = 'Migration/Scan';
+
     /**
      * Stand-in for the core `Module` layout: renders the `Content` section only.
      * The core layout needs a module request, and the markup under test is ours.
@@ -180,7 +182,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     public function testMigrationScanMapsEachSeverityToItsCoreBadge(): void
     {
         $item = static fn (string $pattern, int $count): array => ['patterns' => [$pattern], 'source' => 'database', 'count' => $count];
-        $html = $this->renderTemplate('Migration/Scan', [
+        $html = $this->renderTemplate(self::SCAN, [
             'totalCount' => 4, 'databaseCount' => 4, 'configCount' => 0,
             'groupedSecrets' => [
                 'critical' => ['tx_a.password' => $item('password', 3)],
@@ -249,7 +251,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
      */
     public static function wizardSteps(): iterable
     {
-        yield 'scan' => ['Migration/Scan', ['totalCount' => 0, 'databaseCount' => 0, 'configCount' => 0, 'groupedSecrets' => []], 1];
+        yield 'scan' => [self::SCAN, ['totalCount' => 0, 'databaseCount' => 0, 'configCount' => 0, 'groupedSecrets' => []], 1];
         yield 'review' => [self::REVIEW, ['secrets' => []], 2];
         yield 'configure' => ['Migration/Configure', ['migrations' => []], 3];
         yield 'verify' => ['Migration/Verify', ['totalMigrated' => 0, 'totalFailed' => 0, 'clearOriginals' => false, 'results' => []], 5];
@@ -286,17 +288,13 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         $this->overrideModuleLabels($labels);
 
         try {
-            $html = $this->renderTemplate('Migration/Scan', ['totalCount' => 0, 'databaseCount' => 0, 'configCount' => 0, 'groupedSecrets' => []]);
+            $html = $this->renderTemplate(self::SCAN, ['totalCount' => 0, 'databaseCount' => 0, 'configCount' => 0, 'groupedSecrets' => []]);
         } finally {
             // The labels must not leak into the other tests of this class.
             $this->overrideModuleLabels([]);
         }
 
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $document->loadHTML('<?xml encoding="utf-8"?>' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $document = $this->parseHtml($html);
         $tracker = $document->getElementsByTagName('typo3-backend-progress-tracker')->item(0);
         self::assertInstanceOf(DOMElement::class, $tracker);
 
@@ -439,11 +437,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
      */
     private function badgeClassFor(string $html, string $text): string
     {
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $document->loadHTML('<?xml encoding="utf-8"?>' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $document = $this->parseHtml($html);
 
         $found = [];
         $badges = (new DOMXPath($document))->query('//*[contains(concat(" ", normalize-space(@class), " "), " badge ")]');
@@ -464,11 +458,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
      */
     private function progressBars(string $html): array
     {
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $document->loadHTML('<?xml encoding="utf-8"?>' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+        $document = $this->parseHtml($html);
 
         $bars = [];
         foreach ($document->getElementsByTagName('progress') as $bar) {
@@ -481,6 +471,21 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         }
 
         return $bars;
+    }
+
+    /**
+     * The rendered markup as a DOM, read as UTF-8; libxml's complaints about
+     * HTML5 elements it does not know are discarded.
+     */
+    private function parseHtml(string $html): DOMDocument
+    {
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="utf-8"?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        return $document;
     }
 
     private function assertNoFixedColourBadge(string $html): void
