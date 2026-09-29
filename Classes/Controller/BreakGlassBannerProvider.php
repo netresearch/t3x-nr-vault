@@ -36,9 +36,13 @@ final readonly class BreakGlassBannerProvider
      * would render as an empty string and could turn a live warning into a
      * half-blank box.
      *
+     * `$now` defaults to the wall clock. It is a parameter, as on
+     * {@see BreakGlassSession::remainingSeconds()}, so a test can pin the
+     * moment the remaining time is measured from instead of racing the clock.
+     *
      * @return array{active: bool, username: string, uid: int, reason: string, expiresAt: string, remainingMinutes: int}
      */
-    public function forView(): array
+    public function forView(?DateTimeImmutable $now = null): array
     {
         $session = $this->breakGlassState->getActiveSession();
         if (!$session instanceof BreakGlassSession) {
@@ -52,7 +56,7 @@ final readonly class BreakGlassBannerProvider
             ];
         }
 
-        $remainingSeconds = $session->remainingSeconds(new DateTimeImmutable());
+        $remainingSeconds = $session->remainingSeconds($now ?? new DateTimeImmutable());
 
         return [
             'active' => true,

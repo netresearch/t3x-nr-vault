@@ -346,16 +346,38 @@ test.describe('SEC-RESIL-008: Session expiry mid-edit', () => {
     // Simulate session expiry by clearing cookies before submit.
     await page.context().clearCookies();
 
-    await saveRecord(page, frame);
+    // saveRecord() is the wrong instrument here: it waits for the module
+    // content a successful save re-renders. A rejected save ends somewhere
+    // else. TYPO3 answers the POST with a redirect to the login form, the
+    // login form loads inside the module iframe, and its login.js then moves
+    // the whole window there (`top.location.href = location.href`). Waiting
+    // for module content races that top-level navigation: the iframe is gone
+    // before the wait starts, or the next read lands mid-navigation. The
+    // settled state is the top-level login page, which login.js marks with
+    // `data-typo3-login-ready` only when it is not framed. Both waits are
+    // registered before the click, so neither can be missed.
+    const rejected = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().includes('/typo3/record/edit'),
+      { timeout: 20000 },
+    );
+    const atLogin = page.waitForURL(/\/typo3\/login(\?|$)/, { timeout: 20000 });
+    await frame.locator('button[name="_savedok"]').first().click();
 
-    // We must end up either at login or at an error page — NEVER with the
-    // plaintext in the response HTML.
+    // The save was refused before any controller ran: nothing was stored and
+    // nothing could be echoed back by the save itself.
+    const response = await rejected;
+    expect(
+      isLoginRedirect(response),
+      `Expected a redirect to the login form, got ${response.status()} ${response.headers()['location'] ?? ''}`,
+    ).toBe(true);
+
+    await atLogin;
+    await expect(page.locator('body[data-typo3-login-ready="true"]')).toBeAttached();
+
+    // The page we end up on must not carry the plaintext either.
     const body = await page.content();
     expect(body.includes(plaintext), 'Plaintext echoed back after session expiry').toBe(false);
-
-    // And we must not have saved the record.
-    // (We cannot easily re-authenticate inside this test; rely on the fixture
-    // re-running for other tests. We just assert no plaintext leak here.)
   });
 });
 

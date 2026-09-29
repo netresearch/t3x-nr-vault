@@ -50,7 +50,13 @@ final readonly class BreakGlassCheck implements ReadinessCheckInterface
         return true;
     }
 
-    public function run(DoctorContext $context): array
+    /**
+     * `$now` is not part of {@see ReadinessCheckInterface}: the doctor always
+     * measures against the wall clock. It exists so a test can pin the moment
+     * the remaining time is measured from, as on
+     * {@see BreakGlassSession::remainingSeconds()}.
+     */
+    public function run(DoctorContext $context, ?DateTimeImmutable $now = null): array
     {
         $id = 'breakglass.window_open';
         $session = $this->breakGlassState->getActiveSession();
@@ -65,7 +71,7 @@ final readonly class BreakGlassCheck implements ReadinessCheckInterface
             ];
         }
 
-        $remainingMinutes = (int) ceil($session->remainingSeconds(new DateTimeImmutable()) / 60);
+        $remainingMinutes = (int) ceil($session->remainingSeconds($now ?? new DateTimeImmutable()) / 60);
 
         return [
             Finding::warning(
