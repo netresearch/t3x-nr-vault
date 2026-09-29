@@ -180,6 +180,19 @@ export async function waitForSecretsListReady(frame: FrameLocator): Promise<void
 }
 
 /**
+ * Wait until vault-secret-input.js has bound the buttons of the
+ * `vaultSecretInput` field. Like the secrets list, the form is in the document
+ * before the module is imported, so a click before this does nothing. The
+ * module sets `data-vault-secret-input="ready"` on the documentElement once
+ * its handlers are attached.
+ */
+export async function waitForSecretInputReady(frame: FrameLocator): Promise<void> {
+  await frame
+    .locator('html[data-vault-secret-input="ready"]')
+    .waitFor({ state: 'attached', timeout: 15000 });
+}
+
+/**
  * Apply the identifier filter and wait for the page it produces.
  *
  * The filter is a form submit, so the flag and the row exist in the document

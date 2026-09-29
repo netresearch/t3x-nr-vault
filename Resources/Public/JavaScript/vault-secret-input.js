@@ -78,6 +78,12 @@ class VaultSecretInput {
         document.querySelectorAll('.t3js-vault-input-copy').forEach(button => {
             button.addEventListener('click', this.handleCopy.bind(this));
         });
+
+        // The buttons are inert until the lines above have run, and the form
+        // is in the document before this module is imported. This flag marks
+        // the moment the handlers are attached, as SecretsList.js does, for
+        // the E2E specs that would otherwise race the import.
+        document.documentElement.dataset.vaultSecretInput = 'ready';
     }
 
     /**
