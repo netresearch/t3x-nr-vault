@@ -8,9 +8,11 @@ import type { Locator } from '@playwright/test';
  * request token with `302 Location: /typo3/login`; TYPO3 14 answers 401/403.
  * Both reject the request before any extension controller runs. Only
  * meaningful for requests sent with `maxRedirects: 0` — otherwise Playwright
- * follows the redirect and reports the login page's 200.
+ * follows the redirect and reports the login page's 200. A browser `Response`
+ * caught with `page.waitForResponse()` is the redirect itself, so it qualifies
+ * as it is.
  */
-export function isLoginRedirect(response: APIResponse): boolean {
+export function isLoginRedirect(response: Pick<APIResponse, 'status' | 'headers'>): boolean {
   return (
     response.status() === 302 &&
     /^(https?:\/\/[^/]+)?\/typo3\/login(\?|$)/.test(response.headers()['location'] ?? '')
