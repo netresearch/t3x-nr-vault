@@ -21,10 +21,6 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 #[AllowMockObjectsWithoutExpectations]
 final class ExtensionConfigurationTest extends FunctionalTestCase
 {
-    protected array $coreExtensionsToLoad = [
-        'install',
-    ];
-
     protected array $testExtensionsToLoad = [
         'netresearch/nr-vault',
     ];

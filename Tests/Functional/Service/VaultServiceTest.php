@@ -32,7 +32,6 @@ final class VaultServiceTest extends FunctionalTestCase
     /** @var list<string> */
     protected array $coreExtensionsToLoad = [
         'backend',
-        'install',
     ];
 
     private ?VaultServiceInterface $subject = null;

@@ -25,10 +25,6 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 #[CoversNothing]
 final class SecretSearchScopeTest extends FunctionalTestCase
 {
-    protected array $coreExtensionsToLoad = [
-        'install',
-    ];
-
     protected array $testExtensionsToLoad = [
         'netresearch/nr-vault',
     ];

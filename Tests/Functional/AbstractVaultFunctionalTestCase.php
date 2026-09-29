@@ -44,7 +44,6 @@ abstract class AbstractVaultFunctionalTestCase extends FunctionalTestCase
     /** @var list<string> */
     protected array $coreExtensionsToLoad = [
         'backend',
-        'install',
     ];
 
     /**

@@ -34,7 +34,6 @@ final class EncryptionServiceTest extends FunctionalTestCase
 
     protected array $coreExtensionsToLoad = [
         'backend',
-        'install',
     ];
 
     private ?string $masterKeyPath = null;

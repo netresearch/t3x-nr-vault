@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **A functional test that loads nr_vault must also load the core extension `install`.** With `version` and `providesPackages` declared, TYPO3 v14 and the testing framework read nr_vault's dependencies from `composer.json` instead of `ext_emconf.php`, and `require` names `typo3/cms-install`, whose classes the upgrade wizards import. The testing framework loads `core`, `backend`, `frontend`, `extbase` and `fluid` by default, so a test case that loads nr_vault without `install` stops with `Package "nr_vault" depends on package "install" which does not exist`. Add `'install'` to its `$coreExtensionsToLoad`. Installations are not affected: EXT:install is a protected core extension and always active.
+- **`typo3/cms-install` moved from `require` to `suggest` (and `require-dev`).** With `version` and `providesPackages` declared, TYPO3 v14 and the testing framework read nr_vault's dependencies from `composer.json` instead of `ext_emconf.php`, so a `require` on `typo3/cms-install` would make EXT:install a hard dependency and stop every functional test that loads nr_vault without it (`Package "nr_vault" depends on package "install" which does not exist`), here and in consuming extensions. Nothing needs it at runtime: the TYPO3 14 upgrade wizard uses the upgrade API in EXT:core, and the TYPO3 13 wizard shell is registered only when EXT:install's interface exists (`Configuration/Services.php`), the way the core's own EXT:extensionmanager ships its v13 wizards with a `require` on `typo3/cms-core` alone. EXT:install is a protected core extension, so every installation still offers the wizard.
 
 ### Fixed
 

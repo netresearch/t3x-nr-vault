@@ -84,7 +84,7 @@ final class UpgradeFixtureGenerator extends FunctionalTestCase
 
     protected array $testExtensionsToLoad = ['netresearch/nr-vault'];
 
-    protected array $coreExtensionsToLoad = ['backend', 'install'];
+    protected array $coreExtensionsToLoad = ['backend'];
 
     private string $previousHash = '';
 
