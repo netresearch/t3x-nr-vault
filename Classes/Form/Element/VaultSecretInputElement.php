@@ -185,7 +185,7 @@ final class VaultSecretInputElement extends AbstractFormElement
         $html[] = '<input ' . GeneralUtility::implodeAttributes($attributes, true) . ' />';
 
         // Toggle visibility button
-        $html[] = '<button type="button" class="btn btn-default t3js-vault-input-toggle" title="Toggle visibility">';
+        $html[] = '<button type="button" class="btn btn-default t3js-vault-input-toggle" ' . $this->buttonName('nrvault.toggle.visibility', 'Toggle visibility') . '>';
         $html[] = $this->renderIcon('actions-eye');
         $html[] = '</button>';
 
@@ -195,7 +195,7 @@ final class VaultSecretInputElement extends AbstractFormElement
         $html[] = '</div>'; // form-wizards-wrap
 
         // Help text
-        $html[] = '<div class="form-text text-body-secondary mt-1">';
+        $html[] = '<div class="form-text text-variant mt-1">';
         $html[] = htmlspecialchars($this->getLanguageService()->sL(
             'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:vault_secret_input.help_new',
         ) ?: 'Enter the secret value. It will be encrypted when the record is saved.');
@@ -246,14 +246,17 @@ final class VaultSecretInputElement extends AbstractFormElement
             // Reveal button
             $html[] = '<button type="button" class="btn btn-default t3js-vault-input-reveal" ';
             $html[] = 'data-identifier="' . htmlspecialchars($identifier) . '" ';
-            $html[] = 'title="Reveal secret">';
+            // The script swaps the name to the hide label while the value is shown.
+            $html[] = $this->buttonName('nrvault.reveal.button', 'Reveal secret')
+                . ' data-label-reveal="' . $this->buttonLabel('nrvault.reveal.button', 'Reveal secret') . '"'
+                . ' data-label-hide="' . $this->buttonLabel('nrvault.hide.button', 'Hide secret') . '">';
             $html[] = $this->renderIcon('actions-eye');
             $html[] = '</button>';
 
             // Copy button
             $html[] = '<button type="button" class="btn btn-default t3js-vault-input-copy" ';
             $html[] = 'data-identifier="' . htmlspecialchars($identifier) . '" ';
-            $html[] = 'title="Copy to clipboard" style="display: none;">';
+            $html[] = $this->buttonName('nrvault.copy.clipboard', 'Copy to clipboard') . ' style="display: none;">';
             $html[] = $this->renderIcon('actions-clipboard');
             $html[] = '</button>';
 
@@ -281,10 +284,14 @@ final class VaultSecretInputElement extends AbstractFormElement
             $html[] = '</label>';
         } else {
             // No secret exists yet - show input field directly
-            $html[] = '<div class="alert alert-info mb-2">';
+            // Core callout markup, the structure f:be.infobox renders.
+            $html[] = '<div class="callout callout-info mb-2">';
+            $html[] = '<div class="callout-icon"><span class="icon-emphasized">' . $this->renderIcon('actions-info') . '</span></div>';
+            $html[] = '<div class="callout-content"><div class="callout-body">';
             $html[] = htmlspecialchars($this->getLanguageService()->sL(
                 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:vault_secret_input.no_secret',
             ) ?: 'No secret value stored. Enter a value below.');
+            $html[] = '</div></div>';
             $html[] = '</div>';
             $html[] = '<label for="' . htmlspecialchars($fieldId) . '" class="form-label">';
             $html[] = htmlspecialchars($this->getLanguageService()->sL(
@@ -322,7 +329,7 @@ final class VaultSecretInputElement extends AbstractFormElement
         $html[] = '<input ' . GeneralUtility::implodeAttributes($inputAttributes, true) . ' />';
 
         // Toggle visibility button
-        $html[] = '<button type="button" class="btn btn-default t3js-vault-input-toggle" title="Toggle visibility">';
+        $html[] = '<button type="button" class="btn btn-default t3js-vault-input-toggle" ' . $this->buttonName('nrvault.toggle.visibility', 'Toggle visibility') . '>';
         $html[] = $this->renderIcon('actions-eye');
         $html[] = '</button>';
 
@@ -330,7 +337,7 @@ final class VaultSecretInputElement extends AbstractFormElement
 
         // Help text for rotate
         if ($hasSecret) {
-            $html[] = '<div class="form-text text-body-secondary mt-1">';
+            $html[] = '<div class="form-text text-variant mt-1">';
             $html[] = htmlspecialchars($this->getLanguageService()->sL(
                 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:vault_secret_input.help_rotate',
             ) ?: 'Leave empty to keep current secret. Enter a new value to rotate.');
@@ -339,7 +346,7 @@ final class VaultSecretInputElement extends AbstractFormElement
             $html[] = '</div>'; // collapse
             $html[] = '</div>'; // mt-3
         } else {
-            $html[] = '<div class="form-text text-body-secondary mt-1">';
+            $html[] = '<div class="form-text text-variant mt-1">';
             $html[] = htmlspecialchars($this->getLanguageService()->sL(
                 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:vault_secret_input.help_new',
             ) ?: 'Enter the secret value. It will be encrypted when the record is saved.');
@@ -381,6 +388,29 @@ final class VaultSecretInputElement extends AbstractFormElement
         $iconFactory = $this->iconFactory;
 
         return $iconFactory->getIcon($identifier, IconSize::SMALL)->render();
+    }
+
+    /**
+     * `title` and `aria-label` of an icon-only button, translated from
+     * locallang_js.xlf with the English text as fallback.
+     */
+    private function buttonName(string $key, string $fallback): string
+    {
+        $name = $this->buttonLabel($key, $fallback);
+
+        return 'title="' . $name . '" aria-label="' . $name . '"';
+    }
+
+    /**
+     * A locallang_js.xlf label, HTML-escaped for use in an attribute value.
+     */
+    private function buttonLabel(string $key, string $fallback): string
+    {
+        return htmlspecialchars(LocalisationHelper::translateOrFallback(
+            $this->getLanguageService(),
+            'LLL:EXT:nr_vault/Resources/Private/Language/locallang_js.xlf:' . $key,
+            $fallback,
+        ));
     }
 
     /**

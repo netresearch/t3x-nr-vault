@@ -8,6 +8,7 @@
  */
 import Modal from '@typo3/backend/modal.js';
 import Severity from '@typo3/backend/severity.js';
+import '@typo3/backend/element/spinner-element.js';
 import {
     ensureCountdownElement,
     removeCountdownElement,
@@ -144,9 +145,11 @@ class VaultSecretElement {
         const savedNodes = Array.from(button.childNodes).map(n => n.cloneNode(true));
         this.originalButtonContents.set(button, savedNodes);
         button.textContent = '';
-        const spinner = document.createElement('span');
-        spinner.className = 'spinner-border spinner-border-sm';
-        spinner.setAttribute('role', 'status');
+        // Core's spinner element: Bootstrap's .spinner-border is not part of the
+        // TYPO3 14 backend CSS, so that span rendered as nothing there.
+        const spinner = document.createElement('typo3-backend-spinner');
+        spinner.setAttribute('size', 'small');
+        spinner.setAttribute('aria-hidden', 'true');
         button.appendChild(spinner);
     }
 

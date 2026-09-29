@@ -15,11 +15,13 @@
     Renders nothing when no window is open.
 -->
 <f:if condition="{breakGlass.active}">
-    <div class="alert alert-danger mb-4" role="alert" data-testid="vault-break-glass-banner">
-        <h2 class="alert-heading h4">
-            <core:icon identifier="actions-exclamation-triangle" size="small" />
+    <div class="callout callout-danger mb-4" role="alert" data-testid="vault-break-glass-banner">
+        <div class="callout-icon"><span class="icon-emphasized"><core:icon identifier="actions-close" size="small" /></span></div>
+        <div class="callout-content">
+        <h2 class="callout-title">
             <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:breakGlass.banner.title" />
         </h2>
+        <div class="callout-body">
         <p class="mb-2">
             <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:breakGlass.banner.description" />
         </p>
@@ -38,6 +40,8 @@
             <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:breakGlass.banner.close" />
             <code>vendor/bin/typo3 vault:break-glass --deactivate --reason "…"</code>
         </p>
+        </div>
+        </div>
     </div>
 </f:if>
 

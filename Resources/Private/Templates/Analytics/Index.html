@@ -6,7 +6,7 @@
 
 <f:section name="Content">
     <h1>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.title')}</h1>
-    <p class="text-body-secondary mb-3">
+    <p class="text-variant mb-3">
         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.subtitle')}
     </p>
 
@@ -62,23 +62,21 @@
     <div class="row row-cols-1 row-cols-md-2 g-3 mb-4">
         <div class="col"><div class="card h-100"><div class="card-body">
             <h3 class="h6">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.byAdapter')}</h3>
-            <f:for each="{stats.byAdapter}" as="bar">
-                <div class="d-flex align-items-center mb-2">
-                    <span class="me-2" style="min-width:7rem">{bar.label}</span>
-                    <div class="progress flex-grow-1" role="progressbar" aria-valuenow="{bar.percent}" aria-valuemin="0" aria-valuemax="100" style="height:1rem">
-                        <div class="progress-bar" style="width:{bar.percent}%">{bar.value}</div>
-                    </div>
+            <f:for each="{stats.byAdapter}" as="bar" iteration="barIteration">
+                <div class="vault-bar-row">
+                    <span class="vault-bar-label" aria-hidden="true">{bar.label}</span>
+                    <progress class="vault-bar" value="{bar.percent}" max="100" aria-label="{bar.label}" aria-describedby="vault-bar-adapter-{barIteration.index}" data-testid="analytics-bar">{bar.percent}%</progress>
+                    <span class="vault-bar-value" id="vault-bar-adapter-{barIteration.index}">{bar.value} ({bar.percent}%)</span>
                 </div>
             </f:for>
         </div></div></div>
         <div class="col"><div class="card h-100"><div class="card-body">
             <h3 class="h6">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.byContext')}</h3>
-            <f:for each="{stats.byContext}" as="bar">
-                <div class="d-flex align-items-center mb-2">
-                    <span class="me-2" style="min-width:7rem">{bar.label}</span>
-                    <div class="progress flex-grow-1" role="progressbar" aria-valuenow="{bar.percent}" aria-valuemin="0" aria-valuemax="100" style="height:1rem">
-                        <div class="progress-bar" style="width:{bar.percent}%">{bar.value}</div>
-                    </div>
+            <f:for each="{stats.byContext}" as="bar" iteration="barIteration">
+                <div class="vault-bar-row">
+                    <span class="vault-bar-label" aria-hidden="true">{bar.label}</span>
+                    <progress class="vault-bar" value="{bar.percent}" max="100" aria-label="{bar.label}" aria-describedby="vault-bar-context-{barIteration.index}" data-testid="analytics-bar">{bar.percent}%</progress>
+                    <span class="vault-bar-value" id="vault-bar-context-{barIteration.index}">{bar.value} ({bar.percent}%)</span>
                 </div>
             </f:for>
         </div></div></div>
@@ -102,19 +100,19 @@
                 <tbody>
                     <f:for each="{candidates}" as="row">
                         <tr data-testid="candidate-{row.identifier}">
-                            <td><code>{row.identifier}</code><br /><span class="text-body-secondary small">{row.context} · {row.adapter}</span></td>
+                            <td><code>{row.identifier}</code><br /><span class="text-variant small">{row.context} · {row.adapter}</span></td>
                             <td>
                                 <f:for each="{row.rules}" as="rule">
-                                    <span class="badge vault-badge vault-badge-{rule.severity} me-1">{rule.label}</span>
+                                    <span class="badge badge-{rule.severity} me-1">{rule.label}</span>
                                 </f:for>
                             </td>
                             <td class="nowrap">
                                 <f:if condition="{row.lastReadAt}">
                                     <f:then><f:format.date format="Y-m-d">@{row.lastReadAt}</f:format.date></f:then>
-                                    <f:else><span class="text-body-secondary">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.never')}</span></f:else>
+                                    <f:else><span class="text-variant">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.never')}</span></f:else>
                                 </f:if>
                             </td>
-                            <td class="text-end nowrap"><span class="text-info">{row.automatedReads}</span> / <span class="text-body-secondary">{row.manualReveals}</span></td>
+                            <td class="text-end nowrap"><span class="text-info">{row.automatedReads}</span> / <span class="text-variant">{row.manualReveals}</span></td>
                             <td class="text-end">{row.ageDays}</td>
                             <td class="col-control nowrap">
                                 <a href="{row.editUrl}" class="btn btn-default btn-sm">

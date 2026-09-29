@@ -44,8 +44,8 @@
                         <div class="card-body">
                             <ul class="list-group">
                                 <f:for each="{errors}" as="error" key="uid">
-                                    <li class="list-group-item list-group-item-danger">
-                                        <core:icon identifier="actions-exclamation-circle" size="small" />
+                                    <li class="list-group-item">
+                                        <span class="text-danger"><core:icon identifier="actions-exclamation-circle" size="small" /></span>
                                         <!-- Chain-level findings (tip anchor, epoch floor) use non-positive
                                              pseudo keys so they cannot collide with a real entry UID. -->
                                         <strong><f:if condition="{uid} > 0"><f:then>#{uid}</f:then><f:else><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.finding.chain" /></f:else></f:if></strong> &mdash; {error}
@@ -73,8 +73,8 @@
                 <div class="card-body">
                     <ul class="list-group">
                         <f:for each="{warnings}" as="warning">
-                            <li class="list-group-item list-group-item-warning">
-                                <core:icon identifier="actions-exclamation-triangle" size="small" />
+                            <li class="list-group-item">
+                                <span class="text-warning"><core:icon identifier="actions-exclamation-triangle" size="small" /></span>
                                 {warning}
                             </li>
                         </f:for>
@@ -83,7 +83,7 @@
             </div>
         </f:if>
 
-        <div class="form-actions mt-4">
+        <div class="mt-4">
             <f:be.link route="admin_vault_audit" class="btn btn-default">
                 <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.back" />
             </f:be.link>

@@ -2,71 +2,71 @@
  * Backend module styles for nr_vault.
  *
  * Color rules:
- * - No hardcoded text/background colors: surfaces use TYPO3 v14 design
- *   tokens (var(--typo3-*)) with Bootstrap 5.3 fallbacks (var(--bs-*)) so
- *   they adapt to the light and dark backend color schemes.
- * - The Netresearch brand teal (#2f99a4) appears only as an accent, and is
- *   paired with an explicit dark text color. Core does NOT force black text
- *   on badges — measured on TYPO3 14.3 it paints #ffffff — so the pairing is
- *   stated here rather than inherited.
+ * - No hard-coded colours. Every colour comes from a TYPO3 design token
+ *   (var(--typo3-*)), which core defines for the light and the dark backend
+ *   scheme on TYPO3 13.4 and 14.3 alike. The TYPO3 scheme setting decides,
+ *   never prefers-color-scheme.
+ * - Badges, callouts and buttons use the core component classes
+ *   (badge badge-*, callout callout-*, btn btn-default) and need no rules here.
  */
 
-/* State badges.
+/* Distribution bars (Analytics module).
  *
- * Bootstrap's .text-bg-* utilities are not accessible at badge size in the
- * TYPO3 v14 palette: measured on a real v14.3 backend, .text-bg-success paints
- * #ffffff on #2a9960 — 3.6:1 at 11px, where WCAG 2.1 AA (1.4.3) asks for 4.5:1
- * on normal text. .text-bg-danger fails the same way. Rather than redefine core
- * utilities globally — which would change every badge in the backend, ours and
- * everyone else's — the vault paints its own badges through .vault-badge, and
- * the templates carry that class instead.
- *
- * Both colours of every pair are stated explicitly, so the ratio holds in the
- * light and the dark backend scheme alike, and no core token can move it.
- * Ratios against the stated foreground (WCAG relative luminance):
- *   success   #ffffff on #146c43 = 6.45
- *   danger    #ffffff on #b02a37 = 6.50
- *   warning   #000000 on #ffc107 = 12.88
- *   info      #000000 on #2f99a4 = 6.21  (Netresearch brand teal, kept)
- *   primary   #000000 on #2f99a4 = 6.21
- *   secondary #ffffff on #495057 = 8.18
- *   dark      #ffffff on #212529 = 15.43
- */
-.vault-badge {
-    background-color: #495057;
-    color: #ffffff;
+ * A native <progress>, which carries the progressbar role, its value, range
+ * and accessible name itself (the fleet rule; SonarCloud flags a div with
+ * role="progressbar"). Bootstrap's .progress is not part of the TYPO3 14
+ * backend CSS, and core's <typo3-backend-progress-bar> is @internal and
+ * cannot be named. Each engine draws the bar through its own pseudo-elements,
+ * so each needs a rule of its own: a selector list with an unknown
+ * pseudo-element would drop the whole rule. Colours are core tokens, fill
+ * --typo3-component-primary-color on a --typo3-surface-container-high track;
+ * the contrast figures are in the PR that introduced this. The count and
+ * percentage are printed beside the bar in the base text colour. */
+.vault-bar-row {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin-bottom: .5rem;
 }
 
-.vault-badge-success {
-    background-color: #146c43;
-    color: #ffffff;
+.vault-bar-label {
+    min-width: 7rem;
 }
 
-.vault-badge-danger {
-    background-color: #b02a37;
-    color: #ffffff;
+.vault-bar {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    flex: 1 1 auto;
+    min-width: 3rem;
+    /* A <progress> is about 10em wide by default, and that width would become
+       its flex basis; start small and grow into the card instead. */
+    width: 3rem;
+    height: .75rem;
+    overflow: hidden;
+    border: 0;
+    border-radius: var(--typo3-component-border-radius);
+    background-color: var(--typo3-surface-container-high);
+    color: var(--typo3-component-primary-color);
 }
 
-.vault-badge-warning {
-    background-color: #ffc107;
-    color: #000000;
+.vault-bar::-webkit-progress-bar {
+    background-color: var(--typo3-surface-container-high);
 }
 
-/* Brand accent: teal count/info badges. */
-.vault-badge-info,
-.vault-badge-primary {
-    background-color: #2f99a4;
-    color: #000000;
+.vault-bar::-webkit-progress-value {
+    background-color: var(--typo3-component-primary-color);
 }
 
-.vault-badge-secondary {
-    background-color: #495057;
-    color: #ffffff;
+.vault-bar::-moz-progress-bar {
+    background-color: var(--typo3-component-primary-color);
 }
 
-.vault-badge-dark {
-    background-color: #212529;
-    color: #ffffff;
+.vault-bar-value {
+    min-width: 2rem;
+    text-align: end;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 
 /* Code examples (Overview module).
@@ -75,9 +75,10 @@
  * is hard to read for multi-line examples, especially in dark mode. Render
  * code blocks on an adaptive surface with the base text color instead. */
 .vault-codeblock {
-    background-color: var(--typo3-surface-container-low, var(--bs-tertiary-bg, #f5f5f5));
-    border: 1px solid var(--typo3-component-border-color, var(--bs-border-color, #d7d7d7));
-    color: var(--typo3-text-color-base, var(--bs-body-color, #333333));
+    background-color: var(--typo3-surface-container-low);
+    border: 1px solid var(--typo3-component-border-color);
+    border-radius: var(--typo3-component-border-radius);
+    color: var(--typo3-text-color-base);
 }
 
 .vault-codeblock code {
@@ -100,4 +101,21 @@
 
 .vault-col-ip {
     width: 130px;
+}
+
+/* FAQ disclosure widgets (Help module): native <details>, styled with core
+ * tokens so the question reads as a control in both schemes. */
+.vault-faq {
+    border: 1px solid var(--typo3-component-border-color);
+    border-radius: var(--typo3-component-border-radius);
+    padding: .5rem .75rem;
+}
+
+.vault-faq > summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.vault-faq[open] > summary {
+    margin-bottom: .5rem;
 }

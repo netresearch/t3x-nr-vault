@@ -7,7 +7,7 @@
 <f:section name="Content">
     <h1><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.title" /></h1>
 
-    <p class="text-body-secondary mb-4">
+    <p class="text-variant mb-4">
         {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.index.description')}
     </p>
 
@@ -91,7 +91,7 @@
     </f:be.infobox>
 
     <div class="mt-4">
-        <f:be.link route="admin_vault_migration" parameters="{action: 'scan'}" class="btn btn-primary btn-lg">
+        <f:be.link route="admin_vault_migration" parameters="{action: 'scan'}" class="btn btn-primary">
             <core:icon identifier="actions-search" size="small" />
             {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.index.start_scan')}
         </f:be.link>

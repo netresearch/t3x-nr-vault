@@ -43,7 +43,7 @@
             <p>
                 {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.getting_started.step3.text')}
             </p>
-            <pre class="vault-codeblock p-3 rounded"><code>%vault(stripe_api_key)%</code></pre>
+            <pre class="vault-codeblock p-3"><code>%vault(stripe_api_key)%</code></pre>
             <p>
                 {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.getting_started.step3.text2')}
             </p>
@@ -154,86 +154,38 @@
             <h2 class="card-title mb-0">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.title')}</h2>
         </div>
         <div class="card-body">
-            <div class="accordion" id="faqAccordion">
-
-                <div class="accordion-item">
-                    <h3 class="accordion-header" id="faqHeading1">
-                        <button class="accordion-button collapsed" type="button"
-                                data-bs-toggle="collapse" data-bs-target="#faqCollapse1"
-                                aria-expanded="false" aria-controls="faqCollapse1">
-                            {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.site_config.question')}
-                        </button>
-                    </h3>
-                    <div id="faqCollapse1" class="accordion-collapse collapse"
-                         aria-labelledby="faqHeading1" data-bs-parent="#faqAccordion">
-                        <div class="accordion-body">
-                            <p>
-                                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.site_config.answer')}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="accordion-item">
-                    <h3 class="accordion-header" id="faqHeading2">
-                        <button class="accordion-button collapsed" type="button"
-                                data-bs-toggle="collapse" data-bs-target="#faqCollapse2"
-                                aria-expanded="false" aria-controls="faqCollapse2">
-                            {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.lost_key.question')}
-                        </button>
-                    </h3>
-                    <div id="faqCollapse2" class="accordion-collapse collapse"
-                         aria-labelledby="faqHeading2" data-bs-parent="#faqAccordion">
-                        <div class="accordion-body">
-                            <p>
-                                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.lost_key.answer')}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="accordion-item">
-                    <h3 class="accordion-header" id="faqHeading3">
-                        <button class="accordion-button collapsed" type="button"
-                                data-bs-toggle="collapse" data-bs-target="#faqCollapse3"
-                                aria-expanded="false" aria-controls="faqCollapse3">
-                            {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.editors.question')}
-                        </button>
-                    </h3>
-                    <div id="faqCollapse3" class="accordion-collapse collapse"
-                         aria-labelledby="faqHeading3" data-bs-parent="#faqAccordion">
-                        <div class="accordion-body">
-                            <p>
-                                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.editors.answer')}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="accordion-item">
-                    <h3 class="accordion-header" id="faqHeading4">
-                        <button class="accordion-button collapsed" type="button"
-                                data-bs-toggle="collapse" data-bs-target="#faqCollapse4"
-                                aria-expanded="false" aria-controls="faqCollapse4">
-                            {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.cicd.question')}
-                        </button>
-                    </h3>
-                    <div id="faqCollapse4" class="accordion-collapse collapse"
-                         aria-labelledby="faqHeading4" data-bs-parent="#faqAccordion">
-                        <div class="accordion-body">
-                            <p>
-                                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.cicd.answer.intro')}
-                            </p>
-                            <pre class="vault-codeblock p-2 rounded"><code>bin/typo3 vault:store api_key "$NEW_API_KEY"
+            <!-- Native disclosure widgets: Bootstrap's accordion is not part of the
+                 TYPO3 backend CSS (13.4 or 14.3), so its buttons rendered as unstyled
+                 browser buttons. <details> needs no script and follows the scheme. -->
+            <details class="vault-faq mb-2" name="vault-faq" data-testid="vault-faq-1">
+                <summary>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.site_config.question')}</summary>
+                <p>
+                    {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.site_config.answer')}
+                </p>
+            </details>
+            <details class="vault-faq mb-2" name="vault-faq" data-testid="vault-faq-2">
+                <summary>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.lost_key.question')}</summary>
+                <p>
+                    {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.lost_key.answer')}
+                </p>
+            </details>
+            <details class="vault-faq mb-2" name="vault-faq" data-testid="vault-faq-3">
+                <summary>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.editors.question')}</summary>
+                <p>
+                    {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.editors.answer')}
+                </p>
+            </details>
+            <details class="vault-faq mb-2" name="vault-faq" data-testid="vault-faq-4">
+                <summary>{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.cicd.question')}</summary>
+                <p>
+                    {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.cicd.answer.intro')}
+                </p>
+                <pre class="vault-codeblock p-2"><code>bin/typo3 vault:store api_key "$NEW_API_KEY"
 bin/typo3 vault:rotate smtp_password "$NEW_SMTP_PASS"</code></pre>
-                            <p>
-                                {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.cicd.answer.outro')}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
+                <p>
+                    {f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:help.faq.cicd.answer.outro')}
+                </p>
+            </details>
         </div>
     </div>
 

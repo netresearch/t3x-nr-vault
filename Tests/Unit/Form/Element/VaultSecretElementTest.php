@@ -264,6 +264,78 @@ final class VaultSecretElementTest extends TestCase
         self::assertStringContainsString('t3js-vault-clear', $result['html']);
     }
 
+    /**
+     * The action buttons beside the field are neutral controls. Core's
+     * `btn-secondary` is a dark tile in the light and the dark backend scheme
+     * alike; `btn-default` is the neutral button that follows the scheme.
+     */
+    #[Test]
+    public function actionButtonsUseTheSchemeAwareNeutralButton(): void
+    {
+        $this->setUpExistingSecretData();
+
+        $result = $this->subject->render();
+
+        self::assertIsString($result['html']);
+        foreach (['t3js-vault-toggle-visibility', 't3js-vault-copy', 't3js-vault-clear'] as $hook) {
+            self::assertStringContainsString('class="btn btn-default ' . $hook . '"', $result['html']);
+        }
+
+        self::assertStringNotContainsString('btn-secondary', $result['html']);
+    }
+
+    /**
+     * The action buttons carry only an icon, so their `title` and
+     * `aria-label` are their accessible name. Both come from locallang_js.xlf,
+     * so the name follows the backend user's language.
+     */
+    #[Test]
+    public function actionButtonsAreNamedInTheBackendLanguage(): void
+    {
+        $prefix = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_js.xlf:';
+        $langService = $this->createMock(LanguageService::class);
+        $langService->method('sL')->willReturnCallback(
+            static fn (string $key): string => str_starts_with($key, $prefix) ? '[' . substr($key, \strlen($prefix)) . ']' : '',
+        );
+        $GLOBALS['LANG'] = $langService;
+        $this->setUpExistingSecretData();
+
+        $result = $this->subject->render();
+
+        self::assertIsString($result['html']);
+        foreach ([
+            't3js-vault-toggle-visibility' => '[nrvault.toggle.visibility]',
+            't3js-vault-copy' => '[nrvault.copy.clipboard]',
+            't3js-vault-clear' => '[nrvault.clear.button]',
+        ] as $hook => $name) {
+            self::assertStringContainsString(
+                'class="btn btn-default ' . $hook . '" title="' . $name . '" aria-label="' . $name . '"',
+                $result['html'],
+            );
+        }
+    }
+
+    /**
+     * A translation is text, so quotes and angle brackets in it must reach
+     * the attributes escaped rather than end them.
+     */
+    #[Test]
+    public function actionButtonNamesAreEscaped(): void
+    {
+        $langService = $this->createMock(LanguageService::class);
+        $langService->method('sL')->willReturnCallback(
+            static fn (string $key): string => str_contains($key, 'locallang_js.xlf:') ? 'a"b<' : '',
+        );
+        $GLOBALS['LANG'] = $langService;
+        $this->setUpExistingSecretData();
+
+        $result = $this->subject->render();
+
+        self::assertIsString($result['html']);
+        self::assertSame(3, substr_count($result['html'], 'title="a&quot;b&lt;" aria-label="a&quot;b&lt;"'));
+        self::assertStringNotContainsString('a"b<', $result['html']);
+    }
+
     #[Test]
     public function renderOutputIncludesJavaScriptModule(): void
     {

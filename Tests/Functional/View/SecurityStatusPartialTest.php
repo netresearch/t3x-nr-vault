@@ -61,10 +61,11 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
         self::assertStringContainsString('vault-security-status', $html);
         self::assertStringContainsString('Hardened profile', $html);
         self::assertStringContainsString('19 of 22 controls passed', $html);
-        // The vault paints its own badge colours (Resources/Public/Css/backend.css):
-        // Bootstrap's utilities do not reach WCAG AA at badge size in the TYPO3 14
-        // palette, and this is the class that carries the accessible pair.
-        self::assertStringContainsString('vault-badge-warning', $html);
+        // Core's scheme-aware badge variants: Bootstrap's .bg-* / .text-bg-* keep
+        // one colour pair in both backend schemes and miss WCAG AA at badge size.
+        self::assertStringContainsString('class="badge badge-warning"', $html);
+        self::assertStringContainsString('class="badge badge-default"', $html);
+        self::assertStringNotContainsString('bg-', $html);
     }
 
     public function testRendersTheStandardProfileLabelForAnyNonHardenedValue(): void
@@ -105,7 +106,11 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
         ));
 
         self::assertStringContainsString('vault-security-finding', $html);
-        self::assertStringContainsString('alert-danger', $html);
+        // Core callout markup, not Bootstrap's .alert, with the finding id as a
+        // heading one level below the panel's h2.
+        self::assertStringContainsString('class="callout callout-danger"', $html);
+        self::assertStringContainsString('<h3 class="callout-title"><code>audit.external_sink</code></h3>', $html);
+        self::assertStringNotContainsString('alert-', $html);
         self::assertStringContainsString('audit.external_sink', $html);
         self::assertStringContainsString('No external audit sink is enabled.', $html);
         self::assertStringContainsString('The audit trail exists only in the database it protects.', $html);

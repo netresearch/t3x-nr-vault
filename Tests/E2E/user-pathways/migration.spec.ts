@@ -1,5 +1,6 @@
 import { expect, test, clickAndWaitForModule, getModuleFrame, moduleFrameUrl, waitForModuleContent } from '../fixtures/auth';
 import type { Page } from '@playwright/test';
+import { isDbExecConfigured, runSql } from '../fixtures/db';
 
 /**
  * Open the wizard's configure step with a selection, the way the review form
@@ -214,6 +215,55 @@ test.describe('Migration Module User Pathways', () => {
         await expect(frame.locator('.secret-checkbox').first()).toBeVisible();
       }
       await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
+    });
+
+    test('select all checks and unchecks every candidate', async ({ authenticatedPage: page, browserName }) => {
+      // A freshly provisioned instance has no candidates, so the review step
+      // would show the empty state and the checkbox would never render. Two
+      // rows with plaintext values in a core column the scanner reads
+      // (`sys_reaction.secret`) give it one; they are removed afterwards. The
+      // scanner counts any value that is neither a vault identifier nor
+      // encrypted, so the values need no vendor-shaped token.
+      test.skip(browserName !== 'chromium', 'DB mutation tests must run on a single browser to avoid races');
+
+      const dbAvailable = runSql('SELECT 1');
+      if (isDbExecConfigured()) {
+        expect(dbAvailable, 'E2E_DB_EXEC is set but the database client failed to run SELECT 1').toBe('1');
+      } else if (dbAvailable === null) {
+        test.skip(true, 'No database client available to seed a migration candidate');
+      }
+
+      const marker = `e2e_select_all_${crypto.randomUUID()}`;
+      const seeded = runSql(
+        'INSERT INTO sys_reaction (pid, name, reaction_type, identifier, secret) VALUES ' +
+          `(0, '${marker}', 'create-record', '${crypto.randomUUID()}', 'e2e select-all plaintext one'), ` +
+          `(0, '${marker}', 'create-record', '${crypto.randomUUID()}', 'e2e select-all plaintext two')`,
+      );
+      expect(seeded, 'Seeding the migration candidate failed').not.toBeNull();
+
+      try {
+        await page.goto('/typo3/module/admin/vault/migration?action=review');
+        await waitForModuleContent(page);
+        const frame = getModuleFrame(page);
+
+        const selectAll = frame.locator('#select-all');
+        const rows = frame.locator('.secret-checkbox');
+        await expect(selectAll).toBeVisible();
+        expect(await rows.count(), 'The review step listed no candidate').toBeGreaterThan(0);
+        const states = () => rows.evaluateAll((boxes) => boxes.map((box) => (box as HTMLInputElement).checked));
+
+        await selectAll.check();
+        expect(await states()).not.toContain(false);
+
+        await selectAll.uncheck();
+        expect(await states()).not.toContain(true);
+      } finally {
+        // Soft, so a failed cleanup marks the test failed without replacing
+        // an error the try block already threw.
+        expect
+          .soft(runSql(`DELETE FROM sys_reaction WHERE name = '${marker}'`), 'Removing the seeded candidate failed')
+          .not.toBeNull();
+      }
     });
   });
 

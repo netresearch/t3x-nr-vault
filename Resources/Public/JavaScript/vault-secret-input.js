@@ -11,6 +11,7 @@ import {
     removeCountdownElement,
     startRevealLifecycle,
 } from '@netresearch/nr-vault/vault-reveal-lifecycle.js';
+import '@typo3/backend/element/spinner-element.js';
 
 /**
  * Look up a backend label registered via PageRenderer::addInlineLanguageLabelFile()
@@ -32,6 +33,21 @@ function lang(key, fallback, ...args) {
     return text;
 }
 
+/**
+ * Give an icon-only button a new accessible name. The label comes from a
+ * data attribute the server rendered translated; without one the name stays.
+ *
+ * @param {HTMLElement} button
+ * @param {string|undefined} label
+ */
+function setButtonName(button, label) {
+    if (!label) {
+        return;
+    }
+    button.title = label;
+    button.setAttribute('aria-label', label);
+}
+
 class VaultSecretInput {
     constructor() {
         // No in-memory secret cache: every reveal MUST hit the AJAX endpoint
@@ -51,15 +67,23 @@ class VaultSecretInput {
             button.addEventListener('click', this.handleToggleVisibility.bind(this));
         });
 
-        // Reveal buttons for existing secrets
+        // Reveal buttons for existing secrets. One listener for both modes: the
+        // button's class says which one it is in. Swapping bound listeners per
+        // mode never removed the reveal handler, so "hide" revealed again.
         document.querySelectorAll('.t3js-vault-input-reveal').forEach(button => {
-            button.addEventListener('click', this.handleReveal.bind(this));
+            button.addEventListener('click', this.handleRevealButton.bind(this));
         });
 
         // Copy buttons
         document.querySelectorAll('.t3js-vault-input-copy').forEach(button => {
             button.addEventListener('click', this.handleCopy.bind(this));
         });
+
+        // The buttons are inert until the lines above have run, and the form
+        // is in the document before this module is imported. This flag marks
+        // the moment the handlers are attached, as SecretsList.js does, for
+        // the E2E specs that would otherwise race the import.
+        document.documentElement.dataset.vaultSecretInput = 'ready';
     }
 
     /**
@@ -90,6 +114,17 @@ class VaultSecretInput {
     }
 
     /**
+     * Click on the reveal button: hide the value while it is shown, else reveal it.
+     */
+    handleRevealButton(event) {
+        if (event.currentTarget.classList.contains('t3js-vault-input-hide')) {
+            this.handleHide(event);
+            return;
+        }
+        this.handleReveal(event);
+    }
+
+    /**
      * Reveal an existing secret via AJAX.
      */
     async handleReveal(event) {
@@ -104,9 +139,11 @@ class VaultSecretInput {
         // Show loading state
         button.disabled = true;
         const originalChildren = Array.from(button.childNodes);
-        const spinner = document.createElement('span');
-        spinner.className = 'spinner-border spinner-border-sm';
-        spinner.setAttribute('role', 'status');
+        // Core's spinner element: Bootstrap's .spinner-border is not part of the
+        // TYPO3 14 backend CSS, so that span rendered as nothing there.
+        const spinner = document.createElement('typo3-backend-spinner');
+        spinner.setAttribute('size', 'small');
+        spinner.setAttribute('aria-hidden', 'true');
         button.replaceChildren(spinner);
 
         try {
@@ -183,10 +220,9 @@ class VaultSecretInput {
         }
 
         // Switch to hide mode
+        setButtonName(button, button.dataset.labelHide);
         button.classList.remove('t3js-vault-input-reveal');
         button.classList.add('t3js-vault-input-hide');
-        button.removeEventListener('click', this.handleReveal);
-        button.addEventListener('click', this.handleHide.bind(this));
         button.disabled = false;
 
         // Show copy button — never in the hardened profile.
@@ -233,10 +269,9 @@ class VaultSecretInput {
         }
 
         // Switch back to reveal mode
+        setButtonName(button, button.dataset.labelReveal);
         button.classList.remove('t3js-vault-input-hide');
         button.classList.add('t3js-vault-input-reveal');
-        button.removeEventListener('click', this.handleHide);
-        button.addEventListener('click', this.handleReveal.bind(this));
 
         // Hide copy button
         const copyButton = inputGroup.querySelector('.t3js-vault-input-copy');

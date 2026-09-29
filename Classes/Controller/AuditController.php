@@ -455,7 +455,9 @@ final readonly class AuditController
             // log; it must not blend into the grey default.
             'break_glass_activated' => 'danger',
             'break_glass_deactivated' => 'success',
-            default => 'secondary',
+            // Core's neutral badge follows the backend scheme; badge-secondary
+            // is a dark tile in light and dark alike.
+            default => 'default',
         };
     }
 

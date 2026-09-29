@@ -16,11 +16,13 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\UriBuilder as BackendUriBuilder;
+use TYPO3\CMS\Backend\Template\Components\Menu\MenuItem;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Backend module controller for vault overview/dashboard.
@@ -28,6 +30,18 @@ use TYPO3\CMS\Core\Page\PageRenderer;
 #[AsController]
 final readonly class OverviewController
 {
+    /**
+     * Link targets for the overview and its help page: the `admin_vault_overview`
+     * submodule, not the `admin_vault` parent. TYPO3 13.4's BackendModuleValidator
+     * rewrites every route of a second-level module that has submodules to a
+     * submodule's `_default` route, so a link to `admin_vault.help` rendered the
+     * overview (or the submodule used last) instead of the help page. A submodule
+     * has no submodules of its own and is never rewritten.
+     */
+    public const OVERVIEW_ROUTE = 'admin_vault_overview';
+
+    public const HELP_ROUTE = self::OVERVIEW_ROUTE . '.help';
+
     private const MODULE_NAME = 'admin_vault';
 
     public function __construct(
@@ -105,7 +119,7 @@ final readonly class OverviewController
         $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
         $moduleTemplate->assignMultiple([
-            'dashboardUrl' => (string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME),
+            'dashboardUrl' => (string) $this->backendUriBuilder->buildUriFromRoute(self::OVERVIEW_ROUTE),
         ]);
 
         return $moduleTemplate->renderResponse('Overview/Help');
@@ -193,18 +207,20 @@ final readonly class OverviewController
         $menu = $menuRegistry->makeMenu();
         $menu->setIdentifier('VaultOverviewMenu');
 
-        $dashboardItem = $menu->makeMenuItem()
+        // Menu::makeMenuItem() is deprecated in 14.3; core names
+        // makeInstance(MenuItem::class) as the replacement, which 13.4 supports too.
+        $dashboardItem = GeneralUtility::makeInstance(MenuItem::class)
             ->setTitle($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.tab.dashboard'))
-            ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME));
+            ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::OVERVIEW_ROUTE));
         if ($activeTab === 'dashboard') {
             $dashboardItem->setActive(true);
         }
 
         $menu->addMenuItem($dashboardItem);
 
-        $helpItem = $menu->makeMenuItem()
+        $helpItem = GeneralUtility::makeInstance(MenuItem::class)
             ->setTitle($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:overview.tab.help'))
-            ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME . '.help'));
+            ->setHref((string) $this->backendUriBuilder->buildUriFromRoute(self::HELP_ROUTE));
         if ($activeTab === 'help') {
             $helpItem->setActive(true);
         }

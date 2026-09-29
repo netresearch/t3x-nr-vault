@@ -62,8 +62,8 @@
 
         <!-- Stats -->
         <div class="mb-3" role="status" aria-live="polite">
-            <span class="badge vault-badge vault-badge-info">{totalCount} <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.stats.entries" /></span>
-            <span class="badge vault-badge vault-badge-secondary"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.pagination.page" arguments="{0: currentPage, 1: totalPages}" /></span>
+            <span class="badge badge-info">{totalCount} <f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.stats.entries" /></span>
+            <span class="badge badge-default"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.pagination.page" arguments="{0: currentPage, 1: totalPages}" /></span>
         </div>
 
         <f:if condition="{entries}">
@@ -96,7 +96,7 @@
                                         </td>
                                         <td><code data-testid="audit-cell-identifier">{entry.secretIdentifier}</code></td>
                                         <td>
-                                            <span class="badge vault-badge vault-badge-{entry.actionBadgeClass}" data-testid="audit-cell-action">{entry.action}</span>
+                                            <span class="badge badge-{entry.actionBadgeClass}" data-testid="audit-cell-action">{entry.action}</span>
                                         </td>
                                         <td>
                                             <f:if condition="{entry.success}">
@@ -109,7 +109,7 @@
                                                 <core:icon identifier="avatar-default" size="small" />
                                                 {entry.actorUsername}
                                             </span>
-                                            <small class="text-body-secondary">({entry.actorType})</small>
+                                            <small class="text-variant">({entry.actorType})</small>
                                         </td>
                                         <td><small>{entry.ipAddress}</small></td>
                                         <td>
@@ -117,9 +117,9 @@
                                                 <small class="text-danger">{entry.errorMessage}</small>
                                             </f:if>
                                             <f:if condition="{entry.reason}">
-                                                <small class="text-body-secondary">{entry.reason}</small>
+                                                <small class="text-variant">{entry.reason}</small>
                                             </f:if>
-                                            <small class="text-body-secondary" title="{entry.entryHash}">{entry.entryHashShort}</small>
+                                            <small class="text-variant" title="{entry.entryHash}">{entry.entryHashShort}</small>
                                         </td>
                                     </tr>
                                 </f:for>
@@ -129,7 +129,7 @@
                 </f:for>
 
                 <f:if condition="{totalPages} > 1">
-                    <nav class="pagination-wrap" aria-label="Audit log pagination">
+                    <nav aria-label="Audit log pagination">
                         <ul class="pagination">
                             <f:if condition="{currentPage} > 1">
                                 <f:then>
