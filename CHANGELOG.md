@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Every project-authored source file states its licence and copyright holder.** The non-PHP files (documentation, templates, XLIFF, JavaScript, CSS, configuration, scripts) now carry `SPDX-License-Identifier: GPL-2.0-or-later` and `SPDX-FileCopyrightText: Netresearch DTT GmbH`, as the PHP files already did. `CONTRIBUTING.md` links the organisation's governance, roadmap, access roster, secret management and findings policies and lists the checks that run on every pull request; `SECURITY.md` points to the findings policy.
+- **Project-authored source files state their licence and copyright holder.** The non-PHP files (documentation, templates, XLIFF, JavaScript, CSS, configuration, scripts) now carry `SPDX-License-Identifier: GPL-2.0-or-later` and `SPDX-FileCopyrightText: Netresearch DTT GmbH`, as the PHP files already did; the issue and pull-request templates and the per-repository workflows `ci.yml` and `release.yml` carry no notice. `CONTRIBUTING.md` links the organisation's governance, roadmap, access roster, secret management and findings policies and lists the checks that run on every pull request; `SECURITY.md` points to the findings policy.
 
 ## [1.1.0] - 2026-09-29
 
