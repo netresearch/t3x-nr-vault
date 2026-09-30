@@ -1,8 +1,0 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
-# SPDX-FileCopyrightText: Netresearch DTT GmbH
-# PHPStan baseline for gradual adoption.
-# Currently empty — PHPStan level 10 passes cleanly across Classes/Tests.
-# If new strict checks surface regressions, regenerate with:
-#   vendor/bin/phpstan analyse --generate-baseline phpstan-baseline.neon
-parameters:
-    ignoreErrors: []
