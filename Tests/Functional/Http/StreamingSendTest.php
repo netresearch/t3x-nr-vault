@@ -912,8 +912,8 @@ final class StreamingSendTest extends FunctionalTestCase
 
         $portFile = self::$tunnelDirectory . '/' . $mode . '.port';
         $logFile = self::$tunnelDirectory . '/' . $mode . '.out';
-        // nosemgrep: php.lang.security.exec-use.exec-use - fixed argv (PHP_BINARY + test fixture), no shell
         $command = array_merge([PHP_BINARY, '-d', 'xdebug.mode=off', self::TUNNEL_SCRIPT, $portFile, $mode], array_values($arguments));
+        // nosemgrep: php.lang.security.exec-use.exec-use - fixed argv (PHP_BINARY + test fixture), no shell
         $process = proc_open(
             $command,
             [0 => ['file', '/dev/null', 'r'], 1 => ['file', $logFile, 'a'], 2 => ['file', $logFile, 'a']],
