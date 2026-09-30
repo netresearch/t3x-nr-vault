@@ -294,6 +294,27 @@ See [SECURITY.md](SECURITY.md) for details.
 - Use RST format in `Documentation/` directory
 - Keep README.md synchronized with documentation
 
+## Governance and policies
+
+This extension follows the organisation-wide Netresearch policies:
+
+- [Governance](https://github.com/netresearch/.github/blob/main/GOVERNANCE.md): ownership, roles, how decisions are made and conflicts resolved.
+- [Roadmap](https://github.com/netresearch/.github/blob/main/ROADMAP.md): planned and excluded work for the next twelve months.
+- [Handling of dependency and code analysis findings](https://github.com/netresearch/.github/blob/main/SECURITY.md#handling-of-dependency-and-code-analysis-findings): which vulnerability, licence and static-analysis findings must be fixed, by when, and how exceptions are recorded. It applies here in addition to this repository's [SECURITY.md](SECURITY.md#emergency-releases), which adds that a release does not ship with an unresolved High or Critical finding.
+- [Secret management](https://github.com/netresearch/.github/blob/main/SECURITY.md#secret-management): where CI and release credentials are stored, who may use them, how committed secrets are detected, and when secrets are rotated.
+- [Access roster](https://github.com/netresearch/.github/blob/main/docs/access-roster.md): the people and teams with administrative or write access to this repository.
+
+Checks that run on every pull request in this repository:
+
+- `.github/workflows/checks.yml`: Composer Audit (fails on any advisory for an installed package; `composer.json` lists no `config.audit.ignore` exceptions) and Opengrep SAST (`--config auto --error --severity WARNING`, fails on findings of severity WARNING or higher; `.semgrepignore` lists the excluded paths), both through `typo3-ci-workflows`' `security.yml`; Dependency Review (fails on newly added dependencies with a vulnerability of severity high or higher); License Check (`license-check.yml`, fails on an SSPL or BSL licensed Composer dependency); CodeQL with language auto-detection (JavaScript and the workflow files; CodeQL has no PHP analysis, PHPStan and Opengrep cover the PHP code); Betterleaks secret scanning with `.gitleaks.toml`; zizmor for the workflow files; the `Fuzz` suite of `Build/phpunit.xml`; the pull request size check. The OpenSSF Scorecard job runs only on pushes to `main` and on the weekly schedule.
+- `.github/workflows/ci.yml`: PHP lint, code style (PHP-CS-Fixer), PHPStan (level 10, `phpstan.neon`), Rector, the repository checks (`composer ci:test:repo`), unit tests and functional tests (SQLite) on PHP 8.2 to 8.5 with TYPO3 ^13.4 and ^14.3, and the documentation rendering of `Documentation/`. Fractor is not part of the CI run.
+- `.github/workflows/security-gates.yml`: the Infection mutation ratchet over `Classes/Crypto`, `Classes/Security`, `Classes/Audit` and `Classes/Http` (`infection-security.json5`); the mutation run starts when the pull request changes one of the paths the workflow's `detect` job lists, and the check reports on every pull request.
+- `.github/workflows/e2e.yml`: the Playwright suite in `Tests/E2E` against TYPO3 13.4 and 14.3 installations.
+- `.github/workflows/harness-verify.yml`: `Build/Scripts/verify-harness.sh`.
+- `.github/workflows/check-template-drift.yml`: drift of the managed files from the `typo3-extension` template in netresearch/.github.
+
+`.github/workflows/docs.yml` renders `Documentation/` only on pull requests that change it.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the GPL-2.0-or-later license.

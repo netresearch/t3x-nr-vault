@@ -145,6 +145,19 @@ When using nr-vault:
    - Monitor for `access_denied` events
    - Schedule the audit hash-chain verification task (see below)
 
+## Dependency and Code Analysis Findings
+
+Findings of the dependency and code analysis tools that run on pull
+requests (Composer Audit, Dependency Review, License Check, Opengrep,
+CodeQL, Betterleaks, zizmor; see
+[CONTRIBUTING.md](CONTRIBUTING.md#governance-and-policies)) are handled
+under the organisation policy
+[Handling of Dependency and Code Analysis Findings](https://github.com/netresearch/.github/blob/main/SECURITY.md#handling-of-dependency-and-code-analysis-findings),
+which sets the thresholds, the deadlines and how exceptions are
+recorded. This file adds one rule on top: a release does not ship with
+an unresolved High or Critical finding (see
+[Emergency Releases](#emergency-releases)).
+
 ## Audit Log Immutability — Trust Model
 
 The audit log (`tx_nrvault_audit_log`) is **tamper-evident, not
