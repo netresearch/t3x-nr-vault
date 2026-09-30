@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
 # Registers this consumer's implementations the way the nr-vault documentation
 # tells an extension to: explicit tags for the tagged iterators nr-vault
 # consumes (its own `_instanceof` block only reaches nr-vault's classes), and

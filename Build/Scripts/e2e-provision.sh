@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
 #
 # Provision a TYPO3 installation with this extension for the Playwright E2E
 # suite, outside DDEV. Used by .github/workflows/e2e.yml and runnable locally.

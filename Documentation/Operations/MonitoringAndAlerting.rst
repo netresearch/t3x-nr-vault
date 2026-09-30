@@ -1,6 +1,9 @@
 :navigation-title: Monitoring and alerting
 .. include:: /Includes.rst.txt
 
+.. SPDX-License-Identifier: GPL-2.0-or-later
+.. SPDX-FileCopyrightText: Netresearch DTT GmbH
+
 .. _operations-monitoring-and-alerting:
 
 =======================

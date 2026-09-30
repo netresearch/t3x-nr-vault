@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
 # The whole point of the fixture: this is everything a consuming extension
 # writes to plug its own key source into nr-vault. Implement
 # MasterKeyProviderInterface, apply the tag, and configure `masterKeyProvider`

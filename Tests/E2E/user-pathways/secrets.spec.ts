@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-FileCopyrightText: Netresearch DTT GmbH
+
 import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, saveRecord, submitIdentifierFilter, waitForModuleContent } from '../fixtures/auth';
 import type { Page, FrameLocator, Locator } from '@playwright/test';
 

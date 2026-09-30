@@ -1,6 +1,9 @@
 :navigation-title: Hardened deployment
 .. include:: /Includes.rst.txt
 
+.. SPDX-License-Identifier: GPL-2.0-or-later
+.. SPDX-FileCopyrightText: Netresearch DTT GmbH
+
 .. _operations-hardened-deployment:
 
 ===================

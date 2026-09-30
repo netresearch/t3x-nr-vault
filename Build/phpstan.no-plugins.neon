@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
 # Variant phpstan config for local `composer install --no-plugins` workflow.
 #
 # When Composer runs with --no-plugins (the documented workaround for

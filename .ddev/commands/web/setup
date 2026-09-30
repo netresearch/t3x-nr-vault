@@ -3,6 +3,8 @@
 ## Description: One-shot project setup (canonical entry point — delegates to install-v14)
 ## Usage: setup
 ## Example: ddev setup
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
 
 set -e
 

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- SPDX-FileCopyrightText: Netresearch DTT GmbH -->
 # Contributing to nr-vault
 
 Thank you for your interest in contributing to nr-vault! This document provides guidelines and information for contributors.

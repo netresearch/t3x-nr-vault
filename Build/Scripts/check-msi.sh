@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
 #
 # check-msi.sh — Parse Infection JSON output and emit a shields.io endpoint JSON.
 #

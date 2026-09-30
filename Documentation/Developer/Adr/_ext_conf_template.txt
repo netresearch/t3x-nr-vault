@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
 # cat=api; type=string; label=API Key (Vault Identifier): Enter your vault secret identifier
 apiKey =
 

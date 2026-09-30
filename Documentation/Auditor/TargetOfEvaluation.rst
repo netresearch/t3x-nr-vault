@@ -1,6 +1,9 @@
 :navigation-title: Target of evaluation
 .. include:: /Includes.rst.txt
 
+.. SPDX-License-Identifier: GPL-2.0-or-later
+.. SPDX-FileCopyrightText: Netresearch DTT GmbH
+
 .. _auditor-target-of-evaluation:
 
 ====================

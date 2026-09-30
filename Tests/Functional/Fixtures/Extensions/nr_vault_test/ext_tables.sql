@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
+
 CREATE TABLE tx_nrvaulttest_record (
     title varchar(255) DEFAULT '' NOT NULL,
     api_key varchar(255) DEFAULT '' NOT NULL,

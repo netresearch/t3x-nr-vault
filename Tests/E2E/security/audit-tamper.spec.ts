@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-FileCopyrightText: Netresearch DTT GmbH
+
 import { expect, test, getModuleFrame, saveRecord, waitForModuleContent } from '../fixtures/auth';
 import { isDbExecConfigured, runSql } from '../fixtures/db';
 

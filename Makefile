@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
+
 .DEFAULT_GOAL := help
 
 RUNTESTS := Build/Scripts/runTests.sh

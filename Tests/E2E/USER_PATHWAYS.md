@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- SPDX-FileCopyrightText: Netresearch DTT GmbH -->
 # User Pathways for E2E Testing
 
 This document defines all user pathways that need comprehensive E2E test coverage
