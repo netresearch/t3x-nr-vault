@@ -12,7 +12,9 @@
 #
 # Usage:
 #   Build/Scripts/renderDocs.sh            render into Documentation-GENERATED-temp
-#   Build/Scripts/renderDocs.sh --check    fail on any log message (what CI does)
+#   Build/Scripts/renderDocs.sh --check    fail on any log message (stricter than
+#                                          CI: the shared docs.yml prints the
+#                                          warnings and does not fail on them)
 #   Build/Scripts/renderDocs.sh --clean    remove the rendered output
 
 set -euo pipefail
