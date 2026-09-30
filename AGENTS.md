@@ -70,7 +70,7 @@ docs/            → Agent-facing docs: ARCHITECTURE.md, exec-plans/
 | New backend submodule | Follow the 4-step completeness recipe in `Classes/AGENTS.md` (module registration, overview card, docs + screenshot, coverage). Not done = incomplete feature. |
 | Touching secrets | Audit log every read/write via `AuditLogServiceInterface::log()`; invariants in `Classes/AGENTS.md` |
 | Running locally | `make up` then `make shell` |
-| Committing | Subject-style enforced by `captainhook.json`: capitalized, imperative mood, length-limited, no trailing period (NOT lowercase `feat:`/`fix:` prefixes). Sign off with `git commit -s`. See CONTRIBUTING.md |
+| Committing | Subject-style enforced by `captainhook.json`: capitalized, length-limited, no trailing period; imperative mood by convention, not checked (NOT lowercase `feat:`/`fix:` prefixes). Sign off with `git commit -s`. See CONTRIBUTING.md |
 | Merging PRs | Merge commit (not squash, not rebase) — preserves GPG signatures |
 
 ## Pre-push gate gotchas (cost real CI round-trips)

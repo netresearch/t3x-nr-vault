@@ -54,10 +54,12 @@ enforces a **subject-style** policy, not Conventional-Commit type
 prefixes. Each subject line must:
 
 - be capitalized,
-- use the imperative mood ("Add", not "Added"/"Adds"),
 - stay within the length limit,
 - not be empty,
 - not end with a period.
+
+Write the subject in the imperative mood ("Add", not "Added"/"Adds").
+The hook does not check the mood; reviewers do.
 
 ```
 Add secret rotation support
@@ -67,8 +69,8 @@ Add unit tests for VaultService
 ```
 
 > Note: lowercase Conventional-Commit prefixes (`feat:`, `fix:`) are
-> **rejected** by the imperative-mood / capitalize-subject rules. Write
-> the subject as an imperative sentence instead.
+> **rejected** by the capitalize-subject rule. Write the subject as an
+> imperative sentence instead.
 
 #### Sign-off (DCO)
 
