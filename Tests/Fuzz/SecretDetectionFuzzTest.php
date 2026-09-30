@@ -226,8 +226,8 @@ final class SecretDetectionFuzzTest extends TestCase
             $this->service->scanLocalConfiguration();
             $findings = $this->service->getDetectedSecretsBySeverity();
 
-            self::assertEmpty($findings['critical'], 'Vault UUID must not be flagged as critical');
-            self::assertEmpty($findings['high'], 'Vault UUID must not be flagged as high');
+            self::assertSame([], $findings['critical'], 'Vault UUID must not be flagged as critical');
+            self::assertSame([], $findings['high'], 'Vault UUID must not be flagged as high');
         } finally {
             unset($GLOBALS['TYPO3_CONF_VARS']);
         }
@@ -247,7 +247,7 @@ final class SecretDetectionFuzzTest extends TestCase
         try {
             $this->service->scanLocalConfiguration();
             $findings = $this->service->getDetectedSecretsBySeverity();
-            self::assertNotEmpty($findings['medium'], 'Short encryption key should trigger a Medium finding');
+            self::assertNotSame([], $findings['medium'], 'Short encryption key should trigger a Medium finding');
         } finally {
             unset($GLOBALS['TYPO3_CONF_VARS']);
         }
@@ -287,7 +287,7 @@ final class SecretDetectionFuzzTest extends TestCase
         try {
             $this->service->scanLocalConfiguration();
             $findings = $this->service->getDetectedSecretsBySeverity();
-            self::assertEmpty($findings['critical'], "Non-secret '{$value}' must not be Critical");
+            self::assertSame([], $findings['critical'], "Non-secret '{$value}' must not be Critical");
         } finally {
             unset($GLOBALS['TYPO3_CONF_VARS']);
         }

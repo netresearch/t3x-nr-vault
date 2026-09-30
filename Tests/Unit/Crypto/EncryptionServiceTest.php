@@ -66,11 +66,11 @@ final class EncryptionServiceTest extends TestCase
         $result = $this->subject->encrypt($plaintext, $identifier);
 
         self::assertInstanceOf(EncryptedData::class, $result);
-        self::assertNotEmpty($result->encryptedValue);
-        self::assertNotEmpty($result->encryptedDek);
-        self::assertNotEmpty($result->dekNonce);
-        self::assertNotEmpty($result->valueNonce);
-        self::assertNotEmpty($result->valueChecksum);
+        self::assertNotSame('', $result->encryptedValue);
+        self::assertNotSame('', $result->encryptedDek);
+        self::assertNotSame('', $result->dekNonce);
+        self::assertNotSame('', $result->valueNonce);
+        self::assertNotSame('', $result->valueChecksum);
     }
 
     #[Test]
@@ -83,7 +83,7 @@ final class EncryptionServiceTest extends TestCase
 
         // Encrypted value should be base64 encoded and different from plaintext
         self::assertNotEquals($plaintext, $result->encryptedValue);
-        self::assertNotEmpty($result->encryptedValue);
+        self::assertNotSame('', $result->encryptedValue);
 
         // Verify it's valid base64
         $decoded = base64_decode($result->encryptedValue, true);
@@ -469,8 +469,8 @@ final class EncryptionServiceTest extends TestCase
             $encrypted->encryptionAlgorithm->value,
         );
 
-        self::assertNotEmpty($reEncrypted->encryptedDek);
-        self::assertNotEmpty($reEncrypted->nonce);
+        self::assertNotSame('', $reEncrypted->encryptedDek);
+        self::assertNotSame('', $reEncrypted->nonce);
 
         // The new encrypted DEK should be different
         self::assertNotEquals($encrypted->encryptedDek, $reEncrypted->encryptedDek);
@@ -484,7 +484,7 @@ final class EncryptionServiceTest extends TestCase
 
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
 
-        self::assertNotEmpty($encrypted->encryptedValue);
+        self::assertNotSame('', $encrypted->encryptedValue);
 
         $decrypted = $this->subject->decrypt(
             $encrypted->encryptedValue,
@@ -562,8 +562,8 @@ final class EncryptionServiceTest extends TestCase
         $encrypted = $subject->encrypt($plaintext, $identifier);
 
         // Should still work with XChaCha20
-        self::assertNotEmpty($encrypted->encryptedValue);
-        self::assertNotEmpty($encrypted->encryptedDek);
+        self::assertNotSame('', $encrypted->encryptedValue);
+        self::assertNotSame('', $encrypted->encryptedDek);
     }
 
     #[Test]
@@ -645,8 +645,8 @@ final class EncryptionServiceTest extends TestCase
             $newMasterKey,
         );
 
-        self::assertNotEmpty($reEncrypted->encryptedDek);
-        self::assertNotEmpty($reEncrypted->nonce);
+        self::assertNotSame('', $reEncrypted->encryptedDek);
+        self::assertNotSame('', $reEncrypted->nonce);
         self::assertNotEquals($encrypted->encryptedDek, $reEncrypted->encryptedDek);
     }
 

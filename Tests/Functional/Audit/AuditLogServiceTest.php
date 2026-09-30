@@ -91,8 +91,8 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
             static fn ($e): bool => $e->secretIdentifier === $identifier,
         );
 
-        self::assertNotEmpty($createForIdent, 'create entries must contain entry for our identifier');
-        self::assertNotEmpty($readForIdent, 'read entries must contain entry for our identifier');
+        self::assertNotSame([], $createForIdent, 'create entries must contain entry for our identifier');
+        self::assertNotSame([], $readForIdent, 'read entries must contain entry for our identifier');
 
         // Cleanup
         $vaultService->delete($identifier, 'cleanup');
@@ -136,7 +136,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
             $entries,
             static fn ($e): bool => $e->secretIdentifier === $identifier,
         );
-        self::assertNotEmpty($forIdent, 'Date range filter must return entries within range');
+        self::assertNotSame([], $forIdent, 'Date range filter must return entries within range');
 
         // Cleanup
         $vaultService->delete($identifier, 'cleanup');
@@ -181,7 +181,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         $page1Uids = array_map(static fn ($e) => $e->uid, $page1);
         $page2Uids = array_map(static fn ($e) => $e->uid, $page2);
         $overlap = array_intersect($page1Uids, $page2Uids);
-        self::assertEmpty($overlap, 'Paginated queries must not return overlapping entries');
+        self::assertSame([], $overlap, 'Paginated queries must not return overlapping entries');
 
         // Cleanup
         foreach ($identifiers as $id) {
@@ -219,7 +219,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
 
         // Find the entry and tamper with it directly in the DB
         $entries = $auditService->query(AuditLogFilter::forSecret($identifier));
-        self::assertNotEmpty($entries, 'Must have at least one audit entry');
+        self::assertNotSame([], $entries, 'Must have at least one audit entry');
 
         $firstEntry = $entries[0];
         $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
@@ -232,7 +232,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         $result = $auditService->verifyHashChain();
 
         self::assertFalse($result->isValid(), 'Hash chain must be invalid after tampering');
-        self::assertNotEmpty($result->errors, 'Errors must be reported for tampered entries');
+        self::assertNotSame([], $result->errors, 'Errors must be reported for tampered entries');
 
         // Cleanup
         $vaultService->delete($identifier, 'cleanup');
@@ -269,7 +269,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         $latestHash = $auditService->getLatestHash();
 
         self::assertIsString($latestHash, 'Latest hash must be a string');
-        self::assertNotEmpty($latestHash, 'Latest hash must not be empty after logging');
+        self::assertNotSame('', $latestHash, 'Latest hash must not be empty after logging');
 
         // Cleanup
         $vaultService->delete($identifier, 'cleanup');
@@ -332,7 +332,8 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
             \array_slice($seededEntries, 5),
         );
         $propagatedErrors = array_intersect($errorUids, $subsequentUids);
-        self::assertNotEmpty(
+        self::assertNotSame(
+            [],
             $propagatedErrors,
             'At least one row after the tampered entry must also appear in errors (chain propagation)',
         );
@@ -391,7 +392,8 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
             static fn ($e) => $e->uid,
             \array_slice($seededEntries, 3),
         );
-        self::assertNotEmpty(
+        self::assertNotSame(
+            [],
             array_intersect(array_keys($result->errors), $successorUids),
             'The row immediately after the gap must be reported as an error',
         );

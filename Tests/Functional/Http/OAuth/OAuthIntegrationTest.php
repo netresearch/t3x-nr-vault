@@ -180,7 +180,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         $tokenManager = new OAuthTokenManager($vaultService, $this->buildTestClient(), new SecureHttpClientFactory());
         $accessToken = $tokenManager->getAccessToken($config);
 
-        self::assertNotEmpty($accessToken);
+        self::assertNotSame('', $accessToken);
     }
 
     #[Test]
@@ -239,7 +239,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
         // Both the embedded router and mock-oauth2-server (random `jti`) issue a
         // fresh token per request, so an unchanged token means the cache survived.
-        self::assertNotEmpty($token1);
+        self::assertNotSame('', $token1);
         self::assertNotSame($token1, $token2, 'clearCache() must force a new token request');
     }
 
@@ -487,11 +487,13 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             AuditLogFilter::forAction('oauth_fallback_client_credentials'),
         );
 
-        self::assertNotEmpty(
+        self::assertNotSame(
+            [],
             $refreshEntries,
             'Failed refresh must be recorded in audit log',
         );
-        self::assertNotEmpty(
+        self::assertNotSame(
+            [],
             $fallbackEntries,
             'Fallback to client_credentials must be recorded in audit log',
         );
@@ -500,7 +502,8 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             $refreshEntries,
             static fn (AuditLogEntry $e): bool => $e->secretIdentifier === 'fallback_refresh_token',
         );
-        self::assertNotEmpty(
+        self::assertNotSame(
+            [],
             $refreshForOurSecret,
             'Failed refresh entry must reference the refresh-token identifier',
         );
@@ -515,7 +518,8 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             $fallbackEntries,
             static fn (AuditLogEntry $e): bool => $e->secretIdentifier === 'fallback_client_id',
         );
-        self::assertNotEmpty(
+        self::assertNotSame(
+            [],
             $fallbackForOurSecret,
             'Fallback entry must reference the client-id identifier',
         );

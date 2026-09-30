@@ -51,12 +51,12 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
         $dataHandler->process_datamap();
 
         // Verify record was created
-        self::assertNotEmpty($dataHandler->substNEWwithIDs);
+        self::assertNotSame([], $dataHandler->substNEWwithIDs);
         $newUid = $dataHandler->substNEWwithIDs['NEW1'] ?? 0;
         self::assertGreaterThan(0, $newUid);
 
         // Verify no errors
-        self::assertEmpty($dataHandler->errorLog, 'DataHandler had errors: ' . implode(', ', $dataHandler->errorLog));
+        self::assertSame([], $dataHandler->errorLog, 'DataHandler had errors: ' . implode(', ', $dataHandler->errorLog));
     }
 
     #[Test]
@@ -192,7 +192,7 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
 
         $newUid = $dataHandler->substNEWwithIDs['NEW1'] ?? 0;
         self::assertGreaterThan(0, $newUid);
-        self::assertEmpty($dataHandler->errorLog);
+        self::assertSame([], $dataHandler->errorLog);
 
         // Verify secret was stored via VaultService
         $vaultService = $this->get(VaultServiceInterface::class);
@@ -300,7 +300,8 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
         );
         $updateHandler->process_datamap();
 
-        self::assertEmpty(
+        self::assertSame(
+            [],
             $updateHandler->errorLog,
             'Metadata-only update must not produce DataHandler errors: ' . implode(', ', $updateHandler->errorLog),
         );

@@ -24,7 +24,7 @@ final class SecretPlacementTest extends TestCase
     {
         foreach (SecretPlacement::cases() as $case) {
             $description = $case->description();
-            self::assertNotEmpty($description, "Case {$case->name} should have a description");
+            self::assertNotSame('', $description, "Case {$case->name} should have a description");
             self::assertIsString($description);
         }
     }

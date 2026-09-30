@@ -33,11 +33,11 @@ final class DemoDataProviderTest extends TestCase
         self::assertSame($identifiers, array_unique($identifiers), 'identifiers must be unique');
 
         // at least one never-read aged (dead) specimen
-        self::assertNotEmpty(array_filter($specs, static fn (DemoSecretSpec $s): bool => $s->readCount === 0 && $s->createdDaysAgo >= 60));
+        self::assertNotSame([], array_filter($specs, static fn (DemoSecretSpec $s): bool => $s->readCount === 0 && $s->createdDaysAgo >= 60));
         // at least one expired specimen
-        self::assertNotEmpty(array_filter($specs, static fn (DemoSecretSpec $s): bool => $s->expiresInDays !== null && $s->expiresInDays < 0));
+        self::assertNotSame([], array_filter($specs, static fn (DemoSecretSpec $s): bool => $s->expiresInDays !== null && $s->expiresInDays < 0));
         // at least one manual-only specimen (events: backend reads, no automated)
-        self::assertNotEmpty(array_filter(
+        self::assertNotSame([], array_filter(
             $specs,
             static fn (DemoSecretSpec $s): bool =>
             $s->events !== []
@@ -45,6 +45,6 @@ final class DemoDataProviderTest extends TestCase
             && array_filter($s->events, static fn (DemoEvent $e): bool => $e->action === 'read' && \in_array($e->actorType, ['api', 'cli', 'scheduler'], true)) === [],
         ));
         // at least one healthy actively-read specimen
-        self::assertNotEmpty(array_filter($specs, static fn (DemoSecretSpec $s): bool => $s->readCount >= 20 && $s->lastReadDaysAgo !== null && $s->lastReadDaysAgo <= 5));
+        self::assertNotSame([], array_filter($specs, static fn (DemoSecretSpec $s): bool => $s->readCount >= 20 && $s->lastReadDaysAgo !== null && $s->lastReadDaysAgo <= 5));
     }
 }

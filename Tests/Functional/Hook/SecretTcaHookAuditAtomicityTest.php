@@ -77,7 +77,8 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
 
         /** @phpstan-ignore property.internal */
         $errorLog = $updateHandler->errorLog;
-        self::assertNotEmpty(
+        self::assertNotSame(
+            [],
             $errorLog,
             'The reverted save must surface in the DataHandler error log.',
         );
@@ -183,7 +184,7 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
 
         /** @phpstan-ignore property.internal */
         $errorLog = $updateHandler->errorLog;
-        self::assertNotEmpty($errorLog, 'The reverted save must surface in the DataHandler error log.');
+        self::assertNotSame([], $errorLog, 'The reverted save must surface in the DataHandler error log.');
     }
 
     /**

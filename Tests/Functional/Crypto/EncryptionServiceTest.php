@@ -235,7 +235,7 @@ final class EncryptionServiceTest extends FunctionalTestCase
         $originalEncryptedDek = $secret->getEncryptedDek();
 
         // The DEK is non-empty and base64-encoded
-        self::assertNotEmpty($originalEncryptedDek, 'Stored secret must have an encrypted DEK');
+        self::assertNotSame('', $originalEncryptedDek, 'Stored secret must have an encrypted DEK');
         self::assertNotFalse(base64_decode((string) $originalEncryptedDek, true), 'DEK must be base64-encoded');
 
         // Cleanup

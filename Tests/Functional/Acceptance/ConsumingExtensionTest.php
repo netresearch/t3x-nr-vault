@@ -244,7 +244,7 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
         $implemented = [];
         $files = glob(self::FIXTURE_PATH . '/Classes/*/*.php');
         self::assertNotFalse($files);
-        self::assertNotEmpty($files);
+        self::assertNotSame([], $files);
         foreach ($files as $file) {
             preg_match_all('/^use (Netresearch\\\\NrVault\\\\[^;]+);$/m', (string) file_get_contents($file), $matches);
             foreach ($matches[1] as $import) {
