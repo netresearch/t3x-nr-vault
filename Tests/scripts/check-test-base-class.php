@@ -155,6 +155,8 @@ $staleAllowList = array_keys($allowList);
 if ($updateMode) {
     sort($legacyFiles);
     $header = <<<'TXT'
+    # SPDX-License-Identifier: GPL-2.0-or-later
+    # SPDX-FileCopyrightText: Netresearch DTT GmbH
     # Tech-debt allow-list: nr-vault unit tests still extending PHPUnit's TestCase
     # or TYPO3's UnitTestCase directly (instead of the project base).
     #
