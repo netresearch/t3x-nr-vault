@@ -380,9 +380,10 @@ the list below is what is actually declared here.
     *   -   SAST
         -   ``checks.yml`` → shared ``security.yml``,
             ``opengrep`` job
-        -   **Opengrep**, not Semgrep. Default arguments
-            ``--config auto --error --severity WARNING`` block CI on
-            WARNING-or-worse; SARIF uploaded to code scanning under category
+        -   **Opengrep**, not Semgrep, with the shared workflow's default
+            arguments; which findings block CI is set by the organisation's
+            `static analysis rule <https://github.com/netresearch/.github/blob/main/SECURITY.md#static-analysis-sast>`__;
+            SARIF uploaded to code scanning under category
             ``opengrep``. nr-vault passes no ``opengrep-config`` override, so
             the default applies
 
