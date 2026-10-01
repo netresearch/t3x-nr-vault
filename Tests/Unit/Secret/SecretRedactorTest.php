@@ -51,6 +51,7 @@ final class SecretRedactorTest extends TestCase
         yield 'Google API key (GAP)' => ['AIza' . self::repeat('d', 35), 'AIza'];
         yield 'Slack bot token (GAP)' => ['xoxb-1234567890-abcdefghij', 'xoxb-'];
         yield 'Slack legacy token' => ['xoxa-1234567890-abcdefghij', 'xoxa-'];
+        // nosemgrep: generic.secrets.security.detected-jwt-token.detected-jwt-token -- synthetic JWT, redactor input
         yield 'JWT (GAP)' => ['eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123', 'eyJ'];
         yield 'Stripe live key' => ['sk_live_' . self::repeat('9', 24), 'sk_live_'];
         yield 'Stripe publishable key' => ['pk_test_' . self::repeat('8', 24), 'pk_test_'];
@@ -350,6 +351,7 @@ final class SecretRedactorTest extends TestCase
         self::assertSame('Bearer ***', $this->redactor->redact('Bearer sk-abcdefghijklmnopqrst'));
         self::assertSame(
             'Authorization: Bearer ***',
+            // nosemgrep: generic.secrets.security.detected-jwt-token.detected-jwt-token -- synthetic JWT, redactor input
             $this->redactor->redact('Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF'),
         );
     }
