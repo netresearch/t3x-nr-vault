@@ -276,7 +276,7 @@ final class AuditChainFuzzTest extends TestCase
     ): void {
         // No expectException — we assert it completes without error
         $hash = AuditLogService::calculateHash($uid, $secretIdentifier, $action, $actorUid, $crdate, $previousHash);
-        self::assertNotEmpty($hash);
+        self::assertNotSame('', $hash);
     }
 
     /**

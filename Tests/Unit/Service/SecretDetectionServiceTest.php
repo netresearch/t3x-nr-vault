@@ -77,7 +77,7 @@ final class SecretDetectionServiceTest extends TestCase
 
         self::assertIsArray($result);
         self::assertArrayHasKey('critical', $result);
-        self::assertEmpty($result['critical']);
+        self::assertSame([], $result['critical']);
     }
 
     #[Test]
@@ -382,7 +382,7 @@ final class SecretDetectionServiceTest extends TestCase
         $result = $this->service->scan();
 
         self::assertIsArray($result);
-        self::assertEmpty($result);
+        self::assertSame([], $result);
     }
 
     #[Test]
@@ -565,7 +565,7 @@ final class SecretDetectionServiceTest extends TestCase
 
             self::assertGreaterThan(0, $this->service->getDetectedSecretsCount());
             $bySeverity = $this->service->getDetectedSecretsBySeverity();
-            self::assertNotEmpty($bySeverity['high']);
+            self::assertNotSame([], $bySeverity['high']);
         } finally {
             unset($GLOBALS['TYPO3_CONF_VARS']);
         }
@@ -603,7 +603,7 @@ final class SecretDetectionServiceTest extends TestCase
 
             self::assertGreaterThan(0, $this->service->getDetectedSecretsCount());
             $bySeverity = $this->service->getDetectedSecretsBySeverity();
-            self::assertNotEmpty($bySeverity['medium']);
+            self::assertNotSame([], $bySeverity['medium']);
         } finally {
             unset($GLOBALS['TYPO3_CONF_VARS']);
         }
@@ -997,7 +997,7 @@ final class SecretDetectionServiceTest extends TestCase
 
         self::assertGreaterThan(0, $this->service->getDetectedSecretsCount());
         $bySeverity = $this->service->getDetectedSecretsBySeverity();
-        self::assertNotEmpty($bySeverity['critical']);
+        self::assertNotSame([], $bySeverity['critical']);
     }
 
     #[Test]
@@ -1113,7 +1113,7 @@ final class SecretDetectionServiceTest extends TestCase
 
         self::assertGreaterThan(0, $this->service->getDetectedSecretsCount());
         $bySeverity = $this->service->getDetectedSecretsBySeverity();
-        self::assertNotEmpty($bySeverity['critical']);
+        self::assertNotSame([], $bySeverity['critical']);
     }
 
     #[Test]

@@ -634,7 +634,7 @@ final class AuditLogServiceTest extends TestCase
         $verification = $this->getSubject()->verifyHashChain();
 
         self::assertTrue($verification->valid);
-        self::assertEmpty($verification->errors);
+        self::assertSame([], $verification->errors);
     }
 
     #[Test]
@@ -910,7 +910,7 @@ final class AuditLogServiceTest extends TestCase
         ], JSON_THROW_ON_ERROR);
 
         // The HMAC hash should not be empty and should be a valid hex string
-        self::assertNotEmpty($hmacHash);
+        self::assertIsString($hmacHash);
         self::assertMatchesRegularExpression(self::SHA256_HEX_PATTERN, $hmacHash);
 
         // The HMAC hash should differ from a plain SHA-256 of the same payload
@@ -1063,7 +1063,7 @@ final class AuditLogServiceTest extends TestCase
         $verification = $this->getSubject()->verifyHashChain();
 
         self::assertTrue($verification->isValid());
-        self::assertNotEmpty($verification->warnings);
+        self::assertNotSame([], $verification->warnings);
         self::assertArrayHasKey(2, $verification->warnings);
         self::assertStringContainsString('epoch boundary', $verification->warnings[2]);
     }
@@ -1145,7 +1145,7 @@ final class AuditLogServiceTest extends TestCase
         $verification = $this->getSubject()->verifyHashChain();
 
         self::assertTrue($verification->isValid(), 'Mixed epoch chain should be valid');
-        self::assertNotEmpty($verification->warnings, 'Should have epoch boundary warning');
+        self::assertNotSame([], $verification->warnings, 'Should have epoch boundary warning');
         self::assertArrayHasKey(3, $verification->warnings, 'Warning should be on entry 3 (epoch boundary)');
         self::assertCount(1, $verification->warnings, 'Should have exactly one epoch boundary warning');
     }

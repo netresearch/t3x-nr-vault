@@ -344,7 +344,7 @@ final class VaultSecretElementTest extends TestCase
         $result = $this->subject->render();
 
         self::assertIsArray($result['javaScriptModules']);
-        self::assertNotEmpty($result['javaScriptModules']);
+        self::assertNotSame([], $result['javaScriptModules']);
     }
 
     #[Test]

@@ -144,12 +144,13 @@ final class VaultScanCommandTest extends TestCase
         // Extract JSON from output (output includes title text before JSON)
         self::assertMatchesRegularExpression('/\{[^}]+\}/', $display);
         preg_match('/(\{.*\})/s', $display, $matches);
-        self::assertNotEmpty($matches[1]);
+        self::assertArrayHasKey(1, $matches);
 
         $decoded = json_decode($matches[1], true);
         self::assertIsArray($decoded);
         self::assertArrayHasKey('critical', $decoded);
-        self::assertNotEmpty($decoded['critical']);
+        self::assertIsArray($decoded['critical']);
+        self::assertNotSame([], $decoded['critical']);
 
         // The key is "config:MAIL/smtp_password", check any entry has the path
         $finding = reset($decoded['critical']);

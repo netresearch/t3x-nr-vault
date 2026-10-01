@@ -191,7 +191,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
 
             // Check audit log for this identifier
             $entries = $auditService->query(AuditLogFilter::forSecret($vaultIdentifier));
-            self::assertNotEmpty($entries, 'Audit log must contain entry for vault store via DataHandler');
+            self::assertNotSame([], $entries, 'Audit log must contain entry for vault store via DataHandler');
         } finally {
             $this->safeDelete($vaultService, $vaultIdentifier);
         }
@@ -236,7 +236,8 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
                 $vaultService->retrieve($vaultIdentifier),
                 'Stored secret must survive a submission to a TSconfig-protected field',
             );
-            self::assertNotEmpty(
+            self::assertNotSame(
+                [],
                 $dataHandler->errorLog,
                 'The discarded value must be reported to the editor',
             );
