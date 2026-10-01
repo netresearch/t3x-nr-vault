@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
 # DDEV-local working artifacts — not committed.
 # The tracked DDEV config (config.yaml, commands/, web-build/, docker-compose.*,
 # mock-oauth/, apache/, addon-metadata/) stays versioned; everything below is

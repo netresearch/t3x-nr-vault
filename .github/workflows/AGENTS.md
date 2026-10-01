@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- SPDX-FileCopyrightText: Netresearch DTT GmbH -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
 <!-- Last updated: 2026-08-19 | Last verified: 2026-08-19 -->
 
@@ -10,7 +12,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 | File | Purpose |
 |------|---------|
 | `ci.yml` | Extension-specific test matrix — a thin call into `typo3-ci-workflows/ci.yml` |
-| `checks.yml` | Security + quality jobs (security, betterleaks, zizmor, codeql, scorecard, fuzz, license-check, dependency-review, pr-quality, labeler). **Byte-identical and drift-enforced across every netresearch typo3-extension — never add a repo-specific job here** |
+| `checks.yml` | Security + quality jobs (security, betterleaks, zizmor, codeql, scorecard, fuzz, license-check, dependency-review, pr-quality). **Byte-identical and drift-enforced across every netresearch typo3-extension — never add a repo-specific job here** |
 | `security-gates.yml` | Mutation ratchet over `Classes/Crypto`, `Classes/Security`, `Classes/Audit`, `Classes/Http` (`infection-security.json5`). Standalone precisely because `checks.yml` is drift-locked |
 | `check-template-drift.yml` | Verifies this repo still matches the `typo3-extension` template |
 | `docs.yml` | Renders `Documentation/` on PRs touching it |
@@ -20,10 +22,9 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 | `release-evidence.yml` | Publishes the security release-evidence bundle for a tag; a manual run with a commit SHA as `ref` is the pre-release check (publishes nothing, bundle `precheck-<commit>`). Coverage is four jobs: `coverage-plan` reads the shard list from `Tests/Unit/*`, a `coverage-unit` matrix and `coverage-functional` collect Xdebug path coverage, `coverage-merge` merges them via `Build/Scripts/merge-coverage.php`. Sharded because the whole unit suite under `--path-coverage` exceeds 40 minutes on one runner |
 | `republish.yml` | Manual re-run of a publish target (ter / docs / packagist) for an existing tag |
 | `auto-merge-deps.yml` | Auto-merge dependency PRs when CI green (Renovate/Dependabot) |
-| `community.yml` | Community health: labeler, stale bot, welcome |
+| `community.yml` | Community health: stale bot, lock of closed threads, welcome |
+| `labeler.yml` | PR auto-labeling (`pull_request_target`) with the rules in `../labeler.yml` |
 | `../labeler.yml` | PR auto-labeling rules |
-| `../dependabot.yml` | Dependabot ecosystems |
-| `../zizmor.yml` | zizmor audit configuration |
 | `../CODEOWNERS` | Code ownership |
 | `../../renovate.json` | Renovate configuration (repository root, not `.github/`) |
 
@@ -62,12 +63,11 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 │   ├── release-evidence.yml
 │   ├── republish.yml
 │   ├── auto-merge-deps.yml
+│   ├── labeler.yml
 │   └── community.yml
 ├── ISSUE_TEMPLATE/
 ├── PULL_REQUEST_TEMPLATE.md
 ├── labeler.yml
-├── dependabot.yml
-├── zizmor.yml
 ├── template.yaml            # template identity for the drift check
 └── CODEOWNERS
 ```
@@ -93,7 +93,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
     TER_TOKEN: ${{ secrets.TER_TOKEN }}
   ```
 - **Pin third-party actions to commit SHAs** (not tags) — mitigates tag-hijack supply-chain attacks.
-- **Secret scanning is enforced** — the `betterleaks` job in `checks.yml` runs on every PR against the root `.gitleaks.toml`; `zizmor` audits these workflow files themselves (config in `.github/zizmor.yml`).
+- **Secret scanning is enforced** — the `betterleaks` job in `checks.yml` runs on every PR against the root `.gitleaks.toml`; `zizmor` audits these workflow files themselves (this repository has no zizmor config file).
 - **Mask dynamic values** with `::add-mask::` before logging.
 - **Environment protection** for release/deploy — require reviewers.
 - **OIDC** over long-lived credentials where possible.

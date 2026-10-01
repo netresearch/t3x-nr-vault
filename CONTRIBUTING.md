@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- SPDX-FileCopyrightText: Netresearch DTT GmbH -->
 # Contributing to nr-vault
 
 Thank you for your interest in contributing to nr-vault! This document provides guidelines and information for contributors.
@@ -52,10 +54,12 @@ enforces a **subject-style** policy, not Conventional-Commit type
 prefixes. Each subject line must:
 
 - be capitalized,
-- use the imperative mood ("Add", not "Added"/"Adds"),
 - stay within the length limit,
 - not be empty,
 - not end with a period.
+
+Write the subject in the imperative mood ("Add", not "Added"/"Adds").
+The hook does not check the mood; reviewers do.
 
 ```
 Add secret rotation support
@@ -65,8 +69,8 @@ Add unit tests for VaultService
 ```
 
 > Note: lowercase Conventional-Commit prefixes (`feat:`, `fix:`) are
-> **rejected** by the imperative-mood / capitalize-subject rules. Write
-> the subject as an imperative sentence instead.
+> **rejected** by the capitalize-subject rule. Write the subject as an
+> imperative sentence instead.
 
 #### Sign-off (DCO)
 
@@ -289,6 +293,30 @@ See [SECURITY.md](SECURITY.md) for details.
 - Update documentation for any user-facing changes
 - Use RST format in `Documentation/` directory
 - Keep README.md synchronized with documentation
+
+## Governance and policies
+
+This extension follows the organisation-wide Netresearch policies:
+
+- [Governance](https://github.com/netresearch/.github/blob/main/GOVERNANCE.md): ownership, roles, how decisions are made and conflicts resolved.
+- [Roadmap](https://github.com/netresearch/.github/blob/main/ROADMAP.md): planned and excluded work for the next twelve months.
+- [Handling of dependency and code analysis findings](https://github.com/netresearch/.github/blob/main/SECURITY.md#handling-of-dependency-and-code-analysis-findings): which vulnerability, licence and static-analysis findings must be fixed, by when, and how exceptions are recorded. It applies here in addition to this repository's [SECURITY.md](SECURITY.md#emergency-releases), which adds that a release does not ship with an unresolved High or Critical finding.
+- [Secret management](https://github.com/netresearch/.github/blob/main/SECURITY.md#secret-management): where CI and release credentials are stored, who may use them, how committed secrets are detected, and when secrets are rotated.
+- [Access roster](https://github.com/netresearch/.github/blob/main/docs/access-roster.md): the people and teams with administrative or write access to this repository.
+
+Checks that the workflows in `.github/workflows/` run on pull requests:
+
+- `.github/workflows/checks.yml`: Composer Audit (fails on any advisory for an installed package; `composer.json` lists no `config.audit.ignore` exceptions) and Opengrep SAST (fails a pull request as the [organisation rule](https://github.com/netresearch/.github/blob/main/SECURITY.md#static-analysis-sast) sets out; `.semgrepignore` lists the excluded paths), both through `typo3-ci-workflows`' `security.yml`; Dependency Review (fails on newly added dependencies with a vulnerability of severity high or higher); License Check (`license-check.yml`, fails when `composer licenses` reports a dependency licence that is exactly `SSPL` or `BSL`); CodeQL with language auto-detection (JavaScript/TypeScript and the workflow files; CodeQL has no PHP analysis, PHPStan and Opengrep cover the PHP code); Betterleaks secret scanning with the root `.gitleaks.toml`, which the scanner loads from the checked-out repository when no configuration is passed; zizmor for the workflow files; the `Fuzz` suite of `Build/phpunit.xml`; `pr-quality` (on non-draft pull requests only: its Quality Gate job reports the size of the change and warns on large pull requests, its Auto-Approve job approves pull requests opened from this repository by authors GitHub associates with it as owner, member or collaborator); the aggregate gate `All security checks`, which fails when any of these jobs fails. The OpenSSF Scorecard job runs only on pushes to `main` and on the weekly schedule.
+- `.github/workflows/ci.yml`: PHP lint, code style (PHP-CS-Fixer), PHPStan (level 10, `phpstan.neon`, and, advisory by default, once more against the newest PHPUnit as `PHPStan (unpinned PHPUnit)`), Rector, the repository checks (`composer ci:test:repo`), unit tests and functional tests (SQLite) on PHP 8.2 to 8.5 with TYPO3 ^13.4 and ^14.3, and the documentation rendering of `Documentation/`, summarised by the aggregate gate `ci / All CI checks`. Fractor is not part of the CI run.
+- `.github/workflows/security-gates.yml`: the Infection mutation ratchet over `Classes/Crypto`, `Classes/Security`, `Classes/Audit` and `Classes/Http` (`infection-security.json5`); the mutation run starts when the pull request changes one of the paths the workflow's `detect` job lists, and the check reports on every pull request.
+- `.github/workflows/e2e.yml`: the Playwright suite in `Tests/E2E` against TYPO3 13.4 and 14.3 installations.
+- `.github/workflows/harness-verify.yml`: `Build/Scripts/verify-harness.sh`.
+- `.github/workflows/check-template-drift.yml`: drift of the managed files from the `typo3-extension` template in netresearch/.github (`Template drift`).
+- `.github/workflows/labeler.yml`: labels the pull request by the paths it changes; `.github/workflows/community.yml`: greets a contributor on their first pull request; `.github/workflows/auto-merge-deps.yml`: approves and enables auto-merge for Dependabot and Renovate pull requests that carry neither the `deps-no-automerge` nor the `deps-major` label, and is skipped for all others.
+
+The reusable workflows also run helper jobs that decide which of their jobs apply, for example `Preflight (event gate)`, `Detect Documentation` and CodeQL's `Prepare languages`.
+
+`.github/workflows/docs.yml` renders `Documentation/` on pull requests to `main` that change `Documentation/` or the workflow itself.
 
 ## License
 

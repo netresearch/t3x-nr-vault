@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- SPDX-FileCopyrightText: Netresearch DTT GmbH -->
 # Mutation Testing Baseline (2026-04-21)
 
 > **Historical snapshot.** The numbers, thresholds and commands below describe

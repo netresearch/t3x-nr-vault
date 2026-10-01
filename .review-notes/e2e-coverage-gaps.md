@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- SPDX-FileCopyrightText: Netresearch DTT GmbH -->
 # E2E Test Coverage Gap Analysis — nr-vault
 
 **Date:** 2026-05-23  

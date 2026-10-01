@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- SPDX-FileCopyrightText: Netresearch DTT GmbH -->
 # nr-vault: Secure Secrets Management for TYPO3
 
 [![CI](https://github.com/netresearch/t3x-nr-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/netresearch/t3x-nr-vault/actions/workflows/ci.yml)

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
 # semgrepignore / opengrepignore — paths excluded from SAST scanning.
 # gitignore-style syntax; opengrep reads this file (fork of semgrep).
 

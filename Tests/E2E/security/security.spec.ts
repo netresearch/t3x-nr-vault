@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-FileCopyrightText: Netresearch DTT GmbH
+
 import { test as base, expect, Page } from '@playwright/test';
 import { test, ADMIN_PASSWORD, ADMIN_USERNAME, filterByIdentifier, getModuleFrame, isLoginRedirect, rowFor, saveRecord, submitIdentifierFilter, waitForModuleContent } from '../fixtures/auth';
 

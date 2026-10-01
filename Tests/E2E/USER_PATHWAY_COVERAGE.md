@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- SPDX-FileCopyrightText: Netresearch DTT GmbH -->
 # User Pathway E2E Coverage Matrix
 
 > Authoritative spec: [`USER_PATHWAYS.md`](./USER_PATHWAYS.md).

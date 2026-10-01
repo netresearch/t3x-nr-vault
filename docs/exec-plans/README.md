@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- SPDX-FileCopyrightText: Netresearch DTT GmbH -->
 # Execution Plans
 
 Working directory for multi-step agent execution plans (design docs, task breakdowns, migration plans) that are too large for a PR description but not durable enough for `Documentation/`.

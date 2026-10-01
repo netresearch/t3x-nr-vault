@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-FileCopyrightText: Netresearch DTT GmbH
+
 import { test as base, expect, Page, FrameLocator, APIResponse } from '@playwright/test';
 import type { Locator } from '@playwright/test';
 
