@@ -316,7 +316,7 @@ Checks that the workflows in `.github/workflows/` run on pull requests:
 
 The reusable workflows also run helper jobs that decide which of their jobs apply, for example `Preflight (event gate)`, `Detect Documentation` and CodeQL's `Prepare languages`.
 
-`.github/workflows/docs.yml` renders `Documentation/` only on pull requests that change it.
+`.github/workflows/docs.yml` renders `Documentation/` on pull requests to `main` that change `Documentation/` or the workflow itself.
 
 ## License
 
