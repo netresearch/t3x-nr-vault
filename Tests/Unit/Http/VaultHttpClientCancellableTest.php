@@ -1405,8 +1405,6 @@ final class VaultHttpClientCancellableTest extends TestCase
         // is also why the branch had no test until it had this one.
         $GLOBALS['TYPO3_CONF_VARS'] = new stdClass();
 
-        $thrown = '';
-
         try {
             $client->sendCancellable(new Request('GET', self::API_URL), new NeverCancelledSignal());
             self::fail('Expected the transport build to throw.');
