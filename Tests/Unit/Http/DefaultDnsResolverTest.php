@@ -21,8 +21,11 @@ namespace Netresearch\NrVault\Http {
      *
      * @param array<mixed>|null $authoritativeNameServers Accepted for signature
      *                                                    parity only — the resolver never asks for the diagnostic
-     *                                                    record sets, so the fallback does not forward them.
+     *                                                    record sets, so the double leaves them null.
      * @param array<mixed>|null $additionalRecords Accepted for signature parity only
+     *
+     * @param-out null $authoritativeNameServers
+     * @param-out null $additionalRecords
      *
      * @return array<mixed>|false
      */
@@ -33,6 +36,8 @@ namespace Netresearch\NrVault\Http {
         ?array &$additionalRecords = null,
         bool $raw = false,
     ): array|false {
+        $authoritativeNameServers = null;
+        $additionalRecords = null;
         $handler = DefaultDnsResolverTest::$dnsHandler;
 
         if (!$handler instanceof \Closure) {

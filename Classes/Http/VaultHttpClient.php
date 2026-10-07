@@ -906,7 +906,6 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
     ): ResponseInterface {
         $auditStatus = 0;
         $auditSuccess = false;
-        $auditMessage = self::UNEXPECTED_BLOCKING_OUTCOME_MESSAGE;
 
         try {
             $response = $this->innerClient->sendRequest($authenticatedRequest);
@@ -1128,7 +1127,6 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             $auditStatus = $settledValue->getStatusCode();
             $auditSuccess = true;
             $auditMessage = null;
-            $outcomeRecorded = true;
 
             return $settledValue;
         } catch (Throwable $throwable) {

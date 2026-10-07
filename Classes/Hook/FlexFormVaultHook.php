@@ -812,9 +812,11 @@ final class FlexFormVaultHook
                     $fieldPathStr,
                 );
             }
+
+            unset($fieldData);
         }
 
-        unset($sheetData, $fieldData);
+        unset($sheetData);
 
         $this->discardUnprocessedVaultPlaintext($data, $table, $id, $flexFieldName);
     }
@@ -977,10 +979,14 @@ final class FlexFormVaultHook
                         $fieldPath . '/' . $innerFieldName,
                     );
                 }
+
+                unset($innerFieldData);
             }
+
+            unset($containerData);
         }
 
-        unset($sectionItem, $containerData, $innerFieldData);
+        unset($sectionItem);
     }
 
     /**

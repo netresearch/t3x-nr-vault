@@ -359,8 +359,6 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         $connection = $connectionPool->getConnectionForTable('tx_nrvault_secret');
         $connection->beginTransaction();
 
-        $caught = null;
-
         try {
             foreach ($identifiers as $index => $identifier) {
                 $secret = $secretRepository->findByIdentifier($identifier);

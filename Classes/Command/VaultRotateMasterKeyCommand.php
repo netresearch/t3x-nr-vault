@@ -578,8 +578,6 @@ final class VaultRotateMasterKeyCommand extends Command
         $io->progressStart($totalSecrets);
         $failedSecrets = [];
         $successCount = 0;
-        $rekeyedRows = 0;
-        $foreignCount = 0;
 
         try {
             foreach ($identifiers as $identifier) {

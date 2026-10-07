@@ -5,9 +5,9 @@
 
 .. _start:
 
-========
-nr-vault
-========
+=============
+Secrets Vault
+=============
 
 :Extension key:
    nr_vault

@@ -10,7 +10,7 @@
     theme="typo3docs"
 >
     <project
-        title="nr-vault"
+        title="Secrets Vault"
         version="1.1"
         release="1.1.0"
         copyright="since 2025 by Netresearch DTT GmbH"
