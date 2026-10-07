@@ -1,7 +1,7 @@
 {
     "name": "netresearch/nr-vault",
     "type": "typo3-cms-extension",
-    "description": "Secure secrets management for TYPO3 with envelope encryption, access control, and audit logging",
+    "description": "Secrets Vault - Central, secure storage for API keys, credentials and other secrets with envelope encryption, access control, audit logging and a secure HTTP client.",
     "license": "GPL-2.0-or-later",
     "keywords": [
         "TYPO3",

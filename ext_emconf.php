@@ -6,8 +6,8 @@
  */
 
 $EM_CONF[$_EXTKEY] = [
-    'title' => 'Vault - Secure Secrets Management',
-    'description' => 'Centralized, secure storage for API keys, credentials, and other secrets with envelope encryption, access control, audit logging, and a secure HTTP client.',
+    'title' => 'Secrets Vault',
+    'description' => 'Central, secure storage for API keys, credentials and other secrets with envelope encryption, access control, audit logging and a secure HTTP client.',
     'category' => 'be',
     'author' => 'Netresearch DTT GmbH',
     'author_email' => '',
