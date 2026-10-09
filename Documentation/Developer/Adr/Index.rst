@@ -114,3 +114,4 @@ ADR      Title                                                    Status
    ADR-038-UnresolvableHostIsRefused
    ADR-039-StreamingSendKeepsTheDnsPin
    ADR-040-CancellableSendBoundsSilence
+   ADR-041-AdditionalBodyCredentials

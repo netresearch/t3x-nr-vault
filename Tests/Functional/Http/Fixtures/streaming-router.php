@@ -120,7 +120,19 @@ switch ($path) {
     case '/echo-auth':
         header('Content-Type: text/plain');
         $authorization = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-        $line('authorization=' . (is_string($authorization) ? $authorization : ''));
+        if (($query['body'] ?? '') === '1') {
+            echo json_encode(
+                [
+                    'authorization' => $authorization,
+                    'body' => file_get_contents('php://input'),
+                ],
+                JSON_THROW_ON_ERROR,
+            );
+        } else {
+            $line(
+                'authorization=' . (is_string($authorization) ? $authorization : ''),
+            );
+        }
 
         return true;
     case '/large':

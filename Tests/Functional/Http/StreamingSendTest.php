@@ -92,6 +92,8 @@ final class StreamingSendTest extends FunctionalTestCase
 
     private const TUNNEL_SCRIPT = __DIR__ . '/Fixtures/tunnel-server.php';
 
+    private const JSON_CONTENT_TYPE = 'application/json';
+
     protected array $testExtensionsToLoad = [
         'netresearch/nr-vault',
     ];
@@ -672,6 +674,85 @@ final class StreamingSendTest extends FunctionalTestCase
         self::assertCount(1, $this->auditRows);
         self::assertFalse($this->auditRows[0]['success']);
         self::assertSame($caught->getMessage(), $this->auditRows[0]['error']);
+    }
+
+    #[Test]
+    public function additionalBodyCredentialsSurviveTimeoutClonesOnEveryPinnedSend(): void
+    {
+        foreach ([
+            self::JSON_CONTENT_TYPE,
+            'Application/JSON; charset=UTF-8',
+            'application/x-www-form-urlencoded',
+        ] as $contentType) {
+            foreach (['blocking', 'cancellable', 'streaming'] as $mode) {
+                $client = $this
+                    ->client()
+                    ->withAdditionalBodyField('subject', 'subject_token')
+                    ->withAuthentication('client', SecretPlacement::BasicAuth)
+                    ->withTimeout(3)
+                    ->withReason('body-exchange');
+                self::assertTrue($client->supportsCancellation());
+                self::assertTrue($client->supportsStreaming());
+                $body = str_contains(strtolower($contentType), self::JSON_CONTENT_TYPE) ? '{"grant_type":"exchange"}' : 'grant_type=exchange';
+                $request = new Request(
+                    'POST',
+                    $this->url('/echo-auth?body=1'),
+                    [
+                        'Content-Type' => $contentType,
+                        'Content-Length' => (string) \strlen($body),
+                    ],
+                    $body,
+                );
+                $response = match ($mode) {
+                    'blocking' => $client->sendRequest($request),
+                    'cancellable' => $client->sendCancellable($request, new SwitchableSignal()),
+                    default => $client->sendStreaming($request),
+                };
+                $received = json_decode(
+                    (string) $response->getBody(),
+                    true,
+                    512,
+                    JSON_THROW_ON_ERROR,
+                );
+                self::assertIsArray($received);
+                self::assertSame(
+                    'Basic ' . base64_encode(self::SECRET),
+                    $received['authorization'],
+                );
+                self::assertIsString($received['body']);
+                if (str_contains(strtolower($contentType), self::JSON_CONTENT_TYPE)) {
+                    $fields = json_decode(
+                        $received['body'],
+                        true,
+                        512,
+                        JSON_THROW_ON_ERROR,
+                    );
+                } else {
+                    parse_str($received['body'], $fields);
+                }
+
+                self::assertSame(
+                    [
+                        'grant_type' => 'exchange',
+                        'subject_token' => self::SECRET,
+                    ],
+                    $fields,
+                );
+                self::assertSame($body, (string) $request->getBody());
+            }
+        }
+
+        self::assertCount(9, $this->auditRows);
+        foreach ($this->auditRows as $row) {
+            self::assertSame('client', $row['identifier']);
+            self::assertSame('http_call', $row['action']);
+            self::assertTrue($row['success']);
+            self::assertSame(200, $row['status']);
+            self::assertStringNotContainsString(
+                self::SECRET,
+                json_encode($row, JSON_THROW_ON_ERROR),
+            );
+        }
     }
 
     // =========================================================================
