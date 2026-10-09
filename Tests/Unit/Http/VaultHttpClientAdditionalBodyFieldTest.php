@@ -39,49 +39,42 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
 {
     use GuzzleClientConfigTrait;
 
+    private const JSON_CONTENT_TYPE = 'application/json';
+
+    private const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded';
+
+    private const BASIC_AUTH_PREFIX = 'Basic ';
+
+    private const TOKEN_ENDPOINT = 'https://idp.example.com/token';
+
+    private const PUBLIC_JSON_BODY = '{"public":"kept"}';
+
     #[Test]
     public function basicAndSubjectCredentialsShareOneRequestForBothBodyFormats(): void
     {
-        foreach (['application/x-www-form-urlencoded', 'application/json'] as $contentType) {
+        foreach ([self::FORM_CONTENT_TYPE, self::JSON_CONTENT_TYPE] as $contentType) {
             $vault = $this->createMock(VaultServiceInterface::class);
             $vault
                 ->expects(self::exactly(2))
                 ->method('retrieve')
-                ->willReturnCallback(
-                    static fn (
-                        string $id,
-                    ): string => $id === 'client' ? 'client-id:client-password' : 'subject-value',
-                );
+                ->willReturnCallback(static fn (string $id): string => $id === 'client' ? 'client-id:client-password' : 'subject-value');
             $transport = $this->createMock(ClientInterface::class);
             $transport
                 ->expects(self::once())
                 ->method('sendRequest')
                 ->willReturnCallback(
-                    static function (
-                        RequestInterface $request,
-                    ) use ($contentType): Response {
+                    static function (RequestInterface $request) use ($contentType): Response {
                         self::assertSame(
-                            'Basic ' . base64_encode('client-id:client-password'),
+                            self::BASIC_AUTH_PREFIX . base64_encode('client-id:client-password'),
                             $request->getHeaderLine('Authorization'),
                         );
-                        if ($contentType === 'application/json') {
-                            $data = json_decode(
-                                (string) $request->getBody(),
-                                true,
-                                512,
-                                JSON_THROW_ON_ERROR,
-                            );
+                        if ($contentType === self::JSON_CONTENT_TYPE) {
+                            $data = json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR);
                         } else {
                             parse_str((string) $request->getBody(), $data);
                         }
 
-                        self::assertSame(
-                            [
-                                'grant_type' => 'token-exchange',
-                                'subject_token' => 'subject-value',
-                            ],
-                            $data,
-                        );
+                        self::assertSame(['grant_type' => 'token-exchange', 'subject_token' => 'subject-value'], $data);
 
                         return new Response(200, [], '{}');
                     },
@@ -92,23 +85,13 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
                 $transport,
                 secureHttpClientFactory: new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
             );
-            self::assertContains(
-                AdditionalSecretHttpClientInterface::class,
-                class_implements($client),
-            );
+            self::assertContains(AdditionalSecretHttpClientInterface::class, class_implements($client));
             $configured = $client
                 ->withAuthentication('client', SecretPlacement::BasicAuth)
                 ->withAdditionalBodyField('subject', 'subject_token')
                 ->withReason('exchange');
-            $body = $contentType === 'application/json' ? ' {"grant_type":"token-exchange"} ' : 'grant_type=token-exchange';
-            $configured->sendRequest(
-                new Request(
-                    'POST',
-                    'https://idp.example.com/token',
-                    ['Content-Type' => $contentType],
-                    $body,
-                ),
-            );
+            $body = $contentType === self::JSON_CONTENT_TYPE ? ' {"grant_type":"token-exchange"} ' : 'grant_type=token-exchange';
+            $configured->sendRequest(new Request('POST', self::TOKEN_ENDPOINT, ['Content-Type' => $contentType], $body));
         }
     }
 
@@ -116,20 +99,14 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
     public function originalClientHasNoAdditionalCredentialAndBuilderOrderPreservesIt(): void
     {
         $vault = $this->createMock(VaultServiceInterface::class);
-        $vault
-            ->expects(self::once())
-            ->method('retrieve')
-            ->with('subject')
-            ->willReturn('subject-value');
+        $vault->expects(self::once())->method('retrieve')->with('subject')->willReturn('subject-value');
         $requests = [];
         $transport = $this->createMock(ClientInterface::class);
         $transport
             ->expects(self::exactly(2))
             ->method('sendRequest')
             ->willReturnCallback(
-                static function (
-                    RequestInterface $request,
-                ) use (&$requests): Response {
+                static function (RequestInterface $request) use (&$requests): Response {
                     $requests[] = (string) $request->getBody();
 
                     return new Response(200);
@@ -141,31 +118,18 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             $transport,
             secureHttpClientFactory: new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
         );
-        $configured = $client
-            ->withAdditionalBodyField('subject', 'subject_token')
-            ->withReason('kept');
-        $request = new Request(
-            'POST',
-            'https://idp.example.com/token',
-            ['Content-Type' => 'application/x-www-form-urlencoded'],
-            'client_id=public',
-        );
+        $configured = $client->withAdditionalBodyField('subject', 'subject_token')->withReason('kept');
+        $request = new Request('POST', self::TOKEN_ENDPOINT, ['Content-Type' => self::FORM_CONTENT_TYPE], 'client_id=public');
         $configured->sendRequest($request);
         $client->sendRequest($request);
-        self::assertSame(
-            ['client_id=public&subject_token=subject-value', 'client_id=public'],
-            $requests,
-        );
+        self::assertSame(['client_id=public&subject_token=subject-value', 'client_id=public'], $requests);
     }
 
     #[Test]
     public function missingAdditionalCredentialPreventsTransportContact(): void
     {
         $vault = $this->createMock(VaultServiceInterface::class);
-        $vault
-            ->expects(self::once())
-            ->method('retrieve')
-            ->willThrowException(new SecretNotFoundException('missing'));
+        $vault->expects(self::once())->method('retrieve')->willThrowException(new SecretNotFoundException('missing'));
         $transport = $this->createMock(ClientInterface::class);
         $transport->expects(self::never())->method('sendRequest');
         $client = new VaultHttpClient(
@@ -177,7 +141,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
         $this->expectException(SecretNotFoundException::class);
         $client
             ->withAdditionalBodyField('missing', 'subject_token')
-            ->sendRequest(new Request('POST', 'https://idp.example.com/token'));
+            ->sendRequest(new Request('POST', self::TOKEN_ENDPOINT));
     }
 
     #[Test]
@@ -191,23 +155,13 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
         );
         foreach ([
             static fn (): VaultHttpClient => $client->withAdditionalBodyField('a', 'invalid[]'),
+            static fn (): VaultHttpClient => $client->withAdditionalBodyField('a', 'subject_token')->withAdditionalBodyField('b', 'subject_token'),
             static fn (): VaultHttpClient => $client
-                ->withAdditionalBodyField('a', 'subject_token')
-                ->withAdditionalBodyField('b', 'subject_token'),
-            static fn (): VaultHttpClient => $client
-                ->withAuthentication(
-                    'a',
-                    SecretPlacement::BodyField,
-                    ['bodyField' => 'subject_token'],
-                )
+                ->withAuthentication('a', SecretPlacement::BodyField, ['bodyField' => 'subject_token'])
                 ->withAdditionalBodyField('b', 'subject_token'),
             static fn (): VaultHttpClient => $client
                 ->withAdditionalBodyField('b', 'subject_token')
-                ->withAuthentication(
-                    'a',
-                    SecretPlacement::BodyField,
-                    ['bodyField' => 'subject_token'],
-                ),
+                ->withAuthentication('a', SecretPlacement::BodyField, ['bodyField' => 'subject_token']),
         ] as $builder) {
             try {
                 $builder();
@@ -233,16 +187,9 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
         $vault
             ->expects(self::exactly(2))
             ->method('retrieve')
-            ->willReturnCallback(
-                static fn (
-                    string $id,
-                ): string => $id === 'primary' ? 'client:password' : 'subject-value',
-            );
+            ->willReturnCallback(static fn (string $id): string => $id === 'primary' ? 'client:password' : 'subject-value');
         $audit = $this->createMock(AuditLogServiceInterface::class);
-        $audit
-            ->expects(self::once())
-            ->method('log')
-            ->with('primary', 'http_call', true, null, 'cloned-exchange');
+        $audit->expects(self::once())->method('log')->with('primary', 'http_call', true, null, 'cloned-exchange');
         $client = (new VaultHttpClient(
             $vault,
             $audit,
@@ -252,29 +199,18 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             ->withAuthentication('primary', SecretPlacement::BasicAuth)
             ->withTimeout(3)
             ->withReason('cloned-exchange');
-        $inner = (new ReflectionProperty(VaultHttpClient::class, 'innerClient'))->getValue(
-            $client,
-        );
+        $inner = (new ReflectionProperty(VaultHttpClient::class, 'innerClient'))->getValue($client);
         self::assertInstanceOf(Client::class, $inner);
         $handler = $this->getGuzzleConfig($inner)['handler'];
         self::assertInstanceOf(HandlerStack::class, $handler);
         $handler->setHandler(
-            static function (
-                RequestInterface $request,
-                array $options,
-            ): FulfilledPromise {
+            static function (RequestInterface $request, array $options): FulfilledPromise {
                 self::assertSame(
-                    'Basic ' . base64_encode('client:password'),
+                    self::BASIC_AUTH_PREFIX . base64_encode('client:password'),
                     $request->getHeaderLine('Authorization'),
                 );
                 parse_str((string) $request->getBody(), $fields);
-                self::assertSame(
-                    [
-                        'grant_type' => 'exchange',
-                        'subject_token' => 'subject-value',
-                    ],
-                    $fields,
-                );
+                self::assertSame(['grant_type' => 'exchange', 'subject_token' => 'subject-value'], $fields);
                 self::assertSame(3, $options['timeout']);
                 self::assertFalse($options['debug']);
                 self::assertFalse($options['allow_redirects']);
@@ -283,12 +219,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
                 return new FulfilledPromise(new Response(204));
             },
         );
-        $original = new Request(
-            'POST',
-            'https://idp.example.com/token',
-            ['Content-Type' => 'application/x-www-form-urlencoded'],
-            'grant_type=exchange',
-        );
+        $original = new Request('POST', self::TOKEN_ENDPOINT, ['Content-Type' => self::FORM_CONTENT_TYPE], 'grant_type=exchange');
         self::assertSame(204, $client->sendRequest($original)->getStatusCode());
         self::assertSame('grant_type=exchange', (string) $original->getBody());
     }
@@ -313,16 +244,9 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             ->method('sendRequest')
             ->willReturnCallback(
                 static function (RequestInterface $request): Response {
-                    self::assertStringNotContainsString(
-                        'subject_token',
-                        (string) $request->getBody(),
-                    );
+                    self::assertStringNotContainsString('subject_token', (string) $request->getBody());
 
-                    return new Response(
-                        200,
-                        [],
-                        '{"access_token":"issued-token","expires_in":3600,"token_type":"Bearer"}',
-                    );
+                    return new Response(200, [], '{"access_token":"issued-token","expires_in":3600,"token_type":"Bearer"}');
                 },
             );
         $resourceClient = $this->createMock(ClientInterface::class);
@@ -331,18 +255,10 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             ->method('sendRequest')
             ->willReturnCallback(
                 static function (RequestInterface $request): Response {
-                    self::assertSame(
-                        'Bearer issued-token',
-                        $request->getHeaderLine('Authorization'),
-                    );
+                    self::assertSame('Bearer issued-token', $request->getHeaderLine('Authorization'));
                     self::assertSame(
                         ['public' => 'kept', 'subject_token' => 'subject-value'],
-                        json_decode(
-                            (string) $request->getBody(),
-                            true,
-                            512,
-                            JSON_THROW_ON_ERROR,
-                        ),
+                        json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR),
                     );
 
                     return new Response(204);
@@ -360,20 +276,14 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             204,
             $client
                 ->withAdditionalBodyField('subject', 'subject_token')
-                ->withOAuth(
-                    OAuthConfig::clientCredentials(
-                        'https://idp.example.com/token',
-                        'oauth-id',
-                        'oauth-password',
-                    ),
-                )
+                ->withOAuth(OAuthConfig::clientCredentials(self::TOKEN_ENDPOINT, 'oauth-id', 'oauth-password'))
                 ->withReason('oauth-exchange')
                 ->sendRequest(
                     new Request(
                         'POST',
                         'https://api.example.com/resource',
-                        ['Content-Type' => 'application/json'],
-                        '{"public":"kept"}',
+                        ['Content-Type' => self::JSON_CONTENT_TYPE],
+                        self::PUBLIC_JSON_BODY,
                     ),
                 )
                 ->getStatusCode(),
@@ -388,11 +298,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             $vault
                 ->expects(self::exactly(2))
                 ->method('retrieve')
-                ->willReturnCallback(
-                    static fn (
-                        string $id,
-                    ): string => $id === 'primary' ? 'client:password' : 'subject-value',
-                );
+                ->willReturnCallback(static fn (string $id): string => $id === 'primary' ? 'client:password' : 'subject-value');
             $audit = $this->createMock(AuditLogServiceInterface::class);
             $audit
                 ->expects(self::once())
@@ -403,28 +309,17 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
                         string $action,
                         bool $success,
                         ?string $error = null,
-                        ?string $reason = null,
-                        ?string $before = null,
-                        ?string $after = null,
-                        ?AuditContextInterface $context = null,
+                        mixed ...$auditDetails,
                     ): void {
+                        $context = self::auditContext($auditDetails);
                         self::assertSame('primary', $id);
                         self::assertSame('http_call', $action);
                         self::assertTrue($success);
                         self::assertNull($error);
-                        $metadata = json_encode($context?->toArray(), JSON_THROW_ON_ERROR);
-                        self::assertStringNotContainsString(
-                            'subject-value',
-                            $metadata,
-                        );
-                        self::assertStringNotContainsString(
-                            'client:password',
-                            $metadata,
-                        );
-                        self::assertSame(
-                            204,
-                            $context?->toArray()['status_code'],
-                        );
+                        $metadata = json_encode($context->toArray(), JSON_THROW_ON_ERROR);
+                        self::assertStringNotContainsString('subject-value', $metadata);
+                        self::assertStringNotContainsString('client:password', $metadata);
+                        self::assertSame(204, $context->toArray()['status_code']);
                     },
                 );
             $factory = new SecureHttpClientFactory(new AlwaysPublicDnsResolver());
@@ -436,23 +331,15 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             self::assertInstanceOf(HandlerStack::class, $handler);
             $calls = 0;
             $handler->setHandler(
-                static function (
-                    RequestInterface $request,
-                    array $options,
-                ) use (&$calls): FulfilledPromise {
+                static function (RequestInterface $request, array $options) use (&$calls): FulfilledPromise {
                     ++$calls;
                     self::assertSame(
-                        'Basic ' . base64_encode('client:password'),
+                        self::BASIC_AUTH_PREFIX . base64_encode('client:password'),
                         $request->getHeaderLine('Authorization'),
                     );
                     self::assertSame(
                         ['public' => 'kept', 'subject_token' => 'subject-value'],
-                        json_decode(
-                            (string) $request->getBody(),
-                            true,
-                            512,
-                            JSON_THROW_ON_ERROR,
-                        ),
+                        json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR),
                     );
                     self::assertArrayHasKey(CURLOPT_RESOLVE, $options['curl']);
                     self::assertFalse($options['allow_redirects']);
@@ -460,12 +347,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
                     return new FulfilledPromise(new Response(204));
                 },
             );
-            $client = (new VaultHttpClient(
-                $vault,
-                $audit,
-                secureHttpClientFactory: $factory,
-                cancellableTransport: $transport,
-            ))
+            $client = (new VaultHttpClient($vault, $audit, secureHttpClientFactory: $factory, cancellableTransport: $transport))
                 ->withAuthentication('primary', SecretPlacement::BasicAuth)
                 ->withAdditionalBodyField('subject', 'subject_token')
                 ->withReason('async-exchange');
@@ -474,17 +356,17 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             $response = $method === 'sendCancellable' ? $client->sendCancellable(
                 new Request(
                     'POST',
-                    'https://idp.example.com/token',
-                    ['Content-Type' => 'application/json'],
-                    '{"public":"kept"}',
+                    self::TOKEN_ENDPOINT,
+                    ['Content-Type' => self::JSON_CONTENT_TYPE],
+                    self::PUBLIC_JSON_BODY,
                 ),
                 self::createStub(CancellationSignalInterface::class),
             ) : $client->sendStreaming(
                 new Request(
                     'POST',
-                    'https://idp.example.com/token',
-                    ['Content-Type' => 'application/json'],
-                    '{"public":"kept"}',
+                    self::TOKEN_ENDPOINT,
+                    ['Content-Type' => self::JSON_CONTENT_TYPE],
+                    self::PUBLIC_JSON_BODY,
                 ),
             );
             self::assertSame(204, $response->getStatusCode());
@@ -508,10 +390,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             $transport = $this->createMock(ClientInterface::class);
             $transport->expects(self::never())->method('sendRequest');
             $audit = $this->createMock(AuditLogServiceInterface::class);
-            $audit
-                ->expects(self::once())
-                ->method('log')
-                ->with('primary', 'http_call_cancelled_before_send', false);
+            $audit->expects(self::once())->method('log')->with('primary', 'http_call_cancelled_before_send', false);
             $client = (new VaultHttpClient(
                 $vault,
                 $audit,
@@ -522,7 +401,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
                 ->withAdditionalBodyField('subject', 'subject_token');
 
             try {
-                $request = new Request('POST', 'https://idp.example.com/token');
+                $request = new Request('POST', self::TOKEN_ENDPOINT);
                 if ($method === 'sendCancellable') {
                     $client->sendCancellable($request, $signal);
                 } else {
@@ -531,10 +410,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
 
                 self::fail('A cancelled call was accepted.');
             } catch (RequestCancelledException $exception) {
-                self::assertStringContainsString(
-                    'no secret was retrieved',
-                    $exception->getMessage(),
-                );
+                self::assertStringContainsString('no secret was retrieved', $exception->getMessage());
             }
         }
     }
@@ -568,24 +444,16 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
                         string $action,
                         bool $success,
                         ?string $error = null,
-                        ?string $reason = null,
-                        ?string $before = null,
-                        ?string $after = null,
-                        ?AuditContextInterface $context = null,
+                        mixed ...$auditDetails,
                     ): void {
+                        $context = self::auditContext($auditDetails);
                         self::assertSame('primary', $id);
                         self::assertSame('http_call', $action);
                         self::assertFalse($success);
-                        self::assertStringContainsString(
-                            'nothing was sent',
-                            $error ?? '',
-                        );
+                        self::assertStringContainsString('nothing was sent', $error ?? '');
                         self::assertStringNotContainsString(
                             'client:password',
-                            json_encode(
-                                [$error, $context?->toArray()],
-                                JSON_THROW_ON_ERROR,
-                            ),
+                            json_encode([$error, $context->toArray()], JSON_THROW_ON_ERROR),
                         );
                     },
                 );
@@ -599,21 +467,15 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
                 ->withAdditionalBodyField('denied', 'subject_token');
 
             try {
-                $request = new Request('POST', 'https://idp.example.com/token');
+                $request = new Request('POST', self::TOKEN_ENDPOINT);
                 match ($method) {
                     'sendRequest' => $client->sendRequest($request),
-                    'sendCancellable' => $client->sendCancellable(
-                        $request,
-                        self::createStub(CancellationSignalInterface::class),
-                    ),
+                    'sendCancellable' => $client->sendCancellable($request, self::createStub(CancellationSignalInterface::class)),
                     default => $client->sendStreaming($request),
                 };
                 self::fail('A denied secret was sent.');
             } catch (AccessDeniedException $exception) {
-                self::assertStringContainsString(
-                    'denied',
-                    $exception->getMessage(),
-                );
+                self::assertStringContainsString('denied', $exception->getMessage());
             }
         }
     }
@@ -623,11 +485,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
     {
         foreach (['[]', '42', '{broken'] as $body) {
             $vault = $this->createMock(VaultServiceInterface::class);
-            $vault
-                ->expects(self::once())
-                ->method('retrieve')
-                ->with('subject')
-                ->willReturn('subject-value');
+            $vault->expects(self::once())->method('retrieve')->with('subject')->willReturn('subject-value');
             $transport = $this->createMock(ClientInterface::class);
             $transport->expects(self::never())->method('sendRequest');
             $client = new VaultHttpClient(
@@ -640,21 +498,22 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             try {
                 $client
                     ->withAdditionalBodyField('subject', 'subject_token')
-                    ->sendRequest(
-                        new Request(
-                            'POST',
-                            'https://idp.example.com/token',
-                            ['Content-Type' => 'application/json'],
-                            $body,
-                        ),
-                    );
+                    ->sendRequest(new Request('POST', self::TOKEN_ENDPOINT, ['Content-Type' => self::JSON_CONTENT_TYPE], $body));
                 self::fail('A malformed body was sent.');
             } catch (VaultException $exception) {
-                self::assertStringNotContainsString(
-                    'subject-value',
-                    $exception->getMessage(),
-                );
+                self::assertStringNotContainsString('subject-value', $exception->getMessage());
             }
         }
+    }
+
+    /**
+     * @param array<array-key,mixed> $auditDetails
+     */
+    private static function auditContext(array $auditDetails): AuditContextInterface
+    {
+        $context = $auditDetails[3] ?? null;
+        self::assertInstanceOf(AuditContextInterface::class, $context);
+
+        return $context;
     }
 }

@@ -27,11 +27,11 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
             $accepted = false;
 
             try {
-                $this
-                    ->client()
-                    ->withAdditionalBodyField('id', str_repeat('a', $length));
+                $this->client()->withAdditionalBodyField('id', str_repeat('a', $length));
                 $accepted = true;
-            } catch (InvalidArgumentException) {
+            } catch (InvalidArgumentException $exception) {
+                self::assertTrue($length < 1 || $length > 64);
+                self::assertStringContainsString('field', $exception->getMessage());
             }
 
             self::assertSame($length >= 1 && $length <= 64, $accepted);
@@ -47,7 +47,9 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
                 }
 
                 $accepted = true;
-            } catch (InvalidArgumentException) {
+            } catch (InvalidArgumentException $exception) {
+                self::assertGreaterThan(8, $count);
+                self::assertStringContainsString('eight', $exception->getMessage());
             }
 
             self::assertSame($count <= 8, $accepted);
@@ -61,47 +63,61 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
             $accepted = false;
 
             try {
-                $this
-                    ->client()
-                    ->withAdditionalBodyField(str_repeat('a', $length), 'subject_token');
+                $this->client()->withAdditionalBodyField(str_repeat('a', $length), 'subject_token');
                 $accepted = true;
-            } catch (InvalidArgumentException) {
+            } catch (InvalidArgumentException $exception) {
+                self::assertTrue($length < 1 || $length > 255);
+                self::assertStringContainsString('identifier', $exception->getMessage());
             }
 
             self::assertSame($length >= 1 && $length <= 255, $accepted);
         }
 
-        foreach (range(0, 127) as $byte) {
+        foreach (range(0, 255) as $byte) {
             $character = \chr($byte);
-            if (preg_match('/[A-Za-z0-9_]/D', $character) === 1) {
+            if ($this->isAllowedFieldByte($byte)) {
+                $original = $this->client();
+                $configured = $original->withAdditionalBodyField('id', 'field' . $character);
+                self::assertNotSame($original, $configured);
                 continue;
             }
 
             try {
-                $this
-                    ->client()
-                    ->withAdditionalBodyField('id', 'field' . $character);
+                $this->client()->withAdditionalBodyField('id', 'field' . $character);
                 self::fail('An unsafe field character was accepted.');
             } catch (InvalidArgumentException $exception) {
-                self::assertStringContainsString(
-                    'field',
-                    $exception->getMessage(),
-                );
+                self::assertStringContainsString('field', $exception->getMessage());
             }
         }
 
         foreach (array_merge(range(0, 31), [127]) as $byte) {
             try {
-                $this
-                    ->client()
-                    ->withAdditionalBodyField('id' . \chr($byte), 'field');
+                $this->client()->withAdditionalBodyField('id' . \chr($byte), 'field');
                 self::fail('An identifier control character was accepted.');
             } catch (InvalidArgumentException $exception) {
-                self::assertStringContainsString(
-                    'identifier',
-                    $exception->getMessage(),
-                );
+                self::assertStringContainsString('identifier', $exception->getMessage());
             }
+        }
+    }
+
+    #[Test]
+    public function fieldPrefixesAcceptOnlyAsciiLettersAndUnderscore(): void
+    {
+        foreach (range(0, 255) as $byte) {
+            $expected = $this->isAllowedFieldByte($byte) && ($byte < 48 || $byte > 57);
+            $accepted = false;
+
+            try {
+                $original = $this->client();
+                $configured = $original->withAdditionalBodyField('id', \chr($byte) . 'field');
+                self::assertNotSame($original, $configured);
+                $accepted = true;
+            } catch (InvalidArgumentException $exception) {
+                self::assertFalse($expected);
+                self::assertStringContainsString('field', $exception->getMessage());
+            }
+
+            self::assertSame($expected, $accepted);
         }
     }
 
@@ -113,5 +129,13 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
             self::createStub(ClientInterface::class),
             secureHttpClientFactory: new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
         );
+    }
+
+    /**
+     * Independent byte ranges cover the ASCII alphabet without locale-sensitive regex shortcuts.
+     */
+    private function isAllowedFieldByte(int $byte): bool
+    {
+        return $byte === 95 || $byte >= 48 && $byte <= 57 || $byte >= 65 && $byte <= 90 || $byte >= 97 && $byte <= 122;
     }
 }
