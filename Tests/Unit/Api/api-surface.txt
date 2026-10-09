@@ -722,6 +722,9 @@ Netresearch\NrVault\Hook\RecordCreationOutcome (enum)
   method static classify(bool $valueSubmitted, bool $valueStored): self
   property readonly name: string
 
+Netresearch\NrVault\Http\AdditionalSecretHttpClientInterface (interface)
+  method withAdditionalBodyField(string $secretIdentifier, string $bodyField): static
+
 Netresearch\NrVault\Http\CancellableHttpClientInterface (interface)
   method sendCancellable(Psr\Http\Message\RequestInterface $request, Netresearch\NrVault\Http\CancellationSignalInterface $signal): Psr\Http\Message\ResponseInterface
   method supportsCancellation(): bool

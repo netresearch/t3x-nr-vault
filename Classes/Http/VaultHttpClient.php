@@ -15,6 +15,7 @@ namespace Netresearch\NrVault\Http;
 use GuzzleHttp\ClientInterface as GuzzleClientInterface;
 use GuzzleHttp\Psr7\Utils;
 use GuzzleHttp\RequestOptions;
+use InvalidArgumentException;
 use JsonException;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -74,7 +75,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * @see SecureHttpClientFactory for TYPO3 HTTP configuration handling
  */
-final readonly class VaultHttpClient implements VaultHttpClientInterface, CancellableHttpClientInterface, StreamingHttpClientInterface
+final readonly class VaultHttpClient implements VaultHttpClientInterface, CancellableHttpClientInterface, StreamingHttpClientInterface, AdditionalSecretHttpClientInterface
 {
     /**
      * Fixed literal for a call refused before anything was sent.
@@ -313,6 +314,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      *                              Typing it as the class is what makes it unforgeable and
      *                              also why `Services.yaml` pins it to null: autowiring
      *                              would read it as a dependency of this service on itself.
+     * @param array<string,string> $additionalBodyFields Additional Vault body bindings.
      */
     public function __construct(
         private VaultServiceInterface $vaultService,
@@ -332,7 +334,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         private ?int $timeoutSeconds = null,
         private ?CancellableTransport $cancellableTransport = null,
         ?self $clonedFrom = null,
+        private array $additionalBodyFields = [],
     ) {
+        $this->validateAdditionalBodyFields();
         // Resolve the factory once: it builds the inner client (when missing)
         // AND backs the OAuth manager's `isHostAllowed()` gate. VaultHttpClient
         // is a fluent immutable value-object instantiated per call chain, not
@@ -395,6 +399,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             timeoutSeconds: $this->timeoutSeconds,
             cancellableTransport: $this->cancellableTransport,
             clonedFrom: $this,
+            additionalBodyFields: $this->additionalBodyFields,
         );
     }
 
@@ -412,6 +417,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             timeoutSeconds: $this->timeoutSeconds,
             cancellableTransport: $this->cancellableTransport,
             clonedFrom: $this,
+            additionalBodyFields: $this->additionalBodyFields,
         );
     }
 
@@ -435,6 +441,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             timeoutSeconds: $this->timeoutSeconds,
             cancellableTransport: $this->cancellableTransport,
             clonedFrom: $this,
+            additionalBodyFields: $this->additionalBodyFields,
         );
     }
 
@@ -483,6 +490,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             secureHttpClientFactory: $this->secureHttpClientFactory,
             authPrefix: $this->authPrefix,
             timeoutSeconds: $seconds > 0 ? $seconds : null,
+            additionalBodyFields: $this->additionalBodyFields,
         );
     }
 
@@ -683,6 +691,42 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         }
 
         return $this->sendStreamingly($transport, $request, $authenticatedRequest, $secretForAudit, $signal);
+    }
+
+    /**
+     * @throws InvalidArgumentException When a binding is ambiguous or malformed.
+     */
+    public function withAdditionalBodyField(
+        string $secretIdentifier,
+        string $bodyField,
+    ): static {
+        if (\array_key_exists($bodyField, $this->additionalBodyFields)) {
+            throw new InvalidArgumentException(
+                'An additional body field must be bound only once.',
+                5284686842,
+            );
+        }
+
+        return new self(
+            vaultService: $this->vaultService,
+            auditLogService: $this->auditLogService,
+            innerClient: $this->innerClient,
+            secretIdentifier: $this->secretIdentifier,
+            placement: $this->placement,
+            oauthConfig: $this->oauthConfig,
+            headerName: $this->headerName,
+            queryParam: $this->queryParam,
+            bodyField: $this->bodyField,
+            usernameSecretIdentifier: $this->usernameSecretIdentifier,
+            reason: $this->reason,
+            oauthManager: $this->oauthManager,
+            secureHttpClientFactory: $this->secureHttpClientFactory,
+            authPrefix: $this->authPrefix,
+            timeoutSeconds: $this->timeoutSeconds,
+            cancellableTransport: $this->cancellableTransport,
+            clonedFrom: $this,
+            additionalBodyFields: $this->additionalBodyFields + [$bodyField => $secretIdentifier],
+        );
     }
 
     /**
@@ -1388,22 +1432,26 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         ?CancellationSignalInterface $signal = null,
     ): RequestInterface {
         if ($this->oauthConfig instanceof OAuthConfig) {
-            return $this->injectOAuth($request, $signal);
+            return $this->injectAdditionalBodyFields(
+                $this->injectOAuth($request, $signal),
+            );
         }
 
         if ($this->secretIdentifier === null || !$this->placement instanceof SecretPlacement) {
-            return $request;
+            return $this->injectAdditionalBodyFields($request);
         }
 
-        return match ($this->placement) {
-            SecretPlacement::Bearer => $this->injectBearer($request),
-            SecretPlacement::BasicAuth => $this->injectBasicAuth($request),
-            SecretPlacement::Header => $this->injectHeader($request),
-            SecretPlacement::ApiKey => $this->injectApiKey($request),
-            SecretPlacement::QueryParam => $this->injectQueryParam($request),
-            SecretPlacement::BodyField => $this->injectBodyField($request),
-            SecretPlacement::OAuth2 => $request, // Handled above
-        };
+        return $this->injectAdditionalBodyFields(
+            match ($this->placement) {
+                SecretPlacement::Bearer => $this->injectBearer($request),
+                SecretPlacement::BasicAuth => $this->injectBasicAuth($request),
+                SecretPlacement::Header => $this->injectHeader($request),
+                SecretPlacement::ApiKey => $this->injectApiKey($request),
+                SecretPlacement::QueryParam => $this->injectQueryParam($request),
+                SecretPlacement::BodyField => $this->injectBodyField($request),
+                SecretPlacement::OAuth2 => $request,
+            },
+        );
     }
 
     private function injectBearer(RequestInterface $request): RequestInterface
@@ -1492,33 +1540,16 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         }
     }
 
-    private function injectBodyField(RequestInterface $request): RequestInterface
-    {
+    private function injectBodyField(
+        RequestInterface $request,
+    ): RequestInterface {
         \assert($this->secretIdentifier !== null);
-        $secret = $this->retrieveSecret($this->secretIdentifier);
-        $fieldName = $this->bodyField ?? 'api_key';
 
-        try {
-            $contentType = $request->getHeaderLine('Content-Type');
-            $body = (string) $request->getBody();
-
-            if (str_contains($contentType, 'application/json')) {
-                $data = $this->decodeJsonObjectBody($body);
-                $data[$fieldName] = $secret;
-                $newBody = json_encode($data, JSON_THROW_ON_ERROR);
-            } else {
-                parse_str($body, $data);
-                $data[$fieldName] = $secret;
-                $newBody = http_build_query($data);
-            }
-
-            $result = $request->withBody(Utils::streamFor($newBody));
-            sodium_memzero($newBody);
-
-            return $result;
-        } finally {
-            sodium_memzero($secret);
-        }
+        return $this->injectBodyFieldCredential(
+            $request,
+            $this->secretIdentifier,
+            $this->bodyField ?? 'api_key',
+        );
     }
 
     /**
@@ -1662,5 +1693,71 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             null,
             HttpCallContext::fromRequest($method, $url, $statusCode),
         );
+    }
+
+    private function validateAdditionalBodyFields(): void
+    {
+        if (\count($this->additionalBodyFields) > 8) {
+            throw new InvalidArgumentException(
+                'At most eight additional body credentials are permitted.',
+                2780984125,
+            );
+        }
+
+        foreach ($this->additionalBodyFields as $field => $identifier) {
+            if (!\is_string($field) || preg_match('/\A[A-Za-z_][A-Za-z0-9_]{0,63}\z/D', $field) !== 1 || !\is_string($identifier) || $identifier === '' || \strlen($identifier) > 255 || preg_match('/[\x00-\x1F\x7F]/', $identifier) === 1) {
+                throw new InvalidArgumentException(
+                    'Additional body credentials require a simple field name and a Vault identifier.',
+                    4345651550,
+                );
+            }
+
+            if ($this->placement === SecretPlacement::BodyField && $field === ($this->bodyField ?? 'api_key')) {
+                throw new InvalidArgumentException(
+                    'Primary and additional body credential fields must be distinct.',
+                    7902701577,
+                );
+            }
+        }
+    }
+
+    private function injectAdditionalBodyFields(
+        RequestInterface $request,
+    ): RequestInterface {
+        foreach ($this->additionalBodyFields as $field => $identifier) {
+            $request = $this->injectBodyFieldCredential($request, $identifier, $field);
+        }
+
+        return $request;
+    }
+
+    private function injectBodyFieldCredential(
+        RequestInterface $request,
+        string $identifier,
+        string $fieldName,
+    ): RequestInterface {
+        $secret = $this->retrieveSecret($identifier);
+
+        try {
+            $contentType = $request->getHeaderLine('Content-Type');
+            $body = (string) $request->getBody();
+
+            if (str_contains($contentType, 'application/json')) {
+                $data = $this->decodeJsonObjectBody($body);
+                $data[$fieldName] = $secret;
+                $newBody = json_encode($data, JSON_THROW_ON_ERROR);
+            } else {
+                parse_str($body, $data);
+                $data[$fieldName] = $secret;
+                $newBody = http_build_query($data);
+            }
+
+            $result = $request->withBody(Utils::streamFor($newBody));
+            sodium_memzero($newBody);
+
+            return $result;
+        } finally {
+            sodium_memzero($secret);
+        }
     }
 }

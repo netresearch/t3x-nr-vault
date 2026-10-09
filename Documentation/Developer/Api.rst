@@ -635,6 +635,64 @@ Via VaultService
       :returns: PSR-7 response.
       :throws ClientExceptionInterface: If request fails.
 
+.. _api-http-additional-body-credentials:
+
+Additional body credentials
+---------------------------
+
+:php:`AdditionalSecretHttpClientInterface` is an optional calling capability
+extending :php:`VaultHttpClientInterface`.
+Feature-detect it before combining primary authentication with an independently
+stored body credential, for example client Basic authentication plus an RFC-8693
+subject token.
+An older implementation remains usable through the original interface; a caller
+requiring the extra credential must fail closed when the capability is absent.
+
+.. php:interface:: AdditionalSecretHttpClientInterface
+
+   .. php:method:: withAdditionalBodyField(string $secretIdentifier, string $bodyField): static
+
+      Return an immutable clone with an additional Vault identifier bound to a
+      body field.
+      Authentication, OAuth, reason and timeout clones preserve these bindings.
+
+      :param string $secretIdentifier: Nonempty Vault identifier of at most 255 bytes, without ASCII control characters.
+      :param string $bodyField: Simple ASCII field name matching ``[A-Za-z_][A-Za-z0-9_]{0,63}``.
+      :returns: A new client retaining the existing primary authentication.
+      :throws InvalidArgumentException: Malformed identifiers or names, duplicate fields, a collision with the primary BodyField, or more than eight bindings.
+
+.. code-block:: php
+   :caption: Client authentication and a separate subject token
+
+   use Netresearch\NrVault\Http\SecretPlacement;
+   use Netresearch\NrVault\Http\AdditionalSecretHttpClientInterface;
+   use Netresearch\NrVault\Http\VaultHttpClientInterface;
+
+   // $http is the injected VaultHttpClientInterface.
+   if (!$http instanceof AdditionalSecretHttpClientInterface) {
+       throw new \RuntimeException('Additional body credentials are required.');
+   }
+   $http = $http
+       ->withAuthentication('exchange-client', SecretPlacement::BasicAuth)
+       ->withAdditionalBodyField('actor-subject', 'subject_token')
+       ->withReason('Actor-bound token exchange');
+   // Send a PSR-7 request containing only the nonsecret exchange fields.
+
+Bindings are injected into form-encoded bodies or JSON objects after the primary
+authentication, inside the existing Vault boundary.
+An OAuth binding applies to the resource request, never the OAuth token leg.
+Existing nonsecret fields survive; a bound field's existing value is replaced.
+JSON scalars, arrays and malformed JSON fail before transport contact.
+A denied or missing additional secret also prevents transport contact.
+Already-cancelled sends retrieve neither primary nor additional credentials.
+
+Blocking, cancellable and streaming sends share this injection path and the
+secured transport's host, SSRF, DNS-pin and redirect checks.
+Each secret read retains the Vault access audit, and the request writes its
+existing HTTP outcome audit without body values.
+The API exposes neither a plaintext getter nor an underlying transport.
+See :ref:`adr-041-additional-body-credentials` for the decision.
+
 .. _api-http-cancellable:
 
 Cancelling an outbound request
