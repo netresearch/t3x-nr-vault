@@ -25,6 +25,7 @@ use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Http\OAuth\OAuthConfig;
 use Netresearch\NrVault\Http\OAuth\OAuthTokenManager;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Utility\IdentifierValidator;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
@@ -1405,7 +1406,10 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         ?CancellationSignalInterface $signal = null,
     ): RequestInterface {
         if ($this->oauthConfig instanceof OAuthConfig) {
-            return $this->injectAdditionalBodyFields($this->injectOAuth($request, $signal));
+            return $this->injectOAuth(
+                $this->injectAdditionalBodyFields($request),
+                $signal,
+            );
         }
 
         if ($this->secretIdentifier === null || !$this->placement instanceof SecretPlacement) {
@@ -1662,7 +1666,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         }
 
         foreach ($this->additionalBodyFields as $field => $identifier) {
-            if (!\is_string($field) || (\strlen($field) > 64 || preg_match('/\A[A-Za-z_]/D', $field) !== 1 || strspn($field, self::ADDITIONAL_BODY_FIELD_CHARACTERS) !== \strlen($field)) || !\is_string($identifier) || $identifier === '' || \strlen($identifier) > 255 || preg_match('/[\x00-\x1F\x7F]/', $identifier) === 1) {
+            if (!\is_string($field) || (\strlen($field) > 64 || preg_match('/\A[A-Za-z_]/D', $field) !== 1 || strspn($field, self::ADDITIONAL_BODY_FIELD_CHARACTERS) !== \strlen($field)) || !\is_string($identifier) || (!IdentifierValidator::isValid($identifier) || preg_match('/[\x00-\x1F\x7F]/', $identifier) === 1)) {
                 throw new InvalidArgumentException(
                     'Additional body credentials require a simple field name and a Vault identifier.',
                     4345651550,
@@ -1698,7 +1702,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             $contentType = $request->getHeaderLine('Content-Type');
             $body = (string) $request->getBody();
 
-            if (str_contains($contentType, 'application/json')) {
+            if (str_contains(strtolower($contentType), 'application/json')) {
                 $data = $this->decodeJsonObjectBody($body);
                 $data[$fieldName] = $secret;
                 $newBody = json_encode($data, JSON_THROW_ON_ERROR);
@@ -1708,7 +1712,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 $newBody = http_build_query($data);
             }
 
-            $result = $request->withBody(Utils::streamFor($newBody));
+            $result = $request
+                ->withBody(Utils::streamFor($newBody))
+                ->withoutHeader('Content-Length');
             sodium_memzero($newBody);
 
             return $result;

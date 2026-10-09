@@ -19,8 +19,10 @@ ADR-041. Required by actor-bound MCP RFC-8693 exchange in nr-llm.
 5. Reject duplicate field bindings, primary field collisions in either builder
    order, malformed field names, and more than eight bindings. Existing
    constructors retain positional compatibility via optional trailing metadata.
-   Field names match `[A-Za-z_][A-Za-z0-9_]{0,63}`; identifiers contain 1–255
-   bytes and no ASCII controls. Bound fields replace any existing body value;
+   Field names match `[A-Za-z_][A-Za-z0-9_]{0,63}`; identifiers follow Vault's
+   canonical validator: UUID v7 or 3–255 byte aliases beginning with a letter
+   and containing only letters, numbers and underscores; ASCII controls remain
+   forbidden. Bound fields replace any existing body value;
    OAuth resource bindings never enter the OAuth token leg.
 
 Evidence: unit `VaultHttpClientAdditionalBodyFieldTest` exercises actual outgoing

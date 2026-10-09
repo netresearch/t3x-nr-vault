@@ -154,14 +154,14 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             secureHttpClientFactory: new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
         );
         foreach ([
-            static fn (): VaultHttpClient => $client->withAdditionalBodyField('a', 'invalid[]'),
-            static fn (): VaultHttpClient => $client->withAdditionalBodyField('a', 'subject_token')->withAdditionalBodyField('b', 'subject_token'),
+            static fn (): VaultHttpClient => $client->withAdditionalBodyField('first', 'invalid[]'),
+            static fn (): VaultHttpClient => $client->withAdditionalBodyField('first', 'subject_token')->withAdditionalBodyField('second', 'subject_token'),
             static fn (): VaultHttpClient => $client
-                ->withAuthentication('a', SecretPlacement::BodyField, ['bodyField' => 'subject_token'])
-                ->withAdditionalBodyField('b', 'subject_token'),
+                ->withAuthentication('first', SecretPlacement::BodyField, ['bodyField' => 'subject_token'])
+                ->withAdditionalBodyField('second', 'subject_token'),
             static fn (): VaultHttpClient => $client
-                ->withAdditionalBodyField('b', 'subject_token')
-                ->withAuthentication('a', SecretPlacement::BodyField, ['bodyField' => 'subject_token']),
+                ->withAdditionalBodyField('second', 'subject_token')
+                ->withAuthentication('first', SecretPlacement::BodyField, ['bodyField' => 'subject_token']),
         ] as $builder) {
             try {
                 $builder();
@@ -173,7 +173,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
 
         $bounded = $client;
         for ($index = 0; $index < 8; ++$index) {
-            $bounded = $bounded->withAdditionalBodyField('id-' . $index, 'field_' . $index);
+            $bounded = $bounded->withAdditionalBodyField('id_' . $index, 'field_' . $index);
         }
 
         $this->expectException(InvalidArgumentException::class);
@@ -503,6 +503,187 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             } catch (VaultException $exception) {
                 self::assertStringNotContainsString('subject-value', $exception->getMessage());
             }
+        }
+    }
+
+    #[Test]
+    public function deniedAdditionalCredentialPreventsOAuthEndpointContact(): void
+    {
+        $vault = $this->createMock(VaultServiceInterface::class);
+        $vault
+            ->method('retrieve')
+            ->willReturnCallback(
+                static function (string $id): string {
+                    if ($id === 'denied_subject') {
+                        throw AccessDeniedException::forIdentifier($id);
+                    }
+
+                    return 'oauth-value';
+                },
+            );
+        $contacts = [];
+        $tokenClient = self::createStub(ClientInterface::class);
+        $tokenClient
+            ->method('sendRequest')
+            ->willReturnCallback(
+                static function (
+                    RequestInterface $request,
+                ) use (&$contacts): Response {
+                    $contacts[] = (string) $request->getUri();
+
+                    return new Response(
+                        200,
+                        [],
+                        '{"access_token":"token-value","expires_in":3600,"token_type":"Bearer"}',
+                    );
+                },
+            );
+        $resourceClient = $this->createMock(ClientInterface::class);
+        $resourceClient->expects(self::never())->method('sendRequest');
+        $factory = new SecureHttpClientFactory(new AlwaysPublicDnsResolver());
+        $client = (new VaultHttpClient(
+            $vault,
+            self::createStub(AuditLogServiceInterface::class),
+            $resourceClient,
+            oauthManager: new OAuthTokenManager($vault, $tokenClient, $factory),
+            secureHttpClientFactory: $factory,
+        ))
+            ->withAdditionalBodyField('denied_subject', 'subject_token')
+            ->withOAuth(
+                OAuthConfig::clientCredentials(
+                    self::TOKEN_ENDPOINT,
+                    'client_id',
+                    'client_secret',
+                ),
+            );
+
+        try {
+            $client->sendRequest(
+                new Request(
+                    'POST',
+                    'https://api.example.com/resource',
+                    ['Content-Type' => self::JSON_CONTENT_TYPE],
+                    self::PUBLIC_JSON_BODY,
+                ),
+            );
+            self::fail('A denied additional secret must reject the call.');
+        } catch (AccessDeniedException) {
+            self::assertSame(
+                [],
+                $contacts,
+                'No OAuth endpoint contact is allowed when a resource credential is denied.',
+            );
+        }
+    }
+
+    #[Test]
+    public function additionalBodyInjectionRefreshesExplicitContentLength(): void
+    {
+        $vault = self::createStub(VaultServiceInterface::class);
+        $vault->method('retrieve')->willReturn('subject-value');
+        $outgoing = null;
+        $wire = self::createStub(ClientInterface::class);
+        $wire
+            ->method('sendRequest')
+            ->willReturnCallback(
+                static function (
+                    RequestInterface $request,
+                ) use (&$outgoing): Response {
+                    $outgoing = $request;
+
+                    return new Response(204);
+                },
+            );
+        $client = (new VaultHttpClient(
+            $vault,
+            self::createStub(AuditLogServiceInterface::class),
+            $wire,
+            secureHttpClientFactory: new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
+        ))->withAdditionalBodyField('subject', 'subject_token');
+        $client->sendRequest(
+            new Request(
+                'POST',
+                self::TOKEN_ENDPOINT,
+                [
+                    'Content-Type' => self::JSON_CONTENT_TYPE,
+                    'Content-Length' => (string) \strlen(self::PUBLIC_JSON_BODY),
+                ],
+                self::PUBLIC_JSON_BODY,
+            ),
+        );
+        self::assertInstanceOf(RequestInterface::class, $outgoing);
+        self::assertTrue(
+            !$outgoing->hasHeader('Content-Length') || (int) $outgoing->getHeaderLine('Content-Length') === \strlen((string) $outgoing->getBody()),
+            'Injected request must not retain a stale Content-Length.',
+        );
+    }
+
+    #[Test]
+    public function additionalBodyInjectionAcceptsCaseInsensitiveJsonMediaType(): void
+    {
+        $vault = self::createStub(VaultServiceInterface::class);
+        $vault->method('retrieve')->willReturn('subject-value');
+        $body = '';
+        $wire = self::createStub(ClientInterface::class);
+        $wire
+            ->method('sendRequest')
+            ->willReturnCallback(
+                static function (
+                    RequestInterface $request,
+                ) use (&$body): Response {
+                    $body = (string) $request->getBody();
+
+                    return new Response(204);
+                },
+            );
+        $client = (new VaultHttpClient(
+            $vault,
+            self::createStub(AuditLogServiceInterface::class),
+            $wire,
+            secureHttpClientFactory: new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
+        ))->withAdditionalBodyField('subject', 'subject_token');
+        $client->sendRequest(
+            new Request(
+                'POST',
+                self::TOKEN_ENDPOINT,
+                ['Content-Type' => 'Application/JSON; charset=UTF-8'],
+                self::PUBLIC_JSON_BODY,
+            ),
+        );
+        self::assertSame(
+            ['public' => 'kept', 'subject_token' => 'subject-value'],
+            json_decode($body, true),
+            $body,
+        );
+    }
+
+    #[Test]
+    public function additionalIdentifiersUseTheCanonicalVaultGrammar(): void
+    {
+        $client = new VaultHttpClient(
+            self::createStub(VaultServiceInterface::class),
+            self::createStub(AuditLogServiceInterface::class),
+            self::createStub(ClientInterface::class),
+            secureHttpClientFactory: new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
+        );
+        foreach (['../secret', 'ab', 'with-dash', '9secret', 'one/two'] as $identifier) {
+            try {
+                $client->withAdditionalBodyField($identifier, 'subject_token');
+                self::fail('A malformed identifier was accepted.');
+            } catch (InvalidArgumentException $exception) {
+                self::assertSame(4345651550, $exception->getCode());
+            }
+        }
+
+        foreach ([
+            'subject_token',
+            str_repeat('a', 255),
+            '019c0000-0000-7000-8000-000000000001',
+        ] as $identifier) {
+            self::assertNotSame(
+                $client,
+                $client->withAdditionalBodyField($identifier, 'subject_token'),
+            );
         }
     }
 

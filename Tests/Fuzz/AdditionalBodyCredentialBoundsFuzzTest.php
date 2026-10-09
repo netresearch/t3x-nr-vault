@@ -27,7 +27,7 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
             $accepted = false;
 
             try {
-                $this->client()->withAdditionalBodyField('id', str_repeat('a', $length));
+                $this->client()->withAdditionalBodyField('identifier', str_repeat('a', $length));
                 $accepted = true;
             } catch (InvalidArgumentException $exception) {
                 self::assertTrue($length < 1 || $length > 64);
@@ -43,7 +43,7 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
             try {
                 $client = $this->client();
                 for ($i = 0; $i < $count; ++$i) {
-                    $client = $client->withAdditionalBodyField('id-' . $i, 'field_' . $i);
+                    $client = $client->withAdditionalBodyField('id_' . $i, 'field_' . $i);
                 }
 
                 $accepted = true;
@@ -66,24 +66,24 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
                 $this->client()->withAdditionalBodyField(str_repeat('a', $length), 'subject_token');
                 $accepted = true;
             } catch (InvalidArgumentException $exception) {
-                self::assertTrue($length < 1 || $length > 255);
+                self::assertTrue($length < 3 || $length > 255);
                 self::assertStringContainsString('identifier', $exception->getMessage());
             }
 
-            self::assertSame($length >= 1 && $length <= 255, $accepted);
+            self::assertSame($length >= 3 && $length <= 255, $accepted);
         }
 
         foreach (range(0, 255) as $byte) {
             $character = \chr($byte);
             if ($this->isAllowedFieldByte($byte)) {
                 $original = $this->client();
-                $configured = $original->withAdditionalBodyField('id', 'field' . $character);
+                $configured = $original->withAdditionalBodyField('identifier', 'field' . $character);
                 self::assertNotSame($original, $configured);
                 continue;
             }
 
             try {
-                $this->client()->withAdditionalBodyField('id', 'field' . $character);
+                $this->client()->withAdditionalBodyField('identifier', 'field' . $character);
                 self::fail('An unsafe field character was accepted.');
             } catch (InvalidArgumentException $exception) {
                 self::assertStringContainsString('field', $exception->getMessage());
@@ -92,7 +92,7 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
 
         foreach (array_merge(range(0, 31), [127]) as $byte) {
             try {
-                $this->client()->withAdditionalBodyField('id' . \chr($byte), 'field');
+                $this->client()->withAdditionalBodyField('identifier' . \chr($byte), 'field');
                 self::fail('An identifier control character was accepted.');
             } catch (InvalidArgumentException $exception) {
                 self::assertStringContainsString('identifier', $exception->getMessage());
@@ -109,7 +109,7 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
 
             try {
                 $original = $this->client();
-                $configured = $original->withAdditionalBodyField('id', \chr($byte) . 'field');
+                $configured = $original->withAdditionalBodyField('identifier', \chr($byte) . 'field');
                 self::assertNotSame($original, $configured);
                 $accepted = true;
             } catch (InvalidArgumentException $exception) {
