@@ -656,7 +656,7 @@ requiring the extra credential must fail closed when the capability is absent.
       body field.
       Authentication, OAuth, reason and timeout clones preserve these bindings.
 
-      :param string $secretIdentifier: Nonempty Vault identifier of at most 255 bytes, without ASCII control characters.
+      :param string $secretIdentifier: Canonical Vault UUID v7, or a 3–255 byte ASCII alias beginning with a letter and containing only letters, numbers and underscores. ASCII control characters are refused.
       :param string $bodyField: Simple ASCII field name matching ``[A-Za-z_][A-Za-z0-9_]{0,63}``.
       :returns: A new client retaining the existing primary authentication.
       :throws InvalidArgumentException: Malformed identifiers or names, duplicate fields, a collision with the primary BodyField, or more than eight bindings.
@@ -673,13 +673,15 @@ requiring the extra credential must fail closed when the capability is absent.
        throw new \RuntimeException('Additional body credentials are required.');
    }
    $http = $http
-       ->withAuthentication('exchange-client', SecretPlacement::BasicAuth)
-       ->withAdditionalBodyField('actor-subject', 'subject_token')
+       ->withAuthentication('exchange_client', SecretPlacement::BasicAuth)
+       ->withAdditionalBodyField('actor_subject', 'subject_token')
        ->withReason('Actor-bound token exchange');
    // Send a PSR-7 request containing only the nonsecret exchange fields.
 
-Bindings are injected into form-encoded bodies or JSON objects after the primary
-authentication, inside the existing Vault boundary.
+Bindings are injected into form-encoded bodies or JSON objects inside the
+existing Vault boundary.
+For OAuth, additional resource credentials are read before acquiring a token,
+so a denied read prevents even token-endpoint contact.
 An OAuth binding applies to the resource request, never the OAuth token leg.
 Existing nonsecret fields survive; a bound field's existing value is replaced.
 JSON scalars, arrays and malformed JSON fail before transport contact.
