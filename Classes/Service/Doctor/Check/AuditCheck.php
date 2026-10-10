@@ -271,11 +271,10 @@ final readonly class AuditCheck implements ReadinessCheckInterface
     }
 
     /**
-     * Will the trail still be there when someone comes to read it?
+     * Is the advisory retention policy long enough for a review cycle?
      *
-     * `0` means "keep forever", which is the safest setting for an audit trail
-     * and therefore a pass — the finding only fires for a retention window too
-     * short to cover a review cycle.
+     * No automatic purge is implemented. Zero declares unlimited retention;
+     * positive values are judged against the review-cycle policy floor.
      */
     private function checkRetention(): Finding
     {
@@ -285,7 +284,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         if ($days === 0) {
             return Finding::pass(
                 id: $id,
-                summary: 'Audit entries are retained indefinitely.',
+                summary: 'Configured audit retention policy: unlimited. No automatic purge is implemented.',
                 docsUrl: DocsLink::AUDIT_LOGGING,
                 details: ['retentionDays' => 0],
             );
@@ -295,7 +294,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
             return Finding::warning(
                 id: $id,
                 summary: \sprintf('Audit log retention is a negative value (%d days).', $days),
-                risk: 'The value is not a meaningful retention window; purge behaviour is undefined.',
+                risk: 'The value is not a meaningful retention policy. No automatic purge is implemented.',
                 remediation: \sprintf(
                     'Set "auditLogRetention" to 0 (keep forever) or to at least %d days.',
                     self::RETENTION_FLOOR_DAYS,
@@ -308,17 +307,17 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         if ($days < self::RETENTION_FLOOR_DAYS) {
             return Finding::warning(
                 id: $id,
-                summary: \sprintf('Audit entries are kept for %d days.', $days),
+                summary: \sprintf('Configured audit retention policy: %d days. No automatic purge is implemented.', $days),
                 risk: \sprintf(
-                    'Shorter than a %d-day review cycle, so a reviewer cannot see the previous '
+                    'If enforced externally, a policy below %d days loses the previous '
                     . "cycle's access. It also shortens the window in which a slow-burn credential "
                     . 'misuse is still reconstructable.',
                     self::RETENTION_FLOOR_DAYS,
                 ),
                 remediation: \sprintf(
                     'Raise "auditLogRetention" to at least %d, or to 0 to keep entries indefinitely. '
-                    . 'If a shorter window is a data-protection requirement, record that decision — the '
-                    . 'purge is legitimate but it does remove evidence.',
+                    . 'Record shorter policies explicitly. No automatic purge is implemented; external '
+                    . 'deletion requires a strategy that preserves audit-chain evidence.',
                     self::RETENTION_FLOOR_DAYS,
                 ),
                 docsUrl: DocsLink::AUDIT_LOGGING,
@@ -328,7 +327,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
         return Finding::pass(
             id: $id,
-            summary: \sprintf('Audit entries are kept for %d days.', $days),
+            summary: \sprintf('Configured audit retention policy: %d days. No automatic purge is implemented.', $days),
             docsUrl: DocsLink::AUDIT_LOGGING,
             details: ['retentionDays' => $days],
         );

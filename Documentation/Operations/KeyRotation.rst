@@ -169,11 +169,16 @@ behaves differently.
 What the real run does
 ======================
 
-Everything below happens inside **one database transaction**, and any failure
-rolls back secrets, audit events and the chain rewrite together.
+A ``master_key_rotate_start`` audit row is written under the pseudo
+identifier ``__master_key__`` **before** audit-chain verification and before
+the rotation transaction starts. It remains as evidence of the attempt if
+verification fails or the rotation later rolls back. A failure row is also
+written outside the rolled-back transaction.
 
-#.  A ``master_key_rotate_start`` audit row is written under the pseudo
-    identifier ``__master_key__``.
+After verification succeeds, the following changes happen inside **one
+database transaction**. A failure rolls back secret and foreign-envelope
+changes, the chain rewrite, and the success audit rows together.
+
 #.  Every secret's DEK is unwrapped with the old key and re-wrapped with the
     new one, with a fresh nonce. Values, value nonces and the
     version/algorithm markers are untouched.

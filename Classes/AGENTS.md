@@ -125,7 +125,7 @@ This directory contains the crypto + audit core. Review bar is high:
 
 ### Audit log invariants
 - `crdate` is bound into the entry hash and `log()` hardcodes `time()` — you cannot `log()` then `UPDATE crdate` without breaking `verifyHashChain()`. Backdated/historic rows require chain reconstruction in time order via the public static hashing API (`calculateHash()`/`calculateHashV2()`/`extractHashRow()`/`deriveHmacKey()`), mirroring `insertAndUpdateHash`; never delete rows (uid gaps are detected).
-- Audit retention (`getAuditLogRetention()`, default 365d) is configured but has **zero consumers** — nothing purges audit rows; `OrphanCleanupTask` touches only orphaned secrets. Audit-derived metrics are safe for windows ≤365d.
+- Audit retention (`getAuditLogRetention()`, default 365d) is an advisory policy consumed by the Doctor audit check. Nothing automatically purges audit rows; `OrphanCleanupTask` touches only orphaned secrets. The configured policy does not prove that rows exist for a requested metrics window.
 - `actor_type` separates manual reveals (`backend`) from automated (`cli`/`api`/`scheduler`); `AuditLogFilter` cannot filter on it — query the table directly.
 
 ### New backend submodule — completeness recipe
