@@ -10,19 +10,21 @@ Secure Outbound
 ===============
 
 .. note::
-   Secure Outbound is a planned feature for nr-vault. This documentation
-   describes the planned architecture and API. Implementation is in progress —
-   no class named on this page exists in ``Classes/`` yet.
+   The service registry, credential-set and ``SecureHttpClient`` APIs described
+   below are planned features for nr-vault. Their architecture and API examples
+   describe work in progress; those planned APIs have no implementation in
+   ``Classes/`` yet.
 
    **If you need a vault-aware HTTP client today, you already have one:**
    :php:`VaultHttpClientInterface` (:ref:`api-http-client`) injects secrets
    into outbound requests without exposing them to calling code.
 
-   Do not mistake the shipped :php:`Classes/Http/SecureHttpClientFactory` for
-   this feature. Despite the similar name it is an internal factory that
-   configures Guzzle from TYPO3's HTTP settings, used by
-   :php:`VaultHttpClient`, :php:`OAuthTokenManager` and
-   :php:`WebhookAuditSink`.
+   The shipped :php:`SecureHttpClientFactory` is a separate, supported public
+   factory for hardened transports without vault credentials
+   (:ref:`api-http-client`). It applies TYPO3 HTTP settings, address checks and
+   the curl DNS pin, and is also used by :php:`VaultHttpClient`,
+   :php:`OAuthTokenManager` and :php:`WebhookAuditSink`. It does not implement
+   the planned service registry or credential-set API described below.
 
 Secure Outbound extends nr-vault into a governed outbound integration platform
 for TYPO3. It provides centralized credential management, policy enforcement,

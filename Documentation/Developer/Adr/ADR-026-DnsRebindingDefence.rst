@@ -77,9 +77,10 @@ middleware runs per outgoing request:
     safe + one internal IP can't trick curl into picking the
     internal one.)
 5.  If all answers are safe, pin them via curl's ``CURLOPT_RESOLVE``
-    option (``host:port:ip`` for IPv4, ``host:port:[ipv6]`` for
-    IPv6 — colons in v6 require brackets in CURLOPT_RESOLVE's
-    field-delimiter format).
+    option. The current implementation combines every vetted address into one
+    ``host:port:addr1[,addr2,...]`` entry, with IPv6 addresses bracketed.
+    Multiple entries for the same host and port would replace one another in
+    curl's cache and lose address fallback; the combined entry retains it.
 6.  IP literals need no pin, but are range-checked here as well
     (``isDangerousIpLiteral()``, honouring an explicit
     ``allowed_hosts`` entry): the middleware sits below Guzzle's
@@ -95,15 +96,19 @@ middleware runs per outgoing request:
 curl then skips its own DNS step and connects to the IP we just
 validated. No second resolution, no rebinding window.
 
-ext-curl absence
-----------------
+Pinless transfers
+-----------------
 
 ``HandlerStack::create()`` falls back to ``StreamHandler`` when
 ext-curl is missing — StreamHandler **ignores** the ``curl`` option.
+Guzzle also selects that handler for a request with a truthy ``stream`` option,
+even when ext-curl is installed.
 The factory logs a warning when ``curl_init`` is unavailable so
 operators notice the gap. The pre-request validation
 (``buildResolveEntries()`` rejecting dangerous IPs) still fires on
-StreamHandler — only the race-free pinning is lost.
+StreamHandler, using a fresh lookup rather than the DNS memo. The later
+transport resolution cannot be pinned on these paths, so race-free pinning is
+lost.
 
 Consequences
 ============
@@ -124,10 +129,10 @@ Negative
 
 -  curl-specific. Stream handler users get the original (pre-pin)
    defence only.
--  Dual-stack hosts where the v4 and v6 records have different
-   trust levels (uncommon) get both pinned; curl's per-family
-   interface selection picks one — current behaviour is "pin both,
-   trust both".
+-  Every usable IPv4 and IPv6 answer must pass the same range policy. A
+   dangerous answer rejects the whole request unless the exact hostname is
+   explicitly allowlisted. Accepted dual-stack addresses share one pin entry
+   so curl retains its normal address fallback.
 
 Verified
 ========
