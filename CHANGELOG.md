@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A throwing secondary PSR-3 hook diagnostic writer no longer interrupts refusal or copy compensation. The existing single sanitized logging attempt and correlation message are retained; a reference does not confirm log delivery. Mandatory mutation-audit and storage failures keep their existing contracts. Real writer `RuntimeException`/`Error` oracles also exercise final-link clearing after a clone-deletion failure. See ADR-047.
+
 ### Added
 
 - **Combine primary HTTP authentication with separately stored body credentials.** The optional `AdditionalSecretHttpClientInterface::withAdditionalBodyField()` capability adds a Vault identifier to a simple form or JSON-object field inside the existing secured send boundary. Authentication, OAuth, reason and timeout clones preserve up to eight bindings; duplicate names, primary BodyField collisions and malformed bindings are refused. Blocking, cancellable and streaming sends share injection, cancellation and audit behavior. A denied additional read prevents transport contact, and existing `VaultHttpClientInterface` signatures remain unchanged. See ADR-041.

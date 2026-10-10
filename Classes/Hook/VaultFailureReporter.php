@@ -26,8 +26,9 @@ use TYPO3\CMS\Core\Localization\LanguageService;
  * may not touch it" and enumerate secrets outside their ACL (CWE-209).
  *
  * {@see report()} therefore returns one cause-independent sentence carrying a
- * random correlation reference, and writes the cause to the server-side log under
- * that same reference so an administrator can still diagnose the failure.
+ * random correlation reference, and attempts to log the cause server-side under
+ * that same reference. A failed writer must not interrupt caller recovery; the
+ * reference does not guarantee that the diagnostic reached a log.
  *
  * Everything variable goes into the PSR-3 *context* array, never into the message
  * argument: TYPO3's `FileWriter` writes the message verbatim
@@ -61,7 +62,7 @@ final readonly class VaultFailureReporter
     ) {}
 
     /**
-     * Log the cause server-side, return the cause-independent message for the user.
+     * Attempt a server diagnostic, then return the cause-independent user message.
      *
      * @param array<string, string|int|null> $context Where the failure happened (table, field,
      *                                                uid, identifier, operation). Never pass a
@@ -85,7 +86,12 @@ final readonly class VaultFailureReporter
         $logContext['exceptionClass'] = $error::class;
         $logContext['error'] = $this->sanitiseForLog($error->getMessage());
 
-        $this->logger->error(self::LOG_MESSAGE, $logContext);
+        try {
+            $this->logger->error(self::LOG_MESSAGE, $logContext);
+        } catch (Throwable) {
+            // Secondary diagnostics must not interrupt the caller's refusal/recovery.
+            // A correlation reference identifies the attempt, not successful delivery.
+        }
 
         return str_replace('%s', $reference, $this->getMessageTemplate());
     }
