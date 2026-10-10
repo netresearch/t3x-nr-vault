@@ -25,6 +25,8 @@ includes:
 
 parameters:
     level: 10
+    scanFiles:
+        - Documentation/Usage/_DeepLServiceVault.php
     paths:
         # Build-time tooling is listed file-by-file: Build/ holds shell scripts
         # and bootstrap files that were never in scope, so a blanket `Build/`
