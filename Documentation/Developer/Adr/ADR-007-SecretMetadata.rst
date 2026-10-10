@@ -115,11 +115,36 @@ We chose **metadata columns alongside encrypted value** because:
 Implementation
 ==============
 
-Secret entity structure
------------------------
+Current implementation
+----------------------
+
+Implementation clarification (2026-10-10): the storage decision remains
+accepted. The entity and SQL sketches below
+record the original design; they are not current declarations or a migration
+to copy. The current ``Secret`` is ``final readonly``: constructor properties
+and ``with*()`` methods replace the former mutable fields and setters.
+``ext_tables.sql`` and the TCA are the schema authorities. They include the
+algorithm marker and 32-character nonce columns; read and write group tiers
+use separate MM relations. The sketched ``allowed_groups`` column is not a
+comma-separated authorization list in the current database.
+
+The public service returns DTOs: ``list()`` returns ``list<SecretMetadata>``
+and ``getMetadata()`` returns ``SecretDetails``. Both check the current
+actor's read access and avoid decryption. Listing entries expose custom
+``metadata`` and availability, while the detailed DTO also exposes the
+read-group IDs, context and page tag. ``SecretDetails`` does not expose the
+write-group tier; it is not a complete editable access-policy document.
+
+``context`` and ``scopePid`` are stored tags that adapter filters can select;
+these tags alone do not enforce a separate permission boundary or page
+hierarchy. Owner, group tiers, actor policy and frontend availability govern
+access (ADR-005).
+
+Original entity sketch
+----------------------
 
 .. code-block:: php
-   :caption: Classes/Domain/Model/Secret.php
+   :caption: Original mutable entity sketch (2026-01-03)
 
    final class Secret
    {
@@ -166,11 +191,11 @@ Secret entity structure
        private array $metadata = [];
    }
 
-Database schema
----------------
+Original database sketch
+------------------------
 
 .. code-block:: sql
-   :caption: Metadata columns
+   :caption: Original metadata-column sketch (not the current migration)
 
    CREATE TABLE tx_nrvault_secret (
        -- Primary key
@@ -236,8 +261,8 @@ Metadata categories
 **Access Control:**
 
 -  ``owner_uid`` - Backend user who owns the secret
--  ``allowed_groups`` - Backend groups with access
--  ``context`` - Permission scoping context (e.g., "payment", "reporting")
+-  Read and write group relations - Separate access tiers (ADR-005)
+-  ``context`` - Application context tag (e.g., "payment", "reporting")
 -  ``frontend_accessible`` - Allow frontend access
 
 **Lifecycle:**
@@ -252,7 +277,7 @@ Metadata categories
 
 -  ``adapter`` - Storage backend (currently: local; planned: hashicorp, aws, azure)
 -  ``external_reference`` - Reference for external adapters (reserved for future use)
--  ``scope_pid`` - TYPO3 page for hierarchical scoping
+-  ``scope_pid`` - Stored TYPO3 page tag, available to adapter filters
 
 **Custom:**
 
@@ -261,70 +286,41 @@ Metadata categories
 Metadata-only access
 --------------------
 
+The public service performs an administrative lookup that includes disabled
+secrets, then checks read access. Missing secrets raise
+``SecretNotFoundException``. Denied access is audited before
+``AccessDeniedException`` is raised; an audit failure can propagate first.
+Metadata access neither decrypts the value nor
+increments its read count. Availability is reported as ``enabled``.
+
 .. code-block:: php
-   :caption: Classes/Service/VaultService.php
+   :caption: Using the injected VaultServiceInterface
 
-   public function getMetadata(string $identifier): array
-   {
-       $secret = $this->repository->findByIdentifier($identifier);
+   $details = $vault->getMetadata('api_key'); // SecretDetails, not an array
+   $description = $details->description;
+   $customMetadata = $details->metadata;
+   $serialized = $details->toArray();
 
-       // No decryption needed - metadata is plaintext
-       return [
-           'uid' => $secret->getUid(),
-           'identifier' => $secret->getIdentifier(),
-           'description' => $secret->getDescription(),
-           'owner' => $secret->getOwnerUid(),
-           'groups' => $secret->getAllowedGroups(),
-           'context' => $secret->getContext(),
-           'version' => $secret->getVersion(),
-           'createdAt' => $secret->getCrdate(),
-           'updatedAt' => $secret->getTstamp(),
-           'expiresAt' => $secret->getExpiresAt(),
-           'lastRotatedAt' => $secret->getLastRotatedAt(),
-           'metadata' => $secret->getMetadata(),
-           'scopePid' => $secret->getScopePid(),
-       ];
-   }
-
-   public function updateMetadata(string $identifier, array $metadata): void
-   {
-       // Update metadata without touching encrypted value
-       $secret = $this->repository->findByIdentifier($identifier);
-
-       if (isset($metadata['description'])) {
-           $secret->setDescription($metadata['description']);
-       }
-       if (isset($metadata['context'])) {
-           $secret->setContext($metadata['context']);
-       }
-       // ... other metadata fields
-
-       $this->repository->save($secret);
-   }
+There is no public ``VaultServiceInterface::updateMetadata()`` method.
+``store($identifier, $value, ['metadata' => ...])`` replaces the supplied
+custom metadata while writing the value and enforcing the existing
+write/operation gates. Omitting the ``metadata`` option preserves the
+existing custom metadata; an explicitly supplied empty array clears it.
+The adapter-level ``updateMetadata()`` instead merges only the custom JSON
+metadata; it does not update description or context and does not constitute
+the public service's ACL/audit boundary. Use of that lower-level extension
+point must supply the appropriate authorization and audit handling.
 
 Expiration handling
 -------------------
 
-.. code-block:: php
-   :caption: Expiration check without decryption
-
-   public function retrieve(string $identifier): ?string
-   {
-       $secret = $this->repository->findByIdentifier($identifier);
-
-       // Check expiration from metadata (no decryption)
-       if ($secret->isExpired()) {
-           throw new SecretExpiredException($identifier);
-       }
-
-       // Check access from metadata (no decryption)
-       if (!$this->accessControl->canRead($secret)) {
-           throw new AccessDeniedException();
-       }
-
-       // Only now decrypt
-       return $this->decrypt($secret);
-   }
+The plaintext read path checks per-secret access and any applicable
+interactive operation permission before checking expiry and decrypting.
+After access passes, an expired value is audited and raises
+``SecretExpiredException``; an audit failure can propagate first. A missing
+value returns ``null``. The metadata-only path is
+separate and can still describe an expired or disabled secret to an
+authorized actor.
 
 Custom metadata
 ---------------
@@ -342,11 +338,13 @@ Custom metadata
        ],
    ]);
 
-   // Query by custom metadata
-   $secrets = $vault->list();
-   $tcaSecrets = array_filter($secrets, fn($s) =>
-       ($s['metadata']['source'] ?? '') === 'tca_field'
-   );
+Filtering custom metadata is an application operation on the accessible
+listing DTOs, rather than a database JSON query. This executable example
+returns a filter callable; pass the injected vault service to it.
+
+.. literalinclude:: _SecretMetadataFilter.php
+   :language: php
+   :caption: Filter actual SecretMetadata objects without decryption
 
 Consequences
 ============

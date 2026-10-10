@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Correct ADR-007's current metadata API and DTO example; distinguish the
+  historical entity/schema sketches and adapter-only update from the public service.
+
 ### Added
 
 - **Combine primary HTTP authentication with separately stored body credentials.** The optional `AdditionalSecretHttpClientInterface::withAdditionalBodyField()` capability adds a Vault identifier to a simple form or JSON-object field inside the existing secured send boundary. Authentication, OAuth, reason and timeout clones preserve up to eight bindings; duplicate names, primary BodyField collisions and malformed bindings are refused. Blocking, cancellable and streaming sends share injection, cancellation and audit behavior. A denied additional read prevents transport contact, and existing `VaultHttpClientInterface` signatures remain unchanged. See ADR-041.

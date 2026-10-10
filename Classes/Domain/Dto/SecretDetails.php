@@ -17,7 +17,8 @@ use Netresearch\NrVault\Domain\Model\Secret;
 /**
  * Data Transfer Object for detailed secret metadata.
  *
- * Contains all secret metadata including access control settings.
+ * Reports the fields declared below, including read-group IDs. It does not
+ * expose the write-group tier or a complete editable access-policy document.
  * Used by VaultServiceInterface::getMetadata().
  */
 readonly class SecretDetails
@@ -28,7 +29,7 @@ readonly class SecretDetails
      * @param string $description Human-readable description
      * @param int $ownerUid Owner backend user UID
      * @param list<int> $groups Allowed backend user group UIDs
-     * @param string $context Permission context scope
+     * @param string $context Application context tag
      * @param bool $frontendAccessible Whether secret can be accessed in frontend
      * @param int $version Secret version number
      * @param int $createdAt Unix timestamp of creation
@@ -38,7 +39,7 @@ readonly class SecretDetails
      * @param int $readCount Number of times secret was read
      * @param int|null $lastReadAt Unix timestamp of last read
      * @param array<string, mixed> $metadata Custom metadata
-     * @param int $scopePid Page ID for multi-site scoping
+     * @param int $scopePid Stored page tag; does not itself enforce access
      * @param bool $enabled Whether the secret is available to consumers — a
      *                      disabled one exists and can be administered, but
      *                      resolves to nothing on every read path
