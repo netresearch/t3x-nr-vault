@@ -1030,17 +1030,18 @@ final class SecureHttpClientFactory
      *    - 224.0.0.0/4    — multicast
      *    - 240.0.0.0/4    — class E / reserved
      *
-     * Final deny list, in CIDR form:
+     * Denied IPv4 ranges, in CIDR form:
      *  - 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8,
      *    169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.168.0.0/16,
      *    198.18.0.0/15, 224.0.0.0/4, 240.0.0.0/4
-     *  - ::1/128, fc00::/7, fe80::/10, ff00::/8 (multicast),
-     *    ::ffff:0:0/96 (IPv4-mapped IPv6 — checked via mapping)
+     * IPv6 ranges and embedded IPv4 transition forms are checked by
+     * `isDangerousIpv6()`.
      *
-     * Caveat: this defence is bypassable by DNS rebinding when the upstream
-     * HTTP client (Guzzle/curl) re-resolves at connect-time. For full
-     * protection, callers must pin to the resolved IP via curl
-     * `CURLOPT_RESOLVE`; that is a follow-up.
+     * This helper classifies an address; it does not bind a connection.
+     * The factory's `ssrf-dns-pin` middleware validates addresses on every hop
+     * and sets `CURLOPT_RESOLVE` for a pin-capable curl transfer (ADR-026).
+     * Pinless transfers use a fresh lookup, but the transport's later
+     * resolution remains outside this helper's control.
      */
     private function isDangerousIpLiteral(string $host): bool
     {
