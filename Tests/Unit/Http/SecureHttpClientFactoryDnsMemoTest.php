@@ -230,17 +230,48 @@ final class SecureHttpClientFactoryDnsMemoTest extends TestCase
     #[Test]
     public function aFailedResolutionIsNotMemoised(): void
     {
-        // Sequence: first NXDOMAIN, then a safe answer. An empty answer
-        // rejects the host, and memoising it would hold that rejection for the
-        // whole TTL — one lost DNS packet would then refuse every request to
-        // the host for a minute, long after the name resolves again. The
-        // second check must therefore see the fresh answer and pass.
+        // Sequence: first NXDOMAIN, then a safe answer. Memoising the empty
+        // answer would keep refusing requests for the five-second TTL after
+        // DNS recovers. The next check must therefore perform a fresh lookup.
         $this->dnsResolver->answer(self::HOST, [], [['ip' => self::PUBLIC_IP]]);
-
-        self::assertFalse($this->subject->isHostAllowed(self::HOST), 'An unresolvable host is refused: no address was checked.');
-        self::assertTrue($this->subject->isHostAllowed(self::HOST), 'The second check must see the fresh answer, not a memoised failure.');
-
+        self::assertFalse(
+            $this->subject->isHostAllowed(self::HOST),
+            'An unresolvable host is refused: no address was checked.',
+        );
+        self::assertTrue(
+            $this->subject->isHostAllowed(self::HOST),
+            'The second check must see the fresh answer, not a memoised failure.',
+        );
         self::assertSame(2, $this->dnsResolver->queryCount(self::HOST));
+    }
+
+    #[Test]
+    public function realMemoDeadlineIsFiveSecondsAfterTheFreshLookup(): void
+    {
+        $this->dnsResolver->answer(self::HOST, [['ip' => self::PUBLIC_IP]]);
+        $before = microtime(true);
+        $allowed = $this->subject->isHostAllowed(self::HOST);
+        $after = microtime(true);
+        self::assertTrue($allowed);
+        $property = (new ReflectionClass(SecureHttpClientFactory::class))->getProperty(
+            'dnsMemo',
+        );
+        /** @var array<string, array{expiresAt: float, records: list<array{ip?: string, ipv6?: string}>}> $memo */
+        $memo = $property->getValue($this->subject);
+        self::assertArrayHasKey(self::HOST, $memo);
+        self::assertGreaterThanOrEqual(
+            $before + 5.0,
+            $memo[self::HOST]['expiresAt'],
+        );
+        self::assertLessThanOrEqual(
+            $after + 5.0,
+            $memo[self::HOST]['expiresAt'],
+        );
+        self::assertSame(
+            [['ip' => self::PUBLIC_IP]],
+            $memo[self::HOST]['records'],
+        );
+        self::assertSame(1, $this->dnsResolver->queryCount(self::HOST));
     }
 
     /**

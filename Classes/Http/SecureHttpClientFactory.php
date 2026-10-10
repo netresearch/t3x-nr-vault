@@ -1278,10 +1278,10 @@ final class SecureHttpClientFactory
      * One real resolver lookup, memoised for `memoisedResolve()`.
      *
      * A failed resolution (the empty list) is never memoised. An empty answer
-     * now REJECTS the request, so freezing a transient DNS failure for the TTL
-     * would turn one lost packet into a minute of refused requests — and it
-     * would blind the middleware's re-resolve where a fresh attempt might have
-     * succeeded. Only answers that carry records are worth remembering.
+     * now rejects the request, so freezing a transient DNS failure for the
+     * five-second TTL would keep refusing requests after resolution recovers.
+     * It would also blind the middleware re-resolve where a fresh attempt
+     * might succeed. Only answers that carry records are worth remembering.
      *
      * @return list<array{ip?: string, ipv6?: string}>
      */
