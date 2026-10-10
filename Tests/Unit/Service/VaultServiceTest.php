@@ -1669,7 +1669,7 @@ final class VaultServiceTest extends TestCase
         $this->adapter
             ->expects(self::atLeastOnce())
             ->method('listSecrets')
-            ->with(self::callback(static fn ($filters): bool => $filters instanceof SecretFilters && $filters->prefix === 'api-*'))
+            ->with(self::callback(static fn ($filters): bool => $filters instanceof SecretFilters && ($filters->pattern === 'api-*' && $filters->prefix === null)))
             ->willReturn([$secret]);
 
         $this->accessControlService

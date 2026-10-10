@@ -163,15 +163,22 @@ interface VaultServiceInterface
     /**
      * List all accessible secrets with metadata.
      *
-     * @param string|null $pattern Optional pattern to filter identifiers (supports * wildcard)
+     * The pattern matches the whole identifier. Only * is a wildcard (zero or
+     * more characters, at any position); without it the match is exact. SQL %
+     * and _ are literal. null omits filtering and an empty string matches none.
+     * The service compares returned identifiers with ASCII case folding; the
+     * backend's own case rules may already have selected fewer candidates.
+     * The pattern is enforced even when an older adapter ignores its DTO field.
+     *
+     * @param string|null $pattern Optional complete identifier pattern
      * @param bool $includeDisabled Also return secrets that are currently
      *                              disabled. Off by default, so a consumer
      *                              asking "which secrets are available" keeps
      *                              the answer it had; the management surfaces
-     *                              pass `true`, because a disabled secret that
+     *                              pass true, because a disabled secret that
      *                              never appears in a listing cannot be
      *                              re-enabled. Each entry reports its state in
-     *                              `SecretMetadata::$enabled`.
+     *                              SecretMetadata::$enabled.
      *
      * @return list<SecretMetadata>
      */

@@ -206,4 +206,34 @@ final class SecretFiltersTest extends TestCase
         self::assertFalse(SecretFilters::fromArray([])->includeDisabled);
         self::assertArrayNotHasKey('includeDisabled', (new SecretFilters())->toArray());
     }
+
+    #[Test]
+    public function patternRoundTripsWithoutChangingTheLiteralPrefix(): void
+    {
+        $filters = SecretFilters::fromArray(['prefix' => 'app_', 'pattern' => '*key']);
+        self::assertSame('app_', $filters->prefix);
+        self::assertSame('*key', $filters->pattern);
+        self::assertSame(
+            ['pattern' => '*key', 'prefix' => 'app_'],
+            $filters->toArray(),
+        );
+        self::assertTrue($filters->hasFilters());
+    }
+
+    #[Test]
+    public function emptyPatternRemainsANarrowingFilterDuringArrayTransport(): void
+    {
+        $filters = SecretFilters::fromArray(['pattern' => '']);
+        self::assertSame('', $filters->pattern);
+        self::assertSame(['pattern' => ''], $filters->toArray());
+        self::assertTrue($filters->hasFilters());
+    }
+
+    #[Test]
+    public function patternDefaultsToNullInBothConstructionPaths(): void
+    {
+        self::assertNull((new SecretFilters())->pattern);
+        self::assertNull(SecretFilters::fromArray([])->pattern);
+        self::assertTrue((new SecretFilters(pattern: '*'))->hasFilters());
+    }
 }
