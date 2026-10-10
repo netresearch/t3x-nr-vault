@@ -63,3 +63,11 @@ Related decisions
 
 - :ref:`adr-018-flexform-secret-lifecycle`
 - :ref:`adr-036-mutation-audit-atomicity`
+
+Current audit follow-up
+=======================
+
+ADR047 separately contains a failed PSR-3 diagnostic write so that existing
+compensation can continue.
+It does not establish successful log delivery or contain every diagnostic
+collaborator, and it does not close the other residual boundaries above.
