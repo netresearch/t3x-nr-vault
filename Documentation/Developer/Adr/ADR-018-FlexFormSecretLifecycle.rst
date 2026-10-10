@@ -58,6 +58,17 @@ record lifecycle operations:
    source record's secrets. If the blanking itself fails, the editor is told
    the new record may still reference them.
 
+Current implementation status
+-----------------------------
+
+:ref:`adr-046-flexform-copy-link-compensation` extends the failure boundary to
+the final serialization and link write of one FlexForm column. Clearing and
+clone cleanup are best-effort; a failed clearing write leaves uncertain
+references and requires manual review. Whole-record compensation across
+multiple FlexForm columns, plain/FlexForm coordination and diagnostic-provider
+failures remain audit work. The decision above is the intended lifecycle
+contract, not proof that those broader boundaries are already implemented.
+
 This ensures vault secrets follow the same lifecycle as the records that
 own them.
 
