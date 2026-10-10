@@ -15,26 +15,31 @@ use Netresearch\NrVault\Audit\AuditIntegrityReason;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\Sink\Rfc5424Formatter;
 use Netresearch\NrVault\Audit\Sink\SyslogAuditSink;
+use Netresearch\NrVault\Audit\Sink\SyslogCallRecorder;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
- * `syslog()` writes to a process-global handle whose output a unit test cannot
- * read back, so the message CONTENT is asserted where it is pure and
- * observable — {@see Rfc5424FormatterTest} — and this class covers what remains
- * observable about the sink itself: enablement, the identifier, and that each
- * publish path runs the real `openlog()`/`syslog()`/`closelog()` sequence to
- * completion without throwing.
- *
- * The publish tests do write to the host's syslog. That is intentional: it is the
- * only way to exercise the real emit path, and one `LOG_LOCAL0` line per test is
- * harmless.
+ * Isolated call capture verifies PHP API calls, priorities and process-global
+ * cleanup. It does not establish operating-system or collector delivery.
+ * Message serialization is independently covered by Rfc5424FormatterTest.
  */
 #[CoversClass(SyslogAuditSink::class)]
+#[RunTestsInSeparateProcesses]
+#[PreserveGlobalState(false)]
 final class SyslogAuditSinkTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        require_once __DIR__ . '/../../Fixtures/SyslogCallRecorder.php';
+        SyslogCallRecorder::$calls = [];
+    }
+
     #[Test]
     public function identifierIsStable(): void
     {
@@ -54,66 +59,140 @@ final class SyslogAuditSinkTest extends TestCase
     }
 
     #[Test]
-    public function publishCompletesTheEmitSequence(): void
+    public function publishUsesInfoAndClosesItsHandle(): void
     {
-        $this->createSubject()->publish($this->createEntry(), 'tip-abc');
-
-        $this->expectNotToPerformAssertions();
-    }
-
-    #[Test]
-    public function publishAnchorCompletesTheEmitSequence(): void
-    {
-        $this->createSubject()->publishAnchor(new ChainTipAnchor(9, 'tip', 1_750_000_000, 3));
-
-        $this->expectNotToPerformAssertions();
-    }
-
-    #[Test]
-    public function publishAlertCompletesTheEmitSequence(): void
-    {
-        $this->createSubject()->publishAlert(
-            AuditIntegrityAlert::create(AuditIntegrityReason::TableReset, 'chain shrank'),
+        $entry = $this->createEntry();
+        $this->createSubject()->publish($entry, 'tip-abc');
+        $this->assertEmit(
+            LOG_INFO,
+            (new Rfc5424Formatter())->formatEntry($entry, 'tip-abc'),
         );
-
-        $this->expectNotToPerformAssertions();
     }
 
-    /**
-     * `openlog()` mutates process-global state, so the ident must be taken from
-     * the configuration layer (which substitutes the default for a blank value)
-     * on every emit rather than captured once.
-     */
+    #[Test]
+    public function failedEntriesUseWarning(): void
+    {
+        $entry = $this->createEntry(false);
+        $this->createSubject()->publish($entry, 'tip-abc');
+        $this->assertEmit(
+            LOG_WARNING,
+            (new Rfc5424Formatter())->formatEntry($entry, 'tip-abc'),
+        );
+    }
+
+    #[Test]
+    public function anchorsUseNoticeAndCloseTheirHandle(): void
+    {
+        $anchor = new ChainTipAnchor(9, 'tip', 1750000000, 3);
+        $this->createSubject()->publishAnchor($anchor);
+        $this->assertEmit(
+            LOG_NOTICE,
+            (new Rfc5424Formatter())->formatAnchor($anchor),
+        );
+    }
+
+    #[Test]
+    public function tamperAlertsUseCritical(): void
+    {
+        $alert = AuditIntegrityAlert::create(
+            AuditIntegrityReason::TableReset,
+            'chain shrank',
+        );
+        $this->createSubject()->publishAlert($alert);
+        $this->assertEmit(
+            LOG_CRIT,
+            (new Rfc5424Formatter())->formatAlert($alert),
+        );
+    }
+
+    #[Test]
+    public function deliveryAlertsUseError(): void
+    {
+        $alert = AuditIntegrityAlert::create(
+            AuditIntegrityReason::SinkFailure,
+            'collector unavailable',
+        );
+        $this->createSubject()->publishAlert($alert);
+        $this->assertEmit(
+            LOG_ERR,
+            (new Rfc5424Formatter())->formatAlert($alert),
+        );
+    }
+
     #[Test]
     public function identIsReadFromConfigurationOnEveryEmit(): void
     {
         $configuration = $this->createMock(ExtensionConfigurationInterface::class);
-        $configuration->method('isAuditSinkSyslogEnabled')->willReturn(true);
-        $configuration->expects(self::exactly(2))
+        $configuration
+            ->expects(self::exactly(2))
             ->method('getAuditSinkSyslogIdent')
-            ->willReturn('nr-vault');
-
+            ->willReturnOnConsecutiveCalls('first-instance', 'second-instance');
         $sink = new SyslogAuditSink($configuration, new Rfc5424Formatter());
-        $sink->publish($this->createEntry(), 'tip');
-        $sink->publishAnchor(new ChainTipAnchor(1, 'tip', 1, 3));
+        $entry = $this->createEntry();
+        $anchor = new ChainTipAnchor(1, 'tip', 1, 3);
+        $sink->publish($entry, 'tip');
+        $sink->publishAnchor($anchor);
+        self::assertSame(
+            [
+                [
+                    'openlog',
+                    ['first-instance', LOG_PID | LOG_ODELAY, LOG_LOCAL0],
+                ],
+                [
+                    'syslog',
+                    [
+                        LOG_INFO,
+                        (new Rfc5424Formatter())->formatEntry($entry, 'tip'),
+                    ],
+                ],
+                ['closelog', []],
+                [
+                    'openlog',
+                    ['second-instance', LOG_PID | LOG_ODELAY, LOG_LOCAL0],
+                ],
+                [
+                    'syslog',
+                    [
+                        LOG_NOTICE,
+                        (new Rfc5424Formatter())->formatAnchor($anchor),
+                    ],
+                ],
+                ['closelog', []],
+            ],
+            SyslogCallRecorder::$calls,
+        );
+    }
+
+    private function assertEmit(int $priority, string $message): void
+    {
+        self::assertSame(
+            [
+                ['openlog', ['nr-vault-test', LOG_PID | LOG_ODELAY, LOG_LOCAL0]],
+                ['syslog', [$priority, $message]],
+                ['closelog', []],
+            ],
+            SyslogCallRecorder::$calls,
+        );
     }
 
     private function createSubject(bool $enabled = true): SyslogAuditSink
     {
         $configuration = self::createStub(ExtensionConfigurationInterface::class);
         $configuration->method('isAuditSinkSyslogEnabled')->willReturn($enabled);
-        $configuration->method('getAuditSinkSyslogIdent')->willReturn('nr-vault-test');
+        $configuration
+            ->method('getAuditSinkSyslogIdent')
+            ->willReturn('nr-vault-test');
 
         return new SyslogAuditSink($configuration, new Rfc5424Formatter());
     }
 
-    private function createEntry(): AuditLogEntry
+    private function createEntry(bool $success = true): AuditLogEntry
     {
         return new AuditLogEntry(
             uid: 1,
             secretIdentifier: 'api/stripe',
             action: 'read',
-            success: true,
+            success: $success,
             errorMessage: null,
             reason: null,
             actorUid: 7,
@@ -127,7 +206,7 @@ final class SyslogAuditSinkTest extends TestCase
             entryHash: 'hash-1',
             hashBefore: '',
             hashAfter: '',
-            crdate: 1_750_000_000,
+            crdate: 1750000000,
             context: [],
         );
     }
