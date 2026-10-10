@@ -58,24 +58,24 @@ interface AuditSinkRegistryInterface
     public function hasExternalAuditSink(): bool;
 
     /**
-     * Identifiers of the currently enabled sinks, for status output.
+     * Known identifiers of currently enabled sinks, for status output.
+     * Failed identities and an unvisited iterator suffix are omitted.
      *
      * @return list<string>
      */
     public function getEnabledSinkIdentifiers(): array;
 
     /**
-     * Number of sink delivery failures observed in this process.
-     *
-     * Read by the health/status surface. Per-process rather than persisted: a
-     * sink failure is an availability signal for the current runtime, and
-     * persisting it would mean writing to the very storage a sink failure may
-     * indicate is broken.
+     * External evidence failures observed in this process, including identity
+     * and collection failures whose destination cannot be attributed.
+     * Read by the health/status surface. This request-scoped signal is separate
+     * from persisted per-destination delivery bookkeeping.
      */
     public function getFailureCount(): int;
 
     /**
-     * Per-sink failure counts, keyed by sink identifier.
+     * Failures with a known destination, keyed by sink identifier.
+     * Unattributed identity/collection failures only contribute to the total.
      *
      * @return array<string, int>
      */
