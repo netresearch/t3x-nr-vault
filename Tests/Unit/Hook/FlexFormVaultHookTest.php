@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Unit\Hook;
 
 use Doctrine\DBAL\Result;
 use InvalidArgumentException;
+use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Hook\VaultFailureReporter;
@@ -1277,6 +1278,9 @@ final class FlexFormVaultHookTest extends TestCase
     #[Test]
     public function parseFlexFormRejectsXxePayload(): void
     {
+        $this->vaultService
+            ->method('getMetadata')
+            ->willThrowException(SecretNotFoundException::forIdentifier(self::VAULT_UUID));
         // The FlexFormVaultHook.extractVaultIdentifiersFromXml() uses preg_match_all
         // on raw XML strings — it never calls simplexml_load_string(), DOMDocument,
         // or any XML parser. This means libxml entity expansion cannot occur here.
@@ -1333,6 +1337,9 @@ final class FlexFormVaultHookTest extends TestCase
     #[Test]
     public function parseFlexFormRejectsBillionLaughs(): void
     {
+        $this->vaultService
+            ->method('getMetadata')
+            ->willThrowException(SecretNotFoundException::forIdentifier(self::VAULT_UUID));
         // Billion-laughs (XML bomb) via nested entity expansion.
         // Same rationale as parseFlexFormRejectsXxePayload: the hook uses preg_match_all,
         // not an XML parser, so entity expansion cannot happen.
@@ -1942,6 +1949,9 @@ final class FlexFormVaultHookTest extends TestCase
     #[Test]
     public function deleteActionSkipsNonExistentVaultIdentifiers(): void
     {
+        $this->vaultService
+            ->method('getMetadata')
+            ->willThrowException(SecretNotFoundException::forIdentifier(self::VAULT_UUID));
         $this->mockFlexFieldSchema('tx_test', ['pi_flexform']);
 
         $GLOBALS['TCA']['tx_test']['ctrl'] = [];

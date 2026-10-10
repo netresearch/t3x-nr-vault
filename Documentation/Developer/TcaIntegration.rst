@@ -447,6 +447,12 @@ no longer exists does not block the delete.
 The FlexForm hook gathers unique, existing, non-shared references across its
 columns and preflights them all before deleting the first secret. Duplicate
 references are deleted once and references in another live record survive.
+Consumer availability is distinct from storage presence: disabled secrets
+still participate in this cascade. The hook completes sharing exclusions
+first, then uses authorized administrative metadata when the availability
+lookup returns false. Only a missing-secret exception excludes an absent or
+already-deleted reference; lookup failures cancel record deletion before any
+secret preflight or deletion. Metadata lookup does not decrypt a secret value.
 Plain TCA and FlexForm hooks preflight their own references separately; a
 record mixing both kinds still lacks a shared preflight coordinator.
 

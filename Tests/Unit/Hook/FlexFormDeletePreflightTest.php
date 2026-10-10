@@ -10,6 +10,10 @@ namespace Netresearch\NrVault\Tests\Unit\Hook;
 
 use Doctrine\DBAL\Result;
 use Error;
+use Netresearch\NrVault\Domain\Dto\SecretDetails;
+use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Exception\AccessDeniedException;
+use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Hook\VaultFailureReporter;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -400,6 +404,9 @@ final class FlexFormDeletePreflightTest extends TestCase
     #[Test]
     public function noExistingReferencesLeavesCoreFreeToRemoveTheRecord(): void
     {
+        $this->vault
+            ->method('getMetadata')
+            ->willThrowException(SecretNotFoundException::forIdentifier(self::FIRST));
         $this->vault->method('exists')->willReturn(false);
         $this->vault->expects(self::never())->method('assertDeletable');
         $this->vault->expects(self::never())->method('delete');
@@ -478,6 +485,174 @@ final class FlexFormDeletePreflightTest extends TestCase
     {
         yield 'shared before unshared' => [true];
         yield 'unshared before shared' => [false];
+    }
+
+    #[Test]
+    public function storagePresenceCompletesBeforeAnyPreflightOrDeletion(): void
+    {
+        $calls = [];
+        $this->vault
+            ->method('exists')
+            ->willReturnCallback(
+                static function (string $id) use (&$calls): bool {
+                    $calls[] = ['availability', $id];
+
+                    return $id === self::FIRST;
+                },
+            );
+        $this->vault
+            ->method('getMetadata')
+            ->willReturnCallback(
+                static function (string $id) use (&$calls): SecretDetails {
+                    $calls[] = ['metadata', $id];
+
+                    return SecretDetails::fromSecret(
+                        new Secret(identifier: $id, hidden: true),
+                    );
+                },
+            );
+        $this->vault
+            ->method('assertDeletable')
+            ->willReturnCallback(
+                static function (string $id) use (&$calls): void {
+                    $calls[] = ['preflight', $id];
+                },
+            );
+        $this->vault
+            ->method('delete')
+            ->willReturnCallback(
+                static function (string $id) use (&$calls): void {
+                    $calls[] = ['delete', $id];
+                },
+            );
+        $cancelled = false;
+        $caught = $this->runDelete(
+            ['flex_a' => self::FIRST, 'flex_b' => self::SECOND],
+            $cancelled,
+        );
+        self::assertNull($caught);
+        self::assertFalse($cancelled);
+        self::assertSame(
+            [
+                ['availability', self::FIRST],
+                ['availability', self::SECOND],
+                ['metadata', self::SECOND],
+                ['preflight', self::FIRST],
+                ['preflight', self::SECOND],
+                ['delete', self::FIRST],
+                ['delete', self::SECOND],
+            ],
+            $calls,
+        );
+    }
+
+    /**
+     * @param class-string<Throwable> $throwableClass
+     */
+    #[Test]
+    #[DataProvider('administrativeFailures')]
+    public function administrativePresenceFailureCancelsBeforeEveryPreflightAndDelete(
+        string $throwableClass,
+    ): void {
+        $failure = new $throwableClass('synthetic administrative lookup failure');
+        $this->vault
+            ->method('exists')
+            ->willReturnCallback(static fn (string $id): bool => $id === self::FIRST);
+        $this->vault->method('getMetadata')->willThrowException($failure);
+        $preflights = [];
+        $deletes = [];
+        $this->vault
+            ->method('assertDeletable')
+            ->willReturnCallback(
+                static function (string $id) use (&$preflights): void {
+                    $preflights[] = $id;
+                },
+            );
+        $this->vault
+            ->method('delete')
+            ->willReturnCallback(
+                static function (string $id) use (&$deletes): void {
+                    $deletes[] = $id;
+                },
+            );
+        $cancelled = false;
+        $caught = $this->runDelete(
+            ['flex_a' => self::FIRST, 'flex_b' => self::SECOND],
+            $cancelled,
+        );
+        self::assertNull($caught);
+        self::assertTrue($cancelled);
+        self::assertSame([], $preflights);
+        self::assertSame([], $deletes);
+    }
+
+    /**
+     * @return iterable<string, array{class-string<Throwable>}>
+     */
+    public static function administrativeFailures(): iterable
+    {
+        yield 'permission denial' => [AccessDeniedException::class];
+        yield 'storage exception' => [RuntimeException::class];
+        yield 'storage error' => [Error::class];
+    }
+
+    #[Test]
+    public function activeReferenceKeepsTheAvailabilityFastPath(): void
+    {
+        $this->vault->method('exists')->willReturn(true);
+        $this->vault->expects(self::never())->method('getMetadata');
+        $deletes = [];
+        $this->vault
+            ->method('delete')
+            ->willReturnCallback(
+                static function (string $id) use (&$deletes): void {
+                    $deletes[] = $id;
+                },
+            );
+        $cancelled = false;
+        self::assertNull(
+            $this->runDelete(['flex_a' => self::FIRST], $cancelled),
+        );
+        self::assertFalse($cancelled);
+        self::assertSame([self::FIRST], $deletes);
+    }
+
+    #[Test]
+    public function onlyMissingMetadataExcludesAnUnsharedReference(): void
+    {
+        $this->vault
+            ->method('exists')
+            ->willReturnCallback(static fn (string $id): bool => $id === self::SECOND);
+        $this->vault
+            ->method('getMetadata')
+            ->willThrowException(SecretNotFoundException::forIdentifier(self::FIRST));
+        $calls = [];
+        $this->vault
+            ->method('assertDeletable')
+            ->willReturnCallback(
+                static function (string $id) use (&$calls): void {
+                    $calls[] = ['preflight', $id];
+                },
+            );
+        $this->vault
+            ->method('delete')
+            ->willReturnCallback(
+                static function (string $id) use (&$calls): void {
+                    $calls[] = ['delete', $id];
+                },
+            );
+        $cancelled = false;
+        self::assertNull(
+            $this->runDelete(
+                ['flex_a' => self::FIRST, 'flex_b' => self::SECOND],
+                $cancelled,
+            ),
+        );
+        self::assertFalse($cancelled);
+        self::assertSame(
+            [['preflight', self::SECOND], ['delete', self::SECOND]],
+            $calls,
+        );
     }
 
     /**
