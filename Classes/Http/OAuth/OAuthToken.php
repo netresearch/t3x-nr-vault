@@ -13,6 +13,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Http\OAuth;
 
 use DateTimeImmutable;
+use Error;
+use ValueError;
 
 /**
  * Represents an OAuth 2.0 access token.
@@ -27,16 +29,13 @@ final readonly class OAuthToken
     ) {}
 
     /**
-     * Check if the token is expired.
+     * Check expiry at the current instant, preserving the signed buffer in seconds.
      *
-     * @param int $buffer Seconds before actual expiry to consider expired
+     * @param int $buffer Positive seconds advance expiry; negative seconds give grace
      */
     public function isExpired(int $buffer = 0): bool
     {
-        $now = new DateTimeImmutable();
-        $expiryWithBuffer = $this->expiresAt->modify("-{$buffer} seconds");
-
-        return $now >= $expiryWithBuffer;
+        return $this->isExpiredAt(new DateTimeImmutable(), $buffer);
     }
 
     /**
@@ -56,5 +55,40 @@ final readonly class OAuthToken
         $diff = $this->expiresAt->getTimestamp() - $now->getTimestamp();
 
         return max(0, $diff);
+    }
+
+    private function isExpiredAt(DateTimeImmutable $now, int $buffer): bool
+    {
+        if ($buffer === 0) {
+            return $now >= $this->expiresAt;
+        }
+
+        try {
+            $expirySeconds = $this->expiresAt->getTimestamp();
+            $nowSeconds = $now->getTimestamp();
+        } catch (Error $failure) {
+            if (!$failure instanceof ValueError && !is_a($failure, 'DateRangeError')) {
+                throw $failure;
+            }
+
+            // Preserve native conversion-range behavior without requiring PHP 8.3 symbols.
+            return $now >= $this->expiresAt->modify("-{$buffer} seconds");
+        }
+
+        // Guard subtraction before PHP can promote an overflowing integer to float.
+        if ($buffer > 0 && $expirySeconds < PHP_INT_MIN + $buffer) {
+            return true;
+        }
+
+        if ($buffer < 0 && $expirySeconds > PHP_INT_MAX + $buffer) {
+            return false;
+        }
+
+        $adjustedExpiry = $expirySeconds - $buffer;
+        if ($nowSeconds !== $adjustedExpiry) {
+            return $nowSeconds > $adjustedExpiry;
+        }
+
+        return $now->format('u') >= $this->expiresAt->format('u');
     }
 }

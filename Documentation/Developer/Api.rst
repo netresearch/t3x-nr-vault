@@ -1126,6 +1126,26 @@ property.
       same answer as :php:`supportsCancellation()`: false when the inner
       client was supplied by the caller, and false without ``curl_multi_*``.
 
+.. _api-oauth-token-expiry:
+
+OAuth token expiry
+~~~~~~~~~~~~~~~~~
+
+``Netresearch\NrVault\Http\OAuth\OAuthToken`` stores the access token, token type,
+expiry DateTime and optional scope. Its ``isExpired(int $buffer = 0): bool``
+compares expiry with the current instant. Zero uses the original DateTime
+comparison, including microseconds. Positive seconds consider the token expired
+early; negative seconds give it grace. For example, a token expiring in thirty
+seconds is expired with ``60`` and still valid with ``0``. A token that expired
+thirty seconds ago remains valid with ``-60``.
+
+When expiry converts to native integer timestamps, signed subtraction is bounded
+before calculation, including ``PHP_INT_MIN`` and ``PHP_INT_MAX`` buffers and
+representable timestamp extremes. Where native timestamp conversion raises its
+range exception, the previous DateTime modification/comparison behavior remains.
+DateTime's own calendar and timestamp range is unchanged. See
+:ref:`adr-044-signed-oauth-expiry-buffers`.
+
 .. _api-http-auth-options:
 
 Authentication options
