@@ -303,12 +303,28 @@ CLI access
    changes *which* secrets exist — a secret without
    ``frontend_accessible`` stays unreadable either way.
 
+.. confval:: provisioningBeUserUid
+   :name: ext-nrvault-provisioningBeUserUid
+   :type: integer
+   :Default: 0
+
+   Backend user UID used by :bash:`vault:store --as-provisioner`.
+   The default 0 disables this option. Configure a dedicated non-admin user
+   with the required ``tx_nrvault:secret.create`` and, for rotation,
+   ``tx_nrvault:secret.rotate`` group permissions. Writes remain subject to
+   access control and are attributed to this identity in the audit log.
+   The UID is read from trusted configuration, never from a CLI argument.
+
 .. confval:: auditLogRetention
    :name: ext-nrvault-auditLogRetention
    :type: integer
    :Default: 365
 
-   Number of days to retain audit log entries. Set to 0 for unlimited retention.
+   Configured retention policy in days, reported by :bash:`vault:doctor`.
+   Set to 0 to declare unlimited retention. This is advisory: nr-vault does
+   not automatically purge audit entries. Changing this value does not
+   delete existing rows. External archival or deletion requires a separate
+   strategy that preserves verifiable audit-chain boundaries.
 
 .. confval:: auditReads
    :name: ext-nrvault-auditReads

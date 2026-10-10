@@ -46,7 +46,8 @@ Provider comparison
         -   A file outside the web root, ``0400``, path in
             ``masterKeySource``.
         -   The file's owner, and root. Not the database.
-        -   ``vault:rotate-master-key`` writes the new key in place.
+        -   Re-wrap with ``vault:rotate-master-key``, then install the new
+            key file yourself after commit. The command does not write it.
         -   Permitted.
 
     *   -   ``env``
@@ -54,8 +55,9 @@ Provider comparison
             (default ``NR_VAULT_MASTER_KEY``).
         -   Anything that can read the process environment: the process
             itself, root, and whatever injected it.
-        -   Out of band — the provider cannot persist a value. Set the new
-            variable, restart, then rotate.
+        -   Re-wrap with ``vault:rotate-master-key``, then replace the
+            environment value and restart the processes after commit. Follow
+            :ref:`operations-key-rotation` for the maintenance window.
         -   Permitted.
 
     *   -   ``transit``
@@ -140,12 +142,14 @@ are tolerated). Anything else is rejected on length rather than padded.
 
 ..  warning::
 
-    If ``masterKeySource`` is empty or left at the default, the provider falls
-    back to an auto-generated development key under
-    :php:`Environment::getVarPath() . '/secrets/vault-master.key'`. That
-    location is convenient for development and wrong for production: it lives
-    inside the TYPO3 var path, which many deployment and backup routines treat
-    as ordinary application state. Always set ``masterKeySource`` explicitly.
+    An empty ``masterKeySource`` or the default value ``NR_VAULT_MASTER_KEY``
+    is refused, even when an auto-generated development key exists. If a
+    nonempty configured path does not exist, the provider tries an existing
+    development key at
+    :php:`Environment::getVarPath() . '/secrets/vault-master.key'`. This fallback
+    is not a production key-custody mechanism: the var path is often included
+    in ordinary deployment and backup routines. Set ``masterKeySource``
+    explicitly and verify that the configured file exists and is readable.
 
 **Checklist:** outside the web root; ``0400``; owned by the PHP user; excluded
 from application backups and included in a *separate* key backup
