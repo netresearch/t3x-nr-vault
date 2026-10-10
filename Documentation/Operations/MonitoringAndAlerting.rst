@@ -372,6 +372,13 @@ Because the counters are per-request, they are a signal for a health check or a
 custom listener, not a long-term metric. For trends, count ``SINK_FAILURE``
 alerts in the SIEM.
 
+Failure diagnostics are best effort.
+If the PSR-3 logger also fails, the registry still counts the sink failure,
+attempts the integrity alert and continues with the remaining sinks.
+Failures of an alert listener and its diagnostic are contained as well.
+During alert delivery, the reentrancy guard still prevents another failure
+alert and is released before the next delivery.
+
 .. _operations-monitoring-delivery-state:
 
 Persisted delivery state
@@ -382,6 +389,15 @@ The per-request counters are not the whole picture. The sink registry also
 error text, and the consecutive-failure count — in ``sys_registry``. A freshly
 started process therefore still knows that a collector has been unreachable
 for days, which no request-scoped counter can tell you.
+
+Delivery-state reads and writes are best effort.
+A registry-storage failure and even a failure of its warning logger do not
+abort audit delivery.
+An unavailable read yields a pristine delivery state, so persisted health
+may be missing or stale until storage recovers.
+This optional health bookkeeping is separate from the authoritative audit
+chain write, whose failure follows the atomic audit contract in
+:ref:`adr-036-mutation-audit-atomicity`.
 
 ``vault:doctor`` surfaces it as one ``audit.sink_state.<sink>`` finding per
 enabled sink, warning under the standard profile and critical under hardened.
