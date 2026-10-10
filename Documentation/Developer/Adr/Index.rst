@@ -69,6 +69,7 @@ ADR      Title                                                    Status
 039      :ref:`adr-039-streaming-send-keeps-the-dns-pin`          Accepted
 040      :ref:`adr-040-cancellable-send-bounds-silence`           Accepted
 046      :ref:`adr-046-flexform-copy-link-compensation`           Accepted
+047      :ref:`adr-047-hook-diagnostic-containment`               Proposed
 =======  =======================================================  ========
 
 .. toctree::
@@ -117,3 +118,4 @@ ADR      Title                                                    Status
    ADR-040-CancellableSendBoundsSilence
    ADR-041-AdditionalBodyCredentials
    ADR-046-FlexFormCopyLinkCompensation
+   ADR-047-HookDiagnosticContainment
