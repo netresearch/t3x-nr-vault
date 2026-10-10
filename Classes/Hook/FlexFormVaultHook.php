@@ -512,13 +512,12 @@ final class FlexFormVaultHook
     }
 
     /**
-     * Clone every vault position of one FlexForm field into the duplicate and
-     * persist the result.
+     * Clone one FlexForm column, including its final serialized link.
      *
-     * Fails closed: when one clone fails, the clones already written for this
-     * field are deleted again and EVERY vault position of the duplicate is
-     * cleared — a duplicate that still pointed at the source record's secrets
-     * would rotate and delete them as if they were its own.
+     * A failed link can have persisted before throwing. Compensation therefore
+     * clears every recognized position with an unconditional write, rather than
+     * comparing with the stale copy XML. Clearing and clone cleanup remain
+     * best-effort; the editor notice distinguishes cleared and uncertain state.
      *
      * @param list<array{path: list<string>, identifier: string}> $positions
      * @param array<array-key, mixed> $copyArray
@@ -535,59 +534,111 @@ final class FlexFormVaultHook
     ): void {
         /** @var list<string> $clonedIdentifiers */
         $clonedIdentifiers = [];
+        $sourceIdentifier = $positions[0]['identifier'];
 
-        foreach ($positions as $position) {
-            $sourceIdentifier = $position['identifier'];
-            $currentValue = $this->valueAtPath($copyArray, $position['path']);
-            if ($currentValue !== '' && $currentValue !== $sourceIdentifier) {
-                continue;
+        try {
+            foreach ($positions as $position) {
+                $sourceIdentifier = $position['identifier'];
+                $currentValue = $this->valueAtPath($copyArray, $position['path']);
+                if ($currentValue !== '' && $currentValue !== $sourceIdentifier) {
+                    continue;
+                }
+
+                $secretValue = null;
+
+                try {
+                    $secretValue = $this->vaultService->retrieve($sourceIdentifier);
+                    if ($secretValue === null) {
+                        throw SecretNotFoundException::forIdentifier(
+                            $sourceIdentifier,
+                        );
+                    }
+
+                    $newIdentifier = IdentifierValidator::generateUuid();
+                    $this->vaultService->store(
+                        $newIdentifier,
+                        $secretValue,
+                        [
+                            'table' => $table,
+                            'flexField' => $flexFieldName,
+                            'uid' => $newUid,
+                            'source' => 'flexform_record_copy',
+                            'copied_from' => $sourceIdentifier,
+                        ],
+                    );
+                    $clonedIdentifiers[] = $newIdentifier;
+                    $this->setValueAtPath(
+                        $copyArray,
+                        $position['path'],
+                        $newIdentifier,
+                    );
+                } finally {
+                    if ($secretValue !== null && $secretValue !== '') {
+                        sodium_memzero($secretValue);
+                    }
+                }
             }
 
-            $secretValue = null;
+            /** @phpstan-ignore method.internal */
+            $newXml = $this->flexFormTools->flexArray2Xml($copyArray);
+            if ($newXml !== $copyXml) {
+                $connection->update(
+                    $table,
+                    [$flexFieldName => $newXml],
+                    ['uid' => $newUid],
+                );
+            }
+        } catch (Throwable $error) {
+            $this->abandonFlexClones(
+                $clonedIdentifiers,
+                $table,
+                $flexFieldName,
+                $newUid,
+            );
+            foreach ($positions as $positionToClear) {
+                $this->setValueAtPath($copyArray, $positionToClear['path'], '');
+            }
+
+            $blanked = false;
 
             try {
-                $secretValue = $this->vaultService->retrieve($sourceIdentifier);
-                if ($secretValue === null) {
-                    throw SecretNotFoundException::forIdentifier($sourceIdentifier);
-                }
-
-                $newIdentifier = IdentifierValidator::generateUuid();
-                $this->vaultService->store($newIdentifier, $secretValue, [
-                    'table' => $table,
-                    'flexField' => $flexFieldName,
-                    'uid' => $newUid,
-                    'source' => 'flexform_record_copy',
-                    'copied_from' => $sourceIdentifier,
-                ]);
-
-                $this->setValueAtPath($copyArray, $position['path'], $newIdentifier);
-                $clonedIdentifiers[] = $newIdentifier;
-            } catch (Throwable $e) {
-                $this->abandonFlexClones($clonedIdentifiers, $table, $flexFieldName, $newUid);
-
-                foreach ($positions as $positionToClear) {
-                    $this->setValueAtPath($copyArray, $positionToClear['path'], '');
-                }
-
-                $this->reportFlexCopyFailure($e, $table, $flexFieldName, $newUid, $sourceIdentifier, $dataHandler);
-
-                break;
-            } finally {
-                if ($secretValue !== null && $secretValue !== '') {
-                    sodium_memzero($secretValue);
-                }
+                /** @phpstan-ignore method.internal */
+                $clearedXml = $this->flexFormTools->flexArray2Xml($copyArray);
+                $connection->update(
+                    $table,
+                    [$flexFieldName => $clearedXml],
+                    ['uid' => $newUid],
+                );
+                $blanked = true;
+            } catch (Throwable $clearingError) {
+                $this->failureReporter->report(
+                    $clearingError,
+                    [
+                        'table' => $table,
+                        'flexField' => $flexFieldName,
+                        'uid' => $newUid,
+                        'operation' => 'flexform_copy_clear',
+                    ],
+                );
             }
-        }
 
-        /** @phpstan-ignore method.internal */
-        $newXml = $this->flexFormTools->flexArray2Xml($copyArray);
-        if ($newXml !== $copyXml) {
-            $connection->update($table, [$flexFieldName => $newXml], ['uid' => $newUid]);
+            $this->reportFlexCopyFailure(
+                $error,
+                $table,
+                $flexFieldName,
+                $newUid,
+                $sourceIdentifier,
+                $dataHandler,
+                $blanked,
+            );
         }
     }
 
     /**
-     * Delete the clones written before a duplication failed.
+     * Attempt deletion of the clones stored before a duplication failed.
+     *
+     * A failed clearing write can retain links even to already-deleted clones.
+     * No whole-record rollback or always-unreferenced orphan is guaranteed.
      *
      * @param list<string> $clonedIdentifiers
      */
@@ -599,24 +650,30 @@ final class FlexFormVaultHook
     ): void {
         foreach ($clonedIdentifiers as $clonedIdentifier) {
             try {
-                $this->vaultService->delete($clonedIdentifier, 'Record copy rolled back');
+                $this->vaultService->delete(
+                    $clonedIdentifier,
+                    'Record copy rolled back',
+                );
             } catch (Throwable $compensationError) {
-                // The clone is orphaned rather than dangerous — nothing
-                // references it any more. Record it for the administrator and
-                // keep rolling back.
-                $this->failureReporter->report($compensationError, [
-                    'table' => $table,
-                    'flexField' => $flexFieldName,
-                    'uid' => $newUid,
-                    'identifier' => $clonedIdentifier,
-                    'operation' => 'flexform_copy_rollback',
-                ]);
+                // Clearing has not completed yet. Its outcome determines
+                // whether a surviving clone is unreferenced; report the
+                // compensation failure and keep attempting cleanup.
+                $this->failureReporter->report(
+                    $compensationError,
+                    [
+                        'table' => $table,
+                        'flexField' => $flexFieldName,
+                        'uid' => $newUid,
+                        'identifier' => $clonedIdentifier,
+                        'operation' => 'flexform_copy_rollback',
+                    ],
+                );
             }
         }
     }
 
     /**
-     * Tell the editor that the duplicate has no FlexForm secrets, and why.
+     * Tell the editor whether the failed copy column was cleared.
      */
     private function reportFlexCopyFailure(
         Throwable $error,
@@ -625,14 +682,18 @@ final class FlexFormVaultHook
         int $newUid,
         string $sourceIdentifier,
         DataHandler $dataHandler,
+        bool $blanked,
     ): void {
-        $userMessage = $this->failureReporter->report($error, [
-            'table' => $table,
-            'flexField' => $flexFieldName,
-            'uid' => $newUid,
-            'identifier' => $sourceIdentifier,
-            'operation' => 'flexform_copy',
-        ]);
+        $userMessage = $this->failureReporter->report(
+            $error,
+            [
+                'table' => $table,
+                'flexField' => $flexFieldName,
+                'uid' => $newUid,
+                'identifier' => $sourceIdentifier,
+                'operation' => 'flexform_copy',
+            ],
+        );
 
         /** @phpstan-ignore method.internal */
         $dataHandler->log(
@@ -641,8 +702,7 @@ final class FlexFormVaultHook
             1,
             null,
             2,
-            'Vault error during copy for FlexForm field "' . $flexFieldName . '": ' . $userMessage
-            . ' No secret was copied; the vault fields of the new record were cleared and must be filled in again.',
+            'Vault error during copy for FlexForm field "' . $flexFieldName . '": ' . $userMessage . ($blanked ? ' The copy failed; the vault positions of this FlexForm column were cleared and must be filled in again.' : ' Clearing the vault positions of this FlexForm column FAILED; the duplicate may still reference source or abandoned cloned secrets and needs manual review.'),
         );
     }
 
