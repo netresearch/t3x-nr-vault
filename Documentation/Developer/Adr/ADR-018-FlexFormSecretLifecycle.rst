@@ -66,8 +66,14 @@ own them.
     The decision is written from the FlexForm case, but the shipped
     lifecycle hooks are not FlexForm-specific: :php:`DataHandlerHook` applies
     the same fail-closed copy and delete semantics to plain TCA vault fields,
-    while :php:`FlexFormVaultHook` handles the FlexForm shape. Read the
-    consequences below as covering both.
+    while :php:`FlexFormVaultHook` handles the FlexForm shape. The FlexForm
+    cascade acts only on hard deletion; soft-delete/recycle keeps its secrets
+    for restoration. Its cancellation and preflight decision is clarified in
+    :ref:`adr-045-flexform-delete-refusal`. Multi-secret deletion has the
+    preflight and best-effort residual described by
+    :ref:`adr-036-mutation-audit-atomicity`, including an already-applied
+    deletion whose post-persistence observer fails. Mixed plain-TCA and FlexForm records still need a
+    separate cross-hook preflight coordinator.
 
 Consequences
 ============
@@ -91,11 +97,13 @@ Negative
 -  **Copy overhead**: Copying a record with many vault secrets requires
    additional vault write operations for each secret duplication.
 -  **Fail-closed cascade**: a vault delete that fails — including one that is
-   *denied* — cancels the record delete rather than leaving partial state, and
+   *denied* — cancels the record delete, and
    the failure surfaces to the editor. Deleting the record while its secret
    survived would orphan the secret and hide the failed delete behind an
    apparently successful record removal. The cost is that a record cannot be
-   removed while its secret delete is refused.
+   removed while its secret delete is refused. Already-applied secret
+   deletions cannot be restored automatically if a later operation or a
+   post-persistence observer fails; see ADR-045.
 
 Related decisions
 =================
