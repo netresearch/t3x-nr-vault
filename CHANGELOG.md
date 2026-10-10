@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Access-control interface comments match the implemented actor policy.** Technical actors may hold explicit group operation grants in addition to implicit `secret.use`, an admin technical actor can hold the configured bypass, and trusted CLI operations require the explicit operation allowlist. The write/delete tier comments distinguish the CLI policy, and attribution names the actual technical/CLI/backend/API outcomes. Real Core/SQL tests now verify subgroup operation grants and refusal of unrelated groups; the previous suites stayed green with a nonexistent grant column. Runtime behavior and public signatures are unchanged.
+
 - **The overview checks the configured master-key provider.** A missing file or an invalid provider no longer reports healthy through an unrelated TYPO3 encryption-key fallback. The health probe selects the same provider as the encryption dependency; functional tests exercise the real provider factory, including a readable configured-file counterpart.
 
 ## [1.1.0] - 2026-09-29
