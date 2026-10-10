@@ -36,6 +36,13 @@ The panel and :ref:`command-doctor` evaluate the same controls, so the module an
 a CI gate cannot disagree. Use the command for anything scheduled or automated —
 see :ref:`security-deployment-gate`.
 
+The overview's master-key health status checks the configured provider used by
+encryption.
+A missing key or an invalid provider configuration produces an issue even when
+another local key source is available.
+This read-only probe reads the key; it does not decrypt stored secrets or verify
+the audit chain.
+
 .. _usage-creating-secrets:
 
 Creating secrets
