@@ -58,6 +58,9 @@ parameters:
     # instead of being excluded (see the file for details).
     bootstrapFiles:
         - Build/phpstan/typo3-upgrade-api.php
+        # PHP 8.2 lacks the native PHP 8.3+ timestamp range-error symbols.
+        # The guarded declarations are analysis-only; runtime stays unchanged.
+        - Build/phpstan/stubs/php-date-errors.php
 
     ignoreErrors:
         # The TYPO3 13 wizard shell implements the EXT:install upgrade API on
