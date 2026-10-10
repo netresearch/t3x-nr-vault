@@ -16,7 +16,7 @@ ADR-030: Read-time resolution of site-configuration vault references
 Status
 ======
 
-Accepted
+Amended by :ref:`ADR-043 <adr-043-site-secret-namespaces>`
 
 Date
 ====
@@ -94,3 +94,17 @@ Consequences
 -  TypoScript resolution (``TypoScriptVaultListener``) is unaffected: it is
    gated on ``frontend_accessible`` and documented as making a secret
    frontend-readable by design.
+
+Amendment: canonical namespace creation and fallback
+===================================================
+
+2026-10-10
+
+:ref:`ADR-043 <adr-043-site-secret-namespaces>` completes the namespace through
+the existing storage API, CLI and specific Vault table creation path.
+The configured site is required only for a new namespace; existing encrypted
+rows retain their original authenticated identifier after site rename/delete.
+Global fallback is permitted only for an actually missing namespaced row.
+Denial, expiry, disabled state, corruption or operational failure keeps the
+placeholder unresolved, rather than substituting another credential.
+The explicit read-time resolution and core-cache boundary of this ADR remain.

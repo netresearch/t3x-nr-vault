@@ -57,7 +57,7 @@ ADR      Title                                                    Status
 027      :ref:`adr-027-oauth-client-unification`                  Accepted
 028      :ref:`adr-028-phpat-http-client-lock`                    Accepted
 029      :ref:`adr-029-technical-actor-context`                   Accepted
-030      :ref:`adr-030-site-config-vault-read-time-resolution`    Accepted
+030      :ref:`adr-030-site-config-vault-read-time-resolution`    Amended
 031      :ref:`adr-031-shared-secret-pattern-catalogue`           Accepted
 032      :ref:`adr-032-portable-envelope-codec`                   Accepted
 033      :ref:`adr-033-foreign-envelope-rotation`                 Accepted
@@ -68,6 +68,8 @@ ADR      Title                                                    Status
 038      :ref:`adr-038-unresolvable-host-is-refused`              Accepted
 039      :ref:`adr-039-streaming-send-keeps-the-dns-pin`          Accepted
 040      :ref:`adr-040-cancellable-send-bounds-silence`           Accepted
+041      :ref:`adr-041-additional-body-credentials`               Accepted
+043      :ref:`adr-043-site-secret-namespaces`                   Accepted
 =======  =======================================================  ========
 
 .. toctree::
@@ -115,3 +117,4 @@ ADR      Title                                                    Status
    ADR-039-StreamingSendKeepsTheDnsPin
    ADR-040-CancellableSendBoundsSilence
    ADR-041-AdditionalBodyCredentials
+   ADR-043-SiteSecretNamespaces
