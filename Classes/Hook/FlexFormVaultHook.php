@@ -143,13 +143,13 @@ final class FlexFormVaultHook
     }
 
     /**
-     * Called before record deletion.
-     * Parses FlexForm XML to find vault identifiers and deletes the corresponding secrets.
-     * Only acts on hard delete (not soft-delete/recycle).
+     * Preflight and delete unshared vault references before Core hard-deletes a record.
+     * Soft-delete/recycle keeps the secrets for record restoration.
      *
      * @param array<string, mixed> $recordToDelete
      */
-    public function processCmdmap_deleteAction(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
+    public function processCmdmap_deleteAction(
+        // NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $table,
         int $id,
         array $recordToDelete,
@@ -160,63 +160,61 @@ final class FlexFormVaultHook
             return;
         }
 
-        $flexFieldNames = $this->getFlexFieldNames($table);
-        if ($flexFieldNames === []) {
-            return;
-        }
+        $flexFieldName = '';
+        $identifier = null;
+        $deletionsStarted = false;
 
-        foreach ($flexFieldNames as $flexFieldName) {
-            $xmlValue = $recordToDelete[$flexFieldName] ?? '';
-            if (!\is_string($xmlValue)) {
-                continue;
-            }
-
-            if ($xmlValue === '') {
-                continue;
-            }
-
-            $identifiers = $this->extractVaultIdentifiersFromXml($xmlValue);
-
-            foreach ($identifiers as $identifier) {
-                // A secret another live record still references is not this
-                // record's to delete. Mirrors the TCA path's guard: a
-                // translation carries the default-language record's XML for
-                // every `l10n_mode = exclude` column, identifiers included, so
-                // deleting the translation must leave that secret — and the
-                // default record's credential — intact. The identifier sits
-                // inside the serialised XML, so the same column of the other
-                // records is searched for it rather than compared to it.
-                if ($this->translationSharedSecretResolver->isIdentifierEmbeddedElsewhere(
-                    $table,
-                    $flexFieldName,
-                    $identifier,
-                    $id,
-                )) {
+        try {
+            /** @var array<string, string> $selected Identifier => first FlexForm column. */
+            $selected = [];
+            /** @var array<string, bool> $shared Identity-wide exclusions across FlexForm columns. */
+            $shared = [];
+            foreach ($this->getFlexFieldNames($table) as $flexFieldName) {
+                $identifier = null;
+                $xmlValue = $recordToDelete[$flexFieldName] ?? '';
+                if (!\is_string($xmlValue) || $xmlValue === '') {
                     continue;
                 }
 
-                try {
-                    $this->vaultService->delete($identifier, 'Record deleted');
-                } catch (Throwable $e) {
-                    $userMessage = $this->failureReporter->report($e, [
-                        'table' => $table,
-                        'flexField' => $flexFieldName,
-                        'uid' => $id,
-                        'identifier' => $identifier,
-                        'operation' => 'flexform_delete',
-                    ]);
-
-                    /** @phpstan-ignore method.internal */
-                    $dataHandler->log(
+                foreach ($this->extractVaultIdentifiersFromXml($xmlValue) as $identifier) {
+                    if ($this->translationSharedSecretResolver->isIdentifierEmbeddedElsewhere(
                         $table,
+                        $flexFieldName,
+                        $identifier,
                         $id,
-                        3,
-                        null,
-                        1,
-                        'Vault error during delete for FlexForm field: ' . $userMessage,
-                    );
+                    )) {
+                        $shared[$identifier] = true;
+                        unset($selected[$identifier]);
+                        continue;
+                    }
+
+                    if (!isset($shared[$identifier])) {
+                        $selected[$identifier] ??= $flexFieldName;
+                    }
                 }
             }
+
+            foreach ($selected as $identifier => $flexFieldName) {
+                $this->vaultService->assertDeletable($identifier);
+            }
+
+            foreach ($selected as $identifier => $flexFieldName) {
+                // A delete may persist before a post-persistence event observer throws.
+                $deletionsStarted = true;
+                $this->vaultService->delete($identifier, 'Record deleted');
+            }
+        } catch (Throwable $error) {
+            // Core must keep the record even if the reporter or editor log also fails.
+            $recordWasDeleted = true;
+            $this->reportFlexDeleteFailure(
+                $error,
+                $table,
+                $id,
+                $flexFieldName,
+                $identifier,
+                $deletionsStarted,
+                $dataHandler,
+            );
         }
     }
 
@@ -1381,5 +1379,39 @@ final class FlexFormVaultHook
         $deleteField = $tca[$table]['ctrl']['delete'] ?? null;
 
         return !\is_string($deleteField) || $deleteField === '';
+    }
+
+    private function reportFlexDeleteFailure(
+        Throwable $error,
+        string $table,
+        int $id,
+        string $flexFieldName,
+        ?string $identifier,
+        bool $deletionsStarted,
+        DataHandler $dataHandler,
+    ): void {
+        $userMessage = $this->failureReporter->report(
+            $error,
+            [
+                'table' => $table,
+                'flexField' => $flexFieldName,
+                'uid' => $id,
+                'identifier' => $identifier,
+                'operation' => 'flexform_delete',
+            ],
+        );
+        if ($deletionsStarted) {
+            $userMessage .= ' Secrets may already have been deleted and cannot be restored automatically.';
+        }
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            $table,
+            $id,
+            3,
+            null,
+            1,
+            'Vault error during delete for FlexForm field: ' . $userMessage,
+        );
     }
 }

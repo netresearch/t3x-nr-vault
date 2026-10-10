@@ -17,5 +17,6 @@ CREATE TABLE tx_nrvaulttest_child (
 
 CREATE TABLE tx_nrvaulttest_flex (
     title varchar(255) DEFAULT '' NOT NULL,
-    settings mediumtext
+    settings mediumtext,
+    settings_extra mediumtext
 );

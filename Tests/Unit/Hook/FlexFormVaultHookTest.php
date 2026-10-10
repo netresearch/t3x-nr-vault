@@ -24,6 +24,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
+use Throwable;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -2007,6 +2008,40 @@ final class FlexFormVaultHookTest extends TestCase
             );
 
         $this->subject->processCmdmap_postProcess('copy', 'tt_content', 42, null, $this->dataHandler, false);
+    }
+
+    #[Test]
+    public function failedFlexSecretDeleteCancelsCoreRecordDeletion(): void
+    {
+        $this->mockFlexFieldSchema('tx_test', ['pi_flexform']);
+        $GLOBALS['TCA']['tx_test']['ctrl'] = [];
+        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . self::VAULT_UUID . '</value></field></language></sheet></data></T3FlexForms>';
+        $this->vaultService->method('exists')->willReturn(true);
+        $this->vaultService
+            ->method('delete')
+            ->willThrowException(new VaultException('synthetic denied delete'));
+        $recordWasDeleted = false;
+        $caught = null;
+
+        try {
+            $this->subject->processCmdmap_deleteAction(
+                'tx_test',
+                42,
+                ['pi_flexform' => $xml],
+                $recordWasDeleted,
+                $this->dataHandler,
+            );
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        } finally {
+            unset($GLOBALS['TCA']['tx_test']);
+        }
+
+        self::assertNull($caught);
+        self::assertTrue(
+            $recordWasDeleted,
+            'Core must stop before deleting a record whose FlexForm secret survives.',
+        );
     }
 
     // ---- Helper methods ----

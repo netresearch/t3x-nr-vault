@@ -401,7 +401,9 @@ Record operations
 
 -  **Create**: New vault secret is stored automatically.
 -  **Update**: Secret is rotated (maintains audit trail).
--  **Delete**: Vault secrets are removed when the record is deleted.
+-  **Delete**: Vault secrets are removed when the record is deleted. FlexForm
+   cascades act on hard deletion; soft-delete/recycle retains their secrets
+   for record restoration.
 -  **Copy**: Vault secrets are cloned to the new record under fresh
    identifiers.
 
@@ -432,7 +434,8 @@ editor. If the blanking write fails, the copy keeps the source record's
 identifiers and does share its secrets — the editor's error message says so
 explicitly, and the record needs manual review.
 
-A **delete** checks the delete permission of every vault field *before*
+A **delete** checks the delete permission of every vault field handled by
+its hook *before*
 removing the first secret, because the vault will not give a deleted secret
 back: the delete is a soft delete, so the encrypted row is retained, but the
 vault has no restore operation and the backend refuses TYPO3's ``undelete``
@@ -441,13 +444,24 @@ command on ``tx_nrvault_secret`` (see
 removed and the record delete is cancelled. A field pointing at a secret that
 no longer exists does not block the delete.
 
+The FlexForm hook gathers unique, existing, non-shared references across its
+columns and preflights them all before deleting the first secret. Duplicate
+references are deleted once and references in another live record survive.
+Plain TCA and FlexForm hooks preflight their own references separately; a
+record mixing both kinds still lacks a shared preflight coordinator.
+
 The preflight cannot cover a failure it is unable to predict — an audit write
 that fails, a vault outage, a permission revoked between the check and the
 delete. If one of those hits partway through, the loop stops rather than
 enlarging the damage, the record is preserved, and the error names how many
 secrets of preceding fields were already deleted and cannot be restored. That
 count is the signal to re-enter those values; the record still exists, so
-nothing else is lost.
+nothing else is lost. The FlexForm diagnostic instead warns that secrets
+may already have been deleted: even the failing current delete may have
+persisted before a ``SecretDeletedEvent`` observer throws. It preserves the
+owning record and stops further deletes, but cannot restore already-applied
+secret deletions. The cancellation flag is set before diagnostics run.
+See :ref:`adr-045-flexform-delete-refusal`.
 
 
 .. _tca-security:
