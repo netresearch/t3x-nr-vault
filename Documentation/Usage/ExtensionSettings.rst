@@ -162,6 +162,11 @@ For maximum security and a proper backend UI, create a configuration record.
 
 **Service using config record:**
 
+The TCA enables soft deletion because the repository selects records with
+``deleted = 0``.
+The service delegates the stored vault UUID to the HTTP client and selects
+the ``Authorization: DeepL-Auth-Key`` scheme required by DeepL.
+
 .. literalinclude:: _DeepLServiceTca.php
    :language: php
    :caption: EXT:my_deepl_extension/Classes/Service/DeepLService.php
