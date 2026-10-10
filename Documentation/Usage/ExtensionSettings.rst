@@ -160,6 +160,15 @@ For maximum security and a proper backend UI, create a configuration record.
    :language: php
    :caption: EXT:my_deepl_extension/Classes/Domain/Dto/DeepLConfig.php
 
+**Missing configuration exception:**
+
+The service reports a missing active configuration with this application-specific
+exception before delegating any HTTP request.
+
+.. literalinclude:: _DeepLNotConfiguredException.php
+   :language: php
+   :caption: EXT:my_deepl_extension/Classes/Exception/DeepLNotConfiguredException.php
+
 **Service using config record:**
 
 The TCA enables soft deletion because the repository selects records with

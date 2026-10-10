@@ -9,9 +9,9 @@ declare(strict_types=1);
 
 namespace MyVendor\MyDeeplExtension\Service;
 
-use RuntimeException;
 use GuzzleHttp\Psr7\Utils;
 use MyVendor\MyDeeplExtension\Domain\Repository\ConfigRepository;
+use MyVendor\MyDeeplExtension\Exception\DeepLNotConfiguredException;
 use Netresearch\NrVault\Http\SecretPlacement;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use TYPO3\CMS\Core\Http\RequestFactory;
@@ -28,7 +28,7 @@ final readonly class DeepLService
     {
         $config = $this->configRepository->findDefault();
         if ($config === null) {
-            throw new RuntimeException('DeepL not configured', 1735900001);
+            throw new DeepLNotConfiguredException('DeepL not configured', 1735900001);
         }
 
         $request = $this->requestFactory
@@ -44,12 +44,13 @@ final readonly class DeepLService
             ->withAuthentication(
                 $config->apiKey,
                 SecretPlacement::Header,
-                ['headerName' => 'Authorization', 'prefix' => 'DeepL-Auth-Key ']
+                ['headerName' => 'Authorization', 'prefix' => 'DeepL-Auth-Key '],
             )
             ->withReason('DeepL translation: ' . $targetLang)
             ->sendRequest($request);
 
         $data = json_decode($response->getBody()->getContents(), true);
+
         return $data['translations'][0]['text'] ?? '';
     }
 }

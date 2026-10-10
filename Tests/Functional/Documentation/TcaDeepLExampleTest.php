@@ -19,6 +19,7 @@ use ReflectionClass;
 use ReflectionMethod;
 use RuntimeException;
 use Throwable;
+use TYPO3\CMS\Core\Configuration\Tca\TcaFactory;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Http\RequestFactory;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -62,6 +63,7 @@ final class TcaDeepLExampleTest extends FunctionalTestCase
     {
         require_once __DIR__ . '/../../../Documentation/Usage/_DeepLConfig.php';
         require_once __DIR__ . '/../../../Documentation/Usage/_ConfigRepository.php';
+        require_once __DIR__ . '/../../../Documentation/Usage/_DeepLNotConfiguredException.php';
         require_once __DIR__ . '/../../../Documentation/Usage/_DeepLServiceTca.php';
         $pool = $this->get(ConnectionPool::class);
         $connection = $pool->getConnectionForTable('tx_mydeeplext_config');
@@ -169,6 +171,7 @@ final class TcaDeepLExampleTest extends FunctionalTestCase
     {
         require_once __DIR__ . '/../../../Documentation/Usage/_DeepLConfig.php';
         require_once __DIR__ . '/../../../Documentation/Usage/_ConfigRepository.php';
+        require_once __DIR__ . '/../../../Documentation/Usage/_DeepLNotConfiguredException.php';
         require_once __DIR__ . '/../../../Documentation/Usage/_DeepLServiceTca.php';
         $repository = ($this->reflectLiteralClass(
             'MyVendor\MyDeeplExtension\Domain\Repository\ConfigRepository',
@@ -199,6 +202,28 @@ final class TcaDeepLExampleTest extends FunctionalTestCase
         self::assertInstanceOf(RuntimeException::class, $failure);
         self::assertSame('DeepL not configured', $failure->getMessage());
         self::assertSame(1735900001, $failure->getCode());
+        self::assertSame(
+            'MyVendor\MyDeeplExtension\Exception\DeepLNotConfiguredException',
+            $failure::class,
+        );
+    }
+
+    #[Test]
+    public function literalTcaSurvivesRepeatedRealCoreCompilation(): void
+    {
+        // Intentionally exercise Core's real bootstrap compilation in this fixture oracle.
+        // @phpstan-ignore classConstant.internalClass
+        $factory = $this->get(TcaFactory::class);
+        $create = new ReflectionMethod($factory, 'create');
+        for ($iteration = 0; $iteration < 2; ++$iteration) {
+            $tca = $create->invoke($factory);
+            self::assertIsArray($tca);
+            self::assertArrayHasKey('tx_mydeeplext_config', $tca);
+            self::assertSame(
+                'deleted',
+                $this->readDeleteField($tca['tx_mydeeplext_config']),
+            );
+        }
     }
 
     /**
@@ -206,13 +231,21 @@ final class TcaDeepLExampleTest extends FunctionalTestCase
      */
     private function reflectLiteralClass(string $name): ReflectionClass
     {
-        if (!class_exists($name)) {
-            throw new RuntimeException(
-                'The literal documentation fixture did not load its class.',
-                1735900002,
-            );
-        }
+        self::assertTrue(
+            class_exists($name),
+            'The literal documentation fixture did not load its class.',
+        );
 
         return new ReflectionClass($name);
+    }
+
+    private function readDeleteField(mixed $table): mixed
+    {
+        self::assertIsArray($table);
+        self::assertArrayHasKey('ctrl', $table);
+        self::assertIsArray($table['ctrl']);
+        self::assertArrayHasKey('delete', $table['ctrl']);
+
+        return $table['ctrl']['delete'];
     }
 }
