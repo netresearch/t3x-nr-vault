@@ -1115,8 +1115,11 @@ Options
 
 --active-probes
    Additionally push the current chain-tip anchor through every enabled audit
-   sink to verify end-to-end delivery (the webhook collector must answer 2xx;
-   the file sink must actually append; syslog must accept the message). Adds
+   sink to exercise publication (the webhook collector must answer 2xx;
+   the file sink must actually append; PHP's syslog calls must complete).
+   Syslog has no delivery acknowledgement: confirm the anchor in the
+   logging service or collector to establish receipt.
+   Adds
    one ``audit.sink_probe.<sink>`` finding per enabled sink; a refused probe
    is critical. Talks to external systems, so it is never run implicitly —
    neither by the passive checks nor by the backend status panel.
@@ -1317,7 +1320,9 @@ audit.anchor
    :ref:`command-audit-verify`.
 
 audit.sink_delivery
-   No sink refused delivery in this process. Warning with the per-sink counts
+   No sink publication raised an observed failure in this process.
+   This does not prove syslog receipt.
+   Warning with the per-sink counts
    otherwise. Zero means "not in this run" — the cross-process question is
    answered by ``audit.sink_state.<sink>``.
 
@@ -1327,13 +1332,16 @@ audit.sink_state.<sink>
    older than ``auditSinkStaleDeliveryHours`` are *warning* / **critical**
    (hardened); an enabled sink with no recorded delivery yet is *pass* /
    *warning* (hardened). A freshly started ``vault:doctor`` can therefore no
-   longer report a collector that has been unreachable for days as healthy.
+   longer lose previously observed failures between processes.
+   Syslog success records only completed PHP calls and cannot detect an
+   unreachable logging service or collector.
 
 audit.sink_probe.<sink>
    Emitted only with ``--active-probes``: the current chain-tip anchor is
-   pushed through every enabled sink end-to-end (webhook: the collector must
-   answer 2xx). A refused probe is **critical** in both profiles — the sink
-   is enabled but demonstrably not accepting evidence.
+   pushed through every enabled sink (webhook: the collector must answer 2xx).
+   An observed publication failure is **critical** in both profiles.
+   A passing syslog probe does not acknowledge receipt; locate its anchor in
+   the logging service or collector.
 
    When ``--active-probes`` runs with **no** sink enabled there is nothing to
    probe, and a single literal ``audit.sink_probe.none`` finding is emitted
@@ -1526,5 +1534,5 @@ Example
    # Machine-readable, for a CI gate or a monitoring probe
    vendor/bin/typo3 vault:doctor --format=json
 
-   # Verify end-to-end sink delivery (talks to the collector)
+   # Exercise sink publication; confirm the syslog anchor in collector logs
    vendor/bin/typo3 vault:doctor --active-probes

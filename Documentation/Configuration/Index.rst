@@ -522,8 +522,13 @@ usable external sink is reported as a ``NO_EXTERNAL_SINK`` finding.
 
    Mirror every audit entry, chain-tip anchor and integrity alert to the local
    syslog as an RFC 5424 structured-data message on facility ``local0``. The
-   cheapest useful sink: on any host with a log shipper the audit trail leaves
-   the TYPO3 database with no extra infrastructure.
+   Forwarding depends on the host's syslog and collector configuration.
+   PHP's ``syslog()`` always returns ``true``; it does not acknowledge delivery
+   to the local logging service or a collector, even if no socket is present.
+   A successful probe or recorded publish call therefore does not prove
+   receipt.
+   Verify the probe's chain-tip anchor in the collector's actual records.
+   See the `PHP syslog reference <https://www.php.net/manual/en/function.syslog.php>`__.
 
 .. confval:: auditSinkSyslogIdent
    :name: ext-nrvault-auditSinkSyslogIdent
@@ -614,9 +619,10 @@ usable external sink is reported as a ``NO_EXTERNAL_SINK`` finding.
    ``audit.sink_state.<sink>``: warning under the standard profile, critical
    under hardened). The per-sink delivery state — last success, last
    failure, consecutive failures — is persisted in ``sys_registry`` by the
-   sink registry, so a freshly started process still knows a collector has
-   been unreachable for days. Use
-   :bash:`vault:doctor --active-probes` to verify delivery end-to-end.
+   sink registry, so a freshly started process still sees observed failures.
+   Use :bash:`vault:doctor --active-probes` to exercise publication.
+   For syslog, recorded success means that PHP completed the publish calls;
+   confirm receipt separately in the local logging service or collector.
 
    .. note::
 
