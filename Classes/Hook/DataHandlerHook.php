@@ -637,9 +637,24 @@ final class DataHandlerHook
             }
         }
 
-        // Update copied record with new UUIDs
         if ($updates !== []) {
-            $connection->update($table, $updates, ['uid' => $newId]);
+            try {
+                $connection->update($table, $updates, ['uid' => $newId]);
+            } catch (Throwable $error) {
+                $firstField = array_key_first($updates);
+                $sourceIdentifier = $sourceRecord[$firstField] ?? '';
+                $this->abandonCopiedSecrets(
+                    $connection,
+                    $table,
+                    $newId,
+                    $vaultFields,
+                    $updates,
+                    $firstField,
+                    \is_string($sourceIdentifier) ? $sourceIdentifier : '',
+                    $error,
+                    $dataHandler,
+                );
+            }
         }
     }
 
@@ -775,7 +790,7 @@ final class DataHandlerHook
             $connection->update($table, array_fill_keys($vaultFields, ''), ['uid' => $uid]);
 
             return true;
-        } catch (Exception) {
+        } catch (Throwable) {
             return false;
         }
     }

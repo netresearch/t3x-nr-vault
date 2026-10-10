@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Hook;
 
 use Doctrine\DBAL\Result;
+use Error;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Hook\DataHandlerHook;
@@ -24,12 +25,14 @@ use Netresearch\NrVault\Utility\TranslationSharedSecretResolver;
 use Netresearch\NrVault\Utility\VaultFieldResolver;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
 use ReflectionClass;
 use RuntimeException;
 use Stringable;
+use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -2181,5 +2184,190 @@ final class DataHandlerHookTest extends TestCase
         );
 
         self::assertTrue($commandIsProcessed, 'The record delete must be cancelled.');
+    }
+
+    /**
+     * @param class-string<Throwable> $writeFailureClass
+     * @param class-string<Throwable>|null $blankFailureClass
+     * @param class-string<Throwable>|null $deleteFailureClass
+     */
+    #[Test]
+    #[DataProvider('cloneReferenceWriteFailures')]
+    public function failedCloneReferenceWriteCompensatesEveryCreatedClone(
+        string $writeFailureClass,
+        ?string $blankFailureClass,
+        ?string $deleteFailureClass,
+    ): void {
+        $this->mockTcaSchemaForTable(
+            'tx_test',
+            [
+                'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+                'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            ],
+        );
+        $sourceFields = ['api_key' => self::EXISTING_UUID, 'api_secret' => self::SECOND_UUID];
+        $copiedFields = $sourceFields;
+        /** @phpstan-ignore property.internal */
+        $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
+        $writeFailure = new $writeFailureClass('synthetic copy reference write unavailable');
+        $blankFailure = $blankFailureClass === null ? null : new $blankFailureClass('synthetic blanking unavailable');
+        $deleteFailure = $deleteFailureClass === null ? null : new $deleteFailureClass('synthetic clone cleanup unavailable');
+        $writes = [];
+        $result = self::createStub(Result::class);
+        $result->method('fetchAssociative')->willReturn($sourceFields);
+        $connection = self::createStub(Connection::class);
+        $connection->method('select')->willReturn($result);
+        $connection
+            ->method('update')
+            ->willReturnCallback(
+                static function (
+                    string $table,
+                    array $values,
+                    array $where,
+                ) use (&$writes, &$copiedFields, $writeFailure, $blankFailure): int {
+                    $writes[] = [$table, $values, $where];
+                    if (\count($writes) === 1) {
+                        throw $writeFailure;
+                    }
+
+                    if ($blankFailure !== null) {
+                        throw $blankFailure;
+                    }
+
+                    $copiedFields = array_replace($copiedFields, $values);
+
+                    return 1;
+                },
+            );
+        $this->connectionPool
+            ->method('getConnectionForTable')
+            ->willReturn($connection);
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturn('synthetic plaintext');
+        $created = [];
+        $this->vaultService
+            ->method('store')
+            ->willReturnCallback(
+                static function (
+                    string $identifier,
+                    string $value,
+                    array $options,
+                ) use (&$created): void {
+                    $created[] = [$identifier, $value, $options];
+                },
+            );
+        $deleted = [];
+        $this->vaultService
+            ->method('delete')
+            ->willReturnCallback(
+                static function (
+                    string $identifier,
+                    string $reason,
+                ) use (&$deleted, $deleteFailure): void {
+                    $deleted[] = [$identifier, $reason];
+                    if (\count($deleted) === 1 && $deleteFailure !== null) {
+                        throw $deleteFailure;
+                    }
+                },
+            );
+        $messages = [];
+        $this->dataHandler
+            ->method('log')
+            ->willReturnCallback(
+                static function (
+                    string $table,
+                    int $uid,
+                    mixed $action,
+                    mixed $unused,
+                    mixed $severity,
+                    string $detail,
+                ) use (&$messages): void {
+                    $messages[] = [$table, $uid, $action, $severity, $detail];
+                },
+            );
+        $caught = null;
+
+        try {
+            $this->subject->processCmdmap_postProcess(
+                'copy',
+                'tx_test',
+                42,
+                null,
+                $this->dataHandler,
+                false,
+            );
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+
+        self::assertNull(
+            $caught,
+            'A failed clone reference write must reach copy compensation.',
+        );
+        self::assertCount(2, $created);
+        $cloneIds = array_column($created, 0);
+        self::assertCount(2, array_unique($cloneIds));
+        foreach ($cloneIds as $cloneId) {
+            self::assertMatchesRegularExpression(self::UUID_PATTERN, $cloneId);
+            self::assertNotContains($cloneId, $sourceFields);
+        }
+
+        self::assertSame(
+            [
+                [$cloneIds[0], 'Record copy rolled back'],
+                [$cloneIds[1], 'Record copy rolled back'],
+            ],
+            $deleted,
+        );
+        self::assertSame(
+            $blankFailure === null ? ['api_key' => '', 'api_secret' => ''] : $sourceFields,
+            $copiedFields,
+        );
+        self::assertCount(2, $writes);
+        self::assertSame(
+            [
+                'tx_test',
+                ['api_key' => $cloneIds[0], 'api_secret' => $cloneIds[1]],
+                ['uid' => 100],
+            ],
+            $writes[0],
+        );
+        self::assertSame(
+            ['tx_test', ['api_key' => '', 'api_secret' => ''], ['uid' => 100]],
+            $writes[1],
+        );
+        self::assertCount(1, $messages);
+        self::assertSame(
+            ['tx_test', 100, 1, 2],
+            \array_slice($messages[0], 0, 4),
+        );
+        self::assertStringContainsString(
+            $blankFailure === null ? 'all vault fields' : 'needs manual review',
+            $messages[0][4],
+        );
+        self::assertStringNotContainsString(
+            $writeFailure->getMessage(),
+            $messages[0][4],
+        );
+        self::assertStringNotContainsString(
+            'synthetic plaintext',
+            $messages[0][4],
+        );
+    }
+
+    /**
+     * @return iterable<string, array{class-string<Throwable>, class-string<Throwable>|null, class-string<Throwable>|null}>
+     */
+    public static function cloneReferenceWriteFailures(): iterable
+    {
+        yield 'exception/update, successful compensation' => [RuntimeException::class, null, null];
+        yield 'error/update, successful compensation' => [Error::class, null, null];
+        yield 'exception/update, exception/blank' => [RuntimeException::class, RuntimeException::class, null];
+        yield 'error/update, error/blank' => [Error::class, Error::class, null];
+        yield 'exception/update, error/blank' => [RuntimeException::class, Error::class, null];
+        yield 'error/update, exception/blank' => [Error::class, RuntimeException::class, null];
+        yield 'exception/update, exception/cleanup' => [RuntimeException::class, null, RuntimeException::class];
+        yield 'exception/update, error/cleanup' => [RuntimeException::class, null, Error::class];
     }
 }

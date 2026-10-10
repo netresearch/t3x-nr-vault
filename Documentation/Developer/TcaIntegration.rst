@@ -425,6 +425,13 @@ record's identifiers — it would otherwise share the original's secrets, and
 rotating or deleting one record would silently change the other. The editor
 gets an error message and re-enters the values.
 
+For regular TCA vault fields, the same compensation applies if storing the fresh
+identifiers in the copied record fails after the secrets were cloned. Every
+created clone is considered for deletion, and clearing the copied record's
+vault fields is attempted. An
+exception or PHP error during that clearing attempt is reported as a failure
+requiring manual review.
+
 Both halves of that rollback are best-effort. If a rollback delete fails, the
 clone it should have removed survives as an orphan that nothing references any
 more; the failure is logged for the administrator rather than shown to the
