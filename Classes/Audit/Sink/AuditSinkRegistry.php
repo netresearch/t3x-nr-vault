@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Audit\Sink;
 
+use Generator;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\AuditIntegrityAlert;
 use Netresearch\NrVault\Audit\AuditIntegrityReason;
@@ -113,21 +114,16 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
 
     public function hasExternalAuditSink(): bool
     {
-        foreach ($this->sinks as $sink) {
-            if ($this->isEnabledSafely($sink)) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->enabledSinks()->valid();
     }
 
     public function getEnabledSinkIdentifiers(): array
     {
         $identifiers = [];
-        foreach ($this->sinks as $sink) {
-            if ($this->isEnabledSafely($sink)) {
-                $identifiers[] = $sink->getIdentifier();
+        foreach ($this->enabledSinks() as $sink) {
+            $identifier = $this->getIdentifierSafely($sink);
+            if ($identifier !== null) {
+                $identifiers[] = $identifier;
             }
         }
 
@@ -145,31 +141,32 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
     }
 
     /**
-     * Run `$publish` against every enabled sink, containing failures per sink.
+     * Run $publish against every enabled sink, containing failures per sink.
      *
      * @param callable(AuditSinkInterface): void $publish
-     * @param array<string, bool|int|string> $logContext Record-identifying facts
-     *                                                   for the failure log and the SINK_FAILURE alert.
-     *                                                   Never carries secret material — the audit entry's
-     *                                                   uid and action, not its payload
+     * @param array<string, bool|int|string> $logContext Non-sensitive record facts
      *
-     * @return int Number of sinks that accepted the record
+     * @return int Number of sinks that physically accepted the record
      */
-    private function fanOut(callable $publish, string $recordKind, array $logContext): int
-    {
+    private function fanOut(
+        callable $publish,
+        string $recordKind,
+        array $logContext,
+    ): int {
         $accepted = 0;
-
-        foreach ($this->sinks as $sink) {
-            if (!$this->isEnabledSafely($sink)) {
-                continue;
-            }
+        foreach ($this->enabledSinks() as $sink) {
+            // Resolve once, outside delivery handling. Metadata failure must
+            // neither prevent publication nor turn acceptance into a failure.
+            $identifier = $this->getIdentifierSafely($sink);
 
             try {
                 $publish($sink);
                 ++$accepted;
-                $this->deliveryState?->recordSuccess($sink->getIdentifier());
+                if ($identifier !== null) {
+                    $this->deliveryState?->recordSuccess($identifier);
+                }
             } catch (Throwable $e) {
-                $this->recordFailure($sink->getIdentifier(), $recordKind, $e, $logContext);
+                $this->recordFailure($identifier, $recordKind, $e, $logContext);
             }
         }
 
@@ -177,45 +174,58 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
     }
 
     /**
-     * A sink whose own `isEnabled()` throws is treated as disabled.
-     *
-     * Without this, a misconfigured sink could throw during the enablement probe
-     * — outside the per-call try/catch — and take the audited operation down,
-     * which is exactly the outcome this registry exists to prevent.
+     * A throwing enablement probe is treated as disabled.
      */
     private function isEnabledSafely(AuditSinkInterface $sink): bool
     {
         try {
             return $sink->isEnabled();
         } catch (Throwable $e) {
-            $this->recordFailure($sink->getIdentifier(), 'enablement-probe', $e, []);
+            $this->recordFailure(
+                $this->getIdentifierSafely($sink),
+                'enablement-probe',
+                $e,
+                [],
+            );
 
             return false;
         }
     }
 
     /**
-     * Log, count, and (unless already delivering an alert) raise a
-     * `SINK_FAILURE` integrity alert.
+     * Count every external evidence failure; attribute only known identifiers.
      *
      * @param array<string, bool|int|string> $logContext
      */
-    private function recordFailure(string $sinkIdentifier, string $recordKind, Throwable $e, array $logContext): void
-    {
+    private function recordFailure(
+        ?string $sinkIdentifier,
+        string $recordKind,
+        Throwable $e,
+        array $logContext,
+    ): void {
         ++$this->failureCount;
-        $this->failuresBySink[$sinkIdentifier] = ($this->failuresBySink[$sinkIdentifier] ?? 0) + 1;
-        $this->deliveryState?->recordFailure($sinkIdentifier, $e->getMessage());
-
-        $this->logErrorSafely(
-            'nr-vault audit sink delivery failed; the database chain entry is unaffected.',
-            [
+        if ($sinkIdentifier !== null) {
+            $this->failuresBySink[$sinkIdentifier] = ($this->failuresBySink[$sinkIdentifier] ?? 0) + 1;
+            $this->deliveryState?->recordFailure(
+                $sinkIdentifier,
+                $e->getMessage(),
+            );
+            $context = [
                 'sink' => $sinkIdentifier,
                 'record' => $recordKind,
                 'error' => $e->getMessage(),
                 'exception' => $e::class,
-            ] + $logContext,
-        );
+            ] + $logContext;
+        } else {
+            // No invented health destination and no raw discovery diagnostics:
+            // an iterator or identity exception can carry configuration data.
+            $context = ['record' => $recordKind, 'exception' => $e::class] + $logContext;
+        }
 
+        $this->logErrorSafely(
+            'nr-vault audit sink delivery failed; the database chain entry is unaffected.',
+            $context,
+        );
         if ($this->dispatchingAlert) {
             return;
         }
@@ -226,23 +236,39 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
     /**
      * @param array<string, bool|int|string> $logContext
      */
-    private function raiseSinkFailureAlert(string $sinkIdentifier, string $recordKind, array $logContext): void
-    {
+    private function raiseSinkFailureAlert(
+        ?string $sinkIdentifier,
+        string $recordKind,
+        array $logContext,
+    ): void {
+        $detail = $sinkIdentifier !== null ? \sprintf(
+            'External audit sink "%s" failed to accept a %s record.',
+            $sinkIdentifier,
+            $recordKind,
+        ) : \sprintf(
+            'External audit evidence failed during a %s operation.',
+            $recordKind,
+        );
+        $context = ['record' => $recordKind] + $logContext;
+        if ($sinkIdentifier !== null) {
+            $context = ['sink' => $sinkIdentifier] + $context;
+        }
+
         $alert = AuditIntegrityAlert::create(
             AuditIntegrityReason::SinkFailure,
-            \sprintf('External audit sink "%s" failed to accept a %s record.', $sinkIdentifier, $recordKind),
-            ['sink' => $sinkIdentifier, 'record' => $recordKind] + $logContext,
+            $detail,
+            $context,
         );
 
         try {
-            $this->eventDispatcher->dispatch(new AuditIntegrityAlertEvent($alert));
+            $this->eventDispatcher->dispatch(
+                new AuditIntegrityAlertEvent($alert),
+            );
         } catch (Throwable $dispatchError) {
+            $context = $sinkIdentifier !== null ? ['sink' => $sinkIdentifier, 'error' => $dispatchError->getMessage()] : ['record' => $recordKind, 'exception' => $dispatchError::class];
             $this->logErrorSafely(
                 'nr-vault could not dispatch the audit sink failure alert.',
-                [
-                    'sink' => $sinkIdentifier,
-                    'error' => $dispatchError->getMessage(),
-                ],
+                $context,
             );
         }
     }
@@ -256,6 +282,38 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
             $this->logger->error($message, $context);
         } catch (Throwable) {
             // Diagnostics must not blind the remaining audit destinations.
+        }
+    }
+
+    /**
+     * Preserve the visited prefix when enumeration fails; the unseen suffix cannot be recovered.
+     *
+     * @return Generator<int, AuditSinkInterface, void, void>
+     */
+    private function enabledSinks(): Generator
+    {
+        try {
+            foreach ($this->sinks as $sink) {
+                if ($this->isEnabledSafely($sink)) {
+                    yield $sink;
+                }
+            }
+        } catch (Throwable $e) {
+            $this->recordFailure(null, 'sink-iterator', $e, []);
+        }
+    }
+
+    /**
+     * An unavailable identity is not a fabricated persisted destination.
+     */
+    private function getIdentifierSafely(AuditSinkInterface $sink): ?string
+    {
+        try {
+            return $sink->getIdentifier();
+        } catch (Throwable $e) {
+            $this->recordFailure(null, 'identifier-probe', $e, []);
+
+            return null;
         }
     }
 }

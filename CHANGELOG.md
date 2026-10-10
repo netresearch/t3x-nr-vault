@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- External audit sink identity and iterator failures cannot abort registry calls. Accepted records survive metadata and later enumeration failures; unattributed failures are counted without inventing persisted destinations or exposing discovery exception text.
+
 - **A failing diagnostic logger cannot stop external audit delivery.** Sink-delivery and alert-listener diagnostics now contain logger exceptions and errors. Delivery-state storage diagnostics do the same, preserving healthy destinations, failure counters, alert attempts and the existing fail-safe bookkeeping contract. The authoritative audit-chain write retains its failure contract.
 
 ### Added

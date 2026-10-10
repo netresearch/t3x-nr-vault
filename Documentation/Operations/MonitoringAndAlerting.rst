@@ -356,7 +356,20 @@ sink identifier (``syslog``, ``file``, ``webhook``). These are what let a
 health surface say "the audit pipeline stopped flowing" rather than only
 "something logged an error".
 
-Two behaviours to know about when reading them:
+The total also includes failures whose destination cannot be identified.
+If ``getIdentifier()`` throws, the registry records an ``identifier-probe``
+failure and still attempts publication. An accepted record remains accepted;
+the unknown destination is omitted from the identifier list and persisted
+delivery state. No synthetic destination is invented for the per-sink counters.
+Unattributed diagnostics contain the operation and exception class, without
+the raw exception text.
+
+If enumeration of the tagged sinks throws, a ``sink-iterator`` failure is
+recorded. Already accepted records and collected identifiers are retained.
+The iterator's unseen suffix cannot be recovered. The total can therefore
+exceed the sum of the counters for known destinations.
+
+Two further behaviours to know about when reading them:
 
 *   **A sink whose own enablement probe throws is counted as failed and
     treated as disabled** — under the record kind ``enablement-probe``. Without
