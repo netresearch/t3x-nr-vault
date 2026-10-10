@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Syslog probes describe publication rather than acknowledged delivery.** The operator manual explains that PHP cannot confirm receipt by the logging service or collector. Isolated tests verify all five severity mappings, configured identity, facility and the open/write/close sequence; a missing write is now detected.
 
+- **The overview checks the configured master-key provider.** A missing file or an invalid provider no longer reports healthy through an unrelated TYPO3 encryption-key fallback. The health probe selects the same provider as the encryption dependency; functional tests exercise the real provider factory, including a readable configured-file counterpart.
+
 ## [1.1.0] - 2026-09-29
 
 ### Added
