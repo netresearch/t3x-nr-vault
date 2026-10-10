@@ -125,10 +125,13 @@ final class SinkDeliveryStateRepository implements SinkDeliveryStateRepositoryIn
 
     private function logFailedBookkeeping(string $sinkIdentifier, Throwable $e): void
     {
-        // Fail-safe: bookkeeping must never fail the audited operation.
-        $this->logger->warning(
-            'nr-vault could not read/write the persisted sink delivery state.',
-            ['sink' => $sinkIdentifier, 'error' => $e->getMessage()],
-        );
+        try {
+            $this->logger->warning(
+                'nr-vault could not read/write the persisted sink delivery state.',
+                ['sink' => $sinkIdentifier, 'error' => $e->getMessage()],
+            );
+        } catch (Throwable) {
+            // Optional diagnostics must remain fail-safe, including logger failures.
+        }
     }
 }

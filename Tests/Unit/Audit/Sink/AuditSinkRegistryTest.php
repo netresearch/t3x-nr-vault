@@ -22,6 +22,7 @@ use Netresearch\NrVault\Event\AuditIntegrityAlertEvent;
 use Netresearch\NrVault\Exception\AuditSinkException;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
@@ -429,6 +430,175 @@ final class AuditSinkRegistryTest extends TestCase
 
         self::assertSame([], $deliveryState->successes);
         self::assertSame([['broken', 'collector unreachable']], $deliveryState->failures);
+    }
+
+    /**
+     * @param class-string<Throwable> $loggerFailureClass
+     */
+    #[Test]
+    #[DataProvider('throwingDiagnosticOperations')]
+    public function throwingLoggerCannotInterruptHealthySinkDelivery(
+        string $operation,
+        string $loggerFailureClass,
+    ): void {
+        $sinkFailure = new RuntimeException('synthetic sink unavailable');
+        $loggerFailure = new $loggerFailureClass('synthetic logger unavailable');
+        $listenerFailure = new Error('synthetic listener unavailable');
+        $broken = new SpyAuditSink(
+            'broken',
+            throwOnPublish: \in_array($operation, ['entry', 'listener'], true) ? $sinkFailure : null,
+            throwOnAnchor: $operation === 'anchor' ? $sinkFailure : null,
+            throwOnAlert: $operation === 'alert' ? $sinkFailure : null,
+            throwOnIsEnabled: \in_array($operation, ['enabled', 'identifiers'], true) ? $sinkFailure : null,
+        );
+        $healthy = new SpyAuditSink('healthy');
+        $diagnostics = [];
+        $logger = self::createStub(LoggerInterface::class);
+        $logger
+            ->method('error')
+            ->willReturnCallback(
+                static function (
+                    string|Stringable $message,
+                    array $context,
+                ) use (&$diagnostics, $operation, $loggerFailure): void {
+                    $diagnostics[] = ['message' => (string) $message, 'context' => $context];
+                    if ($operation !== 'listener' || \count($diagnostics) % 2 === 0) {
+                        throw $loggerFailure;
+                    }
+                },
+            );
+        $events = [];
+        $dispatcher = new ForwardingEventDispatcher(
+            static function (
+                AuditIntegrityAlertEvent $event,
+            ) use (&$events, $operation, $listenerFailure): void {
+                $events[] = $event;
+                if ($operation === 'listener') {
+                    throw $listenerFailure;
+                }
+            },
+        );
+        $state = new RecordingDeliveryState();
+        $subject = $this->createSubject([$broken, $healthy], $logger, $dispatcher, $state);
+        $caught = null;
+        $results = [];
+
+        try {
+            // A second call also proves alert delivery releases its reentrancy guard.
+            for ($attempt = 0; $attempt < 2; ++$attempt) {
+                $results[] = match ($operation) {
+                    'anchor' => $subject->dispatchAnchor(
+                        new ChainTipAnchor(42, 'tip', 1750000000, 3),
+                    ),
+                    'alert' => $subject->dispatchAlert(
+                        AuditIntegrityAlert::create(
+                            AuditIntegrityReason::TableReset,
+                            'synthetic reset',
+                        ),
+                    ),
+                    'enabled' => $subject->hasExternalAuditSink(),
+                    'identifiers' => $subject->getEnabledSinkIdentifiers(),
+                    default => $subject->dispatch($this->createEntry(), 'tip'),
+                };
+            }
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+
+        // Assertions belong outside every deliberately contained callback.
+        self::assertNull(
+            $caught,
+            'Diagnostics must not escape the never-throws registry contract.',
+        );
+        $expected = match ($operation) {
+            'enabled' => true,
+            'identifiers' => ['healthy'],
+            default => 1,
+        };
+        self::assertSame([$expected, $expected], $results);
+        self::assertSame(2, $subject->getFailureCount());
+        self::assertSame(['broken' => 2], $subject->getFailureCountsBySink());
+        self::assertCount($operation === 'alert' ? 0 : 2, $events);
+        foreach ($events as $event) {
+            self::assertSame(
+                AuditIntegrityReason::SinkFailure,
+                $event->getReason(),
+            );
+            self::assertSame('broken', $event->getAlert()->context['sink']);
+        }
+
+        self::assertCount($operation === 'listener' ? 4 : 2, $diagnostics);
+        $record = match ($operation) {
+            'anchor' => 'anchor',
+            'alert' => 'alert',
+            'enabled', 'identifiers' => 'enablement-probe',
+            default => 'entry',
+        };
+        $facts = match ($record) {
+            'entry' => ['uid' => 1, 'action' => 'read'],
+            'anchor' => ['sequence' => 42],
+            'alert' => ['reason' => AuditIntegrityReason::TableReset->value],
+            default => [],
+        };
+        foreach ($diagnostics as $index => $diagnostic) {
+            if ($operation === 'listener' && $index % 2 === 1) {
+                self::assertSame(
+                    'nr-vault could not dispatch the audit sink failure alert.',
+                    $diagnostic['message'],
+                );
+                self::assertSame(
+                    [
+                        'sink' => 'broken',
+                        'error' => $listenerFailure->getMessage(),
+                    ],
+                    $diagnostic['context'],
+                );
+            } else {
+                self::assertSame(
+                    'nr-vault audit sink delivery failed; the database chain entry is unaffected.',
+                    $diagnostic['message'],
+                );
+                self::assertSame(
+                    [
+                        'sink' => 'broken',
+                        'record' => $record,
+                        'error' => $sinkFailure->getMessage(),
+                        'exception' => $sinkFailure::class,
+                    ] + $facts,
+                    $diagnostic['context'],
+                );
+            }
+        }
+
+        self::assertSame(
+            [
+                ['broken', $sinkFailure->getMessage()],
+                ['broken', $sinkFailure->getMessage()],
+            ],
+            $state->failures,
+        );
+        $delivering = \in_array($operation, ['entry', 'listener', 'anchor', 'alert'], true);
+        self::assertSame(
+            $delivering ? ['healthy', 'healthy'] : [],
+            $state->successes,
+        );
+        self::assertSame(
+            \in_array($operation, ['entry', 'listener'], true) ? 2 : 0,
+            $healthy->publishCalls,
+        );
+        self::assertSame($operation === 'anchor' ? 2 : 0, $healthy->anchorCalls);
+        self::assertSame($operation === 'alert' ? 2 : 0, $healthy->alertCalls);
+    }
+
+    /**
+     * @return iterable<string, array{string, class-string<Throwable>}>
+     */
+    public static function throwingDiagnosticOperations(): iterable
+    {
+        foreach (['entry', 'anchor', 'alert', 'enabled', 'identifiers', 'listener'] as $operation) {
+            yield $operation . '/RuntimeException' => [$operation, RuntimeException::class];
+            yield $operation . '/Error' => [$operation, Error::class];
+        }
     }
 
     /**

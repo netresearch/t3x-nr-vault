@@ -206,7 +206,7 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
         $this->failuresBySink[$sinkIdentifier] = ($this->failuresBySink[$sinkIdentifier] ?? 0) + 1;
         $this->deliveryState?->recordFailure($sinkIdentifier, $e->getMessage());
 
-        $this->logger->error(
+        $this->logErrorSafely(
             'nr-vault audit sink delivery failed; the database chain entry is unaffected.',
             [
                 'sink' => $sinkIdentifier,
@@ -237,11 +237,25 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
         try {
             $this->eventDispatcher->dispatch(new AuditIntegrityAlertEvent($alert));
         } catch (Throwable $dispatchError) {
-            // A throwing listener must not escalate into the audited operation.
-            $this->logger->error(
+            $this->logErrorSafely(
                 'nr-vault could not dispatch the audit sink failure alert.',
-                ['sink' => $sinkIdentifier, 'error' => $dispatchError->getMessage()],
+                [
+                    'sink' => $sinkIdentifier,
+                    'error' => $dispatchError->getMessage(),
+                ],
             );
+        }
+    }
+
+    /**
+     * @param array<string, bool|int|string> $context
+     */
+    private function logErrorSafely(string $message, array $context): void
+    {
+        try {
+            $this->logger->error($message, $context);
+        } catch (Throwable) {
+            // Diagnostics must not blind the remaining audit destinations.
         }
     }
 }
