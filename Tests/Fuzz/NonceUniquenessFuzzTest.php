@@ -4,12 +4,12 @@
  * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Fuzz;
 
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Crypto\EncryptionAlgorithm;
 use Netresearch\NrVault\Crypto\EncryptionService;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -49,10 +49,10 @@ final class NonceUniquenessFuzzTest extends TestCase
         $provider->method('getMasterKey')->willReturnCallback(fn (): string => $this->masterKey);
 
         $xchachaConfig = $this->createStub(ExtensionConfigurationInterface::class);
-        $xchachaConfig->method('preferXChaCha20')->willReturn(true);
+        $xchachaConfig->method('getEncryptionAlgorithm')->willReturn('xchacha20poly1305');
 
         $aesConfig = $this->createStub(ExtensionConfigurationInterface::class);
-        $aesConfig->method('preferXChaCha20')->willReturn(false);
+        $aesConfig->method('getEncryptionAlgorithm')->willReturn('aes256gcm');
 
         $this->xchacha = new EncryptionService($provider, $xchachaConfig);
         $this->aes = new EncryptionService($provider, $aesConfig);
@@ -122,6 +122,11 @@ final class NonceUniquenessFuzzTest extends TestCase
         $valueNonces = [];
         for ($i = 0; $i < self::ITERATIONS; $i++) {
             $encrypted = $this->aes->encrypt($plaintext, $identifier);
+            self::assertSame(EncryptionAlgorithm::Aes256Gcm, $encrypted->encryptionAlgorithm);
+            self::assertSame(
+                SODIUM_CRYPTO_AEAD_AES256GCM_NPUBBYTES,
+                \strlen((string) base64_decode($encrypted->valueNonce, true)),
+            );
             $valueNonces[$encrypted->valueNonce] = true;
         }
 
@@ -151,6 +156,11 @@ final class NonceUniquenessFuzzTest extends TestCase
         $dekNonces = [];
         for ($i = 0; $i < self::ITERATIONS; $i++) {
             $encrypted = $this->aes->encrypt($plaintext, $identifier);
+            self::assertSame(EncryptionAlgorithm::Aes256Gcm, $encrypted->encryptionAlgorithm);
+            self::assertSame(
+                SODIUM_CRYPTO_AEAD_AES256GCM_NPUBBYTES,
+                \strlen((string) base64_decode($encrypted->dekNonce, true)),
+            );
             $dekNonces[$encrypted->dekNonce] = true;
         }
 
