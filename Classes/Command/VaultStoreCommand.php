@@ -44,7 +44,7 @@ final class VaultStoreCommand extends Command
             ->addArgument(
                 'identifier',
                 InputArgument::REQUIRED,
-                'Unique identifier for the secret (alphanumeric, underscores, max 255 chars)',
+                'Unique secret identifier: friendly name, UUIDv7, or site:<siteIdentifier>:<friendlyName> (max 255 bytes; new namespaces require the exact configured site)',
             )
             ->addOption(
                 'value',

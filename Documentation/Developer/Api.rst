@@ -86,7 +86,7 @@ The main service for interacting with the vault.
       Store a secret in the vault. ``$secret`` is a
       ``#[\SensitiveParameter]``.
 
-      :param string $identifier: Unique identifier for the secret.
+      :param string $identifier: Friendly name, UUIDv7 or canonical ``site:<siteIdentifier>:<friendlyName>``; at most 255 bytes. A new namespace requires the exact configured site.
       :param string $secret: The secret value to store (``#[\SensitiveParameter]``).
       :param array $options: Optional configuration: ``owner`` (int BE-user UID), ``groups`` (int[] BE-group UIDs), ``context`` (string), ``expiresAt`` (int|\DateTimeInterface|null), ``metadata`` (array), ``description`` (string), ``scopePid`` (int).
       :throws ValidationException: If the identifier is invalid.
@@ -96,6 +96,15 @@ The main service for interacting with the vault.
       Operation permissions and the per-secret ACL are two independent gates.
       Holding one never implies the other, and both are asserted before the
       value is written.
+
+      The site component accepts 1--80 ASCII letters, digits, underscores and
+      hyphens, beginning with a letter or digit. The friendly name begins with
+      an ASCII letter and contains only letters, digits and underscores, with
+      at least three characters. Existing encrypted namespaces remain writable
+      after site rename/delete; their authenticated name is never changed
+      automatically. Database collation may compare different case spellings
+      equally; use the stored canonical spelling. See
+      :ref:`Site secret namespaces <usage-site-secret-namespaces>`.
 
    .. php:method:: retrieve(string $identifier)
 
@@ -656,7 +665,7 @@ requiring the extra credential must fail closed when the capability is absent.
       body field.
       Authentication, OAuth, reason and timeout clones preserve these bindings.
 
-      :param string $secretIdentifier: Canonical Vault UUID v7, or a 3–255 byte ASCII alias beginning with a letter and containing only letters, numbers and underscores. ASCII control characters are refused.
+      :param string $secretIdentifier: Canonical Vault UUIDv7, a 3–255 byte ASCII friendly name, or ``site:<siteIdentifier>:<friendlyName>`` using the storage grammar. ASCII control characters are refused. Site existence is checked when creating the credential, not when binding an existing identifier to the request.
       :param string $bodyField: Simple ASCII field name matching ``[A-Za-z_][A-Za-z0-9_]{0,63}``.
       :returns: A new client retaining the existing primary authentication.
       :throws InvalidArgumentException: Malformed identifiers or names, duplicate fields, a collision with the primary BodyField, or more than eight bindings.

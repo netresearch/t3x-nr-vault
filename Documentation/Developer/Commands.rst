@@ -77,7 +77,10 @@ Arguments
 ---------
 
 identifier
-   Unique identifier for the secret.
+   Friendly name, UUIDv7 or exact ``site:<siteIdentifier>:<friendlyName>``
+   namespace, at most 255 bytes in total. New namespaces require the exact
+   configured TYPO3 site. See
+   :ref:`Site secret namespaces <usage-site-secret-namespaces>`.
 
 .. _command-store-options:
 

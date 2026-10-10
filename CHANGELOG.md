@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Project-authored source files state their licence and copyright holder.** The documentation, templates, XLIFF, JavaScript, CSS, configuration and scripts written for this extension now carry `SPDX-License-Identifier: GPL-2.0-or-later` and `SPDX-FileCopyrightText: Netresearch DTT GmbH`, as the PHP files already did; the files synced from the organisation template carry its MIT notice. Copied files (`CODE_OF_CONDUCT.md`, `Build/Scripts/runTests.sh`, `Build/Scripts/verify-harness.sh`), generated files (`Build/phpstan-baseline.neon`, `Tests/Unit/Api/api-surface.txt`), the issue and pull-request templates, `.github/template.yaml`, the workflows `ci.yml` and `release.yml`, `LICENSE`, the JSON files, the CSV fixtures, the images and the empty `.gitkeep` carry none. `CONTRIBUTING.md` links the organisation's governance, roadmap, access roster, secret management and findings policies and lists the checks its workflows run on pull requests; `SECURITY.md` points to the findings policy.
 
+### Fixed
+
+- **Site-scoped credentials can be created through the supported storage paths.**
+  The store API, CLI and Vault table accept exact `site:<siteIdentifier>:<friendlyName>`
+  namespaces for configured sites. Existing credentials retain their authenticated
+  names and remain administrable after site rename/delete. Read-time resolution
+  falls back to a global credential only for an actually missing namespaced row;
+  denial, disabled state, expiry or decryption failure leaves the placeholder unresolved.
+
 ## [1.1.0] - 2026-09-29
 
 ### Added
