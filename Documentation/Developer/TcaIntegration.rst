@@ -471,8 +471,12 @@ neither will have the mutation refused, and the refusal is audited — see
 The reveal button requires explicit user action and is logged. Revealing also
 asserts ``secret.reveal``, which ``secret.use`` does not imply.
 
-On top of both gates, page TSconfig can narrow what the *widget* offers, per
-table and per field:
+On top of both gates, global (page 0) TSconfig can narrow field actions per
+table and field. The service resolves a field setting before the table default,
+then the global default; missing settings allow reveal, copy and edit, and
+leave the field writable. It does not read the edited record's page TSconfig.
+The same rules can be supplied as ``page.vault.permissions`` overrides in
+backend user TSconfig. For example:
 
 .. code-block:: typoscript
    :caption: Page TSconfig
@@ -498,9 +502,13 @@ table and per field:
        }
    }
 
-This layer only ever removes affordances from the form; it cannot grant an
-operation the permission gates withheld. Administrators are exempt from it,
-except for ``readOnly``.
+These rules cannot grant an operation that the vault permission gates
+withheld. ``reveal`` and ``copy`` control the widget. ``edit`` and ``readOnly``
+also protect the plain TCA-field DataHandler write path; FlexForm writes do
+not re-check this layer. Administrators bypass the restrictions: reveal, copy
+and edit remain allowed, and ``readOnly`` is always false. Non-admin results
+are cached separately by table, field, action and user UID until
+``VaultFieldPermissionService::clearCache()`` clears that service cache.
 
 .. _tca-security-audit:
 
