@@ -30,8 +30,18 @@ TYPO3 extensions commonly store API keys and credentials in extension settings
 (defined in :file:`ext_conf_template.txt`, managed via
 :guilabel:`Admin Tools > Settings > Extension Configuration`).
 
-These settings are stored in the database (:sql:`sys_registry` table in v12+)
-and loaded into :php:`$GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']` at runtime.
+These settings are persisted in TYPO3's local system configuration and loaded
+into :php:`$GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']` at runtime.
+
+.. note::
+
+   Current storage on the supported TYPO3 13 and 14 majors: Core's
+   ``ExtensionConfiguration::set()`` writes the ``EXTENSIONS/<extension>``
+   path through ``ConfigurationManager::setLocalConfigurationValueByPath()``.
+   The settings belong to the deployment's configuration files and backups,
+   not ``sys_registry``. The configuration filename depends on the TYPO3
+   version and project layout; consuming services should use
+   ``ExtensionConfiguration::get()`` instead of reading a file themselves.
 
 Challenges
 ----------
@@ -53,7 +63,8 @@ Decision
 Store **vault identifiers** (not secrets) in extension settings. The identifier
 is resolved to the actual secret only at use time via :php:`VaultHttpClient`.
 
-Two patterns are supported depending on use case:
+This decision records two patterns. Pattern A is implemented; Pattern B remains
+a proposed helper API, as described in its implementation-status note.
 
 Pattern A: Direct identifier (recommended)
 ------------------------------------------
@@ -80,6 +91,12 @@ Used directly with :php:`withAuthentication()`:
 
 Pattern B: Prefixed reference (optional)
 ----------------------------------------
+
+.. note::
+
+   Implementation status (2026-10-10): the ``VaultReference`` helper described
+   below has not been implemented. Pattern A is the supported integration.
+   This section records the accepted design, not an available parsing API.
 
 For mixed settings, explicit documentation, or **migration from plaintext to vault**:
 
@@ -151,7 +168,7 @@ The extension setting stores only the **identifier**, never the secret:
 .. code-block:: text
    :caption: What gets stored where
 
-   sys_registry (extension config):
+   TYPO3 local system configuration (extension config):
      apiKey = "acme_translate_api_key"    ← Just the identifier
 
    tx_nrvault_secret (vault):
@@ -174,7 +191,7 @@ Store actual secrets in extension config
 
 - Secrets persist in ``$GLOBALS`` for entire request
 - No ``sodium_memzero()`` cleanup possible
-- Secrets visible in database (sys_registry)
+- Secrets visible in deployment configuration files
 - May leak to logs, backups, version control
 
 Custom user field type with vault UI
