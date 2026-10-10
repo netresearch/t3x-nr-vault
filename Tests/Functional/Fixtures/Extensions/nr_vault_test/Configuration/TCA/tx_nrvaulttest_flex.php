@@ -95,6 +95,14 @@ return [
                     : ['default' => $dataStructure],
             ],
         ],
+        'settings_extra' => [
+            'label' => 'Second settings column for identity-wide sharing probes',
+            'l10n_mode' => 'exclude',
+            'config' => [
+                'type' => 'flex',
+                'ds' => (new Typo3Version())->getMajorVersion() >= 14 ? $dataStructure : ['default' => $dataStructure],
+            ],
+        ],
     ],
     'types' => [
         '0' => ['showitem' => 'title, settings'],

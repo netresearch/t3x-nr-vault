@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- FlexForm hard deletion preflights every unique, unshared secret before the first delete. Refused discovery, authorization or deletion retains the owning record and stops further deletes. The failure diagnostic discloses that secrets may already have been deleted, including a current delete whose post-persistence observer throws. Soft-delete/recycle still retains FlexForm secrets for restoration. See ADR-045.
+
 ### Added
 
 - **Combine primary HTTP authentication with separately stored body credentials.** The optional `AdditionalSecretHttpClientInterface::withAdditionalBodyField()` capability adds a Vault identifier to a simple form or JSON-object field inside the existing secured send boundary. Authentication, OAuth, reason and timeout clones preserve up to eight bindings; duplicate names, primary BodyField collisions and malformed bindings are refused. Blocking, cancellable and streaming sends share injection, cancellation and audit behavior. A denied additional read prevents transport contact, and existing `VaultHttpClientInterface` signatures remain unchanged. See ADR-041.
