@@ -210,6 +210,22 @@ The main service for interacting with the vault.
       :param bool $includeDisabled: Also return disabled secrets. Off by default, so a consumer asking which secrets are available keeps the answer it had; the management surfaces pass ``true``, because a disabled secret that never appears in a listing cannot be re-enabled.
       :returns: A ``list<SecretMetadata>`` of secret metadata DTOs (``Netresearch\NrVault\Domain\Dto\SecretMetadata``); each entry reports its availability in ``$enabled``.
 
+      The pattern matches the entire identifier.
+      Each ``*`` matches zero or more characters, at any position.
+      Without a star, the pattern matches the complete identifier; for example,
+      ``payment_key`` does not select ``payment_key_backup``.
+      ``null`` omits filtering, ``*`` selects every accessible identifier, and an
+      empty string selects none.
+      SQL wildcard characters ``%`` and ``_`` are literal characters here.
+      The service also enforces the pattern when an older storage adapter
+      ignores the optional filter field.
+      Its ASCII case folding preserves case-insensitive database matches;
+      a backend's own case rules may already select fewer candidates.
+      Matching follows the database's existing LIKE semantics.
+      The filter preserves secret access checks, disabled-record visibility and
+      soft-delete restrictions.
+      See :ref:`adr-042-identifier-list-patterns` for the acceptance specification.
+
    .. php:method:: getMetadata(string $identifier): SecretDetails
 
       Get metadata for a secret without retrieving its value. Resolves a

@@ -475,13 +475,14 @@ Netresearch\NrVault\Domain\Dto\SecretDetails (class)
   property readonly version: int
 
 Netresearch\NrVault\Domain\Dto\SecretFilters (class)
-  constructor(?int $owner = …, ?string $prefix = …, ?string $context = …, ?int $scopePid = …, bool $includeDisabled = …)
+  constructor(?int $owner = …, ?string $prefix = …, ?string $context = …, ?int $scopePid = …, bool $includeDisabled = …, ?string $pattern = …)
   method hasFilters(): bool
   method static fromArray(array $filters): self
   method toArray(): array
   property readonly context: ?string
   property readonly includeDisabled: bool
   property readonly owner: ?int
+  property readonly pattern: ?string
   property readonly prefix: ?string
   property readonly scopePid: ?int
 

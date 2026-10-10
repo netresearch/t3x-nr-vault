@@ -12,8 +12,8 @@ namespace Netresearch\NrVault\Domain\Dto;
 /**
  * Data Transfer Object for secret filtering criteria.
  *
- * Replaces array{owner?: int, prefix?: string, context?: string, scopePid?: int}
- * for type-safe filtering in repository and adapter layers.
+ * The prefix is always literal. The pattern matches the entire identifier with
+ * only * as a wildcard. Supplying both combines them as narrowing filters.
  */
 readonly class SecretFilters
 {
@@ -32,12 +32,13 @@ readonly class SecretFilters
         public ?string $context = null,
         public ?int $scopePid = null,
         public bool $includeDisabled = false,
+        public ?string $pattern = null,
     ) {}
 
     /**
      * Create from array (for backwards compatibility).
      *
-     * @param array{owner?: int, prefix?: string, context?: string, scopePid?: int, includeDisabled?: bool} $filters
+     * @param array{owner?: int, prefix?: string, context?: string, scopePid?: int, includeDisabled?: bool, pattern?: string} $filters
      */
     public static function fromArray(array $filters): self
     {
@@ -47,6 +48,7 @@ readonly class SecretFilters
             context: $filters['context'] ?? null,
             scopePid: $filters['scopePid'] ?? null,
             includeDisabled: $filters['includeDisabled'] ?? false,
+            pattern: $filters['pattern'] ?? null,
         );
     }
 
@@ -62,17 +64,21 @@ readonly class SecretFilters
         return $this->owner !== null
             || $this->prefix !== null
             || $this->context !== null
-            || $this->scopePid !== null;
+            || ($this->scopePid !== null || $this->pattern !== null);
     }
 
     /**
      * Convert to array for legacy APIs.
      *
-     * @return array{owner?: int, prefix?: string, context?: string, scopePid?: int, includeDisabled?: bool}
+     * @return array{owner?: int, prefix?: string, context?: string, scopePid?: int, includeDisabled?: bool, pattern?: string}
      */
     public function toArray(): array
     {
         $result = [];
+        if ($this->pattern !== null) {
+            $result['pattern'] = $this->pattern;
+        }
+
         if ($this->owner !== null) {
             $result['owner'] = $this->owner;
         }

@@ -13,6 +13,7 @@ use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
 
 /**
@@ -331,6 +332,10 @@ final readonly class SecretRepository implements SecretRepositoryInterface
                     $queryBuilder->expr()->eq('scope_pid', $queryBuilder->createNamedParameter($filters->scopePid, Connection::PARAM_INT)),
                 );
             }
+
+            if ($filters->pattern !== null) {
+                $this->applyIdentifierPattern($queryBuilder, $filters->pattern);
+            }
         }
 
         $queryBuilder->orderBy('identifier', 'ASC');
@@ -519,6 +524,10 @@ final readonly class SecretRepository implements SecretRepositoryInterface
                 $queryBuilder->andWhere(
                     $queryBuilder->expr()->eq('scope_pid', $queryBuilder->createNamedParameter($filters->scopePid, Connection::PARAM_INT)),
                 );
+            }
+
+            if ($filters->pattern !== null) {
+                $this->applyIdentifierPattern($queryBuilder, $filters->pattern);
             }
         }
 
@@ -727,5 +736,20 @@ final readonly class SecretRepository implements SecretRepositoryInterface
     private function getMmConnection(string $mmTable = self::MM_TABLE_NAME): Connection
     {
         return $this->connectionPool->getConnectionForTable($mmTable);
+    }
+
+    /**
+     * Match the whole identifier; only the documented * is a wildcard.
+     */
+    private function applyIdentifierPattern(
+        QueryBuilder $queryBuilder,
+        string $pattern,
+    ): void {
+        $sqlPattern = str_replace('*', '%', $queryBuilder->escapeLikeWildcards($pattern));
+        $queryBuilder->andWhere(
+            $queryBuilder
+                ->expr()
+                ->like('identifier', $queryBuilder->createNamedParameter($sqlPattern)),
+        );
     }
 }
