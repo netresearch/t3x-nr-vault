@@ -215,7 +215,7 @@ jobs:
 
       - name: Upload verification artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: evidence-inputs-checks
           path: stage/
@@ -384,7 +384,7 @@ jobs:
             "${targets[@]}"
 
       - name: Upload shard coverage
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-shard-unit-${{ matrix.shard }}
           path: .Build/coverage/*.cov
@@ -440,7 +440,7 @@ jobs:
             --coverage-php=.Build/coverage/functional.cov
 
       - name: Upload functional coverage
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-shard-functional
           path: .Build/coverage/functional.cov
@@ -569,7 +569,7 @@ jobs:
 
       - name: Upload coverage artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: evidence-inputs-coverage
           path: stage/
@@ -713,7 +713,7 @@ jobs:
 
       - name: Upload mutation artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: evidence-inputs-mutation
           path: stage/
@@ -890,7 +890,7 @@ jobs:
 
       - name: Upload posture artifact
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: evidence-inputs-doctor
           path: stage/
@@ -1035,7 +1035,7 @@ jobs:
           subject-path: ${{ steps.assemble.outputs.tarball }}
 
       - name: Upload evidence bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           # A tagged run keeps the name SECURITY.md documents
           # (release-evidence-v1.2.3); a pre-release check is named after its
