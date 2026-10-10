@@ -26,6 +26,9 @@ final class IdentifierValidator
     /** UUID v7 pattern for TCA/FlexForm vault field identifiers. */
     private const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
 
+    /** Exact site namespace; ordinary identifier validation stays unchanged. */
+    private const SITE_PATTERN = '/\Asite:([a-zA-Z0-9][a-zA-Z0-9_-]{0,79}):([a-zA-Z][a-zA-Z0-9_]{2,})\z/';
+
     /**
      * Validate a secret identifier.
      *
@@ -163,5 +166,50 @@ final class IdentifierValidator
         }
 
         return $identifier;
+    }
+
+    /**
+     * Accept canonical site namespaces at explicit storage boundaries, while
+     * keeping generic TCA reference detection and friendly/UUID validation intact.
+     *
+     * @throws ValidationException
+     */
+    public static function validateForStorage(string $identifier): void
+    {
+        if (!str_starts_with($identifier, 'site:')) {
+            self::validate($identifier);
+
+            return;
+        }
+
+        if (self::getSiteIdentifier($identifier) === null) {
+            throw ValidationException::invalidIdentifier(
+                $identifier,
+                'must be site:<siteIdentifier>:<friendlyName>, with an ASCII site component of 1-80 characters, a friendly name of at least 3 characters, and at most 255 bytes in total',
+            );
+        }
+    }
+
+    public static function isValidForStorage(string $identifier): bool
+    {
+        try {
+            self::validateForStorage($identifier);
+
+            return true;
+        } catch (ValidationException) {
+            return false;
+        }
+    }
+
+    /**
+     * Return the exact site name of a valid canonical storage namespace.
+     */
+    public static function getSiteIdentifier(string $identifier): ?string
+    {
+        if (\strlen($identifier) > self::MAX_LENGTH || preg_match(self::SITE_PATTERN, $identifier, $matches) !== 1) {
+            return null;
+        }
+
+        return $matches[1];
     }
 }

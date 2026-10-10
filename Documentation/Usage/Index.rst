@@ -279,6 +279,51 @@ allowing you to configure them through the familiar site settings.
    access for every reader. Passing the :php:`$site` object also enables
    site-scoped identifiers (``site:<siteIdentifier>:<secret>``).
 
+.. _usage-site-secret-namespaces:
+
+Site secret namespaces
+----------------------
+
+To give a configured site its own value, create the canonical identifier
+``site:<siteIdentifier>:<friendlyName>`` through the public store API,
+``vault:store``, or the identifier field on the Vault secret table in the
+backend. For a site named ``main``:
+
+.. code-block:: bash
+   :caption: Create a credential for the configured main site
+
+   vendor/bin/typo3 vault:store site:main:stripe_secret_key --stdin
+
+The site component is 1--80 ASCII letters, digits, underscores or hyphens,
+beginning with a letter or digit. The friendly name is at least three ASCII
+letters, digits or underscores and begins with a letter. The entire identifier
+is at most 255 bytes. Use the exact configured site name, without whitespace,
+extra colons or nested namespaces. Unknown sites cannot create a new namespace.
+
+Resolving ``%vault(stripe_secret_key)%`` with the ``main`` Site object first
+looks for ``site:main:stripe_secret_key``. A global ``stripe_secret_key`` is
+used only when that namespaced row is actually missing. If the row is present
+but denied, expired, disabled, malformed or undecryptable, the placeholder
+stays unresolved and a warning records a bounded failure classification.
+Operational failures and removal between lookup and retrieval also keep the
+placeholder unresolved. Callers must handle that outcome before using the value.
+Without a Site object the ordinary global identifier is resolved.
+
+The namespace grants no permissions: each reader still needs access to that
+secret. A credential for another site is independent, even when the friendly
+name is the same. Generic TCA reference detection on other tables keeps its
+existing rules; accepting the explicit Vault table identifier does not make
+every colon-containing field a Vault reference.
+
+Renaming or deleting a site leaves its existing encrypted credentials under
+their original names. Administrators can still update, rotate, retrieve, write
+a value to a file with ``vault:retrieve --output``, or delete those credentials.
+The old site name cannot establish a new namespace after rename. No automatic
+copy, rename, resealing or deletion occurs. Database identifier comparisons
+follow the configured collation; when a differently spelled namespace occupies
+the same lookup, use its original spelling rather than resealing under an alias.
+See :ref:`ADR-043 <adr-043-site-secret-namespaces>`.
+
 .. _usage-typoscript:
 
 TypoScript integration

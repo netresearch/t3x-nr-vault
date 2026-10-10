@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Configuration;
 
+use Netresearch\NrVault\Domain\Dto\SecretDetails;
+use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -143,39 +145,70 @@ final readonly class SiteConfigurationVaultProcessor implements SiteConfiguratio
     private function resolveVaultReference(string $value, ?Site $site): mixed
     {
         $identifier = $this->extractIdentifier($value);
-
         if ($identifier === null) {
             return $value;
         }
 
-        // Support site-prefixed identifiers: site:{siteIdentifier}:{secretId}
-        // Use exists() first to avoid full retrieval (decrypt + audit) on misses
         if ($site instanceof Site && !str_contains($identifier, ':')) {
             $siteIdentifier = \sprintf('site:%s:%s', $site->getIdentifier(), $identifier);
 
-            if ($this->vaultService->exists($siteIdentifier)) {
+            try {
+                $metadata = $this->vaultService->getMetadata($siteIdentifier);
+            } catch (SecretNotFoundException) {
+                // Only true absence permits the global credential below.
+                $metadata = null;
+            } catch (Throwable $error) {
+                $this->warnUnresolved($site, $error::class);
+
+                return $value;
+            }
+
+            if ($metadata instanceof SecretDetails) {
+                if (!$metadata->enabled) {
+                    $this->warnUnresolved($site, 'disabled');
+
+                    return $value;
+                }
+
                 try {
                     $secret = $this->vaultService->retrieve($siteIdentifier);
-                    if ($secret !== null) {
-                        return $secret;
-                    }
-                } catch (Throwable) {
-                    // Fall through to global identifier
+                } catch (Throwable $error) {
+                    $this->warnUnresolved($site, $error::class);
+
+                    return $value;
                 }
+
+                if ($secret === null) {
+                    // A value removed after metadata lookup is not a fallback grant.
+                    $this->warnUnresolved(
+                        $site,
+                        'unavailable after presence lookup',
+                    );
+
+                    return $value;
+                }
+
+                return $secret;
             }
         }
 
         try {
-            $secret = $this->vaultService->retrieve($identifier);
-
-            return $secret ?? $value;
-        } catch (Throwable $e) {
-            $this->logger->warning('Failed to resolve vault reference', [
-                'site' => $site?->getIdentifier(),
-                'error' => $e->getMessage(),
-            ]);
+            return $this->vaultService->retrieve($identifier) ?? $value;
+        } catch (Throwable $error) {
+            $this->warnUnresolved($site, $error::class);
 
             return $value;
         }
+    }
+
+    /**
+     * Error messages can contain backend details; log a bounded classification.
+     */
+    private function warnUnresolved(?Site $site, string $failure): void
+    {
+        $this->logger->warning(
+            'Failed to resolve vault reference',
+            ['site' => $site?->getIdentifier(), 'error' => $failure],
+        );
     }
 }

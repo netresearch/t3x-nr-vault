@@ -962,7 +962,12 @@ configuration is loaded:
    $stripeKey = $config['settings']['payment']['stripeSecretKey'];
 
 This keeps sensitive values out of version control while allowing configuration
-through the standard TYPO3 site settings.
+through the standard TYPO3 site settings. Passing the Site object enables
+``site:<siteIdentifier>:<friendlyName>`` lookup. Create that namespace through
+the existing store API, CLI or Vault backend table; the exact site must exist
+when creating a new credential. Global fallback applies only to an actually
+missing namespace, never to a denied, disabled or broken value. See
+:ref:`Site secret namespaces <usage-site-secret-namespaces>`.
 
 .. note::
 
