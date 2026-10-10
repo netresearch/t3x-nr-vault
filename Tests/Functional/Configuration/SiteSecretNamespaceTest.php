@@ -269,9 +269,19 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
     {
         $this->configureSite('main', 1);
         $this->storeCanonical('site:main:payment_key', 'synthetic-first');
-        unlink($this->instancePath . '/typo3conf/sites/main/config.yaml');
-        rmdir($this->instancePath . '/typo3conf/sites/main');
-        $this->get(SiteFinder::class)->getAllSites(false);
+        self::assertTrue(
+            GeneralUtility::rmdir(
+                $this->instancePath . '/typo3conf/sites/main',
+                true,
+            ),
+        );
+        self::assertDirectoryDoesNotExist(
+            $this->instancePath . '/typo3conf/sites/main',
+        );
+        self::assertArrayNotHasKey(
+            'main',
+            $this->get(SiteFinder::class)->getAllSites(false),
+        );
         $service = $this->get(VaultServiceInterface::class);
         $service->store('site:main:payment_key', 'synthetic-updated');
         $service->rotate(
