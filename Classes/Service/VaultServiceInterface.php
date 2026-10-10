@@ -74,7 +74,11 @@ interface VaultServiceInterface
     public function retrieveForFrontend(string $identifier): ?string;
 
     /**
-     * Check if a secret exists.
+     * Check existence using the adapter's consumer-availability semantics.
+     *
+     * The default adapter excludes disabled secrets. A false result therefore
+     * does not establish storage absence. Administrative callers can use
+     * getMetadata(), which includes disabled custody and enforces read access.
      */
     public function exists(string $identifier): bool;
 
@@ -101,13 +105,14 @@ interface VaultServiceInterface
      * Exists for callers that delete SEVERAL secrets as one logical unit (the
      * DataHandler record delete across multiple vault fields). A vault delete
      * cannot be undone through the vault, so a partially applied batch cannot be
-     * compensated: the only way to keep such a batch all-or-nothing is to run
-     * every permission gate up front and abort before the first deletion.
+     * compensated: preflight avoids partial batches caused by known permission refusals by
+     * checking every permission gate before the first deletion.
      *
      * A secret that does not exist returns without throwing — the goal state
      * ("no secret under this identifier") is already reached, so deleting it is
      * permitted in the only sense a caller can act on. Callers that need to
-     * distinguish absent from present must ask {@see exists()}.
+     * distinguish absent from disabled custody can use {@see getMetadata()};
+     * consumer availability through {@see exists()} does not establish absence.
      *
      * The gates asserted here are exactly the ones {@see delete()} applies, and
      * the denial is audited the same way. Passing this check does NOT guarantee
@@ -178,7 +183,10 @@ interface VaultServiceInterface
     public function list(?string $pattern = null, bool $includeDisabled = false): array;
 
     /**
-     * Get detailed metadata about a secret.
+     * Get detailed metadata about a secret, including disabled custody.
+     *
+     * This administrative lookup does not decrypt the secret's value. It retains
+     * read authorization; only SecretNotFoundException establishes absence.
      *
      * @throws SecretNotFoundException If secret doesn't exist
      * @throws AccessDeniedException If current user lacks permission

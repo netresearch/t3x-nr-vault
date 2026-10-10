@@ -195,6 +195,19 @@ final class FlexFormVaultHook
             }
 
             foreach ($selected as $identifier => $flexFieldName) {
+                if ($this->vaultService->exists($identifier)) {
+                    continue;
+                }
+
+                try {
+                    // Disabled custody remains administrable without decrypting its value.
+                    $this->vaultService->getMetadata($identifier);
+                } catch (SecretNotFoundException) {
+                    unset($selected[$identifier]);
+                }
+            }
+
+            foreach ($selected as $identifier => $flexFieldName) {
                 $this->vaultService->assertDeletable($identifier);
             }
 
@@ -1316,10 +1329,8 @@ final class FlexFormVaultHook
     }
 
     /**
-     * Extract all vault identifiers from FlexForm XML.
-     *
-     * Uses a broad UUID regex to match any version, then validates each
-     * candidate with IdentifierValidator and existence check.
+     * Extract unique UUID candidates using the existing syntax recognition.
+     * Storage presence is resolved after complete sharing exclusions.
      *
      * @return list<string>
      */
@@ -1334,8 +1345,7 @@ final class FlexFormVaultHook
             $matches,
         )) {
             foreach ($matches[0] as $match) {
-                if (IdentifierValidator::looksLikeVaultIdentifier($match)
-                    && $this->vaultService->exists($match)) {
+                if (IdentifierValidator::looksLikeVaultIdentifier($match)) {
                     $identifiers[] = $match;
                 }
             }

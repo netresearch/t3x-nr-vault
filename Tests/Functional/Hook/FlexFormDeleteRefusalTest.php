@@ -258,6 +258,265 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
         );
     }
 
+    #[Test]
+    public function realCoreDeletesAnOwnedDisabledReferenceWithoutReadingItsValue(): void
+    {
+        $this->grantDeleteOperation();
+        $identifier = $this->seedSecret(1, true);
+        $secrets = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret');
+        $secrets->update(
+            'tx_nrvault_secret',
+            [
+                'encrypted_value' => 'synthetic-invalid-envelope',
+                'encrypted_dek' => 'synthetic-invalid-key',
+                'dek_nonce' => 'synthetic-invalid-nonce',
+                'value_nonce' => 'synthetic-invalid-nonce',
+                'value_checksum' => 'synthetic-checksum',
+                'encryption_version' => 1,
+                'encryption_algorithm' => '',
+            ],
+            ['identifier' => $identifier],
+        );
+        $vault = $this->get(VaultServiceInterface::class);
+        self::assertFalse(
+            $vault->exists($identifier),
+            'Availability lookup excludes disabled rows.',
+        );
+        self::assertFalse(
+            $vault->getMetadata($identifier)->enabled,
+            'Administrative metadata still sees this stored identity.',
+        );
+        $uid = $this->seedRecord([$identifier]);
+        self::assertNull($this->runCoreDelete($uid));
+        self::assertSame(
+            1,
+            $this->secretDeletedFlag($identifier),
+            'Disabled custody must participate in the real Core cascade.',
+        );
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvaulttest_flex')
+                ->count('*', 'tx_nrvaulttest_flex', ['uid' => $uid]),
+        );
+        self::assertSame(
+            1,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvault_audit_log')
+                ->count(
+                    '*',
+                    'tx_nrvault_audit_log',
+                    [
+                        'secret_identifier' => $identifier,
+                        'action' => 'delete',
+                        'success' => 1,
+                    ],
+                ),
+        );
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvault_audit_log')
+                ->count(
+                    '*',
+                    'tx_nrvault_audit_log',
+                    ['secret_identifier' => $identifier, 'action' => 'read'],
+                ),
+        );
+    }
+
+    #[Test]
+    public function deniedDisabledReferenceKeepsTheRecordAndTheEarlierPermittedReference(): void
+    {
+        $this->grantDeleteOperation();
+        $first = $this->seedSecret(1);
+        $second = $this->seedSecret(2, true);
+        $uid = $this->seedRecord([$first, $second]);
+        self::assertFalse(
+            $this->get(VaultServiceInterface::class)->exists($second),
+        );
+        self::assertNull($this->runCoreDelete($uid));
+        self::assertSame(
+            0,
+            $this->secretDeletedFlag($first),
+            'Discovery of denied disabled custody must precede every deletion.',
+        );
+        self::assertSame(0, $this->secretDeletedFlag($second));
+        self::assertSame(
+            1,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvaulttest_flex')
+                ->count('*', 'tx_nrvaulttest_flex', ['uid' => $uid]),
+        );
+        self::assertSame(
+            1,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvault_audit_log')
+                ->count(
+                    '*',
+                    'tx_nrvault_audit_log',
+                    [
+                        'secret_identifier' => $second,
+                        'action' => 'access_denied',
+                        'success' => 0,
+                    ],
+                ),
+        );
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvault_audit_log')
+                ->count(
+                    '*',
+                    'tx_nrvault_audit_log',
+                    ['action' => 'delete', 'success' => 1],
+                ),
+        );
+    }
+
+    #[Test]
+    public function missingReferenceDoesNotPreventRemovingTheOwningRecord(): void
+    {
+        $this->grantDeleteOperation();
+        $identifier = $this->generateUuidV7();
+        $uid = $this->seedRecord([$identifier]);
+        self::assertNull($this->runCoreDelete($uid));
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvaulttest_flex')
+                ->count('*', 'tx_nrvaulttest_flex', ['uid' => $uid]),
+        );
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvault_secret')
+                ->count('*', 'tx_nrvault_secret', ['identifier' => $identifier]),
+        );
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvault_audit_log')
+                ->count('*', 'tx_nrvault_audit_log', ['action' => 'delete']),
+        );
+    }
+
+    #[Test]
+    public function alreadyDeletedReferenceDoesNotReturnToTheCascade(): void
+    {
+        $this->grantDeleteOperation();
+        $identifier = $this->seedSecret(1, true);
+        $this
+            ->getConnectionPool()
+            ->getConnectionForTable('tx_nrvault_secret')
+            ->update('tx_nrvault_secret', ['deleted' => 1], ['identifier' => $identifier]);
+        $uid = $this->seedRecord([$identifier]);
+        self::assertNull($this->runCoreDelete($uid));
+        self::assertSame(1, $this->secretDeletedFlag($identifier));
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvaulttest_flex')
+                ->count('*', 'tx_nrvaulttest_flex', ['uid' => $uid]),
+        );
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvault_audit_log')
+                ->count('*', 'tx_nrvault_audit_log', ['action' => 'delete']),
+        );
+    }
+
+    #[Test]
+    public function sharedDisabledReferenceRemainsStoredForTheOtherRecord(): void
+    {
+        $this->grantDeleteOperation();
+        $identifier = $this->seedSecret(1, true);
+        $uid = $this->seedRecord([$identifier]);
+        $other = $this->seedRecord([$identifier]);
+        self::assertNull($this->runCoreDelete($uid));
+        self::assertSame(0, $this->secretDeletedFlag($identifier));
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvaulttest_flex')
+                ->count('*', 'tx_nrvaulttest_flex', ['uid' => $uid]),
+        );
+        self::assertSame(
+            1,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvaulttest_flex')
+                ->count('*', 'tx_nrvaulttest_flex', ['uid' => $other]),
+        );
+        self::assertFalse(
+            $this->get(VaultServiceInterface::class)->getMetadata($identifier)->enabled,
+        );
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvault_audit_log')
+                ->count('*', 'tx_nrvault_audit_log', ['action' => 'delete']),
+        );
+    }
+
+    #[Test]
+    public function foreignOwnedSharedDisabledReferenceNeedsNoMetadataAuthorization(): void
+    {
+        $this->grantDeleteOperation();
+        $identifier = $this->seedSecret(2, true);
+        $uid = $this->seedRecord([$identifier]);
+        $other = $this->seedRecord([$identifier]);
+        self::assertFalse(
+            $this->get(VaultServiceInterface::class)->exists($identifier),
+        );
+        self::assertNull($this->runCoreDelete($uid));
+        self::assertSame(0, $this->secretDeletedFlag($identifier));
+        $records = $this->getConnectionPool()->getConnectionForTable('tx_nrvaulttest_flex');
+        self::assertSame(
+            0,
+            $records->count('*', 'tx_nrvaulttest_flex', ['uid' => $uid]),
+        );
+        self::assertSame(
+            1,
+            $records->count('*', 'tx_nrvaulttest_flex', ['uid' => $other]),
+        );
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvault_audit_log')
+                ->count(
+                    '*',
+                    'tx_nrvault_audit_log',
+                    [
+                        'secret_identifier' => $identifier,
+                        'action' => 'access_denied',
+                    ],
+                ),
+        );
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvault_audit_log')
+                ->count('*', 'tx_nrvault_audit_log', ['action' => 'delete']),
+        );
+    }
+
     private function grantDeleteOperation(): void
     {
         $pool = $this->getConnectionPool();
@@ -340,5 +599,22 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
         }
 
         return null;
+    }
+
+    private function secretDeletedFlag(string $identifier): int
+    {
+        $value = $this
+            ->getConnectionPool()
+            ->getConnectionForTable('tx_nrvault_secret')
+            ->fetchOne(
+                'SELECT deleted FROM tx_nrvault_secret WHERE identifier = ?',
+                [$identifier],
+            );
+        self::assertIsNumeric(
+            $value,
+            'Native row state must be observed without enable-field restrictions.',
+        );
+
+        return (int) $value;
     }
 }
