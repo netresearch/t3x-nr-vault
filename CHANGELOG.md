@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Project-authored source files state their licence and copyright holder.** The documentation, templates, XLIFF, JavaScript, CSS, configuration and scripts written for this extension now carry `SPDX-License-Identifier: GPL-2.0-or-later` and `SPDX-FileCopyrightText: Netresearch DTT GmbH`, as the PHP files already did; the files synced from the organisation template carry its MIT notice. Copied files (`CODE_OF_CONDUCT.md`, `Build/Scripts/runTests.sh`, `Build/Scripts/verify-harness.sh`), generated files (`Build/phpstan-baseline.neon`, `Tests/Unit/Api/api-surface.txt`), the issue and pull-request templates, `.github/template.yaml`, the workflows `ci.yml` and `release.yml`, `LICENSE`, the JSON files, the CSV fixtures, the images and the empty `.gitkeep` carry none. `CONTRIBUTING.md` links the organisation's governance, roadmap, access roster, secret management and findings policies and lists the checks its workflows run on pull requests; `SECURITY.md` points to the findings policy.
 
+### Fixed
+
+- PHPStan on PHP 8.2 understands the guarded PHP 8.3+ date-range error and its inherited constructor through analysis-only declarations. The OAuth runtime and test code are unchanged; these declarations are not runtime polyfills.
+
+- **Signed OAuth expiry buffers no longer wrap or create an unparseable relative date.** Positive buffers advance expiry and negative buffers give grace, including native integer limits and representable expiry extremes. Zero-buffer DateTime comparison and the legacy conversion-range path remain available. The existing Fuzz oracle now enforces its expected result rather than accepting a caught assertion failure. See ADR-044.
+
 ## [1.1.0] - 2026-09-29
 
 ### Added
