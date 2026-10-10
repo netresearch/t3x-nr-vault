@@ -437,7 +437,17 @@ This change reaches deeper still — ``CurlMultiHandler``, ``Proxy``, ``StreamHa
 Where the guarantee stops
 =========================
 
-Each of these is a real residual gap, not a hypothetical.
+.. note::
+
+   **Clarification, 2026-10-10.** The OAuth gaps described below record this
+   ADR's original implementation. The current factory-built cancellable send
+   passes its signal to the uncached token request, and the token manager
+   writes an ``oauth_token_request`` row for each attempted round trip with
+   credentials in hand. Caller-supplied clients retain their blocking transport
+   on both legs. A cache hit requires no token round trip. The idle-bound rules
+   in :ref:`adr-040-cancellable-send-bounds-silence` also apply to the token leg.
+
+The paragraphs below record the residual gaps when this ADR was accepted.
 
 Each is filed, so it can be argued somewhere: `#303 <https://github.com/netresearch/t3x-nr-vault/issues/303>`__ (OAuth leg), `#304 <https://github.com/netresearch/t3x-nr-vault/issues/304>`__ (double DNS resolve), `#306 <https://github.com/netresearch/t3x-nr-vault/issues/306>`__ (api-surface snapshot), `#307 <https://github.com/netresearch/t3x-nr-vault/issues/307>`__ (mutation gate scope).
 `#305 <https://github.com/netresearch/t3x-nr-vault/issues/305>`__ (unaudited rejections) is closed by this change: the scheme and host guards write a row, and so does a failed credential injection.

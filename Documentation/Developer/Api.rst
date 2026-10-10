@@ -635,6 +635,31 @@ Via VaultService
       :returns: PSR-7 response.
       :throws ClientExceptionInterface: If request fails.
 
+.. _api-oauth-token-handling:
+
+OAuth token handling
+--------------------
+
+:php:`OAuthConfig` supports ``client_credentials`` and ``refresh_token`` grants.
+The client ID, client secret and optional refresh token are Vault identifiers.
+:php:`OAuthTokenManager` retrieves their values and sends a form-encoded POST
+to ``tokenEndpoint``. Requested ``scopes`` become a space-separated ``scope``
+field; ``additionalParams`` adds deployment-specific fields such as ``audience``.
+For the refresh grant, the form carries ``grant_type=refresh_token`` and the
+retrieved ``refresh_token``.
+
+:php:`OAuthTokenManager::getAccessToken()` returns the access-token string and
+caches the token within that manager instance. Responses without ``expires_in``
+default to a 3600-second lifetime; responses without ``token_type`` default to
+``Bearer``. A valid cached token is reused until its configured expiry buffer
+requires a refresh. ``clearCache($config)`` removes only that configuration's
+entry; ``clearCache()`` and ``clearToken()`` remove all entries. The manager's
+destructor also clears its cached references.
+
+On the factory-built :php:`sendCancellable()` path, uncached token requests
+receive the caller's cancellation signal. Caller-supplied clients retain the
+blocking path for both the token request and the authenticated API call.
+
 .. _api-http-additional-body-credentials:
 
 Additional body credentials
@@ -922,9 +947,12 @@ The exception you receive is unchanged by that row — pinned by three
 characterization tests in ``VaultHttpClientTest``, written before the rows
 existed.
 
-See :ref:`adr-037-cancellable-outbound-send` for the transport details and the
-residual gaps — in particular that the OAuth token round trip preceding an
-OAuth-authenticated call is not cancellable.
+See :ref:`adr-037-cancellable-outbound-send` for the transport details and
+:ref:`adr-040-cancellable-send-bounds-silence` for the timeout rules. On the
+factory-built cancellable path, an uncached OAuth token round trip receives the
+same cancellation signal as the authenticated API call. A still-valid cached
+token requires no round trip. A caller-supplied client keeps its own transport
+semantics, so its token and API legs use the blocking path together.
 
 .. php:interface:: CancellableHttpClientInterface
 
