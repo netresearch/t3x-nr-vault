@@ -522,7 +522,7 @@ usable external sink is reported as a ``NO_EXTERNAL_SINK`` finding.
 
    Mirror every audit entry, chain-tip anchor and integrity alert to the local
    syslog as an RFC 5424 structured-data message on facility ``local0``. The
-   Forwarding depends on the host's syslog and collector configuration.
+   forwarding depends on the host's syslog and collector configuration.
    PHP's ``syslog()`` always returns ``true``; it does not acknowledge delivery
    to the local logging service or a collector, even if no socket is present.
    A successful probe or recorded publish call therefore does not prove
