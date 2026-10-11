@@ -41,6 +41,8 @@ parameters:
         # behaviour is exercised by the coverage jobs there.
         - Classes
         - Tests
+        # The manual embeds this literal, executed by its functional test.
+        - Documentation/Configuration/_FrontendAccessibleSecret.php
     excludePaths:
         analyseAndScan:
             # Secret model uses raw array handling in fromDatabaseRow/toDatabaseRow
