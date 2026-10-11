@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Implement the documented `*` identifier patterns in `VaultService::list()` and
+  `vault:list --pattern`. Patterns match complete identifiers; `%` and `_` stay
+  literal. Repository prefix filters retain their literal prefix semantics.
+  Real database tests cover PHP and CLI results, access checks, disabled and
+  deleted records, and pattern/prefix combinations.
+
 - **Make quality targets use the shared container test runner.** `make ci` runs Code style, PHPStan, Unit and Fuzz in the shared runtime. `make cgl` now performs its documented dry-run; `make fix` applies code style and `make rector` checks refactorings in the same runtime. The four CI checks and their failure behavior remain the same.
 
 - **The overview checks the configured master-key provider.** A missing file or an invalid provider no longer reports healthy through an unrelated TYPO3 encryption-key fallback. The health probe selects the same provider as the encryption dependency; functional tests exercise the real provider factory, including a readable configured-file counterpart.

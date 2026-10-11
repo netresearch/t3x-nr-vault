@@ -201,6 +201,11 @@ Options
 
 --pattern=PATTERN, -p PATTERN
    Filter by identifier pattern (supports ``*`` wildcard).
+   The pattern matches the whole identifier; ``*`` matches zero or more
+   characters at any position.
+   Without a star, it selects the complete identifier.
+   SQL wildcard characters ``%`` and ``_`` are literal.
+   An empty pattern selects no secrets.
 
 --format=FORMAT
    Output format: table (default), json, csv. No short form.
