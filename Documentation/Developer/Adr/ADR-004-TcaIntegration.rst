@@ -21,12 +21,12 @@ Accepted
 Current field-policy audit
 ==========================
 
-:ref:`adr-049-selected-user-field-tsconfig` proposes a separate correction of
+:ref:`adr-049-selected-user-field-tsconfig` records the correction of
 the existing optional backend-user argument in VaultFieldPermissionService.
 It evaluates selected field TSconfig consistently without changing the global
 execution account or granting any underlying Vault operation/secret ACL. The
 ordinary field UI and Hook paths that omit this argument keep Core's ambient
-Page TSconfig behavior. This proposal is not an implemented-feature claim.
+Page TSconfig behavior.
 
 Date
 ====
