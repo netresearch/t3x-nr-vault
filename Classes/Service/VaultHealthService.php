@@ -14,15 +14,16 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 
 /**
- * Read-only health probe for the master-key / encryption subsystem.
+ * Read-only health probe for the configured master-key / encryption subsystem.
+ *
+ * It selects the same provider as the container's encryption dependency. Auto-
+ * detection must not conceal an unavailable or invalid configured provider.
  *
  * Services may depend on Crypto; controllers must not (ARCHITECTURE-2). This
- * service therefore owns the master-key liveness check that previously lived
- * in {@see \Netresearch\NrVault\Controller\OverviewController}.
+ * service owns the liveness check exposed by the overview controller.
  *
- * Per SEC-INJECTION-LEAK-2 it never returns raw exception messages (which can
- * carry the master-key file path): failures are logged via PSR-3 and the
- * caller only learns the booleans + provider identifier.
+ * Per SEC-INJECTION-LEAK-2 failures are logged via PSR-3. The caller receives
+ * only booleans and the provider identifier, never raw exception messages.
  */
 final readonly class VaultHealthService implements VaultHealthServiceInterface
 {
@@ -39,7 +40,7 @@ final readonly class VaultHealthService implements VaultHealthServiceInterface
         $hasIssues = false;
 
         try {
-            $provider = $this->masterKeyProviderFactory->getAvailableProvider();
+            $provider = $this->masterKeyProviderFactory->create();
             $masterKeyProvider = $provider->getIdentifier();
 
             if ($provider->isAvailable()) {
