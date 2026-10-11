@@ -31,6 +31,8 @@ use Throwable;
 #[AllowMockObjectsWithoutExpectations]
 final class SecretMetadataUsageTest extends TestCase
 {
+    private const DESCRIPTION = 'Service credential';
+
     #[Test]
     public function literalMetadataFilterUsesActualListingDtosWithoutDecryption(): void
     {
@@ -69,7 +71,8 @@ final class SecretMetadataUsageTest extends TestCase
         );
 
         /** @var Closure(VaultServiceInterface): list<SecretMetadata> $filter */
-        $filter = require \dirname(__DIR__, 3) . '/Documentation/Developer/Adr/_SecretMetadataFilter.php';
+        $filter = $this->metadataFilter();
+        self::assertSame($filter, $this->metadataFilter());
         $failure = null;
         $result = [];
 
@@ -109,7 +112,7 @@ final class SecretMetadataUsageTest extends TestCase
             identifier: $identifier,
             uid: 42,
             scopePid: 27,
-            description: 'Service credential',
+            description: self::DESCRIPTION,
             ownerUid: 10,
             allowedGroups: [5],
             writeGroups: [6],
@@ -151,7 +154,7 @@ final class SecretMetadataUsageTest extends TestCase
 
         self::assertSame($identifier, $details->identifier);
         self::assertSame(42, $details->uid);
-        self::assertSame('Service credential', $details->description);
+        self::assertSame(self::DESCRIPTION, $details->description);
         self::assertSame([5], $details->groups);
         self::assertSame('payment', $details->context);
         self::assertSame(27, $details->scopePid);
@@ -167,7 +170,7 @@ final class SecretMetadataUsageTest extends TestCase
             [
                 'uid' => 42,
                 'identifier' => $identifier,
-                'description' => 'Service credential',
+                'description' => self::DESCRIPTION,
                 'owner' => 10,
                 'owner_uid' => 10,
                 'groups' => [5],
@@ -271,5 +274,24 @@ final class SecretMetadataUsageTest extends TestCase
     {
         yield 'replace the entire custom map' => [['source' => 'tca_field']];
         yield 'clear the entire custom map' => [[]];
+    }
+
+    /**
+     * Load the literal callable once and reuse its returned value. A second
+     * require_once returns true rather than the callable exported by the file.
+     *
+     * @return Closure(VaultServiceInterface): list<SecretMetadata>
+     */
+    private function metadataFilter(): Closure
+    {
+        /** @var Closure(VaultServiceInterface): list<SecretMetadata>|null $filter */
+        static $filter = null;
+        if ($filter === null) {
+            $loaded = require_once \dirname(__DIR__, 3) . '/Documentation/Developer/Adr/_SecretMetadataFilter.php';
+            self::assertInstanceOf(Closure::class, $loaded);
+            $filter = $loaded;
+        }
+
+        return $filter;
     }
 }
