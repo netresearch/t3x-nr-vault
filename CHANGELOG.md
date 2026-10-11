@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Technical actor scopes cannot change a break-glass window through ambient administrator credentials.** Activation and deactivation refuse the technical identity before considering CLI or backend authorization, including an admin-flag technical account. Real Core and SQL tests verify unchanged session bytes, audit rows and events on refusal, and ordinary administrator and CLI operation after scope exit. The security manual also states that reasons are trimmed before storage.
+
 - **The overview checks the configured master-key provider.** A missing file or an invalid provider no longer reports healthy through an unrelated TYPO3 encryption-key fallback. The health probe selects the same provider as the encryption dependency; functional tests exercise the real provider factory, including a readable configured-file counterpart.
 
 ## [1.1.0] - 2026-09-29
