@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Explicit field-policy users now supply their own TSconfig and conditions.** All three `VaultFieldPermissionService` wrappers honor a distinct supplied user's materialized `page.*` settings and native backend-user conditions on TYPO3 13 and 14. The ambient account, Context and Core runtime cache remain unchanged; the ordinary field UI and Hook path, admin bypass, precedence and UID permission cache retain their behavior. See ADR-049.
+
 - **Field-permission tests now execute the configured restrictions.** Real backend-user TSconfig tests cover field/table/global precedence, restrictive settings, administrators and separate cached users, tables, fields and actions. Earlier cache tests used the administrator bypass or asserted only their own seeded map; they now exercise non-admin results, and cache reset is checked against a changed real configuration. The manual states the existing page-0 scope and plain-TCA/FlexForm write boundary. Runtime permission behavior is unchanged.
 
 - **The overview checks the configured master-key provider.** A missing file or an invalid provider no longer reports healthy through an unrelated TYPO3 encryption-key fallback. The health probe selects the same provider as the encryption dependency; functional tests exercise the real provider factory, including a readable configured-file counterpart.
