@@ -88,6 +88,8 @@ final class VaultHttpClientStreamingTest extends TestCase
 
     private const PUBLIC_IP = '93.184.216.34';
 
+    private const TRANSFER_CLOCK_FIXTURE_PATH = __DIR__ . '/Fixtures/TransferClock.php';
+
     private const CANCELLED_BEFORE_SEND_MESSAGE
         = 'Request cancelled before send: nothing egressed and no secret was retrieved';
 
@@ -819,7 +821,7 @@ final class VaultHttpClientStreamingTest extends TestCase
     #[PreserveGlobalState(false)]
     public function theHeadCountsAsProgressForTheIdleBound(): void
     {
-        require_once __DIR__ . '/Fixtures/TransferClock.php';
+        require_once self::TRANSFER_CLOCK_FIXTURE_PATH;
         TransferClock::reset();
         $this->vaultService
             ->expects(self::once())
@@ -873,7 +875,7 @@ final class VaultHttpClientStreamingTest extends TestCase
     #[PreserveGlobalState(false)]
     public function aRepeatedInterimHeadBuysNoTime(): void
     {
-        require_once __DIR__ . '/Fixtures/TransferClock.php';
+        require_once self::TRANSFER_CLOCK_FIXTURE_PATH;
         TransferClock::reset();
         self::assertIsString(microtime(false));
         $this->vaultService
@@ -968,7 +970,7 @@ final class VaultHttpClientStreamingTest extends TestCase
     #[PreserveGlobalState(false)]
     public function aTrickleAfterAFinalHeadCompletesAlthoughAnInterimHeadCameFirst(): void
     {
-        require_once __DIR__ . '/Fixtures/TransferClock.php';
+        require_once self::TRANSFER_CLOCK_FIXTURE_PATH;
         TransferClock::reset();
         self::assertIsString(microtime(false));
         $this->vaultService
