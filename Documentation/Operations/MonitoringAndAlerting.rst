@@ -412,8 +412,9 @@ Alert on ``2``, ticket on ``1``, and — as with the verify task — alert on th
 check not having run at all.
 
 The scheduled run above is passive: it reads state, it does not test
-delivery. To prove end-to-end that every enabled sink still *accepts*
-evidence, add a less frequent run with active probes:
+delivery.
+To exercise publication through every enabled sink, add a less frequent run
+with active probes:
 
 ..  code-block:: bash
 
@@ -421,7 +422,10 @@ evidence, add a less frequent run with active probes:
 
 This pushes the current chain-tip anchor through every enabled sink — a
 webhook collector must answer 2xx — and emits one
-``audit.sink_probe.<sink>`` finding each. It talks to external systems and
+``audit.sink_probe.<sink>`` finding each.
+Syslog supplies no receipt acknowledgement through PHP; confirm the probe's
+chain-tip anchor in the logging service or collector's records.
+It talks to external systems and
 writes delivery state, so it is never run implicitly, neither by the passive
 checks nor by the backend status panel. Schedule it daily rather than every
 few minutes, and keep the passive run for the frequent one.
