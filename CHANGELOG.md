@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Optional frontend placeholder diagnostics cannot interrupt rendering.** A failing PSR-3 logger is contained after the per-request slot is claimed, preserving unresolved literals and continuing later permitted resolutions. Development notices and warning attempts retain their existing context and volume rules; this does not suppress failures from mandatory Vault audit writes.
+
 - **Make quality targets use the shared container test runner.** `make ci` runs Code style, PHPStan, Unit and Fuzz in the shared runtime. `make cgl` now performs its documented dry-run; `make fix` applies code style and `make rector` checks refactorings in the same runtime. The four CI checks and their failure behavior remain the same.
 
 - **The overview checks the configured master-key provider.** A missing file or an invalid provider no longer reports healthy through an unrelated TYPO3 encryption-key fallback. The health probe selects the same provider as the encryption dependency; functional tests exercise the real provider factory, including a readable configured-file counterpart.
