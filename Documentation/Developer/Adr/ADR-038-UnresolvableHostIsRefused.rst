@@ -72,7 +72,8 @@ Concretely:
     A wildcard entry does not: wildcards have never bypassed the IP guard, and letting them bypass the address requirement would make the guard optional for anyone who owns a zone.
 
 A failed resolution is still never memoised.
-An empty answer now rejects, so freezing one for the memo TTL would turn a single lost packet into a minute of refused requests.
+An empty answer now rejects, so freezing one for the five-second memo TTL would keep refusing requests after DNS recovers.
+Successful answers expire five seconds after the lookup; both the gate and the pin continue to range-check the reused records.
 
 Consequences
 ============
