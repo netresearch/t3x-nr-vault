@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The overview checks the configured master-key provider.** A missing file or an invalid provider no longer reports healthy through an unrelated TYPO3 encryption-key fallback. The health probe selects the same provider as the encryption dependency; functional tests exercise the real provider factory, including a readable configured-file counterpart.
 
+- **Technical-actor validation has a real deleted-user oracle.** A functional test checks that an enabled account can enter a scope, then soft-deletes that actual row and verifies the precise refusal before its callback runs. It detects a wrong SQL predicate column that the earlier query doubles and live-user fixtures accepted; runtime behavior is unchanged.
+
 ## [1.1.0] - 2026-09-29
 
 ### Added
