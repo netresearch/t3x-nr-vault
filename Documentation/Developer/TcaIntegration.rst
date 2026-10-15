@@ -468,6 +468,16 @@ per-secret owner/group tiers. A backend user who may edit the record but holds
 neither will have the mutation refused, and the refusal is audited — see
 :ref:`security-operation-permissions` and :ref:`security-access-control`.
 
+A refused hook operation presents a cause-independent message and a fresh
+correlation reference. Its secondary diagnostic attempt uses that same
+reference; caller-supplied context cannot replace it. Other record metadata
+is preserved. Diagnostic string values, including the cause class, have
+control bytes removed and a final UTF-8-safe limit of 200 bytes, even when
+configured replacement of malformed UTF-8 expands the input or introduces
+control bytes. This concerns
+the hook's PSR-3 diagnostic context, rather than the persisted mutation-audit
+record. A correlation reference alone is not proof of log delivery.
+
 The reveal button requires explicit user action and is logged. Revealing also
 asserts ``secret.reveal``, which ``secret.use`` does not imply.
 
