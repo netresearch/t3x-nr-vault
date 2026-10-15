@@ -240,13 +240,14 @@ final class SecureHttpClientFactory
     /**
      * Check if a host is allowed per TYPO3's allowed_hosts configuration.
      *
-     * Defence-in-depth: regardless of the allowlist, IP literals and resolved
-     * hostnames that point into private/link-local/loopback/multicast/metadata
-     * ranges are always rejected. This blocks SSRF into AWS/GCP/Azure metadata
-     * services (169.254.169.254) and internal RFC1918 networks even on
-     * installations that left `allowed_hosts` unconfigured.
+     * Without an exact hostname or IP entry in the allowlist, IP literals and
+     * resolved hostnames pointing into private/link-local/loopback/multicast/
+     * metadata ranges are rejected. Exact entries permit intentional on-prem
+     * endpoints; wildcard entries do not bypass this guard. The range checks
+     * also apply when `allowed_hosts` is unconfigured.
      *
-     * A hostname must also resolve to at least one address, or it is refused.
+     * Unless exactly allowlisted, a hostname must also resolve to at least
+     * one address, or it is refused.
      * An answer this factory cannot use is not evidence that nothing is
      * reachable — it resolves with `dns_get_record()`, which speaks DNS, while
      * the transport resolves with getaddrinfo(), which also reads /etc/hosts,
