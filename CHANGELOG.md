@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The frontend-accessible secret example uses the actual store option.** The manual sets top-level `frontendAccessible` rather than custom metadata. Its embedded PHP example is statically checked and exercised against encrypted SQL storage and the frontend read API; custom metadata remains distinct from the access flag.
+
 - **The technical-actor handler example has a configured user UID and a valid secret identifier.** The literal PHP and service configuration are exercised with real Core actors, encrypted SQL storage, group permissions and audit attribution, including disabled-user and denied-access counterparts.
 
 - **Make quality targets use the shared container test runner.** `make ci` runs Code style, PHPStan, Unit and Fuzz in the shared runtime. `make cgl` now performs its documented dry-run; `make fix` applies code style and `make rector` checks refactorings in the same runtime. The four CI checks and their failure behavior remain the same.

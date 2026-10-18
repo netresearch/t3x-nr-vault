@@ -41,6 +41,8 @@ parameters:
         # behaviour is exercised by the coverage jobs there.
         - Classes
         - Tests
+        # The manual embeds this literal, executed by its functional test.
+        - Documentation/Configuration/_FrontendAccessibleSecret.php
         # The functional example executes this literal manual source; analyse
         # it as well so its handler class and constructor are resolved.
         - Documentation/Examples/TechnicalActor/IngestHandler.php
