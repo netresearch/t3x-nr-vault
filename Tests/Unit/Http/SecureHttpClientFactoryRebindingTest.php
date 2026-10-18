@@ -531,25 +531,49 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     #[Test]
     public function middlewareNormalisesBracketedIpv6Host(): void
     {
-        // PSR-7 getHost() returns IPv6 literals wrapped in brackets. Without
-        // normalisation, `filter_var(..., FILTER_VALIDATE_IP)` would reject
-        // `[::1]` and the middleware would try to resolve it via DNS — both
-        // useless and a security regression (the IP-literal guard wouldn't
-        // run). normaliseHost() strips the brackets first.
-        //
-        // Verified indirectly: send to a bracketed FQDN-style host that
-        // resolves via the in-memory resolver. If normalisation runs, the
-        // resolver receives the bare host and the pin is generated.
-        $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
-        $client = $this->buildCapturingClient($capturedOptions);
+        $client = $this->buildCapturingClient($capturedOptions, $transportCalls);
+        $response = null;
+        $failure = null;
 
-        $client->get('http://safe.example/api');
+        try {
+            $response = $client->get('http://[' . self::PUBLIC_IPV6 . ']/api');
+        } catch (RequestException $exception) {
+            $failure = $exception;
+        }
 
-        self::assertContains(
-            'safe.example',
-            $this->dnsResolver->queriedHosts(),
-            'Middleware must call resolver with the bare host (no brackets).',
+        self::assertNull(
+            $failure,
+            'A public IPv6 literal must reach the transport.',
         );
+        self::assertSame(200, $response?->getStatusCode());
+        self::assertSame(1, $transportCalls);
+        self::assertIsArray($capturedOptions);
+        self::assertArrayNotHasKey('curl', $capturedOptions);
+        self::assertSame([], $this->dnsResolver->queriedHosts());
+    }
+
+    #[Test]
+    public function middlewareRejectsBracketedLoopbackBeforeTransportAndDns(): void
+    {
+        // A missing normalization must not turn this IP literal into a DNS name.
+        $this->dnsResolver->program('[::1]', [['ip' => self::PUBLIC_IP]]);
+        $client = $this->buildCapturingClient($capturedOptions, $transportCalls);
+        $failure = null;
+
+        try {
+            $client->get('http://[::1]/api');
+        } catch (RequestException $exception) {
+            $failure = $exception;
+        }
+
+        self::assertInstanceOf(RequestException::class, $failure);
+        self::assertStringContainsString(
+            self::DISALLOWED_RANGE,
+            $failure->getMessage(),
+        );
+        self::assertSame(0, $transportCalls);
+        self::assertNull($capturedOptions);
+        self::assertSame([], $this->dnsResolver->queriedHosts());
     }
 
     #[Test]
@@ -654,10 +678,12 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
      * imaginary curl handler.
      *
      * @param-out array<string, mixed>|null $capturedOptions
+     * @param-out int $transportCalls
      */
-    private function buildCapturingClient(?array &$capturedOptions): Client
+    private function buildCapturingClient(?array &$capturedOptions, ?int &$transportCalls = null): Client
     {
         $capturedOptions = null;
+        $transportCalls = 0;
 
         $client = $this->subject->create();
         $handler = $client->getConfig('handler');
@@ -666,7 +692,11 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         }
 
         $handler->setHandler(
-            static function (RequestInterface $request, array $options) use (&$capturedOptions): PromiseInterface {
+            static function (
+                RequestInterface $request,
+                array $options,
+            ) use (&$capturedOptions, &$transportCalls): PromiseInterface {
+                ++$transportCalls;
                 $capturedOptions = $options;
 
                 return Create::promiseFor(new Response(200, [], ''));
