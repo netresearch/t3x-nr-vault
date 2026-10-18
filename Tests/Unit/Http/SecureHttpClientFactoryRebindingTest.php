@@ -536,7 +536,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         $failure = null;
 
         try {
-            $response = $client->get('http://[' . self::PUBLIC_IPV6 . ']/api');
+            $response = $client->get('https://[' . self::PUBLIC_IPV6 . ']/api');
         } catch (RequestException $exception) {
             $failure = $exception;
         }
@@ -561,7 +561,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         $failure = null;
 
         try {
-            $client->get('http://[::1]/api');
+            $client->get('https://[::1]/api');
         } catch (RequestException $exception) {
             $failure = $exception;
         }
