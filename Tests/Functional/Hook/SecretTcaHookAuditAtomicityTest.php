@@ -53,34 +53,32 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
         $identifier = 'atomic_meta_' . bin2hex(random_bytes(4));
         $recordUid = $this->createRecord($identifier, 'Original description');
 
-        $this->breakAuditWrites();
-
-        $updateHandler = GeneralUtility::makeInstance(DataHandler::class);
-        $updateHandler->start(
-            [
-                self::SECRET_TABLE => [
-                    $recordUid => [
-                        'description' => 'Changed description',
+        $this->withBrokenAuditWrites(
+            function () use ($recordUid): void {
+                $updateHandler = GeneralUtility::makeInstance(DataHandler::class);
+                $updateHandler->start(
+                    [
+                        self::SECRET_TABLE => [$recordUid => ['description' => 'Changed description']],
                     ],
-                ],
-            ],
-            [],
-        );
-        $updateHandler->process_datamap();
+                    [],
+                );
+                $updateHandler->process_datamap();
 
-        // The mutation must not survive its failed audit entry.
-        self::assertSame(
-            'Original description',
-            $this->readColumn($recordUid, 'description'),
-            'The metadata change must be reverted when its audit write fails.',
-        );
+                // The mutation must not survive its failed audit entry.
+                self::assertSame(
+                    'Original description',
+                    $this->readColumn($recordUid, 'description'),
+                    'The metadata change must be reverted when its audit write fails.',
+                );
 
-        /** @phpstan-ignore property.internal */
-        $errorLog = $updateHandler->errorLog;
-        self::assertNotSame(
-            [],
-            $errorLog,
-            'The reverted save must surface in the DataHandler error log.',
+                /** @phpstan-ignore property.internal */
+                $errorLog = $updateHandler->errorLog;
+                self::assertNotSame(
+                    [],
+                    $errorLog,
+                    'The reverted save must surface in the DataHandler error log.',
+                );
+            },
         );
     }
 
@@ -90,32 +88,28 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
         $identifier = 'atomic_del_' . bin2hex(random_bytes(4));
         $recordUid = $this->createRecord($identifier, 'To be deleted');
 
-        $this->breakAuditWrites();
+        $this->withBrokenAuditWrites(
+            function () use ($recordUid): void {
+                $deleteHandler = GeneralUtility::makeInstance(DataHandler::class);
+                $deleteHandler->start(
+                    [],
+                    [self::SECRET_TABLE => [$recordUid => ['delete' => 1]]],
+                );
+                $deleteHandler->process_cmdmap();
 
-        $deleteHandler = GeneralUtility::makeInstance(DataHandler::class);
-        $deleteHandler->start(
-            [],
-            [
-                self::SECRET_TABLE => [
-                    $recordUid => [
-                        'delete' => 1,
-                    ],
-                ],
-            ],
-        );
-        $deleteHandler->process_cmdmap();
-
-        // VaultService::delete() compensated the failed audit write by
-        // re-storing the record, and the hook cancelled core's deleteAction.
-        self::assertSame(
-            0,
-            (int) $this->readColumn($recordUid, 'deleted'),
-            'The secret must survive a delete whose audit write failed.',
-        );
-        self::assertNotSame(
-            '',
-            $this->readColumn($recordUid, 'encrypted_value'),
-            'The encrypted value must remain intact after the reverted delete.',
+                // VaultService::delete() compensated the failed audit write by
+                // re-storing the record, and the hook cancelled core's deleteAction.
+                self::assertSame(
+                    0,
+                    (int) $this->readColumn($recordUid, 'deleted'),
+                    'The secret must survive a delete whose audit write failed.',
+                );
+                self::assertNotSame(
+                    '',
+                    $this->readColumn($recordUid, 'encrypted_value'),
+                    'The encrypted value must remain intact after the reverted delete.',
+                );
+            },
         );
     }
 
@@ -142,49 +136,67 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
 
         // Precondition: DataHandler really wrote the seeded relations, and
         // the count columns agree with them.
-        self::assertSame([10, 11], $this->loadMmGroups(self::READ_MM_TABLE, $recordUid));
-        self::assertSame([20], $this->loadMmGroups(self::WRITE_MM_TABLE, $recordUid));
-        self::assertSame('2', $this->readColumn($recordUid, 'allowed_groups'));
-        self::assertSame('1', $this->readColumn($recordUid, 'write_groups'));
-
-        $this->breakAuditWrites();
-
-        $updateHandler = GeneralUtility::makeInstance(DataHandler::class);
-        $updateHandler->start(
-            [
-                self::SECRET_TABLE => [
-                    $recordUid => [
-                        // Widen BOTH tiers with group 99, and reorder the read
-                        // tier so a restore that ignored `sorting` would show.
-                        'allowed_groups' => '11,10,99',
-                        'write_groups' => '20,99',
-                    ],
-                ],
-            ],
-            [],
-        );
-        $updateHandler->process_datamap();
-
         self::assertSame(
             [10, 11],
             $this->loadMmGroups(self::READ_MM_TABLE, $recordUid),
-            'The read-tier MM relations must be restored exactly, order included.',
         );
         self::assertSame(
             [20],
             $this->loadMmGroups(self::WRITE_MM_TABLE, $recordUid),
-            'The write-tier MM relations must be restored exactly.',
         );
-
-        // The count columns must agree with the restored relations — the
-        // inconsistency the old rollback produced was precisely a restored
-        // count over a widened relation set.
         self::assertSame('2', $this->readColumn($recordUid, 'allowed_groups'));
         self::assertSame('1', $this->readColumn($recordUid, 'write_groups'));
 
-        /** @phpstan-ignore property.internal */
-        $errorLog = $updateHandler->errorLog;
-        self::assertNotSame([], $errorLog, 'The reverted save must surface in the DataHandler error log.');
+        $this->withBrokenAuditWrites(
+            function () use ($recordUid): void {
+                $updateHandler = GeneralUtility::makeInstance(DataHandler::class);
+                $updateHandler->start(
+                    [
+                        self::SECRET_TABLE => [
+                            $recordUid => [
+                                // Widen BOTH tiers with group 99, and reorder the read
+                                // tier so a restore that ignored `sorting` would show.
+                                'allowed_groups' => '11,10,99',
+                                'write_groups' => '20,99',
+                            ],
+                        ],
+                    ],
+                    [],
+                );
+                $updateHandler->process_datamap();
+
+                self::assertSame(
+                    [10, 11],
+                    $this->loadMmGroups(self::READ_MM_TABLE, $recordUid),
+                    'The read-tier MM relations must be restored exactly, order included.',
+                );
+                self::assertSame(
+                    [20],
+                    $this->loadMmGroups(self::WRITE_MM_TABLE, $recordUid),
+                    'The write-tier MM relations must be restored exactly.',
+                );
+
+                // The count columns must agree with the restored relations — the
+                // inconsistency the old rollback produced was precisely a restored
+                // count over a widened relation set.
+                self::assertSame(
+                    '2',
+                    $this->readColumn($recordUid, 'allowed_groups'),
+                );
+                self::assertSame(
+                    '1',
+                    $this->readColumn($recordUid, 'write_groups'),
+                );
+
+                /** @phpstan-ignore property.internal */
+                $errorLog = $updateHandler->errorLog;
+                self::assertNotSame(
+                    [],
+                    $errorLog,
+                    'The reverted save must surface in the DataHandler error log.',
+                );
+            },
+        );
     }
 
     /**
@@ -197,45 +209,51 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
     #[Test]
     public function revertedRecordCreationLeavesNoOrphanedAclRelations(): void
     {
-        $this->breakAuditWrites();
-
-        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
-        $dataHandler->start(
-            [
-                self::SECRET_TABLE => [
-                    'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => 'atomic_orphan_' . bin2hex(random_bytes(4)),
-                        'description' => 'Value-less create with ACL groups',
-                        // No secret_input: the hook itself audits this
-                        // creation, so its failure triggers the hook's own
-                        // compensating delete.
-                        'allowed_groups' => '10,11',
-                        'write_groups' => '20',
+        $this->withBrokenAuditWrites(
+            function (): void {
+                $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+                $dataHandler->start(
+                    [
+                        self::SECRET_TABLE => [
+                            'NEW1' => [
+                                'pid' => 0,
+                                'identifier' => 'atomic_orphan_' . bin2hex(random_bytes(4)),
+                                'description' => 'Value-less create with ACL groups',
+                                // No secret_input: the hook itself audits this
+                                // creation, so its failure triggers the hook's own
+                                // compensating delete.
+                                'allowed_groups' => '10,11',
+                                'write_groups' => '20',
+                            ],
+                        ],
                     ],
-                ],
-            ],
-            [],
-        );
-        $dataHandler->process_datamap();
+                    [],
+                );
+                $dataHandler->process_datamap();
 
-        $recordUid = (int) ($dataHandler->substNEWwithIDs['NEW1'] ?? 0);
-        self::assertGreaterThan(0, $recordUid, 'The record must have been inserted before being reverted.');
+                $recordUid = (int) ($dataHandler->substNEWwithIDs['NEW1'] ?? 0);
+                self::assertGreaterThan(
+                    0,
+                    $recordUid,
+                    'The record must have been inserted before being reverted.',
+                );
 
-        self::assertSame(
-            '',
-            $this->readColumn($recordUid, 'identifier'),
-            'The record creation must be reverted when its audit write fails.',
-        );
-        self::assertSame(
-            [],
-            $this->loadMmGroups(self::READ_MM_TABLE, $recordUid),
-            'A reverted creation must leave no orphaned read-tier relations.',
-        );
-        self::assertSame(
-            [],
-            $this->loadMmGroups(self::WRITE_MM_TABLE, $recordUid),
-            'A reverted creation must leave no orphaned write-tier relations.',
+                self::assertSame(
+                    '',
+                    $this->readColumn($recordUid, 'identifier'),
+                    'The record creation must be reverted when its audit write fails.',
+                );
+                self::assertSame(
+                    [],
+                    $this->loadMmGroups(self::READ_MM_TABLE, $recordUid),
+                    'A reverted creation must leave no orphaned read-tier relations.',
+                );
+                self::assertSame(
+                    [],
+                    $this->loadMmGroups(self::WRITE_MM_TABLE, $recordUid),
+                    'A reverted creation must leave no orphaned write-tier relations.',
+                );
+            },
         );
     }
 
@@ -301,15 +319,25 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
     }
 
     /**
-     * Make every subsequent audit-chain write fail for real: drop the audit
-     * table. AuditLogService::log() wraps the resulting driver exception in
-     * AuditWriteException — the type the compensations key on.
+     * Drop the audit table for a real failed write, then restore its original
+     * schema before the framework reuses the database for the next test.
+     *
+     * @param callable(): void $assertRollback
      */
-    private function breakAuditWrites(): void
+    private function withBrokenAuditWrites(callable $assertRollback): void
     {
-        $this->getConnectionPool()
-            ->getConnectionForTable(self::AUDIT_TABLE)
-            ->executeStatement('DROP TABLE ' . self::AUDIT_TABLE);
+        $connection = $this->getConnectionPool()->getConnectionForTable(self::AUDIT_TABLE);
+        $schemaManager = $connection->createSchemaManager();
+        $table = $schemaManager->introspectSchema()->getTable(self::AUDIT_TABLE);
+
+        try {
+            $connection->executeStatement('DROP TABLE ' . self::AUDIT_TABLE);
+            $assertRollback();
+        } finally {
+            if (!$schemaManager->tablesExist([self::AUDIT_TABLE])) {
+                $schemaManager->createTable($table);
+            }
+        }
     }
 
     /**

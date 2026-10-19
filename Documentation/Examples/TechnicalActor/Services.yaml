@@ -1,0 +1,9 @@
+parameters:
+  my_extension.technical_be_user_uid: 10
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+  MyVendor\MyExtension\MessageHandler\IngestHandler:
+    arguments:
+      $technicalBeUserUid: '%my_extension.technical_be_user_uid%'

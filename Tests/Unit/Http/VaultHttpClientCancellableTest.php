@@ -40,8 +40,12 @@ use Netresearch\NrVault\Http\TransportTickerInterface;
 use Netresearch\NrVault\Http\VaultHttpClient;
 use Netresearch\NrVault\Http\VaultHttpClientFactory;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Tests\Unit\Http\Fixtures\TransferClock;
+use Netresearch\NrVault\Tests\Unit\Http\Fixtures\TransferClockTicker;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Client\ClientInterface;
@@ -55,13 +59,17 @@ use ReflectionNamedType;
 use ReflectionProperty;
 use RuntimeException;
 use stdClass;
+use Throwable;
+
+use function Netresearch\NrVault\Http\microtime;
 
 /**
  * The cancellable outbound send.
  *
  * Every test here is deterministic — no sockets, no sleeps, no wall-clock
- * dependence — except section 18, whose subject is an idle bound and therefore
- * a duration; its ticks sleep with the streaming suite's margins. The transport under test is the REAL one the factory builds —
+ * dependence — except the remaining timed idle-bound cases in section 18.
+ * The interim-head and continuing-body regressions use a controlled clock in
+ * isolated processes. The transport under test is the REAL one the factory builds —
  * full hardened option set, `ssrf-dns-pin` middleware installed — with only its
  * bottom handler replaced by a stub that returns a promise nobody settles, and
  * its ticker replaced by a closure that settles that promise on the Nth call.
@@ -1658,19 +1666,55 @@ final class VaultHttpClientCancellableTest extends TestCase
     }
 
     #[Test]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function aRepeatedInterimHeadBuysNoTime(): void
     {
-        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
-
-        // Guzzle 7 calls on_headers for every 1xx head. A server that sends
-        // `100 Continue` on every step and never a final head must still end
-        // at the idle bound.
+        require_once __DIR__ . '/Fixtures/TransferClock.php';
+        TransferClock::reset();
+        self::assertIsString(microtime(false));
+        $this->vaultService
+            ->expects(self::once())
+            ->method('retrieve')
+            ->willReturn('s3cret');
+        // Interim heads on every tick must still end at the 200 ms idle bound.
         $transfer = new StubbedTransfer();
-        $ticker = $this->timedTicker(static function () use ($transfer): void {
-            $transfer->deliverHead(100);
-        });
+        $ticker = new TransferClockTicker(
+            static function () use ($transfer): void {
+                $transfer->deliverHead(100);
+            },
+        );
+        $auditedRows = [];
+        $this->recordAuditRows($auditedRows);
+        $client = $this
+            ->clientWithTransport($this->transportWith($transfer, $ticker, budget: 0.0, idle: 0.2))
+            ->withAuthentication('api_key', SecretPlacement::Bearer);
+        $caught = null;
 
-        $this->assertIdleAbort($transfer, $ticker);
+        try {
+            $client->sendCancellable(
+                new Request('GET', self::API_URL),
+                new NeverCancelledSignal(),
+            );
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+
+        self::assertInstanceOf(
+            VaultException::class,
+            $caught,
+            'A silent transfer must reach the idle bound before the test tick ceiling.',
+        );
+        self::assertSame(1786579206, $caught->getCode());
+        self::assertSame(self::IDLE_EXHAUSTED_MESSAGE, $caught->getMessage());
+        self::assertSame(4, $ticker->ticks());
+        self::assertSame(0.2, TransferClock::elapsed());
+        self::assertGreaterThan(0, TransferClock::reads());
+        self::assertSame(1, $transfer->cancelCalls());
+        self::assertSame(
+            [['http_call', false, self::IDLE_EXHAUSTED_MESSAGE]],
+            $auditedRows,
+        );
     }
 
     #[Test]
@@ -1695,35 +1739,61 @@ final class VaultHttpClientCancellableTest extends TestCase
     }
 
     #[Test]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function aTrickleAfterAFinalHeadCompletesAlthoughAnInterimHeadCameFirst(): void
     {
-        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
-
-        // 50 ms per tick, 200 ms idle bound: `100` at 50 ms, the final head at
-        // 150 ms, then a byte every 150 ms until the transfer completes at
-        // 600 ms. Each gap is inside the bound, the whole is three times it,
-        // so both the final head and each byte have to count.
+        require_once __DIR__ . '/Fixtures/TransferClock.php';
+        TransferClock::reset();
+        self::assertIsString(microtime(false));
+        $this->vaultService
+            ->expects(self::once())
+            ->method('retrieve')
+            ->willReturn('s3cret');
+        // Each gap is 150 ms or less; the complete transfer lasts 600 ms,
+        // exceeding the 200 ms idle bound without depending on scheduling.
         $transfer = new StubbedTransfer();
-        $ticker = $this->timedTicker(static function (int $tick) use ($transfer): void {
-            match ($tick) {
-                1 => $transfer->deliverHead(100),
-                3 => $transfer->deliverHead(200),
-                6 => $transfer->deliverBytes('a'),
-                9 => $transfer->deliverBytes('b'),
-                12 => $transfer->complete(),
-                default => null,
-            };
-        }, 50_000);
-
+        $ticker = new TransferClockTicker(
+            static function (int $tick) use ($transfer): void {
+                match ($tick) {
+                    1 => $transfer->deliverHead(100),
+                    3 => $transfer->deliverHead(200),
+                    6 => $transfer->deliverBytes('a'),
+                    9 => $transfer->deliverBytes('b'),
+                    12 => $transfer->complete(),
+                    default => null,
+                };
+            },
+        );
         $this->auditLogService->expects(self::once())->method('log');
+        $client = $this
+            ->clientWithTransport($this->transportWith($transfer, $ticker, budget: 0.0, idle: 0.2))
+            ->withAuthentication('api_key', SecretPlacement::Bearer);
+        $response = null;
+        $body = null;
+        $caught = null;
 
-        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker, budget: 0.0, idle: 0.2))
-            ->withAuthentication('api_key', SecretPlacement::Bearer)
-            ->sendCancellable(new Request('GET', self::API_URL), new NeverCancelledSignal());
+        try {
+            $response = $client->sendCancellable(
+                new Request('GET', self::API_URL),
+                new NeverCancelledSignal(),
+            );
+            $body = $response->getBody()->getContents();
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
 
+        self::assertNull(
+            $caught,
+            'Final heads and body bytes must renew the idle deadline.',
+        );
+        self::assertInstanceOf(ResponseInterface::class, $response);
         self::assertSame(200, $response->getStatusCode());
-        self::assertSame('ab', (string) $response->getBody());
+        self::assertSame('ab', $body);
         self::assertSame(0, $transfer->cancelCalls());
+        self::assertSame(12, $ticker->ticks());
+        self::assertGreaterThan(0.2, TransferClock::elapsed());
+        self::assertGreaterThan(0, TransferClock::reads());
     }
 
     #[Test]
@@ -1805,6 +1875,15 @@ final class VaultHttpClientCancellableTest extends TestCase
             ->sendCancellable(new Request('GET', self::API_URL), new NeverCancelledSignal());
 
         self::assertSame(17 * 1024 * 1024, $response->getBody()->getSize());
+    }
+
+    #[Test]
+    public function idleClockOverrideIsAbsentFromTheParentProcess(): void
+    {
+        $this->auditLogService->expects(self::never())->method('log');
+        $this->vaultService->expects(self::never())->method('retrieve');
+        self::assertFalse(\function_exists('Netresearch\NrVault\Http\microtime'));
+        self::assertFalse(class_exists(TransferClock::class, false));
     }
 
     // =========================================================================
