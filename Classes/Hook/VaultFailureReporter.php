@@ -66,6 +66,8 @@ final readonly class VaultFailureReporter
      * @param array<string, string|int|null> $context Where the failure happened (table, field,
      *                                                uid, identifier, operation). Never pass a
      *                                                secret value — record coordinates only.
+     *                                                The generated reference is authoritative;
+     *                                                caller context cannot replace it.
      *
      * @return string The message to show the backend user; carries only the correlation reference
      */
@@ -74,15 +76,18 @@ final readonly class VaultFailureReporter
         $reference = bin2hex(random_bytes(8));
 
         $logContext = ['reference' => $reference];
-
         foreach ($context as $key => $value) {
+            if ($key === 'reference') {
+                continue;
+            }
+
             $logContext[$key] = \is_string($value) ? $this->sanitiseForLog($value) : $value;
         }
 
         // Deliberately NOT the 'exception' key: TYPO3's FileWriter folds a
         // Throwable stored there into the unescaped message. Class name and
-        // sanitised text only.
-        $logContext['exceptionClass'] = $error::class;
+        // sanitised text only, including anonymous-class control bytes.
+        $logContext['exceptionClass'] = $this->sanitiseForLog($error::class);
         $logContext['error'] = $this->sanitiseForLog($error->getMessage());
 
         $this->logger->error(self::LOG_MESSAGE, $logContext);
@@ -91,9 +96,9 @@ final readonly class VaultFailureReporter
     }
 
     /**
-     * Strip control bytes (so no value can start a forged log line) and cap the
-     * length (so repeated failures cannot inflate the log), then force valid
-     * UTF-8 so the record survives `json_encode()`.
+     * Strip control bytes, force valid UTF-8, and cap the final value at
+     * 200 bytes without splitting a character. The preliminary byte cap
+     * bounds conversion work; UTF-8 replacement may expand those bytes.
      */
     private function sanitiseForLog(string $value): string
     {
@@ -106,10 +111,16 @@ final readonly class VaultFailureReporter
             $clean = substr($clean, 0, self::MAX_LOGGED_VALUE_LENGTH);
         }
 
-        // Truncation can split a multi-byte sequence, and the raw value may not
-        // have been UTF-8 in the first place; either would make json_encode()
-        // fail and drop the whole context array. Substitute the invalid bytes.
-        return mb_convert_encoding($clean, 'UTF-8', 'UTF-8');
+        $utf8 = mb_convert_encoding($clean, 'UTF-8', 'UTF-8');
+        // A configured replacement character may itself be a control byte.
+        $utf8 = preg_replace('/[[:cntrl:]]/', '', $utf8) ?? '';
+
+        return mb_strcut(
+            $utf8,
+            0,
+            self::MAX_LOGGED_VALUE_LENGTH,
+            'UTF-8',
+        );
     }
 
     private function getMessageTemplate(): string
