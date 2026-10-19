@@ -122,11 +122,16 @@ class VaultSecretInput {
      * Click on the reveal button: hide the value while it is shown, else reveal it.
      */
     handleRevealButton(event) {
-        if (event.currentTarget.classList.contains('t3js-vault-input-hide')) {
+        const button = event.currentTarget;
+        if (button.classList.contains('t3js-vault-input-hide')) {
             this.handleHide(event);
             return;
         }
-        this.handleReveal(event);
+        const originalChildren = Array.from(button.childNodes);
+        this.handleReveal(event).catch(() => {
+            this.resetFailedReveal(button, originalChildren);
+            console.error('Unexpected error revealing secret');
+        });
     }
 
     /**
@@ -176,13 +181,25 @@ class VaultSecretInput {
                 throw new Error(data.error || 'Failed to reveal secret');
             }
         } catch (error) {
+            this.resetFailedReveal(button, originalChildren);
             console.error('Error revealing secret:', error);
             if (top.TYPO3?.Notification) {
                 top.TYPO3.Notification.error(lang('nrvault.error', 'Error'), error.message || lang('nrvault.reveal.failed', 'Failed to reveal secret'));
             }
-            button.replaceChildren(...originalChildren);
-            button.disabled = false;
         }
+    }
+
+    /**
+     * Wipe a failed or partially completed reveal before reporting its error.
+     * Safe to repeat if the error notification itself rejects the reveal.
+     */
+    resetFailedReveal(button, originalChildren) {
+        const cancel = this.revealLifecycles.get(button);
+        this.revealLifecycles.delete(button);
+        cancel?.();
+        this.restoreMasked(button);
+        button.replaceChildren(...originalChildren);
+        button.disabled = false;
     }
 
     /**
