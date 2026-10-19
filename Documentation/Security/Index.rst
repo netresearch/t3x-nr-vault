@@ -549,8 +549,9 @@ it unreachable exactly when it is needed. CLI is likewise not gated on
 :confval:`allowCliAccess <ext-nrvault-allowCliAccess>` — a shell on the host
 already reaches the master key.
 
-A ``TechnicalActorContext::runAs()`` scope may **never** open a window,
-even for an actor whose snapshot carries the admin flag. ``runAs()`` is
+A ``TechnicalActorContext::runAs()`` scope may **never** open or close a window,
+even with an ambient administrator session or an actor whose snapshot carries
+the admin flag. ``runAs()`` is
 not an authentication boundary (any code with DI access can open a
 scope), so accepting it would let arbitrary extension code mint its own
 bypass with a synthetic justification.
@@ -559,8 +560,8 @@ Mandatory justification
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 ``--reason`` is required for both activation and deactivation, and an
-empty or whitespace-only value is rejected. The reason is stored
-verbatim in the audit row, carried in the PSR-14 event, and displayed in
+empty or whitespace-only value is rejected. The trimmed reason is stored
+in the audit row, carried in the PSR-14 event, and displayed in
 the backend banner. Reference the incident, ticket or change record —
 "testing" tells a later reviewer nothing.
 
