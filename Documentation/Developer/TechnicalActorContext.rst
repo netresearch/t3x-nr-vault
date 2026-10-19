@@ -18,28 +18,26 @@ ACL instead of the all-or-nothing CLI access switch.
 provides that as a scoped API (see
 :ref:`adr-029-technical-actor-context`):
 
-.. code-block:: php
+.. literalinclude:: ../Examples/TechnicalActor/IngestHandler.php
+   :language: php
    :caption: EXT:my_extension/Classes/MessageHandler/IngestHandler.php
 
-   use Netresearch\NrVault\Security\TechnicalActorContextInterface;
-   use Netresearch\NrVault\Service\VaultServiceInterface;
+This example is a Symfony Messenger handler. The consuming application supplies
+its own ``IngestMessage`` type and message handling code. Configure the required
+scalar UID in its ``Services.yaml``;
+replace ``10`` with an enabled, root-level ``be_users`` record in that project.
+The two vault interfaces are autowired from nr-vault. Register the handler with
+the application's messaging framework as that framework requires.
 
-   final readonly class IngestHandler
-   {
-       public function __construct(
-           private TechnicalActorContextInterface $technicalActorContext,
-           private VaultServiceInterface $vaultService,
-       ) {}
+.. literalinclude:: ../Examples/TechnicalActor/Services.yaml
+   :language: yaml
+   :caption: EXT:my_extension/Configuration/Services.yaml (example UID binding)
 
-       public function __invoke(IngestMessage $message): void
-       {
-           $apiKey = $this->technicalActorContext->runAs(
-               $this->technicalBeUserUid,
-               fn (): ?string => $this->vaultService->retrieve('my_ext/embeddings_api_key'),
-           );
-           // ...
-       }
-   }
+Provision ``my_ext_embeddings_api_key`` and grant the selected technical user
+access before invoking the handler. The identifier uses the ordinary supported
+letters, numbers and underscores. :php:`retrieve()` returns ``null`` if the
+secret is missing; this example refuses that result. Adapt the subsequent
+message handling and missing-secret behavior to the consuming application.
 
 Semantics
 =========
