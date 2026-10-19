@@ -319,6 +319,15 @@ matters in both directions:
    would have handed an attacker a log blackout — see
    :ref:`adr-035-request-scoping`.
 
+Both paths make optional PSR-3 diagnostic attempts.
+A logger throwing an exception or an error cannot interrupt placeholder
+resolution: unresolved placeholders remain literal and later allowed references
+can still resolve.
+The request slot is consumed before the attempt, so a failed logger does not
+cause retries or recursive diagnostics within a strict web request.
+This containment does not weaken the mandatory Vault audit-write boundary and
+does not prove receipt or delivery by a logging backend.
+
 The identifier is echoed only when ``IdentifierValidator::isValid()`` passes,
 otherwise the literal ``[invalid]`` — no newline injection, no length blow-up,
 never a secret value.
