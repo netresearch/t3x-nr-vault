@@ -37,9 +37,13 @@ use Netresearch\NrVault\Http\StreamingTransfer;
 use Netresearch\NrVault\Http\TransportTickerInterface;
 use Netresearch\NrVault\Http\VaultHttpClient;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Tests\Unit\Http\Fixtures\TransferClock;
+use Netresearch\NrVault\Tests\Unit\Http\Fixtures\TransferClockTicker;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\MockObject\Stub;
@@ -53,6 +57,8 @@ use ReflectionMethod;
 use RuntimeException;
 use Throwable;
 
+use function Netresearch\NrVault\Http\microtime;
+
 /**
  * The streaming send, driven without a socket.
  *
@@ -61,8 +67,8 @@ use Throwable;
  * handler replaced by a stub that plays the curl handler's part: it calls
  * `on_headers`, writes into the `sink` it was handed and settles its promise,
  * each on the tick a test chooses. The ticker is a closure that tells the stub
- * what to do on the Nth tick. No sleeps, no wall clock except where a test
- * sets a zero budget on purpose.
+ * what to do on the Nth tick. Idle-bound cases use timed ticks or a controlled
+ * clock in isolated processes; other cases do not depend on wall-clock time.
  *
  * What only a socket can show — the first bytes readable before the server
  * finished, the pin deciding which address is reached, a redirect never
@@ -81,6 +87,8 @@ final class VaultHttpClientStreamingTest extends TestCase
     private const API_HOST = 'api.example.com';
 
     private const PUBLIC_IP = '93.184.216.34';
+
+    private const TRANSFER_CLOCK_FIXTURE_PATH = __DIR__ . '/Fixtures/TransferClock.php';
 
     private const CANCELLED_BEFORE_SEND_MESSAGE
         = 'Request cancelled before send: nothing egressed and no secret was retrieved';
@@ -809,49 +817,112 @@ final class VaultHttpClientStreamingTest extends TestCase
     }
 
     #[Test]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function theHeadCountsAsProgressForTheIdleBound(): void
     {
-        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+        require_once self::TRANSFER_CLOCK_FIXTURE_PATH;
+        TransferClock::reset();
+        $this->vaultService
+            ->expects(self::once())
+            ->method('retrieve')
+            ->willReturn('s3cret');
 
-        // 50 ms per tick, 200 ms idle bound: the head arrives at 150 ms, the
-        // first byte 150 ms after it. Each gap is inside the bound, the sum is
-        // not — only counting the head keeps the transfer alive.
+        // A final head at 150 ms and first body at 300 ms: each gap is below
+        // the 200 ms idle bound, but their sum is above it. Real usleep only
+        // guarantees a minimum delay and cannot establish this schedule.
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
-            3 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
-            6 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
-        ], 50_000);
+        $ticker = new TransferClockTicker(
+            static function (int $tick) use ($transfer): void {
+                if ($tick === 3) {
+                    $transfer->deliverHead(200);
+                }
 
-        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.2))
-            ->withAuthentication('api_key', SecretPlacement::Bearer)
-            ->sendStreaming(new Request('GET', self::API_URL));
+                if ($tick === 6) {
+                    $transfer->deliverBytes('first');
+                }
+            },
+        );
+        $caught = null;
+        $status = null;
+        $bytes = null;
 
-        self::assertSame(200, $response->getStatusCode());
-        self::assertSame('first', $response->getBody()->read(8192));
+        try {
+            $response = $this
+                ->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.2))
+                ->withAuthentication('api_key', SecretPlacement::Bearer)
+                ->sendStreaming(new Request('GET', self::API_URL));
+            $status = $response->getStatusCode();
+            $bytes = $response->getBody()->read(8192);
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+
+        self::assertNull(
+            $caught,
+            $caught?->getMessage() ?? 'A final head resets the idle bound',
+        );
+        self::assertSame(200, $status);
+        self::assertSame('first', $bytes);
+        self::assertSame(6, $ticker->ticks());
+        self::assertSame(0.3, TransferClock::elapsed());
+        self::assertGreaterThan(0, TransferClock::reads());
         self::assertSame(0, $transfer->cancelCalls());
     }
 
-    // =========================================================================
-    // Review round 5
-    // =========================================================================
-
     #[Test]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function aRepeatedInterimHeadBuysNoTime(): void
     {
-        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
-
-        // Guzzle 7 calls on_headers for every 1xx head. A server that sends
-        // `100 Continue` on every step and never a final head must still end
-        // at the idle bound.
+        require_once self::TRANSFER_CLOCK_FIXTURE_PATH;
+        TransferClock::reset();
+        self::assertIsString(microtime(false));
+        $this->vaultService
+            ->expects(self::once())
+            ->method('retrieve')
+            ->willReturn('s3cret');
+        // Interim heads on every tick must still end at the 200 ms idle bound.
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker(
-            $transfer,
-            [],
-            20_000,
-            static fn (StreamStubTransfer $t) => $t->deliverHead(100),
+        $ticker = new TransferClockTicker(
+            static function () use ($transfer): void {
+                $transfer->deliverHead(100);
+            },
         );
 
-        $this->assertIdleAbortBeforeReturn($transfer, $ticker);
+        $client = $this
+            ->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.2))
+            ->withAuthentication('api_key', SecretPlacement::Bearer);
+        $caught = null;
+
+        try {
+            $client->sendStreaming(new Request('GET', self::API_URL));
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+
+        self::assertInstanceOf(
+            VaultException::class,
+            $caught,
+            'A silent transfer must reach the idle bound before the test tick ceiling.',
+        );
+        self::assertSame(1790487201, $caught->getCode());
+        self::assertSame(self::IDLE_EXHAUSTED_MESSAGE, $caught->getMessage());
+        self::assertSame(4, $ticker->ticks());
+        self::assertSame(0.2, TransferClock::elapsed());
+        self::assertGreaterThan(0, TransferClock::reads());
+        self::assertSame(1, $transfer->cancelCalls());
+        self::assertSame(
+            [
+                [
+                    'action' => 'http_call',
+                    'success' => false,
+                    'error' => self::IDLE_EXHAUSTED_MESSAGE,
+                    'status' => 0,
+                ],
+            ],
+            $this->auditRows,
+        );
     }
 
     #[Test]
@@ -895,29 +966,58 @@ final class VaultHttpClientStreamingTest extends TestCase
     }
 
     #[Test]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function aTrickleAfterAFinalHeadCompletesAlthoughAnInterimHeadCameFirst(): void
     {
-        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
-
-        // 50 ms per tick, 200 ms idle bound: `100` at 50 ms, the final head at
-        // 150 ms, then a byte every 150 ms until the transfer completes at
-        // 600 ms. Each gap is inside the bound, the whole is three times it.
+        require_once self::TRANSFER_CLOCK_FIXTURE_PATH;
+        TransferClock::reset();
+        self::assertIsString(microtime(false));
+        $this->vaultService
+            ->expects(self::once())
+            ->method('retrieve')
+            ->willReturn('s3cret');
+        // Each gap is 150 ms or less; the complete transfer lasts 600 ms,
+        // exceeding the 200 ms idle bound without depending on scheduling.
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
-            1 => static fn (StreamStubTransfer $t) => $t->deliverHead(100),
-            3 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
-            6 => static fn (StreamStubTransfer $t) => $t->deliverBytes('a'),
-            9 => static fn (StreamStubTransfer $t) => $t->deliverBytes('b'),
-            12 => static fn (StreamStubTransfer $t) => $t->complete(),
-        ], 50_000);
+        $ticker = new TransferClockTicker(
+            static function (int $tick) use ($transfer): void {
+                match ($tick) {
+                    1 => $transfer->deliverHead(100),
+                    3 => $transfer->deliverHead(200),
+                    6 => $transfer->deliverBytes('a'),
+                    9 => $transfer->deliverBytes('b'),
+                    12 => $transfer->complete(),
+                    default => null,
+                };
+            },
+        );
 
-        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.2))
-            ->withAuthentication('api_key', SecretPlacement::Bearer)
-            ->sendStreaming(new Request('GET', self::API_URL));
+        $client = $this
+            ->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.2))
+            ->withAuthentication('api_key', SecretPlacement::Bearer);
+        $response = null;
+        $body = null;
+        $caught = null;
 
+        try {
+            $response = $client->sendStreaming(new Request('GET', self::API_URL));
+            $body = $response->getBody()->getContents();
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+
+        self::assertNull(
+            $caught,
+            'Final heads and body bytes must renew the idle deadline.',
+        );
+        self::assertInstanceOf(ResponseInterface::class, $response);
         self::assertSame(200, $response->getStatusCode());
-        self::assertSame('ab', $response->getBody()->getContents());
+        self::assertSame('ab', $body);
         self::assertSame(0, $transfer->cancelCalls());
+        self::assertSame(12, $ticker->ticks());
+        self::assertGreaterThan(0.2, TransferClock::elapsed());
+        self::assertGreaterThan(0, TransferClock::reads());
     }
 
     // =========================================================================
