@@ -981,11 +981,11 @@ Frontend-accessible secrets
 By default, secrets cannot be resolved in frontend context (TypoScript).
 To allow a secret to be used in TypoScript:
 
-1. Create the secret with :php:`frontend_accessible` metadata.
+1. Create the secret with the top-level :php:`frontendAccessible` store option.
 2. Use the :typoscript:`%vault(identifier)%` syntax in TypoScript.
 
-``frontend_accessible`` says the secret *may* appear in a page; it does not say
-which placeholders get expanded. In a frontend request — and on the command
+The stored ``frontend_accessible`` flag says the secret *may* appear in a page;
+it does not say which placeholders get expanded. In a frontend request — and on the command
 line, unless :confval:`frontendPlaceholderLegacyCli
 <ext-nrvault-frontendPlaceholderLegacyCli>` is on — the identifier must also
 be published through an admin-only source — the TypoScript setup array, the site
@@ -995,18 +995,13 @@ that on its own; an identifier used only in a Fluid template file or an eID
 handler needs one of the last two. See
 :ref:`Which placeholders resolve in the frontend <usage-typoscript-frontend-scope>`.
 
-.. code-block:: php
-   :caption: Store frontend-accessible secret
+The option is separate from custom :php:`metadata`.
+A non-admin backend caller cannot change this flag; its prior value is preserved.
+Inject :php:`VaultServiceInterface` into your application service, for example:
 
-   $this->vaultService->store(
-       'google_maps_key',
-       $apiKey,
-       [
-           'metadata' => [
-               'frontend_accessible' => true,
-           ],
-       ],
-   );
+.. literalinclude:: _FrontendAccessibleSecret.php
+   :language: php
+   :caption: Store frontend-accessible secret
 
 .. warning::
 
