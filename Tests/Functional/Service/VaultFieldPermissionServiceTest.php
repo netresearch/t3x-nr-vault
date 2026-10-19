@@ -12,7 +12,9 @@ namespace Netresearch\NrVault\Tests\Functional\Service;
 use Netresearch\NrVault\Service\VaultFieldPermission;
 use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -96,32 +98,63 @@ final class VaultFieldPermissionServiceTest extends FunctionalTestCase
     #[Test]
     public function clearCacheResetsPermissionCache(): void
     {
-        $this->setUpBackendUser(1);
+        $this->configureUser(2, 'page.vault.permissions.default.reveal = 0');
+        self::assertFalse(
+            $this
+                ->getSubject()
+                ->isAllowed('table', 'field', VaultFieldPermission::Reveal),
+        );
 
-        // First call - caches result
-        $this->getSubject()->isAllowed('table', 'field', VaultFieldPermission::Reveal);
-
-        // Clear cache
+        $this->configureUser(2, 'page.vault.permissions.default.reveal = 1');
+        self::assertFalse(
+            $this
+                ->getSubject()
+                ->isAllowed('table', 'field', VaultFieldPermission::Reveal),
+        );
         $this->getSubject()->clearCache();
-
-        // Should work without errors
-        $result = $this->getSubject()->isAllowed('table', 'field', VaultFieldPermission::Reveal);
-        self::assertTrue($result);
+        self::assertTrue(
+            $this
+                ->getSubject()
+                ->isAllowed('table', 'field', VaultFieldPermission::Reveal),
+        );
     }
 
     #[Test]
     public function permissionsAreCachedPerUserAndField(): void
     {
-        $this->setUpBackendUser(1);
+        $this->configureUser(
+            2,
+            "page.vault.permissions.table.field1.reveal = 0\npage.vault.permissions.table.field2.reveal = 1",
+        );
+        self::assertFalse(
+            $this
+                ->getSubject()
+                ->isAllowed('table', 'field1', VaultFieldPermission::Reveal),
+        );
+        self::assertTrue(
+            $this
+                ->getSubject()
+                ->isAllowed('table', 'field2', VaultFieldPermission::Reveal),
+        );
 
-        // Multiple calls should use cache
-        $result1 = $this->getSubject()->isAllowed('table1', 'field1', VaultFieldPermission::Reveal);
-        $result2 = $this->getSubject()->isAllowed('table1', 'field1', VaultFieldPermission::Reveal);
-        $result3 = $this->getSubject()->isAllowed('table1', 'field2', VaultFieldPermission::Reveal);
-
-        self::assertTrue($result1);
-        self::assertTrue($result2);
-        self::assertTrue($result3);
+        $this->configureUser(
+            3,
+            'page.vault.permissions.table.field1.reveal = 1',
+        );
+        self::assertTrue(
+            $this
+                ->getSubject()
+                ->isAllowed('table', 'field1', VaultFieldPermission::Reveal),
+        );
+        $this->configureUser(
+            2,
+            'page.vault.permissions.table.field1.reveal = 1',
+        );
+        self::assertFalse(
+            $this
+                ->getSubject()
+                ->isAllowed('table', 'field1', VaultFieldPermission::Reveal),
+        );
     }
 
     #[Test]
@@ -135,10 +168,118 @@ final class VaultFieldPermissionServiceTest extends FunctionalTestCase
         self::assertFalse($result);
     }
 
+    #[Test]
+    #[DataProvider('configurationPrecedence')]
+    public function realUserTsConfigControlsPublicPermission(
+        string $config,
+        VaultFieldPermission $permission,
+        bool $expected,
+    ): void {
+        $this->configureUser(2, $config);
+
+        self::assertSame(
+            $expected,
+            $this->getSubject()->isAllowed('table', 'field', $permission),
+        );
+    }
+
+    /**
+     * @return iterable<string, array{string, VaultFieldPermission, bool}>
+     */
+    public static function configurationPrecedence(): iterable
+    {
+        yield 'global false overrides built-in true' => [
+            'page.vault.permissions.default.reveal = 0',
+            VaultFieldPermission::Reveal,
+            false,
+        ];
+        yield 'table true overrides global false' => [
+            "page.vault.permissions.default.reveal = 0\npage.vault.permissions.table.default.reveal = 1",
+            VaultFieldPermission::Reveal,
+            true,
+        ];
+        yield 'table false overrides global true' => [
+            "page.vault.permissions.default.reveal = 1\npage.vault.permissions.table.default.reveal = 0",
+            VaultFieldPermission::Reveal,
+            false,
+        ];
+        yield 'field false overrides table and global true' => [
+            "page.vault.permissions.default.reveal = 1\npage.vault.permissions.table.default.reveal = 1\npage.vault.permissions.table.field.reveal = 0",
+            VaultFieldPermission::Reveal,
+            false,
+        ];
+        yield 'field true overrides table and global false' => [
+            "page.vault.permissions.default.reveal = 0\npage.vault.permissions.table.default.reveal = 0\npage.vault.permissions.table.field.reveal = 1",
+            VaultFieldPermission::Reveal,
+            true,
+        ];
+        yield 'configured readonly overrides built-in false' => [
+            'page.vault.permissions.table.field.readOnly = yes',
+            VaultFieldPermission::ReadOnly,
+            true,
+        ];
+    }
+
+    #[Test]
+    public function realTsConfigSeparatesPermissionsAndTables(): void
+    {
+        $this->configureUser(
+            2,
+            "page.vault.permissions.table.field.reveal = 0\npage.vault.permissions.table.field.copy = 1\npage.vault.permissions.table.field.edit = 0\npage.vault.permissions.table.field.readOnly = 1\npage.vault.permissions.other.field.reveal = 1",
+        );
+
+        self::assertSame(
+            [
+                'reveal' => false,
+                'copy' => true,
+                'edit' => false,
+                'readOnly' => true,
+            ],
+            $this->getSubject()->getPermissions('table', 'field'),
+        );
+        self::assertTrue($this->getSubject()->isReadOnly('table', 'field'));
+        self::assertTrue(
+            $this
+                ->getSubject()
+                ->isAllowed('other', 'field', VaultFieldPermission::Reveal),
+        );
+    }
+
+    #[Test]
+    public function administratorsIgnoreRestrictiveTsConfigAndAreNeverReadOnly(): void
+    {
+        $this->configureUser(
+            1,
+            "page.vault.permissions.default.reveal = 0\npage.vault.permissions.default.copy = 0\npage.vault.permissions.default.edit = 0\npage.vault.permissions.default.readOnly = 1",
+        );
+
+        self::assertSame(
+            [
+                'reveal' => true,
+                'copy' => true,
+                'edit' => true,
+                'readOnly' => false,
+            ],
+            $this->getSubject()->getPermissions('table', 'field'),
+        );
+    }
+
     private function getSubject(): VaultFieldPermissionService
     {
         self::assertNotNull($this->subject, 'VaultFieldPermissionService not initialized');
 
         return $this->subject;
+    }
+
+    private function configureUser(int $uid, string $config): void
+    {
+        $this
+            ->getConnectionPool()
+            ->getConnectionForTable('be_users')
+            ->update('be_users', ['TSconfig' => $config], ['uid' => $uid]);
+        GeneralUtility::makeInstance(CacheManager::class)
+            ->getCache('runtime')
+            ->flush();
+        $this->setUpBackendUser($uid);
     }
 }
