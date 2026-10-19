@@ -152,7 +152,7 @@ final class VaultHealthServiceTest extends TestCase
     public function aFailingProviderFactoryIsAnIssueWithoutAProviderName(): void
     {
         $factory = self::createStub(MasterKeyProviderFactoryInterface::class);
-        $factory->method('getAvailableProvider')
+        $factory->method('create')
             ->willThrowException(new ConfigurationException('provider "typo3" is forbidden'));
 
         $this->logger->expects(self::once())
@@ -174,7 +174,7 @@ final class VaultHealthServiceTest extends TestCase
         MasterKeyProviderInterface $provider,
     ): MasterKeyProviderFactoryInterface&Stub {
         $factory = self::createStub(MasterKeyProviderFactoryInterface::class);
-        $factory->method('getAvailableProvider')->willReturn($provider);
+        $factory->method('create')->willReturn($provider);
 
         return $factory;
     }
