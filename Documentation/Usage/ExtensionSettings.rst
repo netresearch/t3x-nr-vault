@@ -23,7 +23,8 @@ The challenge
 =============
 
 Extension settings defined in :file:`ext_conf_template.txt` are stored in
-:file:`LocalConfiguration.php` - not in TCA tables. This means:
+TYPO3's local system configuration files. The filename depends on the TYPO3
+version and project layout. These settings do not use TCA tables. This means:
 
 -  The ``renderType: 'vaultSecret'`` approach doesn't work directly
 -  API keys are stored as plaintext in the filesystem
@@ -41,33 +42,44 @@ There are three approaches to secure extension settings with vault:
 Approach 1: Store vault identifier in settings (recommended)
 ------------------------------------------------------------
 
-Store a vault reference in extension settings, resolve at runtime.
+Store the secret's identifier in extension settings, resolve at runtime.
 
 **Advantages:**
 
 -  Works with existing extension settings UI
 -  No schema changes required
 -  Secrets properly encrypted in vault
--  Self-documenting ``vault:`` prefix
+-  Uses the identifier directly with the vault HTTP client
 
 **Extension settings template:**
 
 .. code-block:: text
    :caption: EXT:my_deepl_extension/ext_conf_template.txt
 
-   # cat=api; type=string; label=DeepL API Key (Vault Reference): Enter vault:your-secret-id
-   deeplApiKey = vault:
+   # cat=api; type=string; label=DeepL API Key (Vault Identifier): Enter the identifier of your stored secret
+   deeplApiKey =
 
-The admin enters a vault reference like ``vault:deepl_api_key`` (not the actual key).
+The admin enters the identifier ``deepl_api_key`` (not the actual key).
 
-The ``vault:`` prefix makes it clear this is a vault reference and enables
-validation. See :ref:`adr-009-extension-configuration-secrets` for the design rationale.
+The HTTP client resolves this identifier at use time. The optional
+``VaultReference`` helper described in ADR-009 is not implemented; use its
+direct-identifier pattern. See :ref:`adr-009-extension-configuration-secrets`
+for the design rationale.
 
 **Service implementation:**
 
 .. literalinclude:: _DeepLServiceVault.php
    :language: php
    :caption: EXT:my_deepl_extension/Classes/Service/DeepLService.php
+
+Register the service in the consuming extension's dependency-injection
+configuration. TYPO3 13 and 14 provide the ``RequestFactoryInterface`` alias
+through Core's HTTP request factory; the container injects it alongside the
+vault service and extension configuration.
+
+.. literalinclude:: _DeepLServices.yaml
+   :language: yaml
+   :caption: EXT:my_deepl_extension/Configuration/Services.yaml
 
 **Setup steps:**
 
@@ -89,16 +101,17 @@ validation. See :ref:`adr-009-extension-configuration-secrets` for the design ra
 
       ./vendor/bin/typo3 vault:store deepl_api_key --value="your-deepl-api-key-here"
 
-2. Configure extension setting with vault reference:
+2. Configure the extension setting with the identifier:
 
    **Via backend:**
 
    a. Go to :guilabel:`Admin Tools > Settings > Extension Configuration`
    b. Find your extension and expand it
-   c. Enter the vault reference: ``vault:deepl_api_key``
+   c. Enter the identifier: ``deepl_api_key``
    d. Click :guilabel:`Save`
 
-3. The service parses the ``vault:`` prefix and resolves the secret at use time.
+3. The service passes the identifier to the HTTP client, which resolves the
+   secret at use time.
 
 .. tip::
 
@@ -106,7 +119,7 @@ validation. See :ref:`adr-009-extension-configuration-secrets` for the design ra
    TYPO3 backend:
 
    - Create secrets in :guilabel:`Admin Tools > Vault`
-   - Reference them in :guilabel:`Extension Configuration` with ``vault:identifier``
+   - Reference them in :guilabel:`Extension Configuration` with their identifier
 
 .. _extension-settings-approach-2:
 
