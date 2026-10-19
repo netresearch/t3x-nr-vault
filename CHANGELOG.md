@@ -9,19 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- A throwing secondary PSR-3 hook diagnostic writer no longer interrupts refusal or copy compensation. The existing single sanitized logging attempt and correlation message are retained; a reference does not confirm log delivery. Mandatory mutation-audit and storage failures keep their existing contracts. Real writer `RuntimeException`/`Error` oracles also exercise final-link clearing after a clone-deletion failure. See ADR-047.
-
 ### Added
 
 - **Combine primary HTTP authentication with separately stored body credentials.** The optional `AdditionalSecretHttpClientInterface::withAdditionalBodyField()` capability adds a Vault identifier to a simple form or JSON-object field inside the existing secured send boundary. Authentication, OAuth, reason and timeout clones preserve up to eight bindings; duplicate names, primary BodyField collisions and malformed bindings are refused. Blocking, cancellable and streaming sends share injection, cancellation and audit behavior. A denied additional read prevents transport contact, and existing `VaultHttpClientInterface` signatures remain unchanged. See ADR-041.
 
 ### Changed
 
-- HTTP idle-bound regression tests use a controlled clock in isolated processes for interim-head and continuing-body cases, while retaining the abort, cancellation and audit assertions.
+- DNS memo tests check the real five-second deadline without sleeping. The existing suite accepted a sixty-second cache; the new timing bounds reject that change, and the comments and ADR now state the actual five-second policy. **HTTP policy comments match the exact allowlist override.** Private or loopback endpoints remain blocked unless their hostname or IP is allowlisted exactly; wildcard entries do not bypass the address guard.
+
+- Browser security tests require the rendered secret row and reveal control, reject every stored invalid identifier, and distinguish a successful read audit entry from the creation entry for the same identifier.
+
+- HTTP factory documentation describes the shipped public credential-free transports, per-hop DNS pin, combined address fallback and fresh checks on pinless transfers. Regression tests exercise public and loopback bracketed IPv6 literals at the middleware. The planned Secure Outbound feature remains distinct; executable behavior is unchanged.
+
+- HTTP idle-bound regression tests use a controlled clock in isolated processes for interim-head and continuing-body cases, while retaining the abort, cancellation and audit assertions. The final-head progress case also uses a fixed 150 ms / 300 ms schedule instead of real sleeps, whose minimum delay cannot establish its expected deadline.
 
 - **Project-authored source files state their licence and copyright holder.** The documentation, templates, XLIFF, JavaScript, CSS, configuration and scripts written for this extension now carry `SPDX-License-Identifier: GPL-2.0-or-later` and `SPDX-FileCopyrightText: Netresearch DTT GmbH`, as the PHP files already did; the files synced from the organisation template carry its MIT notice. Copied files (`CODE_OF_CONDUCT.md`, `Build/Scripts/runTests.sh`, `Build/Scripts/verify-harness.sh`), generated files (`Build/phpstan-baseline.neon`, `Tests/Unit/Api/api-surface.txt`), the issue and pull-request templates, `.github/template.yaml`, the workflows `ci.yml` and `release.yml`, `LICENSE`, the JSON files, the CSV fixtures, the images and the empty `.gitkeep` carry none. `CONTRIBUTING.md` links the organisation's governance, roadmap, access roster, secret management and findings policies and lists the checks its workflows run on pull requests; `SECURITY.md` points to the findings policy.
+
+### Fixed
+
+- Secret-input reveal failures wipe partial values and cancel an active exposure lifecycle before diagnostics, restore the original reveal control and catch unexpected Promise rejections. Browser regressions exercise spinner preparation, error notification, interrupted countdown setup and failure after lifecycle registration.
+
+- **The frontend-accessible secret example uses the actual store option.** The manual sets top-level `frontendAccessible` rather than custom metadata. Its embedded PHP example is statically checked and exercised against encrypted SQL storage and the frontend read API; custom metadata remains distinct from the access flag.
+
+- **The technical-actor handler example has a configured user UID and a valid secret identifier.** The literal PHP and service configuration are exercised with real Core actors, encrypted SQL storage, group permissions and audit attribution, including disabled-user and denied-access counterparts.
+
+- **Make quality targets use the shared container test runner.** `make ci` runs Code style, PHPStan, Unit and Fuzz in the shared runtime. `make cgl` now performs its documented dry-run; `make fix` applies code style and `make rector` checks refactorings in the same runtime. The four CI checks and their failure behavior remain the same.
+
+- **The overview checks the configured master-key provider.** A missing file or an invalid provider no longer reports healthy through an unrelated TYPO3 encryption-key fallback. The health probe selects the same provider as the encryption dependency; functional tests exercise the real provider factory, including a readable configured-file counterpart.
 
 ## [1.1.0] - 2026-09-29
 
@@ -36,8 +50,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Info, primary and count badges use core's colours instead of the Netresearch teal.** Since 1.0.0 they were painted `#2f99a4` with black text in both schemes. They now use core's `badge-info` and `badge-primary`, so they follow the backend scheme like every other badge, and the brand colour no longer appears in module content. The module icons keep their teal accent.
 
 ### Fixed
-
-- Compensate successfully stored FlexForm clones when final XML serialization or record linking fails; attempt clearing even after a write has taken effect, and report uncertain references if recovery also fails.
 
 - **TYPO3 v14 no longer logs the `ext_emconf.php` deprecation for nr_vault.** `composer.json` declares `extra.typo3/cms.version` and an empty `Package.providesPackages` (TYPO3 #108345: an extension that still ships `ext_emconf.php` must name both). The version is now stated in `ext_emconf.php`, `composer.json` and `Documentation/guides.xml`; `VersionConsistencyTest` fails when a release commit misses one of them.
 - **TYPO3 v14 no longer logs a TCA migration deprecation for `tx_nrvault_secret`.** The table no longer sets `ctrl.searchFields`, which v14 removed (#106972) and strips with a deprecation. The backend search scope is unchanged: v14 searches `identifier`, `description` and `context` through the per-column `searchable` flag, now set to `false` on the five other searchable columns (`expires_at`, `metadata`, `last_rotated_at`, `last_read_at`, `adapter`) exactly as the automatic migration did, and v13, which ignores that flag, gets `searchFields` from a TCA override that applies on v13 only.

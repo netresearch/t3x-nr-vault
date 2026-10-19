@@ -121,6 +121,15 @@ Use the :php:`VaultFieldResolver` utility to retrieve actual secret values:
    }
 
 
+.. _tca-reveal-failure-recovery:
+
+Reveal failure recovery
+=======================
+
+The secret-input widget resets failed reveal attempts before displaying an error notification.
+It wipes a partially displayed value, cancels any registered reveal lifecycle, restores the original button content and enables the reveal control.
+The click boundary also catches unexpected Promise rejections and writes a fixed fallback diagnostic without exception details.
+
 .. _tca-helper:
 
 Using the TCA helper
