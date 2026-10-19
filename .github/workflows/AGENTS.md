@@ -22,6 +22,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 | `release-evidence.yml` | Publishes the security release-evidence bundle for a tag; a manual run with a commit SHA as `ref` is the pre-release check (publishes nothing, bundle `precheck-<commit>`). Coverage is four jobs: `coverage-plan` reads the shard list from `Tests/Unit/*`, a `coverage-unit` matrix and `coverage-functional` collect Xdebug path coverage, `coverage-merge` merges them via `Build/Scripts/merge-coverage.php`. Sharded because the whole unit suite under `--path-coverage` exceeds 40 minutes on one runner |
 | `republish.yml` | Manual re-run of a publish target (ter / docs / packagist) for an existing tag |
 | `auto-merge-deps.yml` | Auto-merge dependency PRs when CI green (Renovate/Dependabot) |
+| `dco.yml` | DCO sign-off check (`dco / DCO`) via the shared `dco.yml` reusable. Runs on `merge_group` too, which the probot DCO app cannot |
 | `community.yml` | Community health: stale bot, lock of closed threads, welcome |
 | `labeler.yml` | PR auto-labeling (`pull_request_target`) with the rules in `../labeler.yml` |
 | `../labeler.yml` | PR auto-labeling rules |
@@ -64,7 +65,8 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 │   ├── republish.yml
 │   ├── auto-merge-deps.yml
 │   ├── labeler.yml
-│   └── community.yml
+│   ├── community.yml
+│   └── dco.yml
 ├── ISSUE_TEMPLATE/
 ├── PULL_REQUEST_TEMPLATE.md
 ├── labeler.yml
