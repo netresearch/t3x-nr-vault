@@ -15,6 +15,7 @@ use Netresearch\NrVault\Exception\TechnicalActorException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\TechnicalActorContext;
 use Netresearch\NrVault\Security\TechnicalActorContextInterface;
+use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -115,5 +116,78 @@ final class TechnicalActorContextTest extends AbstractVaultFunctionalTestCase
         self::assertSame(10, $entry->actorUid);
         self::assertSame('technical', $entry->actorType);
         self::assertSame('tech_indexer', $entry->actorUsername);
+    }
+
+    #[Test]
+    public function operationGrantsUseTheRealExpandedGroupRows(): void
+    {
+        $groups = $this->getConnectionPool()->getConnectionForTable('be_groups');
+        $groups->update(
+            'be_groups',
+            [
+                'custom_options' => 'tx_nrvault:secret.create,tx_nrvault:secret.rotate',
+            ],
+            ['uid' => 5],
+        );
+        $groups->insert(
+            'be_groups',
+            [
+                'uid' => 7,
+                'pid' => 0,
+                'title' => 'Unrelated operation grants',
+                'custom_options' => 'tx_nrvault:secret.delete',
+            ],
+        );
+        $accessControl = $this->get(AccessControlServiceInterface::class);
+        $context = $this->get(TechnicalActorContextInterface::class);
+
+        $decisions = $context->runAs(
+            10,
+            static fn (): array => [
+                'use' => $accessControl->isGranted(VaultPermission::SecretUse),
+                'create' => $accessControl->isGranted(VaultPermission::SecretCreate),
+                'rotate' => $accessControl->isGranted(VaultPermission::SecretRotate),
+                'delete' => $accessControl->isGranted(VaultPermission::SecretDelete),
+            ],
+        );
+
+        self::assertSame(
+            [
+                'use' => true,
+                'create' => true,
+                'rotate' => true,
+                'delete' => false,
+            ],
+            $decisions,
+        );
+    }
+
+    #[Test]
+    public function unrelatedGroupOptionsCannotGrantAnOperation(): void
+    {
+        $this
+            ->getConnectionPool()
+            ->getConnectionForTable('be_groups')
+            ->insert(
+                'be_groups',
+                [
+                    'uid' => 7,
+                    'pid' => 0,
+                    'title' => 'Unrelated operation grants',
+                    'custom_options' => 'tx_nrvault:secret.create',
+                ],
+            );
+        $accessControl = $this->get(AccessControlServiceInterface::class);
+        $context = $this->get(TechnicalActorContextInterface::class);
+
+        $decisions = $context->runAs(
+            10,
+            static fn (): array => [
+                'use' => $accessControl->isGranted(VaultPermission::SecretUse),
+                'create' => $accessControl->isGranted(VaultPermission::SecretCreate),
+            ],
+        );
+
+        self::assertSame(['use' => true, 'create' => false], $decisions);
     }
 }
