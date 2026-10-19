@@ -26,7 +26,7 @@ TSconfig into Core's PageTsConfigFactory still evaluates backend-user conditions
 against the ambient Context. This boundary cannot be removed by describing the
 existing argument as a narrower selector after the fact.
 
-Native TYPO313.4.36 and TYPO314.3.8 each produce five genuine assertion failures
+Native TYPO3 13.4.36 and TYPO3 14.3.8 each produce five genuine assertion failures
 in the same twenty-case original probe. A local-context Core coordination
 prototype passes four cases/112 assertions on both, including mutable tree,
 visitor and real ambient runtime-cache identity checks. It is architecture
@@ -64,8 +64,8 @@ a local Context; it does not duplicate the parser. Core helpers are internal,
 so their supported-major behavior is checked with actual native tests rather
 than assumed from one major's signatures.
 
-TYPO313's deprecated global Page TSconfig input remains supported by its Core;
-TYPO314's removal stays in effect. Existing field UI/Hook users that omit the
+TYPO3 13's deprecated global Page TSconfig input remains supported by its Core;
+TYPO3 14's removal stays in effect. Existing field UI/Hook users that omit the
 argument keep the ordinary path. No current repository caller is claimed to
 exercise the defective optional argument, and no whole ACL-family closure
 follows from this repair.
