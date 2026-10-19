@@ -22,10 +22,10 @@ shell: ## Open container shell
 
 # Quality
 cgl: ## Check code style (dry-run)
-	$(RUNTESTS) -s cgl
+	$(RUNTESTS) -s cgl -n
 
 cgl-fix: ## Fix code style
-	composer ci:cgl
+	$(RUNTESTS) -s cgl
 
 fix: cgl-fix ## Alias for cgl-fix
 
@@ -33,7 +33,7 @@ phpstan: ## Run PHPStan static analysis
 	$(RUNTESTS) -s phpstan
 
 rector: ## Run Rector dry-run
-	composer ci:test:php:rector
+	$(RUNTESTS) -s rector -n
 
 lint: ## PHP syntax check
 	$(RUNTESTS) -s lint
@@ -68,13 +68,13 @@ test-e2e: ## Run Playwright E2E tests (requires DDEV up)
 # CI
 ci: ## Run all CI checks locally
 	@echo "Running code style check..."
-	@composer ci:test:php:cgl
+	@$(RUNTESTS) -s cgl -n
 	@echo "Running PHPStan..."
-	@composer ci:test:php:phpstan
+	@$(RUNTESTS) -s phpstan
 	@echo "Running unit tests..."
-	@composer ci:test:php:unit
+	@$(RUNTESTS) -s unit
 	@echo "Running fuzz tests..."
-	@composer ci:test:php:fuzz
+	@$(RUNTESTS) -s fuzz
 	@echo "All CI checks passed!"
 
 # Documentation
