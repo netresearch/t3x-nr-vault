@@ -18,7 +18,7 @@
 - [ ] PHPStan passes (`composer ci:test:php:phpstan`)
 - [ ] Code style is correct (`composer ci:test:php:cgl`)
 - [ ] Documentation updated (if applicable)
-- [ ] CHANGELOG.md updated
+- [ ] Changelog fragment added under `changelog.d/` (not an edit of `CHANGELOG.md`)
 
 ## Threat-Model Delta
 
