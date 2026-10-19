@@ -29,18 +29,20 @@ interface AccessControlServiceInterface
     /**
      * Check if the current actor can WRITE/UPDATE a secret.
      *
-     * Granted to: owner, admin, system maintainer, and write-tier groups
-     * (`writeGroups`). NOT granted to read-tier groups or the frontend
-     * (ADR-005 least-privilege split).
+     * Granted to owner, admin/system maintainer when their bypass applies, and
+     * write-tier groups (`writeGroups`). A trusted CLI operator additionally
+     * follows allowCliAccess/cliAccessGroups. Read-tier groups and the frontend
+     * cannot write (ADR-005 least-privilege split).
      */
     public function canWrite(Secret $secret): bool;
 
     /**
      * Check if the current actor can DELETE a secret.
      *
-     * The most restrictive tier: granted only to owner, admin, and system
-     * maintainer. No group tier — neither read- nor write-tier group
-     * members can delete (ADR-005 least-privilege split).
+     * The most restrictive per-user tier: owner or an active admin/system-
+     * maintainer bypass. Neither read- nor write-tier groups can delete.
+     * A trusted CLI operator may delete only when CLI access is allowed and
+     * cliAccessGroups is empty; the separate operation permission still applies.
      */
     public function canDelete(Secret $secret): bool;
 
@@ -52,65 +54,62 @@ interface AccessControlServiceInterface
     /**
      * Is the current actor granted an OPERATION permission?
      *
-     * Orthogonal to the per-secret tiers above: `canRead()` answers "may this
-     * actor touch THIS secret?", `isGranted()` answers "may this actor perform
-     * this KIND of operation at all?". Both gates apply — e.g. revealing a
-     * secret needs `VaultPermission::SecretReveal` *and* `canRead()` for that
-     * identifier.
+     * Orthogonal to the per-secret tiers above: canRead() answers whether the
+     * actor may touch THIS secret; isGranted() answers whether it may perform
+     * this KIND of operation. Both gates apply: revealing needs SecretReveal
+     * and canRead() for that identifier.
      *
-     * Resolution (fail-closed at every step, mirroring the actor resolution of
-     * the per-secret tiers):
+     * Resolution, in precedence order:
      *
-     * - active `TechnicalActorContext::runAs()` scope → the actor's admin flag
-     *   decides, with `VaultPermission::SecretUse` granted unconditionally so
-     *   headless consumers keep working under their per-secret ACL;
-     * - frontend request → `false`, always (no operation permissions in a
-     *   context whose output is shared with anonymous visitors);
-     * - trusted CLI operator without an authenticated backend user → the
-     *   vault's `allowCliAccess` switch decides (off by default);
-     * - authenticated backend user → admin / system maintainer are granted
-     *   everything, anyone else needs the matching custom permission option
-     *   (`tx_nrvault:<permission>`) on one of their groups;
-     * - disabled user, no user at all → `false`.
+     * - Active TechnicalActorContext::runAs() scope: an active admin bypass
+     *   grants every operation. Otherwise SecretUse is implicit, and other
+     *   operations require matching tx_nrvault custom options on the actor's
+     *   existing groups. Missing groups/database access grant no extra operation.
+     * - Frontend request: false, including an ambient backend session.
+     * - Trusted CLI operator without an authenticated backend user: both
+     *   allowCliAccess and membership in cliAllowedOperations are required.
+     * - Authenticated backend user: disabled users are refused; an active
+     *   admin/system-maintainer bypass grants every operation. Other users need
+     *   the matching tx_nrvault custom permission option in their groupData.
+     * - No attributable actor outside a real CLI context: false.
      *
-     * The admin / system-maintainer bypass — here and in every per-secret tier
-     * above — is removable: in the {@see SecurityProfile::Hardened} profile with
-     * `disableAdminOverride` set, privileged users hold only what their groups
-     * grant, unless a {@see BreakGlassServiceInterface} window is open.
+     * The admin/system-maintainer bypass, here and in the per-secret tiers, is
+     * removable: in SecurityProfile::Hardened with disableAdminOverride set,
+     * it requires an active BreakGlassServiceInterface window. Group grants
+     * and the technical actor's implicit SecretUse are independent of that bypass.
      */
     public function isGranted(VaultPermission $permission): bool;
 
     /**
      * Does the current actor hold the admin bypass?
      *
-     * Returns `true` for BE users where `BackendUserAuthentication::isAdmin()`
-     * is true. Non-BE actor types (CLI / scheduler / API) MUST return `false`
-     * — callers that legitimately need to bypass admin gates should handle
-     * actor type explicitly, not rely on this method.
+     * An active technical actor is evaluated first using its admin flag;
+     * otherwise this checks the authenticated backend user's isAdmin() flag.
+     * A disabled backend user and an unattributed CLI/system actor answer false.
      *
-     * This is a bypass question, not a role lookup: in the hardened profile
-     * with `disableAdminOverride` set, a real TYPO3 admin answers `false`
-     * unless a break-glass window is open. Do not use it to label a user in
-     * output or to derive audit attribution — use the role/actor accessors for
-     * that.
+     * This is a bypass question, not a role lookup. In the hardened profile
+     * with disableAdminOverride set, either admin identity answers false unless
+     * a break-glass window is open. Do not use it as a user label or for audit
+     * attribution; use the actor accessors instead.
      */
     public function isCurrentActorAdmin(): bool;
 
     /**
      * Get the current actor UID.
      *
-     * @return int Backend user UID (0 for CLI/system)
+     * @return int Backend/technical user UID, or 0 for an unattributed CLI/system actor
      */
     public function getCurrentActorUid(): int;
 
     /**
      * Get the current actor type.
      *
-     * 'technical' marks an active `TechnicalActorContext::runAs()` scope
-     * and supersedes all ambient detection — the audit log records the
-     * named technical identity, not the CLI operator it runs under.
+     * 'technical' marks an active TechnicalActorContext::runAs() scope and
+     * supersedes ambient detection. CLI scheduler/worker execution is 'cli';
+     * a backend-user instance is 'backend', otherwise this is 'api'. The type
+     * label alone does not establish authentication or an enabled user.
      *
-     * @return string One of: 'backend', 'cli', 'api', 'scheduler', 'technical'
+     * @return string One of: 'backend', 'cli', 'api', 'technical'
      */
     public function getCurrentActorType(): string;
 
