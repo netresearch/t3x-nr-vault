@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- DNS memo tests check the real five-second deadline without sleeping. The existing suite accepted a sixty-second cache; the new timing bounds reject that change, and the comments and ADR now state the actual five-second policy. **HTTP policy comments match the exact allowlist override.** Private or loopback endpoints remain blocked unless their hostname or IP is allowlisted exactly; wildcard entries do not bypass the address guard.
+
 - Browser security tests require the rendered secret row and reveal control, reject every stored invalid identifier, and distinguish a successful read audit entry from the creation entry for the same identifier.
 
 - HTTP factory documentation describes the shipped public credential-free transports, per-hop DNS pin, combined address fallback and fresh checks on pinless transfers. Regression tests exercise public and loopback bracketed IPv6 literals at the middleware. The planned Secure Outbound feature remains distinct; executable behavior is unchanged.
