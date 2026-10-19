@@ -238,25 +238,26 @@ final class SecureHttpClientFactory
     }
 
     /**
-     * Check if a host is allowed per TYPO3's allowed_hosts configuration.
+     * Check if a host is allowed by the HTTP allowed_hosts configuration.
      *
-     * Defence-in-depth: regardless of the allowlist, IP literals and resolved
-     * hostnames that point into private/link-local/loopback/multicast/metadata
-     * ranges are always rejected. This blocks SSRF into AWS/GCP/Azure metadata
+     * Defence-in-depth: IP literals and resolved hostnames that point into
+     * private/link-local/loopback/multicast/metadata ranges are rejected unless
+     * the host has a literal `allowed_hosts` match. Wildcard entries do not
+     * bypass these checks. This blocks SSRF into AWS/GCP/Azure metadata
      * services (169.254.169.254) and internal RFC1918 networks even on
      * installations that left `allowed_hosts` unconfigured.
      *
-     * A hostname must also resolve to at least one address, or it is refused.
-     * An answer this factory cannot use is not evidence that nothing is
-     * reachable — it resolves with `dns_get_record()`, which speaks DNS, while
-     * the transport resolves with getaddrinfo(), which also reads /etc/hosts,
-     * NSS and mDNS. A host served only by one of those needs a literal
-     * `allowed_hosts` entry; see ADR-038.
+     * A hostname without that literal opt-in must also resolve to at least
+     * one usable address, or it is refused. An answer this factory cannot use
+     * is not evidence that nothing is reachable — it resolves with
+     * `dns_get_record()`, which speaks DNS, while the transport resolves with
+     * getaddrinfo(), which also reads /etc/hosts, NSS and mDNS. A host served
+     * only by one of those needs a literal `allowed_hosts` entry; see ADR-038.
      *
      * Accepts either a bare hostname/IP or a `host:port` / `[ipv6]:port` /
      * `[ipv6]` form — port and IPv6 brackets are normalised away before
-     * filtering. Callers passing PSR-7 `UriInterface::getHost()` get the
-     * already-normalised form for free.
+     * filtering. This also normalises bracketed IPv6 hosts returned by PSR-7
+     * `UriInterface::getHost()`.
      */
     public function isHostAllowed(string $host): bool
     {
@@ -617,30 +618,36 @@ final class SecureHttpClientFactory
     }
 
     /**
-     * Guzzle middleware factory: resolves and validates the request host on
-     * every outgoing request, then pins the resolved IP via curl's
-     * `CURLOPT_RESOLVE` option so curl skips its own (potentially rebound)
-     * DNS lookup at connect time.
+     * Guzzle middleware factory: validates the host and resolved addresses on
+     * every outgoing request, including redirect hops.
+     *
+     * With ext-curl present and a non-streaming transfer, `CURLOPT_RESOLVE`
+     * pins the checked addresses so curl skips its own DNS lookup at connect
+     * time. When a hostname transfer cannot honour the pin, the middleware
+     * uses a fresh lookup and checks its addresses; the transport's later
+     * resolution remains unpinned.
      *
      * Why we cannot do this once in `create()`: that factory builds a
      * URL-agnostic Guzzle Client. The host isn't known until a request is
      * actually sent. A middleware fires per request and can inspect the URI.
      *
      * Behaviour:
-     *  - Host that resolves to one or more SAFE IPs → those IPs are pinned;
-     *    curl uses them without re-resolving.
-     *  - Host that resolves to a dangerous IP → the request is rejected
-     *    with a `RequestException` BEFORE the socket opens.
+     *  - Host that resolves to one or more SAFE IPs → those IPs are checked
+     *    and pinned when this transfer honours `CURLOPT_RESOLVE`.
+     *  - Host that resolves to a dangerous IP → the request is rejected with
+     *    a `RequestException` BEFORE the socket opens, unless the exact host
+     *    carries a literal `allowed_hosts` entry. That opt-in permits private
+     *    addresses, which are still pinned when the transfer honours pins.
      *  - Host that this factory's resolver cannot resolve → the request is
      *    rejected before the socket opens. No address was range-checked and
      *    no pin can be set, and the transport's own resolver reads sources
      *    (`/etc/hosts`, NSS, mDNS) that `dns_get_record()` never sees, so
      *    "we found nothing" is not "nothing is reachable". A literal
-     *    `allowed_hosts` entry opts such a host back in.
-     *  - IP-literal hosts (already an IPv4/IPv6 address) → no pin needed, but
-     *    the literal is range-checked here as well: this middleware also runs
-     *    for redirect hops, which never pass the caller's `isHostAllowed()`
-     *    gate (only the first request URI does).
+     *    `allowed_hosts` entry opts such a host back in without a pin.
+     *  - IP-literal hosts need no DNS lookup or pin. The literal is
+     *    range-checked unless the host is literally allowlisted. The
+     *    middleware enforces this on every request and redirect hop,
+     *    whether or not the caller invokes `isHostAllowed()` beforehand.
      */
     private function buildSsrfDefenceMiddleware(): Closure /** @phpstan-ignore missingType.callable (Guzzle's middleware contract is loosely-typed by design) */
     {
@@ -1030,17 +1037,18 @@ final class SecureHttpClientFactory
      *    - 224.0.0.0/4    — multicast
      *    - 240.0.0.0/4    — class E / reserved
      *
-     * Final deny list, in CIDR form:
+     * Denied IPv4 ranges, in CIDR form:
      *  - 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8,
      *    169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.168.0.0/16,
      *    198.18.0.0/15, 224.0.0.0/4, 240.0.0.0/4
-     *  - ::1/128, fc00::/7, fe80::/10, ff00::/8 (multicast),
-     *    ::ffff:0:0/96 (IPv4-mapped IPv6 — checked via mapping)
+     * IPv6 ranges and embedded IPv4 transition forms are checked by
+     * `isDangerousIpv6()`.
      *
-     * Caveat: this defence is bypassable by DNS rebinding when the upstream
-     * HTTP client (Guzzle/curl) re-resolves at connect-time. For full
-     * protection, callers must pin to the resolved IP via curl
-     * `CURLOPT_RESOLVE`; that is a follow-up.
+     * This helper classifies an address; it does not bind a connection.
+     * The factory's `ssrf-dns-pin` middleware validates addresses on every hop
+     * and sets `CURLOPT_RESOLVE` for a pin-capable curl transfer (ADR-026).
+     * Pinless transfers use a fresh lookup, but the transport's later
+     * resolution remains outside this helper's control.
      */
     private function isDangerousIpLiteral(string $host): bool
     {
@@ -1278,10 +1286,10 @@ final class SecureHttpClientFactory
      * One real resolver lookup, memoised for `memoisedResolve()`.
      *
      * A failed resolution (the empty list) is never memoised. An empty answer
-     * now REJECTS the request, so freezing a transient DNS failure for the TTL
-     * would turn one lost packet into a minute of refused requests — and it
-     * would blind the middleware's re-resolve where a fresh attempt might have
-     * succeeded. Only answers that carry records are worth remembering.
+     * now rejects the request, so freezing a transient DNS failure for the
+     * five-second TTL would keep refusing requests after resolution recovers.
+     * It would also blind the middleware re-resolve where a fresh attempt
+     * might succeed. Only answers that carry records are worth remembering.
      *
      * @return list<array{ip?: string, ipv6?: string}>
      */
