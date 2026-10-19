@@ -68,7 +68,7 @@ ADR      Title                                                    Status
 038      :ref:`adr-038-unresolvable-host-is-refused`              Accepted
 039      :ref:`adr-039-streaming-send-keeps-the-dns-pin`          Accepted
 040      :ref:`adr-040-cancellable-send-bounds-silence`           Accepted
-049      :ref:`adr-049-selected-user-field-tsconfig`              Proposed
+049      :ref:`adr-049-selected-user-field-tsconfig`              Accepted
 =======  =======================================================  ========
 
 .. toctree::
