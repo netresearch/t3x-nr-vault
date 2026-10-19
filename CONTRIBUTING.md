@@ -154,7 +154,7 @@ composer test:all
 - [ ] PHPStan reports no errors
 - [ ] Code style is correct
 - [ ] Documentation is updated (if applicable)
-- [ ] CHANGELOG.md is updated
+- [ ] A changelog fragment is added under `changelog.d/` (see `changelog.d/README.md`; do not edit `CHANGELOG.md` directly)
 - [ ] For security-critical paths: two approvals and a threat-model delta (see below)
 
 ## Security-Critical Changes
