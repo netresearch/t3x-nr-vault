@@ -144,14 +144,14 @@ final class AccessControlServiceIsGrantedTest extends TestCase
 
     #[Test]
     #[DataProvider('allPermissionsProvider')]
-    public function nonAdminTechnicalActorIsGrantedOnlySecretUse(VaultPermission $permission): void
+    public function nonAdminTechnicalActorWithoutGroupGrantsIsGrantedOnlySecretUse(VaultPermission $permission): void
     {
         $subject = $this->createSubjectWithTechnicalActor(admin: false);
 
         self::assertSame(
             $permission === VaultPermission::SecretUse,
             $subject->isGranted($permission),
-            'A non-admin technical actor may only consume secrets programmatically.',
+            'Without group grants, a non-admin technical actor holds only the implicit SecretUse operation.',
         );
     }
 
