@@ -88,6 +88,8 @@ final class VaultHttpClientStreamingTest extends TestCase
 
     private const PUBLIC_IP = '93.184.216.34';
 
+    private const TRANSFER_CLOCK_FIXTURE_PATH = __DIR__ . '/Fixtures/TransferClock.php';
+
     private const CANCELLED_BEFORE_SEND_MESSAGE
         = 'Request cancelled before send: nothing egressed and no secret was retrieved';
 
@@ -815,25 +817,56 @@ final class VaultHttpClientStreamingTest extends TestCase
     }
 
     #[Test]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function theHeadCountsAsProgressForTheIdleBound(): void
     {
-        $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
+        require_once self::TRANSFER_CLOCK_FIXTURE_PATH;
+        TransferClock::reset();
+        $this->vaultService
+            ->expects(self::once())
+            ->method('retrieve')
+            ->willReturn('s3cret');
 
-        // 50 ms per tick, 200 ms idle bound: the head arrives at 150 ms, the
-        // first byte 150 ms after it. Each gap is inside the bound, the sum is
-        // not — only counting the head keeps the transfer alive.
+        // A final head at 150 ms and first body at 300 ms: each gap is below
+        // the 200 ms idle bound, but their sum is above it. Real usleep only
+        // guarantees a minimum delay and cannot establish this schedule.
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
-            3 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
-            6 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
-        ], 50_000);
+        $ticker = new TransferClockTicker(
+            static function (int $tick) use ($transfer): void {
+                if ($tick === 3) {
+                    $transfer->deliverHead(200);
+                }
 
-        $response = $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.2))
-            ->withAuthentication('api_key', SecretPlacement::Bearer)
-            ->sendStreaming(new Request('GET', self::API_URL));
+                if ($tick === 6) {
+                    $transfer->deliverBytes('first');
+                }
+            },
+        );
+        $caught = null;
+        $status = null;
+        $bytes = null;
 
-        self::assertSame(200, $response->getStatusCode());
-        self::assertSame('first', $response->getBody()->read(8192));
+        try {
+            $response = $this
+                ->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.2))
+                ->withAuthentication('api_key', SecretPlacement::Bearer)
+                ->sendStreaming(new Request('GET', self::API_URL));
+            $status = $response->getStatusCode();
+            $bytes = $response->getBody()->read(8192);
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+
+        self::assertNull(
+            $caught,
+            $caught?->getMessage() ?? 'A final head resets the idle bound',
+        );
+        self::assertSame(200, $status);
+        self::assertSame('first', $bytes);
+        self::assertSame(6, $ticker->ticks());
+        self::assertSame(0.3, TransferClock::elapsed());
+        self::assertGreaterThan(0, TransferClock::reads());
         self::assertSame(0, $transfer->cancelCalls());
     }
 
@@ -842,7 +875,7 @@ final class VaultHttpClientStreamingTest extends TestCase
     #[PreserveGlobalState(false)]
     public function aRepeatedInterimHeadBuysNoTime(): void
     {
-        require_once __DIR__ . '/Fixtures/TransferClock.php';
+        require_once self::TRANSFER_CLOCK_FIXTURE_PATH;
         TransferClock::reset();
         self::assertIsString(microtime(false));
         $this->vaultService
@@ -937,7 +970,7 @@ final class VaultHttpClientStreamingTest extends TestCase
     #[PreserveGlobalState(false)]
     public function aTrickleAfterAFinalHeadCompletesAlthoughAnInterimHeadCameFirst(): void
     {
-        require_once __DIR__ . '/Fixtures/TransferClock.php';
+        require_once self::TRANSFER_CLOCK_FIXTURE_PATH;
         TransferClock::reset();
         self::assertIsString(microtime(false));
         $this->vaultService
