@@ -185,13 +185,16 @@ final class MasterKeyProviderFactoryTest extends TestCase
     {
         $this->configuration
             ->method('getMasterKeyProvider')
-            ->willReturn('typo3');
-
-        // getAvailableProvider always returns a provider instance
-        // The specific type depends on availability, but it's always a MasterKeyProviderInterface
-        $result = $this->subject->getAvailableProvider();
-
-        self::assertInstanceOf(MasterKeyProviderInterface::class, $result);
+            ->willReturn('acme_kms');
+        $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = bin2hex(random_bytes(48));
+        $custom = $this->customProvider('acme_kms');
+        $factory = new MasterKeyProviderFactory(
+            $this->configuration,
+            new MasterKeyProviderRegistry(
+                [new Typo3MasterKeyProvider(), $custom],
+            ),
+        );
+        self::assertSame($custom, $factory->getAvailableProvider());
     }
 
     #[Test]
