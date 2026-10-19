@@ -72,7 +72,8 @@ Concretely:
     A wildcard entry does not: wildcards have never bypassed the IP guard, and letting them bypass the address requirement would make the guard optional for anyone who owns a zone.
 
 A failed resolution is still never memoised.
-An empty answer now rejects, so freezing one for the memo TTL would turn a single lost packet into a minute of refused requests.
+An empty answer now rejects, so freezing one for the five-second memo TTL would keep refusing requests after DNS recovers.
+Successful answers expire five seconds after the lookup; both the gate and the pin continue to range-check the reused records.
 
 Consequences
 ============
@@ -81,7 +82,8 @@ Positive
 --------
 
 -  The fail-open path is closed in both halves of the guard, and closed at the point where no verified address exists rather than at a list of known-bad names.
--  The gate and the middleware now answer the same question, so a consumer that asks ``isHostAllowed()`` first and sends later cannot get a "yes" the middleware then overrules.
+-  Both the gate and the middleware require verified addresses for hostnames without a literal allowlist entry.
+   The middleware remains authoritative for each request and redirect hop; a fresh lookup may reject a host that passed an earlier gate check.
 -  The rejection is provable rather than assumed: the regression tests assert that the transport is not reached, not merely that an exception was raised. An exception thrown after the request went out would satisfy a message assertion and leak the request anyway.
 
 Negative
