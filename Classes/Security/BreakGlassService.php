@@ -170,6 +170,10 @@ final readonly class BreakGlassService implements BreakGlassServiceInterface
      */
     private function assertMayOperate(string $operation): void
     {
+        if ($this->accessControlService->getCurrentActorType() === 'technical') {
+            throw AccessDeniedException::breakGlassRequiresAdmin($operation);
+        }
+
         // A shell on the host is already root-equivalent with respect to the
         // vault (the master key and settings.php are both reachable), so CLI is
         // trusted here and deliberately NOT gated on `allowCliAccess`: that
