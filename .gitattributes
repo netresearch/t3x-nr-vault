@@ -18,6 +18,7 @@
 /Build/                export-ignore
 /Tests/                export-ignore
 /docs/                 export-ignore
+/changelog.d/          export-ignore
 /claudedocs/           export-ignore
 /.bestpractices.json   export-ignore
 /.editorconfig         export-ignore
