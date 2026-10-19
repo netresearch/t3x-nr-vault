@@ -239,13 +239,12 @@ test.describe('SEC-RESIL-005/006: XSS escaping', () => {
       // identifier and 0 for this payload.
       await submitIdentifierFilter(listFrame, payload);
 
-      const rows = getModuleFrame(page).locator('table tbody tr');
-      // Allow empty table or a "0 results" row; flag any actual data row.
-      const rowCount = await rows.count();
-      expect(
-        rowCount,
+      // Only actual records carry an identifier cell; an empty-state row
+      // must not make one stored invalid identifier look acceptable.
+      await expect(
+        getModuleFrame(page).locator('tr[data-identifier]'),
         `Identifier validator accepted payload ${JSON.stringify(payload)}`,
-      ).toBeLessThanOrEqual(1);
+      ).toHaveCount(0);
     }
   });
 });
@@ -268,7 +267,8 @@ test.describe('SEC-RESIL-007: Plaintext never leaks into list HTML', () => {
     expect(content.includes(plaintext), 'Plaintext leaked into list page HTML').toBe(false);
 
     // The iframe HTML too.
-    const frameContent = await frame.locator('body').innerHTML().catch(() => '');
+    await expect(rowFor(frame, identifier)).toBeVisible();
+    const frameContent = await frame.locator('body').innerHTML();
     expect(frameContent.includes(plaintext), 'Plaintext leaked into list iframe HTML').toBe(false);
 
     // Cleanup
@@ -291,42 +291,43 @@ test.describe('SEC-RESIL-007: Plaintext never leaks into list HTML', () => {
       .locator('button[data-vault-reveal], button[title*="Reveal"], button[aria-label*="Reveal"]')
       .first();
 
-    if (await revealButton.isVisible().catch(() => false)) {
-      const responsePromise = page.waitForResponse(
-        (resp) => resp.url().includes('/vault/reveal') && resp.request().method() === 'POST',
-        { timeout: 10000 },
-      );
+    await expect(revealButton).toBeVisible();
+    const responsePromise = page.waitForResponse(
+      (resp) => resp.url().includes('/vault/reveal') && resp.request().method() === 'POST',
+      { timeout: 10000 },
+    );
 
-      await revealButton.click();
+    await revealButton.click();
 
-      const revealResponse = await responsePromise;
-      expect(revealResponse.status()).toBe(200);
+    const revealResponse = await responsePromise;
+    expect(revealResponse.status()).toBe(200);
 
-      const json = (await revealResponse.json().catch(() => null)) as
-        | { success?: boolean; secret?: string }
-        | null;
+    const json = (await revealResponse.json().catch(() => null)) as
+      | { success?: boolean; secret?: string }
+      | null;
 
-      expect(json).not.toBeNull();
-      expect(json?.success).toBe(true);
-      expect(json?.secret).toBe(plaintext);
+    expect(json).not.toBeNull();
+    expect(json?.success).toBe(true);
+    expect(json?.secret).toBe(plaintext);
 
-      // After reveal, the audit log must contain a "read" entry for this
-      // identifier with success=true.
-      await page.goto(
-        `/typo3/module/admin/vault/audit?secretIdentifier=${encodeURIComponent(identifier)}`,
-      );
-      await waitForModuleContent(page);
+    // After reveal, the audit log must contain a "read" entry for this
+    // identifier with success=true.
+    await page.goto(
+      `/typo3/module/admin/vault/audit?secretIdentifier=${encodeURIComponent(identifier)}`,
+    );
+    await waitForModuleContent(page);
 
-      const auditFrame = getModuleFrame(page);
-      // Identifiers and actions appear in the audit table. Accept either the
-      // word "read" or an i18n-localised variant; the identifier is the tight
-      // anchor.
-      const row = auditFrame.locator('table tbody tr', { hasText: identifier }).first();
-      await expect(
-        row,
-        'No audit row for the revealed identifier',
-      ).toBeVisible({ timeout: 10000 });
-    }
+    const auditFrame = getModuleFrame(page);
+    // A creation row for this identifier is not evidence of a read.
+    // The action is machine-readable and failed rows carry table-warning.
+    const row = auditFrame.locator(
+      'table tbody tr[data-audit-action="read"]:not(.table-warning)',
+      { hasText: identifier },
+    ).first();
+    await expect(
+      row,
+      'No successful read audit row for the revealed identifier',
+    ).toBeVisible({ timeout: 10000 });
 
     // Cleanup
     await deleteSecretByIdentifier(page, identifier);
