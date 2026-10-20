@@ -28,6 +28,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use RuntimeException;
+use Throwable;
 
 /**
  * Fuzz tests for VaultHttpClient secret-injection logic.
@@ -247,63 +248,44 @@ final class HttpClientFuzzTest extends TestCase
         $client->sendRequest($request);
     }
 
-    // -----------------------------------------------------------------------
-    // Tests: CRLF header injection
-    // -----------------------------------------------------------------------
-
     /**
-     * CRLF in a secret value injected into a header MUST either throw
-     * (PSR-7 rejects CRLF in header values) OR be completely stripped of
-     * CR/LF bytes before being sent.
-     *
-     * The earlier "either outcome OK" assertion was too permissive — a
-     * sanitization regression that silently forwarded raw CRLF to the
-     * inner HTTP client would pass. This tightened version enforces:
-     *   - If sendRequest runs, EVERY outgoing header value passes the
-     *     test /[\r\n]/ → no match. Any CR/LF byte fails the test.
-     *   - If sendRequest throws PSR-7 / VaultException, the test passes
-     *     as long as the exception originated at the PSR-7 boundary.
+     * The actual Guzzle PSR-7 request refuses CRLF before the inner client is called.
+     * Observations are captured during execution; assertions run outside its catch.
      */
     #[Test]
     public function crlfInSecretValueIsRejectedByHeaderInjection(): void
     {
-        $crlfSecret = "legitimate-value\r\nX-Injected-Header: evil";
-        $this->vaultService->method('retrieve')->willReturn($crlfSecret);
-        $this->innerClient->method('sendRequest')->willReturnCallback(
-            function (RequestInterface $request): Response {
-                foreach ($request->getHeaders() as $name => $values) {
-                    foreach ($values as $value) {
-                        self::assertSame(
-                            0,
-                            preg_match('/[\r\n]/', $value),
-                            "Header '{$name}' must not contain raw CR/LF — got '" . bin2hex($value) . "'",
-                        );
-                    }
-                }
+        $this->vaultService
+            ->method('retrieve')
+            ->willReturn("legitimate-value\r\nX-Injected-Header: evil");
+        $sent = [];
+        $this->innerClient
+            ->method('sendRequest')
+            ->willReturnCallback(
+                static function (
+                    RequestInterface $request,
+                ) use (&$sent): Response {
+                    $sent[] = $request;
 
-                self::assertFalse(
-                    $request->hasHeader('X-Injected-Header'),
-                    'CRLF injection must not create extra headers',
-                );
-
-                return new Response(200);
-            },
-        );
+                    return new Response(200);
+                },
+            );
+        $failure = null;
 
         try {
-            $client = $this->buildClient(SecretPlacement::Header, ['headerName' => 'X-API-Key']);
-            $client->sendRequest(new Request('GET', 'https://api.example.com/data'));
-            // Reached inner client without throw — header-value CR/LF check
-            // above must have passed. PSR-7 sanitization is acceptable.
-        } catch (VaultException $e) {
-            // Vault wrapped the PSR-7 rejection — also safe. VaultException
-            // extends RuntimeException, so this more-specific catch must come
-            // before the RuntimeException one below (else it is unreachable).
-            self::assertTrue(true, 'VaultException wrapping PSR-7 rejection: ' . $e->getMessage());
-        } catch (InvalidArgumentException|RuntimeException $e) {
-            // PSR-7 rejected the CRLF at header-set time — expected and safe.
-            self::assertTrue(true, 'PSR-7 rejected CRLF: ' . $e->getMessage());
+            $this
+                ->buildClient(SecretPlacement::Header, ['headerName' => 'X-API-Key'])
+                ->sendRequest(new Request('GET', 'https://api.example.com/data'));
+        } catch (Throwable $exception) {
+            $failure = $exception;
         }
+
+        self::assertInstanceOf(InvalidArgumentException::class, $failure);
+        self::assertSame(
+            [],
+            $sent,
+            'A rejected header must never reach the inner client.',
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -397,29 +379,52 @@ final class HttpClientFuzzTest extends TestCase
     }
 
     /**
-     * Valid header names succeed; invalid ones throw without leaking the secret.
+     * Valid names carry the exact secret; invalid names are rejected before egress.
      */
     #[Test]
     #[DataProvider('headerNameProvider')]
-    public function headerInjectionValidatesHeaderName(string $headerName, bool $expectSuccess): void
-    {
+    public function headerInjectionValidatesHeaderName(
+        string $headerName,
+        bool $expectSuccess,
+    ): void {
         $secretValue = 'my-api-secret-value';
         $this->vaultService->method('retrieve')->willReturn($secretValue);
-        $this->innerClient->method('sendRequest')->willReturn(new Response(200));
+        $sent = [];
+        $this->innerClient
+            ->method('sendRequest')
+            ->willReturnCallback(
+                static function (
+                    RequestInterface $request,
+                ) use (&$sent): Response {
+                    $sent[] = $request;
+
+                    return new Response(200);
+                },
+            );
+        $failure = null;
+        $response = null;
+
+        try {
+            $response = $this
+                ->buildClient(SecretPlacement::Header, ['headerName' => $headerName])
+                ->sendRequest(new Request('GET', 'https://api.example.com/test'));
+        } catch (Throwable $exception) {
+            $failure = $exception;
+        }
 
         if ($expectSuccess) {
-            $client = $this->buildClient(SecretPlacement::Header, ['headerName' => $headerName]);
-            $response = $client->sendRequest(new Request('GET', 'https://api.example.com/test'));
+            self::assertNull($failure);
+            self::assertInstanceOf(Response::class, $response);
             self::assertSame(200, $response->getStatusCode());
+            self::assertCount(1, $sent);
+            self::assertSame($secretValue, $sent[0]->getHeaderLine($headerName));
         } else {
-            try {
-                $client = $this->buildClient(SecretPlacement::Header, ['headerName' => $headerName]);
-                $client->sendRequest(new Request('GET', 'https://api.example.com/test'));
-                // Some empty header names may just send no header at all — acceptable
-            } catch (InvalidArgumentException|RuntimeException) {
-                // Expected: PSR-7 or Vault layer rejected invalid header name
-                self::assertTrue(true);
-            }
+            self::assertInstanceOf(InvalidArgumentException::class, $failure);
+            self::assertSame(
+                [],
+                $sent,
+                'An invalid header name must not reach the inner client.',
+            );
         }
     }
 
