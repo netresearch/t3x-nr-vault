@@ -10,6 +10,9 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Configuration;
 
 use Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessor;
+use Netresearch\NrVault\Domain\Dto\SecretDetails;
+use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
@@ -232,12 +235,11 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
             'apiKey' => '%vault(api_key)%',
         ];
 
-        // Site-specific does not exist, so falls through to global
         $this->vaultService
-            ->expects(self::atLeastOnce())
-            ->method('exists')
+            ->expects(self::once())
+            ->method('getMetadata')
             ->with('site:main:api_key')
-            ->willReturn(false);
+            ->willThrowException(SecretNotFoundException::forIdentifier('site:main:api_key'));
 
         $this->vaultService
             ->expects($this->once())
@@ -261,10 +263,14 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
         ];
 
         $this->vaultService
-            ->expects(self::atLeastOnce())
-            ->method('exists')
+            ->expects(self::once())
+            ->method('getMetadata')
             ->with('site:main:api_key')
-            ->willReturn(true);
+            ->willReturn(
+                SecretDetails::fromSecret(
+                    new Secret(identifier: 'site:main:api_key', uid: 1),
+                ),
+            );
 
         $this->vaultService
             ->expects(self::atLeastOnce())
@@ -303,5 +309,65 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
             'alphanumeric identifier' => ['%vault(key123)%', 'key123'],
             'colon identifier' => ['%vault(site:main:key)%', 'site:main:key'],
         ];
+    }
+
+    /**
+     * @return iterable<string,array{string}>
+     */
+    public static function siteLookupFailures(): iterable
+    {
+        yield 'presence error' => ['presence'];
+        yield 'retrieval error' => ['retrieval'];
+        yield 'removed after presence lookup' => ['removed'];
+    }
+
+    #[Test]
+    #[DataProvider('siteLookupFailures')]
+    public function presentOrUnavailableSiteCredentialDoesNotGrantGlobalFallback(
+        string $failure,
+    ): void {
+        $site = new Site('main', 1, []);
+        $lookup = $this->vaultService
+            ->expects(self::once())
+            ->method('getMetadata')
+            ->with('site:main:api_key');
+        if ($failure === 'presence') {
+            $lookup->willThrowException(
+                new VaultException('synthetic-sensitive-backend-detail'),
+            );
+            $this->vaultService->expects(self::never())->method('retrieve');
+        } else {
+            $lookup->willReturn(
+                SecretDetails::fromSecret(
+                    new Secret(identifier: 'site:main:api_key', uid: 1),
+                ),
+            );
+            $retrieval = $this->vaultService
+                ->expects(self::once())
+                ->method('retrieve')
+                ->with('site:main:api_key');
+            if ($failure === 'retrieval') {
+                $retrieval->willThrowException(
+                    new VaultException('synthetic-sensitive-backend-detail'),
+                );
+            } else {
+                $retrieval->willReturn(null);
+            }
+        }
+
+        $this->logger
+            ->expects(self::once())
+            ->method('warning')
+            ->with(
+                'Failed to resolve vault reference',
+                [
+                    'site' => 'main',
+                    'error' => $failure === 'removed' ? 'unavailable after presence lookup' : VaultException::class,
+                ],
+            );
+        self::assertSame(
+            '%vault(api_key)%',
+            $this->processor->processValue('%vault(api_key)%', $site),
+        );
     }
 }
