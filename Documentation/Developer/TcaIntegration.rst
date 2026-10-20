@@ -514,7 +514,10 @@ table and field. The service resolves a field setting before the table default,
 then the global default; missing settings allow reveal, copy and edit, and
 leave the field writable. It does not read the edited record's page TSconfig.
 The same rules can be supplied as ``page.vault.permissions`` overrides in
-backend user TSconfig. For example:
+backend user TSconfig. The ordinary widget and Hook calls pass no user and
+read these overrides from the logged-in backend user. A caller that passes a
+different user gets that user's overrides and backend-user conditions; see
+:ref:`adr-049-selected-user-field-tsconfig`. For example:
 
 .. code-block:: typoscript
    :caption: Page TSconfig
