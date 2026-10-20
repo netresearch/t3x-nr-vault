@@ -18,32 +18,32 @@ use Netresearch\NrVault\TCA\VaultFieldHelper;
  */
 return [
     'ctrl' => [
-        'title' => 'Vault test child',
-        'label' => 'title',
-        'delete' => 'deleted',
-        'crdate' => 'crdate',
-        'tstamp' => 'tstamp',
-        'sortby' => 'sorting',
-        'languageField' => 'sys_language_uid',
+        'title'                 => 'Vault test child',
+        'label'                 => 'title',
+        'delete'                => 'deleted',
+        'crdate'                => 'crdate',
+        'tstamp'                => 'tstamp',
+        'sortby'                => 'sorting',
+        'languageField'         => 'sys_language_uid',
         'transOrigPointerField' => 'l10n_parent',
-        'translationSource' => 'l10n_source',
-        'rootLevel' => -1,
+        'translationSource'     => 'l10n_source',
+        'rootLevel'             => -1,
     ],
     'columns' => [
         'sys_language_uid' => [
-            'label' => 'Language',
+            'label'  => 'Language',
             'config' => [
                 'type' => 'language',
             ],
         ],
         'l10n_parent' => [
-            'label' => 'Translation parent',
+            'label'  => 'Translation parent',
             'config' => [
-                'type' => 'select',
-                'renderType' => 'selectSingle',
-                'default' => 0,
-                'items' => [['label' => '', 'value' => 0]],
-                'foreign_table' => 'tx_nrvaulttest_child',
+                'type'                => 'select',
+                'renderType'          => 'selectSingle',
+                'default'             => 0,
+                'items'               => [['label' => '', 'value' => 0]],
+                'foreign_table'       => 'tx_nrvaulttest_child',
                 'foreign_table_where' => 'AND {#tx_nrvaulttest_child}.{#sys_language_uid} IN (-1,0)',
             ],
         ],
@@ -53,13 +53,13 @@ return [
             ],
         ],
         'parent' => [
-            'label' => 'Parent',
+            'label'  => 'Parent',
             'config' => [
                 'type' => 'passthrough',
             ],
         ],
         'title' => [
-            'label' => 'Title',
+            'label'  => 'Title',
             'config' => [
                 'type' => 'input',
             ],

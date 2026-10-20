@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Service\Doctor;
 
+use function count;
+
 /**
  * Result of one `vault:doctor` run: every evaluated control plus the verdict.
  *
@@ -57,8 +59,8 @@ final readonly class DoctorReport
     {
         return match ($this->highestSeverity()) {
             FindingSeverity::Critical => 2,
-            FindingSeverity::Warning => 1,
-            FindingSeverity::Pass => 0,
+            FindingSeverity::Warning  => 1,
+            FindingSeverity::Pass     => 0,
         };
     }
 
@@ -102,7 +104,7 @@ final readonly class DoctorReport
      */
     public function totalControls(): int
     {
-        return \count($this->findings);
+        return count($this->findings);
     }
 
     /**
@@ -110,7 +112,7 @@ final readonly class DoctorReport
      */
     public function passedControls(): int
     {
-        return \count($this->findingsOfSeverity(FindingSeverity::Pass));
+        return count($this->findingsOfSeverity(FindingSeverity::Pass));
     }
 
     /**
@@ -136,17 +138,17 @@ final readonly class DoctorReport
     public function toArray(): array
     {
         return [
-            'profile' => $this->context->profile->value,
+            'profile'           => $this->context->profile->value,
             'configuredProfile' => $this->context->configuredProfile->value,
             'profileOverridden' => $this->context->isProfileOverridden(),
-            'auditReady' => $this->isAuditReady(),
-            'highestSeverity' => $this->highestSeverity()->value,
-            'exitCode' => $this->exitCode(),
-            'summary' => [
-                'total' => $this->totalControls(),
-                'pass' => $this->passedControls(),
-                'warning' => \count($this->findingsOfSeverity(FindingSeverity::Warning)),
-                'critical' => \count($this->findingsOfSeverity(FindingSeverity::Critical)),
+            'auditReady'        => $this->isAuditReady(),
+            'highestSeverity'   => $this->highestSeverity()->value,
+            'exitCode'          => $this->exitCode(),
+            'summary'           => [
+                'total'    => $this->totalControls(),
+                'pass'     => $this->passedControls(),
+                'warning'  => count($this->findingsOfSeverity(FindingSeverity::Warning)),
+                'critical' => count($this->findingsOfSeverity(FindingSeverity::Critical)),
             ],
             'findings' => array_map(
                 static fn (Finding $finding): array => $finding->toArray(),

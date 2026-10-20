@@ -41,15 +41,15 @@ interface TechnicalActorContextInterface
      *
      * @template T
      *
-     * @param positive-int $beUserUid be_users uid to act as
+     * @param positive-int  $beUserUid be_users uid to act as
      * @param callable(): T $fn
+     *
+     * @return T
      *
      * @throws TechnicalActorException if `$beUserUid` is not positive, or the
      *                                 record is missing/deleted, disabled,
      *                                 outside its start/end time window, or
      *                                 not at root level (`pid` != 0)
-     *
-     * @return T
      */
     public function runAs(int $beUserUid, callable $fn): mixed;
 

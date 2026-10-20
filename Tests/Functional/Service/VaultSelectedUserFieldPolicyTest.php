@@ -1,8 +1,10 @@
 <?php
 
-/* Copyright (c) 2026 Netresearch DTT GmbH
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Service;
@@ -56,8 +58,8 @@ final class VaultSelectedUserFieldPolicyTest extends FunctionalTestCase
         bool $selectedAllowed,
     ): void {
         $selected = $this->login(2, $this->policy($selectedAllowed));
-        $ambient = $this->login(3, $this->policy(!$selectedAllowed));
-        $subject = new VaultFieldPermissionService();
+        $ambient  = $this->login(3, $this->policy(!$selectedAllowed));
+        $subject  = new VaultFieldPermissionService();
         self::assertNotSame($selected, $ambient);
         self::assertSame(
             !$selectedAllowed,
@@ -71,15 +73,15 @@ final class VaultSelectedUserFieldPolicyTest extends FunctionalTestCase
                 $selected,
             ),
             'permissions' => $subject->getPermissions('policy', 'field', $selected),
-            'readOnly' => $subject->isReadOnly('policy', 'field', $selected),
+            'readOnly'    => $subject->isReadOnly('policy', 'field', $selected),
         ];
         self::assertSame(
             [
-                'allowed' => $selectedAllowed,
+                'allowed'     => $selectedAllowed,
                 'permissions' => [
-                    'reveal' => $selectedAllowed,
-                    'copy' => $selectedAllowed,
-                    'edit' => $selectedAllowed,
+                    'reveal'   => $selectedAllowed,
+                    'copy'     => $selectedAllowed,
+                    'edit'     => $selectedAllowed,
                     'readOnly' => !$selectedAllowed,
                 ],
                 'readOnly' => !$selectedAllowed,
@@ -106,18 +108,18 @@ final class VaultSelectedUserFieldPolicyTest extends FunctionalTestCase
         bool $selectedExpected,
         bool $ambientExpected,
     ): void {
-        $selected = $this->login(2, 'page.selected_only = selected');
-        $ambient = $this->login($ambientUid, 'page.ambient_only = ambient');
-        $context = GeneralUtility::makeInstance(Context::class);
+        $selected      = $this->login(2, 'page.selected_only = selected');
+        $ambient       = $this->login($ambientUid, 'page.ambient_only = ambient');
+        $context       = GeneralUtility::makeInstance(Context::class);
         $ambientAspect = $context->getAspect('backend.user');
-        $workspace = $context->getAspect('workspace');
+        $workspace     = $context->getAspect('workspace');
         $ambientConfig = BackendUtility::getPagesTSconfig(0);
         self::assertSame(
             $ambientExpected ? '1' : '0',
             $this->policyValue($ambientConfig, $table),
         );
         $runtime = GeneralUtility::makeInstance(CacheManager::class)->getCache('runtime');
-        $hash = $runtime->get('pageTsConfig-pid-to-hash-0');
+        $hash    = $runtime->get('pageTsConfig-pid-to-hash-0');
         self::assertIsString($hash);
         $cached = $runtime->get('pageTsConfig-hash-to-object-' . $hash);
         /** @phpstan-ignore classConstant.internalClass */
@@ -181,15 +183,15 @@ final class VaultSelectedUserFieldPolicyTest extends FunctionalTestCase
     public function selectedUserWithoutGlobalAccountRetainsNativeDefaultsAndAmbientContext(): void
     {
         $selected = $this->login(2, 'page.selected_only = selected');
-        $ambient = $this->login(3, 'page.ambient_only = ambient');
-        $context = GeneralUtility::makeInstance(Context::class);
-        $aspect = $context->getAspect('backend.user');
-        $runtime = GeneralUtility::makeInstance(CacheManager::class)->getCache('runtime');
-        $marker = new stdClass();
+        $ambient  = $this->login(3, 'page.ambient_only = ambient');
+        $context  = GeneralUtility::makeInstance(Context::class);
+        $aspect   = $context->getAspect('backend.user');
+        $runtime  = GeneralUtility::makeInstance(CacheManager::class)->getCache('runtime');
+        $marker   = new stdClass();
         $runtime->set('selected-field-policy-marker', $marker);
         /** @var array{BE: array<string, mixed>} $configuration */
-        $configuration = &$GLOBALS['TYPO3_CONF_VARS'];
-        $oldDefault = $configuration['BE']['defaultPageTSconfig'] ?? null;
+        $configuration                              = &$GLOBALS['TYPO3_CONF_VARS'];
+        $oldDefault                                 = $configuration['BE']['defaultPageTSconfig'] ?? null;
         $configuration['BE']['defaultPageTSconfig'] = 'global_default = legacy13';
         unset($GLOBALS['BE_USER']);
 
@@ -260,7 +262,7 @@ final class VaultSelectedUserFieldPolicyTest extends FunctionalTestCase
     public function realSelectedPermissionEntriesStaySeparateAndInvalidateOnlyWhenCleared(): void
     {
         $allowed = $this->login(2, $this->policy(true));
-        $denied = $this->login(3, $this->policy(false));
+        $denied  = $this->login(3, $this->policy(false));
         $subject = new VaultFieldPermissionService();
         self::assertTrue(
             $subject->isAllowed(
@@ -325,15 +327,15 @@ final class VaultSelectedUserFieldPolicyTest extends FunctionalTestCase
         bool $selectedExpected,
         bool $ambientExpected,
     ): void {
-        $selected = $this->login(2, 'page.selected_only = selected');
-        $ambient = $this->login($ambientUid, 'page.ambient_only = ambient');
-        $subject = new VaultFieldPermissionService();
-        $first = $this->selectedConfig($subject, $selected);
-        $firstSnapshot = $this->snapshot($first);
-        $middle = $this->selectedConfig($subject, $ambient);
-        $last = $this->selectedConfig($subject, $selected);
+        $selected       = $this->login(2, 'page.selected_only = selected');
+        $ambient        = $this->login($ambientUid, 'page.ambient_only = ambient');
+        $subject        = new VaultFieldPermissionService();
+        $first          = $this->selectedConfig($subject, $selected);
+        $firstSnapshot  = $this->snapshot($first);
+        $middle         = $this->selectedConfig($subject, $ambient);
+        $last           = $this->selectedConfig($subject, $selected);
         $middleSnapshot = $this->snapshot($middle);
-        $lastSnapshot = $this->snapshot($last);
+        $lastSnapshot   = $this->snapshot($last);
         self::assertSame(
             $selectedExpected ? '1' : '0',
             $this->policyValue($firstSnapshot['array'], $table),
@@ -418,7 +420,7 @@ final class VaultSelectedUserFieldPolicyTest extends FunctionalTestCase
 
     private function policy(bool $allowed): string
     {
-        $value = $allowed ? '1' : '0';
+        $value    = $allowed ? '1' : '0';
         $readOnly = $allowed ? '0' : '1';
 
         return "page.vault.permissions.default.reveal = {$value}\npage.vault.permissions.default.copy = {$value}\npage.vault.permissions.default.edit = {$value}\npage.vault.permissions.default.readOnly = {$readOnly}";
@@ -475,10 +477,10 @@ final class VaultSelectedUserFieldPolicyTest extends FunctionalTestCase
         return [
             /** @phpstan-ignore method.internalClass */
             'array' => $config->getPageTsConfigArray(),
-            'ast' => $ast,
+            'ast'   => $ast,
             /** @phpstan-ignore method.internalClass */
             'treeArray' => $ast->toArray(),
-            'ids' => $this->astIds($ast),
+            'ids'       => $this->astIds($ast),
             /** @phpstan-ignore method.internalClass */
             'verdicts' => $config->getConditionListWithVerdicts(),
         ];

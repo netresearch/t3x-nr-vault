@@ -60,7 +60,7 @@ final class AnalyticsControllerTest extends TestCase
         // services we don't need) and inject only the URI-builder seam the
         // tested private methods consult.
         $this->reflection = new ReflectionClass(AnalyticsController::class);
-        $this->subject = $this->reflection->newInstanceWithoutConstructor();
+        $this->subject    = $this->reflection->newInstanceWithoutConstructor();
         $this->reflection->getProperty('backendUriBuilder')->setValue($this->subject, $this->backendUriBuilder);
     }
 

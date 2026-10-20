@@ -16,10 +16,10 @@ namespace Netresearch\NrVault\Domain;
  */
 enum StalenessRule: string
 {
-    case Dead = 'dead';
-    case Expired = 'expired';
+    case Dead            = 'dead';
+    case Expired         = 'expired';
     case AutomationStale = 'automation_stale';
-    case NeverRotated = 'never_rotated';
+    case NeverRotated    = 'never_rotated';
 
     /**
      * Bootstrap contextual colour for the backend badge: 'danger' (delete
@@ -28,7 +28,7 @@ enum StalenessRule: string
     public function severity(): string
     {
         return match ($this) {
-            self::Dead, self::Expired => 'danger',
+            self::Dead, self::Expired                 => 'danger',
             self::AutomationStale, self::NeverRotated => 'warning',
         };
     }
@@ -39,10 +39,10 @@ enum StalenessRule: string
     public function label(): string
     {
         return match ($this) {
-            self::Dead => 'Dead',
-            self::Expired => 'Expired',
+            self::Dead            => 'Dead',
+            self::Expired         => 'Expired',
             self::AutomationStale => 'Automation-stale',
-            self::NeverRotated => 'Never rotated',
+            self::NeverRotated    => 'Never rotated',
         };
     }
 }

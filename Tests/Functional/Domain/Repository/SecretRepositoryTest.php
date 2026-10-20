@@ -82,7 +82,7 @@ final class SecretRepositoryTest extends FunctionalTestCase
         $secret = $this->newSecret('uid_test_secret');
 
         $saved = $this->subject->save($secret);
-        $uid = $saved->getUid();
+        $uid   = $saved->getUid();
         self::assertNotNull($uid);
 
         $retrieved = $this->subject->findByUid($uid);
@@ -135,7 +135,7 @@ final class SecretRepositoryTest extends FunctionalTestCase
     public function findByUidIncludingDisabledDoesNotSeeADeletedSecret(): void
     {
         $saved = $this->subject->save($this->newSecret('deleted_uid_secret'));
-        $uid = $saved->getUid();
+        $uid   = $saved->getUid();
         self::assertNotNull($uid);
 
         $this->subject->delete($saved);
@@ -173,7 +173,7 @@ final class SecretRepositoryTest extends FunctionalTestCase
     {
         $original = $this->newSecret('update_test', encryptedValue: 'original_value');
 
-        $inserted = $this->subject->save($original);
+        $inserted    = $this->subject->save($original);
         $originalUid = $inserted->getUid();
         self::assertNotNull($originalUid);
 
@@ -204,7 +204,7 @@ final class SecretRepositoryTest extends FunctionalTestCase
     public function findIdentifiersReturnsAllIdentifiers(): void
     {
         // Create multiple secrets
-        for ($i = 1; $i <= 3; $i++) {
+        for ($i = 1; $i <= 3; ++$i) {
             $this->subject->save($this->newSecret("list_test_{$i}", encryptedValue: "value_{$i}"));
         }
 
@@ -276,7 +276,7 @@ final class SecretRepositoryTest extends FunctionalTestCase
     private function saveSecretReturningUid(string $identifier, bool $hidden = false): int
     {
         $saved = $this->subject->save($this->newSecret($identifier, hidden: $hidden));
-        $uid = $saved->getUid();
+        $uid   = $saved->getUid();
         self::assertNotNull($uid);
 
         return $uid;

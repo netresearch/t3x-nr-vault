@@ -60,7 +60,7 @@ final class PendingSecretPersisterTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
+        $this->vaultService        = $this->createMock(VaultServiceInterface::class);
         $this->flashMessageService = $this->createMock(FlashMessageService::class);
 
         $queue = $this->createMock(FlashMessageQueue::class);
@@ -78,7 +78,7 @@ final class PendingSecretPersisterTest extends TestCase
     public function newPendingIsStoredWithTheGivenMetadata(): void
     {
         $plaintext = $this->fakeSecret();
-        $options = ['table' => 'tx_test', 'field' => 'api_key'];
+        $options   = ['table' => 'tx_test', 'field' => 'api_key'];
 
         $this->vaultService
             ->expects(self::once())
@@ -269,7 +269,7 @@ final class PendingSecretPersisterTest extends TestCase
         $this->vaultService->method('store')->willThrowException(new VaultException('Adapter unreachable'));
 
         $sequence = [];
-        $queue = $this->createMock(FlashMessageQueue::class);
+        $queue    = $this->createMock(FlashMessageQueue::class);
         $queue->method('addMessage')->willReturnCallback(
             static function () use (&$sequence): void {
                 $sequence[] = 'flash';
@@ -347,7 +347,7 @@ final class PendingSecretPersisterTest extends TestCase
             ->willThrowException(new Exception('No flash message queue in this context'));
 
         $subject = new PendingSecretPersister($this->vaultService, $flashMessageService);
-        $error = $subject->persist(
+        $error   = $subject->persist(
             PendingSecret::createNew($this->fakeSecret(), self::IDENTIFIER),
             [],
             self::DELETE_REASON,

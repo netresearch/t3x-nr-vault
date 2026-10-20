@@ -1,13 +1,17 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Api\Support;
+
+use function array_slice;
+use function count;
+use function sprintf;
 
 /**
  * Classifies the difference between two rendered API surfaces.
@@ -64,10 +68,10 @@ final readonly class ApiSurfaceDiff
     private const DECLARATION_KEY = '(declaration)';
 
     /**
-     * @param list<string> $added
-     * @param list<string> $removed
+     * @param list<string>                                         $added
+     * @param list<string>                                         $removed
      * @param list<array{entry: string, was: string, now: string}> $changed
-     * @param list<string> $implementerBreaks methods added to an existing extension point
+     * @param list<string>                                         $implementerBreaks methods added to an existing extension point
      */
     private function __construct(
         public array $added,
@@ -79,11 +83,11 @@ final readonly class ApiSurfaceDiff
     public static function between(string $expected, string $actual): self
     {
         $before = self::parse($expected);
-        $after = self::parse($actual);
+        $after  = self::parse($actual);
 
-        $added = [];
-        $removed = [];
-        $changed = [];
+        $added             = [];
+        $removed           = [];
+        $changed           = [];
         $implementerBreaks = [];
 
         foreach ($after as $fqcn => $members) {
@@ -119,8 +123,8 @@ final readonly class ApiSurfaceDiff
 
                 $changed[] = [
                     'entry' => $fqcn . ' :: ' . $key,
-                    'was' => $was,
-                    'now' => $line,
+                    'was'   => $was,
+                    'now'   => $line,
                 ];
             }
         }
@@ -169,9 +173,9 @@ final readonly class ApiSurfaceDiff
     public function verdict(): string
     {
         return match (true) {
-            $this->isEmpty() => 'identical',
+            $this->isEmpty()        => 'identical',
             $this->isAdditiveOnly() => 'additive',
-            default => 'breaking',
+            default                 => 'breaking',
         };
     }
 
@@ -185,12 +189,12 @@ final readonly class ApiSurfaceDiff
             return 'The rendered public surface matches api-surface.txt.';
         }
 
-        $counts = \sprintf(
+        $counts = sprintf(
             '%d added, %d removed, %d changed, %d breaking implementers',
-            \count($this->added),
-            \count($this->removed),
-            \count($this->changed),
-            \count($this->implementerBreaks),
+            count($this->added),
+            count($this->removed),
+            count($this->changed),
+            count($this->implementerBreaks),
         );
 
         $sections = [];
@@ -252,11 +256,11 @@ final readonly class ApiSurfaceDiff
      */
     private function bucket(string $title, string $marker, array $entries): string
     {
-        $shown = \array_slice($entries, 0, self::MAX_LISTED);
+        $shown     = array_slice($entries, 0, self::MAX_LISTED);
         $formatted = array_map(static fn (string $entry): string => '  ' . $marker . ' ' . $entry, $shown);
 
-        if (\count($entries) > self::MAX_LISTED) {
-            $formatted[] = \sprintf('  … and %d more', \count($entries) - self::MAX_LISTED);
+        if (count($entries) > self::MAX_LISTED) {
+            $formatted[] = sprintf('  … and %d more', count($entries) - self::MAX_LISTED);
         }
 
         return $title . ':' . "\n" . implode("\n", $formatted);
@@ -299,11 +303,11 @@ final readonly class ApiSurfaceDiff
             }
 
             $header = trim($lines[0]);
-            $fqcn = self::classNameOf($header);
+            $fqcn   = self::classNameOf($header);
 
             $members = [self::DECLARATION_KEY => $header];
-            foreach (\array_slice($lines, 1) as $line) {
-                $member = trim($line);
+            foreach (array_slice($lines, 1) as $line) {
+                $member                            = trim($line);
                 $members[self::memberKey($member)] = $member;
             }
 

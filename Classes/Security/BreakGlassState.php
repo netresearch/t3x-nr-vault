@@ -13,6 +13,8 @@ use DateTimeImmutable;
 use Throwable;
 use TYPO3\CMS\Core\Registry;
 
+use function is_array;
+
 /**
  * Break-glass state persisted in TYPO3's `sys_registry`.
  *
@@ -99,6 +101,6 @@ final readonly class BreakGlassState implements BreakGlassStateInterface
             return null;
         }
 
-        return \is_array($raw) ? BreakGlassSession::fromArray($raw) : null;
+        return is_array($raw) ? BreakGlassSession::fromArray($raw) : null;
     }
 }

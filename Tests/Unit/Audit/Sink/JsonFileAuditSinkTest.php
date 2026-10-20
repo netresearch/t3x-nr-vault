@@ -27,6 +27,8 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use TYPO3\CMS\Core\Core\Environment;
 
+use function sprintf;
+
 /**
  * Unit tests for the append-only NDJSON audit sink.
  *
@@ -61,8 +63,8 @@ final class JsonFileAuditSinkTest extends TestCase
         $this->setUpEnvironmentSandbox();
 
         $this->baseDirectory = Environment::getVarPath() . '/log';
-        $this->entryPath = $this->baseDirectory . '/audit.ndjson';
-        $this->anchorPath = $this->baseDirectory . '/anchor.ndjson';
+        $this->entryPath     = $this->baseDirectory . '/audit.ndjson';
+        $this->anchorPath    = $this->baseDirectory . '/anchor.ndjson';
     }
 
     protected function tearDown(): void
@@ -164,7 +166,7 @@ final class JsonFileAuditSinkTest extends TestCase
 
         $permissions = fileperms($this->entryPath);
         self::assertIsInt($permissions);
-        self::assertSame('0600', substr(\sprintf('%o', $permissions), -4));
+        self::assertSame('0600', substr(sprintf('%o', $permissions), -4));
     }
 
     #[Test]
@@ -587,10 +589,10 @@ final class JsonFileAuditSinkTest extends TestCase
     private function deeplyNestedContext(): array
     {
         $context = [];
-        $cursor = &$context;
-        for ($depth = 0; $depth < 600; $depth++) {
+        $cursor  = &$context;
+        for ($depth = 0; $depth < 600; ++$depth) {
             $cursor['nested'] = [];
-            $cursor = &$cursor['nested'];
+            $cursor           = &$cursor['nested'];
         }
 
         unset($cursor);

@@ -1,9 +1,10 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Http\Fixtures;
@@ -24,7 +25,7 @@ final class TransferClock
     public static function reset(): void
     {
         self::$milliseconds = 0;
-        self::$reads = 0;
+        self::$reads        = 0;
     }
 
     public static function advance(): void
@@ -34,7 +35,7 @@ final class TransferClock
 
     public static function now(): float
     {
-        self::$reads++;
+        ++self::$reads;
 
         return 1000.0 + self::$milliseconds / 1000;
     }

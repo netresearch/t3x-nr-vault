@@ -11,6 +11,8 @@ namespace Netresearch\NrVault\Service\Doctor\Check;
 
 use Stringable;
 
+use function count;
+
 /**
  * An `ext_emconf.php` dependency range, e.g. `13.4.0-14.99.99`.
  *
@@ -43,7 +45,7 @@ final readonly class Typo3VersionRange implements Stringable
     public static function fromConstraint(string $constraint): ?self
     {
         $parts = explode('-', trim($constraint));
-        if (\count($parts) !== 2) {
+        if (count($parts) !== 2) {
             return null;
         }
 

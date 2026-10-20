@@ -29,6 +29,8 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\DefaultRestrictionContainer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function count;
+
 #[CoversClass(TechnicalActorContext::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class TechnicalActorContextTest extends TestCase
@@ -250,13 +252,13 @@ final class TechnicalActorContextTest extends TestCase
     public function numericStringColumnsAreNormalisedToIntegers(): void
     {
         $subject = $this->createSubject([[
-            'uid' => 42,
-            'pid' => '0',
-            'username' => 'string_columns',
-            'admin' => '1',
-            'disable' => '0',
+            'uid'       => 42,
+            'pid'       => '0',
+            'username'  => 'string_columns',
+            'admin'     => '1',
+            'disable'   => '0',
             'starttime' => '0',
-            'endtime' => '0',
+            'endtime'   => '0',
             'usergroup' => '',
         ]]);
 
@@ -372,7 +374,7 @@ final class TechnicalActorContextTest extends TestCase
      * and whose group resolution sees the given be_groups rows.
      *
      * @param list<array<string, mixed>|false> $userRows
-     * @param list<array<string, mixed>> $groupRows
+     * @param list<array<string, mixed>>       $groupRows
      */
     private function createSubject(array $userRows, array $groupRows = []): TechnicalActorContext
     {
@@ -383,7 +385,7 @@ final class TechnicalActorContextTest extends TestCase
 
         // Not every test reaches the lookup (invalid uids are rejected first),
         // so the pool pins the table without pinning a call count.
-        $queryBuilder = $this->createQueryBuilderMock($userResult);
+        $queryBuilder   = $this->createQueryBuilderMock($userResult);
         $connectionPool = self::createStub(ConnectionPool::class);
         $connectionPool
             ->method('getQueryBuilderForTable')
@@ -410,7 +412,7 @@ final class TechnicalActorContextTest extends TestCase
             ->method('fetchAssociative')
             ->willReturnOnConsecutiveCalls(...[...$groupRows, false]);
 
-        $queryBuilder = $this->createQueryBuilderMock($groupResult);
+        $queryBuilder   = $this->createQueryBuilderMock($groupResult);
         $connectionPool = self::createStub(ConnectionPool::class);
         $connectionPool
             ->method('getQueryBuilderForTable')
@@ -434,7 +436,7 @@ final class TechnicalActorContextTest extends TestCase
         // One makeInstance() call per fetchRowsFromDatabase(): the initial
         // lookup plus at most one recursion per group row with subgroups.
         // Instances not consumed by the test path are purged in tearDown().
-        $poolLookups = \count($groupRows) + 1;
+        $poolLookups = count($groupRows) + 1;
         for ($i = 0; $i < $poolLookups; ++$i) {
             GeneralUtility::addInstance(ConnectionPool::class, $connectionPool);
         }
@@ -469,7 +471,7 @@ final class TechnicalActorContextTest extends TestCase
                 static function (mixed $value, mixed $type = null) use (&$capturedParameters): string {
                     $capturedParameters[] = [$value, $type];
 
-                    return ':dcValue' . \count($capturedParameters);
+                    return ':dcValue' . count($capturedParameters);
                 },
             );
         $queryBuilder->method('executeQuery')->willReturn($result);
@@ -491,13 +493,13 @@ final class TechnicalActorContextTest extends TestCase
         string $usergroup = '',
     ): array {
         return [
-            'uid' => $uid,
-            'pid' => $pid,
-            'username' => $username,
-            'admin' => $admin,
-            'disable' => $disable,
+            'uid'       => $uid,
+            'pid'       => $pid,
+            'username'  => $username,
+            'admin'     => $admin,
+            'disable'   => $disable,
             'starttime' => $starttime,
-            'endtime' => $endtime,
+            'endtime'   => $endtime,
             'usergroup' => $usergroup,
         ];
     }

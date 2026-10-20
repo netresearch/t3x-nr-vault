@@ -35,6 +35,15 @@ use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 
+use function assert;
+use function in_array;
+use function is_array;
+use function is_bool;
+use function is_int;
+use function is_object;
+use function is_string;
+use function sprintf;
+
 /**
  * Backend module controller for secret migration wizard.
  *
@@ -90,20 +99,20 @@ final readonly class MigrationController
         $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
         $queryParams = $request->getQueryParams();
-        $action = $queryParams['action'] ?? 'index';
+        $action      = $queryParams['action'] ?? 'index';
 
         // Validate action
-        if (!\in_array($action, self::ALLOWED_ACTIONS, true)) {
+        if (!in_array($action, self::ALLOWED_ACTIONS, true)) {
             $action = 'index';
         }
 
         return match ($action) {
-            'scan' => $this->scanAction($request),
-            'review' => $this->reviewAction($request),
+            'scan'      => $this->scanAction($request),
+            'review'    => $this->reviewAction($request),
             'configure' => $this->configureAction($request),
-            'execute' => $this->executeAction($request),
-            'verify' => $this->verifyAction($request),
-            default => $this->indexAction($request),
+            'execute'   => $this->executeAction($request),
+            'verify'    => $this->verifyAction($request),
+            default     => $this->indexAction($request),
         };
     }
 
@@ -151,13 +160,13 @@ final readonly class MigrationController
         );
 
         // Perform the scan
-        $secrets = $this->detectionService->scan();
+        $secrets        = $this->detectionService->scan();
         $groupedSecrets = $this->detectionService->getDetectedSecretsBySeverity();
-        $totalCount = $this->detectionService->getDetectedSecretsCount();
+        $totalCount     = $this->detectionService->getDetectedSecretsCount();
 
         // Count by source
         $databaseCount = 0;
-        $configCount = 0;
+        $configCount   = 0;
         foreach ($secrets as $secret) {
             if ($secret->getSource() === 'database') {
                 ++$databaseCount;
@@ -167,11 +176,11 @@ final readonly class MigrationController
         }
 
         $moduleTemplate->assignMultiple([
-            'secrets' => $secrets,
+            'secrets'        => $secrets,
             'groupedSecrets' => $groupedSecrets,
-            'totalCount' => $totalCount,
-            'databaseCount' => $databaseCount,
-            'configCount' => $configCount,
+            'totalCount'     => $totalCount,
+            'databaseCount'  => $databaseCount,
+            'configCount'    => $configCount,
         ]);
 
         return $moduleTemplate->renderResponse('Migration/Scan');
@@ -192,8 +201,8 @@ final readonly class MigrationController
             . $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.review'),
         );
 
-        $queryParams = $request->getQueryParams();
-        $sourceFilter = $queryParams['source'] ?? 'all';
+        $queryParams    = $request->getQueryParams();
+        $sourceFilter   = $queryParams['source'] ?? 'all';
         $severityFilter = $queryParams['severity'] ?? 'all';
 
         // Get previously scanned secrets
@@ -217,8 +226,8 @@ final readonly class MigrationController
         }
 
         $moduleTemplate->assignMultiple([
-            'secrets' => $filteredSecrets,
-            'sourceFilter' => $sourceFilter,
+            'secrets'        => $filteredSecrets,
+            'sourceFilter'   => $sourceFilter,
             'severityFilter' => $severityFilter,
         ]);
 
@@ -240,13 +249,13 @@ final readonly class MigrationController
             . $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.configure'),
         );
 
-        $parsedBody = $request->getParsedBody();
-        $parsedBodyArray = \is_array($parsedBody) ? $parsedBody : [];
+        $parsedBody      = $request->getParsedBody();
+        $parsedBodyArray = is_array($parsedBody) ? $parsedBody : [];
         $selectedSecrets = $parsedBodyArray['selected'] ?? [];
 
         $lang = $this->getLanguageService();
 
-        if (!\is_array($selectedSecrets) || $selectedSecrets === []) {
+        if (!is_array($selectedSecrets) || $selectedSecrets === []) {
             $this->addFlashMessage(
                 $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.noSecretsSelected'),
                 $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.selectionRequired'),
@@ -260,14 +269,14 @@ final readonly class MigrationController
         // Parse selected secrets (format: "table.column")
         $migrations = [];
         foreach ($selectedSecrets as $key) {
-            $keyString = \is_string($key) || is_numeric($key) ? (string) $key : '';
+            $keyString = is_string($key) || is_numeric($key) ? (string) $key : '';
             if (preg_match('/^database:([^.]+)\.([^.]+)$/', $keyString, $matches)) {
-                $table = $matches[1];
-                $column = $matches[2];
+                $table        = $matches[1];
+                $column       = $matches[2];
                 $migrations[] = [
-                    'key' => $key,
-                    'table' => $table,
-                    'column' => $column,
+                    'key'               => $key,
+                    'table'             => $table,
+                    'column'            => $column,
                     'identifierPattern' => "{$table}__{$column}__{uid}",
                 ];
             }
@@ -285,21 +294,21 @@ final readonly class MigrationController
      */
     private function executeAction(ServerRequestInterface $request): ResponseInterface
     {
-        $parsedBody = $request->getParsedBody();
-        $parsedBodyArray = \is_array($parsedBody) ? $parsedBody : [];
-        $migrationsRaw = $parsedBodyArray['migrations'] ?? [];
-        $migrations = \is_array($migrationsRaw) ? $migrationsRaw : [];
+        $parsedBody          = $request->getParsedBody();
+        $parsedBodyArray     = is_array($parsedBody) ? $parsedBody : [];
+        $migrationsRaw       = $parsedBodyArray['migrations'] ?? [];
+        $migrations          = is_array($migrationsRaw) ? $migrationsRaw : [];
         $clearOriginalsValue = $parsedBodyArray['clearOriginals'] ?? false;
-        $clearOriginals = (\is_string($clearOriginalsValue) || \is_int($clearOriginalsValue)) && (bool) $clearOriginalsValue;
+        $clearOriginals      = (is_string($clearOriginalsValue) || is_int($clearOriginalsValue)) && (bool) $clearOriginalsValue;
 
         $guardResponse = $this->validateMigrationsRequest($migrations);
         if ($guardResponse instanceof ResponseInterface) {
             return $guardResponse;
         }
 
-        $results = [];
+        $results       = [];
         $totalMigrated = 0;
-        $totalFailed = 0;
+        $totalFailed   = 0;
 
         foreach ($migrations as $migration) {
             $result = $this->processMigrationEntry($migration);
@@ -345,16 +354,16 @@ final readonly class MigrationController
      */
     private function processMigrationEntry(mixed $migration): ?MigrationResult
     {
-        if (!\is_array($migration)) {
+        if (!is_array($migration)) {
             return null;
         }
 
-        $tableVal = $migration['table'] ?? '';
-        $table = \is_string($tableVal) ? $tableVal : '';
-        $columnVal = $migration['column'] ?? '';
-        $column = \is_string($columnVal) ? $columnVal : '';
+        $tableVal             = $migration['table'] ?? '';
+        $table                = is_string($tableVal) ? $tableVal : '';
+        $columnVal            = $migration['column'] ?? '';
+        $column               = is_string($columnVal) ? $columnVal : '';
         $identifierPatternVal = $migration['identifierPattern'] ?? '';
-        $identifierPattern = \is_string($identifierPatternVal) ? $identifierPatternVal : '';
+        $identifierPattern    = is_string($identifierPatternVal) ? $identifierPatternVal : '';
         if ($table === '') {
             return null;
         }
@@ -386,11 +395,11 @@ final readonly class MigrationController
         bool $clearOriginals,
     ): void {
         $beUser = $GLOBALS['BE_USER'] ?? null;
-        if (\is_object($beUser) && method_exists($beUser, 'setAndSaveSessionData')) {
+        if (is_object($beUser) && method_exists($beUser, 'setAndSaveSessionData')) {
             $beUser->setAndSaveSessionData('vault_migration_results', [
-                'results' => $results,
-                'totalMigrated' => $totalMigrated,
-                'totalFailed' => $totalFailed,
+                'results'        => $results,
+                'totalMigrated'  => $totalMigrated,
+                'totalFailed'    => $totalFailed,
                 'clearOriginals' => $clearOriginals,
             ]);
         }
@@ -412,23 +421,23 @@ final readonly class MigrationController
         );
 
         // Get results from session
-        $beUser = $GLOBALS['BE_USER'] ?? null;
+        $beUser      = $GLOBALS['BE_USER'] ?? null;
         $sessionData = [];
-        if (\is_object($beUser) && method_exists($beUser, 'getSessionData')) {
+        if (is_object($beUser) && method_exists($beUser, 'getSessionData')) {
             $sessionDataRaw = $beUser->getSessionData('vault_migration_results');
-            $sessionData = \is_array($sessionDataRaw) ? $sessionDataRaw : [];
+            $sessionData    = is_array($sessionDataRaw) ? $sessionDataRaw : [];
         }
 
-        $results = \is_array($sessionData['results'] ?? null) ? $sessionData['results'] : [];
-        $totalMigratedVal = $sessionData['totalMigrated'] ?? 0;
-        $totalMigrated = is_numeric($totalMigratedVal) ? (int) $totalMigratedVal : 0;
-        $totalFailedVal = $sessionData['totalFailed'] ?? 0;
-        $totalFailed = is_numeric($totalFailedVal) ? (int) $totalFailedVal : 0;
+        $results           = is_array($sessionData['results'] ?? null) ? $sessionData['results'] : [];
+        $totalMigratedVal  = $sessionData['totalMigrated'] ?? 0;
+        $totalMigrated     = is_numeric($totalMigratedVal) ? (int) $totalMigratedVal : 0;
+        $totalFailedVal    = $sessionData['totalFailed'] ?? 0;
+        $totalFailed       = is_numeric($totalFailedVal) ? (int) $totalFailedVal : 0;
         $clearOriginalsVal = $sessionData['clearOriginals'] ?? false;
-        $clearOriginals = \is_bool($clearOriginalsVal) ? $clearOriginalsVal : (bool) $clearOriginalsVal;
+        $clearOriginals    = is_bool($clearOriginalsVal) ? $clearOriginalsVal : (bool) $clearOriginalsVal;
 
         // Clear session data
-        if (\is_object($beUser) && method_exists($beUser, 'setAndSaveSessionData')) {
+        if (is_object($beUser) && method_exists($beUser, 'setAndSaveSessionData')) {
             $beUser->setAndSaveSessionData('vault_migration_results', null);
         }
 
@@ -436,7 +445,7 @@ final readonly class MigrationController
 
         if ($totalMigrated > 0) {
             $this->addFlashMessage(
-                \sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.success'), $totalMigrated),
+                sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.success'), $totalMigrated),
                 $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.complete'),
                 ContextualFeedbackSeverity::OK,
             );
@@ -444,16 +453,16 @@ final readonly class MigrationController
 
         if ($totalFailed > 0) {
             $this->addFlashMessage(
-                \sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.failed'), $totalFailed),
+                sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.failed'), $totalFailed),
                 $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.errors'),
                 ContextualFeedbackSeverity::WARNING,
             );
         }
 
         $moduleTemplate->assignMultiple([
-            'results' => $results,
-            'totalMigrated' => $totalMigrated,
-            'totalFailed' => $totalFailed,
+            'results'        => $results,
+            'totalMigrated'  => $totalMigrated,
+            'totalFailed'    => $totalFailed,
             'clearOriginals' => $clearOriginals,
         ]);
 
@@ -469,8 +478,8 @@ final readonly class MigrationController
         string $identifierPattern,
     ): MigrationResult {
         $migrated = 0;
-        $failed = 0;
-        $skipped = 0;
+        $failed   = 0;
+        $skipped  = 0;
 
         // Validate table and column names against database schema to prevent SQL injection
         try {
@@ -481,7 +490,7 @@ final readonly class MigrationController
                 static fn (Table $t): string => $t->getName(), /** @phpstan-ignore method.internalClass */
                 $schemaManager->listTables(),
             );
-            if (!\in_array($table, $tableNames, true)) {
+            if (!in_array($table, $tableNames, true)) {
                 return MigrationResult::error($table, $column, 'Invalid table name');
             }
 
@@ -489,7 +498,7 @@ final readonly class MigrationController
                 static fn (Column $col): string => $col->getName(), /** @phpstan-ignore method.internalClass */
                 $schemaManager->listTableColumns($table),
             );
-            if (!\in_array($column, $columns, true)) {
+            if (!in_array($column, $columns, true)) {
                 return MigrationResult::error($table, $column, 'Invalid column name');
             }
         } catch (DbalException $e) {
@@ -498,7 +507,7 @@ final readonly class MigrationController
 
         try {
             $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-            $rows = $queryBuilder
+            $rows         = $queryBuilder
                 ->select('uid', $column)
                 ->from($table)
                 ->where(
@@ -509,10 +518,10 @@ final readonly class MigrationController
                 ->fetchAllAssociative();
 
             foreach ($rows as $row) {
-                $uidVal = $row['uid'] ?? 0;
-                $uid = is_numeric($uidVal) ? (int) $uidVal : 0;
+                $uidVal   = $row['uid'] ?? 0;
+                $uid      = is_numeric($uidVal) ? (int) $uidVal : 0;
                 $valueVal = $row[$column] ?? '';
-                $value = \is_string($valueVal) ? $valueVal : '';
+                $value    = is_string($valueVal) ? $valueVal : '';
 
                 // Skip if already looks like a vault identifier
                 if (IdentifierValidator::looksLikeVaultIdentifier($value)) {
@@ -526,10 +535,10 @@ final readonly class MigrationController
                 try {
                     // Store in vault
                     $this->vaultService->store($identifier, $value, [
-                        'source' => 'migration',
-                        'originalTable' => $table,
+                        'source'         => 'migration',
+                        'originalTable'  => $table,
                         'originalColumn' => $column,
-                        'originalUid' => $uid,
+                        'originalUid'    => $uid,
                     ]);
 
                     // Update database with vault identifier
@@ -584,7 +593,7 @@ final readonly class MigrationController
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
+        assert($GLOBALS['LANG'] instanceof LanguageService);
 
         return $GLOBALS['LANG'];
     }
@@ -596,7 +605,7 @@ final readonly class MigrationController
         ModuleTemplate $moduleTemplate,
         string $targetAction,
     ): void {
-        $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
+        $buttonBar  = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
         $backButton = $buttonBar->makeLinkButton()
             ->setIcon($this->iconFactory->getIcon('actions-view-go-back', IconSize::SMALL))
             ->setTitle($this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:action.back'))

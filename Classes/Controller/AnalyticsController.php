@@ -20,6 +20,10 @@ use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
 
+use function assert;
+use function count;
+use function in_array;
+
 /**
  * Backend module controller for the vault usage-analytics submodule.
  */
@@ -57,16 +61,16 @@ final readonly class AnalyticsController
 
         $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
-        $window = $this->resolveWindow($request);
-        $stats = $this->analyticsService->getUsageStats($window);
+        $window     = $this->resolveWindow($request);
+        $stats      = $this->analyticsService->getUsageStats($window);
         $candidates = $this->analyticsService->getRedactionCandidates($window);
 
         $moduleTemplate->assignMultiple([
-            'stats' => $stats,
-            'candidateCount' => \count($candidates),
-            'candidates' => array_map($this->toRow(...), $candidates),
-            'window' => $window,
-            'windowOptions' => $this->buildWindowOptions($window),
+            'stats'          => $stats,
+            'candidateCount' => count($candidates),
+            'candidates'     => array_map($this->toRow(...), $candidates),
+            'window'         => $window,
+            'windowOptions'  => $this->buildWindowOptions($window),
         ]);
 
         return $moduleTemplate->renderResponse('Analytics/Index');
@@ -74,10 +78,10 @@ final readonly class AnalyticsController
 
     private function resolveWindow(ServerRequestInterface $request): int
     {
-        $raw = $request->getQueryParams()['window'] ?? null;
+        $raw   = $request->getQueryParams()['window'] ?? null;
         $value = is_numeric($raw) ? (int) $raw : self::DEFAULT_WINDOW;
 
-        return \in_array($value, self::WINDOWS, true) ? $value : self::DEFAULT_WINDOW;
+        return in_array($value, self::WINDOWS, true) ? $value : self::DEFAULT_WINDOW;
     }
 
     /**
@@ -91,7 +95,7 @@ final readonly class AnalyticsController
                 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:analytics.rule.' . $rule->value,
             );
             $rules[] = [
-                'key' => $rule->value,
+                'key'      => $rule->value,
                 'severity' => $rule->severity(),
                 // sL() returns the raw "LLL:" key when a translation is missing — fall back to the enum label.
                 'label' => ($translated !== '' && !str_starts_with($translated, 'LLL:')) ? $translated : $rule->label(),
@@ -99,18 +103,18 @@ final readonly class AnalyticsController
         }
 
         return [
-            'uid' => $secret->uid,
-            'identifier' => $secret->identifier,
-            'context' => $secret->context,
-            'adapter' => $secret->adapter,
-            'lastReadAt' => $secret->lastReadAt,
+            'uid'            => $secret->uid,
+            'identifier'     => $secret->identifier,
+            'context'        => $secret->context,
+            'adapter'        => $secret->adapter,
+            'lastReadAt'     => $secret->lastReadAt,
             'automatedReads' => $secret->automatedReads,
-            'manualReveals' => $secret->manualReveals,
-            'ageDays' => $secret->ageDays,
-            'severity' => $secret->highestSeverity(),
-            'rules' => $rules,
-            'editUrl' => (string) $this->backendUriBuilder->buildUriFromRoute('record_edit', [
-                'edit' => ['tx_nrvault_secret' => [$secret->uid => 'edit']],
+            'manualReveals'  => $secret->manualReveals,
+            'ageDays'        => $secret->ageDays,
+            'severity'       => $secret->highestSeverity(),
+            'rules'          => $rules,
+            'editUrl'        => (string) $this->backendUriBuilder->buildUriFromRoute('record_edit', [
+                'edit'      => ['tx_nrvault_secret' => [$secret->uid => 'edit']],
                 'returnUrl' => (string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME),
             ]),
         ];
@@ -124,8 +128,8 @@ final readonly class AnalyticsController
         $options = [];
         foreach (self::WINDOWS as $days) {
             $options[] = [
-                'days' => $days,
-                'url' => (string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME, ['window' => $days]),
+                'days'   => $days,
+                'url'    => (string) $this->backendUriBuilder->buildUriFromRoute(self::MODULE_NAME, ['window' => $days]),
                 'active' => $days === $active,
             ];
         }
@@ -135,7 +139,7 @@ final readonly class AnalyticsController
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
+        assert($GLOBALS['LANG'] instanceof LanguageService);
 
         return $GLOBALS['LANG'];
     }

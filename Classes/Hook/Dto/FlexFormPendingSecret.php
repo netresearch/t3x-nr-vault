@@ -11,6 +11,8 @@ namespace Netresearch\NrVault\Hook\Dto;
 
 use SensitiveParameter;
 
+use function sprintf;
+
 /**
  * Data Transfer Object for pending FlexForm secret storage.
  *
@@ -80,7 +82,7 @@ readonly class FlexFormPendingSecret
      */
     public function getFullPath(): string
     {
-        return \sprintf('%s/%s/%s', $this->flexField, $this->sheet, $this->fieldPath);
+        return sprintf('%s/%s/%s', $this->flexField, $this->sheet, $this->fieldPath);
     }
 
     /**
@@ -103,13 +105,13 @@ readonly class FlexFormPendingSecret
     public function toArray(): array
     {
         return [
-            'flexField' => $this->flexField,
-            'sheet' => $this->sheet,
-            'fieldPath' => $this->fieldPath,
-            'value' => '[REDACTED]',
-            'identifier' => $this->identifier,
+            'flexField'        => $this->flexField,
+            'sheet'            => $this->sheet,
+            'fieldPath'        => $this->fieldPath,
+            'value'            => '[REDACTED]',
+            'identifier'       => $this->identifier,
             'originalChecksum' => $this->originalChecksum,
-            'isNew' => $this->isNew,
+            'isNew'            => $this->isNew,
         ];
     }
 }

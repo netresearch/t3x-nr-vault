@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -25,9 +22,9 @@ declare(strict_types=1);
  * `<portFile>.log`.
  */
 $portFile = $argv[1] ?? '';
-$mode = $argv[2] ?? '';
+$mode     = $argv[2] ?? '';
 
-$context = stream_context_create();
+$context   = stream_context_create();
 $transport = 'tcp';
 if ($mode === 'origin') {
     $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
@@ -37,9 +34,9 @@ if ($mode === 'origin') {
     }
 
     $certificatePem = '';
-    $keyPem = '';
-    $csr = openssl_csr_new(['commonName' => 'tls-origin.test'], $key);
-    $certificate = $csr === false || $csr === true ? false : openssl_csr_sign($csr, null, $key, 1);
+    $keyPem         = '';
+    $csr            = openssl_csr_new(['commonName' => 'tls-origin.test'], $key);
+    $certificate    = $csr === false || $csr === true ? false : openssl_csr_sign($csr, null, $key, 1);
     if (
         $certificate === false
         || !openssl_x509_export($certificate, $certificatePem)
@@ -53,7 +50,7 @@ if ($mode === 'origin') {
 
     $pemFile = $portFile . '.pem';
     file_put_contents($pemFile, $certificatePem . $keyPem);
-    $context = stream_context_create(['ssl' => ['local_cert' => $pemFile, 'verify_peer' => false, 'allow_self_signed' => true]]);
+    $context   = stream_context_create(['ssl' => ['local_cert' => $pemFile, 'verify_peer' => false, 'allow_self_signed' => true]]);
     $transport = 'tls';
 }
 
@@ -108,8 +105,8 @@ while (is_resource($server)) {
         $done = false;
         while (!$done) {
             $readable = [$connection, $upstream];
-            $write = null;
-            $except = null;
+            $write    = null;
+            $except   = null;
             if (stream_select($readable, $write, $except, 10) < 1) {
                 break;
             }

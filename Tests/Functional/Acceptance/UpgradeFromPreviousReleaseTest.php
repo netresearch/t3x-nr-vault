@@ -26,6 +26,8 @@ use TYPO3\CMS\Core\Upgrades\UpgradeWizardRegistry as CoreUpgradeWizardRegistry;
 use TYPO3\CMS\Install\Updates\UpgradeWizardInterface as InstallUpgradeWizardInterface;
 use TYPO3\CMS\Install\Updates\UpgradeWizardRegistry as InstallUpgradeWizardRegistry;
 
+use function sprintf;
+
 /**
  * Upgrading an installation that ran v0.16.0 to the current code.
  *
@@ -80,8 +82,8 @@ final class UpgradeFromPreviousReleaseTest extends AbstractVaultFunctionalTestCa
     /** @var array<string, mixed> */
     protected array $extensionConfiguration = [
         'masterKeyProvider' => 'file',
-        'auditHmacEpoch' => 3,
-        'preferXChaCha20' => 1,
+        'auditHmacEpoch'    => 3,
+        'preferXChaCha20'   => 1,
     ];
 
     protected function setUp(): void
@@ -158,7 +160,7 @@ final class UpgradeFromPreviousReleaseTest extends AbstractVaultFunctionalTestCa
         $this->setUpBackendUser(self::ADMIN);
         $vault = $this->get(VaultServiceInterface::class);
         foreach ($plaintexts as $identifier => $plaintext) {
-            self::assertSame($plaintext, $vault->retrieve($identifier), \sprintf('"%s" must decrypt after the upgrade.', $identifier));
+            self::assertSame($plaintext, $vault->retrieve($identifier), sprintf('"%s" must decrypt after the upgrade.', $identifier));
         }
     }
 
@@ -174,14 +176,14 @@ final class UpgradeFromPreviousReleaseTest extends AbstractVaultFunctionalTestCa
 
         $this->setUpBackendUser(self::READER);
         foreach ($identifiers as $identifier) {
-            self::assertNotNull($vault->retrieve($identifier), \sprintf('The reader must still reach "%s".', $identifier));
+            self::assertNotNull($vault->retrieve($identifier), sprintf('The reader must still reach "%s".', $identifier));
         }
 
         $this->setUpBackendUser(self::OUTSIDER);
         foreach ($identifiers as $identifier) {
             try {
                 $vault->retrieve($identifier);
-                self::fail(\sprintf('The outsider must not reach "%s".', $identifier));
+                self::fail(sprintf('The outsider must not reach "%s".', $identifier));
             } catch (AccessDeniedException) {
                 // expected
             }

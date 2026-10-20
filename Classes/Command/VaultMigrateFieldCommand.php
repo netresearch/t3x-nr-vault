@@ -22,6 +22,14 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function array_slice;
+use function assert;
+use function count;
+use function is_int;
+use function is_string;
+use function sprintf;
+use function strlen;
+
 /**
  * CLI command to migrate existing plaintext fields to vault storage.
  *
@@ -103,13 +111,13 @@ final class VaultMigrateFieldCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
 
-        $table = $input->getArgument('table');
-        $field = $input->getArgument('field');
+        $table    = $input->getArgument('table');
+        $field    = $input->getArgument('field');
         $uidField = $input->getOption('uid-field');
 
-        \assert(\is_string($table));
-        \assert(\is_string($field));
-        \assert(\is_string($uidField));
+        assert(is_string($table));
+        assert(is_string($field));
+        assert(is_string($uidField));
 
         if (trim($uidField) === '') {
             $io->error('--uid-field must be a non-empty column name.');
@@ -117,39 +125,39 @@ final class VaultMigrateFieldCommand extends Command
             return Command::FAILURE;
         }
 
-        $dryRun = (bool) $input->getOption('dry-run');
-        $batchSize = $input->getOption('batch-size');
+        $dryRun      = (bool) $input->getOption('dry-run');
+        $batchSize   = $input->getOption('batch-size');
         $whereClause = $input->getOption('where');
-        $force = (bool) $input->getOption('force');
+        $force       = (bool) $input->getOption('force');
         $clearSource = (bool) $input->getOption('clear-source');
 
-        \assert(\is_int($batchSize) && $batchSize >= 1);
-        \assert($whereClause === null || \is_string($whereClause));
+        assert(is_int($batchSize) && $batchSize >= 1);
+        assert($whereClause === null || is_string($whereClause));
 
         $io->title('Vault Field Migration');
         $io->text([
-            \sprintf('Table: <info>%s</info>', $table),
-            \sprintf('Field: <info>%s</info>', $field),
-            \sprintf('Mode: <info>%s</info>', $dryRun ? 'Dry Run' : 'Live'),
+            sprintf('Table: <info>%s</info>', $table),
+            sprintf('Field: <info>%s</info>', $field),
+            sprintf('Mode: <info>%s</info>', $dryRun ? 'Dry Run' : 'Live'),
         ]);
 
         // Validate table exists
         if (!$this->tableExists($table)) {
-            $io->error(\sprintf('Table "%s" does not exist', $table));
+            $io->error(sprintf('Table "%s" does not exist', $table));
 
             return Command::FAILURE;
         }
 
         // Validate field exists
         if (!$this->fieldExists($table, $field)) {
-            $io->error(\sprintf('Field "%s" does not exist in table "%s"', $field, $table));
+            $io->error(sprintf('Field "%s" does not exist in table "%s"', $field, $table));
 
             return Command::FAILURE;
         }
 
         // Get records to migrate
-        $records = $this->getRecordsToMigrate($table, $field, $uidField, $whereClause, $force);
-        $totalRecords = \count($records);
+        $records      = $this->getRecordsToMigrate($table, $field, $uidField, $whereClause, $force);
+        $totalRecords = count($records);
 
         if ($totalRecords === 0) {
             $io->success('No records found to migrate');
@@ -157,7 +165,7 @@ final class VaultMigrateFieldCommand extends Command
             return Command::SUCCESS;
         }
 
-        $io->text(\sprintf('Found <info>%d</info> records to migrate', $totalRecords));
+        $io->text(sprintf('Found <info>%d</info> records to migrate', $totalRecords));
 
         if ($dryRun) {
             $io->section('Records that would be migrated:');
@@ -202,7 +210,7 @@ final class VaultMigrateFieldCommand extends Command
         $this->reportErrors($io, $errors);
 
         if ($failed > 0) {
-            $io->warning(\sprintf('Migration completed with %d errors', $failed));
+            $io->warning(sprintf('Migration completed with %d errors', $failed));
 
             return Command::FAILURE;
         }
@@ -227,7 +235,7 @@ final class VaultMigrateFieldCommand extends Command
      * Processes the records in batches, storing each value in the vault.
      *
      * @param array<int, array<string, mixed>> $records
-     * @param int<1, max> $batchSize
+     * @param int<1, max>                      $batchSize
      *
      * @return array{migrated: int, failed: int, errors: list<string>}
      */
@@ -241,18 +249,18 @@ final class VaultMigrateFieldCommand extends Command
         ProgressBar $progressBar,
     ): array {
         $migrated = 0;
-        $failed = 0;
-        $errors = [];
+        $failed   = 0;
+        $errors   = [];
 
         foreach (array_chunk($records, $batchSize) as $batch) {
             foreach ($batch as $record) {
-                $uid = $record[$uidField];
+                $uid   = $record[$uidField];
                 $value = $record[$field];
 
-                \assert(\is_int($uid) || \is_string($uid));
-                \assert(\is_string($value) || \is_int($value) || $value === null);
+                assert(is_int($uid) || is_string($uid));
+                assert(is_string($value) || is_int($value) || $value === null);
 
-                $uidInt = (int) $uid;
+                $uidInt   = (int) $uid;
                 $valueStr = (string) $value;
 
                 try {
@@ -260,10 +268,10 @@ final class VaultMigrateFieldCommand extends Command
 
                     // Store in vault
                     $this->vaultService->store($identifier, $valueStr, [
-                        'table' => $table,
-                        'field' => $field,
-                        'uid' => $uidInt,
-                        'source' => 'migration',
+                        'table'       => $table,
+                        'field'       => $field,
+                        'uid'         => $uidInt,
+                        'source'      => 'migration',
                         'migrated_at' => time(),
                     ]);
 
@@ -272,15 +280,15 @@ final class VaultMigrateFieldCommand extends Command
                         $this->clearSourceField($table, $field, $uidField, $uidInt);
                     }
 
-                    $migrated++;
+                    ++$migrated;
 
                     // Clear value from memory
-                    if (\is_string($value)) {
+                    if (is_string($value)) {
                         sodium_memzero($value);
                     }
                 } catch (VaultException $e) {
-                    $failed++;
-                    $errors[] = \sprintf('UID %d: %s', $uid, $e->getMessage());
+                    ++$failed;
+                    $errors[] = sprintf('UID %d: %s', $uid, $e->getMessage());
                 }
 
                 $progressBar->advance();
@@ -300,12 +308,12 @@ final class VaultMigrateFieldCommand extends Command
         }
 
         $io->section('Errors');
-        foreach (\array_slice($errors, 0, 10) as $error) {
+        foreach (array_slice($errors, 0, 10) as $error) {
             $io->text('<error>✗</error> ' . $error);
         }
 
-        if (\count($errors) > 10) {
-            $io->text(\sprintf('... and %d more errors', \count($errors) - 10));
+        if (count($errors) > 10) {
+            $io->text(sprintf('... and %d more errors', count($errors) - 10));
         }
     }
 
@@ -319,7 +327,7 @@ final class VaultMigrateFieldCommand extends Command
     private function fieldExists(string $table, string $field): bool
     {
         $connection = $this->connectionPool->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
-        $columns = $connection->createSchemaManager()->listTableColumns($table);
+        $columns    = $connection->createSchemaManager()->listTableColumns($table);
 
         return isset($columns[$field]) || isset($columns[strtolower($field)]);
     }
@@ -379,8 +387,8 @@ final class VaultMigrateFieldCommand extends Command
         string $uidField,
     ): void {
         $rows = [];
-        foreach (\array_slice($records, 0, 20) as $record) {
-            $uid = $record[$uidField];
+        foreach (array_slice($records, 0, 20) as $record) {
+            $uid   = $record[$uidField];
             $value = $record[$field];
 
             $rows[] = [
@@ -395,19 +403,19 @@ final class VaultMigrateFieldCommand extends Command
             $rows,
         );
 
-        if (\count($records) > 20) {
-            $io->text(\sprintf('... and %d more records', \count($records) - 20));
+        if (count($records) > 20) {
+            $io->text(sprintf('... and %d more records', count($records) - 20));
         }
     }
 
     private function truncateValue(mixed $value, int $maxLength): string
     {
-        if (!\is_string($value)) {
+        if (!is_string($value)) {
             return '(non-string)';
         }
 
-        if (\strlen($value) <= $maxLength) {
-            return str_repeat('*', \strlen($value));
+        if (strlen($value) <= $maxLength) {
+            return str_repeat('*', strlen($value));
         }
 
         return str_repeat('*', $maxLength - 3) . '...';

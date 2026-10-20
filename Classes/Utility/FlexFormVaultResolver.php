@@ -14,6 +14,9 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
+use function is_array;
+use function is_string;
+
 /**
  * Service for resolving vault secrets in FlexForm data.
  *
@@ -48,9 +51,9 @@ final readonly class FlexFormVaultResolver
     /**
      * Resolve vault identifiers in FlexForm settings.
      *
-     * @param array<string, mixed> $settings FlexForm settings array
-     * @param list<string> $fields Field names to resolve
-     * @param bool $throwOnError Throw exception on vault errors
+     * @param array<string, mixed> $settings     FlexForm settings array
+     * @param list<string>         $fields       Field names to resolve
+     * @param bool                 $throwOnError Throw exception on vault errors
      *
      * @return array<string, mixed> Settings with vault identifiers resolved
      */
@@ -68,7 +71,7 @@ final readonly class FlexFormVaultResolver
             }
 
             // isVaultIdentifier guarantees value is a string - cast safely
-            $identifier = \is_string($value) ? $value : '';
+            $identifier = is_string($value) ? $value : '';
 
             try {
                 $settings[$field] = $this->vaultService->retrieve($identifier);
@@ -78,9 +81,9 @@ final readonly class FlexFormVaultResolver
                 }
 
                 $this->logger->error('Failed to resolve FlexForm vault field', [
-                    'field' => $field,
+                    'field'      => $field,
                     'identifier' => $identifier,
-                    'error' => $e->getMessage(),
+                    'error'      => $e->getMessage(),
                 ]);
                 $settings[$field] = null;
             }
@@ -115,7 +118,7 @@ final readonly class FlexFormVaultResolver
      */
     public function isVaultIdentifier(mixed $value): bool
     {
-        if (!\is_string($value) || $value === '') {
+        if (!is_string($value) || $value === '') {
             return false;
         }
 
@@ -138,12 +141,12 @@ final readonly class FlexFormVaultResolver
             return [];
         }
 
-        $schema = $this->tcaSchemaFactory->get($table);
+        $schema     = $this->tcaSchemaFactory->get($table);
         $flexFields = [];
 
         foreach ($schema->getFields() as $field) {
             $configType = $field->getConfiguration()['type'] ?? '';
-            if (\is_string($configType) && $configType === 'flex') {
+            if (is_string($configType) && $configType === 'flex') {
                 $flexFields[] = $field->getName();
             }
         }
@@ -161,20 +164,20 @@ final readonly class FlexFormVaultResolver
     private function resolveRecursive(array $data): array
     {
         foreach ($data as $key => $value) {
-            if (\is_array($value)) {
+            if (is_array($value)) {
                 /** @var array<string, mixed> $value */
                 $data[$key] = $this->resolveRecursive($value);
             } elseif ($this->isVaultIdentifier($value)) {
                 // isVaultIdentifier guarantees value is a string - cast safely
-                $identifier = \is_string($value) ? $value : '';
+                $identifier = is_string($value) ? $value : '';
 
                 try {
                     $data[$key] = $this->vaultService->retrieve($identifier);
                 } catch (VaultException $e) {
                     $this->logger->error('Failed to resolve vault identifier', [
-                        'key' => $key,
+                        'key'        => $key,
                         'identifier' => $identifier,
-                        'error' => $e->getMessage(),
+                        'error'      => $e->getMessage(),
                     ]);
                     $data[$key] = null;
                 }

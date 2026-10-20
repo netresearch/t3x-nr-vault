@@ -225,7 +225,7 @@ final class VersionCheckTest extends TestCase
     private function emConfDeclaring(string $constraint): array
     {
         return [
-            'version' => '1.4.0',
+            'version'     => '1.4.0',
             'constraints' => ['depends' => ['typo3' => $constraint]],
         ];
     }

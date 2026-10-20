@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -61,7 +61,15 @@ use RuntimeException;
 use stdClass;
 use Throwable;
 
+use function assert;
+use function count;
+use function function_exists;
+use function is_callable;
 use function Netresearch\NrVault\Http\microtime;
+use function sprintf;
+use function strlen;
+
+use const CURLOPT_RESOLVE;
 
 /**
  * The cancellable outbound send.
@@ -148,9 +156,9 @@ final class VaultHttpClientCancellableTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
+        $this->vaultService    = $this->createMock(VaultServiceInterface::class);
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
-        $this->dnsResolver = new ProgrammedDnsResolver();
+        $this->dnsResolver     = new ProgrammedDnsResolver();
         $this->dnsResolver->program(self::API_HOST, [['ip' => self::PUBLIC_IP]]);
         // The OAuth-leg cases route their token request through the same host
         // gate, which requires a checked address for every host it sees.
@@ -158,7 +166,7 @@ final class VaultHttpClientCancellableTest extends TestCase
 
         $this->clientFactory = new SecureHttpClientFactory($this->dnsResolver);
 
-        $this->originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $this->originalGlobals      = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['HTTP' => []];
     }
 
@@ -226,7 +234,7 @@ final class VaultHttpClientCancellableTest extends TestCase
     {
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith(
             $transfer,
             new ClosureTicker(static function (int $tick) use ($transfer): void {
@@ -258,7 +266,7 @@ final class VaultHttpClientCancellableTest extends TestCase
     {
         $this->vaultService->expects(self::never())->method('retrieve');
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith($transfer, new ClosureTicker(static function (): void {}));
 
         $auditedRows = [];
@@ -293,7 +301,7 @@ final class VaultHttpClientCancellableTest extends TestCase
 
         $this->vaultService->expects(self::never())->method('retrieve');
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith($transfer, new ClosureTicker(static function (): void {}));
 
         $auditedRows = [];
@@ -328,7 +336,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // `sendCancellably()`'s `finally` only opens after it.
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn(null);
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith($transfer, new ClosureTicker(static function (): void {}));
 
         $auditedRows = [];
@@ -361,7 +369,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
         $this->auditLogService->expects(self::once())->method('log');
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith(
             $transfer,
             new ClosureTicker(static function (int $tick) use ($transfer): void {
@@ -390,7 +398,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
         $this->auditLogService->expects(self::once())->method('log');
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith(
             $transfer,
             new ClosureTicker(static function (int $tick) use ($transfer): void {
@@ -409,10 +417,10 @@ final class VaultHttpClientCancellableTest extends TestCase
         self::assertArrayHasKey('curl', $options, 'The ssrf-dns-pin middleware did not run.');
         $curlOptions = $options['curl'];
         self::assertIsArray($curlOptions);
-        self::assertArrayHasKey(\CURLOPT_RESOLVE, $curlOptions);
+        self::assertArrayHasKey(CURLOPT_RESOLVE, $curlOptions);
         self::assertSame(
             [self::API_HOST . ':443:' . self::PUBLIC_IP],
-            $curlOptions[\CURLOPT_RESOLVE],
+            $curlOptions[CURLOPT_RESOLVE],
         );
     }
 
@@ -473,7 +481,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // (Audit/List.html:116-117).
         $this->vaultService->expects(self::never())->method('retrieve');
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith($transfer, new ClosureTicker(static function (): void {}));
 
         $auditedRows = [];
@@ -513,7 +521,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // A pre-flight refusal reads no secret.
         $this->vaultService->expects(self::never())->method('retrieve');
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith($transfer, new ClosureTicker(static function (): void {}));
 
         $statusCodes = [];
@@ -560,7 +568,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // above; a copy-paste of one into the other fails one of the two.
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith($transfer, new ClosureTicker(static function (): void {}));
 
         $auditedRows = [];
@@ -599,7 +607,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         $this->auditLogService->expects(self::once())->method('log');
 
         $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
+        $ticker   = new ClosureTicker(static function (int $tick) use ($transfer): void {
             if ($tick >= 1) {
                 $transfer->settleWith(new Response(200));
             }
@@ -615,7 +623,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         $timeoutClient = $client->withTimeout(5);
 
         $transportProperty = new ReflectionProperty(VaultHttpClient::class, 'cancellableTransport');
-        $timeoutProperty = new ReflectionProperty(VaultHttpClient::class, 'timeoutSeconds');
+        $timeoutProperty   = new ReflectionProperty(VaultHttpClient::class, 'timeoutSeconds');
 
         self::assertSame(
             $transport,
@@ -815,12 +823,12 @@ final class VaultHttpClientCancellableTest extends TestCase
             self::assertInstanceOf(
                 ReflectionNamedType::class,
                 $returnType,
-                \sprintf('%s() must declare a single, named return type.', $method->getName()),
+                sprintf('%s() must declare a single, named return type.', $method->getName()),
             );
             self::assertContains(
                 $returnType->getName(),
                 ['static', ResponseInterface::class, 'bool'],
-                \sprintf('%s() exports something a caller could send with.', $method->getName()),
+                sprintf('%s() exports something a caller could send with.', $method->getName()),
             );
         }
 
@@ -931,7 +939,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // pre-flight decision exists to close.
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
-        $ticker = new ClosureTicker(static function (): void {});
+        $ticker    = new ClosureTicker(static function (): void {});
         $transport = new CancellableTransport(new ThrowingOnSendClient(), $ticker, 5.0);
 
         $auditedRows = [];
@@ -1036,8 +1044,8 @@ final class VaultHttpClientCancellableTest extends TestCase
             ->method('sendRequest')
             ->willReturn(new Response(204));
 
-        $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function (): void {});
+        $transfer  = new StubbedTransfer();
+        $ticker    = new ClosureTicker(static function (): void {});
         $transport = $this->transportWith($transfer, $ticker);
 
         $auditedActions = [];
@@ -1104,7 +1112,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         $this->vaultService->expects(self::never())->method('retrieve');
         $this->auditLogService->expects(self::never())->method('log');
 
-        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout'] = 20;
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout']         = 20;
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['connect_timeout'] = 4;
 
         $transport = $this->clientFactory->createCancellable();
@@ -1138,7 +1146,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         $cancellableClient = $cancellable->client();
         self::assertInstanceOf(Client::class, $cancellableClient);
 
-        $blockingConfig = $this->comparableGuzzleConfig($this->getGuzzleConfig($blocking));
+        $blockingConfig    = $this->comparableGuzzleConfig($this->getGuzzleConfig($blocking));
         $cancellableConfig = $this->comparableGuzzleConfig($this->getGuzzleConfig($cancellableClient));
         unset($blockingConfig['handler'], $cancellableConfig['handler']);
 
@@ -1180,8 +1188,8 @@ final class VaultHttpClientCancellableTest extends TestCase
 
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
-        $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function (): void {});
+        $transfer  = new StubbedTransfer();
+        $ticker    = new ClosureTicker(static function (): void {});
         $transport = $this->transportWith(
             $transfer,
             $ticker,
@@ -1217,7 +1225,7 @@ final class VaultHttpClientCancellableTest extends TestCase
     {
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith(
             $transfer,
             new ClosureTicker(static function (int $tick) use ($transfer): void {
@@ -1264,9 +1272,9 @@ final class VaultHttpClientCancellableTest extends TestCase
         // make "which calls did a caller abandon?" over-count.
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
-        $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function (): void {});
-        $client = $this->transportWith($transfer, $ticker)->client();
+        $transfer  = new StubbedTransfer();
+        $ticker    = new ClosureTicker(static function (): void {});
+        $client    = $this->transportWith($transfer, $ticker)->client();
         $transport = new CancellableTransport($client, $ticker, 0.0);
 
         $auditedRows = [];
@@ -1301,7 +1309,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // is the secret. The reason programmed below is exactly that shape.
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith(
             $transfer,
             new ClosureTicker(static function (int $tick) use ($transfer): void {
@@ -1348,7 +1356,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // that actually reports true reaches `http_call_cancelled`.
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
-        $transfer = new StubbedTransfer();
+        $transfer  = new StubbedTransfer();
         $transport = $this->transportWith($transfer, new ClosureTicker(static function (): void {}));
 
         $auditedRows = [];
@@ -1443,20 +1451,20 @@ final class VaultHttpClientCancellableTest extends TestCase
             ->expects(self::exactly(2))
             ->method('retrieve')
             ->willReturnCallback(static fn (string $id): ?string => match ($id) {
-                'oauth/cid' => 'client-id-value',
+                'oauth/cid'  => 'client-id-value',
                 'oauth/csec' => 'client-secret-value',
-                default => null,
+                default      => null,
             });
 
         // The manager's own cancellable transport: the token POST settles with
         // a token on the first tick of ITS ticker.
         $tokenTransfer = new StubbedTransfer();
-        $tokenTicker = new ClosureTicker(static function (int $tick) use ($tokenTransfer): void {
+        $tokenTicker   = new ClosureTicker(static function (int $tick) use ($tokenTransfer): void {
             if ($tick >= 1) {
                 $tokenTransfer->settleWith(new Response(200, ['Content-Type' => 'application/json'], (string) json_encode([
                     'access_token' => 'token-from-cancellable-leg',
-                    'token_type' => 'Bearer',
-                    'expires_in' => 3600,
+                    'token_type'   => 'Bearer',
+                    'expires_in'   => 3600,
                 ])));
             }
         });
@@ -1481,7 +1489,7 @@ final class VaultHttpClientCancellableTest extends TestCase
 
         // The API transfer settles on the first tick of its own ticker.
         $apiTransfer = new StubbedTransfer();
-        $apiTicker = new ClosureTicker(static function (int $tick) use ($apiTransfer): void {
+        $apiTicker   = new ClosureTicker(static function (int $tick) use ($apiTransfer): void {
             if ($tick >= 1) {
                 $apiTransfer->settleWith(new Response(200, [], 'api-payload'));
             }
@@ -1539,12 +1547,12 @@ final class VaultHttpClientCancellableTest extends TestCase
             ->expects(self::exactly(2))
             ->method('retrieve')
             ->willReturnCallback(static fn (string $id): ?string => match ($id) {
-                'oauth/cid' => 'client-id-value',
+                'oauth/cid'  => 'client-id-value',
                 'oauth/csec' => 'client-secret-value',
-                default => null,
+                default      => null,
             });
 
-        $tokenTransfer = new StubbedTransfer();
+        $tokenTransfer  = new StubbedTransfer();
         $tokenTransport = new CancellableTransport(
             new Client(['handler' => HandlerStack::create($tokenTransfer->handler())]),
             new ClosureTicker(static function (): void {}),
@@ -1557,8 +1565,8 @@ final class VaultHttpClientCancellableTest extends TestCase
             ->method('sendRequest')
             ->willReturn(new Response(200, ['Content-Type' => 'application/json'], (string) json_encode([
                 'access_token' => 'token-from-blocking-leg',
-                'token_type' => 'Bearer',
-                'expires_in' => 3600,
+                'token_type'   => 'Bearer',
+                'expires_in'   => 3600,
             ])));
 
         $manager = new OAuthTokenManager(
@@ -1615,11 +1623,11 @@ final class VaultHttpClientCancellableTest extends TestCase
         // A head, then a byte on every 20 ms tick, complete on the thirteenth:
         // far past the 50 ms idle bound and past the zero budget.
         $transfer = new StubbedTransfer();
-        $ticker = $this->timedTicker(static function (int $tick) use ($transfer): void {
+        $ticker   = $this->timedTicker(static function (int $tick) use ($transfer): void {
             match (true) {
-                $tick === 1 => $transfer->deliverHead(200),
+                $tick === 1  => $transfer->deliverHead(200),
                 $tick === 13 => $transfer->complete(),
-                default => $transfer->deliverBytes((string) ($tick % 10)),
+                default      => $transfer->deliverBytes((string) ($tick % 10)),
             };
         });
 
@@ -1642,7 +1650,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StubbedTransfer();
-        $ticker = $this->timedTicker(static function (): void {});
+        $ticker   = $this->timedTicker(static function (): void {});
 
         $this->assertIdleAbort($transfer, $ticker);
     }
@@ -1653,10 +1661,10 @@ final class VaultHttpClientCancellableTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StubbedTransfer();
-        $ticker = $this->timedTicker(static function (int $tick) use ($transfer): void {
+        $ticker   = $this->timedTicker(static function (int $tick) use ($transfer): void {
             match ($tick) {
-                1 => $transfer->deliverHead(200),
-                2 => $transfer->deliverBytes('first'),
+                1       => $transfer->deliverHead(200),
+                2       => $transfer->deliverBytes('first'),
                 default => null,
             };
         });
@@ -1679,7 +1687,7 @@ final class VaultHttpClientCancellableTest extends TestCase
             ->willReturn('s3cret');
         // Interim heads on every tick must still end at the 200 ms idle bound.
         $transfer = new StubbedTransfer();
-        $ticker = new TransferClockTicker(
+        $ticker   = new TransferClockTicker(
             static function () use ($transfer): void {
                 $transfer->deliverHead(100);
             },
@@ -1725,7 +1733,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // After a `101`, curl hands the raw connection bytes to the sink. They
         // are no body of a final head and must not count as progress.
         $transfer = new StubbedTransfer();
-        $ticker = $this->timedTicker(static function (int $tick) use ($transfer): void {
+        $ticker   = $this->timedTicker(static function (int $tick) use ($transfer): void {
             if ($tick === 1) {
                 $transfer->deliverHead(101);
 
@@ -1753,14 +1761,14 @@ final class VaultHttpClientCancellableTest extends TestCase
         // Each gap is 150 ms or less; the complete transfer lasts 600 ms,
         // exceeding the 200 ms idle bound without depending on scheduling.
         $transfer = new StubbedTransfer();
-        $ticker = new TransferClockTicker(
+        $ticker   = new TransferClockTicker(
             static function (int $tick) use ($transfer): void {
                 match ($tick) {
-                    1 => $transfer->deliverHead(100),
-                    3 => $transfer->deliverHead(200),
-                    6 => $transfer->deliverBytes('a'),
-                    9 => $transfer->deliverBytes('b'),
-                    12 => $transfer->complete(),
+                    1       => $transfer->deliverHead(100),
+                    3       => $transfer->deliverHead(200),
+                    6       => $transfer->deliverBytes('a'),
+                    9       => $transfer->deliverBytes('b'),
+                    12      => $transfer->complete(),
                     default => null,
                 };
             },
@@ -1770,8 +1778,8 @@ final class VaultHttpClientCancellableTest extends TestCase
             ->clientWithTransport($this->transportWith($transfer, $ticker, budget: 0.0, idle: 0.2))
             ->withAuthentication('api_key', SecretPlacement::Bearer);
         $response = null;
-        $body = null;
-        $caught = null;
+        $body     = null;
+        $caught   = null;
 
         try {
             $response = $client->sendCancellable(
@@ -1805,7 +1813,7 @@ final class VaultHttpClientCancellableTest extends TestCase
         // that keeps delivering: the 100 ms budget still ends the call, and
         // with the budget's own literal.
         $transfer = new StubbedTransfer();
-        $ticker = $this->timedTicker(static function (int $tick) use ($transfer): void {
+        $ticker   = $this->timedTicker(static function (int $tick) use ($transfer): void {
             if ($tick === 1) {
                 $transfer->deliverHead(200);
 
@@ -1839,11 +1847,11 @@ final class VaultHttpClientCancellableTest extends TestCase
         $this->vaultService->expects(self::never())->method('retrieve');
         $this->auditLogService->expects(self::never())->method('log');
 
-        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout'] = 0;
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout']         = 0;
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['connect_timeout'] = 10;
-        $withoutTimeout = $this->clientFactory->createCancellable();
-        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout'] = 30;
-        $withTimeout = $this->clientFactory->createCancellable();
+        $withoutTimeout                                        = $this->clientFactory->createCancellable();
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout']         = 30;
+        $withTimeout                                           = $this->clientFactory->createCancellable();
 
         self::assertInstanceOf(CancellableTransport::class, $withoutTimeout);
         self::assertInstanceOf(CancellableTransport::class, $withTimeout);
@@ -1862,10 +1870,10 @@ final class VaultHttpClientCancellableTest extends TestCase
         // send's 16 MiB limit with it: this send buffers the whole body, as
         // it always did.
         $transfer = new StubbedTransfer();
-        $ticker = new ClosureTicker(static function (int $tick) use ($transfer): void {
+        $ticker   = new ClosureTicker(static function (int $tick) use ($transfer): void {
             match ($tick) {
-                1 => $transfer->deliverHead(200),
-                2 => $transfer->deliverBytes(str_repeat('a', 17 * 1024 * 1024)),
+                1       => $transfer->deliverHead(200),
+                2       => $transfer->deliverBytes(str_repeat('a', 17 * 1024 * 1024)),
                 default => $transfer->complete(),
             };
         });
@@ -1882,7 +1890,7 @@ final class VaultHttpClientCancellableTest extends TestCase
     {
         $this->auditLogService->expects(self::never())->method('log');
         $this->vaultService->expects(self::never())->method('retrieve');
-        self::assertFalse(\function_exists('Netresearch\NrVault\Http\microtime'));
+        self::assertFalse(function_exists('Netresearch\NrVault\Http\microtime'));
         self::assertFalse(class_exists(TransferClock::class, false));
     }
 
@@ -2075,14 +2083,14 @@ final class ProgrammedDnsResolver implements DnsResolverInterface
     public function programSequence(string $host, array $answers): void
     {
         $this->sequences[$host] = $answers;
-        $this->calls[$host] = 0;
+        $this->calls[$host]     = 0;
     }
 
     public function resolve(string $host): array
     {
         if (isset($this->sequences[$host])) {
-            $answers = $this->sequences[$host];
-            $index = min($this->calls[$host] ?? 0, \count($answers) - 1);
+            $answers            = $this->sequences[$host];
+            $index              = min($this->calls[$host] ?? 0, count($answers) - 1);
             $this->calls[$host] = ($this->calls[$host] ?? 0) + 1;
 
             return $answers[$index];
@@ -2194,8 +2202,8 @@ final class StubbedTransfer
     public function deliverHead(int $status): void
     {
         $onHeaders = $this->options['on_headers'] ?? null;
-        $sink = $this->options['sink'] ?? null;
-        \assert(\is_callable($onHeaders) && $sink instanceof StreamInterface);
+        $sink      = $this->options['sink'] ?? null;
+        assert(is_callable($onHeaders) && $sink instanceof StreamInterface);
 
         $onHeaders(new Response($status, [], $sink));
     }
@@ -2206,9 +2214,9 @@ final class StubbedTransfer
     public function deliverBytes(string $bytes): void
     {
         $sink = $this->options['sink'] ?? null;
-        \assert($sink instanceof StreamInterface);
+        assert($sink instanceof StreamInterface);
 
-        if ($sink->write($bytes) !== \strlen($bytes)) {
+        if ($sink->write($bytes) !== strlen($bytes)) {
             throw new RuntimeException('The sink must accept every byte, or curl aborts the transfer.', 1790500101);
         }
     }
@@ -2220,7 +2228,7 @@ final class StubbedTransfer
     public function complete(): void
     {
         $sink = $this->options['sink'] ?? null;
-        \assert($sink instanceof StreamInterface);
+        assert($sink instanceof StreamInterface);
 
         $sink->rewind();
         $this->settleWithValue(new Response(200, [], $sink));
@@ -2287,7 +2295,7 @@ final class ThrowingOnSendClient implements GuzzleClientInterface
     }
 
     /**
-     * @param string|UriInterface $uri
+     * @param string|UriInterface     $uri
      * @param array<array-key, mixed> $options
      */
     public function request(string $method, $uri, array $options = []): ResponseInterface
@@ -2296,7 +2304,7 @@ final class ThrowingOnSendClient implements GuzzleClientInterface
     }
 
     /**
-     * @param string|UriInterface $uri
+     * @param string|UriInterface     $uri
      * @param array<array-key, mixed> $options
      */
     public function requestAsync(string $method, $uri, array $options = []): PromiseInterface

@@ -31,7 +31,7 @@ final readonly class ApiTokenClient
     public function storeToken(string $identifier, #[SensitiveParameter] string $token): void
     {
         $this->vaultService->store($identifier, $token, [
-            'context' => 'consumer_fixture',
+            'context'     => 'consumer_fixture',
             'description' => 'API token kept by the consumer fixture',
         ]);
     }

@@ -20,6 +20,12 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use SensitiveParameter;
 
+use function dirname;
+use function is_array;
+use function is_string;
+use function sprintf;
+use function strlen;
+
 /**
  * HashiCorp Vault Transit master-key provider.
  *
@@ -133,8 +139,8 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
      */
     public function storeMasterKey(#[SensitiveParameter] string $key): void
     {
-        if (\strlen($key) !== self::KEY_LENGTH) {
-            throw MasterKeyException::invalidLength(self::KEY_LENGTH, \strlen($key));
+        if (strlen($key) !== self::KEY_LENGTH) {
+            throw MasterKeyException::invalidLength(self::KEY_LENGTH, strlen($key));
         }
 
         $config = $this->requireUsableConfig();
@@ -148,7 +154,7 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
         }
 
         $ciphertext = $data['ciphertext'] ?? null;
-        if (!\is_string($ciphertext) || !str_starts_with($ciphertext, 'vault:')) {
+        if (!is_string($ciphertext) || !str_starts_with($ciphertext, 'vault:')) {
             throw MasterKeyException::transitMalformedResponse(
                 self::OPERATION_ENCRYPT,
                 'missing or malformed data.ciphertext',
@@ -165,13 +171,13 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
 
     protected function loadRawKey(): string
     {
-        $config = $this->requireUsableConfig();
+        $config  = $this->requireUsableConfig();
         $wrapped = $this->readWrappedKey($config->wrappedKeyPath);
 
         $data = $this->callTransit($config, self::OPERATION_DECRYPT, ['ciphertext' => $wrapped]);
 
         $encoded = $data['plaintext'] ?? null;
-        if (!\is_string($encoded) || $encoded === '') {
+        if (!is_string($encoded) || $encoded === '') {
             throw MasterKeyException::transitMalformedResponse(
                 self::OPERATION_DECRYPT,
                 'missing or empty data.plaintext',
@@ -188,8 +194,8 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
             );
         }
 
-        if (\strlen($rawKey) !== self::KEY_LENGTH) {
-            $length = \strlen($rawKey);
+        if (strlen($rawKey) !== self::KEY_LENGTH) {
+            $length = strlen($rawKey);
             sodium_memzero($rawKey);
 
             throw MasterKeyException::invalidLength(self::KEY_LENGTH, $length);
@@ -258,9 +264,9 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
      *
      * @param array<string, string> $payload
      *
-     * @throws MasterKeyException
-     *
      * @return array<array-key, mixed>
+     *
+     * @throws MasterKeyException
      */
     private function callTransit(TransitConfig $config, string $operation, array $payload): array
     {
@@ -294,7 +300,7 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
         } catch (ClientExceptionInterface $e) {
             throw MasterKeyException::transitTransportFailure(
                 $operation,
-                $this->redactTokens($e->getMessage()) . \sprintf(' (caused by %s)', $e::class),
+                $this->redactTokens($e->getMessage()) . sprintf(' (caused by %s)', $e::class),
             );
         }
 
@@ -302,10 +308,10 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
     }
 
     /**
-     * @throws MasterKeyException
-     *
      * @return array<array-key, mixed> the Vault response `data` object; callers
      *                                 read individual fields and type-check them
+     *
+     * @throws MasterKeyException
      */
     private function decodeTransitData(ResponseInterface $response, string $operation): array
     {
@@ -323,12 +329,12 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
             throw MasterKeyException::transitMalformedResponse($operation, 'response body is not valid JSON');
         }
 
-        if (!\is_array($decoded)) {
+        if (!is_array($decoded)) {
             throw MasterKeyException::transitMalformedResponse($operation, 'response body is not a JSON object');
         }
 
         $data = $decoded['data'] ?? null;
-        if (!\is_array($data)) {
+        if (!is_array($data)) {
             throw MasterKeyException::transitMalformedResponse($operation, 'response has no "data" object');
         }
 
@@ -349,7 +355,7 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
     private function findToken(TransitConfig $config): ?string
     {
         $fromEnv = getenv($config->tokenEnvVar);
-        if (\is_string($fromEnv) && $fromEnv !== '') {
+        if (is_string($fromEnv) && $fromEnv !== '') {
             return $fromEnv;
         }
 
@@ -403,7 +409,7 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
 
         $wrapped = trim($raw);
         if (!str_starts_with($wrapped, 'vault:')) {
-            throw MasterKeyException::transitNotConfigured(\sprintf(
+            throw MasterKeyException::transitNotConfigured(sprintf(
                 'the file at %s does not contain a Vault Transit ciphertext (expected a "vault:v…" prefix)',
                 $path,
             ));
@@ -426,7 +432,7 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
      */
     private function writeWrappedKey(string $path, string $ciphertext): void
     {
-        $dir = \dirname($path);
+        $dir = dirname($path);
         if (!is_dir($dir) && (!mkdir($dir, 0o700, true) && !is_dir($dir))) {
             throw MasterKeyException::cannotStore("Cannot create directory: {$dir}");
         }

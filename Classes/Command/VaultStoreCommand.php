@@ -21,6 +21,10 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+use function is_array;
+use function is_string;
+use function sprintf;
+
 /**
  * CLI command to store a secret in the vault.
  */
@@ -88,9 +92,9 @@ final class VaultStoreCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io            = new SymfonyStyle($input, $output);
         $identifierArg = $input->getArgument('identifier');
-        $identifier = \is_string($identifierArg) ? $identifierArg : '';
+        $identifier    = is_string($identifierArg) ? $identifierArg : '';
 
         // Get secret value from various sources
         $value = $this->getSecretValue($input, $io);
@@ -102,19 +106,19 @@ final class VaultStoreCommand extends Command
 
         // Parse metadata
         $metadataOption = $input->getOption('metadata');
-        $metadataPairs = \is_array($metadataOption) ? $metadataOption : [];
-        $metadata = $this->parseMetadata($metadataPairs);
+        $metadataPairs  = is_array($metadataOption) ? $metadataOption : [];
+        $metadata       = $this->parseMetadata($metadataPairs);
 
         // Add groups to metadata if specified
         $groups = $input->getOption('groups');
-        if (\is_array($groups) && $groups !== []) {
+        if (is_array($groups) && $groups !== []) {
             $metadata['allowed_groups'] = array_map(
                 static fn (mixed $v): int => is_numeric($v) ? (int) $v : 0,
                 $groups,
             );
         }
 
-        $asProvisioner = $input->getOption('as-provisioner') !== false;
+        $asProvisioner  = $input->getOption('as-provisioner') !== false;
         $provisionerUid = $this->configuration->getProvisioningBeUserUid();
 
         if ($asProvisioner && $provisionerUid === 0) {
@@ -145,7 +149,7 @@ final class VaultStoreCommand extends Command
                 $this->vaultService->store($identifier, $value, $metadata);
             }
 
-            $io->success(\sprintf('Secret "%s" stored successfully', $identifier));
+            $io->success(sprintf('Secret "%s" stored successfully', $identifier));
 
             return Command::SUCCESS;
         } catch (VaultException $e) {
@@ -168,7 +172,7 @@ final class VaultStoreCommand extends Command
     {
         // Option 1: From --value option
         $value = $input->getOption('value');
-        if (\is_string($value)) {
+        if (is_string($value)) {
             return $value;
         }
 
@@ -184,9 +188,9 @@ final class VaultStoreCommand extends Command
 
         // Option 3: From file
         $file = $input->getOption('file');
-        if (\is_string($file)) {
+        if (is_string($file)) {
             if (!file_exists($file)) {
-                $io->error(\sprintf('File not found: %s', $file));
+                $io->error(sprintf('File not found: %s', $file));
 
                 return null;
             }
@@ -203,7 +207,7 @@ final class VaultStoreCommand extends Command
         if ($input->isInteractive()) {
             $hiddenInput = $io->askHidden('Enter secret value');
 
-            return \is_string($hiddenInput) ? $hiddenInput : null;
+            return is_string($hiddenInput) ? $hiddenInput : null;
         }
 
         return null;
@@ -218,9 +222,9 @@ final class VaultStoreCommand extends Command
     {
         $metadata = [];
         foreach ($pairs as $pair) {
-            $pairStr = \is_string($pair) ? $pair : '';
+            $pairStr = is_string($pair) ? $pair : '';
             if (str_contains($pairStr, '=')) {
-                [$key, $value] = explode('=', $pairStr, 2);
+                [$key, $value]        = explode('=', $pairStr, 2);
                 $metadata[trim($key)] = trim($value);
             }
         }

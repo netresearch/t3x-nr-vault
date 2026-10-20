@@ -47,11 +47,11 @@ final readonly class BreakGlassBannerProvider
         $session = $this->breakGlassState->getActiveSession();
         if (!$session instanceof BreakGlassSession) {
             return [
-                'active' => false,
-                'username' => '',
-                'uid' => 0,
-                'reason' => '',
-                'expiresAt' => '',
+                'active'           => false,
+                'username'         => '',
+                'uid'              => 0,
+                'reason'           => '',
+                'expiresAt'        => '',
                 'remainingMinutes' => 0,
             ];
         }
@@ -59,10 +59,10 @@ final readonly class BreakGlassBannerProvider
         $remainingSeconds = $session->remainingSeconds($now ?? new DateTimeImmutable());
 
         return [
-            'active' => true,
-            'username' => $session->activatedByUsername,
-            'uid' => $session->activatedByUid,
-            'reason' => $session->reason,
+            'active'    => true,
+            'username'  => $session->activatedByUsername,
+            'uid'       => $session->activatedByUid,
+            'reason'    => $session->reason,
             'expiresAt' => $session->expiresAt->format(self::DATE_FORMAT),
             // Round UP: showing "0 minutes left" while the bypass is still live
             // understates the exposure the operator is being warned about.

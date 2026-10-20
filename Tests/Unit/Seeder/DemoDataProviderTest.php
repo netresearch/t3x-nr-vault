@@ -16,6 +16,9 @@ use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 
+use function count;
+use function in_array;
+
 #[CoversClass(DemoDataProvider::class)]
 #[CoversClass(DemoSecretSpec::class)]
 #[CoversClass(DemoEvent::class)]
@@ -26,7 +29,7 @@ final class DemoDataProviderTest extends TestCase
     {
         $specs = (new DemoDataProvider())->specs();
 
-        self::assertGreaterThanOrEqual(15, \count($specs));
+        self::assertGreaterThanOrEqual(15, count($specs));
         self::assertContainsOnlyInstancesOf(DemoSecretSpec::class, $specs);
 
         $identifiers = array_map(static fn (DemoSecretSpec $s): string => $s->identifier, $specs);
@@ -39,10 +42,9 @@ final class DemoDataProviderTest extends TestCase
         // at least one manual-only specimen (events: backend reads, no automated)
         self::assertNotSame([], array_filter(
             $specs,
-            static fn (DemoSecretSpec $s): bool =>
-            $s->events !== []
+            static fn (DemoSecretSpec $s): bool => $s->events !== []
             && array_filter($s->events, static fn (DemoEvent $e): bool => $e->action === 'read' && $e->actorType === 'backend') !== []
-            && array_filter($s->events, static fn (DemoEvent $e): bool => $e->action === 'read' && \in_array($e->actorType, ['api', 'cli', 'scheduler'], true)) === [],
+            && array_filter($s->events, static fn (DemoEvent $e): bool => $e->action === 'read' && in_array($e->actorType, ['api', 'cli', 'scheduler'], true)) === [],
         ));
         // at least one healthy actively-read specimen
         self::assertNotSame([], array_filter($specs, static fn (DemoSecretSpec $s): bool => $s->readCount >= 20 && $s->lastReadDaysAgo !== null && $s->lastReadDaysAgo <= 5));

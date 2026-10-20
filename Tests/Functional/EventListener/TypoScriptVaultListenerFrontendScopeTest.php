@@ -29,6 +29,9 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\Cache\CacheInstruction;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 
+use function is_array;
+use function sprintf;
+
 /**
  * Drives the real ContentObjectRenderer::stdWrap() / TextContentObject::render()
  * path — not a hand-built event — to pin which %vault()% placeholders resolve in
@@ -84,15 +87,15 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
         parent::setUp();
 
         $this->environmentBackup = [
-            'context' => Environment::getContext(),
-            'isCli' => Environment::isCli(),
-            'composerMode' => Environment::isComposerMode(),
-            'projectPath' => Environment::getProjectPath(),
-            'publicPath' => Environment::getPublicPath(),
-            'varPath' => Environment::getVarPath(),
-            'configPath' => Environment::getConfigPath(),
+            'context'       => Environment::getContext(),
+            'isCli'         => Environment::isCli(),
+            'composerMode'  => Environment::isComposerMode(),
+            'projectPath'   => Environment::getProjectPath(),
+            'publicPath'    => Environment::getPublicPath(),
+            'varPath'       => Environment::getVarPath(),
+            'configPath'    => Environment::getConfigPath(),
             'currentScript' => Environment::getCurrentScript(),
-            'isWindows' => Environment::isWindows(),
+            'isWindows'     => Environment::isWindows(),
         ];
     }
 
@@ -116,8 +119,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function editorAuthoredPlaceholderDoesNotResolveInFrontendRequest(): void
     {
-        $identifier = $this->storeSecret('leaked_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier      = $this->storeSecret('leaked_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder     = sprintf('%%vault(%s)%%', $identifier);
         $auditRowsBefore = $this->countAuditRows($identifier);
 
         $output = $this->inWebContext(fn (): string => $this->renderText(
@@ -137,8 +140,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function reflectedRequestParameterDoesNotResolveInFrontendRequest(): void
     {
-        $identifier = $this->storeSecret('reflected_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier      = $this->storeSecret('reflected_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder     = sprintf('%%vault(%s)%%', $identifier);
         $auditRowsBefore = $this->countAuditRows($identifier);
 
         $request = $this->frontendRequest()->withQueryParams(['q' => $placeholder]);
@@ -160,10 +163,10 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function hundredRejectionsWriteNoAuditRowsAndEmitNoRecordOutsideDevelopment(): void
     {
-        $identifier = $this->storeSecret('withheld_key_');
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('withheld_key_');
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
-        $before = $this->countAuditRows($identifier);
+        $before  = $this->countAuditRows($identifier);
         $request = $this->frontendRequest();
 
         /** @var array{0: string, 1: bool} $result */
@@ -193,8 +196,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function hundredRejectionsEmitAtMostOneRecordInDevelopmentWithoutSilencingTheNextRequest(): void
     {
-        $identifier = $this->storeSecret('withheld_dev_key_');
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('withheld_dev_key_');
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         $firstRequest = $this->frontendRequest();
 
@@ -213,7 +216,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
             'Exactly one record for any number of rejections — this request\'s latch is already claimed',
         );
 
-        $secondRequest = $this->frontendRequest();
+        $secondRequest       = $this->frontendRequest();
         $slotOfSecondRequest = $this->inWebContext(fn (): bool => $this->claimLogSlotFor($secondRequest), 'Development');
 
         self::assertTrue(
@@ -230,8 +233,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function allowIdentifierGrantDoesNotSurviveIntoTheNextRequest(): void
     {
-        $identifier = $this->storeSecret('scoped_runtime_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('scoped_runtime_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         $grantingRequest = $this->eidShapedRequest();
         $this->get(FrontendPlaceholderPolicyInterface::class)->allowIdentifier($identifier, $grantingRequest);
@@ -245,7 +248,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
         self::assertSame(self::SECRET_VALUE, $granted, 'The granting request resolves its own grant');
 
         $laterRequest = $this->eidShapedRequest();
-        $later = $this->inWebContext(fn (): string => $this->renderText(
+        $later        = $this->inWebContext(fn (): string => $this->renderText(
             ['field' => 'bodytext'],
             $laterRequest,
             ['bodytext' => $placeholder],
@@ -269,8 +272,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function grantAndLogSlotDoNotReachTheNextRequestWhileTheGlobalRequestIsStale(): void
     {
-        $identifier = $this->storeSecret('stale_global_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('stale_global_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         // R1 ended; its request object survives in the global.
         $GLOBALS['TYPO3_REQUEST'] = $this->frontendRequest();
@@ -319,8 +322,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function frontendRequestWithoutTypoScriptOrSiteResolvesNothing(): void
     {
-        $identifier = $this->storeSecret('eid_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier      = $this->storeSecret('eid_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder     = sprintf('%%vault(%s)%%', $identifier);
         $auditRowsBefore = $this->countAuditRows($identifier);
 
         unset($GLOBALS['TYPO3_REQUEST']);
@@ -345,11 +348,11 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function documentedCacheDisableSnippetStillResolves(): void
     {
-        $identifier = $this->storeSecret('documented_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('documented_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         $conf = [
-            'value' => $placeholder,
+            'value'    => $placeholder,
             'stdWrap.' => ['cache.' => ['disable' => '1']],
         ];
 
@@ -372,8 +375,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function bareValueOnlySnippetNeverReachedStdWrapAndStaysLiteral(): void
     {
-        $identifier = $this->storeSecret('bare_value_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('bare_value_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         $request = $this->frontendRequest(['lib.' => ['x.' => ['value' => $placeholder]]]);
 
@@ -388,8 +391,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function backendTypedRequestResolvesAsBefore(): void
     {
-        $identifier = $this->storeSecret('backend_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('backend_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         $request = $this->webRequest('https://example.com/typo3/', self::APPLICATION_BACKEND);
 
@@ -414,8 +417,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function cliContextEnforcesTheAllowSet(): void
     {
-        $identifier = $this->storeSecret('cli_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier      = $this->storeSecret('cli_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder     = sprintf('%%vault(%s)%%', $identifier);
         $auditRowsBefore = $this->countAuditRows($identifier);
 
         // No inWebContext() wrapper: Environment::isCli() is true under PHPUnit.
@@ -432,8 +435,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function cliContextResolvesAPublishedIdentifier(): void
     {
-        $identifier = $this->storeSecret('cli_published_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('cli_published_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         $output = $this->renderText(
             ['field' => 'bodytext'],
@@ -457,8 +460,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function legacyCliOptInRestoresResolutionOnTheCli(): void
     {
-        $identifier = $this->storeSecret('cli_optin_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('cli_optin_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         $this->pinLegacyCli(true);
 
@@ -482,8 +485,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function legacyCliOptInDoesNotReopenTheFrontendRequest(): void
     {
-        $identifier = $this->storeSecret('optin_frontend_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('optin_frontend_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         $this->pinLegacyCli(true);
 
@@ -510,8 +513,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function identifierPublishedInTypoScriptSetupResolves(): void
     {
-        $identifier = $this->storeSecret('setup_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('setup_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         $request = $this->frontendRequest(['page.' => ['10.' => ['value' => $placeholder]]]);
 
@@ -530,13 +533,13 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function identifierPublishedInSiteConfigurationResolves(): void
     {
-        $identifier = $this->storeSecret('site_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('site_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         $site = new Site('acme', 1, [
-            'base' => 'https://example.com/',
+            'base'       => 'https://example.com/',
             'rootPageId' => 1,
-            'settings' => ['payment' => ['stripeSecretKey' => $placeholder]],
+            'settings'   => ['payment' => ['stripeSecretKey' => $placeholder]],
         ]);
         $request = $this->frontendRequest()->withAttribute('site', $site);
 
@@ -555,8 +558,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function identifierPublishedInOptInListResolves(): void
     {
-        $identifier = $this->storeSecret('optin_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('optin_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         $request = $this->frontendRequest([
             'plugin.' => [
@@ -579,8 +582,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function identifierPublishedViaAllowIdentifierResolves(): void
     {
-        $identifier = $this->storeSecret('runtime_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('runtime_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         // No frontend.typoscript and no site — the eID shape, where A4 is the
         // only available source.
@@ -603,12 +606,12 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     #[Test]
     public function unavailableSetupArrayFailsClosedWithoutThrowing(): void
     {
-        $identifier = $this->storeSecret('unavailable_key_', self::FRONTEND_ACCESSIBLE);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
+        $identifier  = $this->storeSecret('unavailable_key_', self::FRONTEND_ACCESSIBLE);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
 
         // getSetupArray() throws 1666513645 when setSetupArray() was never called.
         $frontendTypoScript = $this->frontendTypoScript(null);
-        $request = $this->webRequest('https://example.com/', self::APPLICATION_FRONTEND)
+        $request            = $this->webRequest('https://example.com/', self::APPLICATION_FRONTEND)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         unset($GLOBALS['TYPO3_REQUEST']);
 
@@ -689,9 +692,9 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
         /** @var array<string, mixed> $configuration */
         $configuration = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
         /** @var array<string, mixed> $system */
-        $system = \is_array($configuration['SYS'] ?? null) ? $configuration['SYS'] : [];
+        $system = is_array($configuration['SYS'] ?? null) ? $configuration['SYS'] : [];
         /** @var array<string, mixed> $nrVault */
-        $nrVault = \is_array($system['nrVault'] ?? null) ? $system['nrVault'] : [];
+        $nrVault = is_array($system['nrVault'] ?? null) ? $system['nrVault'] : [];
 
         if ($enabled === null) {
             unset($nrVault['frontendPlaceholderLegacyCli']);
@@ -699,8 +702,8 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
             $nrVault['frontendPlaceholderLegacyCli'] = $enabled;
         }
 
-        $system['nrVault'] = $nrVault;
-        $configuration['SYS'] = $system;
+        $system['nrVault']          = $nrVault;
+        $configuration['SYS']       = $system;
         $GLOBALS['TYPO3_CONF_VARS'] = $configuration;
     }
 
@@ -719,7 +722,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
     /**
      * Render a TEXT content object through the real ContentObjectRenderer.
      *
-     * @param array<mixed> $conf
+     * @param array<mixed>         $conf
      * @param array<string, mixed> $data
      */
     private function renderText(array $conf, ServerRequestInterface $request, array $data = []): string

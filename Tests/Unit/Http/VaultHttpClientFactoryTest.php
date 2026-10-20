@@ -53,11 +53,11 @@ final class VaultHttpClientFactoryTest extends TestCase
 
         // No allowed-hosts / proxy configuration: the factory must build a
         // working client from the platform defaults alone.
-        $this->originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $this->originalGlobals      = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['HTTP' => []];
 
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
+        $this->vaultService    = $this->createMock(VaultServiceInterface::class);
 
         // A resolver double keeps the seam free of real DNS traffic even if a
         // future change resolves eagerly instead of at request time.
@@ -105,7 +105,7 @@ final class VaultHttpClientFactoryTest extends TestCase
     {
         $otherVaultService = $this->createMock(VaultServiceInterface::class);
 
-        $first = $this->subject->create($this->vaultService);
+        $first  = $this->subject->create($this->vaultService);
         $second = $this->subject->create($otherVaultService);
 
         self::assertSame($this->vaultService, $this->readProperty($first, 'vaultService'));

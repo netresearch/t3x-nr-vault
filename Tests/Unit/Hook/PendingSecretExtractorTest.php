@@ -64,7 +64,7 @@ final class PendingSecretExtractorTest extends TestCase
     #[Test]
     public function everyNewSecretGetsItsOwnIdentifier(): void
     {
-        $first = $this->subject->extract($this->fakeSecret());
+        $first  = $this->subject->extract($this->fakeSecret());
         $second = $this->subject->extract($this->fakeSecret());
 
         self::assertInstanceOf(PendingSecret::class, $first);
@@ -87,9 +87,9 @@ final class PendingSecretExtractorTest extends TestCase
         $plaintext = $this->fakeSecret();
 
         $pending = $this->subject->extract([
-            'value' => $plaintext,
+            'value'             => $plaintext,
             '_vault_identifier' => self::EXISTING_UUID,
-            '_vault_checksum' => self::EXISTING_CHECKSUM,
+            '_vault_checksum'   => self::EXISTING_CHECKSUM,
         ]);
 
         self::assertInstanceOf(PendingSecret::class, $pending);
@@ -108,9 +108,9 @@ final class PendingSecretExtractorTest extends TestCase
     public function valueWithIdentifierButBlankedChecksumStoresUnderAFreshIdentifier(): void
     {
         $pending = $this->subject->extract([
-            'value' => $this->fakeSecret(),
+            'value'             => $this->fakeSecret(),
             '_vault_identifier' => self::EXISTING_UUID,
-            '_vault_checksum' => '',
+            '_vault_checksum'   => '',
         ]);
 
         self::assertInstanceOf(PendingSecret::class, $pending);
@@ -129,9 +129,9 @@ final class PendingSecretExtractorTest extends TestCase
     public function untouchedResaveKeepsTheStoredSecret(): void
     {
         $pending = $this->subject->extract([
-            'value' => '',
+            'value'             => '',
             '_vault_identifier' => self::EXISTING_UUID,
-            '_vault_checksum' => self::EXISTING_CHECKSUM,
+            '_vault_checksum'   => self::EXISTING_CHECKSUM,
         ]);
 
         self::assertNull($pending, 'An untouched re-save must not produce any vault operation');
@@ -146,9 +146,9 @@ final class PendingSecretExtractorTest extends TestCase
     public function clearedFieldRequestsDeletionOfTheStoredSecret(): void
     {
         $pending = $this->subject->extract([
-            'value' => '',
+            'value'             => '',
             '_vault_identifier' => self::EXISTING_UUID,
-            '_vault_checksum' => '',
+            '_vault_checksum'   => '',
         ]);
 
         self::assertInstanceOf(PendingSecret::class, $pending);
@@ -163,9 +163,9 @@ final class PendingSecretExtractorTest extends TestCase
     {
         self::assertNull($this->subject->extract(''));
         self::assertNull($this->subject->extract([
-            'value' => '',
+            'value'             => '',
             '_vault_identifier' => '',
-            '_vault_checksum' => '',
+            '_vault_checksum'   => '',
         ]));
     }
 
@@ -274,9 +274,9 @@ final class PendingSecretExtractorTest extends TestCase
     public function nonStringIdentifierOrChecksumIsIgnored(mixed $identifier, mixed $checksum): void
     {
         $pending = $this->subject->extract([
-            'value' => $this->fakeSecret(),
+            'value'             => $this->fakeSecret(),
             '_vault_identifier' => $identifier,
-            '_vault_checksum' => $checksum,
+            '_vault_checksum'   => $checksum,
         ]);
 
         self::assertInstanceOf(PendingSecret::class, $pending);
@@ -305,9 +305,9 @@ final class PendingSecretExtractorTest extends TestCase
     public function emptySubmissionWithUnusableIdentifierDeletesNothing(): void
     {
         self::assertNull($this->subject->extract([
-            'value' => '',
+            'value'             => '',
             '_vault_identifier' => 42,
-            '_vault_checksum' => '',
+            '_vault_checksum'   => '',
         ]));
     }
 

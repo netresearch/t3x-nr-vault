@@ -24,6 +24,8 @@ use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Package\PackageManager;
 
+use function chr;
+
 /**
  * Fuzz tests for SecretDetectionService internal classification logic.
  *
@@ -56,8 +58,8 @@ final class SecretDetectionFuzzTest extends TestCase
     {
         parent::setUp();
 
-        $this->connectionPool = $this->createStub(ConnectionPool::class);
-        $this->packageManager = $this->createStub(PackageManager::class);
+        $this->connectionPool         = $this->createStub(ConnectionPool::class);
+        $this->packageManager         = $this->createStub(PackageManager::class);
         $this->extensionConfiguration = $this->createStub(ExtensionConfiguration::class);
 
         // No active packages — extension config scan is a no-op
@@ -98,12 +100,12 @@ final class SecretDetectionFuzzTest extends TestCase
         return [
             'stripe live key' => [$make('sk', '_live_aAbBcCdDeEfFgGhHiIjJkKlL'), $smtp],
             'stripe test key' => [$make('sk', '_test_aAbBcCdDeEfFgGhHiIjJkKlL'), $smtp],
-            'aws access key' => [$make('AKI', 'AIOSFODNN7EXAMPLE'), $smtp],
-            'github pat' => [$make('gh', 'p_aBcDeFgHiJkLmNoPqRsTuVwXyZ1234567890'), $smtp],
-            'sendgrid key' => [$make('S', 'G.aaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'), $smtp],
+            'aws access key'  => [$make('AKI', 'AIOSFODNN7EXAMPLE'), $smtp],
+            'github pat'      => [$make('gh', 'p_aBcDeFgHiJkLmNoPqRsTuVwXyZ1234567890'), $smtp],
+            'sendgrid key'    => [$make('S', 'G.aaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'), $smtp],
             'slack bot token' => [$make('xox', 'b-1234567890-1234567890123-aBcDeFgHiJkLmNoPqRsTuVwX'), $smtp],
-            'google api key' => [$make('AI', 'zaSyBo-aBcDeFgHiJkLmNoPqRsTuVwXyZ1234'), $smtp],
-            'jwt token' => [$make('eyJhbGciOiJSUzI1NiJ9', '.eyJzdWIiOiJ1c2VyIn0.abc123'), $smtp],
+            'google api key'  => [$make('AI', 'zaSyBo-aBcDeFgHiJkLmNoPqRsTuVwXyZ1234'), $smtp],
+            'jwt token'       => [$make('eyJhbGciOiJSUzI1NiJ9', '.eyJzdWIiOiJ1c2VyIn0.abc123'), $smtp],
         ];
     }
 
@@ -116,10 +118,10 @@ final class SecretDetectionFuzzTest extends TestCase
     public static function nonSecretLookalikeProvider(): array
     {
         return [
-            'lorem ipsum' => ['Lorem ipsum dolor sit amet'],
-            'short random' => ['abc123'],
-            'plain url' => ['https://example.com'],
-            'json fragment' => ['{"foo":"bar"}'],
+            'lorem ipsum'         => ['Lorem ipsum dolor sit amet'],
+            'short random'        => ['abc123'],
+            'plain url'           => ['https://example.com'],
+            'json fragment'       => ['{"foo":"bar"}'],
             'typoscript fragment' => ['page.10.value = hello'],
             // Long base64 that looks encrypted — service marks it as "looks encrypted", not a finding
             'long base64' => [base64_encode(random_bytes(100))],
@@ -143,24 +145,24 @@ final class SecretDetectionFuzzTest extends TestCase
         mt_srand($seed);
 
         $cases = [
-            'empty MAIL' => [['MAIL' => [], 'SYS' => []]],
-            'null MAIL' => [['MAIL' => null, 'SYS' => null]],
-            'missing entirely' => [[]],
-            'nested arrays' => [['MAIL' => ['transport_smtp_password' => ['nested' => 'value']], 'SYS' => []]],
-            'integer smtp password' => [['MAIL' => ['transport_smtp_password' => 42], 'SYS' => []]],
-            'empty smtp password' => [['MAIL' => ['transport_smtp_password' => ''], 'SYS' => []]],
-            'short encryption key' => [['MAIL' => [], 'SYS' => ['encryptionKey' => 'short']]],
+            'empty MAIL'              => [['MAIL' => [], 'SYS' => []]],
+            'null MAIL'               => [['MAIL' => null, 'SYS' => null]],
+            'missing entirely'        => [[]],
+            'nested arrays'           => [['MAIL' => ['transport_smtp_password' => ['nested' => 'value']], 'SYS' => []]],
+            'integer smtp password'   => [['MAIL' => ['transport_smtp_password' => 42], 'SYS' => []]],
+            'empty smtp password'     => [['MAIL' => ['transport_smtp_password' => ''], 'SYS' => []]],
+            'short encryption key'    => [['MAIL' => [], 'SYS' => ['encryptionKey' => 'short']]],
             'adequate encryption key' => [['MAIL' => [], 'SYS' => ['encryptionKey' => str_repeat('x', 32)]]],
-            'null byte in value' => [['MAIL' => ['transport_smtp_password' => "abc\x00def"], 'SYS' => []]],
-            'very long value' => [['MAIL' => ['transport_smtp_password' => str_repeat('x', 10000)], 'SYS' => []]],
+            'null byte in value'      => [['MAIL' => ['transport_smtp_password' => "abc\x00def"], 'SYS' => []]],
+            'very long value'         => [['MAIL' => ['transport_smtp_password' => str_repeat('x', 10000)], 'SYS' => []]],
         ];
 
         // 20 random shapes
-        for ($i = 0; $i < 20; $i++) {
+        for ($i = 0; $i < 20; ++$i) {
             $value = '';
-            $len = mt_rand(0, 50);
-            for ($j = 0; $j < $len; $j++) {
-                $value .= \chr(mt_rand(32, 126)); // printable ASCII
+            $len   = mt_rand(0, 50);
+            for ($j = 0; $j < $len; ++$j) {
+                $value .= chr(mt_rand(32, 126)); // printable ASCII
             }
 
             $cases["random_smtp_{$i}"] = [['MAIL' => ['transport_smtp_password' => $value], 'SYS' => []]];
@@ -219,7 +221,7 @@ final class SecretDetectionFuzzTest extends TestCase
     {
         $GLOBALS['TYPO3_CONF_VARS'] = [
             'MAIL' => ['transport_smtp_password' => '01937b6e-4b6c-7abc-8def-0123456789ab'],
-            'SYS' => [],
+            'SYS'  => [],
         ];
 
         try {
@@ -241,7 +243,7 @@ final class SecretDetectionFuzzTest extends TestCase
     {
         $GLOBALS['TYPO3_CONF_VARS'] = [
             'MAIL' => [],
-            'SYS' => ['encryptionKey' => 'tooshort'],
+            'SYS'  => ['encryptionKey' => 'tooshort'],
         ];
 
         try {
@@ -281,7 +283,7 @@ final class SecretDetectionFuzzTest extends TestCase
         // The key assertion is: whatever the finding level, it MUST NOT be Critical.
         $GLOBALS['TYPO3_CONF_VARS'] = [
             'MAIL' => ['transport_smtp_password' => $value],
-            'SYS' => [],
+            'SYS'  => [],
         ];
 
         try {
@@ -301,14 +303,14 @@ final class SecretDetectionFuzzTest extends TestCase
     {
         $GLOBALS['TYPO3_CONF_VARS'] = [
             'MAIL' => ['transport_smtp_password' => 'some_plain_password_value'],
-            'SYS' => ['encryptionKey' => 'weak'],
+            'SYS'  => ['encryptionKey' => 'weak'],
         ];
 
         try {
             $this->service->scanLocalConfiguration();
 
-            $count = $this->service->getDetectedSecretsCount();
-            $grouped = $this->service->getDetectedSecretsBySeverity();
+            $count      = $this->service->getDetectedSecretsCount();
+            $grouped    = $this->service->getDetectedSecretsBySeverity();
             $groupTotal = array_sum(array_map(count(...), $grouped));
 
             self::assertSame($count, $groupTotal, 'Count must match sum of severity groups');
@@ -328,7 +330,7 @@ final class SecretDetectionFuzzTest extends TestCase
     public function knownSecretPatternTriggersCriticalSeverity(string $smtpPassword, string $expectedKey): void
     {
         $detectValuePattern = new ReflectionMethod($this->service, 'detectValuePattern');
-        $calculateSeverity = new ReflectionMethod($this->service, 'calculateSeverity');
+        $calculateSeverity  = new ReflectionMethod($this->service, 'calculateSeverity');
 
         $matchedName = $detectValuePattern->invoke($this->service, $smtpPassword);
 
@@ -363,7 +365,7 @@ final class SecretDetectionFuzzTest extends TestCase
     {
         $GLOBALS['TYPO3_CONF_VARS'] = [
             'MAIL' => ['transport_smtp_password' => $smtpPassword],
-            'SYS' => [],
+            'SYS'  => [],
         ];
 
         try {

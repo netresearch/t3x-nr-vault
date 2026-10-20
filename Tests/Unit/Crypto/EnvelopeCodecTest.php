@@ -22,6 +22,10 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+use function chr;
+use function ord;
+use function strlen;
+
 /**
  * The codec is exercised against the REAL {@see EncryptionService}, not a mock:
  * the point of these tests is that a sealed string survives a full
@@ -44,9 +48,9 @@ final class EnvelopeCodecTest extends TestCase
     {
         parent::setUp();
 
-        $this->masterKey = random_bytes(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES);
+        $this->masterKey         = random_bytes(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES);
         $this->encryptionService = $this->encryptionServiceFor($this->masterKey);
-        $this->subject = new EnvelopeCodec($this->encryptionService);
+        $this->subject           = new EnvelopeCodec($this->encryptionService);
     }
 
     #[Test]
@@ -104,7 +108,7 @@ final class EnvelopeCodecTest extends TestCase
 
         self::assertStringStartsWith(EnvelopeCodecInterface::MARKER, $sealed);
 
-        $body = base64_decode(substr($sealed, \strlen(EnvelopeCodecInterface::MARKER)), true);
+        $body = base64_decode(substr($sealed, strlen(EnvelopeCodecInterface::MARKER)), true);
         self::assertIsString($body);
 
         $decoded = json_decode($body, true, 8, JSON_THROW_ON_ERROR);
@@ -148,12 +152,12 @@ final class EnvelopeCodecTest extends TestCase
     #[Test]
     public function aTamperedCiphertextFailsAuthenticationInsteadOfDecrypting(): void
     {
-        $sealed = $this->subject->seal('payload', self::IDENTIFIER);
+        $sealed   = $this->subject->seal('payload', self::IDENTIFIER);
         $tampered = $this->rewriteEnvelope($sealed, static function (array $envelope): array {
             $raw = base64_decode($envelope['encrypted_value'], true);
             self::assertIsString($raw);
             // Flip one bit of the ciphertext.
-            $raw[0] = \chr(\ord($raw[0]) ^ 0x01);
+            $raw[0]                      = chr(ord($raw[0]) ^ 0x01);
             $envelope['encrypted_value'] = base64_encode($raw);
 
             return $envelope;
@@ -258,7 +262,7 @@ final class EnvelopeCodecTest extends TestCase
     public function rewrappingMovesAnEnvelopeToANewMasterKeyWithoutTouchingThePayload(): void
     {
         $newMasterKey = random_bytes(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES);
-        $sealed = $this->subject->seal('payload', self::IDENTIFIER);
+        $sealed       = $this->subject->seal('payload', self::IDENTIFIER);
 
         $rewrapped = $this->subject->rewrap($sealed, self::IDENTIFIER, $this->masterKey, $newMasterKey);
 
@@ -286,7 +290,7 @@ final class EnvelopeCodecTest extends TestCase
     public function aRewrappedEnvelopeNoLongerOpensUnderTheOldMasterKey(): void
     {
         $newMasterKey = random_bytes(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES);
-        $rewrapped = $this->subject->rewrap(
+        $rewrapped    = $this->subject->rewrap(
             $this->subject->seal('payload', self::IDENTIFIER),
             self::IDENTIFIER,
             $this->masterKey,
@@ -326,13 +330,13 @@ final class EnvelopeCodecTest extends TestCase
     #[Test]
     public function rewrappingIsRepeatableAcrossSuccessiveRotations(): void
     {
-        $keyTwo = random_bytes(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES);
+        $keyTwo   = random_bytes(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES);
         $keyThree = random_bytes(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES);
 
-        $sealed = $this->subject->seal('payload', self::IDENTIFIER);
+        $sealed     = $this->subject->seal('payload', self::IDENTIFIER);
         $afterFirst = $this->subject->rewrap($sealed, self::IDENTIFIER, $this->masterKey, $keyTwo);
 
-        $codecTwo = new EnvelopeCodec($this->encryptionServiceFor($keyTwo));
+        $codecTwo    = new EnvelopeCodec($this->encryptionServiceFor($keyTwo));
         $afterSecond = $codecTwo->rewrap($afterFirst, self::IDENTIFIER, $keyTwo, $keyThree);
 
         $codecThree = new EnvelopeCodec($this->encryptionServiceFor($keyThree));
@@ -355,7 +359,7 @@ final class EnvelopeCodecTest extends TestCase
             $this->subject->seal('payload', self::IDENTIFIER),
             static function (array $envelope): array {
                 $envelope['a_field_from_the_future'] = 'must survive';
-                $envelope['another_one'] = 42;
+                $envelope['another_one']             = 42;
 
                 return $envelope;
             },
@@ -365,7 +369,7 @@ final class EnvelopeCodecTest extends TestCase
 
         self::assertSame('must survive', $this->envelopeField($rewrapped, 'a_field_from_the_future'));
 
-        $body = base64_decode(substr($rewrapped, \strlen(EnvelopeCodecInterface::MARKER)), true);
+        $body = base64_decode(substr($rewrapped, strlen(EnvelopeCodecInterface::MARKER)), true);
         self::assertIsString($body);
         $decoded = json_decode($body, true, 8, JSON_THROW_ON_ERROR);
         self::assertIsArray($decoded);
@@ -397,7 +401,7 @@ final class EnvelopeCodecTest extends TestCase
 
         $rewrapped = $this->subject->rewrap($sealed, self::IDENTIFIER, $this->masterKey, $newMasterKey);
 
-        $body = base64_decode(substr($rewrapped, \strlen(EnvelopeCodecInterface::MARKER)), true);
+        $body = base64_decode(substr($rewrapped, strlen(EnvelopeCodecInterface::MARKER)), true);
         self::assertIsString($body);
         $decoded = json_decode($body, true, 8, JSON_THROW_ON_ERROR);
         self::assertIsArray($decoded);
@@ -422,7 +426,7 @@ final class EnvelopeCodecTest extends TestCase
      */
     private function rewriteEnvelope(string $sealed, callable $mutate): string
     {
-        $body = base64_decode(substr($sealed, \strlen(EnvelopeCodecInterface::MARKER)), true);
+        $body = base64_decode(substr($sealed, strlen(EnvelopeCodecInterface::MARKER)), true);
         self::assertIsString($body);
 
         $envelope = json_decode($body, true, 8, JSON_THROW_ON_ERROR);
@@ -436,7 +440,7 @@ final class EnvelopeCodecTest extends TestCase
 
     private function envelopeField(string $sealed, string $field): string
     {
-        $body = base64_decode(substr($sealed, \strlen(EnvelopeCodecInterface::MARKER)), true);
+        $body = base64_decode(substr($sealed, strlen(EnvelopeCodecInterface::MARKER)), true);
         self::assertIsString($body);
 
         $envelope = json_decode($body, true, 8, JSON_THROW_ON_ERROR);

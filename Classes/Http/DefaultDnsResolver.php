@@ -9,6 +9,9 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Http;
 
+use function is_array;
+use function is_string;
+
 /**
  * Production DNS resolver — delegates to PHP's `dns_get_record()` with
  * the `A | AAAA` filter so the SSRF defence sees both v4 and v6 records.
@@ -37,20 +40,20 @@ final class DefaultDnsResolver implements DnsResolverInterface
             restore_error_handler();
         }
 
-        if (!\is_array($records) || $records === []) {
+        if (!is_array($records) || $records === []) {
             return [];
         }
 
         $out = [];
         foreach ($records as $record) {
-            $ip = $record['ip'] ?? null;
-            $ipv6 = $record['ipv6'] ?? null;
+            $ip    = $record['ip'] ?? null;
+            $ipv6  = $record['ipv6'] ?? null;
             $entry = [];
-            if (\is_string($ip)) {
+            if (is_string($ip)) {
                 $entry['ip'] = $ip;
             }
 
-            if (\is_string($ipv6)) {
+            if (is_string($ipv6)) {
                 $entry['ipv6'] = $ipv6;
             }
 

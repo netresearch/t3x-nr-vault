@@ -1,9 +1,10 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Hook;
@@ -35,6 +36,9 @@ use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
+use function array_slice;
+use function count;
+
 #[CoversClass(FlexFormVaultHook::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class FlexFormDeletePreflightTest extends TestCase
@@ -61,15 +65,15 @@ final class FlexFormDeletePreflightTest extends TestCase
     {
         parent::setUp();
         $this->tcaSchemaFactory = $this->createMock(TcaSchemaFactory::class);
-        $this->connectionPool = $this->createMock(ConnectionPool::class);
-        $this->vault = $this->createMock(VaultServiceInterface::class);
-        $this->dataHandler = $this->createMock(DataHandler::class);
+        $this->connectionPool   = $this->createMock(ConnectionPool::class);
+        $this->vault            = $this->createMock(VaultServiceInterface::class);
+        $this->dataHandler      = $this->createMock(DataHandler::class);
         $this->mockTcaSchemaForTable(
             self::TABLE,
             ['flex_a' => ['type' => 'flex'], 'flex_b' => ['type' => 'flex']],
         );
         $GLOBALS['TCA'][self::TABLE]['ctrl'] = [];
-        $this->subject = $this->createSubject(self::createStub(LoggerInterface::class));
+        $this->subject                       = $this->createSubject(self::createStub(LoggerInterface::class));
     }
 
     protected function tearDown(): void
@@ -98,7 +102,7 @@ final class FlexFormDeletePreflightTest extends TestCase
                 },
             );
         $cancelled = false;
-        $caught = $this->runDelete(
+        $caught    = $this->runDelete(
             [
                 'flex_a' => self::FIRST . ' ' . self::SECOND . ' ' . self::FIRST,
                 'flex_b' => self::FIRST . ' ' . self::THIRD,
@@ -131,10 +135,10 @@ final class FlexFormDeletePreflightTest extends TestCase
         string $throwableClass,
         int $failureIndex,
     ): void {
-        $failure = new $throwableClass('synthetic private failure cause');
+        $failure   = new $throwableClass('synthetic private failure cause');
         $remaining = [self::FIRST, self::SECOND, self::THIRD];
-        $calls = ['exists' => [], 'preflight' => [], 'delete' => []];
-        $messages = [];
+        $calls     = ['exists' => [], 'preflight' => [], 'delete' => []];
+        $messages  = [];
         $this->vault
             ->method('exists')
             ->willReturnCallback(
@@ -142,7 +146,7 @@ final class FlexFormDeletePreflightTest extends TestCase
                     string $id,
                 ) use ($stage, $failureIndex, $failure, &$calls): bool {
                     $calls['exists'][] = $id;
-                    if ($stage === 'exists' && \count($calls['exists']) === $failureIndex) {
+                    if ($stage === 'exists' && count($calls['exists']) === $failureIndex) {
                         throw $failure;
                     }
 
@@ -156,7 +160,7 @@ final class FlexFormDeletePreflightTest extends TestCase
                     string $id,
                 ) use ($stage, $failureIndex, $failure, &$calls): void {
                     $calls['preflight'][] = $id;
-                    if ($stage === 'preflight' && \count($calls['preflight']) === $failureIndex) {
+                    if ($stage === 'preflight' && count($calls['preflight']) === $failureIndex) {
                         throw $failure;
                     }
                 },
@@ -168,7 +172,7 @@ final class FlexFormDeletePreflightTest extends TestCase
                     string $id,
                 ) use ($stage, $failureIndex, $failure, &$calls, &$remaining): void {
                     $calls['delete'][] = $id;
-                    if ($stage === 'delete' && \count($calls['delete']) === $failureIndex) {
+                    if ($stage === 'delete' && count($calls['delete']) === $failureIndex) {
                         throw $failure;
                     }
 
@@ -190,7 +194,7 @@ final class FlexFormDeletePreflightTest extends TestCase
                 },
             );
         $cancelled = false;
-        $caught = $this->runDelete(
+        $caught    = $this->runDelete(
             [
                 'flex_a' => self::FIRST . ' ' . self::SECOND,
                 'flex_b' => self::THIRD,
@@ -200,7 +204,7 @@ final class FlexFormDeletePreflightTest extends TestCase
         self::assertNull($caught);
         self::assertTrue($cancelled);
         self::assertSame(
-            $stage === 'delete' ? \array_slice(
+            $stage === 'delete' ? array_slice(
                 [self::FIRST, self::SECOND, self::THIRD],
                 0,
                 $failureIndex,
@@ -208,7 +212,7 @@ final class FlexFormDeletePreflightTest extends TestCase
             $calls['delete'],
         );
         self::assertSame(
-            $stage === 'delete' ? \array_slice(
+            $stage === 'delete' ? array_slice(
                 [self::FIRST, self::SECOND, self::THIRD],
                 $failureIndex - 1,
             ) : [self::FIRST, self::SECOND, self::THIRD],
@@ -251,8 +255,8 @@ final class FlexFormDeletePreflightTest extends TestCase
     public function postPersistenceFailureIncludesTheCurrentDeleteInTheResidual(): void
     {
         $remaining = [self::FIRST, self::SECOND];
-        $deletes = [];
-        $messages = [];
+        $deletes   = [];
+        $messages  = [];
         $this->vault->method('exists')->willReturn(true);
         $this->vault
             ->method('delete')
@@ -281,7 +285,7 @@ final class FlexFormDeletePreflightTest extends TestCase
                 },
             );
         $cancelled = false;
-        $caught = $this->runDelete(
+        $caught    = $this->runDelete(
             ['flex_a' => self::FIRST . ' ' . self::SECOND],
             $cancelled,
         );
@@ -303,7 +307,7 @@ final class FlexFormDeletePreflightTest extends TestCase
         string $diagnosticStage,
     ): void {
         $diagnosticFailure = new Error('synthetic diagnostic failure');
-        $logger = self::createMock(LoggerInterface::class);
+        $logger            = self::createMock(LoggerInterface::class);
         if ($diagnosticStage === 'reporter') {
             $logger->method('error')->willThrowException($diagnosticFailure);
         } else {
@@ -313,7 +317,7 @@ final class FlexFormDeletePreflightTest extends TestCase
         }
 
         $this->subject = $this->createSubject($logger);
-        $deletes = [];
+        $deletes       = [];
         $this->vault->method('exists')->willReturn(true);
         $this->vault
             ->method('assertDeletable')
@@ -326,7 +330,7 @@ final class FlexFormDeletePreflightTest extends TestCase
                 },
             );
         $cancelled = false;
-        $caught = $this->runDelete(['flex_a' => self::FIRST], $cancelled);
+        $caught    = $this->runDelete(['flex_a' => self::FIRST], $cancelled);
         if ($diagnosticStage === 'reporter') {
             // VaultFailureReporter swallows its own logger failure.
             self::assertNull($caught);
@@ -453,7 +457,7 @@ final class FlexFormDeletePreflightTest extends TestCase
             ->willReturn($query);
         $this->vault->method('exists')->willReturn(true);
         $preflights = [];
-        $deletes = [];
+        $deletes    = [];
         $this->vault
             ->method('assertDeletable')
             ->willReturnCallback(
@@ -532,7 +536,7 @@ final class FlexFormDeletePreflightTest extends TestCase
                 },
             );
         $cancelled = false;
-        $caught = $this->runDelete(
+        $caught    = $this->runDelete(
             ['flex_a' => self::FIRST, 'flex_b' => self::SECOND],
             $cancelled,
         );
@@ -566,7 +570,7 @@ final class FlexFormDeletePreflightTest extends TestCase
             ->willReturnCallback(static fn (string $id): bool => $id === self::FIRST);
         $this->vault->method('getMetadata')->willThrowException($failure);
         $preflights = [];
-        $deletes = [];
+        $deletes    = [];
         $this->vault
             ->method('assertDeletable')
             ->willReturnCallback(
@@ -582,7 +586,7 @@ final class FlexFormDeletePreflightTest extends TestCase
                 },
             );
         $cancelled = false;
-        $caught = $this->runDelete(
+        $caught    = $this->runDelete(
             ['flex_a' => self::FIRST, 'flex_b' => self::SECOND],
             $cancelled,
         );

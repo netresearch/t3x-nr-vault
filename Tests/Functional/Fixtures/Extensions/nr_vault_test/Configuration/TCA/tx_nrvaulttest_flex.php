@@ -41,31 +41,31 @@ $dataStructure = '<T3DataStructure>
 
 return [
     'ctrl' => [
-        'title' => 'Vault test FlexForm record',
-        'label' => 'title',
-        'crdate' => 'crdate',
-        'tstamp' => 'tstamp',
-        'sortby' => 'sorting',
-        'languageField' => 'sys_language_uid',
+        'title'                 => 'Vault test FlexForm record',
+        'label'                 => 'title',
+        'crdate'                => 'crdate',
+        'tstamp'                => 'tstamp',
+        'sortby'                => 'sorting',
+        'languageField'         => 'sys_language_uid',
         'transOrigPointerField' => 'l10n_parent',
-        'translationSource' => 'l10n_source',
-        'rootLevel' => -1,
+        'translationSource'     => 'l10n_source',
+        'rootLevel'             => -1,
     ],
     'columns' => [
         'sys_language_uid' => [
-            'label' => 'Language',
+            'label'  => 'Language',
             'config' => [
                 'type' => 'language',
             ],
         ],
         'l10n_parent' => [
-            'label' => 'Translation parent',
+            'label'  => 'Translation parent',
             'config' => [
-                'type' => 'select',
-                'renderType' => 'selectSingle',
-                'default' => 0,
-                'items' => [['label' => '', 'value' => 0]],
-                'foreign_table' => 'tx_nrvaulttest_flex',
+                'type'                => 'select',
+                'renderType'          => 'selectSingle',
+                'default'             => 0,
+                'items'               => [['label' => '', 'value' => 0]],
+                'foreign_table'       => 'tx_nrvaulttest_flex',
                 'foreign_table_where' => 'AND {#tx_nrvaulttest_flex}.{#sys_language_uid} IN (-1,0)',
             ],
         ],
@@ -75,7 +75,7 @@ return [
             ],
         ],
         'title' => [
-            'label' => 'Title',
+            'label'  => 'Title',
             'config' => [
                 'type' => 'input',
             ],
@@ -86,7 +86,7 @@ return [
             // every translation keeps the default record's XML — vault
             // identifiers included.
             'l10n_mode' => 'exclude',
-            'config' => [
+            'config'    => [
                 'type' => 'flex',
                 // v14 resolves a single data structure string per field, v13.4
                 // requires the `ds` array with a `default` key.
@@ -96,11 +96,11 @@ return [
             ],
         ],
         'settings_extra' => [
-            'label' => 'Second settings column for identity-wide sharing probes',
+            'label'     => 'Second settings column for identity-wide sharing probes',
             'l10n_mode' => 'exclude',
-            'config' => [
+            'config'    => [
                 'type' => 'flex',
-                'ds' => (new Typo3Version())->getMajorVersion() >= 14 ? $dataStructure : ['default' => $dataStructure],
+                'ds'   => (new Typo3Version())->getMajorVersion() >= 14 ? $dataStructure : ['default' => $dataStructure],
             ],
         ],
     ],

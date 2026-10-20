@@ -24,6 +24,8 @@ use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function assert;
+
 /**
  * Backend module controller for vault overview/dashboard.
  */
@@ -85,16 +87,16 @@ final readonly class OverviewController
         $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
         // Get statistics for the overview
-        $stats = $this->getVaultStatistics();
+        $stats        = $this->getVaultStatistics();
         $healthChecks = $this->getHealthChecks();
 
         $lang = $this->getLanguageService();
 
         $moduleTemplate->assignMultiple([
-            'stats' => $stats,
+            'stats'        => $stats,
             'healthChecks' => $healthChecks,
-            'submodules' => $this->getAccessibleSubmodules($lang),
-            'breakGlass' => $this->breakGlassBanner->forView(),
+            'submodules'   => $this->getAccessibleSubmodules($lang),
+            'breakGlass'   => $this->breakGlassBanner->forView(),
             // Readiness controls with the profile badge and pass ratio. The
             // detailed finding list inside is gated on VaultConfigure by the
             // provider, not by the template.
@@ -151,32 +153,32 @@ final readonly class OverviewController
 
         $candidates = [
             [
-                'route' => 'admin_vault_secrets',
-                'icon' => 'module-vault-secrets',
-                'title' => $lang->sL($llPrefix . 'secrets.title'),
+                'route'       => 'admin_vault_secrets',
+                'icon'        => 'module-vault-secrets',
+                'title'       => $lang->sL($llPrefix . 'secrets.title'),
                 'description' => $lang->sL($llPrefix . 'overview.secrets.description'),
                 // SecretsController::listAction() admits any secret-handling
                 // permission.
                 'permissions' => VaultPermission::secretOperations(),
             ],
             [
-                'route' => 'admin_vault_analytics',
-                'icon' => 'module-vault-analytics',
-                'title' => $lang->sL($llPrefix . 'analytics.title'),
+                'route'       => 'admin_vault_analytics',
+                'icon'        => 'module-vault-analytics',
+                'title'       => $lang->sL($llPrefix . 'analytics.title'),
                 'description' => $lang->sL($llPrefix . 'overview.analytics.description'),
                 'permissions' => [VaultPermission::AuditView],
             ],
             [
-                'route' => 'admin_vault_audit',
-                'icon' => 'module-vault-audit',
-                'title' => $lang->sL($llPrefix . 'audit.title'),
+                'route'       => 'admin_vault_audit',
+                'icon'        => 'module-vault-audit',
+                'title'       => $lang->sL($llPrefix . 'audit.title'),
                 'description' => $lang->sL($llPrefix . 'overview.audit.description'),
                 'permissions' => [VaultPermission::AuditView],
             ],
             [
-                'route' => 'admin_vault_migration',
-                'icon' => 'module-vault-migration',
-                'title' => $lang->sL($llPrefix . 'migration.title'),
+                'route'       => 'admin_vault_migration',
+                'icon'        => 'module-vault-migration',
+                'title'       => $lang->sL($llPrefix . 'migration.title'),
                 'description' => $lang->sL($llPrefix . 'overview.migration.description'),
                 'permissions' => [VaultPermission::VaultConfigure],
             ],
@@ -202,9 +204,9 @@ final readonly class OverviewController
         ModuleTemplate $moduleTemplate,
         string $activeTab,
     ): void {
-        $lang = $this->getLanguageService();
+        $lang         = $this->getLanguageService();
         $menuRegistry = $moduleTemplate->getDocHeaderComponent()->getMenuRegistry();
-        $menu = $menuRegistry->makeMenu();
+        $menu         = $menuRegistry->makeMenu();
         $menu->setIdentifier('VaultOverviewMenu');
 
         // Menu::makeMenuItem() is deprecated in 14.3; core names
@@ -264,14 +266,14 @@ final readonly class OverviewController
             $activeSecrets = is_numeric($activeResult) ? (int) $activeResult : 0;
 
             return [
-                'totalSecrets' => $totalSecrets,
-                'activeSecrets' => $activeSecrets,
+                'totalSecrets'    => $totalSecrets,
+                'activeSecrets'   => $activeSecrets,
                 'disabledSecrets' => $totalSecrets - $activeSecrets,
             ];
         } catch (Exception) {
             return [
-                'totalSecrets' => 0,
-                'activeSecrets' => 0,
+                'totalSecrets'    => 0,
+                'activeSecrets'   => 0,
                 'disabledSecrets' => 0,
             ];
         }
@@ -294,15 +296,15 @@ final readonly class OverviewController
 
         return [
             'masterKeyAvailable' => $status->masterKeyAvailable,
-            'masterKeyProvider' => $status->masterKeyProvider,
-            'encryptionWorking' => $status->encryptionWorking,
-            'hasIssues' => $status->hasIssues,
+            'masterKeyProvider'  => $status->masterKeyProvider,
+            'encryptionWorking'  => $status->encryptionWorking,
+            'hasIssues'          => $status->hasIssues,
         ];
     }
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
+        assert($GLOBALS['LANG'] instanceof LanguageService);
 
         return $GLOBALS['LANG'];
     }

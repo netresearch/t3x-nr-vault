@@ -28,6 +28,9 @@ use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface;
 
+use function is_string;
+use function sprintf;
+
 /**
  * Unit coverage for the anchor store's decision rules — the parts that decide
  * whether the anchor may move, and what a stored value is allowed to be.
@@ -59,8 +62,8 @@ final class AuditChainAnchorStoreTest extends TestCase
     {
         parent::setUp();
 
-        $this->connection = $this->createMock(Connection::class);
-        $this->restrictions = $this->createMock(QueryRestrictionContainerInterface::class);
+        $this->connection     = $this->createMock(Connection::class);
+        $this->restrictions   = $this->createMock(QueryRestrictionContainerInterface::class);
         $this->connectionPool = self::createStub(ConnectionPool::class);
         $this->connectionPool->method('getConnectionForTable')->willReturn($this->connection);
         $this->extensionConfiguration = self::createStub(ExtensionConfigurationInterface::class);
@@ -79,7 +82,7 @@ final class AuditChainAnchorStoreTest extends TestCase
                 'sys_registry',
                 self::callback(static fn (array $data): bool => $data['entry_namespace'] === 'tx_nrvault_audit_anchor'
                     && $data['entry_key'] === 'auditChainTip'
-                    && \is_string($data['entry_value'])
+                    && is_string($data['entry_value'])
                     && str_starts_with($data['entry_value'], 'nrvault-audit-tip.v1|7|' . self::HASH_A . '|')),
                 ['entry_value' => Connection::PARAM_LOB],
             );
@@ -101,7 +104,7 @@ final class AuditChainAnchorStoreTest extends TestCase
             ->method('update')
             ->with(
                 'sys_registry',
-                self::callback(static fn (array $data): bool => \is_string($data['entry_value'] ?? null)
+                self::callback(static fn (array $data): bool => is_string($data['entry_value'] ?? null)
                     && str_starts_with($data['entry_value'], 'nrvault-audit-tip.v1|9|' . self::HASH_B . '|')),
                 ['entry_namespace' => 'tx_nrvault_audit_anchor', 'entry_key' => 'auditChainTip'],
                 ['entry_value' => Connection::PARAM_LOB],
@@ -310,7 +313,7 @@ final class AuditChainAnchorStoreTest extends TestCase
     public function loadNormalisesAResourceTypedEntryValue(): void
     {
         $encoded = $this->encode(3, self::HASH_A);
-        $stream = fopen('php://memory', 'r+');
+        $stream  = fopen('php://memory', 'r+');
         self::assertIsResource($stream);
         fwrite($stream, $encoded);
         rewind($stream);
@@ -359,7 +362,7 @@ final class AuditChainAnchorStoreTest extends TestCase
      * so the assertion is existence of the anchored row plus uid monotonicity.
      *
      * @param false|string $anchoredRowHash what the anchored uid reads back as
-     * @param int $tipUid uid of the tip the re-seal would sign
+     * @param int          $tipUid          uid of the tip the re-seal would sign
      */
     #[Test]
     #[DataProvider('resealRefusalProvider')]
@@ -565,9 +568,9 @@ final class AuditChainAnchorStoreTest extends TestCase
      * The caller turns this into an `AuditWriteException`, taking the audited
      * operation down with it — fail closed.
      *
-     * @param int $uid uid of the tip that must not be anchored
+     * @param int    $uid       uid of the tip that must not be anchored
      * @param string $entryHash entry hash of the tip that must not be anchored
-     * @param int $tstamp timestamp of the tip that must not be anchored
+     * @param int    $tstamp    timestamp of the tip that must not be anchored
      */
     #[Test]
     #[DataProvider('unanchorableTipProvider')]
@@ -646,7 +649,7 @@ final class AuditChainAnchorStoreTest extends TestCase
      * row number, and a malformed hash must not be signed at all. Both
      * substitutions would MAC-attest a tip that does not exist.
      *
-     * @param mixed $uid raw `uid` column value
+     * @param mixed $uid       raw `uid` column value
      * @param mixed $entryHash raw `entry_hash` column value
      */
     #[Test]
@@ -685,7 +688,7 @@ final class AuditChainAnchorStoreTest extends TestCase
             ->method('insert')
             ->with(
                 'sys_registry',
-                self::callback(static fn (array $data): bool => \is_string($data['entry_value'] ?? null)
+                self::callback(static fn (array $data): bool => is_string($data['entry_value'] ?? null)
                     && str_starts_with($data['entry_value'], $prefix)),
                 ['entry_value' => Connection::PARAM_LOB],
             );
@@ -734,15 +737,15 @@ final class AuditChainAnchorStoreTest extends TestCase
         $mac = hash_hmac(
             'sha256',
             json_encode([
-                'v' => 1,
-                'uid' => $uid,
+                'v'          => 1,
+                'uid'        => $uid,
                 'entry_hash' => $entryHash,
-                'tstamp' => $tstamp,
+                'tstamp'     => $tstamp,
             ], JSON_THROW_ON_ERROR),
             hash_hkdf('sha256', self::MASTER_KEY, 32, 'nr-vault-audit-anchor-v1'),
         );
 
-        return \sprintf('nrvault-audit-tip.v1|%d|%s|%d|%s', $uid, $entryHash, $tstamp, $mac);
+        return sprintf('nrvault-audit-tip.v1|%d|%s|%d|%s', $uid, $entryHash, $tstamp, $mac);
     }
 
     /**
@@ -762,7 +765,7 @@ final class AuditChainAnchorStoreTest extends TestCase
      *                                                                  in call order: `reseal()`
      *                                                                  and `arm()` read the tip
      *                                                                  first, then the anchor row
-     * @param list<mixed> $fetchOneReturns consecutive `fetchOne()` results (audit-table probes)
+     * @param list<mixed>                      $fetchOneReturns         consecutive `fetchOne()` results (audit-table probes)
      */
     private function wireReads(array $fetchAssociativeReturns, array $fetchOneReturns = []): void
     {

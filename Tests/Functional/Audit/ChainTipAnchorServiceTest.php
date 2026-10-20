@@ -24,6 +24,8 @@ use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function is_array;
+
 /**
  * Functional tests for external chain-tip anchoring.
  *
@@ -47,7 +49,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
     /** @var array<string, mixed> */
     protected array $extensionConfiguration = [
         'masterKeyProvider' => 'file',
-        'auditHmacEpoch' => 3,
+        'auditHmacEpoch'    => 3,
     ];
 
     protected function setUp(): void
@@ -94,7 +96,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
     {
         $this->get(AuditLogServiceInterface::class)->log('anchor_test_secret', 'create', true);
 
-        $service = $this->getAnchorService();
+        $service  = $this->getAnchorService();
         $accepted = $service->publish($service->capture());
 
         self::assertSame(1, $accepted);
@@ -133,10 +135,10 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
     public function fullTableResetIsDetectedAsTableReset(): void
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
-        $service = $this->getAnchorService();
+        $service      = $this->getAnchorService();
 
         // Build a chain of five entries and anchor it.
-        for ($i = 0; $i < 5; $i++) {
+        for ($i = 0; $i < 5; ++$i) {
             $auditService->log('anchor_test_secret', 'read', true);
         }
 
@@ -181,9 +183,9 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
     public function tableResetIsDetectedEvenWhenTheRebuiltChainIsLonger(): void
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
-        $service = $this->getAnchorService();
+        $service      = $this->getAnchorService();
 
-        for ($i = 0; $i < 3; $i++) {
+        for ($i = 0; $i < 3; ++$i) {
             $auditService->log('anchor_test_secret', 'read', true);
         }
 
@@ -191,7 +193,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         $service->publish($anchor);
 
         $this->truncateAuditTable();
-        for ($i = 0; $i < 6; $i++) {
+        for ($i = 0; $i < 6; ++$i) {
             $auditService->log('attacker_seeded', 'read', true);
         }
 
@@ -209,9 +211,9 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
     public function deletingTheAnchoredRowIsDetected(): void
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
-        $service = $this->getAnchorService();
+        $service      = $this->getAnchorService();
 
-        for ($i = 0; $i < 4; $i++) {
+        for ($i = 0; $i < 4; ++$i) {
             $auditService->log('anchor_test_secret', 'read', true);
         }
 
@@ -240,7 +242,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
 
-        for ($i = 0; $i < 4; $i++) {
+        for ($i = 0; $i < 4; ++$i) {
             $auditService->log('anchor_test_secret', 'read', true);
         }
 
@@ -288,7 +290,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         $auditService->log('anchor_test_secret', 'read', true);
 
         $service = $this->getAnchorService();
-        $anchor = $service->capture();
+        $anchor  = $service->capture();
         $service->publish($anchor);
         self::assertSame(3, $anchor->hmacEpoch);
 
@@ -382,12 +384,12 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
     public function theHighestPublishedAnchorBecomesTheBaseline(): void
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
-        $service = $this->getAnchorService();
+        $service      = $this->getAnchorService();
 
         $auditService->log('anchor_test_secret', 'create', true);
         $service->publish($service->capture());
 
-        for ($i = 0; $i < 3; $i++) {
+        for ($i = 0; $i < 3; ++$i) {
             $auditService->log('anchor_test_secret', 'read', true);
         }
 
@@ -407,13 +409,13 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
      */
     private function switchToHardenedProfile(): void
     {
-        $confVars = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
-        $extensions = \is_array($confVars['EXTENSIONS'] ?? null) ? $confVars['EXTENSIONS'] : [];
-        $nrVault = \is_array($extensions['nr_vault'] ?? null) ? $extensions['nr_vault'] : [];
+        $confVars   = is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
+        $extensions = is_array($confVars['EXTENSIONS'] ?? null) ? $confVars['EXTENSIONS'] : [];
+        $nrVault    = is_array($extensions['nr_vault'] ?? null) ? $extensions['nr_vault'] : [];
 
         $nrVault['securityProfile'] = 'hardened';
-        $extensions['nr_vault'] = $nrVault;
-        $confVars['EXTENSIONS'] = $extensions;
+        $extensions['nr_vault']     = $nrVault;
+        $confVars['EXTENSIONS']     = $extensions;
         $GLOBALS['TYPO3_CONF_VARS'] = $confVars;
     }
 

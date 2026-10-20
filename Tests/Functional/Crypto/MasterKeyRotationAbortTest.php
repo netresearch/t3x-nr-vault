@@ -23,6 +23,10 @@ use Symfony\Component\Console\Tester\CommandTester;
 use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function chr;
+use function ord;
+use function sprintf;
+
 /**
  * Abort safety of `vault:rotate-master-key` when a secret cannot be re-wrapped.
  *
@@ -79,7 +83,7 @@ final class MasterKeyRotationAbortTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function aFailureInsideTheTransactionRollsBackAlreadyRewrappedSecrets(): void
     {
-        $seeded = $this->seedSecrets(5);
+        $seeded      = $this->seedSecrets(5);
         $identifiers = $this->orderedIdentifiers();
         self::assertCount(5, $identifiers);
 
@@ -127,7 +131,7 @@ final class MasterKeyRotationAbortTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function aFailedOldKeySmokeTestLeavesTheVaultUntouched(): void
     {
-        $seeded = $this->seedSecrets(4);
+        $seeded      = $this->seedSecrets(4);
         $identifiers = $this->orderedIdentifiers();
 
         // The command smoke-tests $identifiers[0] before writing anything.
@@ -175,7 +179,7 @@ final class MasterKeyRotationAbortTest extends AbstractVaultFunctionalTestCase
         $seeded = [];
         for ($i = 0; $i < $count; ++$i) {
             $identifier = $this->generateUuidV7();
-            $value = 'abort-safety-value-' . $i;
+            $value      = 'abort-safety-value-' . $i;
             $vaultService->store($identifier, $value);
             $seeded[$identifier] = $value;
         }
@@ -216,7 +220,7 @@ final class MasterKeyRotationAbortTest extends AbstractVaultFunctionalTestCase
         self::assertIsString($raw);
         self::assertNotSame('', $raw);
 
-        $raw[0] = \chr(\ord($raw[0]) ^ 0xFF);
+        $raw[0] = chr(ord($raw[0]) ^ 0xFF);
 
         $connection->update(
             self::SECRET_TABLE,
@@ -242,7 +246,7 @@ final class MasterKeyRotationAbortTest extends AbstractVaultFunctionalTestCase
         foreach ($rows as $row) {
             $snapshot[$this->asString($row['identifier'])] = [
                 'encrypted_dek' => $this->asString($row['encrypted_dek']),
-                'dek_nonce' => $this->asString($row['dek_nonce']),
+                'dek_nonce'     => $this->asString($row['dek_nonce']),
             ];
         }
 
@@ -290,7 +294,7 @@ final class MasterKeyRotationAbortTest extends AbstractVaultFunctionalTestCase
             self::assertSame(
                 $expected,
                 $vaultService->retrieve($identifier),
-                \sprintf(
+                sprintf(
                     'Secret "%s" MUST still decrypt with the original master key — '
                     . 'a partially rotated vault is the failure this test exists to catch',
                     $identifier,

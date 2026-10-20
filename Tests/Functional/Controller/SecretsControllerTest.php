@@ -16,6 +16,8 @@ use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 
+use function count;
+
 /**
  * Functional tests for SecretsController.
  *
@@ -42,8 +44,8 @@ final class SecretsControllerTest extends AbstractVaultFunctionalTestCase
     public function vaultServiceCanStoreAndRetrieveSecrets(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
-        $secretValue = 'test-secret-value';
+        $identifier   = $this->generateUuidV7();
+        $secretValue  = 'test-secret-value';
 
         $vaultService->store($identifier, $secretValue);
         $retrieved = $vaultService->retrieve($identifier);
@@ -58,8 +60,8 @@ final class SecretsControllerTest extends AbstractVaultFunctionalTestCase
     public function vaultServiceCanListSecrets(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier1 = $this->generateUuidV7();
-        $identifier2 = $this->generateUuidV7();
+        $identifier1  = $this->generateUuidV7();
+        $identifier2  = $this->generateUuidV7();
 
         $vaultService->store($identifier1, 'secret-1');
         $vaultService->store($identifier2, 'secret-2');
@@ -67,7 +69,7 @@ final class SecretsControllerTest extends AbstractVaultFunctionalTestCase
         $list = $vaultService->list();
 
         self::assertIsArray($list);
-        self::assertGreaterThanOrEqual(2, \count($list));
+        self::assertGreaterThanOrEqual(2, count($list));
 
         // Cleanup
         $vaultService->delete($identifier1, self::REASON_TEST_CLEANUP);
@@ -78,7 +80,7 @@ final class SecretsControllerTest extends AbstractVaultFunctionalTestCase
     public function vaultServiceCanDeleteSecrets(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
+        $identifier   = $this->generateUuidV7();
 
         $vaultService->store($identifier, 'to-be-deleted');
         self::assertTrue($vaultService->exists($identifier));
@@ -91,7 +93,7 @@ final class SecretsControllerTest extends AbstractVaultFunctionalTestCase
     public function vaultServiceCanRotateSecrets(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
+        $identifier   = $this->generateUuidV7();
 
         $vaultService->store($identifier, 'original-secret');
         $vaultService->rotate($identifier, 'rotated-secret', 'Test rotation');
@@ -107,7 +109,7 @@ final class SecretsControllerTest extends AbstractVaultFunctionalTestCase
     public function vaultServiceReturnsMetadata(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
+        $identifier   = $this->generateUuidV7();
 
         $vaultService->store($identifier, 'secret-with-metadata');
 

@@ -63,7 +63,7 @@ readonly class AwsSecretsConfig
     public function toArray(): array
     {
         return [
-            'region' => $this->region,
+            'region'       => $this->region,
             'secretPrefix' => $this->secretPrefix,
         ];
     }

@@ -14,6 +14,8 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\MasterKeyException;
 use SensitiveParameter;
 
+use function strlen;
+
 /**
  * Environment variable-based master key provider.
  */
@@ -41,7 +43,7 @@ final class EnvironmentMasterKeyProvider extends AbstractMasterKeyProvider
     public function isAvailable(): bool
     {
         $varName = $this->getEnvVarName();
-        $value = getenv($varName);
+        $value   = getenv($varName);
 
         return $value !== false && $value !== '';
     }
@@ -62,20 +64,20 @@ final class EnvironmentMasterKeyProvider extends AbstractMasterKeyProvider
     protected function loadRawKey(): string
     {
         $varName = $this->getEnvVarName();
-        $value = getenv($varName);
+        $value   = getenv($varName);
 
         if ($value === false || $value === '') {
             throw MasterKeyException::environmentVariableNotSet($varName);
         }
 
         // Handle base64-encoded keys
-        if (\strlen($value) === self::KEY_LENGTH) {
+        if (strlen($value) === self::KEY_LENGTH) {
             // Raw binary key - return directly (don't zero $value, it IS the key)
             return $value;
         }
 
         $decoded = base64_decode($value, true);
-        if ($decoded !== false && \strlen($decoded) === self::KEY_LENGTH) {
+        if ($decoded !== false && strlen($decoded) === self::KEY_LENGTH) {
             // Zero the raw base64 string, keep decoded key
             sodium_memzero($value);
 
@@ -83,7 +85,7 @@ final class EnvironmentMasterKeyProvider extends AbstractMasterKeyProvider
         }
 
         // Neither raw nor valid base64
-        $length = \strlen($value);
+        $length = strlen($value);
         sodium_memzero($value);
 
         throw MasterKeyException::invalidLength(self::KEY_LENGTH, $length);

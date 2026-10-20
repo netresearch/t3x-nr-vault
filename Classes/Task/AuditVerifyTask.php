@@ -106,17 +106,17 @@ final class AuditVerifyTask extends AbstractTask
 
         if ($report->isValid()) {
             $logger->info('Vault audit integrity verified', [
-                'sequence' => $report->currentSequence,
+                'sequence'         => $report->currentSequence,
                 'anchoredSequence' => $report->anchor?->sequence,
             ]);
 
             return true;
         }
 
-        $codes = implode(',', $report->getReasonCodes());
+        $codes   = implode(',', $report->getReasonCodes());
         $context = [
-            'reasonCodes' => $codes,
-            'sequence' => $report->currentSequence,
+            'reasonCodes'    => $codes,
+            'sequence'       => $report->currentSequence,
             'tamperEvidence' => $report->hasTamperEvidence(),
         ];
 

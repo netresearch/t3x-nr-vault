@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -44,29 +41,29 @@ use GuzzleHttp\ClientInterface as GuzzleClientInterface;
 final readonly class CancellableTransport
 {
     /**
-     * @param GuzzleClientInterface $client Async-capable client carrying the full hardened option set
-     * @param TransportTickerInterface $ticker Drives the loop the above client's handler runs on
-     * @param float $wallClockBudgetSeconds Defensive upper bound for the tick loop.
-     *                                      Derived from the transport's own
-     *                                      `timeout` + `connect_timeout` plus a
-     *                                      margin, so it can only ever fire
-     *                                      AFTER libcurl's own deadline should
-     *                                      have. If it does fire, the handler
-     *                                      misbehaved — better to abort and
-     *                                      audit than to hang a TYPO3 request.
-     *                                      Not applied while an idle budget is
-     *                                      set: without a total `timeout`
-     *                                      libcurl has no deadline for it to sit
-     *                                      above.
-     * @param float|null $idleBudgetSeconds Set when the transport has no total
-     *                                      `timeout`: every send on it — streaming,
-     *                                      cancellable, the OAuth token leg — then
-     *                                      ends a transfer that receives nothing for
-     *                                      this long, instead of applying the
-     *                                      wall-clock budget, which would kill a
-     *                                      transfer that is still delivering
-     *                                      (ADR-039, ADR-040). Null when a total
-     *                                      timeout exists.
+     * @param GuzzleClientInterface    $client                 Async-capable client carrying the full hardened option set
+     * @param TransportTickerInterface $ticker                 Drives the loop the above client's handler runs on
+     * @param float                    $wallClockBudgetSeconds Defensive upper bound for the tick loop.
+     *                                                         Derived from the transport's own
+     *                                                         `timeout` + `connect_timeout` plus a
+     *                                                         margin, so it can only ever fire
+     *                                                         AFTER libcurl's own deadline should
+     *                                                         have. If it does fire, the handler
+     *                                                         misbehaved — better to abort and
+     *                                                         audit than to hang a TYPO3 request.
+     *                                                         Not applied while an idle budget is
+     *                                                         set: without a total `timeout`
+     *                                                         libcurl has no deadline for it to sit
+     *                                                         above.
+     * @param float|null               $idleBudgetSeconds      Set when the transport has no total
+     *                                                         `timeout`: every send on it — streaming,
+     *                                                         cancellable, the OAuth token leg — then
+     *                                                         ends a transfer that receives nothing for
+     *                                                         this long, instead of applying the
+     *                                                         wall-clock budget, which would kill a
+     *                                                         transfer that is still delivering
+     *                                                         (ADR-039, ADR-040). Null when a total
+     *                                                         timeout exists.
      */
     public function __construct(
         private GuzzleClientInterface $client,

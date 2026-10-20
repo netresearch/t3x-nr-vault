@@ -1,9 +1,10 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Documentation;
@@ -35,9 +36,9 @@ final class ExtensionSettingsExampleWiringTest extends AbstractVaultFunctionalTe
         $extensions = $configuration['EXTENSIONS'] ?? [];
         self::assertIsArray($extensions);
         $extensions['my_deepl_extension'] = ['deeplApiKey' => ''];
-        $configuration['EXTENSIONS'] = $extensions;
-        $GLOBALS['TYPO3_CONF_VARS'] = $configuration;
-        $service = $this->get(DeepLService::class);
+        $configuration['EXTENSIONS']      = $extensions;
+        $GLOBALS['TYPO3_CONF_VARS']       = $configuration;
+        $service                          = $this->get(DeepLService::class);
         self::assertInstanceOf(DeepLService::class, $service);
 
         $failure = null;

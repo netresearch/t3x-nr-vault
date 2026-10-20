@@ -18,6 +18,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function is_string;
+
 /**
  * Functional tests for SecretTcaHook against a DISABLED secret
  * (`hidden = 1`, TCA's `disabled` enable column).
@@ -125,7 +127,7 @@ final class SecretTcaHookDisabledSecretTest extends AbstractVaultFunctionalTestC
         $hook = $this->get(SecretTcaHook::class);
         self::assertInstanceOf(SecretTcaHook::class, $hook);
 
-        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler          = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->BE_USER = $GLOBALS['BE_USER'];
 
         $hook->processCmdmap_preProcess('undelete', self::SECRET_TABLE, $uid, dataHandler: $dataHandler);
@@ -154,7 +156,7 @@ final class SecretTcaHookDisabledSecretTest extends AbstractVaultFunctionalTestC
         $this->setUpBackendUser(self::EDITOR_UID);
         [$uid, $identifier] = $this->seedDisabledSecret(self::DELETER_UID);
 
-        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler          = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->BE_USER = $GLOBALS['BE_USER'];
         $dataHandler->start(
             [self::SECRET_TABLE => [$uid => ['description' => 'rewritten by someone else']]],
@@ -181,7 +183,7 @@ final class SecretTcaHookDisabledSecretTest extends AbstractVaultFunctionalTestC
      */
     private function submitDeleteCommand(int $uid): void
     {
-        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler          = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->BE_USER = $GLOBALS['BE_USER'];
         $dataHandler->start([], [self::SECRET_TABLE => [$uid => ['delete' => 1]]]);
         $dataHandler->process_cmdmap();
@@ -195,13 +197,13 @@ final class SecretTcaHookDisabledSecretTest extends AbstractVaultFunctionalTestC
         $identifier = 'disabled_' . bin2hex(random_bytes(4));
         $connection = $this->getConnectionPool()->getConnectionForTable(self::SECRET_TABLE);
         $connection->insert(self::SECRET_TABLE, [
-            'pid' => self::PAGE_UID,
-            'identifier' => $identifier,
-            'description' => 'seeded description',
-            'owner_uid' => $ownerUid,
+            'pid'                 => self::PAGE_UID,
+            'identifier'          => $identifier,
+            'description'         => 'seeded description',
+            'owner_uid'           => $ownerUid,
             'frontend_accessible' => 0,
-            'hidden' => 1,
-            'deleted' => $deleted ? 1 : 0,
+            'hidden'              => 1,
+            'deleted'             => $deleted ? 1 : 0,
         ]);
 
         return [(int) $connection->lastInsertId(), $identifier];
@@ -218,7 +220,7 @@ final class SecretTcaHookDisabledSecretTest extends AbstractVaultFunctionalTestC
     {
         $description = $this->readColumn($uid, 'description');
 
-        return \is_string($description) ? $description : '';
+        return is_string($description) ? $description : '';
     }
 
     private function readColumn(int $uid, string $column): mixed

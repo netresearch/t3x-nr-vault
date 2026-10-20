@@ -117,14 +117,14 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
     {
         $this->createMigrationFixtureTable();
         $connectionPool = $this->get(ConnectionPool::class);
-        $connection = $connectionPool->getConnectionForTable(self::FIXTURE_TABLE);
+        $connection     = $connectionPool->getConnectionForTable(self::FIXTURE_TABLE);
         $connection->insert(self::FIXTURE_TABLE, [self::FIXTURE_COLUMN => 'plaintext-api-key']);
 
         $uid = (int) $connection->lastInsertId();
 
         // Pattern exactly as the fixed configureAction builds it: single braces.
         $pattern = self::FIXTURE_TABLE . '__' . self::FIXTURE_COLUMN . '__{uid}';
-        $result = $this->invokeMigrateColumn(self::FIXTURE_TABLE, self::FIXTURE_COLUMN, $pattern);
+        $result  = $this->invokeMigrateColumn(self::FIXTURE_TABLE, self::FIXTURE_COLUMN, $pattern);
 
         self::assertSame(1, $result->migrated, 'Expected exactly one row to be migrated');
         self::assertSame(0, $result->failed, 'Migration must not report failures: ' . ($result->error ?? ''));
@@ -160,14 +160,14 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
     {
         $this->createMigrationFixtureTable();
         $connectionPool = $this->get(ConnectionPool::class);
-        $connection = $connectionPool->getConnectionForTable(self::FIXTURE_TABLE);
+        $connection     = $connectionPool->getConnectionForTable(self::FIXTURE_TABLE);
         $connection->insert(self::FIXTURE_TABLE, [self::FIXTURE_COLUMN => 'plaintext-api-key']);
 
         $uid = (int) $connection->lastInsertId();
 
         // The buggy pattern: double braces around uid.
         $buggyPattern = self::FIXTURE_TABLE . '__' . self::FIXTURE_COLUMN . '__{{uid}}';
-        $result = $this->invokeMigrateColumn(self::FIXTURE_TABLE, self::FIXTURE_COLUMN, $buggyPattern);
+        $result       = $this->invokeMigrateColumn(self::FIXTURE_TABLE, self::FIXTURE_COLUMN, $buggyPattern);
 
         self::assertSame(0, $result->migrated, 'A literal-brace identifier must not migrate');
         self::assertSame(1, $result->failed, 'The row must be reported as failed');
@@ -178,7 +178,7 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
             ->fetchOne();
         self::assertSame('plaintext-api-key', $storedColumn, 'Failed migration must leave the column unchanged');
 
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService     = $this->get(VaultServiceInterface::class);
         $brokenIdentifier = self::FIXTURE_TABLE . '__' . self::FIXTURE_COLUMN . '__{' . $uid . '}';
         self::assertFalse($vaultService->exists($brokenIdentifier));
     }
@@ -193,8 +193,8 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
     private function invokeMigrateColumn(string $table, string $column, string $pattern): MigrationResult
     {
         $controller = $this->get(MigrationController::class);
-        $method = (new ReflectionClass(MigrationController::class))->getMethod('migrateColumn');
-        $result = $method->invoke($controller, $table, $column, $pattern);
+        $method     = (new ReflectionClass(MigrationController::class))->getMethod('migrateColumn');
+        $result     = $method->invoke($controller, $table, $column, $pattern);
         self::assertInstanceOf(MigrationResult::class, $result);
 
         return $result;

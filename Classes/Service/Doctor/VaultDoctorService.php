@@ -15,6 +15,8 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 use Traversable;
 
+use function sprintf;
+
 /**
  * Orchestrates the readiness checks behind `vault:doctor` and the backend
  * security status panel.
@@ -49,7 +51,7 @@ final readonly class VaultDoctorService implements VaultDoctorServiceInterface
     public function run(?SecurityProfile $targetProfile = null, bool $activeProbes = false): DoctorReport
     {
         $configuredProfile = $this->resolveConfiguredProfile();
-        $context = new DoctorContext(
+        $context           = new DoctorContext(
             profile: $targetProfile ?? $configuredProfile,
             configuredProfile: $configuredProfile,
             activeProbes: $activeProbes,
@@ -78,14 +80,14 @@ final readonly class VaultDoctorService implements VaultDoctorServiceInterface
             return $check->run($context);
         } catch (Throwable $e) {
             $this->logger->error('nr-vault readiness check crashed.', [
-                'check' => $check->getId(),
+                'check'     => $check->getId(),
                 'exception' => $e->getMessage(),
             ]);
 
             return [
                 Finding::critical(
                     id: 'check.crashed',
-                    summary: \sprintf(
+                    summary: sprintf(
                         'Readiness check "%s" could not complete: %s',
                         $check->getId(),
                         $e->getMessage(),

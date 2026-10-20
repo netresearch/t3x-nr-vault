@@ -22,7 +22,7 @@ interface SiteConfigurationVaultProcessorInterface
      * Process configuration array and resolve vault references.
      *
      * @param array<string, mixed> $configuration The site configuration
-     * @param Site|null $site Optional site for site-specific prefix resolution
+     * @param Site|null            $site          Optional site for site-specific prefix resolution
      *
      * @return array<string, mixed> Configuration with vault references resolved
      */

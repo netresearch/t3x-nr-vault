@@ -25,6 +25,11 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 
+use function array_key_exists;
+use function in_array;
+use function is_scalar;
+use function is_string;
+
 /**
  * DataHandler hook for tx_nrvault_secret TCA operations.
  *
@@ -125,7 +130,7 @@ final class SecretTcaHook
      */
     private const PRIVILEGED_MM_COLUMNS = [
         'allowed_groups' => 'tx_nrvault_secret_begroups_mm',
-        'write_groups' => 'tx_nrvault_secret_writegroups_mm',
+        'write_groups'   => 'tx_nrvault_secret_writegroups_mm',
     ];
 
     /**
@@ -381,8 +386,8 @@ final class SecretTcaHook
         // For existing records, prevent identifier changes
         if (!str_starts_with((string) $id, 'NEW') && isset($fieldArray['identifier'])) {
             // Get the original identifier
-            $originalRecord = $this->readRecord((int) $id, ['identifier']);
-            $originalIdentifier = \is_string($originalRecord['identifier'] ?? null) ? $originalRecord['identifier'] : '';
+            $originalRecord     = $this->readRecord((int) $id, ['identifier']);
+            $originalIdentifier = is_string($originalRecord['identifier'] ?? null) ? $originalRecord['identifier'] : '';
             if ($originalRecord !== null && $fieldArray['identifier'] !== $originalIdentifier) {
                 // Identifier change attempted - revert to original
                 /** @phpstan-ignore method.internal */
@@ -399,13 +404,13 @@ final class SecretTcaHook
         }
 
         // Handle owner_uid - convert group format to simple uid
-        if (isset($fieldArray['owner_uid']) && \is_string($fieldArray['owner_uid'])) {
+        if (isset($fieldArray['owner_uid']) && is_string($fieldArray['owner_uid'])) {
             // Format from group field: "be_users_123" or just "123"
             $fieldArray['owner_uid'] = $this->extractUidFromGroupValue($fieldArray['owner_uid']);
         }
 
         // Handle scope_pid - convert group format to simple uid
-        if (isset($fieldArray['scope_pid']) && \is_string($fieldArray['scope_pid']) && str_contains($fieldArray['scope_pid'], 'pages')) {
+        if (isset($fieldArray['scope_pid']) && is_string($fieldArray['scope_pid']) && str_contains($fieldArray['scope_pid'], 'pages')) {
             $fieldArray['scope_pid'] = $this->extractUidFromGroupValue($fieldArray['scope_pid']);
         }
 
@@ -464,7 +469,7 @@ final class SecretTcaHook
         }
 
         // Get actual UID for new records
-        $uidRaw = $id;
+        $uidRaw     = $id;
         $originalId = (string) $id;
         if ($status === 'new') {
             $uidRaw = $dataHandler->substNEWwithIDs[$id] ?? $id;
@@ -478,14 +483,14 @@ final class SecretTcaHook
             return;
         }
 
-        $identifier = \is_string($record['identifier'] ?? null) ? $record['identifier'] : '';
+        $identifier = is_string($record['identifier'] ?? null) ? $record['identifier'] : '';
 
         // Both flags are needed to tell the three creation outcomes apart:
         // "no value was stored" alone cannot distinguish a deliberately
         // value-less record from one whose value was refused (see
         // RecordCreationOutcome).
         $valueSubmitted = false;
-        $secretStored = false;
+        $secretStored   = false;
 
         // Handle pending secret encryption
         if (isset($this->pendingSecrets[$originalId])) {
@@ -498,7 +503,7 @@ final class SecretTcaHook
             unset($this->pendingSecrets[$originalId]);
 
             // Ensure secretValue is a string
-            if (!\is_string($secretValue)) {
+            if (!is_string($secretValue)) {
                 $secretValue = '';
             }
 
@@ -548,7 +553,7 @@ final class SecretTcaHook
         // and metadata-only column changes. Both are all-or-nothing here as
         // well (SEC-3): if the audit write fails, the database change is
         // reverted so no mutation persists without a tamper-evident record.
-        $originalMetadata = $this->originalMetadata[$originalId] ?? null;
+        $originalMetadata    = $this->originalMetadata[$originalId] ?? null;
         $originalMmRelations = $this->originalMmRelations[$originalId] ?? [];
         unset($this->originalMetadata[$originalId], $this->originalMmRelations[$originalId]);
 
@@ -596,7 +601,7 @@ final class SecretTcaHook
      */
     public function processDatamap_afterAllOperations(DataHandler $dataHandler): void// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
     {
-        $revertedUids = array_keys($this->revertedCreations);
+        $revertedUids            = array_keys($this->revertedCreations);
         $this->revertedCreations = [];
 
         foreach ($revertedUids as $uid) {
@@ -651,7 +656,7 @@ final class SecretTcaHook
             return;
         }
 
-        if (\array_key_exists($command, self::REFUSED_COMMANDS)) {
+        if (array_key_exists($command, self::REFUSED_COMMANDS)) {
             $this->refuseCommand($command, $id, $dataHandler);
 
             return;
@@ -661,7 +666,7 @@ final class SecretTcaHook
             return;
         }
 
-        $uid = is_numeric($id) ? (int) $id : 0;
+        $uid    = is_numeric($id) ? (int) $id : 0;
         $secret = $this->secretRepository->findByUidIncludingDisabled($uid);
         if (!$secret instanceof Secret) {
             return;
@@ -709,7 +714,7 @@ final class SecretTcaHook
      * the hook handled in processCmdmap_preProcess() — a successful service
      * delete already soft-deleted the record, a refused delete must leave it
      * untouched, and a refused command must not be carried out at all.
-     * (DataHandler runs this hook before the command switch.)
+     * (DataHandler runs this hook before the command switch.).
      *
      * The flag is consumed so a DI-shared hook instance cannot leak a stale
      * entry into a later DataHandler run (same discipline as
@@ -762,8 +767,8 @@ final class SecretTcaHook
         // on the record read or the audit write below succeeding.
         $this->handledCommands[$command . ':' . $uid] = true;
 
-        $record = $this->readRecord($uid, ['identifier'], true);
-        $identifier = \is_string($record['identifier'] ?? null) ? $record['identifier'] : '';
+        $record     = $this->readRecord($uid, ['identifier'], true);
+        $identifier = is_string($record['identifier'] ?? null) ? $record['identifier'] : '';
         if ($identifier !== '') {
             $this->auditDenial($identifier, 'Command refused: ' . $command);
         }
@@ -916,8 +921,8 @@ final class SecretTcaHook
      * both halves succeeded; a partial result is reported as
      * "NOT revertible" so the inconsistency is surfaced, not hidden.
      *
-     * @param list<string> $changedColumns
-     * @param array<string, mixed>|null $originalMetadata
+     * @param list<string>                                                                     $changedColumns
+     * @param array<string, mixed>|null                                                        $originalMetadata
      * @param array<string, list<array{uid_foreign: int, sorting: int, sorting_foreign: int}>> $originalMmRelations
      */
     private function auditMetadataUpdateOrCompensate(
@@ -952,7 +957,7 @@ final class SecretTcaHook
             // means the pre-change read failed: the relations cannot be
             // restored, so the change must not be reported as reverted.
             foreach (self::PRIVILEGED_MM_COLUMNS as $column => $mmTable) {
-                if (\in_array($column, $changedColumns, true) && !\array_key_exists($mmTable, $originalMmRelations)) {
+                if (in_array($column, $changedColumns, true) && !array_key_exists($mmTable, $originalMmRelations)) {
                     $reverted = false;
                 }
             }
@@ -983,7 +988,7 @@ final class SecretTcaHook
     {
         $columns = [];
         foreach (array_keys($fieldArray) as $column) {
-            if (\is_string($column)) {
+            if (is_string($column)) {
                 $columns[] = $column;
             }
         }
@@ -1123,13 +1128,13 @@ final class SecretTcaHook
         $snapshot = [];
 
         foreach (self::PRIVILEGED_MM_COLUMNS as $column => $mmTable) {
-            if (!\in_array($column, $submittedColumns, true)) {
+            if (!in_array($column, $submittedColumns, true)) {
                 continue;
             }
 
             try {
                 $queryBuilder = $this->connectionPool->getQueryBuilderForTable($mmTable);
-                $rows = $queryBuilder
+                $rows         = $queryBuilder
                     ->select('uid_foreign', 'sorting', 'sorting_foreign')
                     ->from($mmTable)
                     ->where($queryBuilder->expr()->eq(
@@ -1148,8 +1153,8 @@ final class SecretTcaHook
 
             $snapshot[$mmTable] = array_map(
                 static fn (array $row): array => [
-                    'uid_foreign' => is_numeric($row['uid_foreign'] ?? null) ? (int) $row['uid_foreign'] : 0,
-                    'sorting' => is_numeric($row['sorting'] ?? null) ? (int) $row['sorting'] : 0,
+                    'uid_foreign'     => is_numeric($row['uid_foreign'] ?? null) ? (int) $row['uid_foreign'] : 0,
+                    'sorting'         => is_numeric($row['sorting'] ?? null) ? (int) $row['sorting'] : 0,
                     'sorting_foreign' => is_numeric($row['sorting_foreign'] ?? null) ? (int) $row['sorting_foreign'] : 0,
                 ],
                 $rows,
@@ -1264,7 +1269,7 @@ final class SecretTcaHook
             return true;
         }
 
-        $uid = is_numeric($id) ? (int) $id : 0;
+        $uid    = is_numeric($id) ? (int) $id : 0;
         $secret = $this->secretRepository->findByUidIncludingDisabled($uid);
         if (!$secret instanceof Secret) {
             $this->refuseUnresolvableTarget($uid, 'Update', $dataHandler);
@@ -1330,8 +1335,8 @@ final class SecretTcaHook
      */
     private function refuseUnresolvableTarget(int $uid, string $gate, DataHandler $dataHandler): void
     {
-        $record = $this->readRecord($uid, ['identifier'], true);
-        $identifier = \is_string($record['identifier'] ?? null) ? $record['identifier'] : '';
+        $record     = $this->readRecord($uid, ['identifier'], true);
+        $identifier = is_string($record['identifier'] ?? null) ? $record['identifier'] : '';
 
         if ($identifier !== '') {
             $this->auditDenial($identifier, $gate . ' denied: the vault secret is deleted');
@@ -1382,7 +1387,7 @@ final class SecretTcaHook
         array $fieldArray,
         DataHandler $dataHandler,
     ): bool {
-        $submitted = \is_string($fieldArray['identifier'] ?? null) ? str_starts_with(trim($fieldArray['identifier']), 'site:') ? $fieldArray['identifier'] : trim($fieldArray['identifier']) : '';
+        $submitted = is_string($fieldArray['identifier'] ?? null) ? str_starts_with(trim($fieldArray['identifier']), 'site:') ? $fieldArray['identifier'] : trim($fieldArray['identifier']) : '';
 
         try {
             IdentifierValidator::validateForStorage($submitted);
@@ -1506,7 +1511,7 @@ final class SecretTcaHook
      */
     private function refuseCreation(array $fieldArray, string $errorMessage, DataHandler $dataHandler): void
     {
-        $identifier = \is_string($fieldArray['identifier'] ?? null) ? $fieldArray['identifier'] : '';
+        $identifier = is_string($fieldArray['identifier'] ?? null) ? $fieldArray['identifier'] : '';
 
         try {
             // Fourth positional argument is $errorMessage, not $reason —
@@ -1625,7 +1630,7 @@ final class SecretTcaHook
         }
 
         $storedOwner = is_numeric($original['owner_uid'] ?? null) ? (int) $original['owner_uid'] : 0;
-        $actorUid = $this->accessControlService->getCurrentActorUid();
+        $actorUid    = $this->accessControlService->getCurrentActorUid();
 
         // The owner may manage their own secret's ACL — but only while
         // holding the secret.manage_policy operation permission (separation
@@ -1644,7 +1649,7 @@ final class SecretTcaHook
         $attempted = [];
 
         foreach ($this->privilegedScalarColumns() as $column) {
-            if (!\array_key_exists($column, $fieldArray)) {
+            if (!array_key_exists($column, $fieldArray)) {
                 continue;
             }
 
@@ -1662,7 +1667,7 @@ final class SecretTcaHook
         }
 
         foreach (array_keys(self::PRIVILEGED_MM_COLUMNS) as $column) {
-            if (!\array_key_exists($column, $fieldArray)) {
+            if (!array_key_exists($column, $fieldArray)) {
                 continue;
             }
 
@@ -1677,7 +1682,7 @@ final class SecretTcaHook
             return true;
         }
 
-        $identifier = \is_string($original['identifier'] ?? null) ? $original['identifier'] : '';
+        $identifier = is_string($original['identifier'] ?? null) ? $original['identifier'] : '';
         if ($identifier !== '') {
             $this->auditDenial(
                 $identifier,
@@ -1724,10 +1729,10 @@ final class SecretTcaHook
      */
     private function normalizeForComparison(string $column, mixed $value): string
     {
-        if (\in_array($column, self::PRIVILEGED_GROUP_COLUMNS, true)) {
+        if (in_array($column, self::PRIVILEGED_GROUP_COLUMNS, true)) {
             // "be_users_12" / "pages_100" from the group field vs an int in
             // the row.
-            return (string) $this->extractUidFromGroupValue(\is_scalar($value) ? (string) $value : '');
+            return (string) $this->extractUidFromGroupValue(is_scalar($value) ? (string) $value : '');
         }
 
         if ($column === 'expires_at') {
@@ -1735,11 +1740,11 @@ final class SecretTcaHook
         }
 
         if ($column === 'frontend_accessible' || $column === 'hidden') {
-            return \is_scalar($value) ? (string) (int) $value : '0';
+            return is_scalar($value) ? (string) (int) $value : '0';
         }
 
         // context, metadata, identifier: free text, compared verbatim.
-        return \is_scalar($value) ? (string) $value : '';
+        return is_scalar($value) ? (string) $value : '';
     }
 
     /**
@@ -1758,7 +1763,7 @@ final class SecretTcaHook
             return (int) $value;
         }
 
-        if (!\is_string($value) || trim($value) === '') {
+        if (!is_string($value) || trim($value) === '') {
             return 0;
         }
 

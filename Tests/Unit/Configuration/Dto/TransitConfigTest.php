@@ -40,13 +40,13 @@ final class TransitConfigTest extends TestCase
     public function fromArrayReadsTheHashicorpGroup(): void
     {
         $subject = TransitConfig::fromArray([
-            'address' => self::ADDRESS,
-            'authMethod' => 'token',
-            'token' => 'unit-test-dev-token',
-            'transitMount' => 'platform/transit',
-            'transitKeyName' => 'master-key',
+            'address'               => self::ADDRESS,
+            'authMethod'            => 'token',
+            'token'                 => 'unit-test-dev-token',
+            'transitMount'          => 'platform/transit',
+            'transitKeyName'        => 'master-key',
             'transitWrappedKeyPath' => '/secure/wrapped.key',
-            'tokenEnvVar' => 'MY_VAULT_TOKEN',
+            'tokenEnvVar'           => 'MY_VAULT_TOKEN',
         ]);
 
         self::assertSame(self::ADDRESS, $subject->address);
@@ -61,12 +61,12 @@ final class TransitConfigTest extends TestCase
     public function fromArrayFallsBackToDefaultsForEmptyValues(): void
     {
         $subject = TransitConfig::fromArray([
-            'address' => self::ADDRESS,
-            'transitMount' => '',
-            'transitKeyName' => '',
+            'address'               => self::ADDRESS,
+            'transitMount'          => '',
+            'transitKeyName'        => '',
             'transitWrappedKeyPath' => '',
-            'tokenEnvVar' => '',
-            'authMethod' => '',
+            'tokenEnvVar'           => '',
+            'authMethod'            => '',
         ], self::FALLBACK_PATH);
 
         self::assertSame('transit', $subject->mount);
@@ -80,7 +80,7 @@ final class TransitConfigTest extends TestCase
     public function fromArrayNormalisesAddressAndMountSeparators(): void
     {
         $subject = TransitConfig::fromArray([
-            'address' => ' https://vault.example.com:8200/ ',
+            'address'      => ' https://vault.example.com:8200/ ',
             'transitMount' => '/transit/',
         ]);
 

@@ -4,6 +4,7 @@
  * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Fuzz;
@@ -15,6 +16,10 @@ use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+
+use function count;
+use function sprintf;
+use function strlen;
 
 /**
  * Nonce-uniqueness regression tests.
@@ -55,30 +60,30 @@ final class NonceUniquenessFuzzTest extends TestCase
         $aesConfig->method('getEncryptionAlgorithm')->willReturn('aes256gcm');
 
         $this->xchacha = new EncryptionService($provider, $xchachaConfig);
-        $this->aes = new EncryptionService($provider, $aesConfig);
+        $this->aes     = new EncryptionService($provider, $aesConfig);
     }
 
     #[Test]
     public function xchachaEncryptProducesUniqueValueNoncesOverThousandIterations(): void
     {
         $identifier = '01937b6e-4b6c-7abc-8def-000000000001';
-        $plaintext = 'same-plaintext-for-every-iteration';
+        $plaintext  = 'same-plaintext-for-every-iteration';
 
         /** @var array<string, true> $valueNonces */
         $valueNonces = [];
-        for ($i = 0; $i < self::ITERATIONS; $i++) {
-            $encrypted = $this->xchacha->encrypt($plaintext, $identifier);
+        for ($i = 0; $i < self::ITERATIONS; ++$i) {
+            $encrypted                           = $this->xchacha->encrypt($plaintext, $identifier);
             $valueNonces[$encrypted->valueNonce] = true;
         }
 
         self::assertCount(
             self::ITERATIONS,
             $valueNonces,
-            \sprintf(
+            sprintf(
                 'XChaCha20: expected %d distinct value nonces after %d encryptions, got %d — NONCE COLLISION (critical)',
                 self::ITERATIONS,
                 self::ITERATIONS,
-                \count($valueNonces),
+                count($valueNonces),
             ),
         );
     }
@@ -87,23 +92,23 @@ final class NonceUniquenessFuzzTest extends TestCase
     public function xchachaEncryptProducesUniqueDekNoncesOverThousandIterations(): void
     {
         $identifier = '01937b6e-4b6c-7abc-8def-000000000002';
-        $plaintext = 'same-plaintext-for-every-iteration';
+        $plaintext  = 'same-plaintext-for-every-iteration';
 
         /** @var array<string, true> $dekNonces */
         $dekNonces = [];
-        for ($i = 0; $i < self::ITERATIONS; $i++) {
-            $encrypted = $this->xchacha->encrypt($plaintext, $identifier);
+        for ($i = 0; $i < self::ITERATIONS; ++$i) {
+            $encrypted                       = $this->xchacha->encrypt($plaintext, $identifier);
             $dekNonces[$encrypted->dekNonce] = true;
         }
 
         self::assertCount(
             self::ITERATIONS,
             $dekNonces,
-            \sprintf(
+            sprintf(
                 'XChaCha20: expected %d distinct DEK nonces after %d encryptions, got %d — NONCE COLLISION (critical)',
                 self::ITERATIONS,
                 self::ITERATIONS,
-                \count($dekNonces),
+                count($dekNonces),
             ),
         );
     }
@@ -116,16 +121,16 @@ final class NonceUniquenessFuzzTest extends TestCase
         }
 
         $identifier = '01937b6e-4b6c-7abc-8def-000000000003';
-        $plaintext = 'same-plaintext-for-every-iteration';
+        $plaintext  = 'same-plaintext-for-every-iteration';
 
         /** @var array<string, true> $valueNonces */
         $valueNonces = [];
-        for ($i = 0; $i < self::ITERATIONS; $i++) {
+        for ($i = 0; $i < self::ITERATIONS; ++$i) {
             $encrypted = $this->aes->encrypt($plaintext, $identifier);
             self::assertSame(EncryptionAlgorithm::Aes256Gcm, $encrypted->encryptionAlgorithm);
             self::assertSame(
                 SODIUM_CRYPTO_AEAD_AES256GCM_NPUBBYTES,
-                \strlen((string) base64_decode($encrypted->valueNonce, true)),
+                strlen((string) base64_decode($encrypted->valueNonce, true)),
             );
             $valueNonces[$encrypted->valueNonce] = true;
         }
@@ -133,11 +138,11 @@ final class NonceUniquenessFuzzTest extends TestCase
         self::assertCount(
             self::ITERATIONS,
             $valueNonces,
-            \sprintf(
+            sprintf(
                 'AES-256-GCM: expected %d distinct value nonces after %d encryptions, got %d — NONCE COLLISION (catastrophic for GCM)',
                 self::ITERATIONS,
                 self::ITERATIONS,
-                \count($valueNonces),
+                count($valueNonces),
             ),
         );
     }
@@ -150,16 +155,16 @@ final class NonceUniquenessFuzzTest extends TestCase
         }
 
         $identifier = '01937b6e-4b6c-7abc-8def-000000000004';
-        $plaintext = 'same-plaintext-for-every-iteration';
+        $plaintext  = 'same-plaintext-for-every-iteration';
 
         /** @var array<string, true> $dekNonces */
         $dekNonces = [];
-        for ($i = 0; $i < self::ITERATIONS; $i++) {
+        for ($i = 0; $i < self::ITERATIONS; ++$i) {
             $encrypted = $this->aes->encrypt($plaintext, $identifier);
             self::assertSame(EncryptionAlgorithm::Aes256Gcm, $encrypted->encryptionAlgorithm);
             self::assertSame(
                 SODIUM_CRYPTO_AEAD_AES256GCM_NPUBBYTES,
-                \strlen((string) base64_decode($encrypted->dekNonce, true)),
+                strlen((string) base64_decode($encrypted->dekNonce, true)),
             );
             $dekNonces[$encrypted->dekNonce] = true;
         }
@@ -167,11 +172,11 @@ final class NonceUniquenessFuzzTest extends TestCase
         self::assertCount(
             self::ITERATIONS,
             $dekNonces,
-            \sprintf(
+            sprintf(
                 'AES-256-GCM: expected %d distinct DEK nonces after %d encryptions, got %d — NONCE COLLISION (catastrophic for GCM)',
                 self::ITERATIONS,
                 self::ITERATIONS,
-                \count($dekNonces),
+                count($dekNonces),
             ),
         );
     }
@@ -185,14 +190,14 @@ final class NonceUniquenessFuzzTest extends TestCase
     public function xchachaValueAndDekNoncesAreDisjointAcrossThousandIterations(): void
     {
         $identifier = '01937b6e-4b6c-7abc-8def-000000000005';
-        $plaintext = 'disjoint-nonce-check';
+        $plaintext  = 'disjoint-nonce-check';
 
         /** @var array<string, true> $all */
         $all = [];
-        for ($i = 0; $i < self::ITERATIONS; $i++) {
-            $encrypted = $this->xchacha->encrypt($plaintext, $identifier);
+        for ($i = 0; $i < self::ITERATIONS; ++$i) {
+            $encrypted                   = $this->xchacha->encrypt($plaintext, $identifier);
             $all[$encrypted->valueNonce] = true;
-            $all[$encrypted->dekNonce] = true;
+            $all[$encrypted->dekNonce]   = true;
         }
 
         self::assertCount(

@@ -11,6 +11,8 @@ namespace Netresearch\NrVault\Audit\Anchor;
 
 use JsonSerializable;
 
+use function is_string;
+
 /**
  * An externally-published snapshot of the audit chain's tip.
  *
@@ -34,10 +36,10 @@ use JsonSerializable;
 final readonly class ChainTipAnchor implements JsonSerializable
 {
     /**
-     * @param int $sequence Highest audit uid at capture time (0 = empty chain)
-     * @param string $chainTip `entry_hash` of that row ('' = empty chain)
-     * @param int $timestamp Unix timestamp of capture
-     * @param int $hmacEpoch `hmac_key_epoch` in force at capture time
+     * @param int    $sequence  Highest audit uid at capture time (0 = empty chain)
+     * @param string $chainTip  `entry_hash` of that row ('' = empty chain)
+     * @param int    $timestamp Unix timestamp of capture
+     * @param int    $hmacEpoch `hmac_key_epoch` in force at capture time
      */
     public function __construct(
         public int $sequence,
@@ -57,12 +59,12 @@ final readonly class ChainTipAnchor implements JsonSerializable
      */
     public static function fromArray(array $data): ?self
     {
-        $sequence = $data['sequence'] ?? null;
-        $chainTip = $data['chainTip'] ?? null;
+        $sequence  = $data['sequence'] ?? null;
+        $chainTip  = $data['chainTip'] ?? null;
         $timestamp = $data['timestamp'] ?? null;
         $hmacEpoch = $data['hmacEpoch'] ?? null;
 
-        if (!is_numeric($sequence) || !\is_string($chainTip) || !is_numeric($timestamp) || !is_numeric($hmacEpoch)) {
+        if (!is_numeric($sequence) || !is_string($chainTip) || !is_numeric($timestamp) || !is_numeric($hmacEpoch)) {
             return null;
         }
 
@@ -80,8 +82,8 @@ final readonly class ChainTipAnchor implements JsonSerializable
     public function toArray(): array
     {
         return [
-            'sequence' => $this->sequence,
-            'chainTip' => $this->chainTip,
+            'sequence'  => $this->sequence,
+            'chainTip'  => $this->chainTip,
             'timestamp' => $this->timestamp,
             'hmacEpoch' => $this->hmacEpoch,
         ];

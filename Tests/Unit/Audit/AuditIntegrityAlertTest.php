@@ -56,8 +56,8 @@ final class AuditIntegrityAlertTest extends TestCase
     public function createStampsTheCurrentTime(): void
     {
         $before = time();
-        $alert = AuditIntegrityAlert::create(AuditIntegrityReason::UidGap, '3 rows missing');
-        $after = time();
+        $alert  = AuditIntegrityAlert::create(AuditIntegrityReason::UidGap, '3 rows missing');
+        $after  = time();
 
         self::assertGreaterThanOrEqual($before, $alert->timestamp);
         self::assertLessThanOrEqual($after, $alert->timestamp);

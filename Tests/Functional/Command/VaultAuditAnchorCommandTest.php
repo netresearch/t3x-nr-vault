@@ -18,6 +18,8 @@ use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 
+use function is_array;
+
 /**
  * End-to-end tests for `vault:audit-anchor` through CommandTester.
  *
@@ -65,7 +67,7 @@ final class VaultAuditAnchorCommandTest extends AbstractVaultFunctionalTestCase
     {
         $this->get(AuditLogServiceInterface::class)->log('anchor_cmd_secret', 'create', true);
 
-        $tester = new CommandTester($this->get(VaultAuditAnchorCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditAnchorCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
@@ -108,7 +110,7 @@ final class VaultAuditAnchorCommandTest extends AbstractVaultFunctionalTestCase
     {
         $this->get(AuditLogServiceInterface::class)->log('anchor_cmd_secret', 'create', true);
 
-        $tester = new CommandTester($this->get(VaultAuditAnchorCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditAnchorCommand::class));
         $exitCode = $tester->execute(['--dry-run' => true]);
 
         self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
@@ -126,7 +128,7 @@ final class VaultAuditAnchorCommandTest extends AbstractVaultFunctionalTestCase
         $this->disableFileSink();
         $this->get(AuditLogServiceInterface::class)->log('anchor_cmd_secret', 'create', true);
 
-        $tester = new CommandTester($this->get(VaultAuditAnchorCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditAnchorCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::FAILURE, $exitCode);
@@ -136,7 +138,7 @@ final class VaultAuditAnchorCommandTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function anchoringAnEmptyChainStillSucceeds(): void
     {
-        $tester = new CommandTester($this->get(VaultAuditAnchorCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditAnchorCommand::class));
         $exitCode = $tester->execute([]);
 
         // An empty-chain anchor carries no hash to compare against, but it dates
@@ -157,7 +159,7 @@ final class VaultAuditAnchorCommandTest extends AbstractVaultFunctionalTestCase
         $this->get(AuditLogServiceInterface::class)->log('anchor_cmd_secret', 'create', true);
         $this->setUpBackendUser(self::NO_PERMISSIONS);
 
-        $tester = new CommandTester($this->get(VaultAuditAnchorCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditAnchorCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::FAILURE, $exitCode);
@@ -193,7 +195,7 @@ final class VaultAuditAnchorCommandTest extends AbstractVaultFunctionalTestCase
         $this->get(AuditLogServiceInterface::class)->log('anchor_cmd_secret', 'create', true);
         $this->setUpBackendUser(self::AUDIT_VIEWER);
 
-        $tester = new CommandTester($this->get(VaultAuditAnchorCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditAnchorCommand::class));
         $exitCode = $tester->execute(['--dry-run' => true]);
 
         self::assertSame(Command::FAILURE, $exitCode);
@@ -206,7 +208,7 @@ final class VaultAuditAnchorCommandTest extends AbstractVaultFunctionalTestCase
         $this->get(AuditLogServiceInterface::class)->log('anchor_cmd_secret', 'create', true);
         $this->setUpBackendUser(self::VAULT_CONFIGURATOR);
 
-        $tester = new CommandTester($this->get(VaultAuditAnchorCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditAnchorCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
@@ -228,13 +230,13 @@ final class VaultAuditAnchorCommandTest extends AbstractVaultFunctionalTestCase
      */
     private function disableFileSink(): void
     {
-        $confVars = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
-        $extensions = \is_array($confVars['EXTENSIONS'] ?? null) ? $confVars['EXTENSIONS'] : [];
-        $nrVault = \is_array($extensions['nr_vault'] ?? null) ? $extensions['nr_vault'] : [];
+        $confVars   = is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
+        $extensions = is_array($confVars['EXTENSIONS'] ?? null) ? $confVars['EXTENSIONS'] : [];
+        $nrVault    = is_array($extensions['nr_vault'] ?? null) ? $extensions['nr_vault'] : [];
 
         $nrVault['auditSinkFileEnabled'] = 0;
-        $extensions['nr_vault'] = $nrVault;
-        $confVars['EXTENSIONS'] = $extensions;
-        $GLOBALS['TYPO3_CONF_VARS'] = $confVars;
+        $extensions['nr_vault']          = $nrVault;
+        $confVars['EXTENSIONS']          = $extensions;
+        $GLOBALS['TYPO3_CONF_VARS']      = $confVars;
     }
 }

@@ -59,10 +59,10 @@ final class VaultServerConfigTest extends TestCase
     public function fromArrayCreatesObjectWithAllFields(): void
     {
         $subject = VaultServerConfig::fromArray([
-            'address' => self::ADDRESS_INTERNAL,
-            'path' => self::PATH_KV_MYAPP,
+            'address'    => self::ADDRESS_INTERNAL,
+            'path'       => self::PATH_KV_MYAPP,
             'authMethod' => 'token',
-            'token' => 's.abc123',
+            'token'      => 's.abc123',
         ]);
 
         self::assertSame(self::ADDRESS_INTERNAL, $subject->address);
@@ -87,7 +87,7 @@ final class VaultServerConfigTest extends TestCase
     {
         $subject = VaultServerConfig::fromArray([
             'address' => self::ADDRESS_EXAMPLE,
-            'path' => 'secret',
+            'path'    => 'secret',
         ]);
 
         self::assertSame(self::ADDRESS_EXAMPLE, $subject->address);
@@ -171,10 +171,10 @@ final class VaultServerConfigTest extends TestCase
         );
 
         self::assertSame([
-            'address' => self::ADDRESS_EXAMPLE,
-            'path' => self::PATH_KV_MYAPP,
+            'address'    => self::ADDRESS_EXAMPLE,
+            'path'       => self::PATH_KV_MYAPP,
             'authMethod' => 'token',
-            'token' => 's.secret',
+            'token'      => 's.secret',
         ], $subject->toArray());
     }
 
@@ -184,10 +184,10 @@ final class VaultServerConfigTest extends TestCase
         $subject = new VaultServerConfig();
 
         self::assertSame([
-            'address' => '',
-            'path' => '',
+            'address'    => '',
+            'path'       => '',
             'authMethod' => '',
-            'token' => '',
+            'token'      => '',
         ], $subject->toArray());
     }
 
@@ -203,10 +203,10 @@ final class VaultServerConfigTest extends TestCase
     public function fromArrayRoundTripToArray(): void
     {
         $original = [
-            'address' => self::ADDRESS_INTERNAL,
-            'path' => self::PATH_SECRET_DATA,
+            'address'    => self::ADDRESS_INTERNAL,
+            'path'       => self::PATH_SECRET_DATA,
             'authMethod' => 'token',
-            'token' => 's.roundtrip',
+            'token'      => 's.roundtrip',
         ];
 
         $subject = VaultServerConfig::fromArray($original);

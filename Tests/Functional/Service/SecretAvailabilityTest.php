@@ -26,6 +26,8 @@ use Netresearch\NrVault\Tests\Functional\Traits\SecretRowTrait;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\Connection;
 
+use function is_string;
+
 /**
  * What enabling and disabling a secret actually does.
  *
@@ -392,6 +394,6 @@ final class SecretAvailabilityTest extends AbstractVaultFunctionalTestCase
             ->executeQuery()
             ->fetchOne();
 
-        return \is_string($reason) ? $reason : '';
+        return is_string($reason) ? $reason : '';
     }
 }

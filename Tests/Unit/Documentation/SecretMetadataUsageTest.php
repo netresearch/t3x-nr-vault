@@ -4,6 +4,7 @@
  * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Documentation;
@@ -26,6 +27,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Throwable;
+
+use function dirname;
 
 #[CoversClass(VaultService::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -74,7 +77,7 @@ final class SecretMetadataUsageTest extends TestCase
         $filter = $this->metadataFilter();
         self::assertSame($filter, $this->metadataFilter());
         $failure = null;
-        $result = [];
+        $result  = [];
 
         try {
             $result = $filter($vault);
@@ -108,7 +111,7 @@ final class SecretMetadataUsageTest extends TestCase
     public function detailedMetadataKeepsExpiredDisabledCustodyWithoutReadingTheValue(): void
     {
         $identifier = 'disabled_meta';
-        $secret = new Secret(
+        $secret     = new Secret(
             identifier: $identifier,
             uid: 42,
             scopePid: 27,
@@ -168,25 +171,25 @@ final class SecretMetadataUsageTest extends TestCase
         self::assertTrue($details->isExpired());
         self::assertSame(
             [
-                'uid' => 42,
-                'identifier' => $identifier,
-                'description' => self::DESCRIPTION,
-                'owner' => 10,
-                'owner_uid' => 10,
-                'groups' => [5],
-                'context' => 'payment',
+                'uid'                 => 42,
+                'identifier'          => $identifier,
+                'description'         => self::DESCRIPTION,
+                'owner'               => 10,
+                'owner_uid'           => 10,
+                'groups'              => [5],
+                'context'             => 'payment',
                 'frontend_accessible' => false,
-                'version' => 1,
-                'createdAt' => 0,
-                'updatedAt' => 0,
-                'expiresAt' => 1,
-                'expires_at' => 1,
-                'lastRotatedAt' => null,
-                'read_count' => 7,
-                'last_read_at' => 100,
-                'metadata' => ['source' => 'tca_field', 'environment' => 'production'],
-                'scopePid' => 27,
-                'enabled' => false,
+                'version'             => 1,
+                'createdAt'           => 0,
+                'updatedAt'           => 0,
+                'expiresAt'           => 1,
+                'expires_at'          => 1,
+                'lastRotatedAt'       => null,
+                'read_count'          => 7,
+                'last_read_at'        => 100,
+                'metadata'            => ['source' => 'tca_field', 'environment' => 'production'],
+                'scopePid'            => 27,
+                'enabled'             => false,
             ],
             $details->toArray(),
         );
@@ -201,7 +204,7 @@ final class SecretMetadataUsageTest extends TestCase
         array $metadata,
     ): void {
         $identifier = 'metadata_replace';
-        $existing = new Secret(
+        $existing   = new Secret(
             identifier: $identifier,
             uid: 42,
             encryptedValue: 'old-ciphertext',
@@ -287,7 +290,7 @@ final class SecretMetadataUsageTest extends TestCase
         /** @var Closure(VaultServiceInterface): list<SecretMetadata>|null $filter */
         static $filter = null;
         if ($filter === null) {
-            $loaded = require_once \dirname(__DIR__, 3) . '/Documentation/Developer/Adr/_SecretMetadataFilter.php';
+            $loaded = require_once dirname(__DIR__, 3) . '/Documentation/Developer/Adr/_SecretMetadataFilter.php';
             self::assertInstanceOf(Closure::class, $loaded);
             $filter = $loaded;
         }

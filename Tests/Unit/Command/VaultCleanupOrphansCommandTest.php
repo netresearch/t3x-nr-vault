@@ -29,6 +29,8 @@ use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface;
 
+use function sprintf;
+
 #[CoversClass(VaultCleanupOrphansCommand::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class VaultCleanupOrphansCommandTest extends TestCase
@@ -53,7 +55,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
+        $this->vaultService   = $this->createMock(VaultServiceInterface::class);
         $this->connectionPool = $this->createMock(ConnectionPool::class);
 
         $command = new VaultCleanupOrphansCommand(
@@ -149,7 +151,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     public function respectsRetentionDays(): void
     {
         $recentOrphan = time() - 86400 * 3; // 3 days ago
-        $oldOrphan = time() - 86400 * 30;   // 30 days ago
+        $oldOrphan    = time() - 86400 * 30;   // 30 days ago
 
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(
@@ -167,7 +169,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->mockRecordDoesNotExist();
 
         $exitCode = $this->commandTester->execute([
-            '--dry-run' => true,
+            '--dry-run'        => true,
             '--retention-days' => 7,
         ]);
 
@@ -197,7 +199,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             '--dry-run' => true,
-            '--table' => 'tx_myext',
+            '--table'   => 'tx_myext',
         ]);
 
         self::assertSame(0, $exitCode);
@@ -525,7 +527,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->mockRecordDoesNotExist();
 
         $this->commandTester->execute([
-            '--dry-run' => true,
+            '--dry-run'        => true,
             '--retention-days' => $retentionDays,
         ]);
 
@@ -535,7 +537,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
             self::assertStringContainsString(self::MSG_NO_ORPHANS, $display);
         } else {
             self::assertStringContainsString(
-                \sprintf('Found %d orphaned secrets', $expectedOrphanCount),
+                sprintf('Found %d orphaned secrets', $expectedOrphanCount),
                 $display,
             );
         }
@@ -761,7 +763,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->mockRecordDoesNotExist();
 
         $exitCode = $this->commandTester->execute([
-            '--dry-run' => true,
+            '--dry-run'    => true,
             '--batch-size' => $batchSize,
         ]);
 
@@ -785,7 +787,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->mockRecordDoesNotExist();
 
         $exitCode = $this->commandTester->execute([
-            '--dry-run' => true,
+            '--dry-run'    => true,
             '--batch-size' => 0,
         ]);
 
@@ -841,7 +843,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->vaultService
             ->method('delete')
             ->willReturnCallback(static function () use (&$calls): void {
-                $calls++;
+                ++$calls;
                 if ($calls === 2) {
                     throw new VaultException('fail', 3285362926);
                 }

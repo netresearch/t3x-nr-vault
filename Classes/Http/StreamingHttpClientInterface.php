@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -85,15 +82,15 @@ interface StreamingHttpClientInterface
      * blocking, through the ordinary path — and the body is already complete
      * when it is returned.
      *
-     * @param RequestInterface $request PSR-7 request
-     * @param CancellationSignalInterface|null $signal Polled before the send and on every transport step
-     *
-     * @throws RequestCancelledException When the signal aborted the call before it returned
-     * @throws ClientExceptionInterface When the transfer failed before it returned
-     * @throws VaultException When the scheme or host is rejected, secret retrieval fails, the transfer overran its time bound,
-     *                        or one step delivered more body than the buffer holds
+     * @param RequestInterface                 $request PSR-7 request
+     * @param CancellationSignalInterface|null $signal  Polled before the send and on every transport step
      *
      * @return ResponseInterface PSR-7 response whose body is read from the wire
+     *
+     * @throws RequestCancelledException When the signal aborted the call before it returned
+     * @throws ClientExceptionInterface  When the transfer failed before it returned
+     * @throws VaultException            When the scheme or host is rejected, secret retrieval fails, the transfer overran its time bound,
+     *                                   or one step delivered more body than the buffer holds
      */
     public function sendStreaming(
         RequestInterface $request,

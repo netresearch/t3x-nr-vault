@@ -64,7 +64,7 @@ final class VaultRotateCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'nonexistent',
-            '--value' => 'new-secret',
+            '--value'    => 'new-secret',
         ]);
 
         self::assertSame(1, $exitCode);
@@ -85,7 +85,7 @@ final class VaultRotateCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'my-secret',
-            '--value' => 'new-secret-value',
+            '--value'    => 'new-secret-value',
         ]);
 
         self::assertSame(0, $exitCode);
@@ -106,8 +106,8 @@ final class VaultRotateCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'rotated',
-            '--value' => 'new-value',
-            '--reason' => 'Security incident',
+            '--value'    => 'new-value',
+            '--reason'   => 'Security incident',
         ]);
 
         self::assertSame(0, $exitCode);
@@ -132,7 +132,7 @@ final class VaultRotateCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'file-rotate',
-            '--file' => vfsStream::url('test/new-secret.txt'),
+            '--file'     => vfsStream::url('test/new-secret.txt'),
         ]);
 
         self::assertSame(0, $exitCode);
@@ -163,7 +163,7 @@ final class VaultRotateCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'file-missing',
-            '--file' => '/nonexistent/file.txt',
+            '--file'     => '/nonexistent/file.txt',
         ]);
 
         self::assertSame(1, $exitCode);
@@ -183,7 +183,7 @@ final class VaultRotateCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'gone',
-            '--value' => 'new-value',
+            '--value'    => 'new-value',
         ]);
 
         self::assertSame(1, $exitCode);
@@ -203,7 +203,7 @@ final class VaultRotateCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'error',
-            '--value' => 'new-value',
+            '--value'    => 'new-value',
         ]);
 
         self::assertSame(1, $exitCode);
@@ -222,8 +222,8 @@ final class VaultRotateCommandTest extends TestCase
 
         $this->commandTester->execute([
             'identifier' => 'show-details',
-            '--value' => 'new-value',
-            '--reason' => 'Scheduled rotation',
+            '--value'    => 'new-value',
+            '--reason'   => 'Scheduled rotation',
         ]);
 
         $display = $this->commandTester->getDisplay();

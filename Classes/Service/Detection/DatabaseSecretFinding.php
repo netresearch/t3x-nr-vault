@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Service\Detection;
 
+use function sprintf;
+
 /**
  * A detected secret in a database table column.
  */
@@ -48,7 +50,7 @@ final readonly class DatabaseSecretFinding implements SecretFinding
 
     public function getDetails(): string
     {
-        return \sprintf('%d records (%d plaintext)', $this->recordCount, $this->plaintextCount);
+        return sprintf('%d records (%d plaintext)', $this->recordCount, $this->plaintextCount);
     }
 
     /**
@@ -57,13 +59,13 @@ final readonly class DatabaseSecretFinding implements SecretFinding
     public function jsonSerialize(): array
     {
         return [
-            'source' => 'database',
-            'table' => $this->table,
-            'column' => $this->column,
-            'count' => $this->recordCount,
+            'source'         => 'database',
+            'table'          => $this->table,
+            'column'         => $this->column,
+            'count'          => $this->recordCount,
             'plaintextCount' => $this->plaintextCount,
-            'severity' => $this->severity->value,
-            'patterns' => $this->patterns,
+            'severity'       => $this->severity->value,
+            'patterns'       => $this->patterns,
         ];
     }
 }

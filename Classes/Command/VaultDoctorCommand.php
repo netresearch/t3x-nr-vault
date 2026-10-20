@@ -22,6 +22,10 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Throwable;
 
+use function count;
+use function is_string;
+use function sprintf;
+
 /**
  * Deployment-readiness gate for the vault.
  *
@@ -92,14 +96,14 @@ final class VaultDoctorCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io           = new SymfonyStyle($input, $output);
         $formatOption = $input->getOption('format');
-        $json = \is_string($formatOption) && strtolower($formatOption) === 'json';
+        $json         = is_string($formatOption) && strtolower($formatOption) === 'json';
 
         $profileOption = $input->getOption('profile');
         $targetProfile = null;
 
-        if (\is_string($profileOption) && trim($profileOption) !== '') {
+        if (is_string($profileOption) && trim($profileOption) !== '') {
             $targetProfile = SecurityProfile::tryFrom(strtolower(trim($profileOption)));
 
             if (!$targetProfile instanceof SecurityProfile) {
@@ -136,7 +140,7 @@ final class VaultDoctorCommand extends Command
         string $given,
         bool $json,
     ): void {
-        $message = \sprintf(
+        $message = sprintf(
             'Unknown profile "%s". Valid profiles: %s, %s.',
             $given,
             SecurityProfile::Standard->value,
@@ -173,18 +177,18 @@ final class VaultDoctorCommand extends Command
     {
         $io->title('Vault Readiness Report');
 
-        $context = $report->context;
+        $context     = $report->context;
         $definitions = [
             ['Checked against profile' => $context->profile->value],
         ];
         if ($context->isProfileOverridden()) {
-            $definitions[] = ['Configured profile' => \sprintf(
+            $definitions[] = ['Configured profile' => sprintf(
                 '%s (NOT changed by this command)',
                 $context->configuredProfile->value,
             )];
         }
 
-        $definitions[] = ['Controls passed' => \sprintf(
+        $definitions[] = ['Controls passed' => sprintf(
             '%d of %d',
             $report->passedControls(),
             $report->totalControls(),
@@ -194,7 +198,7 @@ final class VaultDoctorCommand extends Command
         $problems = $report->problems();
 
         if ($problems === []) {
-            $io->success(\sprintf(
+            $io->success(sprintf(
                 'All %d controls passed — the configuration is audit-ready for the %s profile.',
                 $report->totalControls(),
                 $context->profile->value,
@@ -207,11 +211,11 @@ final class VaultDoctorCommand extends Command
             $this->renderFinding($io, $finding);
         }
 
-        $criticalCount = \count($report->findingsOfSeverity(FindingSeverity::Critical));
-        $warningCount = \count($report->findingsOfSeverity(FindingSeverity::Warning));
+        $criticalCount = count($report->findingsOfSeverity(FindingSeverity::Critical));
+        $warningCount  = count($report->findingsOfSeverity(FindingSeverity::Warning));
 
         if ($criticalCount > 0) {
-            $io->error(\sprintf(
+            $io->error(sprintf(
                 'NOT audit-ready for the %s profile: %d critical, %d warning.',
                 $context->profile->value,
                 $criticalCount,
@@ -221,7 +225,7 @@ final class VaultDoctorCommand extends Command
             return;
         }
 
-        $io->warning(\sprintf(
+        $io->warning(sprintf(
             'Deployable with %d warning(s) — no critical findings for the %s profile.',
             $warningCount,
             $context->profile->value,
@@ -237,7 +241,7 @@ final class VaultDoctorCommand extends Command
      */
     private function renderFinding(SymfonyStyle $io, Finding $finding): void
     {
-        $io->section(\sprintf(
+        $io->section(sprintf(
             '[%s] %s',
             strtoupper($finding->severity->value),
             $finding->id,

@@ -31,16 +31,16 @@ interface VaultServiceInterface
      * configured site only for new values. Existing encrypted namespaces retain
      * their authenticated identifier after site rename/delete.
      *
-     * @param string $identifier Friendly name, UUIDv7 or canonical site namespace, at most 255 bytes
-     * @param string $secret The secret value to store
-     * @param array<string, mixed> $options Optional configuration:
-     *                                      - owner: int - BE user UID who owns this secret
-     *                                      - groups: int[] - BE user group UIDs allowed to access
-     *                                      - context: string - Permission scoping
-     *                                      - expiresAt: int|\DateTimeInterface|null - When secret expires
-     *                                      - metadata: array - Custom metadata
-     *                                      - description: string - Human-readable description
-     *                                      - scopePid: int - Page ID for multi-site scoping
+     * @param string               $identifier Friendly name, UUIDv7 or canonical site namespace, at most 255 bytes
+     * @param string               $secret     The secret value to store
+     * @param array<string, mixed> $options    Optional configuration:
+     *                                         - owner: int - BE user UID who owns this secret
+     *                                         - groups: int[] - BE user group UIDs allowed to access
+     *                                         - context: string - Permission scoping
+     *                                         - expiresAt: int|\DateTimeInterface|null - When secret expires
+     *                                         - metadata: array - Custom metadata
+     *                                         - description: string - Human-readable description
+     *                                         - scopePid: int - Page ID for multi-site scoping
      *
      * @throws ValidationException If identifier is invalid or a new namespace lacks its exact configured site
      * @throws EncryptionException If encryption fails
@@ -50,11 +50,11 @@ interface VaultServiceInterface
     /**
      * Retrieve a secret value.
      *
-     * @throws AccessDeniedException If current user lacks permission
-     * @throws EncryptionException If decryption fails
-     * @throws SecretExpiredException If secret has expired
-     *
      * @return string|null The secret value, or null if not found
+     *
+     * @throws AccessDeniedException  If current user lacks permission
+     * @throws EncryptionException    If decryption fails
+     * @throws SecretExpiredException If secret has expired
      */
     public function retrieve(string $identifier): ?string;
 
@@ -69,11 +69,11 @@ interface VaultServiceInterface
      * (expiry, decryption, audit logging, read statistics) behaves as in
      * `retrieve()`.
      *
-     * @throws AccessDeniedException If the secret is not frontend-accessible, or the current actor lacks read permission
-     * @throws EncryptionException If decryption fails
-     * @throws SecretExpiredException If secret has expired
-     *
      * @return string|null The secret value, or null if not found
+     *
+     * @throws AccessDeniedException  If the secret is not frontend-accessible, or the current actor lacks read permission
+     * @throws EncryptionException    If decryption fails
+     * @throws SecretExpiredException If secret has expired
      */
     public function retrieveForFrontend(string $identifier): ?string;
 
@@ -99,7 +99,7 @@ interface VaultServiceInterface
      * Documentation/Operations/Decommissioning.rst.
      *
      * @throws SecretNotFoundException If secret doesn't exist
-     * @throws AccessDeniedException If current user lacks permission
+     * @throws AccessDeniedException   If current user lacks permission
      */
     public function delete(string $identifier, string $reason = ''): void;
 
@@ -131,8 +131,8 @@ interface VaultServiceInterface
      * Rotate a secret.
      *
      * @throws SecretNotFoundException If secret doesn't exist
-     * @throws AccessDeniedException If current user lacks permission
-     * @throws EncryptionException If encryption fails
+     * @throws AccessDeniedException   If current user lacks permission
+     * @throws EncryptionException     If encryption fails
      */
     public function rotate(string $identifier, #[SensitiveParameter] string $newSecret, string $reason = ''): void;
 
@@ -165,7 +165,7 @@ interface VaultServiceInterface
      *                       audit entry alongside the direction of the change
      *
      * @throws SecretNotFoundException If secret doesn't exist
-     * @throws AccessDeniedException If current user lacks permission
+     * @throws AccessDeniedException   If current user lacks permission
      */
     public function setEnabled(string $identifier, bool $enabled, string $reason = ''): void;
 
@@ -179,15 +179,15 @@ interface VaultServiceInterface
      * backend's own case rules may already have selected fewer candidates.
      * The pattern is enforced even when an older adapter ignores its DTO field.
      *
-     * @param string|null $pattern Optional complete identifier pattern
-     * @param bool $includeDisabled Also return secrets that are currently
-     *                              disabled. Off by default, so a consumer
-     *                              asking "which secrets are available" keeps
-     *                              the answer it had; the management surfaces
-     *                              pass true, because a disabled secret that
-     *                              never appears in a listing cannot be
-     *                              re-enabled. Each entry reports its state in
-     *                              SecretMetadata::$enabled.
+     * @param string|null $pattern         Optional complete identifier pattern
+     * @param bool        $includeDisabled Also return secrets that are currently
+     *                                     disabled. Off by default, so a consumer
+     *                                     asking "which secrets are available" keeps
+     *                                     the answer it had; the management surfaces
+     *                                     pass true, because a disabled secret that
+     *                                     never appears in a listing cannot be
+     *                                     re-enabled. Each entry reports its state in
+     *                                     SecretMetadata::$enabled.
      *
      * @return list<SecretMetadata>
      */
@@ -200,7 +200,7 @@ interface VaultServiceInterface
      * read authorization; only SecretNotFoundException establishes absence.
      *
      * @throws SecretNotFoundException If secret doesn't exist
-     * @throws AccessDeniedException If current user lacks permission
+     * @throws AccessDeniedException   If current user lacks permission
      */
     public function getMetadata(string $identifier): SecretDetails;
 

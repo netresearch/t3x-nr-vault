@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -24,14 +21,14 @@ namespace Netresearch\NrVault\Audit;
  */
 enum AuditAction: string
 {
-    case Create = 'create';
-    case Read = 'read';
-    case Update = 'update';
-    case Delete = 'delete';
-    case Rotate = 'rotate';
+    case Create         = 'create';
+    case Read           = 'read';
+    case Update         = 'update';
+    case Delete         = 'delete';
+    case Rotate         = 'rotate';
     case MetadataUpdate = 'metadata_update';
-    case AccessDenied = 'access_denied';
-    case HttpCall = 'http_call';
+    case AccessDenied   = 'access_denied';
+    case HttpCall       = 'http_call';
     /**
      * The cancellation signal stopped an IN-FLIGHT request — written by
      * `VaultHttpClient::sendCancellable()` and `VaultHttpClient::sendStreaming()`,
@@ -79,9 +76,9 @@ enum AuditAction: string
      * asked for.
      */
     case HttpCallCancelledBeforeSend = 'http_call_cancelled_before_send';
-    case MasterKeyRotateStart = 'master_key_rotate_start';
-    case MasterKeyRotateEnd = 'master_key_rotate_end';
-    case AuditChainRekey = 'audit_chain_rekey';
+    case MasterKeyRotateStart        = 'master_key_rotate_start';
+    case MasterKeyRotateEnd          = 'master_key_rotate_end';
+    case AuditChainRekey             = 'audit_chain_rekey';
     /**
      * One OAuth token-endpoint round trip attempted by `OAuthTokenManager` —
      * the outbound POST that carries the `client_secret` (issue #303).
@@ -103,14 +100,14 @@ enum AuditAction: string
      * EVENTS (a rejected refresh token, the fallback, a failed store); this
      * one records the round trip itself.
      */
-    case OAuthTokenRequest = 'oauth_token_request';
-    case OAuthRefreshFailed = 'oauth_refresh_failed';
+    case OAuthTokenRequest              = 'oauth_token_request';
+    case OAuthRefreshFailed             = 'oauth_refresh_failed';
     case OAuthFallbackClientCredentials = 'oauth_fallback_client_credentials';
-    case OAuthRefreshStoreFailed = 'oauth_refresh_store_failed';
-    case AuditReadLoggingChanged = 'audit_read_logging_changed';
-    case AuditAnchorReset = 'audit_anchor_reset';
-    case BreakGlassActivated = 'break_glass_activated';
-    case BreakGlassDeactivated = 'break_glass_deactivated';
+    case OAuthRefreshStoreFailed        = 'oauth_refresh_store_failed';
+    case AuditReadLoggingChanged        = 'audit_read_logging_changed';
+    case AuditAnchorReset               = 'audit_anchor_reset';
+    case BreakGlassActivated            = 'break_glass_activated';
+    case BreakGlassDeactivated          = 'break_glass_deactivated';
 
     /**
      * Human-readable label for backend filter dropdowns.

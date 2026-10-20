@@ -18,7 +18,7 @@ return [
         // validator needs right after us.
         'netresearch/nr-vault/overview-module-resolver' => [
             'target' => VaultOverviewModuleResolver::class,
-            'after' => [
+            'after'  => [
                 'typo3/cms-backend/authentication',
             ],
             'before' => [

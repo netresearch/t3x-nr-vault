@@ -19,6 +19,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function is_scalar;
+
 /**
  * Functional tests for the cmdmap commands SecretTcaHook refuses outright on
  * tx_nrvault_secret.
@@ -79,7 +81,7 @@ final class SecretTcaHookCommandRefusalTest extends AbstractVaultFunctionalTestC
         $this->setUpBackendUser($actorUid);
         [$uid, $identifier] = $this->seedSecret(self::ADMIN_UID, deleted: true);
 
-        $messages = [];
+        $messages           = [];
         $commandIsProcessed = $this->runCommandHook('undelete', $uid, $messages);
 
         self::assertTrue(
@@ -114,7 +116,7 @@ final class SecretTcaHookCommandRefusalTest extends AbstractVaultFunctionalTestC
         $this->setUpBackendUser(self::ADMIN_UID);
         [$uid, $identifier] = $this->seedSecret(self::ADMIN_UID, deleted: $command === 'undelete');
 
-        $messages = [];
+        $messages           = [];
         $commandIsProcessed = $this->runCommandHook($command, $uid, $messages);
 
         self::assertTrue($commandIsProcessed, $command . ' must be cancelled');
@@ -164,7 +166,7 @@ final class SecretTcaHookCommandRefusalTest extends AbstractVaultFunctionalTestC
         $this->setUpBackendUser(self::ADMIN_UID);
         [$uid, $identifier] = $this->seedSecret(self::ADMIN_UID);
 
-        $messages = [];
+        $messages           = [];
         $commandIsProcessed = $this->runCommandHook('localize', $uid, $messages);
 
         self::assertFalse($commandIsProcessed, 'localize must be left to core');
@@ -183,7 +185,7 @@ final class SecretTcaHookCommandRefusalTest extends AbstractVaultFunctionalTestC
         $this->setUpBackendUser(self::ADMIN_UID);
         [$uid, $identifier] = $this->seedSecret(self::EDITOR_UID);
 
-        $messages = [];
+        $messages           = [];
         $commandIsProcessed = $this->runCommandHook('delete', $uid, $messages);
 
         self::assertTrue($commandIsProcessed, 'The service-performed delete must cancel core deleteAction.');
@@ -209,7 +211,7 @@ final class SecretTcaHookCommandRefusalTest extends AbstractVaultFunctionalTestC
         $hook = $this->get(SecretTcaHook::class);
         self::assertInstanceOf(SecretTcaHook::class, $hook);
 
-        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler          = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->BE_USER = $GLOBALS['BE_USER'];
 
         $hook->processCmdmap_preProcess($command, self::SECRET_TABLE, $uid, null, $dataHandler);
@@ -226,7 +228,7 @@ final class SecretTcaHookCommandRefusalTest extends AbstractVaultFunctionalTestC
         // Explicit narrowing rather than a cast: the v13 stubs type errorLog
         // as a plain array, so its entries are mixed on that matrix leg only.
         foreach ($errorLog as $entry) {
-            if (\is_scalar($entry)) {
+            if (is_scalar($entry)) {
                 $messages[] = (string) $entry;
             }
         }
@@ -242,11 +244,11 @@ final class SecretTcaHookCommandRefusalTest extends AbstractVaultFunctionalTestC
         $identifier = 'cmd_refusal_' . bin2hex(random_bytes(4));
         $connection = $this->getConnectionPool()->getConnectionForTable(self::SECRET_TABLE);
         $connection->insert(self::SECRET_TABLE, [
-            'pid' => 0,
-            'identifier' => $identifier,
-            'owner_uid' => $ownerUid,
+            'pid'                 => 0,
+            'identifier'          => $identifier,
+            'owner_uid'           => $ownerUid,
             'frontend_accessible' => 0,
-            'deleted' => $deleted ? 1 : 0,
+            'deleted'             => $deleted ? 1 : 0,
         ]);
 
         return [(int) $connection->lastInsertId(), $identifier];

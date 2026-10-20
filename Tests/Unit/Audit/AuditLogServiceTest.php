@@ -43,6 +43,10 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
+use function array_key_exists;
+use function count;
+use function strlen;
+
 #[CoversClass(AuditLogService::class)]
 #[CoversClass(AuditLogEntry::class)]
 #[CoversClass(AuditLogInputs::class)]
@@ -95,12 +99,12 @@ final class AuditLogServiceTest extends TestCase
     {
         parent::setUp();
 
-        $this->connectionPool = $this->createMock(ConnectionPool::class);
-        $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
-        $this->masterKeyProvider = $this->createMock(MasterKeyProviderInterface::class);
+        $this->connectionPool         = $this->createMock(ConnectionPool::class);
+        $this->accessControlService   = $this->createMock(AccessControlServiceInterface::class);
+        $this->masterKeyProvider      = $this->createMock(MasterKeyProviderInterface::class);
         $this->extensionConfiguration = $this->createMock(ExtensionConfigurationInterface::class);
-        $this->queryBuilder = $this->createMock(QueryBuilder::class);
-        $this->connection = $this->createMock(Connection::class);
+        $this->queryBuilder           = $this->createMock(QueryBuilder::class);
+        $this->connection             = $this->createMock(Connection::class);
         // The tip anchor is exercised in its own unit + functional tests; here
         // it stays inert so the existing write/verify assertions are unchanged.
         $this->anchorStore = $this->createMock(AuditChainAnchorStoreInterface::class);
@@ -276,7 +280,7 @@ final class AuditLogServiceTest extends TestCase
         $this->setupDatabaseMocks();
 
         // Set up server globals for request context
-        $_SERVER['REMOTE_ADDR'] = '192.168.1.100';
+        $_SERVER['REMOTE_ADDR']     = '192.168.1.100';
         $_SERVER['HTTP_USER_AGENT'] = 'PHPUnit Test';
 
         $this->connection
@@ -317,26 +321,26 @@ final class AuditLogServiceTest extends TestCase
     {
         $this->setupQueryMocks([
             [
-                'uid' => 1,
-                'pid' => 0,
+                'uid'               => 1,
+                'pid'               => 0,
                 'secret_identifier' => 'test_secret',
-                'action' => 'create',
-                'success' => 1,
-                'error_message' => '',
-                'reason' => 'Test',
-                'actor_uid' => 1,
-                'actor_type' => 'backend',
-                'actor_username' => 'admin',
-                'actor_role' => 'backend',
-                'ip_address' => '127.0.0.1',
-                'user_agent' => 'PHPUnit',
-                'request_id' => 'abc123',
-                'previous_hash' => '',
-                'entry_hash' => 'hash123',
-                'hash_before' => '',
-                'hash_after' => 'newhash',
-                'crdate' => time(),
-                'context' => '{}',
+                'action'            => 'create',
+                'success'           => 1,
+                'error_message'     => '',
+                'reason'            => 'Test',
+                'actor_uid'         => 1,
+                'actor_type'        => 'backend',
+                'actor_username'    => 'admin',
+                'actor_role'        => 'backend',
+                'ip_address'        => '127.0.0.1',
+                'user_agent'        => 'PHPUnit',
+                'request_id'        => 'abc123',
+                'previous_hash'     => '',
+                'entry_hash'        => 'hash123',
+                'hash_before'       => '',
+                'hash_after'        => 'newhash',
+                'crdate'            => time(),
+                'context'           => '{}',
             ],
         ]);
 
@@ -416,8 +420,8 @@ final class AuditLogServiceTest extends TestCase
     #[Test]
     public function queryWithFilterAppliesDateRangeFilters(): void
     {
-        $since = new DateTimeImmutable('2024-01-01');
-        $until = new DateTimeImmutable('2024-12-31');
+        $since  = new DateTimeImmutable('2024-01-01');
+        $until  = new DateTimeImmutable('2024-12-31');
         $filter = new AuditLogFilter(since: $since, until: $until);
 
         $expressionBuilder = $this->createMock(ExpressionBuilder::class);
@@ -870,7 +874,7 @@ final class AuditLogServiceTest extends TestCase
             ->willReturn('1');
 
         // Capture the entry_hash and crdate written during insert/update
-        $hmacHash = '';
+        $hmacHash       = '';
         $capturedCrdate = 0;
         $this->connectionMock()
             ->expects(self::atLeastOnce())
@@ -901,12 +905,12 @@ final class AuditLogServiceTest extends TestCase
 
         // Calculate the legacy SHA-256 hash for the same payload using the captured crdate
         $payload = json_encode([
-            'uid' => 1,
+            'uid'               => 1,
             'secret_identifier' => 'test_secret',
-            'action' => 'create',
-            'actor_uid' => 1,
-            'crdate' => $capturedCrdate,
-            'previous_hash' => '',
+            'action'            => 'create',
+            'actor_uid'         => 1,
+            'crdate'            => $capturedCrdate,
+            'previous_hash'     => '',
         ], JSON_THROW_ON_ERROR);
 
         // The HMAC hash should not be empty and should be a valid hex string
@@ -951,27 +955,27 @@ final class AuditLogServiceTest extends TestCase
 
         // Build a row with epoch 0 and valid SHA-256 hash
         $previousHash = '';
-        $payload = json_encode([
-            'uid' => 1,
+        $payload      = json_encode([
+            'uid'               => 1,
             'secret_identifier' => 'test',
-            'action' => 'create',
-            'actor_uid' => 1,
-            'crdate' => 1704067200,
-            'previous_hash' => $previousHash,
+            'action'            => 'create',
+            'actor_uid'         => 1,
+            'crdate'            => 1704067200,
+            'previous_hash'     => $previousHash,
         ], JSON_THROW_ON_ERROR);
         $legacyHash = hash('sha256', $payload);
 
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn([
             [
-                'uid' => 1,
+                'uid'               => 1,
                 'secret_identifier' => 'test',
-                'action' => 'create',
-                'actor_uid' => 1,
-                'crdate' => 1704067200,
-                'previous_hash' => '',
-                'entry_hash' => $legacyHash,
-                'hmac_key_epoch' => 0,
+                'action'            => 'create',
+                'actor_uid'         => 1,
+                'crdate'            => 1704067200,
+                'previous_hash'     => '',
+                'entry_hash'        => $legacyHash,
+                'hmac_key_epoch'    => 0,
             ],
         ]);
         $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
@@ -999,50 +1003,50 @@ final class AuditLogServiceTest extends TestCase
     {
         // Build rows where epoch changes from 0 to 1
         $previousHash = '';
-        $payload1 = json_encode([
-            'uid' => 1,
+        $payload1     = json_encode([
+            'uid'               => 1,
             'secret_identifier' => 'test',
-            'action' => 'create',
-            'actor_uid' => 1,
-            'crdate' => 1704067200,
-            'previous_hash' => $previousHash,
+            'action'            => 'create',
+            'actor_uid'         => 1,
+            'crdate'            => 1704067200,
+            'previous_hash'     => $previousHash,
         ], JSON_THROW_ON_ERROR);
         $hash1 = hash('sha256', $payload1);
 
         // Second entry uses HMAC (epoch 1)
         $masterKey = str_repeat("\x01", 32);
-        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
-        $payload2 = json_encode([
-            'uid' => 2,
+        $hmacKey   = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+        $payload2  = json_encode([
+            'uid'               => 2,
             'secret_identifier' => 'test2',
-            'action' => 'read',
-            'actor_uid' => 1,
-            'crdate' => 1704153600,
-            'previous_hash' => $hash1,
+            'action'            => 'read',
+            'actor_uid'         => 1,
+            'crdate'            => 1704153600,
+            'previous_hash'     => $hash1,
         ], JSON_THROW_ON_ERROR);
         $hash2 = hash_hmac('sha256', $payload2, $hmacKey);
 
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn([
             [
-                'uid' => 1,
+                'uid'               => 1,
                 'secret_identifier' => 'test',
-                'action' => 'create',
-                'actor_uid' => 1,
-                'crdate' => 1704067200,
-                'previous_hash' => '',
-                'entry_hash' => $hash1,
-                'hmac_key_epoch' => 0,
+                'action'            => 'create',
+                'actor_uid'         => 1,
+                'crdate'            => 1704067200,
+                'previous_hash'     => '',
+                'entry_hash'        => $hash1,
+                'hmac_key_epoch'    => 0,
             ],
             [
-                'uid' => 2,
+                'uid'               => 2,
                 'secret_identifier' => 'test2',
-                'action' => 'read',
-                'actor_uid' => 1,
-                'crdate' => 1704153600,
-                'previous_hash' => $hash1,
-                'entry_hash' => $hash2,
-                'hmac_key_epoch' => 1,
+                'action'            => 'read',
+                'actor_uid'         => 1,
+                'crdate'            => 1704153600,
+                'previous_hash'     => $hash1,
+                'entry_hash'        => $hash2,
+                'hmac_key_epoch'    => 1,
             ],
         ]);
         $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
@@ -1073,7 +1077,7 @@ final class AuditLogServiceTest extends TestCase
     {
         // Build a chain with epoch-0 entries followed by epoch-1 entries
         $masterKey = str_repeat("\x01", 32);
-        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+        $hmacKey   = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
 
         // Entry 1: epoch 0 (SHA-256)
         $hash1 = AuditLogService::calculateHash(1, 'secret-a', 'create', 1, 1704067200, '');
@@ -1087,44 +1091,44 @@ final class AuditLogServiceTest extends TestCase
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn([
             [
-                'uid' => 1,
+                'uid'               => 1,
                 'secret_identifier' => 'secret-a',
-                'action' => 'create',
-                'actor_uid' => 1,
-                'crdate' => 1704067200,
-                'previous_hash' => '',
-                'entry_hash' => $hash1,
-                'hmac_key_epoch' => 0,
+                'action'            => 'create',
+                'actor_uid'         => 1,
+                'crdate'            => 1704067200,
+                'previous_hash'     => '',
+                'entry_hash'        => $hash1,
+                'hmac_key_epoch'    => 0,
             ],
             [
-                'uid' => 2,
+                'uid'               => 2,
                 'secret_identifier' => 'secret-b',
-                'action' => 'read',
-                'actor_uid' => 1,
-                'crdate' => 1704153600,
-                'previous_hash' => $hash1,
-                'entry_hash' => $hash2,
-                'hmac_key_epoch' => 0,
+                'action'            => 'read',
+                'actor_uid'         => 1,
+                'crdate'            => 1704153600,
+                'previous_hash'     => $hash1,
+                'entry_hash'        => $hash2,
+                'hmac_key_epoch'    => 0,
             ],
             [
-                'uid' => 3,
+                'uid'               => 3,
                 'secret_identifier' => 'secret-c',
-                'action' => 'update',
-                'actor_uid' => 2,
-                'crdate' => 1704240000,
-                'previous_hash' => $hash2,
-                'entry_hash' => $hash3,
-                'hmac_key_epoch' => 1,
+                'action'            => 'update',
+                'actor_uid'         => 2,
+                'crdate'            => 1704240000,
+                'previous_hash'     => $hash2,
+                'entry_hash'        => $hash3,
+                'hmac_key_epoch'    => 1,
             ],
             [
-                'uid' => 4,
+                'uid'               => 4,
                 'secret_identifier' => 'secret-d',
-                'action' => 'delete',
-                'actor_uid' => 2,
-                'crdate' => 1704326400,
-                'previous_hash' => $hash3,
-                'entry_hash' => $hash4,
-                'hmac_key_epoch' => 1,
+                'action'            => 'delete',
+                'actor_uid'         => 2,
+                'crdate'            => 1704326400,
+                'previous_hash'     => $hash3,
+                'entry_hash'        => $hash4,
+                'hmac_key_epoch'    => 1,
             ],
         ]);
         $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
@@ -1164,8 +1168,8 @@ final class AuditLogServiceTest extends TestCase
     #[Test]
     public function calculateHashV2DiffersForDifferentSuccess(): void
     {
-        $hmacKey = str_repeat("\xAA", 32);
-        $base = $this->makeV2Row(success: 1);
+        $hmacKey  = str_repeat("\xAA", 32);
+        $base     = $this->makeV2Row(success: 1);
         $tampered = $this->makeV2Row(success: 0);
 
         $h1 = AuditLogService::calculateHashV2($base, '', $hmacKey);
@@ -1177,8 +1181,8 @@ final class AuditLogServiceTest extends TestCase
     #[Test]
     public function calculateHashV2DiffersForDifferentErrorMessage(): void
     {
-        $hmacKey = str_repeat("\xAA", 32);
-        $base = $this->makeV2Row(errorMessage: 'access denied');
+        $hmacKey  = str_repeat("\xAA", 32);
+        $base     = $this->makeV2Row(errorMessage: 'access denied');
         $tampered = $this->makeV2Row(errorMessage: '');
 
         $h1 = AuditLogService::calculateHashV2($base, '', $hmacKey);
@@ -1190,8 +1194,8 @@ final class AuditLogServiceTest extends TestCase
     #[Test]
     public function calculateHashV2DiffersForDifferentIpAddress(): void
     {
-        $hmacKey = str_repeat("\xAA", 32);
-        $base = $this->makeV2Row(ipAddress: self::IP_ADDRESS);
+        $hmacKey  = str_repeat("\xAA", 32);
+        $base     = $this->makeV2Row(ipAddress: self::IP_ADDRESS);
         $tampered = $this->makeV2Row(ipAddress: '192.168.1.1');
 
         $h1 = AuditLogService::calculateHashV2($base, '', $hmacKey);
@@ -1204,31 +1208,31 @@ final class AuditLogServiceTest extends TestCase
     public function verifyHashChainEpoch2DetectsForensicTampering(): void
     {
         $masterKey = str_repeat("\x01", 32);
-        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+        $hmacKey   = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
 
         $row = [
-            'uid' => 1,
+            'uid'               => 1,
             'secret_identifier' => 'sek',
-            'action' => 'access_denied',
-            'success' => 0,
-            'actor_uid' => 1,
-            'crdate' => 1704067200,
-            'error_message' => 'access denied',
-            'reason' => 'group not in allowlist',
-            'ip_address' => self::IP_ADDRESS,
-            'user_agent' => self::USER_AGENT,
-            'hash_before' => '',
-            'hash_after' => '',
-            'context' => '{}',
+            'action'            => 'access_denied',
+            'success'           => 0,
+            'actor_uid'         => 1,
+            'crdate'            => 1704067200,
+            'error_message'     => 'access denied',
+            'reason'            => 'group not in allowlist',
+            'ip_address'        => self::IP_ADDRESS,
+            'user_agent'        => self::USER_AGENT,
+            'hash_before'       => '',
+            'hash_after'        => '',
+            'context'           => '{}',
         ];
         $validHash = AuditLogService::calculateHashV2($row, '', $hmacKey);
 
         // Attacker flips `success` from 0 to 1 in storage, but the stored
         // entry_hash still binds the original `success: 0` payload.
         $tamperedRow = array_merge($row, [
-            'success' => 1,
-            'previous_hash' => '',
-            'entry_hash' => $validHash,
+            'success'        => 1,
+            'previous_hash'  => '',
+            'entry_hash'     => $validHash,
             'hmac_key_epoch' => 2,
         ]);
 
@@ -1277,13 +1281,13 @@ final class AuditLogServiceTest extends TestCase
         // key. The downgrade (3 -> 0) MUST be reported as invalid, not merely
         // warned — otherwise the keyless tail-row forgery succeeds silently.
         $masterKey = str_repeat("\x01", 32);
-        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+        $hmacKey   = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
 
-        $row1 = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
+        $row1  = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
         $hash1 = AuditLogService::calculateHashV3($row1, '', $hmacKey);
 
         // Attacker's forged tail row: downgraded to epoch 0, keyless re-sign.
-        $forgedPrevHash = $hash1;
+        $forgedPrevHash  = $hash1;
         $forgedEntryHash = AuditLogService::calculateHash(
             2,
             'attacker-rewritten',
@@ -1295,19 +1299,19 @@ final class AuditLogServiceTest extends TestCase
 
         $rows = [
             array_merge($row1, [
-                'previous_hash' => '',
-                'entry_hash' => $hash1,
+                'previous_hash'  => '',
+                'entry_hash'     => $hash1,
                 'hmac_key_epoch' => 3,
             ]),
             [
-                'uid' => 2,
+                'uid'               => 2,
                 'secret_identifier' => 'attacker-rewritten',
-                'action' => 'read',
-                'actor_uid' => 999,
-                'crdate' => 1704153600,
-                'previous_hash' => $forgedPrevHash,
-                'entry_hash' => $forgedEntryHash,
-                'hmac_key_epoch' => 0,
+                'action'            => 'read',
+                'actor_uid'         => 999,
+                'crdate'            => 1704153600,
+                'previous_hash'     => $forgedPrevHash,
+                'entry_hash'        => $forgedEntryHash,
+                'hmac_key_epoch'    => 0,
             ],
         ];
 
@@ -1328,15 +1332,15 @@ final class AuditLogServiceTest extends TestCase
         // rewrites the stored column to reassign blame but cannot recompute the
         // HMAC. verifyHashChain() MUST flag the entry hash mismatch.
         $masterKey = str_repeat("\x01", 32);
-        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+        $hmacKey   = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
 
-        $row = $this->makeV3Row(actorUsername: 'alice');
+        $row       = $this->makeV3Row(actorUsername: 'alice');
         $validHash = AuditLogService::calculateHashV3($row, '', $hmacKey);
 
         $tamperedRow = array_merge($row, [
             'actor_username' => 'bob',
-            'previous_hash' => '',
-            'entry_hash' => $validHash,
+            'previous_hash'  => '',
+            'entry_hash'     => $validHash,
             'hmac_key_epoch' => 3,
         ]);
 
@@ -1358,11 +1362,11 @@ final class AuditLogServiceTest extends TestCase
         // to verify after deployment. Captured from the pre-refactor code.
         $key = str_repeat("\x02", 32);
         $row = [
-            'uid' => 1, 'secret_identifier' => 'göld/en', 'action' => 'read',
-            'success' => 1, 'actor_uid' => 7, 'crdate' => 1704067200,
-            'error_message' => 'e', 'reason' => 'r', 'ip_address' => 'ip-test',
-            'user_agent' => 'ua', 'hash_before' => 'hb', 'hash_after' => 'ha',
-            'context' => '{"k":"v"}', 'hmac_key_epoch' => 3, 'actor_type' => 'backend',
+            'uid'            => 1, 'secret_identifier' => 'göld/en', 'action' => 'read',
+            'success'        => 1, 'actor_uid' => 7, 'crdate' => 1704067200,
+            'error_message'  => 'e', 'reason' => 'r', 'ip_address' => 'ip-test',
+            'user_agent'     => 'ua', 'hash_before' => 'hb', 'hash_after' => 'ha',
+            'context'        => '{"k":"v"}', 'hmac_key_epoch' => 3, 'actor_type' => 'backend',
             'actor_username' => 'alice', 'actor_role' => 'groups:1', 'request_id' => 'req-1',
         ];
 
@@ -1384,11 +1388,11 @@ final class AuditLogServiceTest extends TestCase
         // Backward-compat/forward-compat sanity: an untampered epoch-3 chain
         // verifies valid.
         $masterKey = str_repeat("\x01", 32);
-        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+        $hmacKey   = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
 
-        $row1 = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
+        $row1  = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
         $hash1 = AuditLogService::calculateHashV3($row1, '', $hmacKey);
-        $row2 = $this->makeV3Row(uid: 2, secretIdentifier: 'secret-b', action: 'read', crdate: 1704153600);
+        $row2  = $this->makeV3Row(uid: 2, secretIdentifier: 'secret-b', action: 'read', crdate: 1704153600);
         $hash2 = AuditLogService::calculateHashV3($row2, $hash1, $hmacKey);
 
         $rows = [
@@ -1409,11 +1413,11 @@ final class AuditLogServiceTest extends TestCase
         // is a legitimate INCREASE and must stay valid — only the increase
         // warning is recorded, never an error.
         $masterKey = str_repeat("\x01", 32);
-        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+        $hmacKey   = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
 
-        $row1 = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
+        $row1  = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
         $hash1 = AuditLogService::calculateHashV2(AuditLogService::extractV2HashRow($row1), '', $hmacKey);
-        $row2 = $this->makeV3Row(uid: 2, secretIdentifier: 'secret-b', action: 'read', crdate: 1704153600);
+        $row2  = $this->makeV3Row(uid: 2, secretIdentifier: 'secret-b', action: 'read', crdate: 1704153600);
         $hash2 = AuditLogService::calculateHashV3($row2, $hash1, $hmacKey);
 
         $rows = [
@@ -1440,13 +1444,13 @@ final class AuditLogServiceTest extends TestCase
     public function verifyHashChainCountsRowsPerEpoch(): void
     {
         $masterKey = str_repeat("\x01", 32);
-        $hmacKey = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
+        $hmacKey   = hash_hkdf('sha256', $masterKey, 32, 'nr-vault-audit-hmac-v1');
 
-        $row1 = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
+        $row1  = $this->makeV3Row(uid: 1, secretIdentifier: 'secret-a', action: 'create');
         $hash1 = AuditLogService::calculateHashV2(AuditLogService::extractV2HashRow($row1), '', $hmacKey);
-        $row2 = $this->makeV3Row(uid: 2, secretIdentifier: 'secret-b', action: 'read', crdate: 1704153600);
+        $row2  = $this->makeV3Row(uid: 2, secretIdentifier: 'secret-b', action: 'read', crdate: 1704153600);
         $hash2 = AuditLogService::calculateHashV2(AuditLogService::extractV2HashRow($row2), $hash1, $hmacKey);
-        $row3 = $this->makeV3Row(uid: 3, secretIdentifier: 'secret-c', action: 'read', crdate: 1704240000);
+        $row3  = $this->makeV3Row(uid: 3, secretIdentifier: 'secret-c', action: 'read', crdate: 1704240000);
         $hash3 = AuditLogService::calculateHashV3($row3, $hash2, $hmacKey);
 
         $rows = [
@@ -1470,10 +1474,10 @@ final class AuditLogServiceTest extends TestCase
         // PostgreSQL via Doctrine returns smallint columns as PHP bool.
         // Regression: is_numeric(true) is false, so a naive extractor would
         // coerce a valid `true` to 0 and break verification.
-        $rowTrue = ['success' => true] + $this->makeRawRow();
+        $rowTrue  = ['success' => true] + $this->makeRawRow();
         $rowFalse = ['success' => false] + $this->makeRawRow();
 
-        $extractedTrue = AuditLogService::extractV2HashRow($rowTrue);
+        $extractedTrue  = AuditLogService::extractV2HashRow($rowTrue);
         $extractedFalse = AuditLogService::extractV2HashRow($rowFalse);
 
         self::assertSame(1, $extractedTrue['success'], 'bool(true) must extract to int(1)');
@@ -1497,7 +1501,7 @@ final class AuditLogServiceTest extends TestCase
         // A malicious or buggy client may submit a User-Agent / error_message
         // containing invalid UTF-8 (e.g. a lone continuation byte). Hashing
         // must NOT throw — that would crash audit logging and break the chain.
-        $hmacKey = str_repeat("\xAA", 32);
+        $hmacKey     = str_repeat("\xAA", 32);
         $invalidUtf8 = "valid prefix \xC3\x28 broken sequence";
 
         $hash = AuditLogService::calculateHashV2(
@@ -1506,7 +1510,7 @@ final class AuditLogServiceTest extends TestCase
             $hmacKey,
         );
 
-        self::assertSame(64, \strlen($hash), 'hash_hmac sha256 hex output is 64 chars');
+        self::assertSame(64, strlen($hash), 'hash_hmac sha256 hex output is 64 chars');
         self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $hash);
     }
 
@@ -1552,7 +1556,7 @@ final class AuditLogServiceTest extends TestCase
     {
         $derived = AuditLogService::deriveHmacKeyFromMasterKey(str_repeat("\x01", 32));
 
-        self::assertSame(32, \strlen($derived));
+        self::assertSame(32, strlen($derived));
         self::assertSame(AuditLogService::deriveHmacKey($this->masterKeyProviderMock()), $derived);
     }
 
@@ -1565,12 +1569,12 @@ final class AuditLogServiceTest extends TestCase
     public function extractHashRowCoercesNumericStringsToIntegers(): void
     {
         $extracted = AuditLogService::extractHashRow([
-            'uid' => '7',
+            'uid'               => '7',
             'secret_identifier' => 'sek',
-            'action' => 'read',
-            'actor_uid' => '3',
-            'crdate' => '1704067200',
-            'hmac_key_epoch' => '2',
+            'action'            => 'read',
+            'actor_uid'         => '3',
+            'crdate'            => '1704067200',
+            'hmac_key_epoch'    => '2',
         ]);
 
         self::assertSame(7, $extracted['uid']);
@@ -1588,9 +1592,9 @@ final class AuditLogServiceTest extends TestCase
     public function extractHashRowFallsBackToZeroForUnusableFields(): void
     {
         $extracted = AuditLogService::extractHashRow([
-            'uid' => 'not-a-number',
-            'actor_uid' => null,
-            'crdate' => 'not-a-number',
+            'uid'            => 'not-a-number',
+            'actor_uid'      => null,
+            'crdate'         => 'not-a-number',
             'hmac_key_epoch' => 'not-a-number',
         ]);
 
@@ -1604,9 +1608,9 @@ final class AuditLogServiceTest extends TestCase
     public function extractV2HashRowCoercesNumericStringsToIntegers(): void
     {
         $extracted = AuditLogService::extractV2HashRow([
-            'uid' => '7',
+            'uid'       => '7',
             'actor_uid' => '3',
-            'crdate' => '1704067200',
+            'crdate'    => '1704067200',
         ]);
 
         self::assertSame(7, $extracted['uid']);
@@ -1618,9 +1622,9 @@ final class AuditLogServiceTest extends TestCase
     public function extractV2HashRowFallsBackToZeroForUnusableFields(): void
     {
         $extracted = AuditLogService::extractV2HashRow([
-            'uid' => 'not-a-number',
+            'uid'       => 'not-a-number',
             'actor_uid' => 'not-a-number',
-            'crdate' => 'not-a-number',
+            'crdate'    => 'not-a-number',
             // Neither a bool nor numeric: outside the accepted driver shapes.
             'success' => 'not-a-number',
         ]);
@@ -1672,7 +1676,7 @@ final class AuditLogServiceTest extends TestCase
             ->method('insert')
             ->with(
                 'tx_nrvault_audit_log',
-                self::callback(static fn (array $data): bool => \array_key_exists('pid', $data) && $data['pid'] === 0),
+                self::callback(static fn (array $data): bool => array_key_exists('pid', $data) && $data['pid'] === 0),
             );
 
         $this->getSubject()->log('test_secret', 'create', true);
@@ -2032,7 +2036,7 @@ final class AuditLogServiceTest extends TestCase
     {
         $hash = AuditLogService::calculateHash(1, 'identifier', 'create', 42, 1704067200, '');
 
-        self::assertSame(64, \strlen($hash));
+        self::assertSame(64, strlen($hash));
         self::assertMatchesRegularExpression(self::SHA256_HEX_PATTERN, $hash);
     }
 
@@ -2040,9 +2044,9 @@ final class AuditLogServiceTest extends TestCase
     public function calculateHashHmacProducesExactly64HexChars(): void
     {
         $hmacKey = str_repeat("\x42", 32);
-        $hash = AuditLogService::calculateHash(1, 'id', 'create', 42, 1704067200, '', $hmacKey);
+        $hash    = AuditLogService::calculateHash(1, 'id', 'create', 42, 1704067200, '', $hmacKey);
 
-        self::assertSame(64, \strlen($hash));
+        self::assertSame(64, strlen($hash));
         self::assertMatchesRegularExpression(self::SHA256_HEX_PATTERN, $hash);
     }
 
@@ -2143,7 +2147,7 @@ final class AuditLogServiceTest extends TestCase
     #[Test]
     public function calculateHashWorksAtEpochZeroAndMaxInt(): void
     {
-        $h0 = AuditLogService::calculateHash(0, '', '', 0, 0, '');
+        $h0   = AuditLogService::calculateHash(0, '', '', 0, 0, '');
         $hMax = AuditLogService::calculateHash(PHP_INT_MAX, 'max', 'max', PHP_INT_MAX, PHP_INT_MAX, '');
 
         self::assertMatchesRegularExpression(self::SHA256_HEX_PATTERN, $h0);
@@ -2161,12 +2165,12 @@ final class AuditLogServiceTest extends TestCase
         $hash = AuditLogService::calculateHash(1, 'test', 'create', 1, 1704067200, '');
 
         $payload = json_encode([
-            'uid' => 1,
+            'uid'               => 1,
             'secret_identifier' => 'test',
-            'action' => 'create',
-            'actor_uid' => 1,
-            'crdate' => 1704067200,
-            'previous_hash' => '',
+            'action'            => 'create',
+            'actor_uid'         => 1,
+            'crdate'            => 1704067200,
+            'previous_hash'     => '',
         ], JSON_THROW_ON_ERROR);
 
         self::assertSame(hash('sha256', $payload), $hash);
@@ -2183,7 +2187,7 @@ final class AuditLogServiceTest extends TestCase
 
         $key = AuditLogService::deriveHmacKey($mkp);
 
-        self::assertSame(32, \strlen($key));
+        self::assertSame(32, strlen($key));
     }
 
     /**
@@ -2410,26 +2414,26 @@ final class AuditLogServiceTest extends TestCase
     public function verifyHashChainSingleEntryProducesNoEpochWarning(): void
     {
         $payload = json_encode([
-            'uid' => 1,
+            'uid'               => 1,
             'secret_identifier' => 's',
-            'action' => 'create',
-            'actor_uid' => 1,
-            'crdate' => 100,
-            'previous_hash' => '',
+            'action'            => 'create',
+            'actor_uid'         => 1,
+            'crdate'            => 100,
+            'previous_hash'     => '',
         ], JSON_THROW_ON_ERROR);
         $hash = hash('sha256', $payload);
 
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn([
             [
-                'uid' => 1,
+                'uid'               => 1,
                 'secret_identifier' => 's',
-                'action' => 'create',
-                'actor_uid' => 1,
-                'crdate' => 100,
-                'previous_hash' => '',
-                'entry_hash' => $hash,
-                'hmac_key_epoch' => 0,
+                'action'            => 'create',
+                'actor_uid'         => 1,
+                'crdate'            => 100,
+                'previous_hash'     => '',
+                'entry_hash'        => $hash,
+                'hmac_key_epoch'    => 0,
             ],
         ]);
         $result->method('iterateAssociative')->willReturnCallback(static fn (): Iterator => new ArrayIterator($result->fetchAllAssociative()));
@@ -2607,7 +2611,7 @@ final class AuditLogServiceTest extends TestCase
         // string so the live secret is never sealed into the audit row.
         $this->setupDatabaseMocks();
 
-        $secret = 'SUPERSECRET123';
+        $secret  = 'SUPERSECRET123';
         $message = 'cURL error 6: Could not resolve host: api.example.com '
             . 'for https://api.example.com/data?api_key=' . $secret;
 
@@ -2860,7 +2864,7 @@ final class AuditLogServiceTest extends TestCase
         $this->setupDatabaseMocks();
         // The guard must reject typos, not the canonical set: every case has to
         // reach the INSERT.
-        $this->connectionMock()->expects(self::exactly(\count($actions)))->method('insert');
+        $this->connectionMock()->expects(self::exactly(count($actions)))->method('insert');
 
         foreach ($actions as $action) {
             $this->getSubject()->log('api_creds', $action->value, true);
@@ -2923,8 +2927,8 @@ final class AuditLogServiceTest extends TestCase
     public function resealVerificationPassesAnIntactHmacChain(): void
     {
         $hmacKey = AuditLogService::deriveHmacKey($this->masterKeyProviderMock());
-        $hash1 = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '', $hmacKey);
-        $hash2 = AuditLogService::calculateHash(2, 'b', 'read', 1, 200, $hash1, $hmacKey);
+        $hash1   = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '', $hmacKey);
+        $hash2   = AuditLogService::calculateHash(2, 'b', 'read', 1, 200, $hash1, $hmacKey);
 
         $this->setupResealMocks(
             rows: [
@@ -2949,7 +2953,7 @@ final class AuditLogServiceTest extends TestCase
     public function resealVerificationReportsATamperedHmacChainSoTheResealCanBeRefused(): void
     {
         $hmacKey = AuditLogService::deriveHmacKey($this->masterKeyProviderMock());
-        $hash1 = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '', $hmacKey);
+        $hash1   = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '', $hmacKey);
 
         $this->setupResealMocks(
             rows: [
@@ -2977,8 +2981,8 @@ final class AuditLogServiceTest extends TestCase
     public function resealVerificationDoesNotApplyTheConfiguredEpochFloor(): void
     {
         $hmacKey = AuditLogService::deriveHmacKey($this->masterKeyProviderMock());
-        $hash1 = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '');
-        $hash2 = AuditLogService::calculateHash(2, 'b', 'read', 1, 200, $hash1, $hmacKey);
+        $hash1   = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '');
+        $hash2   = AuditLogService::calculateHash(2, 'b', 'read', 1, 200, $hash1, $hmacKey);
 
         $this->setupResealMocks(
             rows: [
@@ -3034,7 +3038,7 @@ final class AuditLogServiceTest extends TestCase
     {
         $this->setupDatabaseMocks();
 
-        $message = str_repeat('y', 200);
+        $message  = str_repeat('y', 200);
         $captured = [];
         $this->connectionMock()
             ->expects(self::once())
@@ -3164,7 +3168,7 @@ final class AuditLogServiceTest extends TestCase
     public function theEpochsProduceDifferentEntryHashesForTheSameRow(): void
     {
         [, $epochZeroHash] = $this->captureWriteAtEpoch(0);
-        [, $epochTwoHash] = $this->captureWriteAtEpoch(2);
+        [, $epochTwoHash]  = $this->captureWriteAtEpoch(2);
 
         self::assertNotSame($epochZeroHash, $epochTwoHash);
     }
@@ -3769,27 +3773,27 @@ final class AuditLogServiceTest extends TestCase
     #[Test]
     public function anEpochDropBelowZeroIsReportedAsADowngradeError(): void
     {
-        $first = $this->epochZeroRow(1, '');
+        $first  = $this->epochZeroRow(1, '');
         $second = [
-            'uid' => 2,
+            'uid'               => 2,
             'secret_identifier' => 'a',
-            'action' => 'create',
-            'success' => 1,
-            'actor_uid' => 1,
-            'crdate' => 100,
-            'error_message' => '',
-            'reason' => '',
-            'ip_address' => '',
-            'user_agent' => '',
-            'hash_before' => '',
-            'hash_after' => '',
-            'context' => '{}',
-            'actor_type' => 'backend',
-            'actor_username' => 'admin',
-            'actor_role' => 'backend',
-            'request_id' => '',
-            'previous_hash' => $first['entry_hash'],
-            'hmac_key_epoch' => -1,
+            'action'            => 'create',
+            'success'           => 1,
+            'actor_uid'         => 1,
+            'crdate'            => 100,
+            'error_message'     => '',
+            'reason'            => '',
+            'ip_address'        => '',
+            'user_agent'        => '',
+            'hash_before'       => '',
+            'hash_after'        => '',
+            'context'           => '{}',
+            'actor_type'        => 'backend',
+            'actor_username'    => 'admin',
+            'actor_role'        => 'backend',
+            'request_id'        => '',
+            'previous_hash'     => $first['entry_hash'],
+            'hmac_key_epoch'    => -1,
         ];
         // Sign the tampered row correctly, so the ONLY finding left is the
         // epoch downgrade itself rather than a hash mismatch on the same key.
@@ -3989,8 +3993,8 @@ final class AuditLogServiceTest extends TestCase
     private function captureWriteAtEpoch(int $epoch): array
     {
         $connectionPool = $this->createMock(ConnectionPool::class);
-        $connection = $this->createMock(Connection::class);
-        $queryBuilder = $this->createMock(QueryBuilder::class);
+        $connection     = $this->createMock(Connection::class);
+        $queryBuilder   = $this->createMock(QueryBuilder::class);
 
         $previousHashResult = self::createStub(Result::class);
         // No prior entry: the previous hash is the empty string.
@@ -4069,7 +4073,7 @@ final class AuditLogServiceTest extends TestCase
 
         $expressionBuilder = $this->createMock(ExpressionBuilder::class);
 
-        $connection = $this->connectionMock();
+        $connection   = $this->connectionMock();
         $queryBuilder = $this->queryBuilderMock();
 
         $this->connectionPoolMock()->method('getConnectionForTable')->willReturn($connection);
@@ -4097,8 +4101,8 @@ final class AuditLogServiceTest extends TestCase
             ->method('getHeaderLine')
             ->willReturnCallback(static fn (string $name): string => match (strtolower($name)) {
                 'x-request-id' => $requestId,
-                'user-agent' => $userAgent,
-                default => '',
+                'user-agent'   => $userAgent,
+                default        => '',
             });
         $request
             ->method('getServerParams')
@@ -4146,18 +4150,18 @@ final class AuditLogServiceTest extends TestCase
     private function makeRawRow(): array
     {
         return [
-            'uid' => 1,
+            'uid'               => 1,
             'secret_identifier' => 'sek',
-            'action' => 'read',
-            'actor_uid' => 1,
-            'crdate' => 1704067200,
-            'error_message' => '',
-            'reason' => '',
-            'ip_address' => self::IP_ADDRESS,
-            'user_agent' => self::USER_AGENT,
-            'hash_before' => '',
-            'hash_after' => '',
-            'context' => '{}',
+            'action'            => 'read',
+            'actor_uid'         => 1,
+            'crdate'            => 1704067200,
+            'error_message'     => '',
+            'reason'            => '',
+            'ip_address'        => self::IP_ADDRESS,
+            'user_agent'        => self::USER_AGENT,
+            'hash_before'       => '',
+            'hash_after'        => '',
+            'context'           => '{}',
         ];
     }
 
@@ -4188,19 +4192,19 @@ final class AuditLogServiceTest extends TestCase
         string $context = '{}',
     ): array {
         return [
-            'uid' => $uid,
+            'uid'               => $uid,
             'secret_identifier' => $secretIdentifier,
-            'action' => $action,
-            'success' => $success,
-            'actor_uid' => $actorUid,
-            'crdate' => $crdate,
-            'error_message' => $errorMessage,
-            'reason' => $reason,
-            'ip_address' => $ipAddress,
-            'user_agent' => $userAgent,
-            'hash_before' => $hashBefore,
-            'hash_after' => $hashAfter,
-            'context' => $context,
+            'action'            => $action,
+            'success'           => $success,
+            'actor_uid'         => $actorUid,
+            'crdate'            => $crdate,
+            'error_message'     => $errorMessage,
+            'reason'            => $reason,
+            'ip_address'        => $ipAddress,
+            'user_agent'        => $userAgent,
+            'hash_before'       => $hashBefore,
+            'hash_after'        => $hashAfter,
+            'context'           => $context,
         ];
     }
 
@@ -4239,10 +4243,10 @@ final class AuditLogServiceTest extends TestCase
             crdate: $crdate,
         ) + [
             'hmac_key_epoch' => 3,
-            'actor_type' => $actorType,
+            'actor_type'     => $actorType,
             'actor_username' => $actorUsername,
-            'actor_role' => $actorRole,
-            'request_id' => $requestId,
+            'actor_role'     => $actorRole,
+            'request_id'     => $requestId,
         ];
     }
 
@@ -4336,7 +4340,7 @@ final class AuditLogServiceTest extends TestCase
     private function setupDatabaseMocks(mixed $previousHashFetchOne = false): void
     {
         $expressionBuilder = $this->createMock(ExpressionBuilder::class);
-        $result = $this->createMock(Result::class);
+        $result            = $this->createMock(Result::class);
         // getLatestHash() uses fetchOne(); default `false` means "no prior entry".
         // Tests that exercise chaining override this to return the previous_hash value.
         $result->method('fetchOne')->willReturn($previousHashFetchOne);
@@ -4397,15 +4401,15 @@ final class AuditLogServiceTest extends TestCase
     private function verifyWithAnchorLoads(array $rawSequence): HashChainVerificationResult
     {
         $storedHash = AuditLogService::calculateHash(1, 'a', 'create', 1, 100, '');
-        $rows = [[
-            'uid' => 1,
+        $rows       = [[
+            'uid'               => 1,
             'secret_identifier' => 'a',
-            'action' => 'create',
-            'actor_uid' => 1,
-            'crdate' => 100,
-            'previous_hash' => '',
-            'entry_hash' => $storedHash,
-            'hmac_key_epoch' => 0,
+            'action'            => 'create',
+            'actor_uid'         => 1,
+            'crdate'            => 100,
+            'previous_hash'     => '',
+            'entry_hash'        => $storedHash,
+            'hmac_key_epoch'    => 0,
         ]];
 
         $result = $this->createMock(Result::class);
@@ -4439,7 +4443,7 @@ final class AuditLogServiceTest extends TestCase
         $this->queryBuilder->method('executeQuery')->willReturn($result);
 
         $anchoredHash = str_repeat('c', 64);
-        $loads = array_map(
+        $loads        = array_map(
             static fn (string $raw): AuditChainAnchorLoad => new AuditChainAnchorLoad(
                 AuditChainAnchorStatus::Ok,
                 new AuditChainAnchor(1, $anchoredHash, 1_700_000_000),
@@ -4474,14 +4478,14 @@ final class AuditLogServiceTest extends TestCase
     private function epochZeroRow(int $uid, string $previousHash): array
     {
         return [
-            'uid' => $uid,
+            'uid'               => $uid,
             'secret_identifier' => 'a',
-            'action' => 'create',
-            'actor_uid' => 1,
-            'crdate' => 100,
-            'previous_hash' => $previousHash,
-            'entry_hash' => AuditLogService::calculateHash($uid, 'a', 'create', 1, 100, $previousHash),
-            'hmac_key_epoch' => 0,
+            'action'            => 'create',
+            'actor_uid'         => 1,
+            'crdate'            => 100,
+            'previous_hash'     => $previousHash,
+            'entry_hash'        => AuditLogService::calculateHash($uid, 'a', 'create', 1, 100, $previousHash),
+            'hmac_key_epoch'    => 0,
         ];
     }
 
@@ -4495,12 +4499,12 @@ final class AuditLogServiceTest extends TestCase
      */
     private function epochZeroChain(array $uids): array
     {
-        $rows = [];
+        $rows         = [];
         $previousHash = '';
         foreach ($uids as $uid) {
-            $row = $this->epochZeroRow($uid, $previousHash);
+            $row          = $this->epochZeroRow($uid, $previousHash);
             $previousHash = $row['entry_hash'];
-            $rows[] = $row;
+            $rows[]       = $row;
         }
 
         return $rows;
@@ -4533,7 +4537,7 @@ final class AuditLogServiceTest extends TestCase
      */
     private function setupPagingQueryMocks(array $windows): void
     {
-        $call = 0;
+        $call   = 0;
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturnCallback(
             static function () use ($windows, &$call): array {

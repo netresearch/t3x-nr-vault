@@ -38,7 +38,7 @@ final class OrphanReferenceTest extends TestCase
         $subject = OrphanReference::fromArray([
             'table' => 'pages',
             'field' => 'api_key_ref',
-            'uid' => 7,
+            'uid'   => 7,
         ]);
 
         self::assertSame('pages', $subject->table);
@@ -70,7 +70,7 @@ final class OrphanReferenceTest extends TestCase
     #[Test]
     public function getLocationContainsTableFieldAndUid(): void
     {
-        $subject = new OrphanReference('my_table', 'my_field', 123);
+        $subject  = new OrphanReference('my_table', 'my_field', 123);
         $location = $subject->getLocation();
 
         self::assertStringContainsString('my_table', $location);
@@ -86,7 +86,7 @@ final class OrphanReferenceTest extends TestCase
         self::assertSame([
             'table' => 'tt_content',
             'field' => 'bodytext',
-            'uid' => 55,
+            'uid'   => 55,
         ], $subject->toArray());
     }
 
@@ -104,7 +104,7 @@ final class OrphanReferenceTest extends TestCase
         $original = [
             'table' => 'tt_content',
             'field' => 'pi_flexform',
-            'uid' => 99,
+            'uid'   => 99,
         ];
 
         $subject = OrphanReference::fromArray($original);

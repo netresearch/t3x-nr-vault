@@ -26,6 +26,11 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
+use function array_slice;
+use function count;
+use function is_string;
+use function sprintf;
+
 /**
  * Publishes chain-tip anchors and verifies the chain against them.
  *
@@ -112,7 +117,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
 
         $this->logger->info('nr-vault published an audit chain anchor.', [
             'sequence' => $anchor->sequence,
-            'sinks' => $accepted,
+            'sinks'    => $accepted,
         ]);
 
         return $accepted;
@@ -120,9 +125,9 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
 
     public function verify(): AuditIntegrityReport
     {
-        $chainResult = $this->auditLogService->verifyHashChain();
+        $chainResult     = $this->auditLogService->verifyHashChain();
         $currentSequence = $this->fetchMaxUid();
-        $anchor = $this->anchorReader->readLatestAnchor();
+        $anchor          = $this->anchorReader->readLatestAnchor();
 
         $findings = [
             ...$this->classifyChainErrors($chainResult),
@@ -160,7 +165,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
         if ($result->hasMissingUids()) {
             $findings[] = AuditIntegrityAlert::create(
                 AuditIntegrityReason::UidGap,
-                \sprintf(
+                sprintf(
                     'Audit chain has %d missing uid(s); rows were deleted from the chain.',
                     $result->missingUidCount,
                 ),
@@ -168,13 +173,13 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
                     'missingUidCount' => $result->missingUidCount,
                     // Bounded sample: the full list can be up to 1000 entries and
                     // this value ends up in a syslog line and a webhook payload.
-                    'missingUidSample' => implode(',', \array_slice($result->missingUids, 0, 20)),
+                    'missingUidSample' => implode(',', array_slice($result->missingUids, 0, 20)),
                 ],
             );
         }
 
         $epochDowngradeUids = [];
-        $hashMismatchUids = [];
+        $hashMismatchUids   = [];
 
         foreach ($result->errors as $uid => $message) {
             $lower = strtolower($message);
@@ -196,14 +201,14 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
         if ($epochDowngradeUids !== []) {
             $findings[] = AuditIntegrityAlert::create(
                 AuditIntegrityReason::EpochDowngrade,
-                \sprintf(
+                sprintf(
                     'Audit chain HMAC epoch was downgraded on %d row(s); a weaker or keyless '
                     . 'verification algorithm was selected.',
-                    \count($epochDowngradeUids),
+                    count($epochDowngradeUids),
                 ),
                 [
-                    'affectedRows' => \count($epochDowngradeUids),
-                    'firstUid' => $epochDowngradeUids[0],
+                    'affectedRows' => count($epochDowngradeUids),
+                    'firstUid'     => $epochDowngradeUids[0],
                 ],
             );
         }
@@ -211,10 +216,10 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
         if ($hashMismatchUids !== []) {
             $findings[] = AuditIntegrityAlert::create(
                 AuditIntegrityReason::HashMismatch,
-                \sprintf('Audit chain hash verification failed on %d row(s).', \count($hashMismatchUids)),
+                sprintf('Audit chain hash verification failed on %d row(s).', count($hashMismatchUids)),
                 [
-                    'affectedRows' => \count($hashMismatchUids),
-                    'firstUid' => $hashMismatchUids[0],
+                    'affectedRows' => count($hashMismatchUids),
+                    'firstUid'     => $hashMismatchUids[0],
                 ],
             );
         }
@@ -241,7 +246,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
             return [
                 AuditIntegrityAlert::create(
                     AuditIntegrityReason::TableReset,
-                    \sprintf(
+                    sprintf(
                         'Audit chain shrank: highest uid is %d but sequence %d was anchored on %s. '
                         . 'The audit table was truncated or rows were deleted wholesale.',
                         $currentSequence,
@@ -249,9 +254,9 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
                         gmdate('Y-m-d H:i:s', $anchor->timestamp) . ' UTC',
                     ),
                     [
-                        'currentSequence' => $currentSequence,
+                        'currentSequence'  => $currentSequence,
                         'anchoredSequence' => $anchor->sequence,
-                        'anchoredAt' => $anchor->timestamp,
+                        'anchoredAt'       => $anchor->timestamp,
                     ],
                 ),
             ];
@@ -265,7 +270,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
             return [
                 AuditIntegrityAlert::create(
                     AuditIntegrityReason::TableReset,
-                    \sprintf(
+                    sprintf(
                         'Anchored audit row %d no longer exists although the chain reaches uid %d; '
                         . 'the chain was rebuilt.',
                         $anchor->sequence,
@@ -284,7 +289,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
         if (!hash_equals($anchor->chainTip, $row['entryHash'])) {
             $findings[] = AuditIntegrityAlert::create(
                 AuditIntegrityReason::TableReset,
-                \sprintf(
+                sprintf(
                     'Audit row %d hashes differently than anchored: the chain at that sequence is '
                     . 'not the chain that was anchored on %s.',
                     $anchor->sequence,
@@ -300,7 +305,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
         if ($row['epoch'] < $anchor->hmacEpoch) {
             $findings[] = AuditIntegrityAlert::create(
                 AuditIntegrityReason::EpochDowngrade,
-                \sprintf(
+                sprintf(
                     'Audit row %d now reports HMAC epoch %d but epoch %d was anchored; the '
                     . 'verification algorithm was downgraded.',
                     $anchor->sequence,
@@ -309,8 +314,8 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
                 ),
                 [
                     'anchoredSequence' => $anchor->sequence,
-                    'currentEpoch' => $row['epoch'],
-                    'anchoredEpoch' => $anchor->hmacEpoch,
+                    'currentEpoch'     => $row['epoch'],
+                    'anchoredEpoch'    => $anchor->hmacEpoch,
                 ],
             );
         }
@@ -388,7 +393,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
                 // the report itself.
                 $this->logger->error('nr-vault could not dispatch an audit integrity alert.', [
                     'reason' => $finding->reason->value,
-                    'error' => $e->getMessage(),
+                    'error'  => $e->getMessage(),
                 ]);
             }
         }
@@ -418,7 +423,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
     private function fetchRowAt(int $uid): ?array
     {
         $queryBuilder = $this->getQueryBuilder();
-        $row = $queryBuilder
+        $row          = $queryBuilder
             ->select('entry_hash', 'hmac_key_epoch')
             ->from(AuditLogService::TABLE_NAME)
             ->where(
@@ -433,8 +438,8 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
         }
 
         return [
-            'entryHash' => \is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '',
-            'epoch' => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
+            'entryHash' => is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '',
+            'epoch'     => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
         ];
     }
 

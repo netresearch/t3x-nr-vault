@@ -18,6 +18,11 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 use TYPO3\CMS\Core\Core\Environment;
 
+use function dirname;
+use function strlen;
+
+use const DIRECTORY_SEPARATOR;
+
 /**
  * Appends audit evidence to newline-delimited JSON files.
  *
@@ -78,17 +83,17 @@ final class JsonFileAuditSink implements AuditSinkInterface
     public function publish(AuditLogEntry $entry, string $chainTip): void
     {
         $this->appendLine($this->extensionConfiguration->getAuditSinkFilePath(), [
-            'type' => 'entry',
-            'uid' => $entry->uid,
+            'type'     => 'entry',
+            'uid'      => $entry->uid,
             'chainTip' => $chainTip,
-            'entry' => $entry->jsonSerialize(),
+            'entry'    => $entry->jsonSerialize(),
         ]);
     }
 
     public function publishAnchor(ChainTipAnchor $anchor): void
     {
         $this->appendLine($this->extensionConfiguration->getAuditSinkAnchorPath(), [
-            'type' => 'anchor',
+            'type'   => 'anchor',
             'anchor' => $anchor->toArray(),
         ]);
     }
@@ -99,7 +104,7 @@ final class JsonFileAuditSink implements AuditSinkInterface
         // "chain health" record an auditor reads, and keeping them together means
         // a single off-host file tells the whole integrity story.
         $this->appendLine($this->extensionConfiguration->getAuditSinkAnchorPath(), [
-            'type' => 'alert',
+            'type'  => 'alert',
             'alert' => $alert->toArray(),
         ]);
     }
@@ -170,9 +175,9 @@ final class JsonFileAuditSink implements AuditSinkInterface
                 // A short write (disk full, quota) would leave a truncated line
                 // that breaks the NDJSON contract for every later reader, so it
                 // is an error, not a partial success.
-                $line = $json . "\n";
+                $line    = $json . "\n";
                 $written = fwrite($handle, $line);
-                if ($written === false || $written !== \strlen($line)) {
+                if ($written === false || $written !== strlen($line)) {
                     throw AuditSinkException::writeFailed(self::IDENTIFIER, 'incomplete write (disk full or quota exceeded?)');
                 }
 
@@ -217,7 +222,7 @@ final class JsonFileAuditSink implements AuditSinkInterface
             return;
         }
 
-        if (!is_writable(\dirname($path))) {
+        if (!is_writable(dirname($path))) {
             throw AuditSinkException::writeFailed(self::IDENTIFIER, 'stream directory is not writable');
         }
     }
@@ -229,7 +234,7 @@ final class JsonFileAuditSink implements AuditSinkInterface
      */
     private function ensureDirectory(string $path): void
     {
-        $directory = \dirname($path);
+        $directory = dirname($path);
         if (is_dir($directory)) {
             return;
         }
@@ -291,7 +296,7 @@ final class JsonFileAuditSink implements AuditSinkInterface
             return false;
         }
 
-        if ($resolved === $publicPath || str_starts_with($resolved, $publicPath . \DIRECTORY_SEPARATOR)) {
+        if ($resolved === $publicPath || str_starts_with($resolved, $publicPath . DIRECTORY_SEPARATOR)) {
             $this->logger->error(
                 'nr-vault audit file sink disabled: the configured path is inside the public web root, '
                 . 'which would expose the audit trail over HTTP. Point auditSinkFilePath / '
@@ -313,21 +318,21 @@ final class JsonFileAuditSink implements AuditSinkInterface
      */
     private function resolveAgainstNearestExistingAncestor(string $path): ?string
     {
-        $tail = [];
+        $tail    = [];
         $current = $path;
 
         while (true) {
             $real = realpath($current);
             if ($real !== false) {
-                return $tail === [] ? $real : $real . \DIRECTORY_SEPARATOR . implode(\DIRECTORY_SEPARATOR, array_reverse($tail));
+                return $tail === [] ? $real : $real . DIRECTORY_SEPARATOR . implode(DIRECTORY_SEPARATOR, array_reverse($tail));
             }
 
-            $parent = \dirname($current);
+            $parent = dirname($current);
             if ($parent === $current) {
                 return null;
             }
 
-            $tail[] = basename($current);
+            $tail[]  = basename($current);
             $current = $parent;
         }
     }

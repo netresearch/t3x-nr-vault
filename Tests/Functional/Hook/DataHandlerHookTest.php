@@ -30,6 +30,8 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function sprintf;
+
 /**
  * Functional tests for DataHandlerHook.
  *
@@ -55,10 +57,10 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
     public function hookStoresNewSecretWhenFieldIsPlaintext(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $hook = $this->createHookWithVaultFields('tx_test', ['secret_field']);
+        $hook         = $this->createHookWithVaultFields('tx_test', ['secret_field']);
 
         $secretValue = 'my-new-plain-secret';
-        $fieldArray = ['secret_field' => $secretValue, 'title' => 'Test'];
+        $fieldArray  = ['secret_field' => $secretValue, 'title' => 'Test'];
 
         // Pre-process: replaces plaintext with a UUID
         $hook->processDatamap_preProcessFieldArray($fieldArray, 'tx_test', 'NEW1');
@@ -69,7 +71,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
 
         try {
             // After-database: persist vault secret
-            $dataHandler = $this->createDataHandler();
+            $dataHandler                          = $this->createDataHandler();
             $dataHandler->substNEWwithIDs['NEW1'] = 99;
             $hook->processDatamap_afterDatabaseOperations('new', 'tx_test', 'NEW1', $fieldArray, $dataHandler);
 
@@ -84,25 +86,25 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function hookRotatesExistingSecretWhenUpdateProvided(): void
     {
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService      = $this->get(VaultServiceInterface::class);
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $hook = $this->createHookWithVaultFields('tx_test', ['secret_field']);
+        $hook              = $this->createHookWithVaultFields('tx_test', ['secret_field']);
 
         // Pre-create the secret
         $vaultIdentifier = $this->generateUuidV7();
-        $originalValue = 'original-value';
+        $originalValue   = 'original-value';
         $vaultService->store($vaultIdentifier, $originalValue);
 
         try {
             $originalChecksum = $encryptionService->calculateChecksum($originalValue);
 
             // Update: field array has new value + existing identifier + checksum
-            $newValue = 'rotated-value';
+            $newValue   = 'rotated-value';
             $fieldArray = [
                 'secret_field' => [
-                    'value' => $newValue,
+                    'value'             => $newValue,
                     '_vault_identifier' => $vaultIdentifier,
-                    '_vault_checksum' => $originalChecksum,
+                    '_vault_checksum'   => $originalChecksum,
                 ],
             ];
 
@@ -129,10 +131,10 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
     public function hookKeepsExistingSecretWhenFieldLeftUntouched(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $hook = $this->createHookWithVaultFields('tx_test', ['secret_field']);
+        $hook         = $this->createHookWithVaultFields('tx_test', ['secret_field']);
 
         $vaultIdentifier = $this->generateUuidV7();
-        $originalValue = 'keep-me-secret';
+        $originalValue   = 'keep-me-secret';
         $vaultService->store($vaultIdentifier, $originalValue);
 
         try {
@@ -140,9 +142,9 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
             // for an existing secret is still present.
             $fieldArray = [
                 'secret_field' => [
-                    'value' => '',
+                    'value'             => '',
                     '_vault_identifier' => $vaultIdentifier,
-                    '_vault_checksum' => hash('sha256', $vaultIdentifier),
+                    '_vault_checksum'   => hash('sha256', $vaultIdentifier),
                 ],
             ];
 
@@ -177,7 +179,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
         $vaultService = $this->get(VaultServiceInterface::class);
-        $hook = $this->createHookWithVaultFields('tx_test', ['secret_field']);
+        $hook         = $this->createHookWithVaultFields('tx_test', ['secret_field']);
 
         $fieldArray = ['secret_field' => 'audit-log-secret'];
         $hook->processDatamap_preProcessFieldArray($fieldArray, 'tx_test', 'NEW1');
@@ -185,7 +187,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         $vaultIdentifier = $fieldArray['secret_field'];
 
         try {
-            $dataHandler = $this->createDataHandler();
+            $dataHandler                          = $this->createDataHandler();
             $dataHandler->substNEWwithIDs['NEW1'] = 100;
             $hook->processDatamap_afterDatabaseOperations('new', 'tx_test', 'NEW1', $fieldArray, $dataHandler);
 
@@ -210,18 +212,18 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         $this->setUpVaultFieldPermissionUser();
 
         $vaultService = $this->get(VaultServiceInterface::class);
-        $hook = $this->createHookWithVaultFields('tx_test', [$fieldName]);
+        $hook         = $this->createHookWithVaultFields('tx_test', [$fieldName]);
 
         $vaultIdentifier = $this->generateUuidV7();
-        $originalValue = 'protected-value';
+        $originalValue   = 'protected-value';
         $vaultService->store($vaultIdentifier, $originalValue);
 
         try {
             $fieldArray = [
                 $fieldName => [
-                    'value' => 'value-from-crafted-post',
+                    'value'             => 'value-from-crafted-post',
                     '_vault_identifier' => $vaultIdentifier,
-                    '_vault_checksum' => hash('sha256', $vaultIdentifier),
+                    '_vault_checksum'   => hash('sha256', $vaultIdentifier),
                 ],
             ];
 
@@ -257,18 +259,18 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         $this->setUpVaultFieldPermissionUser();
 
         $vaultService = $this->get(VaultServiceInterface::class);
-        $hook = $this->createHookWithVaultFields('tx_test', ['secret_unrestricted']);
+        $hook         = $this->createHookWithVaultFields('tx_test', ['secret_unrestricted']);
 
         $vaultIdentifier = $this->generateUuidV7();
         $vaultService->store($vaultIdentifier, 'original-value');
 
         try {
-            $newValue = 'value-from-regular-save';
+            $newValue   = 'value-from-regular-save';
             $fieldArray = [
                 'secret_unrestricted' => [
-                    'value' => $newValue,
+                    'value'             => $newValue,
                     '_vault_identifier' => $vaultIdentifier,
-                    '_vault_checksum' => hash('sha256', $vaultIdentifier),
+                    '_vault_checksum'   => hash('sha256', $vaultIdentifier),
                 ],
             ];
 
@@ -302,9 +304,9 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
     {
         $this->skipIfNotSqlite();
 
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService   = $this->get(VaultServiceInterface::class);
         $connectionPool = $this->get(ConnectionPool::class);
-        $hook = $this->createHookWithVaultFields('tx_nrvault_hooktest2', ['api_key']);
+        $hook           = $this->createHookWithVaultFields('tx_nrvault_hooktest2', ['api_key']);
 
         // Create test table and insert a record. The DDL below uses
         // SQLite-specific AUTOINCREMENT (single-word); MySQL/MariaDB use
@@ -327,7 +329,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         $vaultService->store($vaultIdentifier, 'delete-test-secret');
 
         $connection->insert('tx_nrvault_hooktest2', [
-            'pid' => 0,
+            'pid'     => 0,
             'api_key' => $vaultIdentifier,
         ]);
         $recordUid = (int) $connection->lastInsertId();
@@ -351,9 +353,9 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
     {
         $this->skipIfNotSqlite();
 
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService   = $this->get(VaultServiceInterface::class);
         $connectionPool = $this->get(ConnectionPool::class);
-        $hook = $this->createHookWithVaultFields('tx_nrvault_hooktest3', ['api_key']);
+        $hook           = $this->createHookWithVaultFields('tx_nrvault_hooktest3', ['api_key']);
 
         $connection = $connectionPool->getConnectionForTable('tx_nrvault_hooktest3');
         $connection->executeStatement(
@@ -368,7 +370,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         $vaultService->store($vaultIdentifier, 'cancel-test-secret');
 
         $connection->insert('tx_nrvault_hooktest3', [
-            'pid' => 0,
+            'pid'     => 0,
             'api_key' => $vaultIdentifier,
         ]);
         $recordUid = (int) $connection->lastInsertId();
@@ -402,9 +404,9 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
     {
         $this->skipIfNotSqlite();
 
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService   = $this->get(VaultServiceInterface::class);
         $connectionPool = $this->get(ConnectionPool::class);
-        $hook = $this->createHookWithVaultFields('tx_nrvault_hooktest4', ['api_key', 'api_secret']);
+        $hook           = $this->createHookWithVaultFields('tx_nrvault_hooktest4', ['api_key', 'api_secret']);
 
         $connection = $connectionPool->getConnectionForTable('tx_nrvault_hooktest4');
         $connection->executeStatement(
@@ -418,13 +420,13 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
 
         // Seeded as the admin of this test case: the deleter below may not create.
         $deletableIdentifier = $this->generateUuidV7();
-        $deniedIdentifier = $this->generateUuidV7();
+        $deniedIdentifier    = $this->generateUuidV7();
         $vaultService->store($deletableIdentifier, 'owned-by-the-deleter', ['owner' => self::DELETER_UID]);
         $vaultService->store($deniedIdentifier, 'owned-by-somebody-else', ['owner' => 1]);
 
         $connection->insert('tx_nrvault_hooktest4', [
-            'pid' => 0,
-            'api_key' => $deletableIdentifier,
+            'pid'        => 0,
+            'api_key'    => $deletableIdentifier,
             'api_secret' => $deniedIdentifier,
         ]);
         $recordUid = (int) $connection->lastInsertId();
@@ -455,9 +457,9 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
     {
         $this->skipIfNotSqlite();
 
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService   = $this->get(VaultServiceInterface::class);
         $connectionPool = $this->get(ConnectionPool::class);
-        $hook = $this->createHookWithVaultFields('tx_nrvault_hooktest5', ['api_key', 'api_secret']);
+        $hook           = $this->createHookWithVaultFields('tx_nrvault_hooktest5', ['api_key', 'api_secret']);
 
         $connection = $connectionPool->getConnectionForTable('tx_nrvault_hooktest5');
         $connection->executeStatement(
@@ -470,13 +472,13 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
         );
 
         // A dangling reference: never stored, or already cleaned up elsewhere.
-        $missingIdentifier = $this->generateUuidV7();
+        $missingIdentifier  = $this->generateUuidV7();
         $existingIdentifier = $this->generateUuidV7();
         $vaultService->store($existingIdentifier, 'still-there');
 
         $connection->insert('tx_nrvault_hooktest5', [
-            'pid' => 0,
-            'api_key' => $missingIdentifier,
+            'pid'        => 0,
+            'api_key'    => $missingIdentifier,
             'api_secret' => $existingIdentifier,
         ]);
         $recordUid = (int) $connection->lastInsertId();
@@ -580,7 +582,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
 
         if (!str_contains(strtolower($platformClass), 'sqlite')) {
             self::markTestSkipped(
-                \sprintf(
+                sprintf(
                     'Test uses SQLite-specific DDL (AUTOINCREMENT); current platform is %s.',
                     $platformClass,
                 ),
@@ -594,7 +596,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
     private function createDataHandler(): DataHandler
     {
         /** @phpstan-ignore new.internalClass */
-        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler          = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->BE_USER = $GLOBALS['BE_USER'];
 
         return $dataHandler;

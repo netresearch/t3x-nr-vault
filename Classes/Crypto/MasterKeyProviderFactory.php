@@ -12,6 +12,8 @@ namespace Netresearch\NrVault\Crypto;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\ConfigurationException;
 
+use function in_array;
+
 /**
  * Selects the master key provider named by `masterKeyProvider`.
  *
@@ -57,7 +59,7 @@ final readonly class MasterKeyProviderFactory implements MasterKeyProviderFactor
         $provider = $this->configuration->getMasterKeyProvider();
 
         if (
-            \in_array($provider, self::FORBIDDEN_IN_HARDENED_PROFILE, true)
+            in_array($provider, self::FORBIDDEN_IN_HARDENED_PROFILE, true)
             && $this->configuration->getSecurityProfile()->isHardened()
         ) {
             throw ConfigurationException::providerForbiddenInHardenedProfile($provider);

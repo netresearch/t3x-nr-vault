@@ -14,6 +14,8 @@ use Netresearch\NrVault\Service\Doctor\DoctorContext;
 use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\FindingSeverity;
 
+use function sprintf;
+
 /**
  * Shared helpers for the `vault:doctor` readiness-check tests.
  *
@@ -57,7 +59,7 @@ trait DoctorFindingTrait
             }
         }
 
-        self::fail(\sprintf(
+        self::fail(sprintf(
             'No finding "%s" among [%s]',
             $id,
             implode(', ', $this->findingIds($findings)),
@@ -87,7 +89,7 @@ trait DoctorFindingTrait
         self::assertSame(
             $expected,
             $finding->severity,
-            \sprintf('%s severity; summary was: %s', $id, $finding->summary),
+            sprintf('%s severity; summary was: %s', $id, $finding->summary),
         );
 
         // Anything above a pass has to tell the operator what it costs and what

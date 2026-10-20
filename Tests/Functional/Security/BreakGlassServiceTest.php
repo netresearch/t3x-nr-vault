@@ -61,8 +61,8 @@ final class BreakGlassServiceTest extends AbstractVaultFunctionalTestCase
      * @var array<string, mixed>
      */
     protected array $extensionConfiguration = [
-        'securityProfile' => 'hardened',
-        'masterKeyProvider' => 'file',
+        'securityProfile'      => 'hardened',
+        'masterKeyProvider'    => 'file',
         'disableAdminOverride' => 1,
     ];
 
@@ -204,7 +204,7 @@ final class BreakGlassServiceTest extends AbstractVaultFunctionalTestCase
     {
         $this->setUpBackendUser(self::ADMIN_UID);
         $accessControl = $this->get(AccessControlServiceInterface::class);
-        $foreign = new Secret(identifier: 'someone-elses-secret', ownerUid: self::FOREIGN_OWNER_UID);
+        $foreign       = new Secret(identifier: 'someone-elses-secret', ownerUid: self::FOREIGN_OWNER_UID);
 
         // Baseline: hardened + disabled really did remove the bypass.
         self::assertFalse($accessControl->isGranted(VaultPermission::SecretReveal));
@@ -222,7 +222,7 @@ final class BreakGlassServiceTest extends AbstractVaultFunctionalTestCase
     {
         $this->setUpBackendUser(self::ADMIN_UID);
         $accessControl = $this->get(AccessControlServiceInterface::class);
-        $subject = $this->createSubject();
+        $subject       = $this->createSubject();
 
         $subject->activate('INC-4711', 20);
         self::assertTrue($accessControl->isGranted(VaultPermission::SecretReveal));

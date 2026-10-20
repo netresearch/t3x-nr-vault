@@ -24,17 +24,17 @@ use Netresearch\NrVault\Controller\AjaxController;
 return [
     // Reveal a secret value (for FormEngine and list view)
     'vault_reveal' => [
-        'path' => '/vault/reveal',
+        'path'    => '/vault/reveal',
         'methods' => ['POST'],
-        'access' => 'user',
-        'target' => AjaxController::class . '::revealAction',
+        'access'  => 'user',
+        'target'  => AjaxController::class . '::revealAction',
     ],
 
     // Rotate a secret value (for list view modal)
     'vault_rotate' => [
-        'path' => '/vault/rotate',
+        'path'    => '/vault/rotate',
         'methods' => ['POST'],
-        'access' => 'user',
-        'target' => AjaxController::class . '::rotateAction',
+        'access'  => 'user',
+        'target'  => AjaxController::class . '::rotateAction',
     ],
 ];

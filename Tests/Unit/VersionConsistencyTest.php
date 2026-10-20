@@ -12,6 +12,9 @@ namespace Netresearch\NrVault\Tests\Unit;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 
+use function array_slice;
+use function dirname;
+
 /**
  * Guards the hand-maintained version surfaces against drift.
  *
@@ -54,7 +57,7 @@ final class VersionConsistencyTest extends TestCase
     public function guidesXmlVersionMatchesExtEmconf(): void
     {
         $version = $this->extEmConfVersion();
-        $guides = (string) file_get_contents($this->repoRoot() . '/Documentation/guides.xml');
+        $guides  = (string) file_get_contents($this->repoRoot() . '/Documentation/guides.xml');
 
         self::assertStringContainsString(
             'release="' . $version . '"',
@@ -62,7 +65,7 @@ final class VersionConsistencyTest extends TestCase
             'Documentation/guides.xml release attribute must match the ext_emconf.php version.',
         );
         self::assertStringContainsString(
-            'version="' . implode('.', \array_slice(explode('.', $version), 0, 2)) . '"',
+            'version="' . implode('.', array_slice(explode('.', $version), 0, 2)) . '"',
             $guides,
             'Documentation/guides.xml version attribute must be the major.minor of the ext_emconf.php version.',
         );
@@ -70,7 +73,7 @@ final class VersionConsistencyTest extends TestCase
 
     private function repoRoot(): string
     {
-        return \dirname(__DIR__, 2);
+        return dirname(__DIR__, 2);
     }
 
     private function extEmConfVersion(): string

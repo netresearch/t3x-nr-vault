@@ -41,7 +41,7 @@ final class BreakGlassBannerProviderTest extends TestCase
     public function exposesTheOpenWindowForTheBanner(): void
     {
         $expiresAt = time() + 601;
-        $banner = $this->createSubject($this->session($expiresAt))->forView();
+        $banner    = $this->createSubject($this->session($expiresAt))->forView();
 
         self::assertTrue($banner['active']);
         self::assertSame('alice', $banner['username']);
@@ -57,7 +57,7 @@ final class BreakGlassBannerProviderTest extends TestCase
         // the exposure the banner exists to warn about. `$now` is pinned: a
         // window one second from the wall clock closes when the second ticks
         // over between building the session and rendering the banner.
-        $now = (new DateTimeImmutable())->setTimestamp(1_760_000_000);
+        $now    = (new DateTimeImmutable())->setTimestamp(1_760_000_000);
         $banner = $this->createSubject($this->session(1_760_000_001))->forView($now);
 
         self::assertSame(1, $banner['remainingMinutes']);

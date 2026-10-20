@@ -12,6 +12,9 @@ namespace Netresearch\NrVault\Audit;
 use SensitiveParameter;
 use TYPO3\CMS\Core\Database\Connection;
 
+use function count;
+use function is_string;
+
 /**
  * Rewrites the audit hash chain under the HMAC key derived from a new
  * master key. See {@see AuditChainRekeyServiceInterface} for the contract
@@ -75,9 +78,9 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
      */
     private function rewriteChain(Connection $connection, #[SensitiveParameter] string $hmacKey): int
     {
-        $previousHash = '';
+        $previousHash   = '';
         $rewrittenCount = 0;
-        $lastUid = 0;
+        $lastUid        = 0;
 
         // Keyset pagination (uid > last seen, LIMIT n): bounded memory on
         // arbitrarily large logs, and each batch is fully materialised before
@@ -85,7 +88,7 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
         // cursor. $previousHash carries the chain linkage across batches.
         do {
             $queryBuilder = $connection->createQueryBuilder();
-            $rows = $queryBuilder
+            $rows         = $queryBuilder
                 ->select('*')
                 ->from(self::TABLE_NAME)
                 ->where($queryBuilder->expr()->gt(
@@ -99,10 +102,10 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
 
             foreach ($rows as $row) {
                 $rewrittenCount += $this->rekeyRow($connection, $row, $hmacKey, $previousHash);
-                $uid = $row['uid'] ?? 0;
+                $uid     = $row['uid'] ?? 0;
                 $lastUid = max($lastUid, is_numeric($uid) ? (int) $uid : 0);
             }
-        } while (\count($rows) === self::BATCH_SIZE);
+        } while (count($rows) === self::BATCH_SIZE);
 
         return $rewrittenCount;
     }
@@ -158,8 +161,8 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
             ),
         };
 
-        $rowEntryHash = \is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '';
-        $rowPreviousHash = \is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '';
+        $rowEntryHash    = is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '';
+        $rowPreviousHash = is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '';
 
         // Constant-time comparisons per project mandate (AGENTS.md
         // Security Requirement #2), although this check only decides
@@ -169,7 +172,7 @@ final readonly class AuditChainRekeyService implements AuditChainRekeyServiceInt
             $connection->update(
                 self::TABLE_NAME,
                 [
-                    'entry_hash' => $expectedHash,
+                    'entry_hash'    => $expectedHash,
                     'previous_hash' => $previousHash,
                 ],
                 ['uid' => $entry['uid']],

@@ -308,7 +308,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function isAuditReadsEnabledRespectsFilesystemOverrideTrue(): void
     {
-        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $original                   = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['auditReads' => true]]];
 
         // BE-config says "disabled" but filesystem override forces enabled.
@@ -331,7 +331,7 @@ final class ExtensionConfigurationTest extends TestCase
     #[Test]
     public function isAuditReadsEnabledRespectsFilesystemOverrideFalse(): void
     {
-        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $original                   = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['auditReads' => false]]];
 
         // BE-config says "enabled" but filesystem override silences reads.
@@ -379,7 +379,7 @@ final class ExtensionConfigurationTest extends TestCase
         // The direction that matters: an admin who ticks the box in the BE
         // Settings module must not thereby re-open the CLI gate an operator
         // pinned shut on the filesystem.
-        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $original                   = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['frontendPlaceholderLegacyCli' => false]]];
 
         $this->typo3Config->method('get')->willReturn(['frontendPlaceholderLegacyCli' => true]);
@@ -401,7 +401,7 @@ final class ExtensionConfigurationTest extends TestCase
     {
         // The pin is the authority in both directions, as for every other
         // pinned flag — an operator can also pin the opt-in on.
-        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $original                   = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['frontendPlaceholderLegacyCli' => true]]];
 
         $this->typo3Config->method('get')->willReturn(['frontendPlaceholderLegacyCli' => false]);
@@ -445,7 +445,7 @@ final class ExtensionConfigurationTest extends TestCase
     {
         // The point of the pin: a compromised admin who unticks the box in the
         // BE Settings module must not thereby restore their own bypass.
-        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $original                   = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['disableAdminOverride' => true]]];
 
         $this->typo3Config->method('get')->willReturn(['disableAdminOverride' => false]);
@@ -466,7 +466,7 @@ final class ExtensionConfigurationTest extends TestCase
     public function isAdminOverrideDisabledRespectsFilesystemOverrideFalse(): void
     {
         // The pin wins in both directions — it is the authority, not a floor.
-        $original = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $original                   = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['SYS' => ['nrVault' => ['disableAdminOverride' => false]]];
 
         $this->typo3Config->method('get')->willReturn(['disableAdminOverride' => true]);
@@ -514,7 +514,7 @@ final class ExtensionConfigurationTest extends TestCase
             ->with('nr_vault')
             ->willReturn([]);
 
-        $config = new ExtensionConfiguration($this->typo3Config);
+        $config          = new ExtensionConfiguration($this->typo3Config);
         $hashiCorpConfig = $config->getHashiCorpConfig();
 
         self::assertInstanceOf(VaultServerConfig::class, $hashiCorpConfig);
@@ -528,8 +528,8 @@ final class ExtensionConfigurationTest extends TestCase
     public function getHashiCorpConfigReturnsConfiguredValues(): void
     {
         $hashicorpConfig = [
-            'address' => 'https://vault.example.com',
-            'path' => 'secret/data',
+            'address'    => 'https://vault.example.com',
+            'path'       => 'secret/data',
             'authMethod' => 'token',
         ];
 
@@ -551,12 +551,12 @@ final class ExtensionConfigurationTest extends TestCase
     {
         $this->typo3Config->method('get')
             ->willReturn(['hashicorp' => [
-                'address' => 'https://vault.example.com:8200',
-                'authMethod' => 'token',
-                'transitMount' => 'platform/transit',
-                'transitKeyName' => 'master-key',
+                'address'               => 'https://vault.example.com:8200',
+                'authMethod'            => 'token',
+                'transitMount'          => 'platform/transit',
+                'transitKeyName'        => 'master-key',
                 'transitWrappedKeyPath' => '/secure/wrapped.key',
-                'tokenEnvVar' => 'MY_VAULT_TOKEN',
+                'tokenEnvVar'           => 'MY_VAULT_TOKEN',
             ]]);
 
         $result = (new ExtensionConfiguration($this->typo3Config))->getTransitConfig();
@@ -604,7 +604,7 @@ final class ExtensionConfigurationTest extends TestCase
             ->with('nr_vault')
             ->willReturn([]);
 
-        $config = new ExtensionConfiguration($this->typo3Config);
+        $config    = new ExtensionConfiguration($this->typo3Config);
         $awsConfig = $config->getAwsConfig();
 
         self::assertInstanceOf(AwsSecretsConfig::class, $awsConfig);
@@ -616,7 +616,7 @@ final class ExtensionConfigurationTest extends TestCase
     public function getAwsConfigReturnsConfiguredValues(): void
     {
         $awsConfig = [
-            'region' => 'eu-west-1',
+            'region'       => 'eu-west-1',
             'secretPrefix' => 'myapp/',
         ];
 
@@ -937,8 +937,8 @@ final class ExtensionConfigurationTest extends TestCase
      */
     public static function auditSinkToggleConfigurationProvider(): iterable
     {
-        $syslog = static fn (ExtensionConfiguration $c): bool => $c->isAuditSinkSyslogEnabled();
-        $file = static fn (ExtensionConfiguration $c): bool => $c->isAuditSinkFileEnabled();
+        $syslog  = static fn (ExtensionConfiguration $c): bool => $c->isAuditSinkSyslogEnabled();
+        $file    = static fn (ExtensionConfiguration $c): bool => $c->isAuditSinkFileEnabled();
         $webhook = static fn (ExtensionConfiguration $c): bool => $c->isAuditSinkWebhookEnabled();
 
         // The extension configuration backend stores checkboxes as '1'/'0' strings.

@@ -4,6 +4,7 @@
  * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Audit\Sink;
@@ -30,12 +31,14 @@ use Stringable;
 use Throwable;
 use Traversable;
 
+use function in_array;
+
 #[CoversClass(AuditSinkRegistry::class)]
 final class AuditSinkContractTest extends TestCase
 {
     /**
      * @param 'entry'|'anchor'|'alert'|'enablement'|'identifiers'|'success-state' $operation
-     * @param class-string<Throwable> $failureClass
+     * @param class-string<Throwable>                                             $failureClass
      */
     #[Test]
     #[DataProvider('identifierFailures')]
@@ -43,11 +46,11 @@ final class AuditSinkContractTest extends TestCase
         string $operation,
         string $failureClass,
     ): void {
-        $failure = new $failureClass('https://user:password@example.test/private/file');
+        $failure       = new $failureClass('https://user:password@example.test/private/file');
         $identityCalls = 0;
-        $brokenCalls = 0;
-        $healthyCalls = 0;
-        $broken = self::createStub(AuditSinkInterface::class);
+        $brokenCalls   = 0;
+        $healthyCalls  = 0;
+        $broken        = self::createStub(AuditSinkInterface::class);
         $broken
             ->method('getIdentifier')
             ->willReturnCallback(
@@ -67,8 +70,8 @@ final class AuditSinkContractTest extends TestCase
 
         $publishMethod = match ($operation) {
             'anchor' => 'publishAnchor',
-            'alert' => 'publishAlert',
-            default => 'publish',
+            'alert'  => 'publishAlert',
+            default  => 'publish',
         };
         $broken
             ->method($publishMethod)
@@ -94,8 +97,8 @@ final class AuditSinkContractTest extends TestCase
                 },
             );
         $successes = [];
-        $failures = [];
-        $state = self::createStub(SinkDeliveryStateRepositoryInterface::class);
+        $failures  = [];
+        $state     = self::createStub(SinkDeliveryStateRepositoryInterface::class);
         $state
             ->method('recordSuccess')
             ->willReturnCallback(
@@ -113,7 +116,7 @@ final class AuditSinkContractTest extends TestCase
                     $failures[] = [$id, $message];
                 },
             );
-        $logs = [];
+        $logs   = [];
         $logger = self::createStub(LoggerInterface::class);
         $logger
             ->method('error')
@@ -125,7 +128,7 @@ final class AuditSinkContractTest extends TestCase
                     $logs[] = $context;
                 },
             );
-        $alerts = [];
+        $alerts     = [];
         $dispatcher = self::createStub(EventDispatcherInterface::class);
         $dispatcher
             ->method('dispatch')
@@ -136,18 +139,18 @@ final class AuditSinkContractTest extends TestCase
                     return $event;
                 },
             );
-        $subject = new AuditSinkRegistry([$broken, $healthy], $logger, $dispatcher, $state);
-        $delivering = \in_array(
+        $subject    = new AuditSinkRegistry([$broken, $healthy], $logger, $dispatcher, $state);
+        $delivering = in_array(
             $operation,
             ['entry', 'anchor', 'alert', 'success-state'],
             true,
         );
-        $failuresPerCall = \in_array($operation, ['entry', 'anchor', 'alert', 'enablement'], true) ? 2 : 1;
-        $expected = match ($operation) {
-            'identifiers' => ['healthy'],
-            'enablement' => true,
+        $failuresPerCall = in_array($operation, ['entry', 'anchor', 'alert', 'enablement'], true) ? 2 : 1;
+        $expected        = match ($operation) {
+            'identifiers'   => ['healthy'],
+            'enablement'    => true,
             'success-state' => 2,
-            default => 1,
+            default         => 1,
         };
         for ($call = 1; $call <= 2; ++$call) {
             $thrown = null;
@@ -238,7 +241,7 @@ final class AuditSinkContractTest extends TestCase
 
     /**
      * @param 'entry'|'anchor'|'alert'|'external'|'identifiers' $operation
-     * @param class-string<Throwable> $failureClass
+     * @param class-string<Throwable>                           $failureClass
      */
     #[Test]
     #[DataProvider('iteratorFailures')]
@@ -251,10 +254,10 @@ final class AuditSinkContractTest extends TestCase
         $healthy->method('getIdentifier')->willReturn('healthy');
         $healthy->method('isEnabled')->willReturn(true);
         $acceptedCalls = 0;
-        $method = match ($operation) {
+        $method        = match ($operation) {
             'anchor' => 'publishAnchor',
-            'alert' => 'publishAlert',
-            default => 'publish',
+            'alert'  => 'publishAlert',
+            default  => 'publish',
         };
         $healthy
             ->method($method)
@@ -271,8 +274,8 @@ final class AuditSinkContractTest extends TestCase
             throw new $failureClass('https://user:password@example.test/iterator', 694456012);
         })();
         $subject = $this->subject($sinks);
-        $thrown = null;
-        $result = null;
+        $thrown  = null;
+        $result  = null;
 
         try {
             $result = $this->invoke($subject, $operation);
@@ -285,9 +288,9 @@ final class AuditSinkContractTest extends TestCase
             'Registry never-throws contract: ' . $operation,
         );
         $expected = match ($operation) {
-            'external' => $prefix,
+            'external'    => $prefix,
             'identifiers' => $prefix ? ['healthy'] : [],
-            default => $prefix ? 1 : 0,
+            default       => $prefix ? 1 : 0,
         };
         self::assertSame(
             $expected,
@@ -295,7 +298,7 @@ final class AuditSinkContractTest extends TestCase
             'Previously accepted evidence must survive a later iterator failure.',
         );
         self::assertSame(
-            $prefix && !\in_array($operation, ['external', 'identifiers'], true) ? 1 : 0,
+            $prefix && !in_array($operation, ['external', 'identifiers'], true) ? 1 : 0,
             $acceptedCalls,
         );
         self::assertSame(
@@ -326,7 +329,7 @@ final class AuditSinkContractTest extends TestCase
         $healthy->method('getIdentifier')->willReturn('healthy');
         $healthy->method('isEnabled')->willReturn(true);
         $entries = 0;
-        $alerts = 0;
+        $alerts  = 0;
         $healthy
             ->method('publish')
             ->willReturnCallback(
@@ -360,8 +363,8 @@ final class AuditSinkContractTest extends TestCase
             }
         };
         $nestedResults = [];
-        $dispatcher = self::createStub(EventDispatcherInterface::class);
-        $subject = new AuditSinkRegistry($sinks, new NullLogger(), $dispatcher);
+        $dispatcher    = self::createStub(EventDispatcherInterface::class);
+        $subject       = new AuditSinkRegistry($sinks, new NullLogger(), $dispatcher);
         $dispatcher
             ->method('dispatch')
             ->willReturnCallback(
@@ -422,7 +425,7 @@ final class AuditSinkContractTest extends TestCase
     ): mixed {
         return match ($operation) {
             'entry', 'success-state' => $subject->dispatch($this->createEntry(), 'tip'),
-            'anchor' => $subject->dispatchAnchor(
+            'anchor'                 => $subject->dispatchAnchor(
                 new ChainTipAnchor(
                     sequence: 7,
                     chainTip: 'tip',
@@ -437,7 +440,7 @@ final class AuditSinkContractTest extends TestCase
                 ),
             ),
             'enablement', 'external' => $subject->hasExternalAuditSink(),
-            'identifiers' => $subject->getEnabledSinkIdentifiers(),
+            'identifiers'            => $subject->getEnabledSinkIdentifiers(),
         };
     }
 

@@ -105,7 +105,7 @@ final class ConfigSecretFindingTest extends TestCase
     public function getPatternsReturnsPatterns(): void
     {
         $patterns = ['Pattern 1', 'Pattern 2'];
-        $finding = new ConfigSecretFinding(
+        $finding  = new ConfigSecretFinding(
             path: 'path',
             severity: Severity::Low,
             isLocalConfiguration: true,

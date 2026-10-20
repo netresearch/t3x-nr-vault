@@ -20,6 +20,8 @@ use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\ContentObject\Event\AfterStdWrapFunctionsExecutedEvent;
 
+use function is_string;
+
 /**
  * PSR-14 event listener that resolves %vault(identifier)% placeholders in TypoScript content.
  *
@@ -58,7 +60,7 @@ final readonly class TypoScriptVaultListener
         $content = $event->getContent();
 
         // Quick check - skip if no vault references or not a string
-        if (!\is_string($content) || !str_contains($content, '%vault(')) {
+        if (!is_string($content) || !str_contains($content, '%vault(')) {
             return;
         }
 
@@ -115,7 +117,7 @@ final readonly class TypoScriptVaultListener
                         'Failed to resolve vault reference in TypoScript',
                         [
                             'identifier' => $identifier,
-                            'error' => $e->getMessage(),
+                            'error'      => $e->getMessage(),
                         ],
                     );
                 } catch (Throwable) {
@@ -147,7 +149,7 @@ final readonly class TypoScriptVaultListener
 
         try {
             $this->logger->notice(
-                'Vault placeholder not resolved: the identifier is not published for frontend resolution.' . ' Publish it in TypoScript setup, in site configuration, via' . ' plugin.tx_nrvault.frontendResolvableIdentifiers, or via' . ' FrontendPlaceholderPolicyInterface::allowIdentifier(). Further occurrences in this' . ' request are not reported.',
+                'Vault placeholder not resolved: the identifier is not published for frontend resolution. Publish it in TypoScript setup, in site configuration, via plugin.tx_nrvault.frontendResolvableIdentifiers, or via FrontendPlaceholderPolicyInterface::allowIdentifier(). Further occurrences in this request are not reported.',
                 [
                     'identifier' => IdentifierValidator::isValid($identifier) ? $identifier : '[invalid]',
                 ],

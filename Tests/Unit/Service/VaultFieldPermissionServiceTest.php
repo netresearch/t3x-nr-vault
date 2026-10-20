@@ -83,7 +83,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     #[Test]
     public function usesGlobalBackendUserWhenNotProvided(): void
     {
-        $backendUser = $this->createMockBackendUser(isAdmin: true);
+        $backendUser        = $this->createMockBackendUser(isAdmin: true);
         $GLOBALS['BE_USER'] = $backendUser;
 
         $result = $this->service->isAllowed('table', 'field', VaultFieldPermission::Reveal);
@@ -95,7 +95,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function toBooleanReturnsTrueForTrueValues(): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('toBoolean');
+        $method     = $reflection->getMethod('toBoolean');
 
         self::assertTrue($method->invoke($this->service, true));
         self::assertTrue($method->invoke($this->service, '1'));
@@ -112,7 +112,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function toBooleanReturnsFalseForFalseValues(): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('toBoolean');
+        $method     = $reflection->getMethod('toBoolean');
 
         self::assertFalse($method->invoke($this->service, false));
         self::assertFalse($method->invoke($this->service, '0'));
@@ -127,7 +127,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function getBuiltInDefaultReturnsCorrectDefaults(): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('getBuiltInDefault');
+        $method     = $reflection->getMethod('getBuiltInDefault');
 
         self::assertTrue($method->invoke($this->service, VaultFieldPermission::Reveal));
         self::assertTrue($method->invoke($this->service, VaultFieldPermission::Copy));
@@ -139,9 +139,9 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function getNestedValueReturnsNullForMissingKey(): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('getNestedValue');
+        $method     = $reflection->getMethod('getNestedValue');
 
-        $array = [];
+        $array  = [];
         $result = $method->invoke($this->service, $array, ['nonexistent']);
 
         self::assertNull($result);
@@ -151,9 +151,9 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function getNestedValueReturnsValueForDirectKey(): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('getNestedValue');
+        $method     = $reflection->getMethod('getNestedValue');
 
-        $array = ['key' => 'value'];
+        $array  = ['key' => 'value'];
         $result = $method->invoke($this->service, $array, ['key']);
 
         self::assertSame('value', $result);
@@ -163,7 +163,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function getNestedValueHandlesTsConfigDotNotation(): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('getNestedValue');
+        $method     = $reflection->getMethod('getNestedValue');
 
         // TSconfig uses trailing dots for nested arrays
         $array = [
@@ -182,7 +182,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function getNestedValueHandlesMixedDotNotation(): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('getNestedValue');
+        $method     = $reflection->getMethod('getNestedValue');
 
         // Mix of dot notation and direct values
         $array = [
@@ -199,7 +199,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function differentFieldsHaveSeparateCacheEntries(): void
     {
         $backendUser = $this->createMockBackendUser(uid: 10, isAdmin: false);
-        $cache = (new ReflectionClass($this->service))->getProperty('permissionCache');
+        $cache       = (new ReflectionClass($this->service))->getProperty('permissionCache');
         $cache->setValue(
             $this->service,
             [
@@ -230,12 +230,12 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function differentPermissionsHaveSeparateCacheEntries(): void
     {
         $backendUser = $this->createMockBackendUser(uid: 10, isAdmin: false);
-        $cache = (new ReflectionClass($this->service))->getProperty('permissionCache');
+        $cache       = (new ReflectionClass($this->service))->getProperty('permissionCache');
         $cache->setValue(
             $this->service,
             [
-                'table:field:reveal:10' => false,
-                'table:field:copy:10' => true,
+                'table:field:reveal:10'   => false,
+                'table:field:copy:10'     => true,
                 'table:field:readOnly:10' => true,
             ],
         );
@@ -270,7 +270,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function getNestedValueReturnsNullForNonArrayCurrent(): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('getNestedValue');
+        $method     = $reflection->getMethod('getNestedValue');
 
         // When traversing leads to a non-array value before reaching end of keys
         $array = [
@@ -308,9 +308,9 @@ final class VaultFieldPermissionServiceTest extends TestCase
     #[Test]
     public function cacheIsKeyedByUserUid(): void
     {
-        $first = $this->createMockBackendUser(uid: 10, isAdmin: false);
+        $first  = $this->createMockBackendUser(uid: 10, isAdmin: false);
         $second = $this->createMockBackendUser(uid: 20, isAdmin: false);
-        $cache = (new ReflectionClass($this->service))->getProperty('permissionCache');
+        $cache  = (new ReflectionClass($this->service))->getProperty('permissionCache');
         $cache->setValue(
             $this->service,
             [
@@ -345,7 +345,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
         $backendUser = $this->createMockBackendUser(uid: 55, isAdmin: false);
 
         $reflection = new ReflectionClass($this->service);
-        $cacheProp = $reflection->getProperty('permissionCache');
+        $cacheProp  = $reflection->getProperty('permissionCache');
         // Seed a deliberate value
         $cacheProp->setValue($this->service, ['tx_table:field:edit:55' => false]);
 
@@ -365,7 +365,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
         $backendUser->user = ['uid' => 'not-an-int'];
 
         $reflection = new ReflectionClass($this->service);
-        $cacheProp = $reflection->getProperty('permissionCache');
+        $cacheProp  = $reflection->getProperty('permissionCache');
         // Pre-seed result for uid=0 key
         $cacheProp->setValue($this->service, ['tx_table:field:reveal:0' => true]);
 
@@ -379,7 +379,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function isReadOnlyForNonAdminReadsCachedPermission(): void
     {
         $backendUser = $this->createMockBackendUser(uid: 42, isAdmin: false);
-        $cache = (new ReflectionClass($this->service))->getProperty('permissionCache');
+        $cache       = (new ReflectionClass($this->service))->getProperty('permissionCache');
         $cache->setValue(
             $this->service,
             ['tx_table:field:readOnly:42' => false],
@@ -405,7 +405,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function clearCacheEmptiesInternalCache(): void
     {
         $reflection = new ReflectionClass($this->service);
-        $cacheProp = $reflection->getProperty('permissionCache');
+        $cacheProp  = $reflection->getProperty('permissionCache');
         $cacheProp->setValue($this->service, ['tx_table:field:reveal:1' => true]);
 
         $this->service->clearCache();
@@ -422,7 +422,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
         $backendUser2 = $this->createMockBackendUser(uid: 99, isAdmin: false);
 
         $reflection = new ReflectionClass($this->service);
-        $cacheProp = $reflection->getProperty('permissionCache');
+        $cacheProp  = $reflection->getProperty('permissionCache');
         // Pre-seed cache for uid 99
         $cacheProp->setValue($this->service, ['tx_table:field:copy:99' => false]);
 
@@ -439,11 +439,11 @@ final class VaultFieldPermissionServiceTest extends TestCase
 
         // Pre-seed all four cache entries to avoid BackendUtility call
         $reflection = new ReflectionClass($this->service);
-        $cacheProp = $reflection->getProperty('permissionCache');
+        $cacheProp  = $reflection->getProperty('permissionCache');
         $cacheProp->setValue($this->service, [
-            'tx_table:field:reveal:33' => true,
-            'tx_table:field:copy:33' => true,
-            'tx_table:field:edit:33' => true,
+            'tx_table:field:reveal:33'   => true,
+            'tx_table:field:copy:33'     => true,
+            'tx_table:field:edit:33'     => true,
             'tx_table:field:readOnly:33' => false,
         ]);
 
@@ -460,7 +460,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function toBooleanHandlesIntegerOne(): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('toBoolean');
+        $method     = $reflection->getMethod('toBoolean');
 
         self::assertTrue($method->invoke($this->service, 1));
         self::assertFalse($method->invoke($this->service, 0));
@@ -470,7 +470,7 @@ final class VaultFieldPermissionServiceTest extends TestCase
     public function getNestedValueReturnsNullWhenKeyMissingWithDotAndWithout(): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('getNestedValue');
+        $method     = $reflection->getMethod('getNestedValue');
 
         // Neither 'missing' nor 'missing.' exists
         $result = $method->invoke($this->service, ['other' => 'value'], ['missing', 'sub']);

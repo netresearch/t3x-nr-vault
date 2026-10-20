@@ -1,7 +1,10 @@
 <?php
 
-/* Copyright (c) 2026 Netresearch DTT GmbH
- * SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Hook;
@@ -26,37 +29,37 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
 
     /** @var array<string, mixed> */
     protected array $extensionConfiguration = [
-        'securityProfile' => 'hardened',
-        'masterKeyProvider' => 'file',
+        'securityProfile'      => 'hardened',
+        'masterKeyProvider'    => 'file',
         'disableAdminOverride' => 1,
     ];
 
     #[Test]
     public function realCoreCannotRemoveARecordAfterItsFlexSecretDeleteIsDenied(): void
     {
-        $identifier = $this->generateUuidV7();
-        $pool = $this->getConnectionPool();
+        $identifier       = $this->generateUuidV7();
+        $pool             = $this->getConnectionPool();
         $secretConnection = $pool->getConnectionForTable('tx_nrvault_secret');
         $secretConnection->insert(
             'tx_nrvault_secret',
             [
-                'pid' => 0,
+                'pid'        => 0,
                 'identifier' => $identifier,
-                'owner_uid' => 2,
-                'deleted' => 0,
+                'owner_uid'  => 2,
+                'deleted'    => 0,
             ],
         );
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF">' . '<field index="apiKey"><value index="vDEF">' . $identifier . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml              = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="apiKey"><value index="vDEF">' . $identifier . '</value></field></language></sheet></data></T3FlexForms>';
         $recordConnection = $pool->getConnectionForTable('tx_nrvaulttest_flex');
         $recordConnection->insert(
             'tx_nrvaulttest_flex',
             [
-                'pid' => 0,
-                'title' => 'Synthetic denied FlexForm record',
+                'pid'      => 0,
+                'title'    => 'Synthetic denied FlexForm record',
                 'settings' => $xml,
             ],
         );
-        $uid = (int) $recordConnection->lastInsertId();
+        $uid             = (int) $recordConnection->lastInsertId();
         $GLOBALS['LANG'] = $this
             ->get(LanguageServiceFactory::class)
             ->createFromUserPreferences(null);
@@ -89,8 +92,8 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
                     'tx_nrvault_audit_log',
                     [
                         'secret_identifier' => $identifier,
-                        'action' => 'access_denied',
-                        'success' => 0,
+                        'action'            => 'access_denied',
+                        'success'           => 0,
                     ],
                 ),
             'The real vault gate, rather than Core table permissions, must refuse this delete.',
@@ -110,9 +113,9 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
     public function deniedSecondSecretDoesNotDeleteTheFirstPermittedSecret(): void
     {
         $this->grantDeleteOperation();
-        $first = $this->seedSecret(1);
+        $first  = $this->seedSecret(1);
         $second = $this->seedSecret(2);
-        $uid = $this->seedRecord([$first, $second]);
+        $uid    = $this->seedRecord([$first, $second]);
         self::assertNull($this->runCoreDelete($uid));
         self::assertTrue(
             $this->get(VaultServiceInterface::class)->exists($first),
@@ -137,8 +140,8 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
                     'tx_nrvault_audit_log',
                     [
                         'secret_identifier' => $second,
-                        'action' => 'access_denied',
-                        'success' => 0,
+                        'action'            => 'access_denied',
+                        'success'           => 0,
                     ],
                 ),
         );
@@ -159,9 +162,9 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
     public function permittedCoreDeleteRemovesUniqueActiveSecretReferences(): void
     {
         $this->grantDeleteOperation();
-        $first = $this->seedSecret(1);
+        $first  = $this->seedSecret(1);
         $second = $this->seedSecret(1);
-        $uid = $this->seedRecord([$first, $second, $first]);
+        $uid    = $this->seedRecord([$first, $second, $first]);
         self::assertNull($this->runCoreDelete($uid));
         self::assertFalse(
             $this->get(VaultServiceInterface::class)->exists($first),
@@ -209,10 +212,10 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
     {
         $this->grantDeleteOperation();
         $identifier = $this->seedSecret(1);
-        $uid = $this->seedRecord([$identifier]);
-        $otherUid = $this->seedRecord([$identifier]);
+        $uid        = $this->seedRecord([$identifier]);
+        $otherUid   = $this->seedRecord([$identifier]);
         $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvaulttest_flex');
-        $xml = $connection->fetchOne(
+        $xml        = $connection->fetchOne(
             'SELECT settings FROM tx_nrvaulttest_flex WHERE uid = ?',
             [$uid],
         );
@@ -263,16 +266,16 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
     {
         $this->grantDeleteOperation();
         $identifier = $this->seedSecret(1, true);
-        $secrets = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret');
+        $secrets    = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret');
         $secrets->update(
             'tx_nrvault_secret',
             [
-                'encrypted_value' => 'synthetic-invalid-envelope',
-                'encrypted_dek' => 'synthetic-invalid-key',
-                'dek_nonce' => 'synthetic-invalid-nonce',
-                'value_nonce' => 'synthetic-invalid-nonce',
-                'value_checksum' => 'synthetic-checksum',
-                'encryption_version' => 1,
+                'encrypted_value'      => 'synthetic-invalid-envelope',
+                'encrypted_dek'        => 'synthetic-invalid-key',
+                'dek_nonce'            => 'synthetic-invalid-nonce',
+                'value_nonce'          => 'synthetic-invalid-nonce',
+                'value_checksum'       => 'synthetic-checksum',
+                'encryption_version'   => 1,
                 'encryption_algorithm' => '',
             ],
             ['identifier' => $identifier],
@@ -310,8 +313,8 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
                     'tx_nrvault_audit_log',
                     [
                         'secret_identifier' => $identifier,
-                        'action' => 'delete',
-                        'success' => 1,
+                        'action'            => 'delete',
+                        'success'           => 1,
                     ],
                 ),
         );
@@ -332,9 +335,9 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
     public function deniedDisabledReferenceKeepsTheRecordAndTheEarlierPermittedReference(): void
     {
         $this->grantDeleteOperation();
-        $first = $this->seedSecret(1);
+        $first  = $this->seedSecret(1);
         $second = $this->seedSecret(2, true);
-        $uid = $this->seedRecord([$first, $second]);
+        $uid    = $this->seedRecord([$first, $second]);
         self::assertFalse(
             $this->get(VaultServiceInterface::class)->exists($second),
         );
@@ -362,8 +365,8 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
                     'tx_nrvault_audit_log',
                     [
                         'secret_identifier' => $second,
-                        'action' => 'access_denied',
-                        'success' => 0,
+                        'action'            => 'access_denied',
+                        'success'           => 0,
                     ],
                 ),
         );
@@ -385,7 +388,7 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
     {
         $this->grantDeleteOperation();
         $identifier = $this->generateUuidV7();
-        $uid = $this->seedRecord([$identifier]);
+        $uid        = $this->seedRecord([$identifier]);
         self::assertNull($this->runCoreDelete($uid));
         self::assertSame(
             0,
@@ -443,8 +446,8 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
     {
         $this->grantDeleteOperation();
         $identifier = $this->seedSecret(1, true);
-        $uid = $this->seedRecord([$identifier]);
-        $other = $this->seedRecord([$identifier]);
+        $uid        = $this->seedRecord([$identifier]);
+        $other      = $this->seedRecord([$identifier]);
         self::assertNull($this->runCoreDelete($uid));
         self::assertSame(0, $this->secretDeletedFlag($identifier));
         self::assertSame(
@@ -478,8 +481,8 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
     {
         $this->grantDeleteOperation();
         $identifier = $this->seedSecret(2, true);
-        $uid = $this->seedRecord([$identifier]);
-        $other = $this->seedRecord([$identifier]);
+        $uid        = $this->seedRecord([$identifier]);
+        $other      = $this->seedRecord([$identifier]);
         self::assertFalse(
             $this->get(VaultServiceInterface::class)->exists($identifier),
         );
@@ -504,7 +507,7 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
                     'tx_nrvault_audit_log',
                     [
                         'secret_identifier' => $identifier,
-                        'action' => 'access_denied',
+                        'action'            => 'access_denied',
                     ],
                 ),
         );
@@ -525,9 +528,9 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
             ->insert(
                 'be_groups',
                 [
-                    'uid' => 21,
-                    'pid' => 0,
-                    'title' => 'Synthetic vault deleters',
+                    'uid'            => 21,
+                    'pid'            => 0,
+                    'title'          => 'Synthetic vault deleters',
                     'custom_options' => 'tx_nrvault:secret.delete',
                 ],
             );
@@ -546,11 +549,11 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
             ->insert(
                 'tx_nrvault_secret',
                 [
-                    'pid' => 0,
+                    'pid'        => 0,
                     'identifier' => $id,
-                    'owner_uid' => $owner,
-                    'deleted' => 0,
-                    'hidden' => $disabled ? 1 : 0,
+                    'owner_uid'  => $owner,
+                    'deleted'    => 0,
+                    'hidden'     => $disabled ? 1 : 0,
                 ],
             );
 
@@ -567,13 +570,13 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
             $fields .= '<field index="apiKey' . $index . '"><value index="vDEF">' . $identifier . '</value></field>';
         }
 
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF">' . $fields . '</language></sheet></data></T3FlexForms>';
+        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF">' . $fields . '</language></sheet></data></T3FlexForms>';
         $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvaulttest_flex');
         $connection->insert(
             'tx_nrvaulttest_flex',
             [
-                'pid' => 0,
-                'title' => 'Synthetic lifecycle record',
+                'pid'      => 0,
+                'title'    => 'Synthetic lifecycle record',
                 'settings' => $xml,
             ],
         );

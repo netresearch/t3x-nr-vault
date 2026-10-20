@@ -20,10 +20,10 @@ namespace Netresearch\NrVault\Security;
 final readonly class TechnicalActor
 {
     /**
-     * @param positive-int $uid be_users uid the actor acts as
-     * @param string $username be_users username (audit attribution)
-     * @param bool $admin be_users admin flag
-     * @param list<int> $groupIds resolved be_groups uids (incl. subgroups)
+     * @param positive-int $uid      be_users uid the actor acts as
+     * @param string       $username be_users username (audit attribution)
+     * @param bool         $admin    be_users admin flag
+     * @param list<int>    $groupIds resolved be_groups uids (incl. subgroups)
      */
     public function __construct(
         public int $uid,

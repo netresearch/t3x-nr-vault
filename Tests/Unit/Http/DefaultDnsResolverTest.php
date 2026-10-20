@@ -19,10 +19,10 @@ namespace Netresearch\NrVault\Http {
      * forwarded to the global function, so any other code in this namespace
      * keeps its production behaviour.
      *
-     * @param array<mixed>|null $authoritativeNameServers Accepted for signature
+     * @param array<mixed>|null $authoritativeNameServers accepted for signature
      *                                                    parity only — the resolver never asks for the diagnostic
-     *                                                    record sets, so the double leaves them null.
-     * @param array<mixed>|null $additionalRecords Accepted for signature parity only
+     *                                                    record sets, so the double leaves them null
+     * @param array<mixed>|null $additionalRecords        Accepted for signature parity only
      *
      * @param-out null $authoritativeNameServers
      * @param-out null $additionalRecords
@@ -37,16 +37,16 @@ namespace Netresearch\NrVault\Http {
         bool $raw = false,
     ): array|false {
         $authoritativeNameServers = null;
-        $additionalRecords = null;
-        $handler = DefaultDnsResolverTest::$dnsHandler;
+        $additionalRecords        = null;
+        $handler                  = DefaultDnsResolverTest::$dnsHandler;
 
         if (!$handler instanceof \Closure) {
             // Called through a variable so the global function is reached
             // without a `\` prefix: the CGL rule `native_function_invocation`
             // (strict, @compiler_optimized only) would strip that prefix and
             // turn the fallback into infinite self-recursion.
-            $native = 'dns_get_record';
-            $nativeNameServers = null;
+            $native                  = 'dns_get_record';
+            $nativeNameServers       = null;
             $nativeAdditionalRecords = null;
 
             return $native($hostname, $type, $nativeNameServers, $nativeAdditionalRecords, $raw);
@@ -108,7 +108,7 @@ namespace Netresearch\NrVault\Tests\Unit\Http {
         #[Test]
         public function lookupAsksForBothAddressFamilies(): void
         {
-            $requestedType = null;
+            $requestedType    = null;
             self::$dnsHandler = static function (string $host, int $type) use (&$requestedType): array {
                 $requestedType = $type;
 
@@ -123,7 +123,7 @@ namespace Netresearch\NrVault\Tests\Unit\Http {
         #[Test]
         public function hostnameIsPassedThroughUnchanged(): void
         {
-            $requestedHost = null;
+            $requestedHost    = null;
             self::$dnsHandler = static function (string $host) use (&$requestedHost): array {
                 $requestedHost = $host;
 
@@ -289,7 +289,7 @@ namespace Netresearch\NrVault\Tests\Unit\Http {
         #[Test]
         public function errorHandlerIsRestoredWhenTheLookupThrows(): void
         {
-            $failure = new RuntimeException('resolver exploded', 8304165671);
+            $failure          = new RuntimeException('resolver exploded', 8304165671);
             self::$dnsHandler = static function () use ($failure): never {
                 throw $failure;
             };

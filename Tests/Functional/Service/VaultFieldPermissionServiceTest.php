@@ -230,9 +230,9 @@ final class VaultFieldPermissionServiceTest extends FunctionalTestCase
 
         self::assertSame(
             [
-                'reveal' => false,
-                'copy' => true,
-                'edit' => false,
+                'reveal'   => false,
+                'copy'     => true,
+                'edit'     => false,
                 'readOnly' => true,
             ],
             $this->getSubject()->getPermissions('table', 'field'),
@@ -255,9 +255,9 @@ final class VaultFieldPermissionServiceTest extends FunctionalTestCase
 
         self::assertSame(
             [
-                'reveal' => true,
-                'copy' => true,
-                'edit' => true,
+                'reveal'   => true,
+                'copy'     => true,
+                'edit'     => true,
                 'readOnly' => false,
             ],
             $this->getSubject()->getPermissions('table', 'field'),

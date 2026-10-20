@@ -1,7 +1,10 @@
 <?php
 
-/* Copyright (c) 2026 Netresearch DTT GmbH
- * SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Documentation;
@@ -65,12 +68,12 @@ final class TcaDeepLExampleTest extends FunctionalTestCase
         require_once __DIR__ . '/../../../Documentation/Usage/_ConfigRepository.php';
         require_once __DIR__ . '/../../../Documentation/Usage/_DeepLNotConfiguredException.php';
         require_once __DIR__ . '/../../../Documentation/Usage/_DeepLServiceTca.php';
-        $pool = $this->get(ConnectionPool::class);
+        $pool       = $this->get(ConnectionPool::class);
         $connection = $pool->getConnectionForTable('tx_mydeeplext_config');
         $connection->insert(
             'tx_mydeeplext_config',
             [
-                'name' => 'Deleted configuration',
+                'name'    => 'Deleted configuration',
                 'api_key' => 'deleted_key',
                 'api_url' => 'https://deleted.example/v2',
                 'deleted' => 1,
@@ -80,15 +83,15 @@ final class TcaDeepLExampleTest extends FunctionalTestCase
         $connection->insert(
             'tx_mydeeplext_config',
             [
-                'name' => 'Active configuration',
+                'name'    => 'Active configuration',
                 'api_key' => $identifier,
                 'api_url' => 'https://api-free.deepl.com/v2',
                 'deleted' => 0,
             ],
         );
-        $repository = ($this->reflectLiteralClass(
+        $repository = $this->reflectLiteralClass(
             'MyVendor\MyDeeplExtension\Domain\Repository\ConfigRepository',
-        ))->newInstance($pool);
+        )->newInstance($pool);
         $http = $this->createMock(
             VaultHttpClientInterface::class,
         );
@@ -149,9 +152,9 @@ final class TcaDeepLExampleTest extends FunctionalTestCase
             VaultServiceInterface::class,
         );
         $vault->expects(self::once())->method('http')->willReturn($http);
-        $service = ($this->reflectLiteralClass(
+        $service = $this->reflectLiteralClass(
             'MyVendor\MyDeeplExtension\Service\DeepLService',
-        ))->newInstance(
+        )->newInstance(
             $vault,
             $this->get(RequestFactory::class),
             $repository,
@@ -173,16 +176,16 @@ final class TcaDeepLExampleTest extends FunctionalTestCase
         require_once __DIR__ . '/../../../Documentation/Usage/_ConfigRepository.php';
         require_once __DIR__ . '/../../../Documentation/Usage/_DeepLNotConfiguredException.php';
         require_once __DIR__ . '/../../../Documentation/Usage/_DeepLServiceTca.php';
-        $repository = ($this->reflectLiteralClass(
+        $repository = $this->reflectLiteralClass(
             'MyVendor\MyDeeplExtension\Domain\Repository\ConfigRepository',
-        ))->newInstance($this->get(ConnectionPool::class));
+        )->newInstance($this->get(ConnectionPool::class));
         $vault = $this->createMock(
             VaultServiceInterface::class,
         );
         $vault->expects(self::never())->method('http');
-        $service = ($this->reflectLiteralClass(
+        $service = $this->reflectLiteralClass(
             'MyVendor\MyDeeplExtension\Service\DeepLService',
-        ))->newInstance(
+        )->newInstance(
             $vault,
             $this->get(RequestFactory::class),
             $repository,
@@ -214,7 +217,7 @@ final class TcaDeepLExampleTest extends FunctionalTestCase
         // Intentionally exercise Core's real bootstrap compilation in this fixture oracle.
         // @phpstan-ignore classConstant.internalClass
         $factory = $this->get(TcaFactory::class);
-        $create = new ReflectionMethod($factory, 'create');
+        $create  = new ReflectionMethod($factory, 'create');
         for ($iteration = 0; $iteration < 2; ++$iteration) {
             $tca = $create->invoke($factory);
             self::assertIsArray($tca);

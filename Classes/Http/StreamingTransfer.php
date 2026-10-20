@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -41,9 +38,9 @@ use Throwable;
  * `CurlMultiHandler::execute()`, which does not return until every transfer on
  * the handler has finished.
  *
- * @internal Nothing outside `VaultHttpClient`, `OAuthTokenManager` and
+ * @internal nothing outside `VaultHttpClient`, `OAuthTokenManager` and
  *           `StreamingResponseBody` constructs or receives one; it never
- *           leaves the package's response object.
+ *           leaves the package's response object
  */
 final class StreamingTransfer
 {
@@ -76,24 +73,24 @@ final class StreamingTransfer
     private int $lastProgress = 0;
 
     /**
-     * @param PromiseInterface $promise The transport's promise for this transfer
-     * @param TransportTickerInterface $ticker Drives the loop that promise belongs to
-     * @param float $wallClockBudgetSeconds Upper bound for the whole transfer, headers and body.
-     *                                      Derived by the factory from `timeout` +
-     *                                      `connect_timeout` plus a margin, so it only
-     *                                      fires after libcurl's own deadline should have
-     * @param CancellationSignalInterface|null $signal The caller's abort question, if any
-     * @param float|null $idleBudgetSeconds When set, the bound is on silence instead of
-     *                                      duration: the deadline moves forward every
-     *                                      time `$progress` reports something new. Set
-     *                                      when the transport has no total timeout, so
-     *                                      that a stream still delivering is not cut
-     *                                      off while one that stalls still ends
-     * @param (Closure(): int)|null $progress A counter that grows whenever the transfer received
-     *                                        something the caller counts as progress
-     *                                        (`TransferProgress`: a final response head, body
-     *                                        bytes after it) and never shrinks; required in
-     *                                        idle mode
+     * @param PromiseInterface                 $promise                The transport's promise for this transfer
+     * @param TransportTickerInterface         $ticker                 Drives the loop that promise belongs to
+     * @param float                            $wallClockBudgetSeconds Upper bound for the whole transfer, headers and body.
+     *                                                                 Derived by the factory from `timeout` +
+     *                                                                 `connect_timeout` plus a margin, so it only
+     *                                                                 fires after libcurl's own deadline should have
+     * @param CancellationSignalInterface|null $signal                 The caller's abort question, if any
+     * @param float|null                       $idleBudgetSeconds      When set, the bound is on silence instead of
+     *                                                                 duration: the deadline moves forward every
+     *                                                                 time `$progress` reports something new. Set
+     *                                                                 when the transport has no total timeout, so
+     *                                                                 that a stream still delivering is not cut
+     *                                                                 off while one that stalls still ends
+     * @param (Closure(): int)|null            $progress               A counter that grows whenever the transfer received
+     *                                                                 something the caller counts as progress
+     *                                                                 (`TransferProgress`: a final response head, body
+     *                                                                 bytes after it) and never shrinks; required in
+     *                                                                 idle mode
      */
     public function __construct(
         private readonly PromiseInterface $promise,
@@ -107,12 +104,12 @@ final class StreamingTransfer
 
         $promise->then(
             function (mixed $value): void {
-                $this->settled = true;
+                $this->settled      = true;
                 $this->settledValue = $value;
             },
             function (mixed $reason): void {
-                $this->settled = true;
-                $this->rejected = true;
+                $this->settled      = true;
+                $this->rejected     = true;
                 $this->settledValue = $reason;
             },
         );
@@ -175,7 +172,7 @@ final class StreamingTransfer
             $progress = ($this->progress)();
             if ($progress > $this->lastProgress) {
                 $this->lastProgress = $progress;
-                $this->deadline = microtime(true) + (float) $this->idleBudgetSeconds;
+                $this->deadline     = microtime(true) + (float) $this->idleBudgetSeconds;
             }
 
             if (!$this->settled && microtime(true) >= $this->deadline) {
