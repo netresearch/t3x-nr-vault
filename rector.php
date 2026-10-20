@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 use Rector\Config\RectorConfig;
 use Rector\Privatization\Rector\Property\PrivatizeFinalClassPropertyRector;
+use Ssch\TYPO3Rector\CodeQuality\General\GeneralUtilityMakeInstanceToConstructorPropertyRector;
 use Ssch\TYPO3Rector\Set\Typo3LevelSetList;
 use Ssch\TYPO3Rector\Set\Typo3SetList;
 
@@ -37,6 +38,9 @@ return static function (RectorConfig $rectorConfig) use ($configure): void {
     ]);
 
     $rectorConfig->skip([
+        // ADR049 retains public zero-argument construction and resolves the current
+        // Context for each policy evaluation. Constructor binding breaks both.
+        GeneralUtilityMakeInstanceToConstructorPropertyRector::class => [__DIR__ . '/Classes/Service/VaultFieldPermissionService.php'],
         // Scheduler tasks use unserialize() - constructor injection breaks them
         __DIR__ . '/Classes/Task/OrphanCleanupTask.php',
         // Factory is called via GeneralUtility::makeInstance without constructor args

@@ -70,6 +70,20 @@ parameters:
         - Build/phpstan/stubs/php-date-errors.php
 
     ignoreErrors:
+        # ADR049 accepts the concrete native PageTsConfig result of the private
+        # coordinator. Core 13/14 functional tests exercise this exact type.
+        # PHPStan attaches these return findings to the type declaration rather
+        # than the method PHPDoc, so retain only these two exact counted matches.
+        -
+            identifier: return.internalClass
+            message: '#^Return type of method Netresearch\\NrVault\\Service\\VaultFieldPermissionService::getSelectedUserPageTsConfig\(\) has typehint with internal class TYPO3\\CMS\\Core\\TypoScript\\PageTsConfig\.$#'
+            path: Classes/Service/VaultFieldPermissionService.php
+            count: 1
+        -
+            identifier: return.internalClass
+            message: '#^Return type of method Netresearch\\NrVault\\Tests\\Functional\\Service\\VaultSelectedUserFieldPolicyTest::selectedConfig\(\) has typehint with internal class TYPO3\\CMS\\Core\\TypoScript\\PageTsConfig\.$#'
+            path: Tests/Functional/Service/VaultSelectedUserFieldPolicyTest.php
+            count: 1
         # The TYPO3 13 wizard shell implements the EXT:install upgrade API on
         # purpose. TYPO3 14 still ships that API, deprecated, so the run against
         # 14 reports it — but Configuration/Services.php never registers this
