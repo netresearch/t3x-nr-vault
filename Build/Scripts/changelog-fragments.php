@@ -287,10 +287,44 @@ if ($collected === null) {
     exit(1);
 }
 
-file_put_contents($changelogPath, $collected);
+// The new changelog is written beside the old one and renamed over it only
+// once it is complete, so a failed or short write leaves CHANGELOG.md as it
+// was. The fragments are deleted only after the rename. tempnam() creates a
+// file of its own, so an existing path (a symlink a pull request checked in)
+// is never opened. It creates the file with mode 0600, so the changelog's
+// mode is copied before the rename. When the directory is not writable it
+// falls back to the system temp directory, and the rename into the directory
+// then fails, which the cleanup below handles.
+$temporary = tempnam(dirname($changelogPath), 'CHANGELOG.md.collect.');
+$written = $temporary !== false
+    && file_put_contents($temporary, $collected) === strlen($collected)
+    && chmod($temporary, fileperms($changelogPath) & 0o777)
+    && rename($temporary, $changelogPath);
+if (!$written) {
+    if (is_string($temporary) && is_file($temporary)) {
+        // nosemgrep: php.lang.security.unlink-use.unlink-use - the temporary file this script just created beside CHANGELOG.md
+        unlink($temporary);
+    }
+    fwrite(STDERR, sprintf("changelog-fragments: cannot write %s; it and the fragments are unchanged.\n", $changelogPath));
+    exit(2);
+}
+// A fragment left behind would be collected a second time by the next run,
+// so a failed deletion is an error that names every file still to remove.
+$kept = [];
 foreach ($fragments as $fragment) {
     // nosemgrep: php.lang.security.unlink-use.unlink-use - a fragment file this script just read from the repository's own changelog.d/ and validated by name
-    unlink($fragment['file']);
+    if (!unlink($fragment['file'])) {
+        $kept[] = $fragment['file'];
+    }
+}
+if ($kept !== []) {
+    fwrite(STDERR, sprintf(
+        "changelog-fragments: %s now holds the fragments, but %d could not be deleted. Delete them before the next run, or it adds their entries again:\n  %s\n",
+        $changelogPath,
+        count($kept),
+        implode("\n  ", $kept),
+    ));
+    exit(2);
 }
 
 fwrite(STDOUT, sprintf("changelog-fragments: collected %d fragment(s) into [Unreleased]\n", count($fragments)));

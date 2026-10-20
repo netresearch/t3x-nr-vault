@@ -38,18 +38,8 @@ Install the extension using Composer:
 Activate the extension
 ======================
 
-After installation, activate the extension in the TYPO3 backend:
-
-1. Go to :guilabel:`Admin Tools > Extensions`.
-2. Find "nr-vault" in the list.
-3. Click the activation icon.
-
-Or use the command line:
-
-.. code-block:: bash
-   :caption: Activate extension via CLI
-
-   vendor/bin/typo3 extension:activate nr_vault
+Composer-installed extensions are activated automatically. Set up the
+extension and its database schema with the command below.
 
 .. _installation-database:
 
@@ -61,7 +51,7 @@ Update the database schema to create the required tables:
 .. code-block:: bash
    :caption: Update database schema
 
-   vendor/bin/typo3 database:updateschema
+   vendor/bin/typo3 extension:setup
 
 This creates the following tables:
 
