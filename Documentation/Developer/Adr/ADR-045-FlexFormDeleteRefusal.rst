@@ -49,6 +49,17 @@ Sharing is an exclusion for the complete identity: if any discovered column
 is shared, another occurrence in an unshared column cannot select that secret
 for deletion. This holds regardless of the order of the FlexForm columns.
 
+Storage presence and consumer availability are distinct. Complete sharing
+exclusions before resolving the remaining identities' presence. A false
+``exists()`` result does not establish absence: administrative ``getMetadata()``
+also sees disabled custody. Only its ``SecretNotFoundException`` excludes an
+absent or already-deleted identity. Permission and lookup failures cancel the
+record deletion before any secret preflight or mutation. Resolve presence for
+all selected identities before the first ``assertDeletable()`` call. Shared
+identities need no metadata authorization because this record will not delete
+them. Retain the service's existing metadata and deletion authorization; do
+not retrieve plaintext or widen consumer availability.
+
 Keep FlexForm soft-delete/recycle behavior: its secrets remain available for
 record restoration. Translation-shared secrets remain outside this record's
 cascade. No public interface is extended and no second ACL path is introduced.
