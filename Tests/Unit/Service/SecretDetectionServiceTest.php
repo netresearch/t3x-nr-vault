@@ -37,6 +37,8 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Package\Package;
 use TYPO3\CMS\Core\Package\PackageManager;
 
+use function sprintf;
+
 #[CoversClass(SecretDetectionService::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class SecretDetectionServiceTest extends TestCase
@@ -55,8 +57,8 @@ final class SecretDetectionServiceTest extends TestCase
     {
         parent::setUp();
 
-        $this->connectionPool = $this->createMock(ConnectionPool::class);
-        $this->packageManager = $this->createMock(PackageManager::class);
+        $this->connectionPool         = $this->createMock(ConnectionPool::class);
+        $this->packageManager         = $this->createMock(PackageManager::class);
         $this->extensionConfiguration = $this->createMock(ExtensionConfiguration::class);
 
         $this->service = new SecretDetectionService(
@@ -103,11 +105,11 @@ final class SecretDetectionServiceTest extends TestCase
     {
         // Use reflection to test private method
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('isSecretColumn');
+        $method     = $reflection->getMethod('isSecretColumn');
 
         $result = $method->invoke($this->service, $columnName);
 
-        self::assertSame($shouldDetect, $result, \sprintf(
+        self::assertSame($shouldDetect, $result, sprintf(
             'Column "%s" should %sbe detected as secret',
             $columnName,
             $shouldDetect ? '' : 'NOT ',
@@ -122,25 +124,25 @@ final class SecretDetectionServiceTest extends TestCase
         return [
             'password suffix' => ['user_password', true],
             'password prefix' => ['password_hash', true],
-            'api_key suffix' => ['stripe_api_key', true],
-            'apikey suffix' => ['stripeapikey', true],
-            'api secret' => ['api_secret', true],
-            'secret key' => ['secret_key', true],
-            'token suffix' => ['access_token', true],
-            'auth token' => ['auth_token', true],
-            'refresh token' => ['refresh_token', true],
-            'credential' => ['user_credentials', true],
-            'private key' => ['ssl_private_key', true],
-            'encryption key' => ['encryption_key', true],
-            'smtp password' => ['smtp_password', true],
-            'db password' => ['db_password', true],
+            'api_key suffix'  => ['stripe_api_key', true],
+            'apikey suffix'   => ['stripeapikey', true],
+            'api secret'      => ['api_secret', true],
+            'secret key'      => ['secret_key', true],
+            'token suffix'    => ['access_token', true],
+            'auth token'      => ['auth_token', true],
+            'refresh token'   => ['refresh_token', true],
+            'credential'      => ['user_credentials', true],
+            'private key'     => ['ssl_private_key', true],
+            'encryption key'  => ['encryption_key', true],
+            'smtp password'   => ['smtp_password', true],
+            'db password'     => ['db_password', true],
             // Non-secret columns
             'regular column' => ['username', false],
-            'title' => ['title', false],
-            'description' => ['description', false],
-            'created_at' => ['created_at', false],
-            'uid' => ['uid', false],
-            'pid' => ['pid', false],
+            'title'          => ['title', false],
+            'description'    => ['description', false],
+            'created_at'     => ['created_at', false],
+            'uid'            => ['uid', false],
+            'pid'            => ['pid', false],
         ];
     }
 
@@ -149,14 +151,14 @@ final class SecretDetectionServiceTest extends TestCase
     public function detectsKnownApiKeyPatterns(string $value, ?string $expectedPattern): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('detectValuePattern');
+        $method     = $reflection->getMethod('detectValuePattern');
 
         $result = $method->invoke($this->service, $value);
 
         if ($expectedPattern === null) {
             self::assertNull($result, 'Value should not match any pattern');
         } else {
-            self::assertSame($expectedPattern, $result, \sprintf(
+            self::assertSame($expectedPattern, $result, sprintf(
                 'Value should be detected as "%s"',
                 $expectedPattern,
             ));
@@ -175,22 +177,22 @@ final class SecretDetectionServiceTest extends TestCase
         // `no_useless_concat_operator` rule would otherwise collapse
         // `'sk' . '_live_'` back into the triggering literal at
         // format time.
-        $make = static fn (string ...$parts): string => implode('', $parts);
+        $make       = static fn (string ...$parts): string => implode('', $parts);
         $fakeSuffix = '0123456789ABCDEFGHIJKLMNOP'; // 26 chars, meets 24+ requirement
 
         return [
-            'Stripe live key' => [$make('sk', '_live_', $fakeSuffix), 'Stripe live key'],
-            'Stripe test key' => [$make('sk', '_test_', $fakeSuffix), 'Stripe test key'],
+            'Stripe live key'         => [$make('sk', '_live_', $fakeSuffix), 'Stripe live key'],
+            'Stripe test key'         => [$make('sk', '_test_', $fakeSuffix), 'Stripe test key'],
             'Stripe publishable live' => [$make('pk', '_live_', $fakeSuffix), 'Stripe publishable live'],
-            'AWS access key' => [$make('AKI', 'AEXAMPLEFAKEKEY12'), 'AWS Access Key'],
-            'GitHub PAT' => [$make('gh', 'p_FAKE000000000000000000000000000000AB'), 'GitHub Personal Access Token'],
-            'GitHub OAuth' => [$make('gh', 'o_FAKE000000000000000000000000000000AB'), 'GitHub OAuth Token'],
-            'Google API Key' => [$make('AI', 'zaFAKEEXAMPLEKEYNOTREAL000000000000ab'), 'Google API Key'],
+            'AWS access key'          => [$make('AKI', 'AEXAMPLEFAKEKEY12'), 'AWS Access Key'],
+            'GitHub PAT'              => [$make('gh', 'p_FAKE000000000000000000000000000000AB'), 'GitHub Personal Access Token'],
+            'GitHub OAuth'            => [$make('gh', 'o_FAKE000000000000000000000000000000AB'), 'GitHub OAuth Token'],
+            'Google API Key'          => [$make('AI', 'zaFAKEEXAMPLEKEYNOTREAL000000000000ab'), 'Google API Key'],
             // Non-matches
             'regular string' => ['just a regular value', null],
-            'short token' => ['abc123', null],
-            'email' => ['user@example.com', null],
-            'url' => ['https://example.com', null],
+            'short token'    => ['abc123', null],
+            'email'          => ['user@example.com', null],
+            'url'            => ['https://example.com', null],
         ];
     }
 
@@ -209,12 +211,12 @@ final class SecretDetectionServiceTest extends TestCase
     public static function vaultIdentifierProvider(): array
     {
         return [
-            'UUID v7 format' => [self::UUID_V7, true],
-            'vault reference' => ['%vault(my_secret_key)%', true],
+            'UUID v7 format'                      => [self::UUID_V7, true],
+            'vault reference'                     => ['%vault(my_secret_key)%', true],
             'old TCA format (no longer detected)' => ['tx_myext_config__api_key__123', false],
-            'regular value' => ['some_regular_value', false],
+            'regular value'                       => ['some_regular_value', false],
             // Stripe-looking key fragmented so push-protection does not flag it.
-            'API key' => [implode('', ['sk', '_live_abcdefghij']), false],
+            'API key'  => [implode('', ['sk', '_live_abcdefghij']), false],
             'password' => ['mySecretPassword123', false],
         ];
     }
@@ -224,7 +226,7 @@ final class SecretDetectionServiceTest extends TestCase
     public function detectsEncryptedValues(string $value, bool $looksEncrypted): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('looksEncrypted');
+        $method     = $reflection->getMethod('looksEncrypted');
 
         $result = $method->invoke($this->service, $value);
 
@@ -241,17 +243,17 @@ final class SecretDetectionServiceTest extends TestCase
             'bcrypt hash $2y$' => ['$2y$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234', true],
             'bcrypt hash $2a$' => ['$2a$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234', true],
             'bcrypt hash $2b$' => ['$2b$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234', true],
-            'argon2i hash' => ['$argon2i$v=19$m=65536,t=4,p=1$c29tZXNhbHQ$RdescudvJCsgt3ub+b+dWRWJTmaaJObG', true],
-            'argon2id hash' => ['$argon2id$v=19$m=65536,t=4,p=1$c29tZXNhbHQ$GpZ3sK6WLbDpeYfZ8bLz', true],
+            'argon2i hash'     => ['$argon2i$v=19$m=65536,t=4,p=1$c29tZXNhbHQ$RdescudvJCsgt3ub+b+dWRWJTmaaJObG', true],
+            'argon2id hash'    => ['$argon2id$v=19$m=65536,t=4,p=1$c29tZXNhbHQ$GpZ3sK6WLbDpeYfZ8bLz', true],
             // Encrypted data
             'long base64' => [str_repeat('YWJjZGVm', 10), true],
-            'long hex' => [str_repeat('a1b2c3d4', 15), true],
+            'long hex'    => [str_repeat('a1b2c3d4', 15), true],
             // Plaintext (should NOT be detected as encrypted)
-            'short string' => ['abc123', false],
-            'regular text' => ['Hello, World!', false],
-            'mixed characters' => ['abc-123_def.ghi', false],
+            'short string'       => ['abc123', false],
+            'regular text'       => ['Hello, World!', false],
+            'mixed characters'   => ['abc-123_def.ghi', false],
             'plaintext password' => ['MySecretPassword123!', false],
-            'short hash-like' => ['$2y$10$short', false],
+            'short hash-like'    => ['$2y$10$short', false],
         ];
     }
 
@@ -260,7 +262,7 @@ final class SecretDetectionServiceTest extends TestCase
     public function calculatesSeverityCorrectly(string $name, array $patterns, Severity $expectedSeverity): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('calculateSeverity');
+        $method     = $reflection->getMethod('calculateSeverity');
 
         $result = $method->invoke($this->service, $name, $patterns);
 
@@ -274,13 +276,13 @@ final class SecretDetectionServiceTest extends TestCase
     {
         return [
             'with patterns = critical' => ['api_key', ['Stripe live key'], Severity::Critical],
-            'password = high' => ['user_password', [], Severity::High],
-            'private key = high' => ['ssl_private_key', [], Severity::High],
-            'secret = high' => ['client_secret', [], Severity::High],
-            'token = medium' => ['access_token', [], Severity::Medium],
-            'apikey = medium' => ['stripe_apikey', [], Severity::Medium],
-            'api_key = medium' => ['payment_api_key', [], Severity::Medium],
-            'other = low' => ['some_config', [], Severity::Low],
+            'password = high'          => ['user_password', [], Severity::High],
+            'private key = high'       => ['ssl_private_key', [], Severity::High],
+            'secret = high'            => ['client_secret', [], Severity::High],
+            'token = medium'           => ['access_token', [], Severity::Medium],
+            'apikey = medium'          => ['stripe_apikey', [], Severity::Medium],
+            'api_key = medium'         => ['payment_api_key', [], Severity::Medium],
+            'other = low'              => ['some_config', [], Severity::Low],
         ];
     }
 
@@ -289,7 +291,7 @@ final class SecretDetectionServiceTest extends TestCase
     public function detectsSecretConfigKeys(string $key, bool $isSecret): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('isSecretConfigKey');
+        $method     = $reflection->getMethod('isSecretConfigKey');
 
         $result = $method->invoke($this->service, $key);
 
@@ -304,27 +306,27 @@ final class SecretDetectionServiceTest extends TestCase
         // Note: isSecretConfigKey uses regex suffix matching to avoid false positives
         return [
             // Should match (suffix patterns)
-            'apiKey' => ['apiKey', true],
-            'stripeApiKey' => ['stripeApiKey', true],
-            'password' => ['password', true],
-            'smtpPassword' => ['smtpPassword', true],
-            'clientSecret' => ['clientSecret', true],
-            'apiSecret' => ['apiSecret', true],
-            'accessToken' => ['accessToken', true],
-            'authToken' => ['authToken', true],
-            'token' => ['token', true],              // standalone "token" (e.g., hashicorp.token)
-            'privateKey' => ['privateKey', true],
-            'encryptionKey' => ['encryptionKey', true],
+            'apiKey'         => ['apiKey', true],
+            'stripeApiKey'   => ['stripeApiKey', true],
+            'password'       => ['password', true],
+            'smtpPassword'   => ['smtpPassword', true],
+            'clientSecret'   => ['clientSecret', true],
+            'apiSecret'      => ['apiSecret', true],
+            'accessToken'    => ['accessToken', true],
+            'authToken'      => ['authToken', true],
+            'token'          => ['token', true],              // standalone "token" (e.g., hashicorp.token)
+            'privateKey'     => ['privateKey', true],
+            'encryptionKey'  => ['encryptionKey', true],
             'userCredential' => ['userCredential', true],
             // Should NOT match (false positives avoided)
-            'secretPrefix' => ['secretPrefix', false],  // "secret" at start, not end
-            'tokenizer' => ['tokenizer', false],        // "token" not at end
+            'secretPrefix'  => ['secretPrefix', false],  // "secret" at start, not end
+            'tokenizer'     => ['tokenizer', false],        // "token" not at end
             'passwordReset' => ['passwordReset', false], // "password" not at end
-            'API_KEY' => ['API_KEY', false],            // underscore variant
-            'username' => ['username', false],
-            'email' => ['email', false],
-            'baseUrl' => ['baseUrl', false],
-            'timeout' => ['timeout', false],
+            'API_KEY'       => ['API_KEY', false],            // underscore variant
+            'username'      => ['username', false],
+            'email'         => ['email', false],
+            'baseUrl'       => ['baseUrl', false],
+            'timeout'       => ['timeout', false],
         ];
     }
 
@@ -333,7 +335,7 @@ final class SecretDetectionServiceTest extends TestCase
     public function excludesTablesCorrectly(string $tableName, array $patterns, bool $shouldExclude): void
     {
         $reflection = new ReflectionClass($this->service);
-        $method = $reflection->getMethod('isTableExcluded');
+        $method     = $reflection->getMethod('isTableExcluded');
 
         $result = $method->invoke($this->service, $tableName, $patterns);
 
@@ -344,7 +346,7 @@ final class SecretDetectionServiceTest extends TestCase
     public function excludedColumnsContainsPasswordHashColumns(): void
     {
         $reflection = new ReflectionClass(SecretDetectionService::class);
-        $constant = $reflection->getConstant('EXCLUDED_COLUMNS');
+        $constant   = $reflection->getConstant('EXCLUDED_COLUMNS');
 
         self::assertIsArray($constant);
         self::assertContains('be_users.password', $constant, 'be_users.password should be excluded (contains hashes)');
@@ -357,11 +359,11 @@ final class SecretDetectionServiceTest extends TestCase
     public static function tableExclusionProvider(): array
     {
         return [
-            'exact match' => ['cache_hash', ['cache_hash'], true],
+            'exact match'    => ['cache_hash', ['cache_hash'], true],
             'wildcard match' => ['cache_pages', ['cache_*'], true],
-            'cf wildcard' => ['cf_extbase_reflection', ['cf_*'], true],
-            'no match' => ['tx_myext_domain_model_item', ['cache_*', 'cf_*'], false],
-            'vault table' => ['tx_nrvault_secret', ['tx_nrvault_secret'], true],
+            'cf wildcard'    => ['cf_extbase_reflection', ['cf_*'], true],
+            'no match'       => ['tx_myext_domain_model_item', ['cache_*', 'cf_*'], false],
+            'vault table'    => ['tx_nrvault_secret', ['tx_nrvault_secret'], true],
         ];
     }
 
@@ -369,7 +371,7 @@ final class SecretDetectionServiceTest extends TestCase
     public function scanReturnsEmptyArrayWhenNoSecretsDetected(): void
     {
         // Mock database - no tables
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
         $schemaManager->method('listTableNames')->willReturn([]);
 
@@ -388,7 +390,7 @@ final class SecretDetectionServiceTest extends TestCase
     #[Test]
     public function scanDatabaseTablesSkipsExcludedTables(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
 
         // Return tables including excluded ones
@@ -476,7 +478,7 @@ final class SecretDetectionServiceTest extends TestCase
         $this->extensionConfiguration->expects(self::atLeastOnce())->method('get')
             ->with('test_ext')
             ->willReturn([
-                'apiKey' => '%vault(my_api_key)%',
+                'apiKey'   => '%vault(my_api_key)%',
                 'password' => self::UUID_V7, // UUID v7
             ]);
 
@@ -518,7 +520,7 @@ final class SecretDetectionServiceTest extends TestCase
             ->with('test_ext')
             ->willReturn([
                 'password' => '',
-                'apiKey' => '',
+                'apiKey'   => '',
             ]);
 
         $this->service->scanExtensionConfiguration();
@@ -538,8 +540,8 @@ final class SecretDetectionServiceTest extends TestCase
             ->with('test_ext')
             ->willReturn([
                 'password' => 12345,
-                'apiKey' => true,
-                'secret' => null,
+                'apiKey'   => true,
+                'secret'   => null,
             ]);
 
         $this->service->scanExtensionConfiguration();
@@ -661,7 +663,7 @@ final class SecretDetectionServiceTest extends TestCase
     #[Test]
     public function scanTableSkipsNonStringColumns(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
 
         // Create column with non-string type
@@ -686,7 +688,7 @@ final class SecretDetectionServiceTest extends TestCase
     #[Test]
     public function scanTableDetectsSecretInStringColumn(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
 
         // Create column with string type and secret-like name
@@ -702,7 +704,7 @@ final class SecretDetectionServiceTest extends TestCase
         $connection->method('createSchemaManager')->willReturn($schemaManager);
 
         // Mock query builder for count query
-        $queryBuilder = $this->createMock(QueryBuilder::class);
+        $queryBuilder      = $this->createMock(QueryBuilder::class);
         $expressionBuilder = $this->createMock(ExpressionBuilder::class);
         $expressionBuilder->method('isNotNull')->willReturn('api_secret IS NOT NULL');
         $expressionBuilder->method('neq')->willReturn("api_secret != ''");
@@ -728,7 +730,7 @@ final class SecretDetectionServiceTest extends TestCase
     #[Test]
     public function scanTableSkipsExcludedPasswordHashColumns(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
 
         // Create be_users.password column
@@ -755,7 +757,7 @@ final class SecretDetectionServiceTest extends TestCase
     #[Test]
     public function scanTableHandlesExceptionGracefully(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
 
         $schemaManager->method('listTableNames')->willReturn(['test_table']);
@@ -775,7 +777,7 @@ final class SecretDetectionServiceTest extends TestCase
     #[Test]
     public function scanTableDetectsPlaintextSecretAndCreatesDbFinding(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
 
         $secretColumn = $this->createMock(Column::class);
@@ -832,7 +834,7 @@ final class SecretDetectionServiceTest extends TestCase
     #[Test]
     public function scanTableSkipsVaultIdentifierValues(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
 
         $secretColumn = $this->createMock(Column::class);
@@ -888,7 +890,7 @@ final class SecretDetectionServiceTest extends TestCase
     #[Test]
     public function scanTableSkipsAlreadyEncryptedValues(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
 
         $secretColumn = $this->createMock(Column::class);
@@ -943,7 +945,7 @@ final class SecretDetectionServiceTest extends TestCase
     #[Test]
     public function scanTableDetectsKnownApiKeyPattern(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
 
         $secretColumn = $this->createMock(Column::class);
@@ -1003,7 +1005,7 @@ final class SecretDetectionServiceTest extends TestCase
     #[Test]
     public function scanTableHandlesDbalExceptionOnCountQuery(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
 
         $secretColumn = $this->createMock(Column::class);
@@ -1032,7 +1034,7 @@ final class SecretDetectionServiceTest extends TestCase
     {
         $GLOBALS['TYPO3_CONF_VARS'] = [
             'MAIL' => 'not-an-array',
-            'SYS' => ['encryptionKey' => str_repeat('a', 96)],
+            'SYS'  => ['encryptionKey' => str_repeat('a', 96)],
         ];
 
         try {
@@ -1119,7 +1121,7 @@ final class SecretDetectionServiceTest extends TestCase
     #[Test]
     public function scanAfterScanResetsDetectedSecrets(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $connection    = $this->createMock(Connection::class);
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
         $schemaManager->method('listTableNames')->willReturn([]);
         $connection->method('createSchemaManager')->willReturn($schemaManager);

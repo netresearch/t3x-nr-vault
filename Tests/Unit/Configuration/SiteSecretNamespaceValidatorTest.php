@@ -1,6 +1,10 @@
 <?php
 
-/* Copyright (c) 2026 Netresearch DTT GmbH; SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Configuration;
@@ -30,7 +34,7 @@ final class SiteSecretNamespaceValidatorTest extends TestCase
     #[Test]
     public function validatesTheExactConfiguredSite(): void
     {
-        $site = new Site('Main-01', 1, []);
+        $site   = new Site('Main-01', 1, []);
         $finder = $this->createMock(SiteFinder::class);
         $finder
             ->expects(self::once())

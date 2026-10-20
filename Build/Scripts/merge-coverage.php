@@ -48,7 +48,7 @@ use SebastianBergmann\CodeCoverage\Report\Facade;
 use SebastianBergmann\CodeCoverage\Serialization\Merger;
 
 /** @var list<non-empty-string> $arguments */
-$arguments = [];
+$arguments    = [];
 $rawArguments = $_SERVER['argv'] ?? [];
 foreach (is_array($rawArguments) ? array_slice($rawArguments, 1) : [] as $rawArgument) {
     if (is_string($rawArgument) && $rawArgument !== '') {
@@ -82,7 +82,7 @@ try {
         exit(0);
     }
 
-    $target = $arguments[1];
+    $target        = $arguments[1];
     $coverageFiles = array_slice($arguments, 2);
     foreach ($coverageFiles as $path) {
         if (!is_file($path) || filesize($path) === 0) {
@@ -116,14 +116,14 @@ exit(0);
  */
 function writeFunctionalConfigWithUnitSource(string $unitConfig, string $functionalConfig, string $target): void
 {
-    $unit = loadConfig($unitConfig);
+    $unit       = loadConfig($unitConfig);
     $functional = loadConfig($functionalConfig);
 
-    $unitSource = firstChildElement($unit, 'source', $unitConfig);
+    $unitSource       = firstChildElement($unit, 'source', $unitConfig);
     $functionalSource = firstChildElement($functional, 'source', $functionalConfig);
 
     $replacement = $functional->importNode($unitSource, true);
-    $parent = $functionalSource->parentNode;
+    $parent      = $functionalSource->parentNode;
     if ($parent === null) {
         throw new RuntimeException("{$functionalConfig}: <source> has no parent element", 1757851202);
     }
@@ -158,7 +158,7 @@ function writeFunctionalConfigWithUnitSource(string $unitConfig, string $functio
  */
 function loadConfig(string $path): DOMDocument
 {
-    $document = new DOMDocument();
+    $document                     = new DOMDocument();
     $document->preserveWhiteSpace = true;
     if (!$document->load($path)) {
         throw new RuntimeException("{$path} is not a readable XML document", 1757851204);

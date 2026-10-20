@@ -21,6 +21,10 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+use function count;
+use function is_string;
+use function sprintf;
+
 /**
  * CLI command to open, close and inspect a break-glass window.
  *
@@ -78,7 +82,7 @@ final class VaultBreakGlassCommand extends Command
                 'minutes',
                 'm',
                 InputOption::VALUE_REQUIRED,
-                \sprintf(
+                sprintf(
                     'Window length in minutes, clamped to %d..%d',
                     BreakGlassServiceInterface::MIN_TTL_MINUTES,
                     BreakGlassServiceInterface::MAX_TTL_MINUTES,
@@ -91,11 +95,11 @@ final class VaultBreakGlassCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
 
-        $activate = (bool) $input->getOption('activate');
+        $activate   = (bool) $input->getOption('activate');
         $deactivate = (bool) $input->getOption('deactivate');
-        $status = (bool) $input->getOption('status');
+        $status     = (bool) $input->getOption('status');
 
-        $actions = \count(array_filter([$activate, $deactivate, $status]));
+        $actions = count(array_filter([$activate, $deactivate, $status]));
         if ($actions > 1) {
             $io->error('Choose exactly one of --activate, --deactivate or --status.');
 
@@ -117,10 +121,10 @@ final class VaultBreakGlassCommand extends Command
 
     private function activate(SymfonyStyle $io, InputInterface $input): int
     {
-        $reasonOption = $input->getOption('reason');
-        $reason = \is_string($reasonOption) ? $reasonOption : '';
+        $reasonOption  = $input->getOption('reason');
+        $reason        = is_string($reasonOption) ? $reasonOption : '';
         $minutesOption = $input->getOption('minutes');
-        $minutes = is_numeric($minutesOption)
+        $minutes       = is_numeric($minutesOption)
             ? (int) $minutesOption
             : BreakGlassServiceInterface::DEFAULT_TTL_MINUTES;
 
@@ -149,7 +153,7 @@ final class VaultBreakGlassCommand extends Command
     private function deactivate(SymfonyStyle $io, InputInterface $input): int
     {
         $reasonOption = $input->getOption('reason');
-        $reason = \is_string($reasonOption) ? $reasonOption : '';
+        $reason       = is_string($reasonOption) ? $reasonOption : '';
 
         $wasActive = $this->breakGlassService->isActive();
 
@@ -218,7 +222,7 @@ final class VaultBreakGlassCommand extends Command
         $remaining = $session->remainingSeconds(new DateTimeImmutable());
 
         $io->definitionList(
-            ['activatedBy' => \sprintf('%s (uid %d)', $session->activatedByUsername, $session->activatedByUid)],
+            ['activatedBy' => sprintf('%s (uid %d)', $session->activatedByUsername, $session->activatedByUid)],
             ['reason' => $session->reason],
             ['activatedAt' => $session->activatedAt->format(DateTimeImmutable::ATOM)],
             ['expiresAt' => $session->expiresAt->format(DateTimeImmutable::ATOM)],

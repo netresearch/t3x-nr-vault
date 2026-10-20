@@ -15,6 +15,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
+use function chr;
+use function strlen;
+
 /**
  * Fuzz tests for the AuditLogService hash-chain pure function.
  *
@@ -48,34 +51,34 @@ final class AuditChainFuzzTest extends TestCase
         mt_srand($seed);
 
         $cases = [
-            'typical entry' => [1, '01937b6e-4b6c-7abc-8def-000000000001', 'store', 42, 1700000000, ''],
-            'first entry empty prev' => [1, 'test-id', 'create', 0, 0, ''],
-            'unicode in identifier' => [99, '01937b6e-4b6c-7abc-8def-aabbccddeeff', '読む', 1, 1710000000, str_repeat('0', 64)],
-            'empty strings' => [0, '', '', 0, 0, ''],
-            'max int uid' => [PHP_INT_MAX, 'long-id', 'delete', PHP_INT_MAX, PHP_INT_MAX, str_repeat('f', 64)],
-            'negative actor uid' => [5, 'id', 'rotate', -1, 1720000000, 'abc123'],
-            'null bytes in id' => [10, "id\x00with\x00nulls", 'retrieve', 7, 1715000000, ''],
-            'very long identifier' => [3, str_repeat('x', 1000), 'access', 2, 1718000000, ''],
+            'typical entry'           => [1, '01937b6e-4b6c-7abc-8def-000000000001', 'store', 42, 1700000000, ''],
+            'first entry empty prev'  => [1, 'test-id', 'create', 0, 0, ''],
+            'unicode in identifier'   => [99, '01937b6e-4b6c-7abc-8def-aabbccddeeff', '読む', 1, 1710000000, str_repeat('0', 64)],
+            'empty strings'           => [0, '', '', 0, 0, ''],
+            'max int uid'             => [PHP_INT_MAX, 'long-id', 'delete', PHP_INT_MAX, PHP_INT_MAX, str_repeat('f', 64)],
+            'negative actor uid'      => [5, 'id', 'rotate', -1, 1720000000, 'abc123'],
+            'null bytes in id'        => [10, "id\x00with\x00nulls", 'retrieve', 7, 1715000000, ''],
+            'very long identifier'    => [3, str_repeat('x', 1000), 'access', 2, 1718000000, ''],
             'special chars in action' => [7, 'test', '<script>alert(1)</script>', 0, 1700000001, ''],
         ];
 
         // 50 random entries
-        for ($i = 0; $i < 50; $i++) {
-            $uid = mt_rand(1, 100000);
-            $idLen = mt_rand(0, 64);
+        for ($i = 0; $i < 50; ++$i) {
+            $uid      = mt_rand(1, 100000);
+            $idLen    = mt_rand(0, 64);
             $secretId = '';
-            for ($j = 0; $j < $idLen; $j++) {
-                $secretId .= \chr(mt_rand(32, 126));
+            for ($j = 0; $j < $idLen; ++$j) {
+                $secretId .= chr(mt_rand(32, 126));
             }
 
             $actionLen = mt_rand(1, 20);
-            $action = '';
-            for ($j = 0; $j < $actionLen; $j++) {
-                $action .= \chr(mt_rand(97, 122)); // a-z
+            $action    = '';
+            for ($j = 0; $j < $actionLen; ++$j) {
+                $action .= chr(mt_rand(97, 122)); // a-z
             }
 
             $actorUid = mt_rand(0, 1000);
-            $crdate = mt_rand(1000000, 2000000000);
+            $crdate   = mt_rand(1000000, 2000000000);
             $prevHash = mt_rand(0, 1) !== 0 ? str_repeat('0', 64) : '';
 
             $cases["random_{$i}"] = [$uid, $secretId, $action, $actorUid, $crdate, $prevHash];
@@ -122,7 +125,7 @@ final class AuditChainFuzzTest extends TestCase
     ): void {
         $hash = AuditLogService::calculateHash($uid, $secretIdentifier, $action, $actorUid, $crdate, $previousHash);
 
-        self::assertSame(64, \strlen($hash), 'SHA-256 hash must be exactly 64 hex chars');
+        self::assertSame(64, strlen($hash), 'SHA-256 hash must be exactly 64 hex chars');
         self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $hash, 'Hash must be lowercase hex');
     }
 
@@ -142,7 +145,7 @@ final class AuditChainFuzzTest extends TestCase
         $hmacKey = random_bytes(32);
 
         $legacyHash = AuditLogService::calculateHash($uid, $secretIdentifier, $action, $actorUid, $crdate, $previousHash);
-        $hmacHash = AuditLogService::calculateHash($uid, $secretIdentifier, $action, $actorUid, $crdate, $previousHash, $hmacKey);
+        $hmacHash   = AuditLogService::calculateHash($uid, $secretIdentifier, $action, $actorUid, $crdate, $previousHash, $hmacKey);
 
         self::assertNotSame($legacyHash, $hmacHash, 'HMAC hash must differ from SHA-256-only hash');
     }
@@ -227,11 +230,11 @@ final class AuditChainFuzzTest extends TestCase
     public function chainHashDependsOnEntryOrder(): void
     {
         // Build chain A→B
-        $hashA = AuditLogService::calculateHash(1, 'secret-1', 'store', 1, 1000, '');
+        $hashA  = AuditLogService::calculateHash(1, 'secret-1', 'store', 1, 1000, '');
         $hashAB = AuditLogService::calculateHash(2, 'secret-2', 'retrieve', 1, 1001, $hashA);
 
         // Build chain B→A (reversed order)
-        $hashB = AuditLogService::calculateHash(2, 'secret-2', 'retrieve', 1, 1001, '');
+        $hashB  = AuditLogService::calculateHash(2, 'secret-2', 'retrieve', 1, 1001, '');
         $hashBA = AuditLogService::calculateHash(1, 'secret-1', 'store', 1, 1000, $hashB);
 
         self::assertNotSame($hashAB, $hashBA, 'Chain hash must be order-sensitive');
@@ -245,7 +248,7 @@ final class AuditChainFuzzTest extends TestCase
     public function identicalChainSequencesProduceSameFinalHash(): void
     {
         $computeChain = static function (): string {
-            $h = '';
+            $h       = '';
             $entries = [
                 [1, 'id-1', 'store', 10, 1700000000],
                 [2, 'id-2', 'retrieve', 11, 1700000001],
@@ -289,17 +292,17 @@ final class AuditChainFuzzTest extends TestCase
     public function singleByteMutationInPreviousHashChangesOutputHash(): void
     {
         $basePrevHash = hash('sha256', 'base-entry');
-        $baseHash = AuditLogService::calculateHash(1, 'id', 'store', 1, 1000, $basePrevHash);
+        $baseHash     = AuditLogService::calculateHash(1, 'id', 'store', 1, 1000, $basePrevHash);
 
         $seed = (int) (getenv('PHPUNIT_SEED') ?: crc32(__FILE__) + 42);
         mt_srand($seed);
 
-        for ($i = 0; $i < 10; $i++) {
+        for ($i = 0; $i < 10; ++$i) {
             $mutated = $basePrevHash;
-            $pos = mt_rand(0, \strlen($mutated) - 1);
+            $pos     = mt_rand(0, strlen($mutated) - 1);
             // Flip one hex digit (keep it valid hex to ensure position matters, not just format)
-            $original = $mutated[$pos];
-            $flipped = dechex((hexdec($original) + 1) % 16);
+            $original      = $mutated[$pos];
+            $flipped       = dechex((hexdec($original) + 1) % 16);
             $mutated[$pos] = $flipped;
 
             if ($mutated === $basePrevHash) {

@@ -14,7 +14,7 @@ use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Hook\SecretTcaHook;
 use Netresearch\NrVault\Security\VaultPermission;
 
-defined('TYPO3') || die();
+defined('TYPO3') || exit;
 
 (static function (): void {
     // Operation permissions as TYPO3 custom permission options, so
@@ -24,7 +24,7 @@ defined('TYPO3') || die();
     // this list. Labels/descriptions live in locallang_mod.xlf under
     // `permissions.<case value>` / `.description`.
     $permissionLabels = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:permissions.';
-    $permissionItems = [];
+    $permissionItems  = [];
     foreach (VaultPermission::cases() as $permission) {
         $permissionItems[$permission->value] = [
             $permissionLabels . $permission->value,
@@ -36,22 +36,21 @@ defined('TYPO3') || die();
 
     $GLOBALS['TYPO3_CONF_VARS']['BE']['customPermOptions']['tx_nrvault'] = [
         'header' => $permissionLabels . 'header',
-        'items' => $permissionItems,
+        'items'  => $permissionItems,
     ];
-
 
     // Register vaultSecret form element type (for OTHER tables to reference vault secrets)
     $GLOBALS['TYPO3_CONF_VARS']['SYS']['formEngine']['nodeRegistry'][1735400000] = [
         'nodeName' => 'vaultSecret',
         'priority' => 40,
-        'class' => VaultSecretElement::class,
+        'class'    => VaultSecretElement::class,
     ];
 
     // Register vaultSecretInput form element type (for tx_nrvault_secret table direct input)
     $GLOBALS['TYPO3_CONF_VARS']['SYS']['formEngine']['nodeRegistry'][1735400001] = [
         'nodeName' => 'vaultSecretInput',
         'priority' => 40,
-        'class' => VaultSecretInputElement::class,
+        'class'    => VaultSecretInputElement::class,
     ];
 
     // DataHandler hooks for TCA vaultSecret field operations

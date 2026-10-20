@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -22,16 +19,16 @@ interface AuditLogServiceInterface
     /**
      * Log a vault operation.
      *
-     * @param string $secretIdentifier The secret that was accessed (or pseudo-identifier
-     *                                 such as `__master_key__` for master-key rotation)
-     * @param string $action One of: create, read, update, delete, rotate, access_denied,
-     *                       http_call, master_key_rotate_start, master_key_rotate_end
-     * @param bool $success Whether operation succeeded
-     * @param string|null $errorMessage If failed, the error message
-     * @param string|null $reason Reason for operation (required for rotate/delete)
-     * @param string|null $hashBefore Secret's value_checksum before operation
-     * @param string|null $hashAfter Secret's value_checksum after operation
-     * @param AuditContextInterface|null $context Additional context data
+     * @param string                     $secretIdentifier The secret that was accessed (or pseudo-identifier
+     *                                                     such as `__master_key__` for master-key rotation)
+     * @param string                     $action           One of: create, read, update, delete, rotate, access_denied,
+     *                                                     http_call, master_key_rotate_start, master_key_rotate_end
+     * @param bool                       $success          Whether operation succeeded
+     * @param string|null                $errorMessage     If failed, the error message
+     * @param string|null                $reason           Reason for operation (required for rotate/delete)
+     * @param string|null                $hashBefore       Secret's value_checksum before operation
+     * @param string|null                $hashAfter        Secret's value_checksum after operation
+     * @param AuditContextInterface|null $context          Additional context data
      */
     public function log(
         string $secretIdentifier,

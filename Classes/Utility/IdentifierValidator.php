@@ -11,6 +11,11 @@ namespace Netresearch\NrVault\Utility;
 
 use Netresearch\NrVault\Exception\ValidationException;
 
+use function is_string;
+use function ord;
+use function sprintf;
+use function strlen;
+
 /**
  * Validates secret identifiers.
  */
@@ -50,18 +55,18 @@ final class IdentifierValidator
         }
 
         // Otherwise validate as user-friendly identifier
-        $length = \strlen($identifier);
+        $length = strlen($identifier);
         if ($length < self::MIN_LENGTH) {
             throw ValidationException::invalidIdentifier(
                 $identifier,
-                \sprintf('must be at least %d characters', self::MIN_LENGTH),
+                sprintf('must be at least %d characters', self::MIN_LENGTH),
             );
         }
 
         if ($length > self::MAX_LENGTH) {
             throw ValidationException::invalidIdentifier(
                 $identifier,
-                \sprintf('cannot exceed %d characters', self::MAX_LENGTH),
+                sprintf('cannot exceed %d characters', self::MAX_LENGTH),
             );
         }
 
@@ -107,14 +112,14 @@ final class IdentifierValidator
         // - Byte 7: 8 random bits
         // - Byte 8: variant (10) + 6 random bits
         // - Bytes 9-15: 56 random bits
-        return \sprintf(
+        return sprintf(
             '%08x-%04x-7%03x-%04x-%012x',
             ($time >> 16) & 0xFFFFFFFF,           // timestamp high 32 bits
             $time & 0xFFFF,                        // timestamp low 16 bits
-            \ord($random[0]) << 4 | \ord($random[1]) >> 4 & 0x0FFF, // version 7 + 12 random bits
-            ((\ord($random[1]) << 8 | \ord($random[2])) & 0x3FFF) | 0x8000, // variant 10 + 14 random bits
-            (\ord($random[3]) << 40) | (\ord($random[4]) << 32) | (\ord($random[5]) << 24)
-                | (\ord($random[6]) << 16) | (\ord($random[7]) << 8) | \ord($random[8]), // 48 random bits
+            ord($random[0]) << 4 | ord($random[1]) >> 4 & 0x0FFF, // version 7 + 12 random bits
+            ((ord($random[1]) << 8 | ord($random[2])) & 0x3FFF) | 0x8000, // variant 10 + 14 random bits
+            (ord($random[3]) << 40) | (ord($random[4]) << 32) | (ord($random[5]) << 24)
+                | (ord($random[6]) << 16) | (ord($random[7]) << 8) | ord($random[8]), // 48 random bits
         );
     }
 
@@ -141,8 +146,8 @@ final class IdentifierValidator
         $identifier = strtolower($input);
 
         // Replace invalid characters with underscores
-        $replaced = preg_replace('/[^a-z0-9_]/', '_', $identifier);
-        $identifier = \is_string($replaced) ? $replaced : $identifier;
+        $replaced   = preg_replace('/[^a-z0-9_]/', '_', $identifier);
+        $identifier = is_string($replaced) ? $replaced : $identifier;
 
         // Ensure starts with letter
         if ($identifier !== '' && !ctype_alpha($identifier[0])) {
@@ -150,18 +155,18 @@ final class IdentifierValidator
         }
 
         // Remove consecutive underscores
-        $replaced = preg_replace('/_+/', '_', $identifier);
-        $identifier = \is_string($replaced) ? $replaced : $identifier;
+        $replaced   = preg_replace('/_+/', '_', $identifier);
+        $identifier = is_string($replaced) ? $replaced : $identifier;
 
         // Trim underscores
         $identifier = trim($identifier, '_');
 
         // Enforce length limits
-        if (\strlen($identifier) < self::MIN_LENGTH) {
+        if (strlen($identifier) < self::MIN_LENGTH) {
             $identifier = str_pad($identifier, self::MIN_LENGTH, '_');
         }
 
-        if (\strlen($identifier) > self::MAX_LENGTH) {
+        if (strlen($identifier) > self::MAX_LENGTH) {
             return substr($identifier, 0, self::MAX_LENGTH);
         }
 
@@ -206,7 +211,7 @@ final class IdentifierValidator
      */
     public static function getSiteIdentifier(string $identifier): ?string
     {
-        if (\strlen($identifier) > self::MAX_LENGTH || preg_match(self::SITE_PATTERN, $identifier, $matches) !== 1) {
+        if (strlen($identifier) > self::MAX_LENGTH || preg_match(self::SITE_PATTERN, $identifier, $matches) !== 1) {
             return null;
         }
 

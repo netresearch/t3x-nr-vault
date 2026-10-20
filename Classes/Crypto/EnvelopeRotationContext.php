@@ -44,7 +44,7 @@ final readonly class EnvelopeRotationContext
      * @param string $identifier The identifier the envelope was sealed with (its AAD)
      *
      * @throws EnvelopeFormatException If the value is not a well-formed envelope
-     * @throws EncryptionException If the DEK cannot be unwrapped with the old key
+     * @throws EncryptionException     If the DEK cannot be unwrapped with the old key
      */
     public function rewrap(string $sealed, string $identifier): string
     {

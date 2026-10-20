@@ -12,6 +12,10 @@ namespace Netresearch\NrVault\Crypto;
 use Netresearch\NrVault\Exception\MasterKeyException;
 use SensitiveParameter;
 
+use function is_array;
+use function is_string;
+use function strlen;
+
 /**
  * TYPO3 encryption key-based master key provider.
  *
@@ -77,10 +81,10 @@ final class Typo3MasterKeyProvider extends AbstractMasterKeyProvider
             throw MasterKeyException::notFound('TYPO3 encryption key is not set');
         }
 
-        if (\strlen($encryptionKey) < self::MIN_SOURCE_KEY_LENGTH) {
+        if (strlen($encryptionKey) < self::MIN_SOURCE_KEY_LENGTH) {
             throw MasterKeyException::invalidLength(
                 self::MIN_SOURCE_KEY_LENGTH,
-                \strlen($encryptionKey),
+                strlen($encryptionKey),
             );
         }
 
@@ -96,17 +100,17 @@ final class Typo3MasterKeyProvider extends AbstractMasterKeyProvider
     private function getEncryptionKey(): string
     {
         $typo3ConfVars = $GLOBALS['TYPO3_CONF_VARS'] ?? [];
-        if (!\is_array($typo3ConfVars)) {
+        if (!is_array($typo3ConfVars)) {
             return '';
         }
 
         $sysConfig = $typo3ConfVars['SYS'] ?? [];
-        if (!\is_array($sysConfig)) {
+        if (!is_array($sysConfig)) {
             return '';
         }
 
         $encryptionKey = $sysConfig['encryptionKey'] ?? '';
 
-        return \is_string($encryptionKey) ? $encryptionKey : '';
+        return is_string($encryptionKey) ? $encryptionKey : '';
     }
 }

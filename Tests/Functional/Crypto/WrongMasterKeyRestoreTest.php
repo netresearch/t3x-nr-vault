@@ -19,6 +19,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function sprintf;
+use function strlen;
+
 /**
  * Restoring a vault under the WRONG master key.
  *
@@ -83,10 +86,10 @@ final class WrongMasterKeyRestoreTest extends AbstractVaultFunctionalTestCase
             try {
                 $leaked = $vaultService->retrieve($identifier);
 
-                self::fail(\sprintf(
+                self::fail(sprintf(
                     'Reading "%s" under a wrong master key must throw, but it returned %s',
                     $identifier,
-                    $leaked === null ? 'null' : 'a value of ' . \strlen($leaked) . ' bytes',
+                    $leaked === null ? 'null' : 'a value of ' . strlen($leaked) . ' bytes',
                 ));
             } catch (EncryptionException $exception) {
                 self::assertStringNotContainsString(
@@ -115,7 +118,7 @@ final class WrongMasterKeyRestoreTest extends AbstractVaultFunctionalTestCase
         $seeded = $this->seedSecrets();
 
         self::assertIsString($this->masterKeyPath);
-        $correctKey = (string) file_get_contents($this->masterKeyPath);
+        $correctKey   = (string) file_get_contents($this->masterKeyPath);
         $storedBefore = $this->snapshotEnvelopeColumns();
 
         $this->installMasterKey(sodium_crypto_secretbox_keygen());
@@ -160,7 +163,7 @@ final class WrongMasterKeyRestoreTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function aFailedDecryptIsRecordedInTheAuditLog(): void
     {
-        $seeded = $this->seedSecrets();
+        $seeded     = $this->seedSecrets();
         $identifier = array_key_first($seeded);
         self::assertIsString($identifier);
 
@@ -194,7 +197,7 @@ final class WrongMasterKeyRestoreTest extends AbstractVaultFunctionalTestCase
         $seeded = [];
         for ($i = 0; $i < self::SECRET_COUNT; ++$i) {
             $identifier = $this->generateUuidV7();
-            $value = 'restore-canary-value-' . $i;
+            $value      = 'restore-canary-value-' . $i;
             $vaultService->store($identifier, $value);
             $seeded[$identifier] = $value;
         }

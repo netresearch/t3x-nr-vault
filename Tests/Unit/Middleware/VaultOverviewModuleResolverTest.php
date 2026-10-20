@@ -44,7 +44,7 @@ final class VaultOverviewModuleResolverTest extends TestCase
     {
         parent::setUp();
 
-        $existing = $GLOBALS['BE_USER'] ?? null;
+        $existing                  = $GLOBALS['BE_USER'] ?? null;
         $this->previousBackendUser = $existing instanceof BackendUserAuthentication ? $existing : null;
     }
 
@@ -153,7 +153,7 @@ final class VaultOverviewModuleResolverTest extends TestCase
         unset($GLOBALS['BE_USER']);
 
         $expected = self::createStub(ResponseInterface::class);
-        $request = self::createStub(ServerRequestInterface::class);
+        $request  = self::createStub(ServerRequestInterface::class);
         $request->method('getAttribute')->willReturn($this->parentRoute(false));
 
         self::assertSame(
@@ -215,7 +215,7 @@ final class VaultOverviewModuleResolverTest extends TestCase
 
         foreach ([self::PARENT_PATH, self::PARENT_PATH . '/overview/help', self::PARENT_PATH . '/helpdesk'] as $path) {
             $expected = self::createStub(ResponseInterface::class);
-            $request = self::createStub(ServerRequestInterface::class);
+            $request  = self::createStub(ServerRequestInterface::class);
             $request->method('getAttribute')->willReturn($this->parentRoute(false, $path));
 
             self::assertSame($expected, (new VaultOverviewModuleResolver($uriBuilder))->process($request, $this->handler($expected)), $path);

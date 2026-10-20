@@ -71,7 +71,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
         $this->seedChain(3);
         $this->publishAnchor();
 
-        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
@@ -91,7 +91,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
         $this->resetAuditTable();
         $this->seedChain(2);
 
-        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::FAILURE, $exitCode);
@@ -107,7 +107,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
         $this->resetAuditTable();
         $this->seedChain(1);
 
-        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
         $exitCode = $tester->execute(['--format' => 'json']);
 
         self::assertSame(Command::FAILURE, $exitCode);
@@ -135,7 +135,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
             ['uid' => 1],
         );
 
-        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::FAILURE, $exitCode);
@@ -149,7 +149,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
 
         $this->getAuditConnection()->delete(AuditLogService::TABLE_NAME, ['uid' => 2]);
 
-        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::FAILURE, $exitCode);
@@ -166,7 +166,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
         $this->seedChain(4);
         $this->getAuditConnection()->delete(AuditLogService::TABLE_NAME, ['uid' => 2]);
 
-        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
         $exitCode = $tester->execute(['--tamper-only' => true]);
 
         self::assertSame(Command::FAILURE, $exitCode);
@@ -181,7 +181,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
     {
         $this->seedChain(2);
 
-        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
@@ -213,7 +213,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
         $this->publishAnchor();
         $this->setUpBackendUser(self::NO_PERMISSIONS);
 
-        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::FAILURE, $exitCode);
@@ -235,7 +235,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
         $this->publishAnchor();
         $this->setUpBackendUser(self::NO_PERMISSIONS);
 
-        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
         $exitCode = $tester->execute(['--format' => 'json']);
 
         self::assertSame(Command::FAILURE, $exitCode);
@@ -260,7 +260,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
         $this->publishAnchor();
         $this->setUpBackendUser(self::AUDIT_VIEWER);
 
-        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
@@ -286,7 +286,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
     private function seedChain(int $entries): void
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
-        for ($i = 0; $i < $entries; $i++) {
+        for ($i = 0; $i < $entries; ++$i) {
             $auditService->log('verify_cmd_secret', 'read', true);
         }
     }

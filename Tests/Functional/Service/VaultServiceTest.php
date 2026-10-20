@@ -47,7 +47,7 @@ final class VaultServiceTest extends FunctionalTestCase
 
         // Create a temporary master key for testing
         $this->masterKeyPath = $this->instancePath . '/master.key';
-        $masterKey = sodium_crypto_secretbox_keygen();
+        $masterKey           = sodium_crypto_secretbox_keygen();
         file_put_contents($this->masterKeyPath, $masterKey);
         chmod($this->masterKeyPath, 0o600);
 
@@ -56,7 +56,7 @@ final class VaultServiceTest extends FunctionalTestCase
 
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = [
             'masterKeySource' => $this->masterKeyPath,
-            'autoKeyPath' => $this->masterKeyPath,
+            'autoKeyPath'     => $this->masterKeyPath,
         ];
 
         // Import backend user for access control
@@ -92,7 +92,7 @@ final class VaultServiceTest extends FunctionalTestCase
     #[Test]
     public function storeAndRetrieveSecretWithDatabase(): void
     {
-        $identifier = 'test_api_key';
+        $identifier  = 'test_api_key';
         $secretValue = 'my-super-secret-api-key-12345';
 
         // Store the secret
@@ -109,9 +109,9 @@ final class VaultServiceTest extends FunctionalTestCase
     #[Test]
     public function storeUpdatesExistingSecret(): void
     {
-        $identifier = 'updatable_secret';
+        $identifier    = 'updatable_secret';
         $originalValue = 'original-value';
-        $updatedValue = 'updated-value';
+        $updatedValue  = 'updated-value';
 
         // Store original
         $this->getSubject()->store($identifier, $originalValue);
@@ -125,7 +125,7 @@ final class VaultServiceTest extends FunctionalTestCase
     #[Test]
     public function deleteRemovesSecretFromDatabase(): void
     {
-        $identifier = 'to_be_deleted';
+        $identifier  = 'to_be_deleted';
         $secretValue = 'delete-me';
 
         // Store and verify
@@ -142,9 +142,9 @@ final class VaultServiceTest extends FunctionalTestCase
     #[Test]
     public function rotateUpdatesSecretVersionAndValue(): void
     {
-        $identifier = 'rotating_secret';
+        $identifier    = 'rotating_secret';
         $originalValue = 'original-rotating-value';
-        $rotatedValue = 'rotated-new-value';
+        $rotatedValue  = 'rotated-new-value';
 
         // Store original
         $this->getSubject()->store($identifier, $originalValue);
@@ -184,13 +184,13 @@ final class VaultServiceTest extends FunctionalTestCase
     #[Test]
     public function getMetadataReturnsCorrectInformation(): void
     {
-        $identifier = 'metadata_test';
+        $identifier  = 'metadata_test';
         $secretValue = 'metadata-test-value';
 
         $this->getSubject()->store($identifier, $secretValue, [
             'description' => 'Test secret for metadata',
-            'context' => 'testing',
-            'metadata' => ['environment' => 'test'],
+            'context'     => 'testing',
+            'metadata'    => ['environment' => 'test'],
         ]);
 
         $metadata = $this->getSubject()->getMetadata($identifier);
@@ -205,7 +205,7 @@ final class VaultServiceTest extends FunctionalTestCase
     #[Test]
     public function secretsAreProperlyEncryptedAndDecrypted(): void
     {
-        $identifier = 'encryption_test';
+        $identifier  = 'encryption_test';
         $secretValue = 'This is my secret value that should be encrypted';
 
         // Store the secret
@@ -235,7 +235,7 @@ final class VaultServiceTest extends FunctionalTestCase
     #[Test]
     public function repeatedRetrieveAlwaysDecryptsFromTheDatabase(): void
     {
-        $identifier = 'no_cache_test';
+        $identifier  = 'no_cache_test';
         $secretValue = 'no-cache-test-value';
 
         $subject = $this->getSubject();
@@ -251,7 +251,7 @@ final class VaultServiceTest extends FunctionalTestCase
         // silent, unaudited hit (value equality alone cannot tell the two
         // apart).
         $auditService = $this->get(AuditLogServiceInterface::class);
-        $readEntries = array_filter(
+        $readEntries  = array_filter(
             $auditService->query(AuditLogFilter::forSecret($identifier)),
             static fn (AuditLogEntry $entry): bool => $entry->action === 'read' && $entry->success,
         );

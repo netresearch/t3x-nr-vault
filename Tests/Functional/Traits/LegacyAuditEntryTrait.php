@@ -28,30 +28,30 @@ trait LegacyAuditEntryTrait
     {
         $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
 
-        $crdate = time();
+        $crdate       = time();
         $previousHash = '';
 
         $connection->insert('tx_nrvault_audit_log', [
-            'pid' => 0,
+            'pid'               => 0,
             'secret_identifier' => $secretIdentifier,
-            'action' => $action,
-            'success' => 1,
-            'error_message' => '',
-            'reason' => 'Legacy test entry',
-            'actor_uid' => 1,
-            'actor_type' => 'be_user',
-            'actor_username' => 'admin',
-            'actor_role' => 'admin',
-            'ip_address' => 'CLI',
-            'user_agent' => 'CLI',
-            'request_id' => bin2hex(random_bytes(8)),
-            'previous_hash' => $previousHash,
-            'hash_before' => '',
-            'hash_after' => '',
-            'crdate' => $crdate,
-            'hmac_key_epoch' => 0,
-            'context' => '{}',
-            'entry_hash' => '', // placeholder - will be updated below
+            'action'            => $action,
+            'success'           => 1,
+            'error_message'     => '',
+            'reason'            => 'Legacy test entry',
+            'actor_uid'         => 1,
+            'actor_type'        => 'be_user',
+            'actor_username'    => 'admin',
+            'actor_role'        => 'admin',
+            'ip_address'        => 'CLI',
+            'user_agent'        => 'CLI',
+            'request_id'        => bin2hex(random_bytes(8)),
+            'previous_hash'     => $previousHash,
+            'hash_before'       => '',
+            'hash_after'        => '',
+            'crdate'            => $crdate,
+            'hmac_key_epoch'    => 0,
+            'context'           => '{}',
+            'entry_hash'        => '', // placeholder - will be updated below
         ]);
 
         $uid = (int) $connection->lastInsertId();

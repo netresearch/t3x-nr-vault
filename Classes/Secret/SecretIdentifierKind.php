@@ -32,8 +32,8 @@ enum SecretIdentifierKind
     public function hints(): array
     {
         return match ($this) {
-            self::DatabaseColumn => SecretPatternLibrary::columnNameHints(),
-            self::ConfigurationKey => SecretPatternLibrary::configKeyHints(),
+            self::DatabaseColumn      => SecretPatternLibrary::columnNameHints(),
+            self::ConfigurationKey    => SecretPatternLibrary::configKeyHints(),
             self::EnvironmentVariable => SecretPatternLibrary::environmentNameHints(),
         };
     }

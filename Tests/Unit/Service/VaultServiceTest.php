@@ -77,11 +77,11 @@ final class VaultServiceTest extends TestCase
         $this->adapter
             ->method('retrieveIncludingDisabled')
             ->willReturnCallback(fn (string $identifier): ?Secret => $this->adapter->retrieve($identifier));
-        $this->encryptionService = $this->createMock(EncryptionServiceInterface::class);
+        $this->encryptionService    = $this->createMock(EncryptionServiceInterface::class);
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
-        $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
-        $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
-        $this->httpClientFactory = $this->createMock(VaultHttpClientFactoryInterface::class);
+        $this->auditLogService      = $this->createMock(AuditLogServiceInterface::class);
+        $this->configuration        = $this->createMock(ExtensionConfigurationInterface::class);
+        $this->httpClientFactory    = $this->createMock(VaultHttpClientFactoryInterface::class);
 
         $this->accessControlService
             ->method('getCurrentActorUid')
@@ -117,7 +117,7 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function storeEncryptsAndSavesSecret(): void
     {
-        $identifier = 'myApiKey';
+        $identifier  = 'myApiKey';
         $secretValue = 'super-secret-value';
 
         $this->encryptionService
@@ -747,7 +747,7 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function retrieveDecryptsAndReturnsSecret(): void
     {
-        $identifier = 'myApiKey';
+        $identifier    = 'myApiKey';
         $expectedValue = 'decrypted-secret';
 
         $secret = $this->createSecretEntity($identifier);
@@ -944,7 +944,7 @@ final class VaultServiceTest extends TestCase
     public function retrieveForFrontendReturnsFrontendAccessibleSecret(): void
     {
         $identifier = 'publicApiKey';
-        $secret = $this->createSecretEntity($identifier, frontendAccessible: true);
+        $secret     = $this->createSecretEntity($identifier, frontendAccessible: true);
 
         $this->adapter
             ->expects(self::atLeastOnce())
@@ -967,7 +967,7 @@ final class VaultServiceTest extends TestCase
     public function retrieveForFrontendDeniesSecretThatIsNotFrontendAccessible(): void
     {
         $identifier = 'smtpPassword';
-        $secret = $this->createSecretEntity($identifier);
+        $secret     = $this->createSecretEntity($identifier);
 
         $this->adapter
             ->expects(self::atLeastOnce())
@@ -1011,7 +1011,7 @@ final class VaultServiceTest extends TestCase
     public function deleteRemovesSecretWithPermission(): void
     {
         $identifier = 'toDelete';
-        $secret = $this->createSecretEntity($identifier);
+        $secret     = $this->createSecretEntity($identifier);
 
         $this->adapter
             ->expects(self::atLeastOnce())
@@ -1071,7 +1071,7 @@ final class VaultServiceTest extends TestCase
     public function assertDeletableAcceptsADeletableSecretWithoutDeletingIt(): void
     {
         $identifier = 'preflightOk';
-        $secret = $this->createSecretEntity($identifier);
+        $secret     = $this->createSecretEntity($identifier);
 
         $this->adapter
             ->method('retrieve')
@@ -1164,8 +1164,8 @@ final class VaultServiceTest extends TestCase
     public function rotateUpdatesSecretValue(): void
     {
         $identifier = 'toRotate';
-        $newSecret = 'new-secret-value';
-        $secret = $this->createSecretEntity($identifier, version: 1);
+        $newSecret  = 'new-secret-value';
+        $secret     = $this->createSecretEntity($identifier, version: 1);
 
         $this->adapter
             ->method('retrieve')
@@ -1474,7 +1474,7 @@ final class VaultServiceTest extends TestCase
     public function listReportsANeverReadSecretAsNullRatherThanTheEpoch(): void
     {
         $never = $this->createSecretEntity('never-read');
-        $read = $this->createSecretEntity('has-been-read', lastReadAt: 1_700_000_000);
+        $read  = $this->createSecretEntity('has-been-read', lastReadAt: 1_700_000_000);
 
         $this->adapter
             ->method('listSecrets')
@@ -1495,7 +1495,7 @@ final class VaultServiceTest extends TestCase
     public function getMetadataReturnsSecretMetadata(): void
     {
         $identifier = 'metaSecret';
-        $secret = $this->createSecretEntity(
+        $secret     = $this->createSecretEntity(
             $identifier,
             version: 3,
             description: self::TEST_DESCRIPTION,
@@ -1550,7 +1550,7 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function storeWithAllOptions(): void
     {
-        $identifier = 'fullOptions';
+        $identifier  = 'fullOptions';
         $secretValue = 'test-secret';
 
         $this->encryptionService
@@ -1573,13 +1573,13 @@ final class VaultServiceTest extends TestCase
             ->willReturnArgument(0);
 
         $this->subject->store($identifier, $secretValue, [
-            'owner' => 5,
-            'groups' => [1, 2, 3],
-            'context' => 'testing',
-            'description' => self::TEST_DESCRIPTION,
-            'metadata' => ['key' => 'value'],
-            'scopePid' => 100,
-            'expiresAt' => $expiresAt,
+            'owner'              => 5,
+            'groups'             => [1, 2, 3],
+            'context'            => 'testing',
+            'description'        => self::TEST_DESCRIPTION,
+            'metadata'           => ['key' => 'value'],
+            'scopePid'           => 100,
+            'expiresAt'          => $expiresAt,
             'frontendAccessible' => true,
         ]);
     }
@@ -1587,8 +1587,8 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function storeWithIntegerExpiresAt(): void
     {
-        $identifier = 'intExpires';
-        $secretValue = 'test-secret';
+        $identifier       = 'intExpires';
+        $secretValue      = 'test-secret';
         $expiresTimestamp = time() + 3600;
 
         $this->encryptionService
@@ -1611,7 +1611,7 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function storeUpdatesExistingSecret(): void
     {
-        $identifier = 'existing';
+        $identifier  = 'existing';
         $secretValue = 'new-value';
 
         $existing = $this->createSecretEntity(

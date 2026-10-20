@@ -19,6 +19,10 @@ use TYPO3\CMS\Core\Page\JavaScriptModuleInstruction;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 
+use function is_array;
+use function is_int;
+use function is_string;
+
 /**
  * TCA form element for direct secret input in tx_nrvault_secret table.
  *
@@ -57,16 +61,16 @@ final class VaultSecretInputElement extends AbstractFormElement
 
         // Add JavaScript module
         /** @var list<JavaScriptModuleInstruction> $javaScriptModules */
-        $javaScriptModules = \is_array($resultArray['javaScriptModules'] ?? null) ? $resultArray['javaScriptModules'] : [];
+        $javaScriptModules   = is_array($resultArray['javaScriptModules'] ?? null) ? $resultArray['javaScriptModules'] : [];
         $javaScriptModules[] = JavaScriptModuleInstruction::create(
             '@netresearch/nr-vault/vault-secret-input.js',
         );
         $resultArray['javaScriptModules'] = $javaScriptModules;
         // The widget JS renders localized strings (reveal/copy labels, the
         // auto-hide countdown) via TYPO3.lang — register the label catalogue.
-        $labelFiles = \is_array($resultArray['additionalInlineLanguageLabelFiles'] ?? null)
+        $labelFiles = is_array($resultArray['additionalInlineLanguageLabelFiles'] ?? null)
             ? $resultArray['additionalInlineLanguageLabelFiles'] : [];
-        $labelFiles[] = 'EXT:nr_vault/Resources/Private/Language/locallang_js.xlf';
+        $labelFiles[]                                      = 'EXT:nr_vault/Resources/Private/Language/locallang_js.xlf';
         $resultArray['additionalInlineLanguageLabelFiles'] = $labelFiles;
 
         return $resultArray;
@@ -91,29 +95,29 @@ final class VaultSecretInputElement extends AbstractFormElement
         /** @var array<string, mixed> $formData */
         $formData = $this->data;
         /** @var array<string, mixed> $parameterArray */
-        $parameterArray = \is_array($formData['parameterArray'] ?? null) ? $formData['parameterArray'] : [];
+        $parameterArray = is_array($formData['parameterArray'] ?? null) ? $formData['parameterArray'] : [];
         /** @var array<string, mixed> $fieldConf */
-        $fieldConf = \is_array($parameterArray['fieldConf'] ?? null) ? $parameterArray['fieldConf'] : [];
+        $fieldConf = is_array($parameterArray['fieldConf'] ?? null) ? $parameterArray['fieldConf'] : [];
         /** @var array<string, mixed> $config */
-        $config = \is_array($fieldConf['config'] ?? null) ? $fieldConf['config'] : [];
-        $itemName = \is_string($parameterArray['itemFormElName'] ?? null) ? $parameterArray['itemFormElName'] : '';
+        $config   = is_array($fieldConf['config'] ?? null) ? $fieldConf['config'] : [];
+        $itemName = is_string($parameterArray['itemFormElName'] ?? null) ? $parameterArray['itemFormElName'] : '';
 
         $sizeValue = $config['size'] ?? 50;
-        $width = $this->formMaxWidth(is_numeric($sizeValue) ? (int) $sizeValue : 50);
+        $width     = $this->formMaxWidth(is_numeric($sizeValue) ? (int) $sizeValue : 50);
 
         // Determine if this is a new or existing record
         /** @var array<string, mixed> $databaseRow */
-        $databaseRow = \is_array($formData['databaseRow'] ?? null) ? $formData['databaseRow'] : [];
-        $uid = $databaseRow['uid'] ?? 0;
-        $uidString = \is_string($uid) || \is_int($uid) ? (string) $uid : '0';
+        $databaseRow = is_array($formData['databaseRow'] ?? null) ? $formData['databaseRow'] : [];
+        $uid         = $databaseRow['uid'] ?? 0;
+        $uidString   = is_string($uid) || is_int($uid) ? (string) $uid : '0';
         $isNewRecord = $uid === 0 || $uidString === 'NEW' || str_starts_with($uidString, 'NEW');
 
         // Get the secret identifier from the record
         $identifierRaw = $databaseRow['identifier'] ?? '';
-        if (\is_array($identifierRaw)) {
-            $identifier = \is_string($identifierRaw[0] ?? null) ? $identifierRaw[0] : '';
+        if (is_array($identifierRaw)) {
+            $identifier = is_string($identifierRaw[0] ?? null) ? $identifierRaw[0] : '';
         } else {
-            $identifier = \is_string($identifierRaw) ? $identifierRaw : '';
+            $identifier = is_string($identifierRaw) ? $identifierRaw : '';
         }
 
         // Check if secret exists in vault for existing records
@@ -123,13 +127,13 @@ final class VaultSecretInputElement extends AbstractFormElement
         }
 
         return [
-            'fieldId' => StringUtility::getUniqueId('formengine-vault-input-'),
-            'itemName' => $itemName,
-            'config' => $config,
-            'width' => $width,
-            'identifier' => $identifier,
+            'fieldId'     => StringUtility::getUniqueId('formengine-vault-input-'),
+            'itemName'    => $itemName,
+            'config'      => $config,
+            'width'       => $width,
+            'identifier'  => $identifier,
             'isNewRecord' => $isNewRecord,
-            'hasSecret' => $hasSecret,
+            'hasSecret'   => $hasSecret,
         ];
     }
 
@@ -149,22 +153,22 @@ final class VaultSecretInputElement extends AbstractFormElement
         ) ?: 'Enter secret value';
 
         $attributes = [
-            'type' => 'password',
-            'id' => $fieldId,
-            'name' => $itemName,
-            'value' => '',
-            'class' => 'form-control',
-            'placeholder' => $placeholder,
-            'autocomplete' => 'off',
+            'type'                             => 'password',
+            'id'                               => $fieldId,
+            'name'                             => $itemName,
+            'value'                            => '',
+            'class'                            => 'form-control',
+            'placeholder'                      => $placeholder,
+            'autocomplete'                     => 'off',
             'data-formengine-validation-rules' => $this->getValidationDataAsJsonString($config),
-            'data-formengine-input-name' => $itemName,
-            'data-vault-is-new' => '1',
-            'data-form-type' => 'other',
-            'data-1p-ignore' => 'true',
-            'data-lpignore' => 'true',
-            'data-bwignore' => 'true',
-            'data-protonpass-ignore' => 'true',
-            'data-dashlane-ignore' => 'true',
+            'data-formengine-input-name'       => $itemName,
+            'data-vault-is-new'                => '1',
+            'data-form-type'                   => 'other',
+            'data-1p-ignore'                   => 'true',
+            'data-lpignore'                    => 'true',
+            'data-bwignore'                    => 'true',
+            'data-protonpass-ignore'           => 'true',
+            'data-dashlane-ignore'             => 'true',
         ];
 
         if ($config['required'] ?? false) {
@@ -176,7 +180,7 @@ final class VaultSecretInputElement extends AbstractFormElement
             $attributes['maxlength'] = (string) (int) $maxValue;
         }
 
-        $html = [];
+        $html   = [];
         $html[] = '<div class="formengine-field-item t3js-formengine-field-item">';
         $html[] = '<div class="form-wizards-wrap">';
         $html[] = '<div class="form-wizards-element">';
@@ -219,7 +223,7 @@ final class VaultSecretInputElement extends AbstractFormElement
         string $identifier,
         bool $hasSecret,
     ): string {
-        $html = [];
+        $html   = [];
         $html[] = '<div class="formengine-field-item t3js-formengine-field-item">';
         $html[] = '<div class="form-wizards-wrap">';
         $html[] = '<div class="form-wizards-element">';
@@ -265,12 +269,12 @@ final class VaultSecretInputElement extends AbstractFormElement
 
             // Rotate section (collapsible)
             $collapseId = StringUtility::getUniqueId('vault-rotate-');
-            $html[] = '<div class="mt-3">';
-            $html[] = '<button class="btn btn-sm btn-warning t3js-vault-rotate-toggle" type="button" ';
-            $html[] = 'data-bs-toggle="collapse" data-bs-target="#' . $collapseId . '" ';
-            $html[] = 'aria-expanded="false" aria-controls="' . $collapseId . '">';
-            $html[] = $this->renderIcon('actions-refresh') . ' ';
-            $html[] = htmlspecialchars($this->getLanguageService()->sL(
+            $html[]     = '<div class="mt-3">';
+            $html[]     = '<button class="btn btn-sm btn-warning t3js-vault-rotate-toggle" type="button" ';
+            $html[]     = 'data-bs-toggle="collapse" data-bs-target="#' . $collapseId . '" ';
+            $html[]     = 'aria-expanded="false" aria-controls="' . $collapseId . '">';
+            $html[]     = $this->renderIcon('actions-refresh') . ' ';
+            $html[]     = htmlspecialchars($this->getLanguageService()->sL(
                 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:vault_secret_input.rotate',
             ) ?: 'Rotate Secret');
             $html[] = '</button>';
@@ -302,22 +306,22 @@ final class VaultSecretInputElement extends AbstractFormElement
 
         // Input field for new/rotated secret
         $inputAttributes = [
-            'type' => 'password',
-            'id' => $fieldId,
-            'name' => $itemName,
-            'value' => '',
-            'class' => 'form-control',
-            'placeholder' => $this->resolvePlaceholder($hasSecret),
-            'autocomplete' => 'off',
+            'type'                       => 'password',
+            'id'                         => $fieldId,
+            'name'                       => $itemName,
+            'value'                      => '',
+            'class'                      => 'form-control',
+            'placeholder'                => $this->resolvePlaceholder($hasSecret),
+            'autocomplete'               => 'off',
             'data-formengine-input-name' => $itemName,
-            'data-vault-identifier' => $identifier,
-            'data-vault-has-secret' => $hasSecret ? '1' : '0',
-            'data-form-type' => 'other',
-            'data-1p-ignore' => 'true',
-            'data-lpignore' => 'true',
-            'data-bwignore' => 'true',
-            'data-protonpass-ignore' => 'true',
-            'data-dashlane-ignore' => 'true',
+            'data-vault-identifier'      => $identifier,
+            'data-vault-has-secret'      => $hasSecret ? '1' : '0',
+            'data-form-type'             => 'other',
+            'data-1p-ignore'             => 'true',
+            'data-lpignore'              => 'true',
+            'data-bwignore'              => 'true',
+            'data-protonpass-ignore'     => 'true',
+            'data-dashlane-ignore'       => 'true',
         ];
 
         $maxValue = $config['max'] ?? 0;

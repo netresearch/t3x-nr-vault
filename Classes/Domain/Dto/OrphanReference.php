@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Domain\Dto;
 
+use function sprintf;
+
 /**
  * Data Transfer Object for orphan secret references.
  *
@@ -42,7 +44,7 @@ readonly class OrphanReference
      */
     public function getLocation(): string
     {
-        return \sprintf('%s.%s (uid=%d)', $this->table, $this->field, $this->uid);
+        return sprintf('%s.%s (uid=%d)', $this->table, $this->field, $this->uid);
     }
 
     /**
@@ -55,7 +57,7 @@ readonly class OrphanReference
         return [
             'table' => $this->table,
             'field' => $this->field,
-            'uid' => $this->uid,
+            'uid'   => $this->uid,
         ];
     }
 }

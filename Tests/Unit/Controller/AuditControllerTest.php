@@ -24,6 +24,11 @@ use Psr\Http\Message\ServerRequestInterface;
 use ReflectionClass;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 
+use function count;
+use function in_array;
+use function is_string;
+use function sprintf;
+
 /**
  * Unit tests for the CSV audit export writer of AuditController.
  *
@@ -64,7 +69,7 @@ final class AuditControllerTest extends TestCase
 
         [$header, $row] = $this->parseCsv($csv);
 
-        self::assertCount(\count($header), $row);
+        self::assertCount(count($header), $row);
 
         $columnIndex = array_search('requestId', $header, true);
         self::assertIsInt($columnIndex);
@@ -72,7 +77,7 @@ final class AuditControllerTest extends TestCase
 
         foreach ($row as $cell) {
             self::assertThat(
-                $cell === '' || !\in_array($cell[0], ['=', '+', '-', '@', "\t", "\r"], true),
+                $cell === '' || !in_array($cell[0], ['=', '+', '-', '@', "\t", "\r"], true),
                 self::isTrue(),
                 'No exported cell may start with a spreadsheet formula leader, got: ' . $cell,
             );
@@ -152,7 +157,7 @@ final class AuditControllerTest extends TestCase
     public function eachAbandonedOutboundCallGetsItsOwnBadgeInTheAuditModule(): void
     {
         $reflection = new ReflectionClass(AuditController::class);
-        $subject = $reflection->newInstanceWithoutConstructor();
+        $subject    = $reflection->newInstanceWithoutConstructor();
         $badgeClass = $reflection->getMethod('getActionBadgeClass');
 
         self::assertSame('warning', $badgeClass->invoke($subject, 'http_call_cancelled'));
@@ -179,7 +184,7 @@ final class AuditControllerTest extends TestCase
     public function everyActionTheHttpClientWritesReachesTheFilterDropdown(): void
     {
         $reflection = new ReflectionClass(AuditController::class);
-        $subject = $reflection->newInstanceWithoutConstructor();
+        $subject    = $reflection->newInstanceWithoutConstructor();
 
         $offered = $reflection->getMethod('filterableActions')->invoke($subject);
         self::assertIsArray($offered);
@@ -188,7 +193,7 @@ final class AuditControllerTest extends TestCase
             self::assertContains(
                 $written,
                 $offered,
-                \sprintf('"%s" is written to the chain but cannot be filtered for.', $written),
+                sprintf('"%s" is written to the chain but cannot be filtered for.', $written),
             );
         }
     }
@@ -222,14 +227,14 @@ final class AuditControllerTest extends TestCase
         $accessControlService
             ->method('isGranted')
             ->willReturnCallback(
-                static fn (VaultPermission $permission): bool => \in_array($permission, $granted, true),
+                static fn (VaultPermission $permission): bool => in_array($permission, $granted, true),
             );
 
         $moduleTemplateFactory = (new ReflectionClass(ModuleTemplateFactory::class))
             ->newInstanceWithoutConstructor();
 
         $reflection = new ReflectionClass(AuditController::class);
-        $subject = $reflection->newInstanceWithoutConstructor();
+        $subject    = $reflection->newInstanceWithoutConstructor();
         $reflection->getProperty('auditLogService')->setValue($subject, $auditLogService);
         $reflection->getProperty('accessGuard')->setValue(
             $subject,
@@ -245,7 +250,7 @@ final class AuditControllerTest extends TestCase
     private function exportCsv(array $entries): string
     {
         $reflection = new ReflectionClass(AuditController::class);
-        $subject = $reflection->newInstanceWithoutConstructor();
+        $subject    = $reflection->newInstanceWithoutConstructor();
 
         $response = $reflection->getMethod('exportAsCsv')->invoke($subject, $entries);
         self::assertInstanceOf(ResponseInterface::class, $response);
@@ -268,7 +273,7 @@ final class AuditControllerTest extends TestCase
 
         $rows = [];
         while (($row = fgetcsv($handle, escape: '')) !== false) {
-            $rows[] = array_map(static fn (mixed $cell): string => \is_string($cell) ? $cell : '', $row);
+            $rows[] = array_map(static fn (mixed $cell): string => is_string($cell) ? $cell : '', $row);
         }
 
         fclose($handle);

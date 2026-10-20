@@ -36,6 +36,9 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
+use function in_array;
+use function sprintf;
+
 #[CoversClass(AuditCheck::class)]
 final class AuditCheckTest extends TestCase
 {
@@ -468,7 +471,7 @@ final class AuditCheckTest extends TestCase
             // Both numbers, so the operator sees the gap rather than a verdict.
             self::assertStringContainsString('configured as 3', $finding->summary);
             self::assertStringContainsString(
-                \sprintf('oldest stored audit row is at epoch %d', $storedMinEpoch),
+                sprintf('oldest stored audit row is at epoch %d', $storedMinEpoch),
                 $finding->summary,
             );
             self::assertSame(3, $finding->details['auditHmacEpoch']);
@@ -549,7 +552,7 @@ final class AuditCheckTest extends TestCase
             // AND the stored minimum it confirmed against.
             self::assertStringContainsString('configured as 3', $finding->summary);
             self::assertStringContainsString(
-                \sprintf('oldest stored row is at epoch %d', $storedMinEpoch),
+                sprintf('oldest stored row is at epoch %d', $storedMinEpoch),
                 $finding->summary,
             );
             self::assertStringContainsString('vault:audit-verify', $finding->summary);
@@ -587,7 +590,7 @@ final class AuditCheckTest extends TestCase
     #[Test]
     public function theStoredEpochProbeReadsOneRowOrderedByThePrimaryKey(): void
     {
-        $calls = [];
+        $calls        = [];
         $queryBuilder = $this->epochQueryBuilder(3, $calls);
 
         $this->check(epoch: 3, epochQueryBuilder: $queryBuilder)
@@ -741,19 +744,19 @@ final class AuditCheckTest extends TestCase
             'audit.hmac_epoch',
         );
         $declaredUnsigned = explode(',', (string) $finding->details['unsignedFields']);
-        $baseline = $this->hashForEpoch($epoch, $this->hashRowFixture());
+        $baseline         = $this->hashForEpoch($epoch, $this->hashRowFixture());
 
         foreach ($this->columnMutations() as $column => $mutatedValue) {
-            $row = $this->hashRowFixture();
+            $row          = $this->hashRowFixture();
             $row[$column] = $mutatedValue;
 
-            $declaredSigned = !\in_array($column, $declaredUnsigned, true);
-            $hashMoved = $this->hashForEpoch($epoch, $row) !== $baseline;
+            $declaredSigned = !in_array($column, $declaredUnsigned, true);
+            $hashMoved      = $this->hashForEpoch($epoch, $row) !== $baseline;
 
             self::assertSame(
                 $declaredSigned,
                 $hashMoved,
-                \sprintf(
+                sprintf(
                     'Epoch %d declares "%s" %s, but changing it %s the entry hash.',
                     $epoch,
                     $column,
@@ -775,13 +778,13 @@ final class AuditCheckTest extends TestCase
         $baseline = $this->hashForEpoch(3, $this->hashRowFixture());
 
         foreach ($this->columnMutations() as $column => $mutatedValue) {
-            $row = $this->hashRowFixture();
+            $row          = $this->hashRowFixture();
             $row[$column] = $mutatedValue;
 
             self::assertNotSame(
                 $baseline,
                 $this->hashForEpoch(3, $row),
-                \sprintf('Column "%s" is outside the epoch-3 payload.', $column),
+                sprintf('Column "%s" is outside the epoch-3 payload.', $column),
             );
         }
     }
@@ -1013,24 +1016,24 @@ final class AuditCheckTest extends TestCase
     private function hashRowFixture(): array
     {
         return [
-            'uid' => 42,
+            'uid'               => 42,
             'secret_identifier' => 'api/deploy-token',
-            'action' => 'read',
-            'success' => 1,
-            'actor_uid' => 7,
-            'crdate' => 1_700_000_000,
-            'error_message' => '',
-            'reason' => 'scheduled rotation',
-            'ip_address' => '192.0.2.10',
-            'user_agent' => 'phpunit',
-            'hash_before' => 'hash-before',
-            'hash_after' => 'hash-after',
-            'context' => '{"source":"cli"}',
-            'hmac_key_epoch' => 3,
-            'actor_type' => 'backend',
-            'actor_username' => 'editor',
-            'actor_role' => 'maintainer',
-            'request_id' => 'request-1',
+            'action'            => 'read',
+            'success'           => 1,
+            'actor_uid'         => 7,
+            'crdate'            => 1_700_000_000,
+            'error_message'     => '',
+            'reason'            => 'scheduled rotation',
+            'ip_address'        => '192.0.2.10',
+            'user_agent'        => 'phpunit',
+            'hash_before'       => 'hash-before',
+            'hash_after'        => 'hash-after',
+            'context'           => '{"source":"cli"}',
+            'hmac_key_epoch'    => 3,
+            'actor_type'        => 'backend',
+            'actor_username'    => 'editor',
+            'actor_role'        => 'maintainer',
+            'request_id'        => 'request-1',
         ];
     }
 
@@ -1044,24 +1047,24 @@ final class AuditCheckTest extends TestCase
     private function columnMutations(): array
     {
         return [
-            'uid' => 43,
+            'uid'               => 43,
             'secret_identifier' => 'api/other-token',
-            'action' => 'write',
-            'success' => 0,
-            'actor_uid' => 8,
-            'crdate' => 1_700_000_001,
-            'error_message' => 'permission denied',
-            'reason' => 'manual rotation',
-            'ip_address' => '192.0.2.11',
-            'user_agent' => 'curl/8.0',
-            'hash_before' => 'hash-before-forged',
-            'hash_after' => 'hash-after-forged',
-            'context' => '{"source":"backend"}',
-            'hmac_key_epoch' => 2,
-            'actor_type' => 'technical',
-            'actor_username' => 'someone-else',
-            'actor_role' => 'admin',
-            'request_id' => 'request-2',
+            'action'            => 'write',
+            'success'           => 0,
+            'actor_uid'         => 8,
+            'crdate'            => 1_700_000_001,
+            'error_message'     => 'permission denied',
+            'reason'            => 'manual rotation',
+            'ip_address'        => '192.0.2.11',
+            'user_agent'        => 'curl/8.0',
+            'hash_before'       => 'hash-before-forged',
+            'hash_after'        => 'hash-after-forged',
+            'context'           => '{"source":"backend"}',
+            'hmac_key_epoch'    => 2,
+            'actor_type'        => 'technical',
+            'actor_username'    => 'someone-else',
+            'actor_role'        => 'admin',
+            'request_id'        => 'request-2',
         ];
     }
 
@@ -1099,28 +1102,28 @@ final class AuditCheckTest extends TestCase
     /**
      * A check wired with a healthy audit configuration, overridable per test.
      *
-     * @param list<string> $sinks Enabled sink identifiers
-     * @param array<string, int> $sinkFailures Per-sink delivery failures
-     * @param ChainTipAnchor|null $anchor Anchor to compare against; null uses the
-     *                                    healthy default (ignored when
-     *                                    `$withoutAnchor` is true)
-     * @param bool $withoutAnchor No anchor could be read at all
-     * @param int $epoch Configured `auditHmacEpoch`
-     * @param bool $anchorRequired Configured `auditAnchorRequired`
-     * @param AuditChainAnchorStatus|null $dbAnchorStatus Status the in-DB anchor
-     *                                                    store reports; null
-     *                                                    derives it from
-     *                                                    `$epoch`, exactly as
-     *                                                    the real store does
-     * @param bool $sharesConnection Whether `sys_registry` resolves to the audit
-     *                               connection
-     * @param int|null $storedMinEpoch `hmac_key_epoch` of the OLDEST stored audit
-     *                                 row; null models a fully migrated chain by
-     *                                 deriving it from `$epoch`, so a test that
-     *                                 only changes the configuration is not
-     *                                 silently also asserting a drifted chain
-     * @param bool $emptyAuditLog No audit row exists at all, so the epoch probe
-     *                            has nothing to read
+     * @param list<string>                $sinks            Enabled sink identifiers
+     * @param array<string, int>          $sinkFailures     Per-sink delivery failures
+     * @param ChainTipAnchor|null         $anchor           Anchor to compare against; null uses the
+     *                                                      healthy default (ignored when
+     *                                                      `$withoutAnchor` is true)
+     * @param bool                        $withoutAnchor    No anchor could be read at all
+     * @param int                         $epoch            Configured `auditHmacEpoch`
+     * @param bool                        $anchorRequired   Configured `auditAnchorRequired`
+     * @param AuditChainAnchorStatus|null $dbAnchorStatus   Status the in-DB anchor
+     *                                                      store reports; null
+     *                                                      derives it from
+     *                                                      `$epoch`, exactly as
+     *                                                      the real store does
+     * @param bool                        $sharesConnection Whether `sys_registry` resolves to the audit
+     *                                                      connection
+     * @param int|null                    $storedMinEpoch   `hmac_key_epoch` of the OLDEST stored audit
+     *                                                      row; null models a fully migrated chain by
+     *                                                      deriving it from `$epoch`, so a test that
+     *                                                      only changes the configuration is not
+     *                                                      silently also asserting a drifted chain
+     * @param bool                        $emptyAuditLog    No audit row exists at all, so the epoch probe
+     *                                                      has nothing to read
      */
     private function check(
         bool $auditReads = true,
@@ -1262,7 +1265,7 @@ final class AuditCheckTest extends TestCase
         $result->method('fetchOne')->willReturn($storedMinEpoch ?? false);
 
         $queryBuilder = self::createStub(QueryBuilder::class);
-        $record = static function (string $method) use (&$queryBuilder, &$calls): callable {
+        $record       = static function (string $method) use (&$queryBuilder, &$calls): callable {
             return static function (mixed ...$arguments) use ($method, &$queryBuilder, &$calls): QueryBuilder {
                 $calls[$method] = $arguments;
 

@@ -12,7 +12,7 @@ use Netresearch\NrVault\Task\AuditVerifyTask;
 use Netresearch\NrVault\Task\OrphanCleanupTask;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 
-defined('TYPO3') || die();
+defined('TYPO3') || exit;
 
 if (is_array($GLOBALS['TCA'] ?? null) && isset($GLOBALS['TCA']['tx_scheduler_task'])) {
     // Add custom fields for the OrphanCleanupTask
@@ -20,11 +20,11 @@ if (is_array($GLOBALS['TCA'] ?? null) && isset($GLOBALS['TCA']['tx_scheduler_tas
         'tx_scheduler_task',
         [
             'nr_vault_retention_days' => [
-                'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.orphanCleanup.retentionDays',
+                'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.orphanCleanup.retentionDays',
                 'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.orphanCleanup.retentionDays.description',
-                'config' => [
-                    'type' => 'number',
-                    'size' => 5,
+                'config'      => [
+                    'type'  => 'number',
+                    'size'  => 5,
                     'range' => [
                         'lower' => 0,
                         'upper' => 365,
@@ -33,22 +33,22 @@ if (is_array($GLOBALS['TCA'] ?? null) && isset($GLOBALS['TCA']['tx_scheduler_tas
                 ],
             ],
             'nr_vault_table_filter' => [
-                'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.orphanCleanup.tableFilter',
+                'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.orphanCleanup.tableFilter',
                 'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.orphanCleanup.tableFilter.description',
-                'config' => [
-                    'type' => 'input',
-                    'size' => 30,
-                    'max' => 255,
+                'config'      => [
+                    'type'        => 'input',
+                    'size'        => 30,
+                    'max'         => 255,
                     'placeholder' => 'e.g., tx_myext_settings',
                 ],
             ],
             'nr_vault_tamper_only' => [
-                'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditVerify.tamperOnly',
+                'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditVerify.tamperOnly',
                 'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditVerify.tamperOnly.description',
-                'config' => [
-                    'type' => 'check',
+                'config'      => [
+                    'type'       => 'check',
                     'renderType' => 'checkboxToggle',
-                    'default' => 0,
+                    'default'    => 0,
                 ],
             ],
         ],
@@ -57,11 +57,11 @@ if (is_array($GLOBALS['TCA'] ?? null) && isset($GLOBALS['TCA']['tx_scheduler_tas
     // Register the OrphanCleanupTask as a native TCA task type
     ExtensionManagementUtility::addRecordType(
         [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.orphanCleanup.title',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.orphanCleanup.title',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.orphanCleanup.description',
-            'value' => OrphanCleanupTask::class,
-            'icon' => 'actions-database-clean',
-            'group' => 'nr_vault',
+            'value'       => OrphanCleanupTask::class,
+            'icon'        => 'actions-database-clean',
+            'group'       => 'nr_vault',
         ],
         '
             --div--;LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.generalTab,
@@ -88,11 +88,11 @@ if (is_array($GLOBALS['TCA'] ?? null) && isset($GLOBALS['TCA']['tx_scheduler_tas
     // by which audit sinks are enabled in the extension configuration.
     ExtensionManagementUtility::addRecordType(
         [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditAnchor.title',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditAnchor.title',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditAnchor.description',
-            'value' => AuditAnchorTask::class,
-            'icon' => 'actions-lock',
-            'group' => 'nr_vault',
+            'value'       => AuditAnchorTask::class,
+            'icon'        => 'actions-lock',
+            'group'       => 'nr_vault',
         ],
         '
             --div--;LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.generalTab,
@@ -116,11 +116,11 @@ if (is_array($GLOBALS['TCA'] ?? null) && isset($GLOBALS['TCA']['tx_scheduler_tas
     // external anchor and dispatches integrity alerts.
     ExtensionManagementUtility::addRecordType(
         [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditVerify.title',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditVerify.title',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang.xlf:task.auditVerify.description',
-            'value' => AuditVerifyTask::class,
-            'icon' => 'actions-check',
-            'group' => 'nr_vault',
+            'value'       => AuditVerifyTask::class,
+            'icon'        => 'actions-check',
+            'group'       => 'nr_vault',
         ],
         '
             --div--;LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.generalTab,

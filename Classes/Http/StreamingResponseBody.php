@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -16,6 +13,8 @@ use Netresearch\NrVault\Exception\RequestCancelledException;
 use Netresearch\NrVault\Exception\VaultException;
 use Psr\Http\Message\StreamInterface;
 use Throwable;
+
+use function strlen;
 
 /**
  * The body of a response from `VaultHttpClient::sendStreaming()`.
@@ -53,8 +52,8 @@ use Throwable;
  * about the request — whose URI can carry the secret for
  * `SecretPlacement::QueryParam` — is exposed through it.
  *
- * @internal Constructed by `VaultHttpClient` only; callers see it as a PSR-7
- *           `StreamInterface`.
+ * @internal constructed by `VaultHttpClient` only; callers see it as a PSR-7
+ *           `StreamInterface`
  */
 final class StreamingResponseBody implements StreamInterface
 {
@@ -96,7 +95,7 @@ final class StreamingResponseBody implements StreamInterface
 
     /**
      * @param StreamingTransfer $transfer The transfer this body is read from
-     * @param StreamingSink $sink The bounded buffer the transport writes into; consumed by `read()`
+     * @param StreamingSink     $sink     The bounded buffer the transport writes into; consumed by `read()`
      */
     public function __construct(
         private readonly StreamingTransfer $transfer,
@@ -202,7 +201,7 @@ final class StreamingResponseBody implements StreamInterface
      * Returns `''` only at the end of a transfer the transport completed.
      *
      * @throws RequestCancelledException When the caller's signal aborted the transfer
-     * @throws VaultException When the body is closed, the transfer failed or it overran its bound
+     * @throws VaultException            When the body is closed, the transfer failed or it overran its bound
      */
     public function read(int $length): string
     {
@@ -223,7 +222,7 @@ final class StreamingResponseBody implements StreamInterface
         while (true) {
             if ($this->sink->getSize() > 0) {
                 $chunk = $this->sink->read($length);
-                $this->position += \strlen($chunk);
+                $this->position += strlen($chunk);
 
                 return $chunk;
             }
@@ -302,7 +301,7 @@ final class StreamingResponseBody implements StreamInterface
         while (($chunk = $this->read(8192)) !== '') {
             $contents .= $chunk;
 
-            if (\strlen($contents) > StreamingSink::DEFAULT_LIMIT_BYTES) {
+            if (strlen($contents) > StreamingSink::DEFAULT_LIMIT_BYTES) {
                 $this->transfer->abandon();
                 $this->fail();
 

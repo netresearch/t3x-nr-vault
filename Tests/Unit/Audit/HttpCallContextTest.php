@@ -76,9 +76,9 @@ final class HttpCallContextTest extends TestCase
         $context = new HttpCallContext('DELETE', 'api.example.com', '/resource/123', 204);
 
         self::assertEquals([
-            'method' => 'DELETE',
-            'host' => 'api.example.com',
-            'path' => '/resource/123',
+            'method'      => 'DELETE',
+            'host'        => 'api.example.com',
+            'path'        => '/resource/123',
             'status_code' => 204,
         ], $context->toArray());
     }

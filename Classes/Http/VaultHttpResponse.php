@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -16,6 +13,11 @@ use JsonException;
 use Netresearch\NrVault\Exception\VaultException;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
+
+use function array_key_exists;
+use function is_array;
+use function is_object;
+use function sprintf;
 
 /**
  * Wrapper around PSR-7 ResponseInterface with convenience methods.
@@ -126,9 +128,9 @@ final readonly class VaultHttpResponse
      *
      * @param bool $associative When true, returns associative arrays instead of objects
      *
-     * @throws JsonException If JSON is invalid
-     *
      * @return array<string, mixed>|object|null
+     *
+     * @throws JsonException If JSON is invalid
      */
     public function json(bool $associative = true): array|object|null
     {
@@ -141,7 +143,7 @@ final readonly class VaultHttpResponse
         $decoded = json_decode($body, $associative, 512, JSON_THROW_ON_ERROR);
 
         if ($associative) {
-            if (!\is_array($decoded)) {
+            if (!is_array($decoded)) {
                 return [];
             }
 
@@ -149,14 +151,14 @@ final readonly class VaultHttpResponse
             return $decoded;
         }
 
-        return \is_object($decoded) ? $decoded : null;
+        return is_object($decoded) ? $decoded : null;
     }
 
     /**
      * Get a specific value from JSON response using dot notation.
      *
-     * @param string $key Key in dot notation (e.g., "data.user.name")
-     * @param mixed $default Default value if key not found
+     * @param string $key     Key in dot notation (e.g., "data.user.name")
+     * @param mixed  $default Default value if key not found
      */
     public function jsonGet(string $key, mixed $default = null): mixed
     {
@@ -166,15 +168,15 @@ final readonly class VaultHttpResponse
             return $default;
         }
 
-        if (!\is_array($data)) {
+        if (!is_array($data)) {
             return $default;
         }
 
-        $keys = explode('.', $key);
+        $keys  = explode('.', $key);
         $value = $data;
 
         foreach ($keys as $segment) {
-            if (!\is_array($value) || !\array_key_exists($segment, $value)) {
+            if (!is_array($value) || !array_key_exists($segment, $value)) {
                 return $default;
             }
 
@@ -278,7 +280,7 @@ final readonly class VaultHttpResponse
     {
         if ($this->isError()) {
             throw new VaultException(
-                \sprintf(
+                sprintf(
                     'HTTP request failed with status %d: %s',
                     $this->getStatusCode(),
                     $this->getReasonPhrase(),

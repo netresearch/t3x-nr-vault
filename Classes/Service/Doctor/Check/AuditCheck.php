@@ -30,6 +30,9 @@ use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function count;
+use function sprintf;
+
 /**
  * Is the audit trail being written, kept, verifiable, and witnessed externally?
  *
@@ -99,7 +102,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
     public function run(DoctorContext $context): array
     {
-        $anchor = $this->anchorReader->readLatestAnchor();
+        $anchor          = $this->anchorReader->readLatestAnchor();
         $currentSequence = $this->anchorService->capture()->sequence;
 
         return [
@@ -132,7 +135,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
             return [];
         }
 
-        $findings = [];
+        $findings          = [];
         $staleAfterSeconds = $this->configuration->getAuditSinkStaleDeliveryHours() * 3600;
 
         foreach ($this->sinkRegistry->getEnabledSinkIdentifiers() as $sinkIdentifier) {
@@ -151,11 +154,11 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         SinkDeliveryState $state,
         int $staleAfterSeconds,
     ): Finding {
-        $id = 'audit.sink_state.' . $state->sinkIdentifier;
+        $id      = 'audit.sink_state.' . $state->sinkIdentifier;
         $details = $state->toArray();
 
         if ($state->isFailing()) {
-            $summary = \sprintf(
+            $summary = sprintf(
                 'Audit sink "%s" is failing: %d consecutive failure(s), last error: %s',
                 $state->sinkIdentifier,
                 $state->consecutiveFailures,
@@ -174,7 +177,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         }
 
         if (!$state->hasEverSucceeded()) {
-            $summary = \sprintf(
+            $summary = sprintf(
                 'Audit sink "%s" is enabled but no successful delivery has been recorded yet.',
                 $state->sinkIdentifier,
             );
@@ -202,7 +205,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
         $age = max(0, time() - $state->lastSuccessAt);
         if ($age > $staleAfterSeconds) {
-            $summary = \sprintf(
+            $summary = sprintf(
                 'Audit sink "%s": last successful delivery is %d hour(s) old (threshold: %d).',
                 $state->sinkIdentifier,
                 intdiv($age, 3600),
@@ -221,7 +224,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
         return Finding::pass(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 'Audit sink "%s" last accepted a record %d minute(s) ago.',
                 $state->sinkIdentifier,
                 intdiv($age, 60),
@@ -278,7 +281,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
      */
     private function checkRetention(): Finding
     {
-        $id = 'audit.retention';
+        $id   = 'audit.retention';
         $days = $this->configuration->getAuditLogRetention();
 
         if ($days === 0) {
@@ -293,9 +296,9 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         if ($days < 0) {
             return Finding::warning(
                 id: $id,
-                summary: \sprintf('Audit log retention is a negative value (%d days).', $days),
+                summary: sprintf('Audit log retention is a negative value (%d days).', $days),
                 risk: 'The value is not a meaningful retention policy. No automatic purge is implemented.',
-                remediation: \sprintf(
+                remediation: sprintf(
                     'Set "auditLogRetention" to 0 (keep forever) or to at least %d days.',
                     self::RETENTION_FLOOR_DAYS,
                 ),
@@ -307,14 +310,14 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         if ($days < self::RETENTION_FLOOR_DAYS) {
             return Finding::warning(
                 id: $id,
-                summary: \sprintf('Configured audit retention policy: %d days. No automatic purge is implemented.', $days),
-                risk: \sprintf(
+                summary: sprintf('Configured audit retention policy: %d days. No automatic purge is implemented.', $days),
+                risk: sprintf(
                     'If enforced externally, a policy below %d days loses the previous '
                     . "cycle's access. It also shortens the window in which a slow-burn credential "
                     . 'misuse is still reconstructable.',
                     self::RETENTION_FLOOR_DAYS,
                 ),
-                remediation: \sprintf(
+                remediation: sprintf(
                     'Raise "auditLogRetention" to at least %d, or to 0 to keep entries indefinitely. '
                     . 'Record shorter policies explicitly. No automatic purge is implemented; external '
                     . 'deletion requires a strategy that preserves audit-chain evidence.',
@@ -327,7 +330,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
         return Finding::pass(
             id: $id,
-            summary: \sprintf('Configured audit retention policy: %d days. No automatic purge is implemented.', $days),
+            summary: sprintf('Configured audit retention policy: %d days. No automatic purge is implemented.', $days),
             docsUrl: DocsLink::AUDIT_LOGGING,
             details: ['retentionDays' => $days],
         );
@@ -350,31 +353,31 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         }
 
         $fromUid = max(1, $currentSequence - self::CHAIN_TAIL_SIZE + 1);
-        $result = $this->auditLogService->verifyHashChain($fromUid);
+        $result  = $this->auditLogService->verifyHashChain($fromUid);
 
         $details = [
-            'fromUid' => $fromUid,
-            'toUid' => $currentSequence,
+            'fromUid'    => $fromUid,
+            'toUid'      => $currentSequence,
             'errorCount' => $result->getErrorCount(),
             // Computed by every verification pass and discarded until now. The
             // warnings are epoch boundaries — non-fatal by design, and the
             // signal that a migration touched part of this range, which is
             // context a CI gate wants next to a green errorCount.
-            'warningCount' => $result->getWarningCount(),
+            'warningCount'    => $result->getWarningCount(),
             'missingUidCount' => $result->missingUidCount,
         ];
 
         if (!$result->isValid()) {
             return Finding::critical(
                 id: $id,
-                summary: \sprintf(
+                summary: sprintf(
                     'Hash chain verification failed on %d of the last %d audit entries (uid %d..%d)%s.',
                     $result->getErrorCount(),
                     $currentSequence - $fromUid + 1,
                     $fromUid,
                     $currentSequence,
                     $result->hasMissingUids()
-                        ? \sprintf('; %d uid(s) missing from the sequence', $result->missingUidCount)
+                        ? sprintf('; %d uid(s) missing from the sequence', $result->missingUidCount)
                         : '',
                 ),
                 risk: 'Stored audit rows no longer match their own HMACs, or rows were deleted from the '
@@ -392,7 +395,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
         return Finding::pass(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 'The last %d audit entries (uid %d..%d) verify against the hash chain. Full-range '
                 . 'verification is vault:audit-verify.',
                 $currentSequence - $fromUid + 1,
@@ -452,11 +455,11 @@ final readonly class AuditCheck implements ReadinessCheckInterface
      */
     private function checkHmacEpoch(): Finding
     {
-        $id = 'audit.hmac_epoch';
-        $epoch = $this->configuration->getAuditHmacEpoch();
+        $id             = 'audit.hmac_epoch';
+        $epoch          = $this->configuration->getAuditHmacEpoch();
         $storedMinEpoch = $this->fetchStoredMinEpoch();
-        $details = [
-            'auditHmacEpoch' => $epoch,
+        $details        = [
+            'auditHmacEpoch'      => $epoch,
             'auditAnchorRequired' => $this->configuration->isAuditAnchorRequired(),
             // -1, not null: `details` is a flat scalar map that the backend
             // status panel and a CI gate both read, and "no rows" needs a value
@@ -471,7 +474,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
             return Finding::pass(
                 id: $id,
-                summary: \sprintf(
+                summary: sprintf(
                     'Audit chain HMAC epoch is configured as %d, so rows are HMAC-signed over the '
                     . 'full forensic payload including the epoch selector and the attribution '
                     . 'fields, the epoch-downgrade floor is armed, and the in-DB tip anchor is '
@@ -480,7 +483,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
                     $storedMinEpoch === null
                         ? 'The audit log is empty, so there is no stored row to confirm that against '
                             . 'yet.'
-                        : \sprintf(
+                        : sprintf(
                             'The oldest stored row is at epoch %d, so the stored rows carry that '
                             . 'payload too — full-range confirmation is vault:audit-verify.',
                             $storedMinEpoch,
@@ -497,7 +500,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
         return Finding::critical(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 'Audit HMAC epoch is %d: the audit log hash chain is keyless.',
                 $epoch,
             ),
@@ -589,13 +592,13 @@ final readonly class AuditCheck implements ReadinessCheckInterface
     ): Finding {
         return Finding::warning(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 'Audit chain HMAC epoch is configured as %d, but the oldest stored audit row is at '
                 . 'epoch %d: the setting was raised without re-signing the existing entries.',
                 $epoch,
                 $storedMinEpoch,
             ),
-            risk: \sprintf(
+            risk: sprintf(
                 'The configuration governs how the NEXT row is signed; it does not reach back over '
                 . 'the ones already stored. Every historical row still carries its epoch-%d '
                 . 'signature, so %s. The chain verifies either way — these rows are keyed, just '
@@ -674,11 +677,11 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
         return Finding::warning(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 'Audit chain HMAC epoch is %d: the chain is keyed, but %d column(s) stay outside the '
                 . 'signed payload (%s).',
                 $epoch,
-                \count($unsigned),
+                count($unsigned),
                 implode(', ', $unsigned),
             ),
             risk: $risk,
@@ -712,16 +715,16 @@ final readonly class AuditCheck implements ReadinessCheckInterface
      */
     private function checkDatabaseAnchor(int $currentSequence): Finding
     {
-        $id = 'audit.db_anchor';
-        $required = $this->configuration->isAuditAnchorRequired();
-        $epoch = $this->configuration->getAuditHmacEpoch();
+        $id         = 'audit.db_anchor';
+        $required   = $this->configuration->isAuditAnchorRequired();
+        $epoch      = $this->configuration->getAuditHmacEpoch();
         $connection = $this->connectionPool->getConnectionForTable(AuditLogService::TABLE_NAME);
-        $load = $this->anchorStore->load($connection);
-        $details = [
-            'anchorStatus' => $load->status->value,
+        $load       = $this->anchorStore->load($connection);
+        $details    = [
+            'anchorStatus'        => $load->status->value,
             'auditAnchorRequired' => $required,
-            'auditHmacEpoch' => $epoch,
-            'currentSequence' => $currentSequence,
+            'auditHmacEpoch'      => $epoch,
+            'currentSequence'     => $currentSequence,
         ];
 
         if ($load->status === AuditChainAnchorStatus::Disabled) {
@@ -768,7 +771,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         // status from being read as healthy by a gate that never saw it.
         return Finding::warning(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 'The in-DB audit chain tip anchor reported an unexpected status: %s.',
                 $load->status->value,
             ),
@@ -794,7 +797,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         if ($required) {
             return Finding::critical(
                 id: $id,
-                summary: \sprintf(
+                summary: sprintf(
                     'Contradictory configuration: "auditAnchorRequired" is enabled while '
                     . '"auditHmacEpoch" is %d, which disables the in-DB tip anchor entirely.',
                     $epoch,
@@ -816,7 +819,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
         return Finding::warning(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 'The in-DB audit chain tip anchor is disabled ("auditHmacEpoch" is %d) and was not '
                 . 'evaluated.',
                 $epoch,
@@ -895,7 +898,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
         return Finding::warning(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 'No in-DB audit chain tip anchor is recorded, although the chain has grown to uid %d.',
                 $currentSequence,
             ),
@@ -920,13 +923,13 @@ final readonly class AuditCheck implements ReadinessCheckInterface
      */
     private function checkExternalSink(DoctorContext $context): Finding
     {
-        $id = 'audit.external_sink';
+        $id      = 'audit.external_sink';
         $enabled = $this->sinkRegistry->getEnabledSinkIdentifiers();
 
         if ($enabled !== []) {
             return Finding::pass(
                 id: $id,
-                summary: \sprintf('External audit sink(s) enabled: %s.', implode(', ', $enabled)),
+                summary: sprintf('External audit sink(s) enabled: %s.', implode(', ', $enabled)),
                 docsUrl: DocsLink::AUDIT_SINKS,
                 details: ['sinks' => implode(',', $enabled)],
             );
@@ -996,21 +999,21 @@ final readonly class AuditCheck implements ReadinessCheckInterface
                 docsUrl: DocsLink::AUDIT_SINK_SCHEDULING,
                 details: [
                     'anchorAvailable' => $this->anchorReader->isAvailable(),
-                    'reasonCode' => AuditIntegrityReason::NoExternalSink->value,
+                    'reasonCode'      => AuditIntegrityReason::NoExternalSink->value,
                 ],
             );
         }
 
         $details = [
             'anchoredSequence' => $anchor->sequence,
-            'currentSequence' => $currentSequence,
-            'anchoredAt' => $anchor->timestamp,
+            'currentSequence'  => $currentSequence,
+            'anchoredAt'       => $anchor->timestamp,
         ];
 
         if ($currentSequence < $anchor->sequence) {
             return Finding::critical(
                 id: $id,
-                summary: \sprintf(
+                summary: sprintf(
                     'The audit chain shrank: highest uid is %d but sequence %d was anchored on %s UTC.',
                     $currentSequence,
                     $anchor->sequence,
@@ -1028,7 +1031,7 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
         return Finding::pass(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 'Chain-tip anchor present (sequence %d, anchored %s UTC); the chain has not shrunk. '
                 . 'Tip-hash comparison is vault:audit-verify.',
                 $anchor->sequence,
@@ -1050,9 +1053,9 @@ final readonly class AuditCheck implements ReadinessCheckInterface
      */
     private function checkSinkFailures(): Finding
     {
-        $id = 'audit.sink_delivery';
+        $id       = 'audit.sink_delivery';
         $failures = $this->sinkRegistry->getFailureCountsBySink();
-        $total = $this->sinkRegistry->getFailureCount();
+        $total    = $this->sinkRegistry->getFailureCount();
 
         if ($total === 0) {
             return Finding::pass(
@@ -1065,12 +1068,12 @@ final readonly class AuditCheck implements ReadinessCheckInterface
 
         $perSink = [];
         foreach ($failures as $sink => $count) {
-            $perSink[] = \sprintf('%s (%d)', $sink, $count);
+            $perSink[] = sprintf('%s (%d)', $sink, $count);
         }
 
         return Finding::warning(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 '%d audit sink delivery failure(s) in this process: %s.',
                 $total,
                 implode(', ', $perSink),

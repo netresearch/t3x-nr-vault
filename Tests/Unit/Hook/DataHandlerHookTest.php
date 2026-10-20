@@ -41,6 +41,10 @@ use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
+use function array_slice;
+use function count;
+use function sprintf;
+
 #[CoversClass(DataHandlerHook::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class DataHandlerHookTest extends TestCase
@@ -79,11 +83,11 @@ final class DataHandlerHookTest extends TestCase
     {
         parent::setUp();
 
-        $this->connectionPool = $this->createMock(ConnectionPool::class);
-        $this->tcaSchemaFactory = $this->createMock(TcaSchemaFactory::class);
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
+        $this->connectionPool      = $this->createMock(ConnectionPool::class);
+        $this->tcaSchemaFactory    = $this->createMock(TcaSchemaFactory::class);
+        $this->vaultService        = $this->createMock(VaultServiceInterface::class);
         $this->flashMessageService = $this->createMock(FlashMessageService::class);
-        $this->dataHandler = $this->createMock(DataHandler::class);
+        $this->dataHandler         = $this->createMock(DataHandler::class);
 
         // The hook's collaborators are pure extracted logic: wire them for real
         // so the vault-service, flash-message and rollback expectations exercise
@@ -140,9 +144,9 @@ final class DataHandlerHookTest extends TestCase
 
         $fieldArray = [
             'api_key' => [
-                'value' => 'my-secret-key',
+                'value'             => 'my-secret-key',
                 '_vault_identifier' => '',
-                '_vault_checksum' => '',
+                '_vault_checksum'   => '',
             ],
         ];
 
@@ -164,11 +168,11 @@ final class DataHandlerHookTest extends TestCase
         ]);
 
         $existingUuid = self::EXISTING_UUID;
-        $fieldArray = [
+        $fieldArray   = [
             'api_key' => [
-                'value' => 'updated-secret',
+                'value'             => 'updated-secret',
                 '_vault_identifier' => $existingUuid,
-                '_vault_checksum' => 'existing-checksum',
+                '_vault_checksum'   => 'existing-checksum',
             ],
         ];
 
@@ -210,9 +214,9 @@ final class DataHandlerHookTest extends TestCase
 
         $fieldArray = [
             'api_key' => [
-                'value' => '',
+                'value'             => '',
                 '_vault_identifier' => '',
-                '_vault_checksum' => '',
+                '_vault_checksum'   => '',
             ],
         ];
 
@@ -236,9 +240,9 @@ final class DataHandlerHookTest extends TestCase
         // Setup pending secrets via preProcess
         $fieldArray = [
             'api_key' => [
-                'value' => 'new-secret',
+                'value'             => 'new-secret',
                 '_vault_identifier' => '',
-                '_vault_checksum' => '',
+                '_vault_checksum'   => '',
             ],
         ];
 
@@ -280,11 +284,11 @@ final class DataHandlerHookTest extends TestCase
         ]);
 
         $existingUuid = self::EXISTING_UUID;
-        $fieldArray = [
+        $fieldArray   = [
             'api_key' => [
-                'value' => 'updated-secret',
+                'value'             => 'updated-secret',
                 '_vault_identifier' => $existingUuid,
-                '_vault_checksum' => 'existing-checksum',
+                '_vault_checksum'   => 'existing-checksum',
             ],
         ];
 
@@ -324,9 +328,9 @@ final class DataHandlerHookTest extends TestCase
         // that is what distinguishes an explicit clear from an untouched re-save.
         $fieldArray = [
             'api_key' => [
-                'value' => '',
+                'value'             => '',
                 '_vault_identifier' => $existingUuid,
-                '_vault_checksum' => '',
+                '_vault_checksum'   => '',
             ],
         ];
 
@@ -366,11 +370,11 @@ final class DataHandlerHookTest extends TestCase
         ]);
 
         $existingUuid = self::EXISTING_UUID;
-        $fieldArray = [
+        $fieldArray   = [
             'api_key' => [
-                'value' => '',
+                'value'             => '',
                 '_vault_identifier' => $existingUuid,
-                '_vault_checksum' => 'existing-checksum',
+                '_vault_checksum'   => 'existing-checksum',
             ],
         ];
 
@@ -471,9 +475,9 @@ final class DataHandlerHookTest extends TestCase
 
         $fieldArray = [
             'api_key' => [
-                'value' => 'updated-secret',
+                'value'             => 'updated-secret',
                 '_vault_identifier' => $crafted,
-                '_vault_checksum' => 'existing-checksum',
+                '_vault_checksum'   => 'existing-checksum',
             ],
         ];
 
@@ -513,7 +517,7 @@ final class DataHandlerHookTest extends TestCase
         $encodedContext = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         self::assertIsString($encodedContext, 'The context must survive json_encode()');
 
-        $renderedRecord = \sprintf(
+        $renderedRecord = sprintf(
             '%s [%s] request="%s" component="%s": %s - %s',
             'Mon, 01 Jan 2035 00:00:00 +0000',
             'ERROR',
@@ -594,9 +598,9 @@ final class DataHandlerHookTest extends TestCase
 
         $fieldArray = [
             'api_key' => [
-                'value' => 'updated-secret',
+                'value'             => 'updated-secret',
                 '_vault_identifier' => $existingUuid,
-                '_vault_checksum' => 'existing-checksum',
+                '_vault_checksum'   => 'existing-checksum',
             ],
         ];
 
@@ -768,7 +772,7 @@ final class DataHandlerHookTest extends TestCase
         ]);
 
         $connection = $this->createMock(Connection::class);
-        $record = $this->createMock(Result::class);
+        $record     = $this->createMock(Result::class);
         $record->method('fetchAssociative')->willReturn(['api_key' => self::EXISTING_UUID]);
         $connection->method('select')->willReturn($record);
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
@@ -933,15 +937,15 @@ final class DataHandlerHookTest extends TestCase
     public function multipleVaultFieldsAreProcessed(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
-            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_key'    => ['type' => 'input', 'renderType' => 'vaultSecret'],
             'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
-            'title' => ['type' => 'input'],
+            'title'      => ['type' => 'input'],
         ]);
 
         $fieldArray = [
-            'api_key' => 'key-value',
+            'api_key'    => 'key-value',
             'api_secret' => 'secret-value',
-            'title' => self::TEST_TITLE,
+            'title'      => self::TEST_TITLE,
         ];
 
         $this->subject->processDatamap_preProcessFieldArray(
@@ -985,9 +989,9 @@ final class DataHandlerHookTest extends TestCase
         // Format with index 0 instead of 'value' key
         $fieldArray = [
             'api_key' => [
-                0 => 'my-secret-key',
+                0                   => 'my-secret-key',
                 '_vault_identifier' => '',
-                '_vault_checksum' => '',
+                '_vault_checksum'   => '',
             ],
         ];
 
@@ -1029,9 +1033,9 @@ final class DataHandlerHookTest extends TestCase
         // Explicit clear: the clear control blanks the checksum.
         $fieldArray = [
             'api_key' => [
-                'value' => '',
+                'value'             => '',
                 '_vault_identifier' => $existingUuid,
-                '_vault_checksum' => '',
+                '_vault_checksum'   => '',
             ],
         ];
 
@@ -1103,7 +1107,7 @@ final class DataHandlerHookTest extends TestCase
     public function generateUuidIsTimeOrdered(): void
     {
         $uuids = [];
-        for ($i = 0; $i < 5; $i++) {
+        for ($i = 0; $i < 5; ++$i) {
             $uuids[] = IdentifierValidator::generateUuid();
             usleep(1000); // 1ms delay
         }
@@ -1124,9 +1128,9 @@ final class DataHandlerHookTest extends TestCase
         // Non-string, non-int value should be treated as empty
         $fieldArray = [
             'api_key' => [
-                'value' => ['nested' => 'array'],
+                'value'             => ['nested' => 'array'],
                 '_vault_identifier' => '',
-                '_vault_checksum' => '',
+                '_vault_checksum'   => '',
             ],
         ];
 
@@ -1149,11 +1153,11 @@ final class DataHandlerHookTest extends TestCase
 
         // Setup pending secrets via preProcess with existing UUID
         $existingUuid = self::EXISTING_UUID;
-        $fieldArray = [
+        $fieldArray   = [
             'api_key' => [
-                'value' => 'updated-secret',
+                'value'             => 'updated-secret',
                 '_vault_identifier' => $existingUuid,
-                '_vault_checksum' => 'existing-checksum',
+                '_vault_checksum'   => 'existing-checksum',
             ],
         ];
 
@@ -1221,7 +1225,7 @@ final class DataHandlerHookTest extends TestCase
         $this->tcaSchemaFactory->expects(self::atLeastOnce())->method('has')->with('nonexistent')->willReturn(false);
 
         $reflection = new ReflectionClass($this->subject);
-        $method = $reflection->getMethod('getVaultFieldNames');
+        $method     = $reflection->getMethod('getVaultFieldNames');
 
         $result = $method->invoke($this->subject, 'nonexistent');
 
@@ -1232,14 +1236,14 @@ final class DataHandlerHookTest extends TestCase
     public function getVaultFieldNamesReturnsOnlyVaultSecretFields(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
-            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
-            'title' => ['type' => 'input'],
+            'api_key'  => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'title'    => ['type' => 'input'],
             'password' => ['type' => 'password', 'renderType' => 'passwordGenerator'],
-            'secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'secret'   => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
         $reflection = new ReflectionClass($this->subject);
-        $method = $reflection->getMethod('getVaultFieldNames');
+        $method     = $reflection->getMethod('getVaultFieldNames');
 
         $result = $method->invoke($this->subject, 'tx_test');
 
@@ -1261,7 +1265,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Mock database connection
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(['api_key' => $existingUuid]);
         $connection->method('select')->willReturn($result);
 
@@ -1297,7 +1301,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Mock database connection
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(['api_key' => $existingUuid]);
         $connection->method('select')->willReturn($result);
 
@@ -1342,7 +1346,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Mock database connection - record not found
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(false);
         $connection->method('select')->willReturn($result);
 
@@ -1375,7 +1379,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Mock database connection - vault field is empty
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(['api_key' => '']);
         $connection->method('select')->willReturn($result);
 
@@ -1413,7 +1417,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Mock database connection
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(['api_key' => $sourceUuid]);
         $connection->method('select')->willReturn($result);
 
@@ -1475,7 +1479,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Mock database connection - source record not found
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(false);
         $connection->method('select')->willReturn($result);
 
@@ -1510,7 +1514,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Mock database connection
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(['api_key' => $sourceUuid]);
         $connection->method('select')->willReturn($result);
 
@@ -1560,7 +1564,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Mock database connection - vault field is an integer (non-string)
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(['api_key' => 12345]);
         $connection->method('select')->willReturn($result);
 
@@ -1595,7 +1599,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Mock database connection - vault field is an integer (non-string)
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(['api_key' => 12345]);
         $connection->method('select')->willReturn($result);
 
@@ -1633,7 +1637,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Mock database connection - vault field is empty string
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(['api_key' => '']);
         $connection->method('select')->willReturn($result);
 
@@ -1748,7 +1752,7 @@ final class DataHandlerHookTest extends TestCase
     {
         $this->mockTcaSchemaForTable('tx_test', [
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
-            'title' => ['type' => 'input'],
+            'title'   => ['type' => 'input'],
         ]);
 
         // Only 'title' is in fieldArray, 'api_key' vault field is not
@@ -1778,7 +1782,7 @@ final class DataHandlerHookTest extends TestCase
 
         // Mock database connection
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(['api_key' => $sourceUuid]);
         $connection->method('select')->willReturn($result);
 
@@ -1821,16 +1825,16 @@ final class DataHandlerHookTest extends TestCase
     public function cmdmapPostProcessBlanksEveryVaultFieldWhenTheFirstFieldFails(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
-            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_key'    => ['type' => 'input', 'renderType' => 'vaultSecret'],
             'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
         $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
 
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn([
-            'api_key' => self::EXISTING_UUID,
+            'api_key'    => self::EXISTING_UUID,
             'api_secret' => self::SECOND_UUID,
         ]);
         $connection->method('select')->willReturn($result);
@@ -1872,16 +1876,16 @@ final class DataHandlerHookTest extends TestCase
     public function cmdmapPostProcessDeletesAlreadyClonedSecretWhenALaterFieldFails(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
-            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_key'    => ['type' => 'input', 'renderType' => 'vaultSecret'],
             'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
         $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
 
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn([
-            'api_key' => self::EXISTING_UUID,
+            'api_key'    => self::EXISTING_UUID,
             'api_secret' => self::SECOND_UUID,
         ]);
         $connection->method('select')->willReturn($result);
@@ -1942,16 +1946,16 @@ final class DataHandlerHookTest extends TestCase
     public function cmdmapPostProcessBlanksFieldsEvenWhenTheRollbackDeleteFails(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
-            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_key'    => ['type' => 'input', 'renderType' => 'vaultSecret'],
             'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
         $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
 
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn([
-            'api_key' => self::EXISTING_UUID,
+            'api_key'    => self::EXISTING_UUID,
             'api_secret' => self::SECOND_UUID,
         ]);
         $connection->method('select')->willReturn($result);
@@ -2000,14 +2004,14 @@ final class DataHandlerHookTest extends TestCase
     public function cmdmapPreProcessDeletesNoSecretWhenAnyFieldIsNotDeletable(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
-            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_key'    => ['type' => 'input', 'renderType' => 'vaultSecret'],
             'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn([
-            'api_key' => self::EXISTING_UUID,
+            'api_key'    => self::EXISTING_UUID,
             'api_secret' => self::SECOND_UUID,
         ]);
         $connection->method('select')->willReturn($result);
@@ -2063,14 +2067,14 @@ final class DataHandlerHookTest extends TestCase
     public function cmdmapPreProcessTreatsAnAlreadyMissingSecretAsDeleted(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
-            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_key'    => ['type' => 'input', 'renderType' => 'vaultSecret'],
             'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn([
-            'api_key' => self::EXISTING_UUID,
+            'api_key'    => self::EXISTING_UUID,
             'api_secret' => self::SECOND_UUID,
         ]);
         $connection->method('select')->willReturn($result);
@@ -2125,17 +2129,17 @@ final class DataHandlerHookTest extends TestCase
     public function cmdmapPreProcessStopsDeletingAfterAMidSequenceFailure(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
-            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_key'    => ['type' => 'input', 'renderType' => 'vaultSecret'],
             'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
-            'api_token' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_token'  => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn([
-            'api_key' => self::EXISTING_UUID,
+            'api_key'    => self::EXISTING_UUID,
             'api_secret' => self::SECOND_UUID,
-            'api_token' => self::THIRD_UUID,
+            'api_token'  => self::THIRD_UUID,
         ]);
         $connection->method('select')->willReturn($result);
 
@@ -2187,7 +2191,7 @@ final class DataHandlerHookTest extends TestCase
     }
 
     /**
-     * @param class-string<Throwable> $writeFailureClass
+     * @param class-string<Throwable>      $writeFailureClass
      * @param class-string<Throwable>|null $blankFailureClass
      * @param class-string<Throwable>|null $deleteFailureClass
      */
@@ -2201,7 +2205,7 @@ final class DataHandlerHookTest extends TestCase
         $this->mockTcaSchemaForTable(
             'tx_test',
             [
-                'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+                'api_key'    => ['type' => 'input', 'renderType' => 'vaultSecret'],
                 'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
             ],
         );
@@ -2209,11 +2213,11 @@ final class DataHandlerHookTest extends TestCase
         $copiedFields = $sourceFields;
         /** @phpstan-ignore property.internal */
         $this->dataHandler->copyMappingArray = ['tx_test' => [42 => 100]];
-        $writeFailure = new $writeFailureClass('synthetic copy reference write unavailable');
-        $blankFailure = $blankFailureClass === null ? null : new $blankFailureClass('synthetic blanking unavailable');
-        $deleteFailure = $deleteFailureClass === null ? null : new $deleteFailureClass('synthetic clone cleanup unavailable');
-        $writes = [];
-        $result = self::createStub(Result::class);
+        $writeFailure                        = new $writeFailureClass('synthetic copy reference write unavailable');
+        $blankFailure                        = $blankFailureClass === null ? null : new $blankFailureClass('synthetic blanking unavailable');
+        $deleteFailure                       = $deleteFailureClass === null ? null : new $deleteFailureClass('synthetic clone cleanup unavailable');
+        $writes                              = [];
+        $result                              = self::createStub(Result::class);
         $result->method('fetchAssociative')->willReturn($sourceFields);
         $connection = self::createStub(Connection::class);
         $connection->method('select')->willReturn($result);
@@ -2226,7 +2230,7 @@ final class DataHandlerHookTest extends TestCase
                     array $where,
                 ) use (&$writes, &$copiedFields, $writeFailure, $blankFailure): int {
                     $writes[] = [$table, $values, $where];
-                    if (\count($writes) === 1) {
+                    if (count($writes) === 1) {
                         throw $writeFailure;
                     }
 
@@ -2266,7 +2270,7 @@ final class DataHandlerHookTest extends TestCase
                     string $reason,
                 ) use (&$deleted, $deleteFailure): void {
                     $deleted[] = [$identifier, $reason];
-                    if (\count($deleted) === 1 && $deleteFailure !== null) {
+                    if (count($deleted) === 1 && $deleteFailure !== null) {
                         throw $deleteFailure;
                     }
                 },
@@ -2340,7 +2344,7 @@ final class DataHandlerHookTest extends TestCase
         self::assertCount(1, $messages);
         self::assertSame(
             ['tx_test', 100, 1, 2],
-            \array_slice($messages[0], 0, 4),
+            array_slice($messages[0], 0, 4),
         );
         self::assertStringContainsString(
             $blankFailure === null ? 'all vault fields' : 'needs manual review',

@@ -29,6 +29,8 @@ use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Message\ServerRequestInterface;
 use RuntimeException;
 
+use function in_array;
+
 #[CoversClass(AjaxController::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class AjaxControllerTest extends TestCase
@@ -80,7 +82,7 @@ final class AjaxControllerTest extends TestCase
     #[Test]
     public function revealActionReturnsSecretOnSuccess(): void
     {
-        $identifier = 'test-secret-id';
+        $identifier  = 'test-secret-id';
         $secretValue = 'my-secret-value';
 
         $request = $this->createRequestWithJsonBody(['identifier' => $identifier]);
@@ -150,7 +152,7 @@ final class AjaxControllerTest extends TestCase
             ->willReturn('my-secret-value');
 
         $controller = $this->createControllerForHardenedProfile();
-        $response = $controller->revealAction($request);
+        $response   = $controller->revealAction($request);
 
         $body = json_decode((string) $response->getBody(), true);
         self::assertTrue($body['success']);
@@ -161,7 +163,7 @@ final class AjaxControllerTest extends TestCase
     public function revealActionReturns404WhenSecretNotFound(): void
     {
         $identifier = 'nonexistent-id';
-        $request = $this->createRequestWithJsonBody(['identifier' => $identifier]);
+        $request    = $this->createRequestWithJsonBody(['identifier' => $identifier]);
 
         $this->vaultService
             ->method('retrieve')
@@ -179,7 +181,7 @@ final class AjaxControllerTest extends TestCase
     public function revealActionReturns403WhenAccessDenied(): void
     {
         $identifier = 'restricted-id';
-        $request = $this->createRequestWithJsonBody(['identifier' => $identifier]);
+        $request    = $this->createRequestWithJsonBody(['identifier' => $identifier]);
 
         $this->vaultService
             ->method('retrieve')
@@ -197,7 +199,7 @@ final class AjaxControllerTest extends TestCase
     public function revealActionReturns410WhenSecretExpired(): void
     {
         $identifier = 'expired-id';
-        $request = $this->createRequestWithJsonBody(['identifier' => $identifier]);
+        $request    = $this->createRequestWithJsonBody(['identifier' => $identifier]);
 
         $this->vaultService
             ->method('retrieve')
@@ -215,7 +217,7 @@ final class AjaxControllerTest extends TestCase
     public function revealActionReturns500WhenEncryptionFails(): void
     {
         $identifier = 'decrypt-error-id';
-        $request = $this->createRequestWithJsonBody(['identifier' => $identifier]);
+        $request    = $this->createRequestWithJsonBody(['identifier' => $identifier]);
 
         $this->vaultService
             ->method('retrieve')
@@ -234,7 +236,7 @@ final class AjaxControllerTest extends TestCase
     public function revealActionReturns500OnGenericException(): void
     {
         $identifier = 'error-id';
-        $request = $this->createRequestWithJsonBody(['identifier' => $identifier]);
+        $request    = $this->createRequestWithJsonBody(['identifier' => $identifier]);
 
         $this->vaultService
             ->method('retrieve')
@@ -252,7 +254,7 @@ final class AjaxControllerTest extends TestCase
     #[Test]
     public function revealActionSupportsJsonBody(): void
     {
-        $identifier = 'json-body-id';
+        $identifier  = 'json-body-id';
         $secretValue = 'secret-from-json';
 
         $request = $this->createRequestWithJsonBody(['identifier' => $identifier]);
@@ -361,7 +363,7 @@ final class AjaxControllerTest extends TestCase
     {
         $request = $this->createPostRequestWithBody([
             'identifier' => 'restricted-id',
-            'secret' => 'new-value',
+            'secret'     => 'new-value',
         ]);
 
         // Every OTHER secret permission granted — only `secret.rotate` missing.
@@ -415,11 +417,11 @@ final class AjaxControllerTest extends TestCase
     public function rotateActionSuccessfullyRotatesSecret(): void
     {
         $identifier = 'rotate-id';
-        $newSecret = 'new-secret-value';
+        $newSecret  = 'new-secret-value';
 
         $request = $this->createPostRequestWithBody([
             'identifier' => $identifier,
-            'secret' => $newSecret,
+            'secret'     => $newSecret,
         ]);
 
         $this->vaultService
@@ -446,9 +448,9 @@ final class AjaxControllerTest extends TestCase
     public function rotateActionReturns404WhenSecretNotFound(): void
     {
         $identifier = 'nonexistent-id';
-        $request = $this->createPostRequestWithBody([
+        $request    = $this->createPostRequestWithBody([
             'identifier' => $identifier,
-            'secret' => 'new-value',
+            'secret'     => 'new-value',
         ]);
 
         $this->vaultService
@@ -468,7 +470,7 @@ final class AjaxControllerTest extends TestCase
     {
         $request = $this->createPostRequestWithBody([
             'identifier' => 'restricted-id',
-            'secret' => 'new-value',
+            'secret'     => 'new-value',
         ]);
 
         $this->vaultService
@@ -488,7 +490,7 @@ final class AjaxControllerTest extends TestCase
     {
         $request = $this->createPostRequestWithBody([
             'identifier' => 'test-id',
-            'secret' => 'invalid-value',
+            'secret'     => 'invalid-value',
         ]);
 
         $this->vaultService
@@ -509,7 +511,7 @@ final class AjaxControllerTest extends TestCase
     {
         $request = $this->createPostRequestWithBody([
             'identifier' => 'test-id',
-            'secret' => 'new-value',
+            'secret'     => 'new-value',
         ]);
 
         $this->vaultService
@@ -530,7 +532,7 @@ final class AjaxControllerTest extends TestCase
     {
         $request = $this->createPostRequestWithBody([
             'identifier' => 'test-id',
-            'secret' => 'new-value',
+            'secret'     => 'new-value',
         ]);
 
         $this->vaultService
@@ -551,7 +553,7 @@ final class AjaxControllerTest extends TestCase
     {
         $request = $this->createPostRequestWithBody([
             'identifier' => 'test-id',
-            'secret' => 'new-value',
+            'secret'     => 'new-value',
         ]);
 
         $this->vaultService
@@ -584,7 +586,7 @@ final class AjaxControllerTest extends TestCase
     {
         $request = $this->createPostRequestWithBody([
             'identifier' => '',
-            'secret' => 'some-value',
+            'secret'     => 'some-value',
         ]);
 
         $response = $this->subject->rotateAction($request);
@@ -599,7 +601,7 @@ final class AjaxControllerTest extends TestCase
     {
         $request = $this->createPostRequestWithBody([
             'identifier' => 'valid-id',
-            'secret' => '',
+            'secret'     => '',
         ]);
 
         $response = $this->subject->rotateAction($request);
@@ -623,7 +625,7 @@ final class AjaxControllerTest extends TestCase
         $accessControlService
             ->method('isGranted')
             ->willReturnCallback(
-                static fn (VaultPermission $permission): bool => \in_array($permission, $granted, true),
+                static fn (VaultPermission $permission): bool => in_array($permission, $granted, true),
             );
 
         return new AjaxController($this->vaultService, $accessControlService, $this->configuration);

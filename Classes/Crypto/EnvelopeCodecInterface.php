@@ -45,7 +45,7 @@ interface EnvelopeCodecInterface
     /**
      * Encrypt a payload into a single self-identifying string.
      *
-     * @param string $plaintext The payload to protect
+     * @param string $plaintext  The payload to protect
      * @param string $identifier Context label bound to the ciphertext as
      *                           additional authenticated data. Two payloads
      *                           sealed under different identifiers cannot be
@@ -55,10 +55,10 @@ interface EnvelopeCodecInterface
      *                           a row moves.
      *
      * @throws EncryptionException If encryption fails
-     * @throws MasterKeyException If the master key is missing or malformed. A
-     *                            SIBLING of EncryptionException, not a subclass —
-     *                            catching only EncryptionException lets a plain
-     *                            misconfiguration escape as an uncaught fatal.
+     * @throws MasterKeyException  If the master key is missing or malformed. A
+     *                             SIBLING of EncryptionException, not a subclass —
+     *                             catching only EncryptionException lets a plain
+     *                             misconfiguration escape as an uncaught fatal.
      */
     public function seal(#[SensitiveParameter] string $plaintext, string $identifier): string;
 
@@ -71,10 +71,10 @@ interface EnvelopeCodecInterface
      * @param string $identifier The SAME identifier the payload was sealed with
      *
      * @throws EnvelopeFormatException If the string is not a well-formed envelope
-     * @throws EncryptionException If authentication fails or the algorithm marker
-     *                             is unknown on this host
-     * @throws MasterKeyException If the master key is missing or malformed (see
-     *                            the note on {@see seal()})
+     * @throws EncryptionException     If authentication fails or the algorithm marker
+     *                                 is unknown on this host
+     * @throws MasterKeyException      If the master key is missing or malformed (see
+     *                                 the note on {@see seal()})
      */
     public function open(string $sealed, string $identifier): string;
 
@@ -93,7 +93,7 @@ interface EnvelopeCodecInterface
      * materialises plaintext.
      *
      * @throws EnvelopeFormatException If the string is not a well-formed envelope
-     * @throws EncryptionException If the DEK cannot be unwrapped with $oldMasterKey
+     * @throws EncryptionException     If the DEK cannot be unwrapped with $oldMasterKey
      */
     public function rewrap(
         string $sealed,

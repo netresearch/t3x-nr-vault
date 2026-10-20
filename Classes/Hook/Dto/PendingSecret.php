@@ -73,10 +73,10 @@ readonly class PendingSecret
     public function toArray(): array
     {
         return [
-            'value' => '[REDACTED]',
-            'identifier' => $this->identifier,
+            'value'            => '[REDACTED]',
+            'identifier'       => $this->identifier,
             'originalChecksum' => $this->originalChecksum,
-            'isNew' => $this->isNew,
+            'isNew'            => $this->isNew,
         ];
     }
 }

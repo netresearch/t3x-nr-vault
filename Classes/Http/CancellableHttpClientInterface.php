@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -155,14 +152,14 @@ interface CancellableHttpClientInterface
      * row (`aNonGuzzleInnerClientDegradesToABlockingSendWithAnOrdinaryAuditRow()`).
      * It degrades; it does not fail.
      *
-     * @param RequestInterface $request PSR-7 request
-     * @param CancellationSignalInterface $signal Polled before the send and between transport ticks
-     *
-     * @throws RequestCancelledException When the signal aborted the call
-     * @throws ClientExceptionInterface When the transfer itself failed
-     * @throws VaultException When the scheme or host is rejected, or secret retrieval fails
+     * @param RequestInterface            $request PSR-7 request
+     * @param CancellationSignalInterface $signal  Polled before the send and between transport ticks
      *
      * @return ResponseInterface PSR-7 response
+     *
+     * @throws RequestCancelledException When the signal aborted the call
+     * @throws ClientExceptionInterface  When the transfer itself failed
+     * @throws VaultException            When the scheme or host is rejected, or secret retrieval fails
      */
     public function sendCancellable(
         RequestInterface $request,

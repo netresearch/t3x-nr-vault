@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Exception;
 
+use function sprintf;
+
 /**
  * Thrown when master key operations fail.
  */
@@ -17,7 +19,7 @@ final class MasterKeyException extends VaultException
     public static function notFound(string $location): self
     {
         return new self(
-            \sprintf('Master key not found at: %s', $location),
+            sprintf('Master key not found at: %s', $location),
             1703800008,
         );
     }
@@ -25,7 +27,7 @@ final class MasterKeyException extends VaultException
     public static function invalidLength(int $expected, int $actual): self
     {
         return new self(
-            \sprintf('Invalid master key length: expected %d bytes, got %d', $expected, $actual),
+            sprintf('Invalid master key length: expected %d bytes, got %d', $expected, $actual),
             1703800009,
         );
     }
@@ -33,7 +35,7 @@ final class MasterKeyException extends VaultException
     public static function cannotStore(string $reason): self
     {
         return new self(
-            \sprintf('Cannot store master key: %s', $reason),
+            sprintf('Cannot store master key: %s', $reason),
             1703800010,
         );
     }
@@ -41,7 +43,7 @@ final class MasterKeyException extends VaultException
     public static function environmentVariableNotSet(string $varName): self
     {
         return new self(
-            \sprintf('Environment variable "%s" for master key is not set', $varName),
+            sprintf('Environment variable "%s" for master key is not set', $varName),
             1703800011,
         );
     }
@@ -52,7 +54,7 @@ final class MasterKeyException extends VaultException
     public static function transitNotConfigured(string $detail): self
     {
         return new self(
-            \sprintf('HashiCorp Vault Transit provider is not configured: %s', $detail),
+            sprintf('HashiCorp Vault Transit provider is not configured: %s', $detail),
             1754100001,
         );
     }
@@ -65,7 +67,7 @@ final class MasterKeyException extends VaultException
     public static function transitTokenMissing(string $envVarName): self
     {
         return new self(
-            \sprintf(
+            sprintf(
                 'No Vault token available for the Transit provider. Set the "%s" environment '
                 . 'variable (preferred) or the hashicorp.token extension setting. Token value: [REDACTED]',
                 $envVarName,
@@ -80,7 +82,7 @@ final class MasterKeyException extends VaultException
     public static function transitUnsupportedAuthMethod(string $authMethod): self
     {
         return new self(
-            \sprintf(
+            sprintf(
                 'Vault auth method "%s" is not supported by the Transit master-key provider. '
                 . 'Only "token" is implemented; use hashicorp.authMethod = token and provide the '
                 . 'token via environment variable.',
@@ -99,7 +101,7 @@ final class MasterKeyException extends VaultException
     public static function transitRequestRejected(string $operation, int $statusCode): self
     {
         return new self(
-            \sprintf(
+            sprintf(
                 'Vault Transit %s failed with HTTP %d (response body suppressed). '
                 . 'Check the token policy grants %s on the configured transit key.',
                 $operation,
@@ -118,7 +120,7 @@ final class MasterKeyException extends VaultException
     public static function transitTransportFailure(string $operation, string $redactedReason): self
     {
         return new self(
-            \sprintf('Vault Transit %s request could not be sent: %s', $operation, $redactedReason),
+            sprintf('Vault Transit %s request could not be sent: %s', $operation, $redactedReason),
             1754100005,
         );
     }
@@ -129,7 +131,7 @@ final class MasterKeyException extends VaultException
     public static function transitMalformedResponse(string $operation, string $detail): self
     {
         return new self(
-            \sprintf('Vault Transit %s returned an unusable response: %s', $operation, $detail),
+            sprintf('Vault Transit %s returned an unusable response: %s', $operation, $detail),
             1754100006,
         );
     }
@@ -141,7 +143,7 @@ final class MasterKeyException extends VaultException
     public static function transitInvalidKeyReference(string $field): self
     {
         return new self(
-            \sprintf(
+            sprintf(
                 'HashiCorp Vault Transit %s contains characters that are not allowed in a Vault '
                 . 'API path. Allowed: letters, digits, dot, dash, underscore (and "/" for the mount).',
                 $field,

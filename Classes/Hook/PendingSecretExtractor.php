@@ -12,6 +12,10 @@ namespace Netresearch\NrVault\Hook;
 use Netresearch\NrVault\Hook\Dto\PendingSecret;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 
+use function is_array;
+use function is_int;
+use function is_string;
+
 /**
  * Turns a raw vault field value (from a TCA field or a FlexForm vDEF node)
  * into a {@see PendingSecret}, applying the shared new/update detection and
@@ -52,7 +56,7 @@ final class PendingSecretExtractor
         // A new plaintext value was entered: store it as a new secret, or rotate
         // the existing one when an identifier + checksum are present.
         if ($secretValue !== '') {
-            $isNewSecret = $existingIdentifier === '' || $originalChecksum === '';
+            $isNewSecret     = $existingIdentifier === '' || $originalChecksum === '';
             $vaultIdentifier = $isNewSecret ? IdentifierValidator::generateUuid() : $existingIdentifier;
 
             return $isNewSecret
@@ -90,22 +94,22 @@ final class PendingSecretExtractor
      */
     private function classifyValue(mixed $value): array
     {
-        if (\is_array($value)) {
+        if (is_array($value)) {
             $rawSecretValue = $value['value'] ?? $value[0] ?? '';
-            $rawIdentifier = $value['_vault_identifier'] ?? '';
-            $rawChecksum = $value['_vault_checksum'] ?? '';
+            $rawIdentifier  = $value['_vault_identifier'] ?? '';
+            $rawChecksum    = $value['_vault_checksum'] ?? '';
 
             return [
-                'value' => \is_string($rawSecretValue) || \is_int($rawSecretValue) ? (string) $rawSecretValue : '',
-                'identifier' => \is_string($rawIdentifier) ? $rawIdentifier : '',
-                'checksum' => \is_string($rawChecksum) ? $rawChecksum : '',
+                'value'      => is_string($rawSecretValue) || is_int($rawSecretValue) ? (string) $rawSecretValue : '',
+                'identifier' => is_string($rawIdentifier) ? $rawIdentifier : '',
+                'checksum'   => is_string($rawChecksum) ? $rawChecksum : '',
             ];
         }
 
         return [
-            'value' => \is_string($value) || \is_int($value) ? (string) $value : '',
+            'value'      => is_string($value) || is_int($value) ? (string) $value : '',
             'identifier' => '',
-            'checksum' => '',
+            'checksum'   => '',
         ];
     }
 }

@@ -12,6 +12,9 @@ namespace Netresearch\NrVault\Tests\Functional;
 use Netresearch\NrVault\Crypto\FileMasterKeyProvider;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+use function is_array;
+use function sprintf;
+
 /**
  * Shared base for nr-vault functional tests.
  *
@@ -73,19 +76,19 @@ abstract class AbstractVaultFunctionalTestCase extends FunctionalTestCase
         parent::setUp();
 
         $this->masterKeyPath = $this->instancePath . '/master.key';
-        $masterKey = sodium_crypto_secretbox_keygen();
+        $masterKey           = sodium_crypto_secretbox_keygen();
         file_put_contents($this->masterKeyPath, $masterKey);
         chmod($this->masterKeyPath, 0o600);
 
-        if (!isset($GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']) || !\is_array($GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS'])) {
+        if (!isset($GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']) || !is_array($GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS'])) {
             $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS'] = [];
         }
 
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = array_merge(
             [
                 'masterKeySource' => $this->masterKeyPath,
-                'autoKeyPath' => $this->masterKeyPath,
-                'enableCache' => false,
+                'autoKeyPath'     => $this->masterKeyPath,
+                'enableCache'     => false,
             ],
             $this->extensionConfiguration,
         );
@@ -123,12 +126,12 @@ abstract class AbstractVaultFunctionalTestCase extends FunctionalTestCase
      */
     protected function generateUuidV7(): string
     {
-        $timestamp = (int) (microtime(true) * 1000);
+        $timestamp    = (int) (microtime(true) * 1000);
         $timestampHex = str_pad(dechex($timestamp), 12, '0', STR_PAD_LEFT);
-        $randomBytes = random_bytes(10);
-        $randomHex = bin2hex($randomBytes);
+        $randomBytes  = random_bytes(10);
+        $randomHex    = bin2hex($randomBytes);
 
-        return \sprintf(
+        return sprintf(
             '%s-%s-7%s-%s%s-%s',
             substr($timestampHex, 0, 8),
             substr($timestampHex, 8, 4),

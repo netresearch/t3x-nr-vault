@@ -52,7 +52,7 @@ final class OverviewControllerTest extends TestCase
         // Build the controller without invoking its constructor (it pulls in
         // final readonly TYPO3 services we don't need here), then inject only
         // the health-service seam that getHealthChecks() consults.
-        $reflection = new ReflectionClass(OverviewController::class);
+        $reflection    = new ReflectionClass(OverviewController::class);
         $this->subject = $reflection->newInstanceWithoutConstructor();
 
         $serviceProperty = $reflection->getProperty('vaultHealthService');

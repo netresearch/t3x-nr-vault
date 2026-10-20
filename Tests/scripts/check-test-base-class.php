@@ -31,7 +31,7 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
  */
 
 $projectRoot = dirname(__DIR__, 2);
-$unitDir = $projectRoot . '/Tests/Unit';
+$unitDir     = $projectRoot . '/Tests/Unit';
 
 if (!is_dir($unitDir)) {
     fwrite(STDERR, "Unit test directory not found: {$unitDir}\n");
@@ -49,7 +49,7 @@ if (!is_dir($unitDir)) {
  *       php Tests/scripts/check-test-base-class.php --update-allowlist
  */
 $allowListFile = __DIR__ . '/test-base-class-allowlist.txt';
-$allowList = [];
+$allowList     = [];
 if (is_file($allowListFile)) {
     $lines = file($allowListFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
     foreach ($lines as $line) {
@@ -109,7 +109,7 @@ foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($unitDir, 
         continue;
     }
 
-    $parent = ltrim($matches[1], '\\');
+    $parent        = ltrim($matches[1], '\\');
     $isProjectBase = $parent === 'TestCase'
         || $parent === TestCase::class;
 
@@ -120,11 +120,11 @@ foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($unitDir, 
     if ($parent === 'TestCase') {
         if (preg_match('/use\s+PHPUnit\\\\Framework\\\\TestCase\s*;/', $contents)) {
             $isProjectBase = false;
-            $isLegacyBase = true;
+            $isLegacyBase  = true;
         } else {
             // No `use` statement importing PHPUnit's TestCase — assume project base.
             $isProjectBase = true;
-            $isLegacyBase = false;
+            $isLegacyBase  = false;
         }
     }
 
@@ -155,15 +155,15 @@ $staleAllowList = array_keys($allowList);
 if ($updateMode) {
     sort($legacyFiles);
     $header = <<<'TXT'
-    # SPDX-License-Identifier: GPL-2.0-or-later
-    # SPDX-FileCopyrightText: Netresearch DTT GmbH
-    # Tech-debt allow-list: nr-vault unit tests still extending PHPUnit's TestCase
-    # or TYPO3's UnitTestCase directly (instead of the project base).
-    #
-    # Managed by: php Tests/scripts/check-test-base-class.php --update-allowlist
-    # Rule:       New tests MUST extend Netresearch\NrVault\Tests\Unit\TestCase.
+        # SPDX-License-Identifier: GPL-2.0-or-later
+        # SPDX-FileCopyrightText: Netresearch DTT GmbH
+        # Tech-debt allow-list: nr-vault unit tests still extending PHPUnit's TestCase
+        # or TYPO3's UnitTestCase directly (instead of the project base).
+        #
+        # Managed by: php Tests/scripts/check-test-base-class.php --update-allowlist
+        # Rule:       New tests MUST extend Netresearch\NrVault\Tests\Unit\TestCase.
 
-    TXT;
+        TXT;
     file_put_contents($allowListFile, $header . implode("\n", $legacyFiles) . "\n");
     echo 'Updated allow-list: ' . count($legacyFiles) . " legacy tests.\n";
     exit(0);

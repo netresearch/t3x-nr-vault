@@ -43,7 +43,7 @@ final class VaultServiceCrossActorTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function actorWithoutPermissionIsDeniedAfterAnotherActorReadTheSecret(): void
     {
-        $vault = $this->get(VaultServiceInterface::class);
+        $vault   = $this->get(VaultServiceInterface::class);
         $context = $this->get(TechnicalActorContextInterface::class);
 
         // Actor A creates and reads its own secret: the plaintext passes
@@ -73,7 +73,7 @@ final class VaultServiceCrossActorTest extends AbstractVaultFunctionalTestCase
         );
 
         // The denial is attributed to actor B in the audit trail.
-        $auditLog = $this->get(AuditLogServiceInterface::class);
+        $auditLog      = $this->get(AuditLogServiceInterface::class);
         $deniedEntries = array_values(array_filter(
             $auditLog->query(),
             static fn ($entry): bool => $entry->action === 'access_denied'
@@ -87,7 +87,7 @@ final class VaultServiceCrossActorTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function everyRetrieveWritesItsOwnReadAuditEntry(): void
     {
-        $vault = $this->get(VaultServiceInterface::class);
+        $vault   = $this->get(VaultServiceInterface::class);
         $context = $this->get(TechnicalActorContextInterface::class);
 
         $context->runAs(10, static function () use ($vault): void {
@@ -98,7 +98,7 @@ final class VaultServiceCrossActorTest extends AbstractVaultFunctionalTestCase
 
         // Two reads => two read audit entries. A plaintext cache would have
         // collapsed the second read into a silent, unaudited hit.
-        $auditLog = $this->get(AuditLogServiceInterface::class);
+        $auditLog    = $this->get(AuditLogServiceInterface::class);
         $readEntries = array_values(array_filter(
             $auditLog->query(),
             static fn ($entry): bool => $entry->action === 'read'

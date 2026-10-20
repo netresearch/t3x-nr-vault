@@ -45,8 +45,8 @@ interface AuditChainRekeyServiceInterface
      *    `previous_hash` link changes,
      *  - epoch 1 / 2+ rows are recomputed under the new HMAC key.
      *
-     * @param Connection $connection Connection carrying the caller's transaction
-     * @param string $newMasterKey The NEW raw master key (32 bytes)
+     * @param Connection $connection   Connection carrying the caller's transaction
+     * @param string     $newMasterKey The NEW raw master key (32 bytes)
      *
      * @return int Number of rows whose hashes were rewritten
      */

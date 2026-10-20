@@ -29,7 +29,7 @@ final class GenericContextTest extends TestCase
     #[Test]
     public function constructorAcceptsData(): void
     {
-        $data = ['key' => 'value', 'number' => 42];
+        $data    = ['key' => 'value', 'number' => 42];
         $context = new GenericContext($data);
 
         self::assertEquals($data, $context->toArray());
@@ -46,7 +46,7 @@ final class GenericContextTest extends TestCase
 
         self::assertEquals([
             'service' => 'stripe',
-            'amount' => 1000,
+            'amount'  => 1000,
             'success' => true,
         ], $context->toArray());
     }
@@ -68,7 +68,7 @@ final class GenericContextTest extends TestCase
     #[Test]
     public function toArrayReturnsData(): void
     {
-        $data = ['foo' => 'bar'];
+        $data    = ['foo' => 'bar'];
         $context = new GenericContext($data);
 
         self::assertEquals($data, $context->toArray());
@@ -77,7 +77,7 @@ final class GenericContextTest extends TestCase
     #[Test]
     public function jsonSerializeReturnsSameAsToArray(): void
     {
-        $data = ['key' => 'value'];
+        $data    = ['key' => 'value'];
         $context = new GenericContext($data);
 
         self::assertEquals($context->toArray(), $context->jsonSerialize());
@@ -86,7 +86,7 @@ final class GenericContextTest extends TestCase
     #[Test]
     public function canBeJsonEncoded(): void
     {
-        $data = ['service' => 'api', 'count' => 5];
+        $data    = ['service' => 'api', 'count' => 5];
         $context = new GenericContext($data);
 
         $json = json_encode($context);

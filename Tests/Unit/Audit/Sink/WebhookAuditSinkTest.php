@@ -29,6 +29,8 @@ use Psr\Http\Message\ResponseInterface;
 use RuntimeException;
 use Throwable;
 
+use function is_array;
+
 #[CoversClass(WebhookAuditSink::class)]
 final class WebhookAuditSinkTest extends TestCase
 {
@@ -157,7 +159,7 @@ final class WebhookAuditSinkTest extends TestCase
     #[Test]
     public function everyRecordKindIsTaggedWithItsType(): void
     {
-        $client = new RecordingClient(new Response(200));
+        $client  = new RecordingClient(new Response(200));
         $subject = $this->createSubject(client: $client);
 
         $subject->publish($this->createEntry(), 'tip');
@@ -337,10 +339,10 @@ final class WebhookAuditSinkTest extends TestCase
     private function deeplyNestedContext(): array
     {
         $context = [];
-        $cursor = &$context;
-        for ($depth = 0; $depth < 600; $depth++) {
+        $cursor  = &$context;
+        for ($depth = 0; $depth < 600; ++$depth) {
             $cursor['nested'] = [];
-            $cursor = &$cursor['nested'];
+            $cursor           = &$cursor['nested'];
         }
 
         unset($cursor);
@@ -424,11 +426,11 @@ final class RecordingClient implements ClientInterface
      */
     public function decodeBody(): array
     {
-        $body = (string) $this->lastRequest?->getBody();
+        $body    = (string) $this->lastRequest?->getBody();
         $decoded = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
 
         /** @var array<string, mixed> $decoded */
-        return \is_array($decoded) ? $decoded : [];
+        return is_array($decoded) ? $decoded : [];
     }
 }
 

@@ -62,8 +62,8 @@ final readonly class ConfigSecretFinding implements SecretFinding
     public function jsonSerialize(): array
     {
         $data = [
-            'source' => $this->isLocalConfiguration ? 'LocalConfiguration' : 'configuration',
-            'path' => $this->path,
+            'source'   => $this->isLocalConfiguration ? 'LocalConfiguration' : 'configuration',
+            'path'     => $this->path,
             'severity' => $this->severity->value,
             'patterns' => $this->patterns,
         ];

@@ -213,7 +213,7 @@ final class VaultScanCommandTest extends TestCase
             ->method('getDetectedSecretsBySeverity')
             ->willReturn([
                 'high' => [$highFinding->getKey() => $highFinding],
-                'low' => [$lowFinding->getKey() => $lowFinding],
+                'low'  => [$lowFinding->getKey() => $lowFinding],
             ]);
 
         $exitCode = $this->commandTester->execute([
@@ -276,7 +276,7 @@ final class VaultScanCommandTest extends TestCase
     {
         $exitCode = $this->commandTester->execute([
             '--database-only' => true,
-            '--config-only' => true,
+            '--config-only'   => true,
         ]);
 
         self::assertSame(1, $exitCode);

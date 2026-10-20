@@ -41,7 +41,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
         parent::setUp();
 
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
-        $this->logger = $this->createMock(LoggerInterface::class);
+        $this->logger       = $this->createMock(LoggerInterface::class);
 
         $this->processor = new SiteConfigurationVaultProcessor(
             $this->vaultService,
@@ -53,9 +53,9 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
     public function processConfigurationReturnsUnchangedConfigWithoutVaultReferences(): void
     {
         $config = [
-            'base' => 'https://example.com',
+            'base'      => 'https://example.com',
             'languages' => [],
-            'settings' => [
+            'settings'  => [
                 'key' => 'value',
             ],
         ];
@@ -112,7 +112,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
     public function processConfigurationPreservesNonVaultValues(): void
     {
         $config = [
-            'apiKey' => self::VAULT_PLACEHOLDER,
+            'apiKey'       => self::VAULT_PLACEHOLDER,
             'regularValue' => 'not_a_vault_reference',
             'numericValue' => 42,
             'booleanValue' => true,
@@ -304,10 +304,10 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
     public static function vaultReferencePatternProvider(): array
     {
         return [
-            'simple identifier' => ['%vault(key)%', 'key'],
-            'underscore identifier' => ['%vault(my_api_key)%', 'my_api_key'],
+            'simple identifier'       => ['%vault(key)%', 'key'],
+            'underscore identifier'   => ['%vault(my_api_key)%', 'my_api_key'],
             'alphanumeric identifier' => ['%vault(key123)%', 'key123'],
-            'colon identifier' => ['%vault(site:main:key)%', 'site:main:key'],
+            'colon identifier'        => ['%vault(site:main:key)%', 'site:main:key'],
         ];
     }
 
@@ -326,7 +326,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
     public function presentOrUnavailableSiteCredentialDoesNotGrantGlobalFallback(
         string $failure,
     ): void {
-        $site = new Site('main', 1, []);
+        $site   = new Site('main', 1, []);
         $lookup = $this->vaultService
             ->expects(self::once())
             ->method('getMetadata')
@@ -361,7 +361,7 @@ final class SiteConfigurationVaultProcessorTest extends TestCase
             ->with(
                 'Failed to resolve vault reference',
                 [
-                    'site' => 'main',
+                    'site'  => 'main',
                     'error' => $failure === 'removed' ? 'unavailable after presence lookup' : VaultException::class,
                 ],
             );

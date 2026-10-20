@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -117,7 +117,7 @@ final class InventoryConsistencyCheckTest extends TestCase
         // a generic one: the check catches `Doctrine\DBAL\Exception` on
         // purpose and must not be satisfied by something broader.
         $driverException = self::createStub(DriverException::class);
-        $pool = $this->pool(static function () use ($driverException): Result {
+        $pool            = $this->pool(static function () use ($driverException): Result {
             throw new TableNotFoundException($driverException, null);
         });
 

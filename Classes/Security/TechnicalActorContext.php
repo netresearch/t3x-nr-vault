@@ -14,6 +14,10 @@ use TYPO3\CMS\Core\Authentication\GroupResolver;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function is_array;
+use function is_int;
+use function is_string;
+
 /**
  * Technical actor context implementation.
  *
@@ -88,9 +92,9 @@ final class TechnicalActorContext implements TechnicalActorContextInterface
             throw TechnicalActorException::userDisabled($beUserUid);
         }
 
-        $now = time();
+        $now       = time();
         $starttime = $this->toInt($record['starttime'] ?? 0);
-        $endtime = $this->toInt($record['endtime'] ?? 0);
+        $endtime   = $this->toInt($record['endtime'] ?? 0);
         if ($starttime > $now || ($endtime !== 0 && $endtime <= $now)) {
             throw TechnicalActorException::userNotActive($beUserUid);
         }
@@ -99,7 +103,7 @@ final class TechnicalActorContext implements TechnicalActorContextInterface
 
         return new TechnicalActor(
             uid: $beUserUid,
-            username: \is_string($username) ? $username : '',
+            username: is_string($username) ? $username : '',
             admin: $this->toInt($record['admin'] ?? 0) !== 0,
             groupIds: $this->resolveGroupIds($record),
         );
@@ -135,7 +139,7 @@ final class TechnicalActorContext implements TechnicalActorContextInterface
             ->executeQuery()
             ->fetchAssociative();
 
-        if (!\is_array($row)) {
+        if (!is_array($row)) {
             return null;
         }
 
@@ -162,8 +166,8 @@ final class TechnicalActorContext implements TechnicalActorContextInterface
 
         $groupIds = [];
         foreach ($groups as $group) {
-            $uid = \is_array($group) ? ($group['uid'] ?? null) : null;
-            if (\is_int($uid)) {
+            $uid = is_array($group) ? ($group['uid'] ?? null) : null;
+            if (is_int($uid)) {
                 $groupIds[] = $uid;
             } elseif (is_numeric($uid)) {
                 $groupIds[] = (int) $uid;
@@ -175,7 +179,7 @@ final class TechnicalActorContext implements TechnicalActorContextInterface
 
     private function toInt(mixed $value): int
     {
-        if (\is_int($value)) {
+        if (is_int($value)) {
             return $value;
         }
 

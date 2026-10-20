@@ -19,6 +19,9 @@ use Netresearch\NrVault\Service\Doctor\DoctorContext;
 use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
 
+use function in_array;
+use function sprintf;
+
 /**
  * Is the stored inventory itself in good order?
  *
@@ -63,7 +66,7 @@ final readonly class SecretHygieneCheck implements ReadinessCheckInterface
 
     public function run(DoctorContext $context): array
     {
-        $stats = $this->analytics->getUsageStats(self::WINDOW_DAYS);
+        $stats      = $this->analytics->getUsageStats(self::WINDOW_DAYS);
         $candidates = $this->analytics->getRedactionCandidates(self::WINDOW_DAYS);
 
         return [
@@ -87,7 +90,7 @@ final readonly class SecretHygieneCheck implements ReadinessCheckInterface
 
         return Finding::warning(
             id: $id,
-            summary: \sprintf('%d stored secret(s) are past their expiry date.', $expired),
+            summary: sprintf('%d stored secret(s) are past their expiry date.', $expired),
             risk: 'An expired secret still decrypts, so the credential remains recoverable from a '
                 . 'database dump long after it stopped being needed. Consumers that still reference it '
                 . 'also fail at an unpredictable moment rather than at the expiry date.',
@@ -100,20 +103,20 @@ final readonly class SecretHygieneCheck implements ReadinessCheckInterface
 
     private function checkNeverRotated(int $neverRotated): Finding
     {
-        $id = 'secrets.never_rotated';
+        $id        = 'secrets.never_rotated';
         $threshold = $this->configuration->getStaleNeverRotatedDays();
 
         if ($neverRotated === 0) {
             return Finding::pass(
                 id: $id,
-                summary: \sprintf('Every stored secret was rotated within the last %d days.', $threshold),
+                summary: sprintf('Every stored secret was rotated within the last %d days.', $threshold),
                 details: ['neverRotatedCount' => 0, 'thresholdDays' => $threshold],
             );
         }
 
         return Finding::warning(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 '%d stored secret(s) have not been rotated in %d days or more.',
                 $neverRotated,
                 $threshold,
@@ -142,7 +145,7 @@ final readonly class SecretHygieneCheck implements ReadinessCheckInterface
 
         return Finding::warning(
             id: $id,
-            summary: \sprintf('%d stored secret(s) show no read activity and look unused.', $dead),
+            summary: sprintf('%d stored secret(s) show no read activity and look unused.', $dead),
             risk: 'A credential nothing reads is pure liability: it is still decryptable, still in every '
                 . 'backup, and nobody would notice if it were used. It also inflates the blast radius of '
                 . 'a master-key compromise for no operational benefit.',
@@ -161,7 +164,7 @@ final readonly class SecretHygieneCheck implements ReadinessCheckInterface
     {
         $count = 0;
         foreach ($candidates as $candidate) {
-            if (\in_array($rule, $candidate->rules, true)) {
+            if (in_array($rule, $candidate->rules, true)) {
                 ++$count;
             }
         }

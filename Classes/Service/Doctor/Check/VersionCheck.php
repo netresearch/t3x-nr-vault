@@ -17,6 +17,10 @@ use Throwable;
 use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 
+use function is_array;
+use function is_string;
+use function sprintf;
+
 /**
  * Which versions are actually running?
  *
@@ -49,8 +53,8 @@ final readonly class VersionCheck implements ReadinessCheckInterface
 
     public function run(DoctorContext $context): array
     {
-        $emConf = $this->readEmConf();
-        $extensionVersion = \is_string($emConf['version'] ?? null) ? $emConf['version'] : '';
+        $emConf           = $this->readEmConf();
+        $extensionVersion = is_string($emConf['version'] ?? null) ? $emConf['version'] : '';
 
         return [
             $this->checkExtensionVersion($extensionVersion),
@@ -76,7 +80,7 @@ final readonly class VersionCheck implements ReadinessCheckInterface
 
         return Finding::pass(
             id: $id,
-            summary: \sprintf('nr_vault %s is installed.', $extensionVersion),
+            summary: sprintf('nr_vault %s is installed.', $extensionVersion),
             details: ['extensionVersion' => $extensionVersion],
         );
     }
@@ -88,14 +92,14 @@ final readonly class VersionCheck implements ReadinessCheckInterface
      */
     private function checkTypo3Supported(array $emConf, string $extensionVersion): Finding
     {
-        $id = 'version.typo3_supported';
-        $running = $this->typo3Version->getVersion();
+        $id         = 'version.typo3_supported';
+        $running    = $this->typo3Version->getVersion();
         $constraint = $this->extractTypo3Constraint($emConf);
 
         if ($constraint === '') {
             return Finding::warning(
                 id: $id,
-                summary: \sprintf(
+                summary: sprintf(
                     'TYPO3 %s is running, but the extension declares no TYPO3 version constraint.',
                     $running,
                 ),
@@ -112,7 +116,7 @@ final readonly class VersionCheck implements ReadinessCheckInterface
         if (!$range instanceof Typo3VersionRange) {
             return Finding::warning(
                 id: $id,
-                summary: \sprintf(
+                summary: sprintf(
                     'The declared TYPO3 constraint "%s" is not a parseable version range.',
                     $constraint,
                 ),
@@ -123,15 +127,15 @@ final readonly class VersionCheck implements ReadinessCheckInterface
         }
 
         $details = [
-            'typo3Version' => $running,
-            'constraint' => (string) $range,
+            'typo3Version'     => $running,
+            'constraint'       => (string) $range,
             'extensionVersion' => $extensionVersion,
         ];
 
         if (!$range->contains($running)) {
             return Finding::warning(
                 id: $id,
-                summary: \sprintf(
+                summary: sprintf(
                     'TYPO3 %s is outside the range nr_vault declares support for (%s).',
                     $running,
                     (string) $range,
@@ -148,7 +152,7 @@ final readonly class VersionCheck implements ReadinessCheckInterface
 
         return Finding::pass(
             id: $id,
-            summary: \sprintf('TYPO3 %s is within the supported range (%s).', $running, (string) $range),
+            summary: sprintf('TYPO3 %s is within the supported range (%s).', $running, (string) $range),
             details: $details,
         );
     }
@@ -159,18 +163,18 @@ final readonly class VersionCheck implements ReadinessCheckInterface
     private function extractTypo3Constraint(array $emConf): string
     {
         $constraints = $emConf['constraints'] ?? null;
-        if (!\is_array($constraints)) {
+        if (!is_array($constraints)) {
             return '';
         }
 
         $depends = $constraints['depends'] ?? null;
-        if (!\is_array($depends)) {
+        if (!is_array($depends)) {
             return '';
         }
 
         $typo3 = $depends['typo3'] ?? null;
 
-        return \is_string($typo3) ? $typo3 : '';
+        return is_string($typo3) ? $typo3 : '';
     }
 
     /**
@@ -218,6 +222,6 @@ final readonly class VersionCheck implements ReadinessCheckInterface
             return $EM_CONF[$_EXTKEY] ?? null;
         })($path, self::EXTENSION_KEY);
 
-        return \is_array($emConf) ? $emConf : [];
+        return is_array($emConf) ? $emConf : [];
     }
 }

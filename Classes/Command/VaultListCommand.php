@@ -20,6 +20,11 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+use function array_slice;
+use function count;
+use function is_string;
+use function sprintf;
+
 /**
  * CLI command to list secrets in the vault.
  */
@@ -66,18 +71,18 @@ final class VaultListCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
-        $pattern = $input->getOption('pattern');
-        $format = $input->getOption('format');
+        $io          = new SymfonyStyle($input, $output);
+        $pattern     = $input->getOption('pattern');
+        $format      = $input->getOption('format');
         $limitOption = $input->getOption('limit');
-        $limit = is_numeric($limitOption) ? (int) $limitOption : 100;
+        $limit       = is_numeric($limitOption) ? (int) $limitOption : 100;
 
         try {
-            $secrets = $this->vaultService->list(\is_string($pattern) ? $pattern : null);
+            $secrets = $this->vaultService->list(is_string($pattern) ? $pattern : null);
 
             // Apply limit
-            if ($limit > 0 && \count($secrets) > $limit) {
-                $secrets = \array_slice($secrets, 0, $limit);
+            if ($limit > 0 && count($secrets) > $limit) {
+                $secrets = array_slice($secrets, 0, $limit);
             }
 
             if ($secrets === []) {
@@ -87,8 +92,8 @@ final class VaultListCommand extends Command
             }
 
             match ($format) {
-                'json' => $this->outputJson($output, $secrets),
-                'csv' => $this->outputCsv($output, $secrets),
+                'json'  => $this->outputJson($output, $secrets),
+                'csv'   => $this->outputCsv($output, $secrets),
                 default => $this->outputTable($io, $secrets),
             };
 
@@ -134,7 +139,7 @@ final class VaultListCommand extends Command
             $rows,
         );
 
-        $io->writeln(\sprintf('<info>Total: %d secrets</info>', \count($secrets)));
+        $io->writeln(sprintf('<info>Total: %d secrets</info>', count($secrets)));
     }
 
     /**
@@ -147,7 +152,7 @@ final class VaultListCommand extends Command
 
         // Rows
         foreach ($secrets as $secret) {
-            $output->writeln(\sprintf(
+            $output->writeln(sprintf(
                 '%s,%d,%s,%s,%d,%s',
                 CsvFormulaSanitizer::escapeField($secret->identifier),
                 $secret->ownerUid,

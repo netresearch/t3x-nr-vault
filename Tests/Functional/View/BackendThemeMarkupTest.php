@@ -22,6 +22,9 @@ use TYPO3\CMS\Core\View\ViewFactoryData;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+use function dirname;
+use function is_array;
+
 /**
  * Pins the markup that makes the module follow the TYPO3 backend colour scheme.
  *
@@ -65,10 +68,10 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     {
         $html = $this->renderPartial('BreakGlassBanner', [
             'breakGlass' => [
-                'active' => true,
-                'username' => 'admin',
-                'reason' => 'incident 42',
-                'expiresAt' => '2026-09-27 12:00',
+                'active'           => true,
+                'username'         => 'admin',
+                'reason'           => 'incident 42',
+                'expiresAt'        => '2026-09-27 12:00',
                 'remainingMinutes' => 30,
             ],
         ]);
@@ -126,17 +129,17 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     {
         $html = $this->renderTemplate('Analytics/Index', [
             'windowOptions' => [],
-            'stats' => [
-                'total' => 2, 'expired' => 0, 'frontendAccessible' => 0, 'neverRotated' => 0,
+            'stats'         => [
+                'total'          => 2, 'expired' => 0, 'frontendAccessible' => 0, 'neverRotated' => 0,
                 'automatedReads' => 0, 'manualReveals' => 0,
-                'byAdapter' => [['label' => 'local', 'value' => 2, 'percent' => 100]],
-                'byContext' => [
+                'byAdapter'      => [['label' => 'local', 'value' => 2, 'percent' => 100]],
+                'byContext'      => [
                     ['label' => 'payment', 'value' => 1, 'percent' => 50],
                     ['label' => 'mail', 'value' => 1, 'percent' => 50],
                 ],
             ],
             'candidateCount' => 0,
-            'candidates' => [],
+            'candidates'     => [],
         ]);
 
         // Native <progress>: it carries the progressbar role, the value, the
@@ -172,12 +175,12 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     public function testTheSecretsListPaintsStatusWithCoreBadges(): void
     {
         $html = $this->renderTemplate('Secrets/List', [
-            'breakGlass' => ['active' => false],
-            'filters' => [],
+            'breakGlass'   => ['active' => false],
+            'filters'      => [],
             'ownerOptions' => [],
-            'totalCount' => 2,
-            'canReveal' => false, 'canManagePolicy' => false, 'canRotate' => false, 'canDelete' => false,
-            'secrets' => [
+            'totalCount'   => 2,
+            'canReveal'    => false, 'canManagePolicy' => false, 'canRotate' => false, 'canDelete' => false,
+            'secrets'      => [
                 $this->secretRow('api_active', hidden: false),
                 $this->secretRow('api_disabled', hidden: true),
             ],
@@ -193,12 +196,12 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     {
         $item = static fn (string $pattern, int $count): array => ['patterns' => [$pattern], 'source' => 'database', 'count' => $count];
         $html = $this->renderTemplate(self::SCAN, [
-            'totalCount' => 4, 'databaseCount' => 4, 'configCount' => 0,
+            'totalCount'     => 4, 'databaseCount' => 4, 'configCount' => 0,
             'groupedSecrets' => [
                 'critical' => ['tx_a.password' => $item('password', 3)],
-                'high' => ['tx_b.api_key' => $item('api_key', 5)],
-                'medium' => ['tx_c.token' => $item('token', 7)],
-                'low' => ['tx_d.secret' => $item('secret', 9)],
+                'high'     => ['tx_b.api_key' => $item('api_key', 5)],
+                'medium'   => ['tx_c.token' => $item('token', 7)],
+                'low'      => ['tx_d.secret' => $item('secret', 9)],
             ],
         ]);
 
@@ -290,11 +293,11 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     public function testTheWizardProgressTrackerCarriesHostileLabelsUnchanged(): void
     {
         $labels = [
-            'migration.scan' => 'Scan "quoted" & \'single\'',
-            'migration.review' => '<script>alert(1)</script> Review',
+            'migration.scan'      => 'Scan "quoted" & \'single\'',
+            'migration.review'    => '<script>alert(1)</script> Review',
             'migration.configure' => 'Konfigurieren – äöüß 日本語',
-            'migration.execute' => 'Ausführen',
-            'migration.verify' => 'Verify \\ back/slash </typo3-backend-progress-tracker>',
+            'migration.execute'   => 'Ausführen',
+            'migration.verify'    => 'Verify \\ back/slash </typo3-backend-progress-tracker>',
         ];
         $this->overrideModuleLabels($labels);
 
@@ -306,7 +309,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         }
 
         $document = $this->parseHtml($html);
-        $tracker = $document->getElementsByTagName('typo3-backend-progress-tracker')->item(0);
+        $tracker  = $document->getElementsByTagName('typo3-backend-progress-tracker')->item(0);
         self::assertInstanceOf(DOMElement::class, $tracker);
 
         // What the element's Lit Array converter does: JSON.parse() of the
@@ -326,7 +329,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         ];
         $html = $this->renderTemplate('Migration/Verify', [
             'totalMigrated' => 3, 'totalFailed' => 2, 'clearOriginals' => false,
-            'results' => [$result('a', 1, 'boom'), $result('b', 1, ''), $result('c', 0, '')],
+            'results'       => [$result('a', 1, 'boom'), $result('b', 1, ''), $result('c', 0, '')],
         ]);
 
         self::assertSame('badge badge-danger', $this->badgeClassFor($html, 'Error'));
@@ -338,16 +341,16 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     public function testTheAuditLogUsesCoreBadgesForCountsAndActions(): void
     {
         $entry = [
-            'time' => '12:00:00', 'secretIdentifier' => 'api_key', 'action' => 'delete', 'actionBadgeClass' => 'danger',
-            'success' => true, 'errorMessage' => '', 'reason' => '', 'actorUsername' => 'admin', 'actorType' => 'backend',
+            'time'      => '12:00:00', 'secretIdentifier' => 'api_key', 'action' => 'delete', 'actionBadgeClass' => 'danger',
+            'success'   => true, 'errorMessage' => '', 'reason' => '', 'actorUsername' => 'admin', 'actorType' => 'backend',
             'ipAddress' => '127.0.0.1', 'entryHash' => str_repeat('a', 64), 'entryHashShort' => 'aaaaaaaa...',
         ];
         $html = $this->renderTemplate('Audit/List', [
-            'filters' => ['_form' => []],
-            'actions' => ['delete'],
-            'entries' => [$entry],
+            'filters'        => ['_form' => []],
+            'actions'        => ['delete'],
+            'entries'        => [$entry],
             'groupedEntries' => ['2026-09-27' => [$entry]],
-            'totalCount' => 1, 'currentPage' => 1, 'totalPages' => 1,
+            'totalCount'     => 1, 'currentPage' => 1, 'totalPages' => 1,
         ]);
 
         self::assertSame('badge badge-info', $this->badgeClassFor($html, '1 entries'));
@@ -358,9 +361,9 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
 
     private function setLabelOverride(string $section, string $option, string $key, ?string $file): void
     {
-        $configuration = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
-        $sectionConfiguration = \is_array($configuration[$section] ?? null) ? $configuration[$section] : [];
-        $overrides = \is_array($sectionConfiguration[$option] ?? null) ? $sectionConfiguration[$option] : [];
+        $configuration        = is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
+        $sectionConfiguration = is_array($configuration[$section] ?? null) ? $configuration[$section] : [];
+        $overrides            = is_array($sectionConfiguration[$option] ?? null) ? $sectionConfiguration[$option] : [];
 
         if ($file === null) {
             unset($overrides[$key]);
@@ -369,8 +372,8 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         }
 
         $sectionConfiguration[$option] = $overrides;
-        $configuration[$section] = $sectionConfiguration;
-        $GLOBALS['TYPO3_CONF_VARS'] = $configuration;
+        $configuration[$section]       = $sectionConfiguration;
+        $GLOBALS['TYPO3_CONF_VARS']    = $configuration;
     }
 
     /**
@@ -389,7 +392,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         }
 
         $file = $this->instancePath . '/typo3temp/var/tests/nr_vault-labels/locallang_mod.xlf';
-        GeneralUtility::mkdir_deep(\dirname($file));
+        GeneralUtility::mkdir_deep(dirname($file));
         GeneralUtility::writeFile(
             $file,
             '<?xml version="1.0" encoding="UTF-8"?><xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">'
@@ -411,20 +414,20 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     private function overviewVariables(bool $masterKeyAvailable = true): array
     {
         return [
-            'breakGlass' => ['active' => false],
+            'breakGlass'   => ['active' => false],
             'healthChecks' => [
-                'hasIssues' => !$masterKeyAvailable,
+                'hasIssues'          => !$masterKeyAvailable,
                 'masterKeyAvailable' => $masterKeyAvailable,
-                'encryptionWorking' => $masterKeyAvailable,
-                'masterKeyProvider' => 'typo3',
+                'encryptionWorking'  => $masterKeyAvailable,
+                'masterKeyProvider'  => 'typo3',
             ],
             'securityStatus' => ['available' => false, 'context' => 'warning'],
-            'stats' => ['totalSecrets' => 1, 'activeSecrets' => 1, 'disabledSecrets' => 0],
-            'submodules' => [
+            'stats'          => ['totalSecrets' => 1, 'activeSecrets' => 1, 'disabledSecrets' => 0],
+            'submodules'     => [
                 [
-                    'route' => 'admin_vault_secrets',
-                    'icon' => 'module-vault-secrets',
-                    'title' => 'Secrets',
+                    'route'       => 'admin_vault_secrets',
+                    'icon'        => 'module-vault-secrets',
+                    'title'       => 'Secrets',
                     'description' => 'Manage secrets',
                 ],
             ],
@@ -438,7 +441,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     {
         return [
             'identifier' => $identifier, 'description' => '', 'hidden' => $hidden, 'owner_name' => 'admin',
-            'created' => '2026-09-27', 'read_count' => 0, 'last_read' => '',
+            'created'    => '2026-09-27', 'read_count' => 0, 'last_read' => '',
         ];
     }
 
@@ -450,7 +453,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     {
         $document = $this->parseHtml($html);
 
-        $found = [];
+        $found  = [];
         $badges = (new DOMXPath($document))->query('//*[contains(concat(" ", normalize-space(@class), " "), " badge ")]');
         self::assertInstanceOf(DOMNodeList::class, $badges);
         foreach ($badges as $badge) {
@@ -475,13 +478,13 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
     private function progressBars(string $html): array
     {
         $document = $this->parseHtml($html);
-        $xpath = new DOMXPath($document);
+        $xpath    = new DOMXPath($document);
 
         $bars = [];
         foreach ($document->getElementsByTagName('progress') as $bar) {
-            $texts = [];
+            $texts  = [];
             $hidden = false;
-            $ids = preg_split(self::WHITESPACE_RUN, trim($bar->getAttribute('aria-describedby')), -1, PREG_SPLIT_NO_EMPTY);
+            $ids    = preg_split(self::WHITESPACE_RUN, trim($bar->getAttribute('aria-describedby')), -1, PREG_SPLIT_NO_EMPTY);
             self::assertIsArray($ids);
             foreach ($ids as $id) {
                 $targets = $xpath->query('//*[@id="' . $id . '"]');
@@ -498,10 +501,10 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
             }
 
             $bars[] = [
-                'value' => $bar->getAttribute('value'),
-                'max' => $bar->getAttribute('max'),
-                'name' => $bar->getAttribute('aria-label'),
-                'description' => implode(' ', $texts),
+                'value'             => $bar->getAttribute('value'),
+                'max'               => $bar->getAttribute('max'),
+                'name'              => $bar->getAttribute('aria-label'),
+                'description'       => implode(' ', $texts),
                 'descriptionHidden' => $hidden,
             ];
         }
@@ -560,7 +563,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
      * Same approach as {@see SecurityStatusPartialTest::render()}, with the
      * `Module` layout replaced by {@see self::MODULE_LAYOUT}.
      *
-     * @param list<string> $templateRootPaths
+     * @param list<string>         $templateRootPaths
      * @param array<string, mixed> $variables
      */
     private function render(array $templateRootPaths, string $name, array $variables): string

@@ -22,6 +22,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Throwable;
 
+use function is_string;
+use function sprintf;
+
 /**
  * Publishes the current audit chain tip to the external sinks.
  *
@@ -81,15 +84,15 @@ final class VaultAuditAnchorCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io           = new SymfonyStyle($input, $output);
         $formatOption = $input->getOption('format');
-        $json = \is_string($formatOption) && strtolower($formatOption) === 'json';
-        $dryRun = (bool) $input->getOption('dry-run');
+        $json         = is_string($formatOption) && strtolower($formatOption) === 'json';
+        $dryRun       = (bool) $input->getOption('dry-run');
 
         // Before the chain tip is even read, so a refusal discloses nothing and
         // publishes nothing.
         if (!$this->accessControlService->isGranted(VaultPermission::VaultConfigure)) {
-            $this->fail($io, $output, $json, \sprintf(
+            $this->fail($io, $output, $json, sprintf(
                 'Access denied: the "%s" permission is required to publish the audit chain tip.',
                 VaultPermission::VaultConfigure->value,
             ));
@@ -136,7 +139,7 @@ final class VaultAuditAnchorCommand extends Command
         }
 
         if (!$json) {
-            $io->success(\sprintf(
+            $io->success(sprintf(
                 'Anchored audit chain at sequence %d across %d sink(s).',
                 $anchor->sequence,
                 $published,
@@ -160,10 +163,10 @@ final class VaultAuditAnchorCommand extends Command
     ): void {
         if ($json) {
             $output->writeln(json_encode([
-                'dryRun' => $dryRun,
-                'anchor' => $anchor->toArray(),
+                'dryRun'       => $dryRun,
+                'anchor'       => $anchor->toArray(),
                 'enabledSinks' => $enabledSinks,
-                'published' => $published,
+                'published'    => $published,
             ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
 
             return;

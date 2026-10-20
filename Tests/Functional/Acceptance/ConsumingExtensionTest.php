@@ -29,6 +29,11 @@ use ReflectionClass;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 
+use function dirname;
+use function is_array;
+use function is_string;
+use function sprintf;
+
 /**
  * A real consuming extension, loaded next to nr-vault the way an installation
  * loads it: `Fixtures/Extensions/nr_vault_consumer_fixture` implements every
@@ -116,10 +121,10 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
 
         $report = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
         self::assertIsArray($report);
-        $findings = \is_array($report['findings'] ?? null) ? $report['findings'] : [];
+        $findings         = is_array($report['findings'] ?? null) ? $report['findings'] : [];
         $consumerFindings = array_values(array_filter(
             $findings,
-            static fn (mixed $finding): bool => \is_array($finding) && ($finding['id'] ?? null) === ConsumerReadinessCheck::FINDING_ID,
+            static fn (mixed $finding): bool => is_array($finding) && ($finding['id'] ?? null) === ConsumerReadinessCheck::FINDING_ID,
         ));
 
         self::assertCount(1, $consumerFindings, $tester->getDisplay());
@@ -155,9 +160,9 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
         self::assertInstanceOf(PayloadEnvelopeRotator::class, $rotator);
         self::assertSame(2, $rotator->countEnvelopes(), 'Only the sealed rows count as envelopes.');
 
-        $before = $this->storedPayloads();
+        $before     = $this->storedPayloads();
         $newKeyPath = $this->instancePath . '/rotation-target.key';
-        $newKey = sodium_crypto_secretbox_keygen();
+        $newKey     = sodium_crypto_secretbox_keygen();
         file_put_contents($newKeyPath, $newKey);
         sodium_memzero($newKey);
 
@@ -182,8 +187,8 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
         self::assertSame(array_keys($before), array_keys($after));
         foreach ($before as $uid => $value) {
             if ($codec->isSealed($value)) {
-                self::assertNotSame($value, $after[$uid], \sprintf('Envelope %d must carry a DEK wrapped under the new key.', $uid));
-                self::assertTrue($codec->isSealed($after[$uid]), \sprintf('Envelope %d must still be a sealed envelope.', $uid));
+                self::assertNotSame($value, $after[$uid], sprintf('Envelope %d must carry a DEK wrapped under the new key.', $uid));
+                self::assertTrue($codec->isSealed($after[$uid]), sprintf('Envelope %d must still be a sealed envelope.', $uid));
 
                 continue;
             }
@@ -207,8 +212,8 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
         $httpConfig = $confVars['HTTP'] ?? [];
         self::assertIsArray($httpConfig);
         $httpConfig['allowed_hosts'] = ['api.example.com'];
-        $confVars['HTTP'] = $httpConfig;
-        $GLOBALS['TYPO3_CONF_VARS'] = $confVars;
+        $confVars['HTTP']            = $httpConfig;
+        $GLOBALS['TYPO3_CONF_VARS']  = $confVars;
 
         $client = $this->get(ApiTokenClient::class);
         self::assertInstanceOf(ApiTokenClient::class, $client);
@@ -237,12 +242,12 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function theConsumerUsesOnlyThePublishedApiAndImplementsOnlyExtensionPoints(): void
     {
-        $surface = (string) file_get_contents(__DIR__ . '/../../Unit/Api/api-surface.txt');
+        $surface          = (string) file_get_contents(__DIR__ . '/../../Unit/Api/api-surface.txt');
         $fixtureNamespace = 'Netresearch\NrVault\Tests\Functional\Fixtures\Extensions\nr_vault_consumer_fixture\\';
 
         $unpublished = [];
         $implemented = [];
-        $files = glob(self::FIXTURE_PATH . '/Classes/*/*.php');
+        $files       = glob(self::FIXTURE_PATH . '/Classes/*/*.php');
         self::assertNotFalse($files);
         self::assertNotSame([], $files);
         foreach ($files as $file) {
@@ -253,7 +258,7 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
                 }
             }
 
-            $class = $fixtureNamespace . 'Classes\\' . basename(\dirname($file)) . '\\' . basename($file, '.php');
+            $class = $fixtureNamespace . 'Classes\\' . basename(dirname($file)) . '\\' . basename($file, '.php');
             self::assertTrue(class_exists($class), $class);
             foreach ((new ReflectionClass($class))->getInterfaceNames() as $interface) {
                 if (str_starts_with($interface, 'Netresearch\NrVault\\')) {
@@ -281,7 +286,7 @@ final class ConsumingExtensionTest extends AbstractVaultFunctionalTestCase
         $payloads = [];
         foreach ($rows as $row) {
             self::assertIsNumeric($row['uid'] ?? null);
-            $payloads[(int) $row['uid']] = \is_string($row['sealed'] ?? null) ? $row['sealed'] : '';
+            $payloads[(int) $row['uid']] = is_string($row['sealed'] ?? null) ? $row['sealed'] : '';
         }
 
         return $payloads;

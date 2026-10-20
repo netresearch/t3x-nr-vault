@@ -14,6 +14,8 @@ use Netresearch\NrVault\Crypto\EnvelopeRotationContext;
 use Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function is_string;
+
 /**
  * Joins master-key rotation for the envelopes this consumer keeps in its own
  * table. Rows that are not sealed envelopes are left alone.
@@ -62,9 +64,9 @@ final readonly class PayloadEnvelopeRotator implements ForeignEnvelopeRotatorInt
     public function countEnvelopes(): int
     {
         $connection = $this->connectionPool->getConnectionForTable(self::TABLE);
-        $sealed = 0;
+        $sealed     = 0;
         foreach ($connection->select(['sealed'], self::TABLE)->fetchAllAssociative() as $row) {
-            if ($this->envelopeCodec->isSealed(\is_string($row['sealed'] ?? null) ? $row['sealed'] : '')) {
+            if ($this->envelopeCodec->isSealed(is_string($row['sealed'] ?? null) ? $row['sealed'] : '')) {
                 ++$sealed;
             }
         }
@@ -75,10 +77,10 @@ final readonly class PayloadEnvelopeRotator implements ForeignEnvelopeRotatorInt
     public function rewrapAll(EnvelopeRotationContext $context): int
     {
         $connection = $this->connectionPool->getConnectionForTable(self::TABLE);
-        $rewrapped = 0;
+        $rewrapped  = 0;
         foreach ($connection->select(['uid', 'sealed'], self::TABLE)->fetchAllAssociative() as $row) {
-            $sealed = \is_string($row['sealed'] ?? null) ? $row['sealed'] : '';
-            $uid = is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0;
+            $sealed = is_string($row['sealed'] ?? null) ? $row['sealed'] : '';
+            $uid    = is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0;
             if (!$context->isSealed($sealed)) {
                 continue;
             }

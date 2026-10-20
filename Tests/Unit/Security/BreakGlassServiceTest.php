@@ -66,10 +66,10 @@ final class BreakGlassServiceTest extends TestCase
         // faking is the database behind it, so the Registry mock IS the seam.
         // That also makes the persistence assertions below observe exactly what
         // production writes.
-        $this->registry = $this->createMock(Registry::class);
+        $this->registry             = $this->createMock(Registry::class);
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
-        $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
-        $this->eventDispatcher = $this->createMock(EventDispatcherInterface::class);
+        $this->auditLogService      = $this->createMock(AuditLogServiceInterface::class);
+        $this->eventDispatcher      = $this->createMock(EventDispatcherInterface::class);
 
         $this->subject = new BreakGlassService(
             new BreakGlassState($this->registry),
@@ -424,10 +424,10 @@ final class BreakGlassServiceTest extends TestCase
         self::assertInstanceOf(GenericContext::class, $context);
         self::assertSame(
             [
-                'actorUid' => 5,
+                'actorUid'      => 5,
                 'actorUsername' => 'alice',
-                'expiresAt' => $session->expiresAt->getTimestamp(),
-                'ttlMinutes' => 15,
+                'expiresAt'     => $session->expiresAt->getTimestamp(),
+                'ttlMinutes'    => 15,
             ],
             $context->toArray(),
         );

@@ -16,6 +16,10 @@ use SensitiveParameter;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function is_resource;
+use function is_string;
+use function sprintf;
+
 /**
  * Stores the MAC-signed audit chain tip anchor in the CORE table
  * `sys_registry`, reached ONLY through our own Doctrine QueryBuilder.
@@ -175,7 +179,7 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
                 return;
             }
 
-            $stored = $raw === null ? null : $this->parse($raw, $anchorKey);
+            $stored               = $raw === null ? null : $this->parse($raw, $anchorKey);
             $storedUnderAnchorKey = $stored instanceof AuditChainAnchor;
 
             if ($raw !== null && !$storedUnderAnchorKey && $masterKey !== null) {
@@ -327,7 +331,7 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
             );
         }
 
-        return \sprintf(
+        return sprintf(
             '%s|%d|%s|%d|%s',
             self::FORMAT_PREFIX,
             $tip->uid,
@@ -358,10 +362,10 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
         return hash_hmac(
             'sha256',
             json_encode([
-                'v' => 1,
-                'uid' => $anchor->uid,
+                'v'          => 1,
+                'uid'        => $anchor->uid,
                 'entry_hash' => $anchor->entryHash,
-                'tstamp' => $anchor->tstamp,
+                'tstamp'     => $anchor->tstamp,
             ], JSON_THROW_ON_ERROR),
             $anchorKey,
         );
@@ -416,13 +420,13 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
 
         $value = $row['entry_value'] ?? null;
 
-        if (\is_resource($value)) {
+        if (is_resource($value)) {
             $contents = stream_get_contents($value);
 
-            return \is_string($contents) ? $contents : '';
+            return is_string($contents) ? $contents : '';
         }
 
-        return \is_string($value) ? $value : '';
+        return is_string($value) ? $value : '';
     }
 
     /**
@@ -485,8 +489,8 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
             self::REGISTRY_TABLE,
             [
                 'entry_namespace' => self::ENTRY_NAMESPACE,
-                'entry_key' => self::ENTRY_KEY,
-                'entry_value' => $value,
+                'entry_key'       => self::ENTRY_KEY,
+                'entry_value'     => $value,
             ],
             ['entry_value' => Connection::PARAM_LOB],
         );
@@ -502,7 +506,7 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
     private function assertionStillHolds(Connection $connection, AuditChainAnchor $stored): bool
     {
         $queryBuilder = $connection->createQueryBuilder();
-        $hash = $queryBuilder
+        $hash         = $queryBuilder
             ->select('entry_hash')
             ->from(self::AUDIT_TABLE)
             ->where(
@@ -515,7 +519,7 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
             ->executeQuery()
             ->fetchOne();
 
-        return \is_string($hash) && hash_equals($stored->entryHash, $hash);
+        return is_string($hash) && hash_equals($stored->entryHash, $hash);
     }
 
     /**
@@ -527,7 +531,7 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
     private function anchoredRowStillExists(Connection $connection, int $uid): bool
     {
         $queryBuilder = $connection->createQueryBuilder();
-        $hash = $queryBuilder
+        $hash         = $queryBuilder
             ->select('entry_hash')
             ->from(self::AUDIT_TABLE)
             ->where(
@@ -540,7 +544,7 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
             ->executeQuery()
             ->fetchOne();
 
-        return \is_string($hash);
+        return is_string($hash);
     }
 
     /**
@@ -563,8 +567,8 @@ final readonly class AuditChainAnchorStore implements AuditChainAnchorStoreInter
             return null;
         }
 
-        $uid = is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0;
-        $entryHash = \is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '';
+        $uid       = is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0;
+        $entryHash = is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '';
 
         if ($uid < 1 || preg_match(self::HASH_PATTERN, $entryHash) !== 1) {
             return null;

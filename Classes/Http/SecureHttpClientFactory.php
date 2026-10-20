@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -25,6 +22,20 @@ use Psr\Http\Message\RequestInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+
+use function array_key_exists;
+use function count;
+use function function_exists;
+use function is_array;
+use function is_bool;
+use function is_callable;
+use function is_int;
+use function is_string;
+use function ord;
+use function sprintf;
+use function strlen;
+
+use const CURLOPT_RESOLVE;
 
 /**
  * Factory for creating HTTP clients that respect TYPO3 settings but prevent secret leakage.
@@ -201,7 +212,7 @@ final class SecureHttpClientFactory
      */
     public function createCancellable(?int $timeoutSeconds = null): ?CancellableTransport
     {
-        if (!\function_exists('curl_multi_exec')) {
+        if (!function_exists('curl_multi_exec')) {
             return null;
         }
 
@@ -224,7 +235,7 @@ final class SecureHttpClientFactory
         $stack->push($this->buildSsrfDefenceMiddleware(), 'ssrf-dns-pin');
         $options['handler'] = $stack;
 
-        $timeout = $options['timeout'];
+        $timeout        = $options['timeout'];
         $connectTimeout = $options['connect_timeout'];
 
         return new CancellableTransport(
@@ -303,7 +314,7 @@ final class SecureHttpClientFactory
         }
 
         foreach ($allowedHostsList as $pattern) {
-            if (!\is_string($pattern)) {
+            if (!is_string($pattern)) {
                 continue;
             }
 
@@ -346,7 +357,7 @@ final class SecureHttpClientFactory
      *     allow_redirects: bool|array{max?: int, strict?: bool, referer?: bool, protocols?: non-empty-list<string>, on_redirect?: callable(RequestInterface, \Psr\Http\Message\ResponseInterface, \Psr\Http\Message\UriInterface): mixed, track_redirects?: bool}
      * } Guzzle request options; every value taken from the platform
      *   configuration is narrowed to a type Guzzle acts on at the point it is
-     *   read, so a malformed setting cannot decide transport behaviour.
+     *   read, so a malformed setting cannot decide transport behaviour
      */
     private function buildOptions(?int $timeoutSeconds): array
     {
@@ -363,11 +374,11 @@ final class SecureHttpClientFactory
             'http_errors' => false,
 
             // Respect TYPO3's timeout settings, with sensible defaults
-            'timeout' => \is_int($typo3Config['timeout'] ?? null) ? $typo3Config['timeout'] : 30,
-            'connect_timeout' => \is_int($typo3Config['connect_timeout'] ?? null) ? $typo3Config['connect_timeout'] : 10,
+            'timeout'         => is_int($typo3Config['timeout'] ?? null) ? $typo3Config['timeout'] : 30,
+            'connect_timeout' => is_int($typo3Config['connect_timeout'] ?? null) ? $typo3Config['connect_timeout'] : 10,
 
             // Respect TYPO3's HTTP version preference
-            'version' => \is_string($typo3Config['version'] ?? null) ? $typo3Config['version'] : '1.1',
+            'version' => is_string($typo3Config['version'] ?? null) ? $typo3Config['version'] : '1.1',
         ];
 
         // Per-client timeout override: long-running API calls (LLM generation,
@@ -436,9 +447,9 @@ final class SecureHttpClientFactory
     {
         $options = [];
 
-        if (\array_key_exists('verify', $typo3Config)) {
+        if (array_key_exists('verify', $typo3Config)) {
             $verify = $typo3Config['verify'];
-            if (\is_bool($verify) || \is_string($verify)) {
+            if (is_bool($verify) || is_string($verify)) {
                 $options['verify'] = $verify;
             }
         }
@@ -471,26 +482,26 @@ final class SecureHttpClientFactory
      */
     private function narrowProxy(mixed $value): string|array|null
     {
-        if (\is_string($value)) {
+        if (is_string($value)) {
             return $value;
         }
 
-        if (!\is_array($value)) {
+        if (!is_array($value)) {
             return null;
         }
 
         $proxy = [];
         foreach (['http', 'https'] as $scheme) {
-            if (\is_string($value[$scheme] ?? null)) {
+            if (is_string($value[$scheme] ?? null)) {
                 $proxy[$scheme] = $value[$scheme];
             }
         }
 
         $no = $value['no'] ?? null;
-        if (\is_string($no)) {
+        if (is_string($no)) {
             $proxy['no'] = $no;
-        } elseif (\is_array($no)) {
-            $hosts = array_filter($no, static fn (mixed $host): bool => \is_string($host));
+        } elseif (is_array($no)) {
+            $hosts = array_filter($no, static fn (mixed $host): bool => is_string($host));
             if ($hosts !== []) {
                 $proxy['no'] = $hosts;
             }
@@ -510,17 +521,17 @@ final class SecureHttpClientFactory
      */
     private function narrowCertificate(mixed $value): string|array|null
     {
-        if (\is_string($value)) {
+        if (is_string($value)) {
             return $value;
         }
 
-        if (!\is_array($value) || !\is_string($value[0] ?? null)) {
+        if (!is_array($value) || !is_string($value[0] ?? null)) {
             return null;
         }
 
         $passphrase = $value[1] ?? null;
 
-        return \is_string($passphrase) ? [$value[0], $passphrase] : [$value[0]];
+        return is_string($passphrase) ? [$value[0], $passphrase] : [$value[0]];
     }
 
     /**
@@ -539,31 +550,31 @@ final class SecureHttpClientFactory
      */
     private function narrowRedirectSettings(mixed $value): bool|array
     {
-        if (\is_bool($value)) {
+        if (is_bool($value)) {
             return $value;
         }
 
-        if (!\is_array($value)) {
+        if (!is_array($value)) {
             return false;
         }
 
         $settings = [];
 
-        if (\is_int($value['max'] ?? null)) {
+        if (is_int($value['max'] ?? null)) {
             $settings['max'] = $value['max'];
         }
         foreach (['strict', 'referer', 'track_redirects'] as $flag) {
-            if (\is_bool($value[$flag] ?? null)) {
+            if (is_bool($value[$flag] ?? null)) {
                 $settings[$flag] = $value[$flag];
             }
         }
-        if (\is_callable($value['on_redirect'] ?? null)) {
+        if (is_callable($value['on_redirect'] ?? null)) {
             $settings['on_redirect'] = $value['on_redirect'];
         }
 
         $protocols = $value['protocols'] ?? null;
-        if (\is_array($protocols)) {
-            $names = array_values(array_filter($protocols, static fn (mixed $p): bool => \is_string($p)));
+        if (is_array($protocols)) {
+            $names = array_values(array_filter($protocols, static fn (mixed $p): bool => is_string($p)));
             if ($names !== []) {
                 $settings['protocols'] = $names;
             }
@@ -606,7 +617,7 @@ final class SecureHttpClientFactory
         // time (defence-in-depth), but the race-free pinning guarantee is
         // gone — between our DNS check and stream's own resolution, an
         // attacker can still rebind. Warn so operators notice the gap.
-        if (!\function_exists('curl_init')) {
+        if (!function_exists('curl_init')) {
             $this->getLogger()->warning(
                 'PHP ext-curl is not loaded; the nr-vault HTTP client falls back '
                 . 'to the stream handler. DNS rebinding is no longer race-protected '
@@ -679,7 +690,7 @@ final class SecureHttpClientFactory
                 // explicitly allowlisted that exact literal.
                 if (!$allowlisted && $this->isLegacyNumericIpForm($host)) {
                     throw new RequestException(
-                        \sprintf(
+                        sprintf(
                             'Refused to send request: host "%s" is a non-canonical numeric IP form '
                             . '(curl would interpret it as an IP address, bypassing the IP range '
                             . 'checks). Use the canonical dotted-quad or IPv6 form.',
@@ -700,7 +711,7 @@ final class SecureHttpClientFactory
                 // The truthiness cast mirrors Guzzle's own routing check
                 // (`Proxy::wrapStreaming()` tests `empty($options['stream'])`),
                 // so this predicate and the handler choice cannot disagree.
-                $pinWillBeHonoured = \function_exists('curl_init')
+                $pinWillBeHonoured = function_exists('curl_init')
                     && !(bool) ($options['stream'] ?? false);
 
                 // Throws rather than returning a sentinel: the two rejections
@@ -723,12 +734,12 @@ final class SecureHttpClientFactory
                 // this is exactly the degraded-but-working posture create()'s
                 // missing-ext-curl warning documents.
                 if ($resolveEntries !== [] && $pinWillBeHonoured) {
-                    $curlOptions = \is_array($options['curl'] ?? null) ? $options['curl'] : [];
+                    $curlOptions = is_array($options['curl'] ?? null) ? $options['curl'] : [];
                     /** @var list<string> $existing */
-                    $existing = \is_array($curlOptions[\CURLOPT_RESOLVE] ?? null)
-                        ? $curlOptions[\CURLOPT_RESOLVE]
+                    $existing = is_array($curlOptions[CURLOPT_RESOLVE] ?? null)
+                        ? $curlOptions[CURLOPT_RESOLVE]
                         : [];
-                    $curlOptions[\CURLOPT_RESOLVE] = array_values(array_unique(
+                    $curlOptions[CURLOPT_RESOLVE] = array_values(array_unique(
                         array_merge($existing, $resolveEntries),
                     ));
                     $options['curl'] = $curlOptions;
@@ -776,12 +787,12 @@ final class SecureHttpClientFactory
      *  - a single-element `list<string>` carrying the pin entry for safe
      *    multi-record hosts.
      *
-     * @param bool $allowlisted When the host carries a literal `allowed_hosts`
-     *                          entry, resolved IPs in otherwise-dangerous
-     *                          ranges are pinned instead of rejected — the
-     *                          operator has explicitly opted in. The pin is
-     *                          still added so rebinding to a *different*
-     *                          address stays blocked.
+     * @param bool $allowlisted       When the host carries a literal `allowed_hosts`
+     *                                entry, resolved IPs in otherwise-dangerous
+     *                                ranges are pinned instead of rejected — the
+     *                                operator has explicitly opted in. The pin is
+     *                                still added so rebinding to a *different*
+     *                                address stays blocked.
      * @param bool $pinWillBeHonoured Whether curl will honour a
      *                                `CURLOPT_RESOLVE` pin for THIS transfer — ext-curl present AND the
      *                                request not routed to the StreamHandler (`stream => true` ignores
@@ -840,7 +851,7 @@ final class SecureHttpClientFactory
             // to re-resolution). DefaultDnsResolver always yields canonical
             // IPs, but DnsResolverInterface is a public seam — keep the entry
             // valid by construction.
-            if (!\is_string($ip) || filter_var($ip, FILTER_VALIDATE_IP) === false) {
+            if (!is_string($ip) || filter_var($ip, FILTER_VALIDATE_IP) === false) {
                 continue;
             }
             if (!$allowlisted && $this->isDangerousIpLiteral($ip)) {
@@ -869,7 +880,7 @@ final class SecureHttpClientFactory
             }
 
             throw new RequestException(
-                \sprintf(
+                sprintf(
                     'Refused to send request: host "%s" could not be resolved to a verifiable '
                     . 'IP address, so no address was range-checked and no pin could be set. '
                     . 'Sending it would let the transport resolve the name itself, unchecked. '
@@ -884,7 +895,7 @@ final class SecureHttpClientFactory
         // One entry with every safe address (see the method docblock): a later
         // entry for the same host:port would REPLACE this one in curl's cache,
         // so all fallback addresses must travel in a single entry.
-        return [\sprintf('%s:%d:%s', $host, $port, implode(',', array_unique($addresses)))];
+        return [sprintf('%s:%d:%s', $host, $port, implode(',', array_unique($addresses)))];
     }
 
     /**
@@ -898,7 +909,7 @@ final class SecureHttpClientFactory
     private function dangerousRangeRejection(RequestInterface $request, string $host): RequestException
     {
         return new RequestException(
-            \sprintf(
+            sprintf(
                 'Refused to send request: host "%s" resolves to a disallowed IP range '
                 . '(DNS rebinding defence).',
                 $host,
@@ -918,12 +929,12 @@ final class SecureHttpClientFactory
     private function resolveAllowedHostsList(): array
     {
         /** @var array<string, array<string, mixed>> $confVars */
-        $confVars = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
+        $confVars = is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null) ? $GLOBALS['TYPO3_CONF_VARS'] : [];
         /** @var array<string, mixed> $httpConfig */
-        $httpConfig = $confVars['HTTP'] ?? [];
+        $httpConfig   = $confVars['HTTP'] ?? [];
         $allowedHosts = $httpConfig['allowed_hosts'] ?? null;
 
-        return \is_array($allowedHosts) ? $allowedHosts : [];
+        return is_array($allowedHosts) ? $allowedHosts : [];
     }
 
     /**
@@ -938,7 +949,7 @@ final class SecureHttpClientFactory
     private function isExplicitlyAllowlisted(string $host, array $allowedHostsList): bool
     {
         foreach ($allowedHostsList as $pattern) {
-            if (\is_string($pattern) && strtolower($pattern) === $host) {
+            if (is_string($pattern) && strtolower($pattern) === $host) {
                 return true;
             }
         }
@@ -976,7 +987,7 @@ final class SecureHttpClientFactory
         // input is treated as authority (no scheme literal — the host is parsed,
         // never fetched, so there is no http/https insecurity).
         $parsed = parse_url('//' . $host);
-        if (!\is_array($parsed) || !isset($parsed['host']) || !\is_string($parsed['host'])) {
+        if (!is_array($parsed) || !isset($parsed['host']) || !is_string($parsed['host'])) {
             return '';
         }
 
@@ -1070,9 +1081,9 @@ final class SecureHttpClientFactory
             return false;
         }
 
-        return match (\strlen($packed)) {
-            4 => $this->isDangerousIpv4($host, $packed),
-            16 => $this->isDangerousIpv6($packed),
+        return match (strlen($packed)) {
+            4       => $this->isDangerousIpv4($host, $packed),
+            16      => $this->isDangerousIpv6($packed),
             default => false,
         };
     }
@@ -1129,7 +1140,7 @@ final class SecureHttpClientFactory
      *   100::/64            (discard-only)
      *   fc00::/7            (ULA)
      *   fe80::/10           (link-local)
-     *   ff00::/8            (multicast)
+     *   ff00::/8            (multicast).
      *
      * The transition forms (6to4 / Teredo / IPv4-compatible) embed an IPv4
      * address inside the IPv6 address. A naive range check that omits them
@@ -1140,7 +1151,7 @@ final class SecureHttpClientFactory
      */
     private function isDangerousIpv6(string $packed): bool
     {
-        $b0 = \ord($packed[0]);
+        $b0 = ord($packed[0]);
 
         // Short-circuit byte-0-based checks first (cheapest).
         if (($b0 & 0xFE) === 0xFC) {
@@ -1149,7 +1160,7 @@ final class SecureHttpClientFactory
         if ($b0 === 0xFF) {
             return true; // ff00::/8 multicast
         }
-        if ($b0 === 0xFE && (\ord($packed[1]) & 0xC0) === 0x80) {
+        if ($b0 === 0xFE && (ord($packed[1]) & 0xC0) === 0x80) {
             return true; // fe80::/10 link-local
         }
 
@@ -1209,13 +1220,13 @@ final class SecureHttpClientFactory
      */
     private function embeddedIpv4IsDangerous(string $packedV4): bool
     {
-        if (\strlen($packedV4) !== 4) {
+        if (strlen($packedV4) !== 4) {
             return false;
         }
 
         $v4 = inet_ntop($packedV4);
 
-        return \is_string($v4) && $this->isDangerousIpLiteral($v4);
+        return is_string($v4) && $this->isDangerousIpLiteral($v4);
     }
 
     /**
@@ -1241,7 +1252,7 @@ final class SecureHttpClientFactory
             // DnsResolverInterface is a public seam: an answer that is not a
             // well-formed IP cannot be range-checked, so it counts for nothing
             // rather than counting as safe.
-            if (!\is_string($ip) || filter_var($ip, FILTER_VALIDATE_IP) === false) {
+            if (!is_string($ip) || filter_var($ip, FILTER_VALIDATE_IP) === false) {
                 continue;
             }
 
@@ -1311,7 +1322,7 @@ final class SecureHttpClientFactory
         }
 
         unset($this->dnsMemo[$host]);
-        while (\count($this->dnsMemo) >= self::DNS_MEMO_MAX_HOSTS) {
+        while (count($this->dnsMemo) >= self::DNS_MEMO_MAX_HOSTS) {
             // Not array_shift(): PHP casts a purely-numeric hostname to an
             // int key, and array_shift() would renumber the remaining int
             // keys — a later lookup could then hit a foreign entry's records.
@@ -1325,7 +1336,7 @@ final class SecureHttpClientFactory
 
         $this->dnsMemo[$host] = [
             'expiresAt' => $now + self::DNS_MEMO_TTL_SECONDS,
-            'records' => $records,
+            'records'   => $records,
         ];
 
         return $records;

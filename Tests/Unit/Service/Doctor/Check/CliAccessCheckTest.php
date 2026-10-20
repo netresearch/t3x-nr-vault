@@ -147,8 +147,8 @@ final class CliAccessCheckTest extends TestCase
      * they never counted as unknown either — an allowlist containing them
      * satisfied `$risky === [] && $unknown === []` and reported a clean pass.
      *
-     * @param list<string> $operations Configured `cliAllowedOperations`
-     * @param string $expectedHighRisk Expected `details['highRisk']`
+     * @param list<string> $operations       Configured `cliAllowedOperations`
+     * @param string       $expectedHighRisk Expected `details['highRisk']`
      */
     #[Test]
     #[DataProvider('optInOperationProvider')]
@@ -450,7 +450,7 @@ final class CliAccessCheckTest extends TestCase
     }
 
     /**
-     * @param list<int> $groups
+     * @param list<int>    $groups
      * @param list<string> $operations
      */
     private function check(

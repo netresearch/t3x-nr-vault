@@ -20,6 +20,8 @@ use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
 use Netresearch\NrVault\Service\VaultHealthServiceInterface;
 
+use function sprintf;
+
 /**
  * The master key: is one configured, permitted, reachable, and protected on disk?
  *
@@ -111,7 +113,7 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
         if ($configured !== self::PROVIDER_TYPO3) {
             return Finding::pass(
                 id: $id,
-                summary: \sprintf('Master-key provider "%s" is explicitly configured.', $configured),
+                summary: sprintf('Master-key provider "%s" is explicitly configured.', $configured),
                 docsUrl: DocsLink::MASTER_KEY_PROVIDERS,
                 details: ['provider' => $configured],
             );
@@ -165,7 +167,7 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
         } catch (ConfigurationException $e) {
             return Finding::critical(
                 id: $id,
-                summary: \sprintf('The configured master-key provider "%s" cannot be built.', $configured),
+                summary: sprintf('The configured master-key provider "%s" cannot be built.', $configured),
                 risk: 'Every vault operation fails at the crypto boundary. The message is: ' . $e->getMessage(),
                 remediation: 'Correct the "masterKeyProvider" extension setting, or install the extension '
                     . 'that supplies this provider.',
@@ -176,7 +178,7 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
 
         return Finding::pass(
             id: $id,
-            summary: \sprintf('Master-key provider "%s" resolves.', $configured),
+            summary: sprintf('Master-key provider "%s" resolves.', $configured),
             docsUrl: DocsLink::MASTER_KEY_PROVIDERS,
             details: ['provider' => $configured],
         );
@@ -194,7 +196,7 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
      */
     private function checkLiveness(string $configured): array
     {
-        $status = $this->healthService->checkHealth();
+        $status   = $this->healthService->checkHealth();
         $resolved = $status->masterKeyProvider;
 
         if (!$status->masterKeyAvailable) {
@@ -217,7 +219,7 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
             // not auto-detect.
             $available = Finding::warning(
                 id: 'provider.available',
-                summary: \sprintf(
+                summary: sprintf(
                     'The configured provider is "%s" but the runtime resolved "%s" by auto-detection.',
                     $configured,
                     $resolved,
@@ -226,7 +228,7 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
                     . 'so key rotation and backup procedures written against the configuration will miss '
                     . 'the key actually in use. Switching to the hardened profile removes auto-detection '
                     . 'and turns this into an immediate outage.',
-                remediation: \sprintf(
+                remediation: sprintf(
                     'Either make "%s" usable, or set "masterKeyProvider" to "%s" to match reality.',
                     $configured,
                     $resolved,
@@ -237,7 +239,7 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
         } else {
             $available = Finding::pass(
                 id: 'provider.available',
-                summary: \sprintf('Master-key provider "%s" is available.', $resolved),
+                summary: sprintf('Master-key provider "%s" is available.', $resolved),
                 docsUrl: DocsLink::MASTER_KEY_PROVIDERS,
                 details: ['resolvedProvider' => $resolved],
             );
@@ -274,7 +276,7 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
      */
     private function checkKeyFilePermissions(): Finding
     {
-        $id = 'provider.key_permissions';
+        $id   = 'provider.key_permissions';
         $path = $this->resolveKeyFilePath();
 
         if ($path === null) {
@@ -304,8 +306,8 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
             );
         }
 
-        $mode = $perms & 0o777;
-        $octal = \sprintf('0%o', $mode);
+        $mode  = $perms & 0o777;
+        $octal = sprintf('0%o', $mode);
 
         // Group or other holding read, write or execute. Read is the one that
         // loses the secrets; write and execute are included because a mode that
@@ -313,7 +315,7 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
         if (($mode & 0o077) !== 0) {
             return Finding::critical(
                 id: $id,
-                summary: \sprintf('The master-key file is accessible beyond its owner (mode %s).', $octal),
+                summary: sprintf('The master-key file is accessible beyond its owner (mode %s).', $octal),
                 risk: 'Any local account in the file\'s group — on shared hosting, every other site on '
                     . 'the box — can read the key and decrypt every secret in the vault. Envelope '
                     . 'encryption provides no protection once the master key is readable.',
@@ -327,7 +329,7 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
 
         return Finding::pass(
             id: $id,
-            summary: \sprintf('The master-key file is owner-only (mode %s).', $octal),
+            summary: sprintf('The master-key file is owner-only (mode %s).', $octal),
             docsUrl: DocsLink::MASTER_KEY_FILE,
             details: ['mode' => $octal],
         );

@@ -1,16 +1,16 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Audit;
+
+use function is_scalar;
+use function is_string;
 
 /**
  * Generic context data for audit entries.
@@ -33,7 +33,7 @@ final readonly class GenericContext implements AuditContextInterface
     {
         $data = [];
         foreach ($values as $key => $value) {
-            if (\is_string($key) && (\is_scalar($value) || $value === null)) {
+            if (is_string($key) && (is_scalar($value) || $value === null)) {
                 $data[$key] = $value;
             }
         }

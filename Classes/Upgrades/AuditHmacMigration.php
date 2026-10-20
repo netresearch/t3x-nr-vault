@@ -212,7 +212,7 @@ final class AuditHmacMigration implements LoggerAwareInterface
             ->orderBy('uid', 'ASC')
             ->executeQuery();
 
-        $previousHash = '';
+        $previousHash  = '';
         $migratedCount = 0;
 
         while (($row = $result->fetchAssociative()) !== false) {
@@ -228,7 +228,7 @@ final class AuditHmacMigration implements LoggerAwareInterface
             // to before extraction.
             if ($targetEpoch >= 3) {
                 $row['hmac_key_epoch'] = $targetEpoch;
-                $newHash = AuditLogService::calculateHashV3(
+                $newHash               = AuditLogService::calculateHashV3(
                     AuditLogService::extractV3HashRow($row),
                     $previousHash,
                     $hmacKey,
@@ -254,8 +254,8 @@ final class AuditHmacMigration implements LoggerAwareInterface
             $connection->update(
                 self::TABLE_NAME,
                 [
-                    'entry_hash' => $newHash,
-                    'previous_hash' => $previousHash,
+                    'entry_hash'     => $newHash,
+                    'previous_hash'  => $previousHash,
                     'hmac_key_epoch' => $targetEpoch,
                 ],
                 ['uid' => $entry['uid']],
@@ -277,9 +277,9 @@ final class AuditHmacMigration implements LoggerAwareInterface
      */
     private function countOutdatedEntries(int $targetEpoch): int
     {
-        $connection = $this->connectionPool->getConnectionForTable(self::TABLE_NAME);
+        $connection   = $this->connectionPool->getConnectionForTable(self::TABLE_NAME);
         $queryBuilder = $connection->createQueryBuilder();
-        $result = $queryBuilder
+        $result       = $queryBuilder
             ->count('uid')
             ->from(self::TABLE_NAME)
             ->where(

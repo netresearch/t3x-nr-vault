@@ -20,7 +20,7 @@ final class HashChainVerificationResultTest extends TestCase
     #[Test]
     public function constructorSetsValidAndErrors(): void
     {
-        $errors = [1 => 'Hash mismatch', 5 => 'Missing entry'];
+        $errors  = [1 => 'Hash mismatch', 5 => 'Missing entry'];
         $subject = new HashChainVerificationResult(valid: false, errors: $errors);
 
         self::assertFalse($subject->valid);
@@ -47,7 +47,7 @@ final class HashChainVerificationResultTest extends TestCase
     #[Test]
     public function invalidFactoryCreatesFailedResultWithErrors(): void
     {
-        $errors = [3 => 'Chain broken', 7 => 'Invalid hash'];
+        $errors  = [3 => 'Chain broken', 7 => 'Invalid hash'];
         $subject = HashChainVerificationResult::invalid($errors);
 
         self::assertFalse($subject->valid);
@@ -83,7 +83,7 @@ final class HashChainVerificationResultTest extends TestCase
     #[Test]
     public function isValidMirrorsValidProperty(): void
     {
-        $trueResult = new HashChainVerificationResult(valid: true);
+        $trueResult  = new HashChainVerificationResult(valid: true);
         $falseResult = new HashChainVerificationResult(valid: false);
 
         self::assertSame($trueResult->valid, $trueResult->isValid());
@@ -101,7 +101,7 @@ final class HashChainVerificationResultTest extends TestCase
     #[Test]
     public function getErrorCountReturnsCorrectCountForInvalidResult(): void
     {
-        $errors = [1 => 'err1', 5 => 'err2', 9 => 'err3'];
+        $errors  = [1 => 'err1', 5 => 'err2', 9 => 'err3'];
         $subject = HashChainVerificationResult::invalid($errors);
 
         self::assertSame(3, $subject->getErrorCount());
@@ -121,34 +121,34 @@ final class HashChainVerificationResultTest extends TestCase
         $subject = HashChainVerificationResult::valid();
 
         self::assertSame([
-            'valid' => true,
-            'errors' => [],
-            'warnings' => [],
-            'missingUids' => [],
+            'valid'           => true,
+            'errors'          => [],
+            'warnings'        => [],
+            'missingUids'     => [],
             'missingUidCount' => 0,
-            'anchorStatus' => 'notChecked',
-            'epochCounts' => [],
-            'minEpoch' => null,
-            'maxEpoch' => null,
+            'anchorStatus'    => 'notChecked',
+            'epochCounts'     => [],
+            'minEpoch'        => null,
+            'maxEpoch'        => null,
         ], $subject->toArray());
     }
 
     #[Test]
     public function toArrayReturnsCorrectStructureForInvalidResult(): void
     {
-        $errors = [2 => 'Chain broken at entry 2', 8 => 'Entry 8 missing'];
+        $errors  = [2 => 'Chain broken at entry 2', 8 => 'Entry 8 missing'];
         $subject = HashChainVerificationResult::invalid($errors);
 
         self::assertSame([
-            'valid' => false,
-            'errors' => $errors,
-            'warnings' => [],
-            'missingUids' => [],
+            'valid'           => false,
+            'errors'          => $errors,
+            'warnings'        => [],
+            'missingUids'     => [],
             'missingUidCount' => 0,
-            'anchorStatus' => 'notChecked',
-            'epochCounts' => [],
-            'minEpoch' => null,
-            'maxEpoch' => null,
+            'anchorStatus'    => 'notChecked',
+            'epochCounts'     => [],
+            'minEpoch'        => null,
+            'maxEpoch'        => null,
         ], $subject->toArray());
     }
 
@@ -264,7 +264,7 @@ final class HashChainVerificationResultTest extends TestCase
     public function validFactoryAcceptsWarnings(): void
     {
         $warnings = [5 => 'HMAC key epoch boundary: 0 -> 1'];
-        $subject = HashChainVerificationResult::valid($warnings);
+        $subject  = HashChainVerificationResult::valid($warnings);
 
         self::assertTrue($subject->valid);
         self::assertSame([], $subject->errors);
@@ -274,9 +274,9 @@ final class HashChainVerificationResultTest extends TestCase
     #[Test]
     public function invalidFactoryAcceptsWarnings(): void
     {
-        $errors = [3 => 'Chain broken'];
+        $errors   = [3 => 'Chain broken'];
         $warnings = [2 => 'Epoch boundary'];
-        $subject = HashChainVerificationResult::invalid($errors, $warnings);
+        $subject  = HashChainVerificationResult::invalid($errors, $warnings);
 
         self::assertFalse($subject->valid);
         self::assertSame($errors, $subject->errors);
@@ -295,7 +295,7 @@ final class HashChainVerificationResultTest extends TestCase
     public function getWarningCountReturnsCorrectCount(): void
     {
         $warnings = [1 => 'warn1', 5 => 'warn2'];
-        $subject = HashChainVerificationResult::valid($warnings);
+        $subject  = HashChainVerificationResult::valid($warnings);
 
         self::assertSame(2, $subject->getWarningCount());
     }
@@ -304,7 +304,7 @@ final class HashChainVerificationResultTest extends TestCase
     public function toArrayIncludesWarnings(): void
     {
         $warnings = [10 => 'epoch change'];
-        $subject = HashChainVerificationResult::valid($warnings);
+        $subject  = HashChainVerificationResult::valid($warnings);
 
         $array = $subject->toArray();
         self::assertSame($warnings, $array['warnings']);

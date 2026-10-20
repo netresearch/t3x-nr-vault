@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\TCA;
 
+use function is_array;
+
 /**
  * Helper for creating vault secret TCA field configurations.
  *
@@ -54,9 +56,9 @@ final class VaultFieldHelper
     public static function getFieldConfig(array $options = []): array
     {
         $config = [
-            'type' => 'input',
+            'type'       => 'input',
             'renderType' => 'vaultSecret',
-            'size' => $options['size'] ?? 30,
+            'size'       => $options['size'] ?? 30,
             // TYPO3 v14 searches every input column that does not opt out
             // (#106972); the column holds a secret's vault identifier and is
             // never a search target. TYPO3 v13 ignores the flag.
@@ -113,7 +115,7 @@ final class VaultFieldHelper
      * - exclude: true (admin-only by default)
      * - l10n_mode: exclude (secrets typically aren't translated)
      *
-     * @param string $label The field label
+     * @param string               $label   The field label
      * @param array<string, mixed> $options Additional options
      *
      * @return array<string, mixed> Complete TCA column definition
@@ -122,8 +124,8 @@ final class VaultFieldHelper
     {
         /** @var array{label?: string, description?: string, size?: int, required?: bool, placeholder?: string, displayCond?: string, l10n_mode?: string, exclude?: bool} $mergedOptions */
         $mergedOptions = array_merge([
-            'label' => $label,
-            'exclude' => true,
+            'label'     => $label,
+            'exclude'   => true,
             'l10n_mode' => 'exclude',
         ], $options);
 
@@ -149,7 +151,7 @@ final class VaultFieldHelper
     /**
      * Add vault field columns to an existing TCA array.
      *
-     * @param array<string, mixed> $tca Existing TCA configuration
+     * @param array<string, mixed>                                                                                                                                                    $tca         Existing TCA configuration
      * @param array<string, array{label?: string, description?: string, size?: int, required?: bool, placeholder?: string, displayCond?: string, l10n_mode?: string, exclude?: bool}> $vaultFields Map of field names to options
      *
      * @return array<string, mixed> Modified TCA with vault fields added
@@ -157,7 +159,7 @@ final class VaultFieldHelper
     public static function addVaultFields(array $tca, array $vaultFields): array
     {
         /** @var array<string, mixed> $columns */
-        $columns = \is_array($tca['columns'] ?? null) ? $tca['columns'] : [];
+        $columns = is_array($tca['columns'] ?? null) ? $tca['columns'] : [];
         foreach ($vaultFields as $fieldName => $options) {
             $columns[$fieldName] = self::getFieldConfig($options);
         }
@@ -178,7 +180,7 @@ final class VaultFieldHelper
     {
         /** @var array<string, mixed>|mixed $config */
         $config = $fieldConfig['config'] ?? [];
-        if (!\is_array($config)) {
+        if (!is_array($config)) {
             return false;
         }
 

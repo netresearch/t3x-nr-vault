@@ -117,7 +117,7 @@ final class LocalEncryptionAdapterMetadataTest extends FunctionalTestCase
         $decorated->method('findByIdentifier')->willReturnCallback(
             static function (string $identifier) use ($real): ?Secret {
                 $secret = $real->findByIdentifier($identifier);
-                $uid = $secret?->getUid();
+                $uid    = $secret?->getUid();
                 if ($uid !== null) {
                     $real->incrementReadCount($uid);
                 }

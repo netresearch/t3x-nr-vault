@@ -38,12 +38,12 @@ final class VaultRetrieveCommandTest extends AbstractVaultFunctionalTestCase
     public function retrieveCommandOutputsSecretToStdout(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = 'cmd_retrieve_stdout_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_retrieve_stdout_' . bin2hex(random_bytes(4));
         $vaultService->store($identifier, 'retrieve-me-value');
 
         try {
             $command = $this->get(VaultRetrieveCommand::class);
-            $tester = new CommandTester($command);
+            $tester  = new CommandTester($command);
 
             $exitCode = $tester->execute(['identifier' => $identifier]);
 
@@ -58,7 +58,7 @@ final class VaultRetrieveCommandTest extends AbstractVaultFunctionalTestCase
     public function retrieveCommandReturnsFailureForNonExistentSecret(): void
     {
         $command = $this->get(VaultRetrieveCommand::class);
-        $tester = new CommandTester($command);
+        $tester  = new CommandTester($command);
 
         $exitCode = $tester->execute(['identifier' => 'nonexistent_secret_' . bin2hex(random_bytes(4))]);
 
@@ -70,18 +70,18 @@ final class VaultRetrieveCommandTest extends AbstractVaultFunctionalTestCase
     public function retrieveCommandWritesSecretToOutputFile(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = 'cmd_retrieve_tofile_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_retrieve_tofile_' . bin2hex(random_bytes(4));
         $vaultService->store($identifier, 'file-output-secret');
 
         $outputFile = $this->instancePath . '/retrieved-secret.txt';
 
         try {
             $command = $this->get(VaultRetrieveCommand::class);
-            $tester = new CommandTester($command);
+            $tester  = new CommandTester($command);
 
             $exitCode = $tester->execute([
                 'identifier' => $identifier,
-                '--output' => $outputFile,
+                '--output'   => $outputFile,
             ]);
 
             self::assertSame(0, $exitCode, $tester->getDisplay());
@@ -100,19 +100,19 @@ final class VaultRetrieveCommandTest extends AbstractVaultFunctionalTestCase
     public function retrieveCommandCreatesAuditLogEntry(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = 'cmd_retrieve_audit_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_retrieve_audit_' . bin2hex(random_bytes(4));
         $vaultService->store($identifier, 'audit-check-value');
 
         try {
             $command = $this->get(VaultRetrieveCommand::class);
-            $tester = new CommandTester($command);
+            $tester  = new CommandTester($command);
             $tester->execute(['identifier' => $identifier]);
 
             // The retrieve operation should have written audit log entries.
             // False positive on opengrep — `$identifier` is bound via
             // createNamedParameter, not string-concatenated into the SQL.
             $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
-            $qb = $connection->createQueryBuilder();
+            $qb         = $connection->createQueryBuilder();
             // nosemgrep: php.doctrine.security.audit.doctrine-orm-dangerous-query.doctrine-orm-dangerous-query
             $count = (int) $qb->count('uid')->from('tx_nrvault_audit_log')->where($qb->expr()->eq('secret_identifier', $qb->createNamedParameter($identifier)))->executeQuery()->fetchOne();
 

@@ -23,6 +23,8 @@ use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 
+use function in_array;
+
 /**
  * The operation-permission gate on `vault:audit-verify`.
  *
@@ -52,16 +54,16 @@ final class VaultAuditVerifyCommandTest extends TestCase
         parent::setUp();
 
         $this->anchorService = $this->createMock(ChainTipAnchorServiceInterface::class);
-        $this->sinkRegistry = $this->createMock(AuditSinkRegistryInterface::class);
+        $this->sinkRegistry  = $this->createMock(AuditSinkRegistryInterface::class);
         $this->sinkRegistry->method('getEnabledSinkIdentifiers')->willReturn(['file']);
         $this->sinkRegistry->method('getFailureCountsBySink')->willReturn([]);
 
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
-        $this->grantedPermissions = VaultPermission::cases();
+        $this->grantedPermissions   = VaultPermission::cases();
         $this->accessControlService
             ->method('isGranted')
             ->willReturnCallback(
-                fn (VaultPermission $permission): bool => \in_array($permission, $this->grantedPermissions, true),
+                fn (VaultPermission $permission): bool => in_array($permission, $this->grantedPermissions, true),
             );
 
         $this->commandTester = new CommandTester(new VaultAuditVerifyCommand(

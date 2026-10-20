@@ -16,6 +16,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Console\Tester\CommandTester;
 
+use function is_array;
+
 /**
  * End-to-end `vault:doctor` runs through the real DI container.
  *
@@ -52,7 +54,7 @@ final class VaultDoctorCommandTest extends AbstractVaultFunctionalTestCase
     {
         $this->configure(['securityProfile' => 'hardened']);
 
-        $tester = new CommandTester($this->get(VaultDoctorCommand::class));
+        $tester   = new CommandTester($this->get(VaultDoctorCommand::class));
         $exitCode = $tester->execute([]);
 
         self::assertSame(2, $exitCode, $tester->getDisplay());
@@ -72,7 +74,7 @@ final class VaultDoctorCommandTest extends AbstractVaultFunctionalTestCase
     {
         $this->configure(['securityProfile' => 'hardened']);
 
-        $tester = new CommandTester($this->get(VaultDoctorCommand::class));
+        $tester   = new CommandTester($this->get(VaultDoctorCommand::class));
         $exitCode = $tester->execute(['--format' => 'json']);
 
         self::assertSame(2, $exitCode);
@@ -153,10 +155,10 @@ final class VaultDoctorCommandTest extends AbstractVaultFunctionalTestCase
     {
         $this->configure(['securityProfile' => 'standard']);
 
-        $tester = new CommandTester($this->get(VaultDoctorCommand::class));
+        $tester   = new CommandTester($this->get(VaultDoctorCommand::class));
         $exitCode = $tester->execute(['--format' => 'json']);
 
-        $payload = $this->decode($tester->getDisplay());
+        $payload   = $this->decode($tester->getDisplay());
         $criticals = array_filter(
             $this->findings($payload),
             static fn (array $finding): bool => $finding['severity'] === 'critical',
@@ -184,7 +186,7 @@ final class VaultDoctorCommandTest extends AbstractVaultFunctionalTestCase
     {
         $this->configure(['securityProfile' => 'standard']);
 
-        $tester = new CommandTester($this->get(VaultDoctorCommand::class));
+        $tester   = new CommandTester($this->get(VaultDoctorCommand::class));
         $exitCode = $tester->execute(['--profile' => 'hardened', '--format' => 'json']);
 
         self::assertSame(2, $exitCode);
@@ -288,10 +290,10 @@ final class VaultDoctorCommandTest extends AbstractVaultFunctionalTestCase
         $extensions = $confVars['EXTENSIONS'] ?? null;
         self::assertIsArray($extensions);
 
-        $existing = $extensions['nr_vault'] ?? null;
-        $extensions['nr_vault'] = array_merge(\is_array($existing) ? $existing : [], $configuration);
+        $existing               = $extensions['nr_vault'] ?? null;
+        $extensions['nr_vault'] = array_merge(is_array($existing) ? $existing : [], $configuration);
 
-        $confVars['EXTENSIONS'] = $extensions;
+        $confVars['EXTENSIONS']     = $extensions;
         $GLOBALS['TYPO3_CONF_VARS'] = $confVars;
     }
 }

@@ -58,7 +58,7 @@ final class ReEncryptedDekTest extends TestCase
     #[Test]
     public function fromRawWithBinaryDataProducesValidBase64(): void
     {
-        $binaryDek = random_bytes(48);
+        $binaryDek   = random_bytes(48);
         $binaryNonce = random_bytes(24);
 
         $subject = ReEncryptedDek::fromRaw($binaryDek, $binaryNonce);
@@ -77,7 +77,7 @@ final class ReEncryptedDekTest extends TestCase
 
         self::assertSame([
             'encrypted_dek' => 'enc_dek_val',
-            'nonce' => 'nonce_val',
+            'nonce'         => 'nonce_val',
         ], $subject->toArray());
     }
 
@@ -92,11 +92,11 @@ final class ReEncryptedDekTest extends TestCase
     #[Test]
     public function fromRawRoundTripPreservesAllValues(): void
     {
-        $rawDek = 'my-encrypted-dek';
+        $rawDek   = 'my-encrypted-dek';
         $rawNonce = 'my-nonce';
 
         $subject = ReEncryptedDek::fromRaw($rawDek, $rawNonce);
-        $array = $subject->toArray();
+        $array   = $subject->toArray();
 
         self::assertSame(base64_encode($rawDek), $array['encrypted_dek']);
         self::assertSame(base64_encode($rawNonce), $array['nonce']);
@@ -106,7 +106,7 @@ final class ReEncryptedDekTest extends TestCase
     public function constructorRoundTripToArray(): void
     {
         $subject = new ReEncryptedDek('dek123', 'nonce456');
-        $array = $subject->toArray();
+        $array   = $subject->toArray();
 
         self::assertSame('dek123', $array['encrypted_dek']);
         self::assertSame('nonce456', $array['nonce']);

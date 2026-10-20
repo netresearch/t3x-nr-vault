@@ -15,7 +15,7 @@ namespace Netresearch\NrVault\Seeder;
 final readonly class DemoEvent
 {
     /**
-     * @param string $action AuditAction backing value (read, rotate, delete, ...)
+     * @param string $action    AuditAction backing value (read, rotate, delete, ...)
      * @param string $actorType backend|cli|api|scheduler
      */
     public function __construct(

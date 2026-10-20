@@ -38,15 +38,15 @@ final class VaultStoreCommandTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function storeCommandPersistsSecretInVault(): void
     {
-        $identifier = 'cmd_store_test_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_store_test_' . bin2hex(random_bytes(4));
         $vaultService = $this->get(VaultServiceInterface::class);
-        $command = $this->get(VaultStoreCommand::class);
-        $tester = new CommandTester($command);
+        $command      = $this->get(VaultStoreCommand::class);
+        $tester       = new CommandTester($command);
 
         try {
             $exitCode = $tester->execute([
                 'identifier' => $identifier,
-                '--value' => 'my-stored-secret',
+                '--value'    => 'my-stored-secret',
             ]);
 
             self::assertSame(0, $exitCode, $tester->getDisplay());
@@ -62,15 +62,15 @@ final class VaultStoreCommandTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function storeCommandOutputsSuccessMessage(): void
     {
-        $identifier = 'cmd_store_sucmsg_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_store_sucmsg_' . bin2hex(random_bytes(4));
         $vaultService = $this->get(VaultServiceInterface::class);
-        $command = $this->get(VaultStoreCommand::class);
-        $tester = new CommandTester($command);
+        $command      = $this->get(VaultStoreCommand::class);
+        $tester       = new CommandTester($command);
 
         try {
             $tester->execute([
                 'identifier' => $identifier,
-                '--value' => 'success-message-test',
+                '--value'    => 'success-message-test',
             ]);
 
             self::assertStringContainsString('stored successfully', $tester->getDisplay());
@@ -83,8 +83,8 @@ final class VaultStoreCommandTest extends AbstractVaultFunctionalTestCase
     public function storeCommandReturnsFailureWhenNoValueProvided(): void
     {
         $identifier = 'cmd_store_noval_' . bin2hex(random_bytes(4));
-        $command = $this->get(VaultStoreCommand::class);
-        $tester = new CommandTester($command);
+        $command    = $this->get(VaultStoreCommand::class);
+        $tester     = new CommandTester($command);
 
         // Run with no --value and non-interactive (no prompt).
         // No cleanup needed — the command fails before storing anything.
@@ -99,15 +99,15 @@ final class VaultStoreCommandTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function storeCommandWithMetadataStoresWithOptions(): void
     {
-        $identifier = 'cmd_store_withmeta_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_store_withmeta_' . bin2hex(random_bytes(4));
         $vaultService = $this->get(VaultServiceInterface::class);
-        $command = $this->get(VaultStoreCommand::class);
-        $tester = new CommandTester($command);
+        $command      = $this->get(VaultStoreCommand::class);
+        $tester       = new CommandTester($command);
 
         try {
             $exitCode = $tester->execute([
                 'identifier' => $identifier,
-                '--value' => 'metadata-secret',
+                '--value'    => 'metadata-secret',
                 '--metadata' => ['env=production', 'owner=ci'],
             ]);
 
@@ -128,15 +128,15 @@ final class VaultStoreCommandTest extends AbstractVaultFunctionalTestCase
         file_put_contents($secretFile, 'file-based-secret');
         chmod($secretFile, 0o600);
 
-        $identifier = 'cmd_store_fromfile_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_store_fromfile_' . bin2hex(random_bytes(4));
         $vaultService = $this->get(VaultServiceInterface::class);
-        $command = $this->get(VaultStoreCommand::class);
-        $tester = new CommandTester($command);
+        $command      = $this->get(VaultStoreCommand::class);
+        $tester       = new CommandTester($command);
 
         try {
             $exitCode = $tester->execute([
                 'identifier' => $identifier,
-                '--file' => $secretFile,
+                '--file'     => $secretFile,
             ]);
 
             self::assertSame(0, $exitCode, $tester->getDisplay());

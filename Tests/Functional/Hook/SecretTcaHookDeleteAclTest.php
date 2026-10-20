@@ -162,7 +162,7 @@ final class SecretTcaHookDeleteAclTest extends AbstractVaultFunctionalTestCase
         $hook = $this->get(SecretTcaHook::class);
         self::assertInstanceOf(SecretTcaHook::class, $hook);
 
-        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler          = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->BE_USER = $GLOBALS['BE_USER'];
 
         $hook->processCmdmap_preProcess('delete', self::SECRET_TABLE, $uid, dataHandler: $dataHandler);
@@ -181,11 +181,11 @@ final class SecretTcaHookDeleteAclTest extends AbstractVaultFunctionalTestCase
         $identifier = 'del_acl_' . bin2hex(random_bytes(4));
         $connection = $this->getConnectionPool()->getConnectionForTable(self::SECRET_TABLE);
         $connection->insert(self::SECRET_TABLE, [
-            'pid' => 0,
-            'identifier' => $identifier,
-            'owner_uid' => $ownerUid,
+            'pid'                 => 0,
+            'identifier'          => $identifier,
+            'owner_uid'           => $ownerUid,
             'frontend_accessible' => 0,
-            'deleted' => 0,
+            'deleted'             => 0,
         ]);
 
         return [(int) $connection->lastInsertId(), $identifier];

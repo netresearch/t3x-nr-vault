@@ -17,6 +17,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+use function sprintf;
+
 #[CoversClass(SecretPatternLibrary::class)]
 #[CoversClass(SecretPattern::class)]
 final class SecretPatternLibraryTest extends TestCase
@@ -39,11 +41,11 @@ final class SecretPatternLibraryTest extends TestCase
     ): void {
         $anchored = SecretPatternLibrary::anchoredByName();
 
-        self::assertArrayHasKey($name, $anchored, \sprintf('Pattern "%s" was dropped from the catalogue.', $name));
+        self::assertArrayHasKey($name, $anchored, sprintf('Pattern "%s" was dropped from the catalogue.', $name));
         self::assertSame(
             $pattern,
             $anchored[$name],
-            \sprintf('Pattern "%s" changed; existing scan findings would change with it.', $name),
+            sprintf('Pattern "%s" changed; existing scan findings would change with it.', $name),
         );
     }
 
@@ -82,7 +84,7 @@ final class SecretPatternLibraryTest extends TestCase
     {
         self::assertTrue(
             $pattern->anchoredPattern !== null || $pattern->inlinePattern !== null,
-            \sprintf('Pattern "%s" has neither an anchored nor an inline form and can never match.', $pattern->name),
+            sprintf('Pattern "%s" has neither an anchored nor an inline form and can never match.', $pattern->name),
         );
 
         foreach ([$pattern->anchoredPattern, $pattern->inlinePattern] as $regex) {
@@ -94,7 +96,7 @@ final class SecretPatternLibraryTest extends TestCase
             // raise a diagnostic, which the suite treats as a failure too).
             self::assertNotFalse(
                 preg_match($regex, 'probe'),
-                \sprintf('Pattern "%s" does not compile: %s', $pattern->name, $regex),
+                sprintf('Pattern "%s" does not compile: %s', $pattern->name, $regex),
             );
         }
     }
@@ -112,12 +114,12 @@ final class SecretPatternLibraryTest extends TestCase
         self::assertStringContainsString(
             '^',
             $pattern->anchoredPattern,
-            \sprintf('Anchored pattern "%s" is missing a start anchor.', $pattern->name),
+            sprintf('Anchored pattern "%s" is missing a start anchor.', $pattern->name),
         );
         self::assertStringContainsString(
             '$',
             $pattern->anchoredPattern,
-            \sprintf('Anchored pattern "%s" is missing an end anchor.', $pattern->name),
+            sprintf('Anchored pattern "%s" is missing an end anchor.', $pattern->name),
         );
     }
 
@@ -142,14 +144,14 @@ final class SecretPatternLibraryTest extends TestCase
             if ($pattern->name === $name) {
                 self::assertNull(
                     $pattern->inlinePattern,
-                    \sprintf('Shape "%s" is too generic to redact inline.', $name),
+                    sprintf('Shape "%s" is too generic to redact inline.', $name),
                 );
 
                 return;
             }
         }
 
-        self::fail(\sprintf('Shape "%s" is not in the catalogue.', $name));
+        self::fail(sprintf('Shape "%s" is not in the catalogue.', $name));
     }
 
     /**
@@ -177,7 +179,7 @@ final class SecretPatternLibraryTest extends TestCase
         foreach (SecretPatternLibrary::urlCredentials() as $pattern) {
             self::assertNull(
                 $pattern->anchoredPattern,
-                \sprintf('"%s" describes an embedded occurrence, not a whole value.', $pattern->name),
+                sprintf('"%s" describes an embedded occurrence, not a whole value.', $pattern->name),
             );
         }
     }
@@ -240,24 +242,24 @@ final class SecretPatternLibraryTest extends TestCase
     private static function catalogueBeforeExtraction(): array
     {
         return [
-            'Stripe live key' => '/^sk_live_[a-zA-Z0-9]{24,}$/',
-            'Stripe test key' => '/^sk_test_[a-zA-Z0-9]{24,}$/',
-            'Stripe publishable live' => '/^pk_live_[a-zA-Z0-9]{24,}$/',
-            'Stripe publishable test' => '/^pk_test_[a-zA-Z0-9]{24,}$/',
-            'AWS Access Key' => '/^AKIA[0-9A-Z]{16}$/',
+            'Stripe live key'              => '/^sk_live_[a-zA-Z0-9]{24,}$/',
+            'Stripe test key'              => '/^sk_test_[a-zA-Z0-9]{24,}$/',
+            'Stripe publishable live'      => '/^pk_live_[a-zA-Z0-9]{24,}$/',
+            'Stripe publishable test'      => '/^pk_test_[a-zA-Z0-9]{24,}$/',
+            'AWS Access Key'               => '/^AKIA[0-9A-Z]{16}$/',
             'GitHub Personal Access Token' => '/^ghp_[a-zA-Z0-9]{36}$/',
-            'GitHub OAuth Token' => '/^gho_[a-zA-Z0-9]{36}$/',
-            'GitHub App Token' => '/^ghu_[a-zA-Z0-9]{36}$/',
-            'GitHub Refresh Token' => '/^ghr_[a-zA-Z0-9]{36}$/',
-            'Slack Bot Token' => '/^xoxb-\d{10,13}-\d{10,13}-[a-zA-Z0-9]{24}$/',
-            'Slack User Token' => '/^xoxp-\d{10,13}-\d{10,13}-[a-zA-Z0-9]{24}$/',
-            'Slack App Token' => '/^xapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+$/',
-            'Google API Key' => '/^AIza[0-9A-Za-z_-]{35}$/',
-            'Mailchimp API Key' => '/^[a-f0-9]{32}-us\d{1,2}$/',
-            'SendGrid API Key' => '/^SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}$/',
-            'Twilio Auth Token' => '/^[a-f0-9]{32}$/',
-            'PayPal Client Secret' => '/^E[A-Za-z0-9_-]{50,80}$/',
-            'JWT Token' => '/^eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/',
+            'GitHub OAuth Token'           => '/^gho_[a-zA-Z0-9]{36}$/',
+            'GitHub App Token'             => '/^ghu_[a-zA-Z0-9]{36}$/',
+            'GitHub Refresh Token'         => '/^ghr_[a-zA-Z0-9]{36}$/',
+            'Slack Bot Token'              => '/^xoxb-\d{10,13}-\d{10,13}-[a-zA-Z0-9]{24}$/',
+            'Slack User Token'             => '/^xoxp-\d{10,13}-\d{10,13}-[a-zA-Z0-9]{24}$/',
+            'Slack App Token'              => '/^xapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+$/',
+            'Google API Key'               => '/^AIza[0-9A-Za-z_-]{35}$/',
+            'Mailchimp API Key'            => '/^[a-f0-9]{32}-us\d{1,2}$/',
+            'SendGrid API Key'             => '/^SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}$/',
+            'Twilio Auth Token'            => '/^[a-f0-9]{32}$/',
+            'PayPal Client Secret'         => '/^E[A-Za-z0-9_-]{50,80}$/',
+            'JWT Token'                    => '/^eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/',
         ];
     }
 }

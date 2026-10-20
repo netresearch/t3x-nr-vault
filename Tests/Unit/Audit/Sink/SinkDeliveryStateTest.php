@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -33,11 +33,11 @@ final class SinkDeliveryStateTest extends TestCase
     public function fromArrayReadsAWellFormedRow(): void
     {
         $state = SinkDeliveryState::fromArray('syslog', [
-            'lastSuccessAt' => 1_700_000_000,
-            'lastFailureAt' => 1_700_000_500,
+            'lastSuccessAt'       => 1_700_000_000,
+            'lastFailureAt'       => 1_700_000_500,
             'consecutiveFailures' => 3,
-            'totalFailures' => 12,
-            'lastError' => 'connection refused',
+            'totalFailures'       => 12,
+            'lastError'           => 'connection refused',
         ]);
 
         self::assertSame('syslog', $state->sinkIdentifier);
@@ -58,10 +58,10 @@ final class SinkDeliveryStateTest extends TestCase
     public function fromArrayCastsNumericStringsToIntegers(): void
     {
         $state = SinkDeliveryState::fromArray('webhook', [
-            'lastSuccessAt' => '1700000000',
-            'lastFailureAt' => '1700000500',
+            'lastSuccessAt'       => '1700000000',
+            'lastFailureAt'       => '1700000500',
             'consecutiveFailures' => '3',
-            'totalFailures' => '12',
+            'totalFailures'       => '12',
         ]);
 
         self::assertSame(1_700_000_000, $state->lastSuccessAt);
@@ -98,18 +98,18 @@ final class SinkDeliveryStateTest extends TestCase
     {
         yield 'empty row' => [[]];
         yield 'null values' => [[
-            'lastSuccessAt' => null,
-            'lastFailureAt' => null,
+            'lastSuccessAt'       => null,
+            'lastFailureAt'       => null,
             'consecutiveFailures' => null,
-            'totalFailures' => null,
-            'lastError' => null,
+            'totalFailures'       => null,
+            'lastError'           => null,
         ]];
         yield 'non-numeric strings' => [[
-            'lastSuccessAt' => 'never',
-            'lastFailureAt' => '',
+            'lastSuccessAt'       => 'never',
+            'lastFailureAt'       => '',
             'consecutiveFailures' => 'many',
-            'totalFailures' => [],
-            'lastError' => 42,
+            'totalFailures'       => [],
+            'lastError'           => 42,
         ]];
     }
 

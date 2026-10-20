@@ -17,6 +17,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function is_scalar;
+
 /**
  * SEC-3 all-or-nothing on the FormEngine/DataHandler paths: a mutation and
  * its tamper-evident audit entry must stand or fall together. The audit
@@ -51,7 +53,7 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
     public function metadataChangeIsRevertedWhenAuditWriteFails(): void
     {
         $identifier = 'atomic_meta_' . bin2hex(random_bytes(4));
-        $recordUid = $this->createRecord($identifier, 'Original description');
+        $recordUid  = $this->createRecord($identifier, 'Original description');
 
         $this->withBrokenAuditWrites(
             function () use ($recordUid): void {
@@ -86,7 +88,7 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
     public function formEngineDeleteIsRevertedWhenAuditWriteFails(): void
     {
         $identifier = 'atomic_del_' . bin2hex(random_bytes(4));
-        $recordUid = $this->createRecord($identifier, 'To be deleted');
+        $recordUid  = $this->createRecord($identifier, 'To be deleted');
 
         $this->withBrokenAuditWrites(
             function () use ($recordUid): void {
@@ -124,7 +126,7 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
     public function aclGroupRelationsAreRevertedWhenAuditWriteFails(): void
     {
         $identifier = 'atomic_acl_' . bin2hex(random_bytes(4));
-        $recordUid = $this->createRecord($identifier, 'ACL rollback');
+        $recordUid  = $this->createRecord($identifier, 'ACL rollback');
 
         // Seed the ACL tiers through a separate, still-audited edit, so the
         // rollback under test faces relations written on the UPDATE path —
@@ -157,7 +159,7 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
                                 // Widen BOTH tiers with group 99, and reorder the read
                                 // tier so a restore that ignored `sorting` would show.
                                 'allowed_groups' => '11,10,99',
-                                'write_groups' => '20,99',
+                                'write_groups'   => '20,99',
                             ],
                         ],
                     ],
@@ -216,14 +218,14 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
                     [
                         self::SECRET_TABLE => [
                             'NEW1' => [
-                                'pid' => 0,
-                                'identifier' => 'atomic_orphan_' . bin2hex(random_bytes(4)),
+                                'pid'         => 0,
+                                'identifier'  => 'atomic_orphan_' . bin2hex(random_bytes(4)),
                                 'description' => 'Value-less create with ACL groups',
                                 // No secret_input: the hook itself audits this
                                 // creation, so its failure triggers the hook's own
                                 // compensating delete.
                                 'allowed_groups' => '10,11',
-                                'write_groups' => '20',
+                                'write_groups'   => '20',
                             ],
                         ],
                     ],
@@ -269,7 +271,7 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
                 self::SECRET_TABLE => [
                     $recordUid => [
                         'allowed_groups' => $allowedGroups,
-                        'write_groups' => $writeGroups,
+                        'write_groups'   => $writeGroups,
                     ],
                 ],
             ],
@@ -293,9 +295,9 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
             [
                 self::SECRET_TABLE => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => $identifier,
-                        'description' => $description,
+                        'pid'          => 0,
+                        'identifier'   => $identifier,
+                        'description'  => $description,
                         'secret_input' => 'atomicity-test-value',
                     ],
                 ],
@@ -326,9 +328,9 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
      */
     private function withBrokenAuditWrites(callable $assertRollback): void
     {
-        $connection = $this->getConnectionPool()->getConnectionForTable(self::AUDIT_TABLE);
+        $connection    = $this->getConnectionPool()->getConnectionForTable(self::AUDIT_TABLE);
         $schemaManager = $connection->createSchemaManager();
-        $table = $schemaManager->introspectSchema()->getTable(self::AUDIT_TABLE);
+        $table         = $schemaManager->introspectSchema()->getTable(self::AUDIT_TABLE);
 
         try {
             $connection->executeStatement('DROP TABLE ' . self::AUDIT_TABLE);
@@ -381,6 +383,6 @@ final class SecretTcaHookAuditAtomicityTest extends AbstractVaultFunctionalTestC
             ->executeQuery()
             ->fetchOne();
 
-        return \is_scalar($value) ? (string) $value : '';
+        return is_scalar($value) ? (string) $value : '';
     }
 }

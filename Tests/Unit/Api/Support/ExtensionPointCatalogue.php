@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -15,6 +15,8 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use ReflectionClass;
 use SplFileInfo;
+
+use function strlen;
 
 /**
  * Finds the interfaces under Classes/ that carry `#[ExtensionPoint]`, and the
@@ -103,6 +105,6 @@ final class ExtensionPointCatalogue
      */
     private static function relativeClassName(SplFileInfo $file, string $directory): string
     {
-        return str_replace('/', '\\', substr($file->getPathname(), \strlen($directory) + 1, -4));
+        return str_replace('/', '\\', substr($file->getPathname(), strlen($directory) + 1, -4));
     }
 }

@@ -81,7 +81,7 @@ readonly class OrphanSecretInfo
     {
         return [
             'identifier' => $this->identifier,
-            'metadata' => $this->metadata,
+            'metadata'   => $this->metadata,
             'created_at' => $this->createdAt,
         ];
     }

@@ -24,6 +24,11 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 
+use function in_array;
+use function is_array;
+use function is_string;
+use function sprintf;
+
 /**
  * DataHandler hook for vault secret TCA fields.
  *
@@ -110,9 +115,9 @@ final class DataHandlerHook
      * Extracts vault field values and generates UUIDs for new secrets.
      *
      * @param array<string, mixed> $fieldArray
-     * @param DataHandler|null $dataHandler Passed by DataHandler::process_datamap();
-     *                                      optional so the hook stays callable with
-     *                                      the three documented arguments
+     * @param DataHandler|null     $dataHandler Passed by DataHandler::process_datamap();
+     *                                          optional so the hook stays callable with
+     *                                          the three documented arguments
      */
     public function processDatamap_preProcessFieldArray(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         array &$fieldArray,
@@ -223,23 +228,23 @@ final class DataHandlerHook
             $error = $this->pendingSecretPersister->persist(
                 $pending,
                 [
-                    'table' => $table,
-                    'field' => $fieldName,
-                    'uid' => $uid,
+                    'table'  => $table,
+                    'field'  => $fieldName,
+                    'uid'    => $uid,
                     'source' => 'tca_field',
                 ],
                 'TCA field cleared',
                 'TCA field updated',
                 function (Throwable $e) use ($table, $fieldName, $uid, $pending, &$userMessage): string {
                     $userMessage = $this->failureReporter->report($e, [
-                        'table' => $table,
-                        'field' => $fieldName,
-                        'uid' => $uid,
+                        'table'      => $table,
+                        'field'      => $fieldName,
+                        'uid'        => $uid,
                         'identifier' => $pending->identifier,
-                        'operation' => 'tca_field',
+                        'operation'  => 'tca_field',
                     ]);
 
-                    return \sprintf(
+                    return sprintf(
                         'Vault storage failed for field "%s" on %s:%d: %s The field value has been rolled back.',
                         $fieldName,
                         $table,
@@ -278,7 +283,7 @@ final class DataHandlerHook
      *                                               (an array) on the localize / copy-to-
      *                                               language path, so the type must accept
      *                                               both to avoid a TypeError before the
-     *                                               command guard below runs.
+     *                                               command guard below runs
      */
     public function processCmdmap_preProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
@@ -288,8 +293,8 @@ final class DataHandlerHook
         DataHandler $dataHandler,
         bool|array $pasteUpdate,
     ): void {
-        if (\in_array($command, self::DUPLICATION_COMMANDS, true)) {
-            $handlerId = spl_object_id($dataHandler);
+        if (in_array($command, self::DUPLICATION_COMMANDS, true)) {
+            $handlerId                             = spl_object_id($dataHandler);
             $this->duplicationCommands[$handlerId] = ($this->duplicationCommands[$handlerId] ?? 0) + 1;
         }
 
@@ -322,7 +327,7 @@ final class DataHandlerHook
         $identifiers = [];
         foreach ($vaultFields as $fieldName) {
             $vaultIdentifier = $record[$fieldName] ?? '';
-            if (!\is_string($vaultIdentifier)) {
+            if (!is_string($vaultIdentifier)) {
                 continue;
             }
 
@@ -445,7 +450,7 @@ final class DataHandlerHook
      *                                               (an array) on the localize / copy-to-
      *                                               language path, so the type must accept
      *                                               both to avoid a TypeError before the
-     *                                               command guard below runs.
+     *                                               command guard below runs
      */
     public function processCmdmap_postProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
@@ -455,14 +460,14 @@ final class DataHandlerHook
         DataHandler $dataHandler,
         bool|array $pasteUpdate,
     ): void {
-        if (!\in_array($command, self::DUPLICATION_COMMANDS, true)) {
+        if (!in_array($command, self::DUPLICATION_COMMANDS, true)) {
             return;
         }
 
         try {
             /** @phpstan-ignore property.internal */
             foreach ($dataHandler->copyMappingArray as $duplicatedTable => $idMap) {
-                if (!\is_string($duplicatedTable) || !\is_array($idMap)) {
+                if (!is_string($duplicatedTable) || !is_array($idMap)) {
                     continue;
                 }
 
@@ -476,7 +481,7 @@ final class DataHandlerHook
                 /** @var mixed $newIdRaw */
                 foreach ($idMap as $sourceIdRaw => $newIdRaw) {
                     $sourceUid = is_numeric($sourceIdRaw) ? (int) $sourceIdRaw : 0;
-                    $newUid = is_numeric($newIdRaw) ? (int) $newIdRaw : 0;
+                    $newUid    = is_numeric($newIdRaw) ? (int) $newIdRaw : 0;
                     if ($sourceUid <= 0 || $newUid <= 0) {
                         continue;
                     }
@@ -532,8 +537,8 @@ final class DataHandlerHook
     private function isRecordDuplicationPass(mixed $value, string|int $id, ?DataHandler $dataHandler): bool
     {
         return $this->duplicationCommands !== []
-            && !\is_array($value)
-            && \is_string($id)
+            && !is_array($value)
+            && is_string($id)
             && str_starts_with($id, 'NEW')
             && $dataHandler instanceof DataHandler
             && $dataHandler->dontProcessTransformations;
@@ -567,7 +572,7 @@ final class DataHandlerHook
 
         foreach ($vaultFields as $fieldName) {
             $sourceIdentifier = $sourceRecord[$fieldName] ?? '';
-            if (!\is_string($sourceIdentifier)) {
+            if (!is_string($sourceIdentifier)) {
                 continue;
             }
 
@@ -601,10 +606,10 @@ final class DataHandlerHook
 
                 // Store as new secret
                 $this->vaultService->store($newIdentifier, $sourceValue, [
-                    'table' => $table,
-                    'field' => $fieldName,
-                    'uid' => $newId,
-                    'source' => 'record_copy',
+                    'table'       => $table,
+                    'field'       => $fieldName,
+                    'uid'         => $newId,
+                    'source'      => 'record_copy',
                     'copied_from' => $sourceIdentifier,
                 ]);
 
@@ -641,7 +646,7 @@ final class DataHandlerHook
             try {
                 $connection->update($table, $updates, ['uid' => $newId]);
             } catch (Throwable $error) {
-                $firstField = array_key_first($updates);
+                $firstField       = array_key_first($updates);
                 $sourceIdentifier = $sourceRecord[$firstField] ?? '';
                 $this->abandonCopiedSecrets(
                     $connection,
@@ -650,7 +655,7 @@ final class DataHandlerHook
                     $vaultFields,
                     $updates,
                     $firstField,
-                    \is_string($sourceIdentifier) ? $sourceIdentifier : '',
+                    is_string($sourceIdentifier) ? $sourceIdentifier : '',
                     $error,
                     $dataHandler,
                 );
@@ -677,11 +682,11 @@ final class DataHandlerHook
         string $scopeNotice,
     ): void {
         $userMessage = $this->failureReporter->report($error, [
-            'table' => $table,
-            'field' => $fieldName,
-            'uid' => $uid,
+            'table'      => $table,
+            'field'      => $fieldName,
+            'uid'        => $uid,
             'identifier' => $vaultIdentifier,
-            'operation' => 'delete',
+            'operation'  => 'delete',
         ]);
 
         $this->deniedDeletions[$table][$uid] = true;
@@ -712,7 +717,7 @@ final class DataHandlerHook
      * has to re-enter the secrets of the copy, which is not a detail they may
      * miss in a flash-message list.
      *
-     * @param list<string> $vaultFields every vault field of the table
+     * @param list<string>          $vaultFields   every vault field of the table
      * @param array<string, string> $clonedUpdates field name => identifier of the secrets cloned so far
      */
     private function abandonCopiedSecrets(
@@ -734,11 +739,11 @@ final class DataHandlerHook
                 // references it any more) — record it for the administrator and
                 // keep rolling back the remaining fields.
                 $this->failureReporter->report($compensationError, [
-                    'table' => $table,
-                    'field' => $clonedField,
-                    'uid' => $newId,
+                    'table'      => $table,
+                    'field'      => $clonedField,
+                    'uid'        => $newId,
                     'identifier' => $clonedIdentifier,
-                    'operation' => 'copy_rollback',
+                    'operation'  => 'copy_rollback',
                 ]);
             }
         }
@@ -746,11 +751,11 @@ final class DataHandlerHook
         $blanked = $this->blankVaultFields($connection, $table, $newId, $vaultFields);
 
         $userMessage = $this->failureReporter->report($error, [
-            'table' => $table,
-            'field' => $failedField,
-            'uid' => $newId,
+            'table'      => $table,
+            'field'      => $failedField,
+            'uid'        => $newId,
             'identifier' => $sourceIdentifier,
-            'operation' => 'copy',
+            'operation'  => 'copy',
         ]);
 
         /** @phpstan-ignore method.internal */
@@ -807,7 +812,7 @@ final class DataHandlerHook
         string|int $id,
         array $fieldArray,
     ): ?string {
-        if (!\in_array($fieldName, $this->getTranslationSharedFields($table), true)) {
+        if (!in_array($fieldName, $this->getTranslationSharedFields($table), true)) {
             return null;
         }
 
@@ -826,7 +831,7 @@ final class DataHandlerHook
      */
     private function isSharedTranslationField(string $table, string $fieldName, int $uid): bool
     {
-        return \in_array($fieldName, $this->getTranslationSharedFields($table), true)
+        return in_array($fieldName, $this->getTranslationSharedFields($table), true)
             && $this->translationSharedSecretResolver->isTranslation($table, $uid);
     }
 

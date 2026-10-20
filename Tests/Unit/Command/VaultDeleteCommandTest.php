@@ -114,8 +114,8 @@ final class VaultDeleteCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'force-delete',
-            '--force' => true,
-            '--reason' => 'Forced deletion',
+            '--force'    => true,
+            '--reason'   => 'Forced deletion',
         ]);
 
         self::assertSame(0, $exitCode);
@@ -160,7 +160,7 @@ final class VaultDeleteCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'gone',
-            '--force' => true,
+            '--force'    => true,
         ]);
 
         self::assertSame(1, $exitCode);
@@ -183,7 +183,7 @@ final class VaultDeleteCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'error',
-            '--force' => true,
+            '--force'    => true,
         ]);
 
         self::assertSame(1, $exitCode);

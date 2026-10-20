@@ -14,6 +14,9 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 use TYPO3\CMS\Core\Localization\LanguageService;
 
+use function is_string;
+use function strlen;
+
 /**
  * Reports a failed vault operation to the backend user without telling them why
  * it failed.
@@ -82,14 +85,14 @@ final readonly class VaultFailureReporter
                 continue;
             }
 
-            $logContext[$key] = \is_string($value) ? $this->sanitiseForLog($value) : $value;
+            $logContext[$key] = is_string($value) ? $this->sanitiseForLog($value) : $value;
         }
 
         // Deliberately NOT the 'exception' key: TYPO3's FileWriter folds a
         // Throwable stored there into the unescaped message. Class name and
         // sanitised text only, including anonymous-class control bytes.
         $logContext['exceptionClass'] = $this->sanitiseForLog($error::class);
-        $logContext['error'] = $this->sanitiseForLog($error->getMessage());
+        $logContext['error']          = $this->sanitiseForLog($error->getMessage());
 
         try {
             $this->logger->error(self::LOG_MESSAGE, $logContext);
@@ -113,7 +116,7 @@ final readonly class VaultFailureReporter
         // return null) on malformed input the way a /u pattern does.
         $clean = preg_replace('/[[:cntrl:]]/', '', $value) ?? '';
 
-        if (\strlen($clean) > self::MAX_LOGGED_VALUE_LENGTH) {
+        if (strlen($clean) > self::MAX_LOGGED_VALUE_LENGTH) {
             $clean = substr($clean, 0, self::MAX_LOGGED_VALUE_LENGTH);
         }
 

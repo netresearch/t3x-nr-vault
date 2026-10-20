@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Exception;
 
+use function sprintf;
+
 /**
  * Thrown when access to a secret is denied.
  */
@@ -16,7 +18,7 @@ final class AccessDeniedException extends VaultException
 {
     public static function forIdentifier(string $identifier, string $reason = ''): self
     {
-        $message = \sprintf('Access denied to secret "%s"', $identifier);
+        $message = sprintf('Access denied to secret "%s"', $identifier);
         if ($reason !== '') {
             $message .= ': ' . $reason;
         }
@@ -41,7 +43,7 @@ final class AccessDeniedException extends VaultException
     public static function breakGlassRequiresAdmin(string $operation): self
     {
         return new self(
-            \sprintf(
+            sprintf(
                 'Break-glass %s requires an authenticated backend administrator or a CLI context',
                 $operation,
             ),

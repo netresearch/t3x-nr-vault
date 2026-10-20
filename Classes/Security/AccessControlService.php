@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -22,6 +19,13 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Http\ApplicationType;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+
+use function constant;
+use function defined;
+use function in_array;
+use function is_array;
+use function is_int;
+use function is_string;
 
 /**
  * Access control service implementation.
@@ -106,7 +110,7 @@ final class AccessControlService implements AccessControlServiceInterface
         if ($backendUser instanceof BackendUserAuthentication) {
             // Defence-in-depth: disabled users must not create secrets,
             // even if a stale session is still active.
-            return !($this->isBackendUserDisabled($backendUser));
+            return !$this->isBackendUserDisabled($backendUser);
             // Any authenticated backend user can create
         }
 
@@ -212,9 +216,9 @@ final class AccessControlService implements AccessControlServiceInterface
         /** @phpstan-ignore property.internal */
         $userRecord = $backendUser->user;
         /** @var array<string, mixed> $userRecordTyped */
-        $userRecordTyped = \is_array($userRecord) ? $userRecord : [];
+        $userRecordTyped = is_array($userRecord) ? $userRecord : [];
 
-        return \is_int($userRecordTyped['uid'] ?? null) ? $userRecordTyped['uid'] : 0;
+        return is_int($userRecordTyped['uid'] ?? null) ? $userRecordTyped['uid'] : 0;
     }
 
     public function getCurrentActorType(): string
@@ -235,7 +239,7 @@ final class AccessControlService implements AccessControlServiceInterface
             return 'cli';
         }
 
-        if (\defined('TYPO3_cliMode') && \constant('TYPO3_cliMode') === true) {
+        if (defined('TYPO3_cliMode') && constant('TYPO3_cliMode') === true) {
             return 'cli';
         }
 
@@ -267,9 +271,9 @@ final class AccessControlService implements AccessControlServiceInterface
             /** @phpstan-ignore property.internal */
             $userRecord = $backendUser->user;
             /** @var array<string, mixed> $userRecordTyped */
-            $userRecordTyped = \is_array($userRecord) ? $userRecord : [];
+            $userRecordTyped = is_array($userRecord) ? $userRecord : [];
 
-            return \is_string($userRecordTyped['username'] ?? null) ? $userRecordTyped['username'] : 'Unknown';
+            return is_string($userRecordTyped['username'] ?? null) ? $userRecordTyped['username'] : 'Unknown';
         }
 
         // No backend user - check context
@@ -299,7 +303,7 @@ final class AccessControlService implements AccessControlServiceInterface
         $result = [];
         foreach ($groups as $groupId) {
             $normalised = 0;
-            if (\is_int($groupId)) {
+            if (is_int($groupId)) {
                 $normalised = $groupId;
             } elseif (is_numeric($groupId)) {
                 $normalised = (int) $groupId;
@@ -351,7 +355,7 @@ final class AccessControlService implements AccessControlServiceInterface
     private function cliOperationGranted(VaultPermission $permission): bool
     {
         return $this->configuration->isCliAccessAllowed()
-            && \in_array($permission->value, $this->configuration->getCliAllowedOperations(), true);
+            && in_array($permission->value, $this->configuration->getCliAllowedOperations(), true);
     }
 
     /**
@@ -360,7 +364,7 @@ final class AccessControlService implements AccessControlServiceInterface
     private function isRealCliContext(): bool
     {
         // PHPUnit sets this constant
-        if (\defined('PHPUNIT_COMPOSER_INSTALL') || \defined('__PHPUNIT_PHAR__')) {
+        if (defined('PHPUNIT_COMPOSER_INSTALL') || defined('__PHPUNIT_PHAR__')) {
             return false;
         }
 
@@ -530,10 +534,10 @@ final class AccessControlService implements AccessControlServiceInterface
         /** @phpstan-ignore property.internal */
         $userRecord = $backendUser->user;
         /** @var array<string, mixed> $userRecordTyped */
-        $userRecordTyped = \is_array($userRecord) ? $userRecord : [];
-        $uid = $userRecordTyped['uid'] ?? null;
+        $userRecordTyped = is_array($userRecord) ? $userRecord : [];
+        $uid             = $userRecordTyped['uid'] ?? null;
 
-        if (\is_int($uid)) {
+        if (is_int($uid)) {
             return $uid <= 0;
         }
 
@@ -636,7 +640,7 @@ final class AccessControlService implements AccessControlServiceInterface
 
         try {
             $queryBuilder = $this->connectionPool->getQueryBuilderForTable('be_groups');
-            $rows = $queryBuilder
+            $rows         = $queryBuilder
                 ->select('custom_options')
                 ->from('be_groups')
                 ->where(
@@ -654,7 +658,7 @@ final class AccessControlService implements AccessControlServiceInterface
 
         foreach ($rows as $row) {
             $options = $row['custom_options'] ?? null;
-            if (!\is_string($options)) {
+            if (!is_string($options)) {
                 continue;
             }
 
@@ -744,7 +748,7 @@ final class AccessControlService implements AccessControlServiceInterface
         /** @phpstan-ignore property.internal */
         $granted = $backendUser->groupData['custom_options'] ?? null;
 
-        if (!\is_string($granted) || $granted === '') {
+        if (!is_string($granted) || $granted === '') {
             return false;
         }
 
@@ -807,8 +811,8 @@ final class AccessControlService implements AccessControlServiceInterface
         /** @phpstan-ignore property.internal */
         $userRecord = $backendUser->user;
         /** @var array<string, mixed> $userRecordTyped */
-        $userRecordTyped = \is_array($userRecord) ? $userRecord : [];
-        $currentUserUid = \is_int($userRecordTyped['uid'] ?? null) ? $userRecordTyped['uid'] : 0;
+        $userRecordTyped = is_array($userRecord) ? $userRecord : [];
+        $currentUserUid  = is_int($userRecordTyped['uid'] ?? null) ? $userRecordTyped['uid'] : 0;
         if ($secret->getOwnerUid() === $currentUserUid) {
             return true;
         }
@@ -850,7 +854,7 @@ final class AccessControlService implements AccessControlServiceInterface
                 $secret->getAllowedGroups(),
                 $secret->getWriteGroups(),
             ))),
-            self::PERMISSION_WRITE => $secret->getWriteGroups(),
+            self::PERMISSION_WRITE  => $secret->getWriteGroups(),
             self::PERMISSION_DELETE => [],
         };
     }
@@ -869,10 +873,10 @@ final class AccessControlService implements AccessControlServiceInterface
         /** @phpstan-ignore property.internal */
         $userRecord = $backendUser->user;
         /** @var array<string, mixed> $userRecordTyped */
-        $userRecordTyped = \is_array($userRecord) ? $userRecord : [];
+        $userRecordTyped = is_array($userRecord) ? $userRecord : [];
 
         $disable = $userRecordTyped['disable'] ?? 0;
-        if (\is_int($disable)) {
+        if (is_int($disable)) {
             return $disable !== 0;
         }
 
@@ -927,7 +931,7 @@ final class AccessControlService implements AccessControlServiceInterface
         $uids = [];
         foreach ($rows as $row) {
             $uid = $row['uid'] ?? null;
-            if (\is_int($uid)) {
+            if (is_int($uid)) {
                 $uids[] = $uid;
             } elseif (is_numeric($uid)) {
                 $uids[] = (int) $uid;

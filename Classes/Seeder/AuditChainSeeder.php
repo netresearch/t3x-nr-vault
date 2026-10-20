@@ -18,6 +18,11 @@ use Netresearch\NrVault\Exception\ConfigurationException;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function assert;
+use function in_array;
+use function is_string;
+use function sprintf;
+
 /**
  * Appends a valid, backdated segment to the tamper-evident audit hash chain by
  * reusing AuditLogService's public static hashing API. Dev-only (demo data).
@@ -37,21 +42,21 @@ final readonly class AuditChainSeeder
 
     /**
      * @param list<array{secret_identifier: string, action: string, success: bool, actor_uid: int, actor_type: string, actor_username: string, crdate: int, context: array<string, scalar|null>}> $events
-     *                                                                                                                                                                                                    MUST be ordered ascending by crdate.
+     *                                                                                                                                                                                                    MUST be ordered ascending by crdate
      */
     public function seed(array $events): void
     {
         $epoch = $this->extensionConfiguration->getAuditHmacEpoch();
-        if (!\in_array($epoch, self::SUPPORTED_EPOCHS, true)) {
+        if (!in_array($epoch, self::SUPPORTED_EPOCHS, true)) {
             throw new ConfigurationException(
-                \sprintf('Demo seeder supports audit epoch 0/1/2/3; configured epoch is %d.', $epoch),
+                sprintf('Demo seeder supports audit epoch 0/1/2/3; configured epoch is %d.', $epoch),
                 1_748_736_000,
             );
         }
 
-        $connection = $this->connectionPool->getConnectionForTable(self::TABLE);
+        $connection   = $this->connectionPool->getConnectionForTable(self::TABLE);
         $previousHash = $this->fetchLatestHash($connection);
-        $hmacKey = $epoch >= 1 ? AuditLogService::deriveHmacKey($this->masterKeyProvider) : null;
+        $hmacKey      = $epoch >= 1 ? AuditLogService::deriveHmacKey($this->masterKeyProvider) : null;
 
         $tip = null;
 
@@ -59,13 +64,13 @@ final readonly class AuditChainSeeder
             foreach ($events as $event) {
                 $row = $this->buildRow($event, $previousHash, $epoch);
                 $connection->insert(self::TABLE, $row);
-                $uid = (int) $connection->lastInsertId();
+                $uid        = (int) $connection->lastInsertId();
                 $row['uid'] = $uid;
 
                 $entryHash = $this->hashFor($row, $previousHash, $epoch, $hmacKey);
                 $connection->update(self::TABLE, ['entry_hash' => $entryHash], ['uid' => $uid]);
                 $previousHash = $entryHash;
-                $tip = new AuditChainAnchor($uid, $entryHash, time());
+                $tip          = new AuditChainAnchor($uid, $entryHash, time());
             }
 
             // Advance the tip anchor once, after the loop. This writer takes no
@@ -92,7 +97,7 @@ final readonly class AuditChainSeeder
             ->executeQuery()
             ->fetchOne();
 
-        return \is_string($hash) ? $hash : '';
+        return is_string($hash) ? $hash : '';
     }
 
     /**
@@ -103,26 +108,26 @@ final readonly class AuditChainSeeder
     private function buildRow(array $event, string $previousHash, int $epoch): array
     {
         return [
-            'pid' => 0,
+            'pid'               => 0,
             'secret_identifier' => $event['secret_identifier'],
-            'action' => $event['action'],
-            'success' => $event['success'] ? 1 : 0,
-            'error_message' => '',
-            'reason' => '',
-            'actor_uid' => $event['actor_uid'],
-            'actor_type' => $event['actor_type'],
-            'actor_username' => $event['actor_username'],
-            'actor_role' => '',
-            'ip_address' => 'CLI',
-            'user_agent' => 'demo-seed',
-            'request_id' => '',
-            'previous_hash' => $previousHash,
-            'hash_before' => '',
-            'hash_after' => '',
-            'crdate' => $event['crdate'],
-            'hmac_key_epoch' => $epoch,
-            'context' => json_encode($event['context'], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-            'entry_hash' => '',
+            'action'            => $event['action'],
+            'success'           => $event['success'] ? 1 : 0,
+            'error_message'     => '',
+            'reason'            => '',
+            'actor_uid'         => $event['actor_uid'],
+            'actor_type'        => $event['actor_type'],
+            'actor_username'    => $event['actor_username'],
+            'actor_role'        => '',
+            'ip_address'        => 'CLI',
+            'user_agent'        => 'demo-seed',
+            'request_id'        => '',
+            'previous_hash'     => $previousHash,
+            'hash_before'       => '',
+            'hash_after'        => '',
+            'crdate'            => $event['crdate'],
+            'hmac_key_epoch'    => $epoch,
+            'context'           => json_encode($event['context'], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            'entry_hash'        => '',
         ];
     }
 
@@ -137,7 +142,7 @@ final readonly class AuditChainSeeder
             return AuditLogService::calculateHash($v1['uid'], $v1['secretId'], $v1['action'], $v1['actorUid'], $v1['crdate'], $previousHash);
         }
 
-        \assert($hmacKey !== null);
+        assert($hmacKey !== null);
 
         if ($epoch === 1) {
             return AuditLogService::calculateHash($v1['uid'], $v1['secretId'], $v1['action'], $v1['actorUid'], $v1['crdate'], $previousHash, $hmacKey);

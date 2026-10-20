@@ -18,6 +18,8 @@ use Netresearch\NrVault\Service\Doctor\DoctorContext;
 use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
 
+use function sprintf;
+
 /**
  * Is an emergency-access window open right now?
  *
@@ -58,7 +60,7 @@ final readonly class BreakGlassCheck implements ReadinessCheckInterface
      */
     public function run(DoctorContext $context, ?DateTimeImmutable $now = null): array
     {
-        $id = 'breakglass.window_open';
+        $id      = 'breakglass.window_open';
         $session = $this->breakGlassState->getActiveSession();
 
         if (!$session instanceof BreakGlassSession) {
@@ -76,7 +78,7 @@ final readonly class BreakGlassCheck implements ReadinessCheckInterface
         return [
             Finding::warning(
                 id: $id,
-                summary: \sprintf(
+                summary: sprintf(
                     'A break-glass window is open: %s (uid %d) until %s (%d minute(s) left), reason: %s',
                     $session->activatedByUsername,
                     $session->activatedByUid,
@@ -87,7 +89,7 @@ final readonly class BreakGlassCheck implements ReadinessCheckInterface
                 risk: 'While the window is open the admin override is fully restored: that operator '
                     . 'holds every vault permission and read/write/delete on every secret, regardless of '
                     . 'the hardened profile. Break-glass buys evidence and a time box, not restriction.',
-                remediation: \sprintf(
+                remediation: sprintf(
                     'Close it as soon as the work is done: vendor/bin/typo3 vault:break-glass '
                     . '--deactivate --reason "…". It lapses on its own at %s. Review the activation as an '
                     . 'incident, not as routine maintenance.',
@@ -95,11 +97,11 @@ final readonly class BreakGlassCheck implements ReadinessCheckInterface
                 ),
                 docsUrl: DocsLink::BREAK_GLASS,
                 details: [
-                    'activatedByUid' => $session->activatedByUid,
+                    'activatedByUid'      => $session->activatedByUid,
                     'activatedByUsername' => $session->activatedByUsername,
-                    'reason' => $session->reason,
-                    'expiresAt' => $session->expiresAt->getTimestamp(),
-                    'remainingMinutes' => $remainingMinutes,
+                    'reason'              => $session->reason,
+                    'expiresAt'           => $session->expiresAt->getTimestamp(),
+                    'remainingMinutes'    => $remainingMinutes,
                 ],
             ),
         ];

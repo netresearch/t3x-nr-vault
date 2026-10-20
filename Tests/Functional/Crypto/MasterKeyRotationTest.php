@@ -26,6 +26,10 @@ use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+use function dirname;
+use function sprintf;
+use function strlen;
+
 /**
  * Functional tests for master key rotation.
  *
@@ -51,7 +55,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         'EXTENSIONS' => [
             'nr_vault' => [
                 'masterKeyProvider' => 'file',
-                'enableCache' => false,
+                'enableCache'       => false,
             ],
         ],
     ];
@@ -64,7 +68,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
         // Create a temporary master key for testing at the default auto-key path
         $this->masterKeyPath = $this->instancePath . '/var/secrets/vault-master.key';
-        $dir = \dirname($this->masterKeyPath);
+        $dir                 = dirname($this->masterKeyPath);
         if (!is_dir($dir)) {
             mkdir($dir, 0o700, true);
         }
@@ -75,7 +79,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
         // Also configure the source path via GLOBALS (read lazily by ExtensionConfiguration)
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['masterKeySource'] = $this->masterKeyPath;
-        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['autoKeyPath'] = $this->masterKeyPath;
+        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['autoKeyPath']     = $this->masterKeyPath;
 
         // Create backend admin user
         $this->importCSVDataSet(__DIR__ . '/../Hook/Fixtures/be_users.csv');
@@ -103,22 +107,22 @@ final class MasterKeyRotationTest extends FunctionalTestCase
     #[Test]
     public function fullRotationWorkflowKeepsSecretsAccessible(): void
     {
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService      = $this->get(VaultServiceInterface::class);
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $secretRepository = $this->get(SecretRepositoryInterface::class);
+        $secretRepository  = $this->get(SecretRepositoryInterface::class);
 
         // Store multiple secrets with the original master key
         $secrets = [];
         for ($i = 0; $i < 3; ++$i) {
             $identifier = $this->generateUuidV7();
-            $value = 'secret-value-' . $i;
+            $value      = 'secret-value-' . $i;
             $vaultService->store($identifier, $value);
             $secrets[$identifier] = $value;
         }
 
         // Create a new key file
         $newKeyPath = $this->instancePath . self::NEW_KEY_FILENAME;
-        $newKey = sodium_crypto_secretbox_keygen();
+        $newKey     = sodium_crypto_secretbox_keygen();
         file_put_contents($newKeyPath, $newKey);
 
         // Re-encrypt all DEKs with the new master key
@@ -173,9 +177,9 @@ final class MasterKeyRotationTest extends FunctionalTestCase
     #[Test]
     public function midRotationFailureKeepsSecretsAccessibleWithOriginalKey(): void
     {
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService      = $this->get(VaultServiceInterface::class);
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $secretRepository = $this->get(SecretRepositoryInterface::class);
+        $secretRepository  = $this->get(SecretRepositoryInterface::class);
 
         // Store secrets with original master key
         $identifier1 = $this->generateUuidV7();
@@ -185,7 +189,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
         // Create a new key file
         $newKeyPath = $this->instancePath . self::NEW_KEY_FILENAME;
-        $newKey = sodium_crypto_secretbox_keygen();
+        $newKey     = sodium_crypto_secretbox_keygen();
         file_put_contents($newKeyPath, $newKey);
 
         // Re-encrypt only the first secret (simulating mid-rotation failure)
@@ -230,9 +234,9 @@ final class MasterKeyRotationTest extends FunctionalTestCase
     #[Test]
     public function keyRotationUpdatesAllSecretDeks(): void
     {
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService      = $this->get(VaultServiceInterface::class);
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $secretRepository = $this->get(SecretRepositoryInterface::class);
+        $secretRepository  = $this->get(SecretRepositoryInterface::class);
 
         // Store secrets
         $identifiers = [];
@@ -252,7 +256,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
         // Create a new key file
         $newKeyPath = $this->instancePath . self::NEW_KEY_FILENAME;
-        $newKey = sodium_crypto_secretbox_keygen();
+        $newKey     = sodium_crypto_secretbox_keygen();
         file_put_contents($newKeyPath, $newKey);
 
         // Re-encrypt all DEKs
@@ -324,16 +328,16 @@ final class MasterKeyRotationTest extends FunctionalTestCase
     #[Test]
     public function masterKeyRotationIsAtomicUnderFailure(): void
     {
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService      = $this->get(VaultServiceInterface::class);
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $secretRepository = $this->get(SecretRepositoryInterface::class);
-        $connectionPool = $this->get(ConnectionPool::class);
+        $secretRepository  = $this->get(SecretRepositoryInterface::class);
+        $connectionPool    = $this->get(ConnectionPool::class);
 
         // Seed 5 secrets with the original master key.
         $seeded = [];
         for ($i = 0; $i < 5; ++$i) {
             $identifier = $this->generateUuidV7();
-            $value = 'atomic-rot-value-' . $i;
+            $value      = 'atomic-rot-value-' . $i;
             $vaultService->store($identifier, $value);
             $seeded[$identifier] = $value;
         }
@@ -342,7 +346,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
 
         // Prepare the target new key.
         $newKeyPath = $this->instancePath . '/master-new-atomic.key';
-        $newKey = sodium_crypto_secretbox_keygen();
+        $newKey     = sodium_crypto_secretbox_keygen();
         file_put_contents($newKeyPath, $newKey);
 
         FileMasterKeyProvider::clearCachedKey();
@@ -420,7 +424,7 @@ final class MasterKeyRotationTest extends FunctionalTestCase
             self::assertSame(
                 $expectedValue,
                 $retrieved,
-                \sprintf(
+                sprintf(
                     'Secret "%s" MUST still decrypt with original master key after rollback — '
                     . 'rotation is not atomic if we see a mixed state.',
                     $identifier,
@@ -466,15 +470,15 @@ final class MasterKeyRotationTest extends FunctionalTestCase
     #[Test]
     public function secondRotationKeepsSecretsDecryptableAndAuditChainValid(): void
     {
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService    = $this->get(VaultServiceInterface::class);
         $auditLogService = $this->get(AuditLogServiceInterface::class);
-        $commandTester = new CommandTester($this->get(VaultRotateMasterKeyCommand::class));
+        $commandTester   = new CommandTester($this->get(VaultRotateMasterKeyCommand::class));
 
         // Store secrets under the original key (K0).
         $secrets = [];
         for ($i = 0; $i < 3; ++$i) {
             $identifier = $this->generateUuidV7();
-            $value = 'epoch2-value-' . $i;
+            $value      = 'epoch2-value-' . $i;
             $vaultService->store($identifier, $value);
             $secrets[$identifier] = $value;
         }
@@ -538,10 +542,10 @@ final class MasterKeyRotationTest extends FunctionalTestCase
     #[Test]
     public function rotationReWrapsDisabledSecretsSoTheyDecryptAfterReEnabling(): void
     {
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService  = $this->get(VaultServiceInterface::class);
         $commandTester = new CommandTester($this->get(VaultRotateMasterKeyCommand::class));
 
-        $activeIdentifier = $this->generateUuidV7();
+        $activeIdentifier   = $this->generateUuidV7();
         $disabledIdentifier = $this->generateUuidV7();
         $vaultService->store($activeIdentifier, 'active-value');
         $vaultService->store($disabledIdentifier, 'disabled-value');
@@ -592,9 +596,9 @@ final class MasterKeyRotationTest extends FunctionalTestCase
     #[Test]
     public function rotationReKeysTheAuditChainOfAVaultWithoutSecrets(): void
     {
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService    = $this->get(VaultServiceInterface::class);
         $auditLogService = $this->get(AuditLogServiceInterface::class);
-        $commandTester = new CommandTester($this->get(VaultRotateMasterKeyCommand::class));
+        $commandTester   = new CommandTester($this->get(VaultRotateMasterKeyCommand::class));
 
         // Leave a keyed audit history behind and no active secret: store,
         // then delete.
@@ -700,16 +704,16 @@ final class MasterKeyRotationTest extends FunctionalTestCase
         self::assertIsString($raw, 'Key file must be readable: ' . $path);
 
         $trimmed = trim($raw);
-        if (\strlen($trimmed) === SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
+        if (strlen($trimmed) === SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
             return $trimmed;
         }
 
         $decoded = base64_decode($trimmed, true);
-        if ($decoded !== false && \strlen($decoded) === SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
+        if ($decoded !== false && strlen($decoded) === SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
             return $decoded;
         }
 
-        if (\strlen($raw) === SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
+        if (strlen($raw) === SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
             return $raw;
         }
 
@@ -721,12 +725,12 @@ final class MasterKeyRotationTest extends FunctionalTestCase
      */
     private function generateUuidV7(): string
     {
-        $timestamp = (int) (microtime(true) * 1000);
+        $timestamp    = (int) (microtime(true) * 1000);
         $timestampHex = str_pad(dechex($timestamp), 12, '0', STR_PAD_LEFT);
-        $randomBytes = random_bytes(10);
-        $randomHex = bin2hex($randomBytes);
+        $randomBytes  = random_bytes(10);
+        $randomHex    = bin2hex($randomBytes);
 
-        return \sprintf(
+        return sprintf(
             '%s-%s-7%s-%s%s-%s',
             substr($timestampHex, 0, 8),
             substr($timestampHex, 8, 4),

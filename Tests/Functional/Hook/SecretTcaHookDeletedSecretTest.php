@@ -18,6 +18,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function is_string;
+
 /**
  * Functional tests for SecretTcaHook against a SOFT-DELETED secret
  * (`deleted = 1`), and against a uid that has no row at all.
@@ -103,7 +105,7 @@ final class SecretTcaHookDeletedSecretTest extends AbstractVaultFunctionalTestCa
      * it the honest subject here. (`frontend_accessible`, `owner_uid` and the
      * rest are excludefields, and this fixture's group holds no
      * `non_exclude_fields`, so a test on one of those would pass on core's
-     * behalf whatever the policy did.)
+     * behalf whatever the policy did.).
      */
     #[Test]
     public function aPrivilegedColumnOfASoftDeletedSecretStaysUnchanged(): void
@@ -228,7 +230,7 @@ final class SecretTcaHookDeletedSecretTest extends AbstractVaultFunctionalTestCa
      */
     private function submitUpdate(int $uid, array $fields): void
     {
-        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler          = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->BE_USER = $GLOBALS['BE_USER'];
         $dataHandler->start([self::SECRET_TABLE => [$uid => $fields]], []);
         $dataHandler->process_datamap();
@@ -242,14 +244,14 @@ final class SecretTcaHookDeletedSecretTest extends AbstractVaultFunctionalTestCa
         $identifier = 'tombstone_' . bin2hex(random_bytes(4));
         $connection = $this->getConnectionPool()->getConnectionForTable(self::SECRET_TABLE);
         $connection->insert(self::SECRET_TABLE, [
-            'pid' => self::PAGE_UID,
-            'identifier' => $identifier,
-            'description' => self::SEEDED_DESCRIPTION,
-            'context' => self::SEEDED_CONTEXT,
-            'owner_uid' => self::OWNER_UID,
+            'pid'                 => self::PAGE_UID,
+            'identifier'          => $identifier,
+            'description'         => self::SEEDED_DESCRIPTION,
+            'context'             => self::SEEDED_CONTEXT,
+            'owner_uid'           => self::OWNER_UID,
             'frontend_accessible' => 0,
-            'hidden' => $hidden ? 1 : 0,
-            'deleted' => $deleted ? 1 : 0,
+            'hidden'              => $hidden ? 1 : 0,
+            'deleted'             => $deleted ? 1 : 0,
         ]);
 
         return [(int) $connection->lastInsertId(), $identifier];
@@ -259,14 +261,14 @@ final class SecretTcaHookDeletedSecretTest extends AbstractVaultFunctionalTestCa
     {
         $description = $this->readColumn($uid, 'description');
 
-        return \is_string($description) ? $description : '';
+        return is_string($description) ? $description : '';
     }
 
     private function readContext(int $uid): string
     {
         $context = $this->readColumn($uid, 'context');
 
-        return \is_string($context) ? $context : '';
+        return is_string($context) ? $context : '';
     }
 
     private function readColumn(int $uid, string $column): mixed

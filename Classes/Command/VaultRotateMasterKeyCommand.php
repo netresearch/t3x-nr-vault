@@ -42,6 +42,11 @@ use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function count;
+use function is_string;
+use function sprintf;
+use function strlen;
+
 /**
  * CLI command to rotate the master encryption key.
  *
@@ -131,7 +136,7 @@ final class VaultRotateMasterKeyCommand extends Command
         // `allowCliAccess` switch decides; invoked as a backend user, the
         // admin override or that user's group grants do.
         if (!$this->accessControlService->isGranted(VaultPermission::MasterKeyRotate)) {
-            $io->error(\sprintf(
+            $io->error(sprintf(
                 'Access denied: the "%s" permission is required to rotate the master key.',
                 VaultPermission::MasterKeyRotate->value,
             ));
@@ -142,8 +147,8 @@ final class VaultRotateMasterKeyCommand extends Command
         try {
             $oldKeyPath = $input->getOption('old-key');
             $newKeyPath = $input->getOption('new-key');
-            $oldKey = $this->resolveKey(\is_string($oldKeyPath) ? $oldKeyPath : null);
-            $newKey = $this->resolveKey(\is_string($newKeyPath) ? $newKeyPath : null);
+            $oldKey     = $this->resolveKey(is_string($oldKeyPath) ? $oldKeyPath : null);
+            $newKey     = $this->resolveKey(is_string($newKeyPath) ? $newKeyPath : null);
         } catch (MasterKeyException $e) {
             $io->error($e->getMessage());
 
@@ -189,7 +194,7 @@ final class VaultRotateMasterKeyCommand extends Command
         $identifiers = $this->secretRepository->findIdentifiers(
             new SecretFilters(includeDisabled: true),
         );
-        $totalSecrets = \count($identifiers);
+        $totalSecrets = count($identifiers);
 
         // Consumer-owned envelopes are part of the rotation, so they are part of
         // the inventory: a vault with no secrets of its own may still be the key
@@ -218,9 +223,9 @@ final class VaultRotateMasterKeyCommand extends Command
         }
 
         $io->title('Master Key Rotation');
-        $io->text(\sprintf('Found %d secret(s) to re-encrypt.', $totalSecrets));
+        $io->text(sprintf('Found %d secret(s) to re-encrypt.', $totalSecrets));
         $this->reportForeignInventory($io, $foreignCounts);
-        $io->text(\sprintf(
+        $io->text(sprintf(
             'Found %d audit-chain row(s) sealed under the current master key%s.',
             $keyedAuditRows,
             $anchorPresent ? ', plus the chain-tip anchor' : '',
@@ -254,9 +259,9 @@ final class VaultRotateMasterKeyCommand extends Command
         }
 
         if ($dryRun) {
-            $io->text(\sprintf('Would re-wrap %d consumer-owned envelope(s).', $totalForeign));
-            $io->text(\sprintf('Would re-key %d audit-chain row(s).', $keyedAuditRows));
-            $io->success(\sprintf(
+            $io->text(sprintf('Would re-wrap %d consumer-owned envelope(s).', $totalForeign));
+            $io->text(sprintf('Would re-key %d audit-chain row(s).', $keyedAuditRows));
+            $io->success(sprintf(
                 '[DRY RUN] Would re-encrypt %d secret(s). No changes made.',
                 $totalSecrets,
             ));
@@ -281,9 +286,9 @@ final class VaultRotateMasterKeyCommand extends Command
      */
     private function inventoryAuditChain(): array
     {
-        $connection = $this->connectionPool->getConnectionForTable(self::AUDIT_LOG_TABLE);
+        $connection   = $this->connectionPool->getConnectionForTable(self::AUDIT_LOG_TABLE);
         $queryBuilder = $connection->createQueryBuilder();
-        $count = $queryBuilder
+        $count        = $queryBuilder
             ->count('uid')
             ->from(self::AUDIT_LOG_TABLE)
             ->where($queryBuilder->expr()->gt(
@@ -346,7 +351,7 @@ final class VaultRotateMasterKeyCommand extends Command
                 $counts[$label] = $rotator->countEnvelopes();
             } catch (Throwable $exception) {
                 $io->error([
-                    \sprintf('Could not inventory consumer-owned envelopes for "%s".', $label),
+                    sprintf('Could not inventory consumer-owned envelopes for "%s".', $label),
                     'Error: ' . $exception->getMessage(),
                     'Rotation refused; nothing was changed.',
                 ]);
@@ -371,7 +376,7 @@ final class VaultRotateMasterKeyCommand extends Command
 
         $io->text('Consumer-owned envelopes participating in this rotation:');
         foreach ($foreignCounts as $label => $count) {
-            $io->text(\sprintf('  - %s: %d envelope(s)', $label, $count));
+            $io->text(sprintf('  - %s: %d envelope(s)', $label, $count));
         }
     }
 
@@ -392,12 +397,12 @@ final class VaultRotateMasterKeyCommand extends Command
         string $newKey,
     ): int {
         $context = new EnvelopeRotationContext($this->envelopeCodec, $oldKey, $newKey);
-        $total = 0;
+        $total   = 0;
 
         foreach ($this->foreignRotators as $rotator) {
             $rewrapped = $rotator->rewrapAll($context);
             $total += $rewrapped;
-            $io->text(\sprintf(
+            $io->text(sprintf(
                 '  - %s: re-wrapped %d envelope(s).',
                 $rotator->getIdentifier(),
                 $rewrapped,
@@ -417,7 +422,7 @@ final class VaultRotateMasterKeyCommand extends Command
         foreach ($this->foreignRotators as $rotator) {
             foreach ($rotator->getTables() as $table) {
                 if ($this->connectionPool->getConnectionForTable($table) !== $connection) {
-                    $io->error(\sprintf(
+                    $io->error(sprintf(
                         'Table "%s" (owned by %s) is mapped to a different database connection than '
                         . 'tx_nrvault_secret; atomic master-key rotation across both is not possible.',
                         $table,
@@ -536,7 +541,7 @@ final class VaultRotateMasterKeyCommand extends Command
             AuditAction::MasterKeyRotateStart->value,
             true,
             null,
-            \sprintf('Rotating master key for %d secret(s)', $totalSecrets),
+            sprintf('Rotating master key for %d secret(s)', $totalSecrets),
         );
 
         // The chain must verify under the CURRENT key before it is re-sealed
@@ -577,7 +582,7 @@ final class VaultRotateMasterKeyCommand extends Command
 
         $io->progressStart($totalSecrets);
         $failedSecrets = [];
-        $successCount = 0;
+        $successCount  = 0;
 
         try {
             foreach ($identifiers as $identifier) {
@@ -597,7 +602,7 @@ final class VaultRotateMasterKeyCommand extends Command
                     self::AUDIT_PSEUDO_IDENTIFIER,
                     AuditAction::MasterKeyRotateEnd->value,
                     false,
-                    \sprintf('Rotation failed for %d secret(s); transaction rolled back', \count($failedSecrets)),
+                    sprintf('Rotation failed for %d secret(s); transaction rolled back', count($failedSecrets)),
                 );
 
                 return Command::FAILURE;
@@ -621,7 +626,7 @@ final class VaultRotateMasterKeyCommand extends Command
             if ($foreignCount < $expectedForeign) {
                 $connection->rollBack();
                 $io->error([
-                    \sprintf(
+                    sprintf(
                         'Consumer-owned envelopes: inventoried %d, re-wrapped only %d.',
                         $expectedForeign,
                         $foreignCount,
@@ -658,12 +663,12 @@ final class VaultRotateMasterKeyCommand extends Command
             return Command::FAILURE;
         }
 
-        $io->text(\sprintf('Consumer-owned envelopes re-wrapped: %d.', $foreignCount));
-        $io->success(\sprintf(
+        $io->text(sprintf('Consumer-owned envelopes re-wrapped: %d.', $foreignCount));
+        $io->success(sprintf(
             'Successfully rotated master key for %d secret(s).',
             $successCount,
         ));
-        $io->text(\sprintf(
+        $io->text(sprintf(
             'Audit chain re-keyed under the new master key (%d row(s) rewritten).',
             $rekeyedRows,
         ));
@@ -737,7 +742,7 @@ final class VaultRotateMasterKeyCommand extends Command
                 AuditAction::MasterKeyRotateEnd->value,
                 true,
                 null,
-                \sprintf('Successfully rotated master key for %d secret(s)', $successCount),
+                sprintf('Successfully rotated master key for %d secret(s)', $successCount),
             );
 
             // The two log() calls above anchored the tip under the OLD key;
@@ -809,9 +814,9 @@ final class VaultRotateMasterKeyCommand extends Command
      */
     private function reportFailures(SymfonyStyle $io, array $failedSecrets): void
     {
-        $io->error(\sprintf(
+        $io->error(sprintf(
             'Rotation failed for %d secret(s). Transaction rolled back.',
-            \count($failedSecrets),
+            count($failedSecrets),
         ));
         $io->table(
             ['Identifier', 'Error'],
@@ -862,21 +867,21 @@ final class VaultRotateMasterKeyCommand extends Command
         $trimmed = trim($key);
 
         // 1) Trimmed value as raw binary key.
-        if (\strlen($trimmed) === self::KEY_LENGTH) {
+        if (strlen($trimmed) === self::KEY_LENGTH) {
             return $trimmed;
         }
 
         // 2) base64 decode of the trimmed text.
         $decoded = base64_decode($trimmed, true);
-        if ($decoded !== false && \strlen($decoded) === self::KEY_LENGTH) {
+        if ($decoded !== false && strlen($decoded) === self::KEY_LENGTH) {
             return $decoded;
         }
 
         // 3) Raw file contents as binary (no trimming of binary data).
-        if (\strlen($key) === self::KEY_LENGTH) {
+        if (strlen($key) === self::KEY_LENGTH) {
             return $key;
         }
 
-        throw MasterKeyException::invalidLength(self::KEY_LENGTH, \strlen($trimmed));
+        throw MasterKeyException::invalidLength(self::KEY_LENGTH, strlen($trimmed));
     }
 }

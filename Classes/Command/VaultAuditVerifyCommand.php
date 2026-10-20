@@ -24,6 +24,10 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Throwable;
 
+use function count;
+use function is_string;
+use function sprintf;
+
 /**
  * Full audit-integrity verification: internal hash chain plus external anchor.
  *
@@ -94,10 +98,10 @@ final class VaultAuditVerifyCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io           = new SymfonyStyle($input, $output);
         $formatOption = $input->getOption('format');
-        $json = \is_string($formatOption) && strtolower($formatOption) === 'json';
-        $tamperOnly = (bool) $input->getOption('tamper-only');
+        $json         = is_string($formatOption) && strtolower($formatOption) === 'json';
+        $tamperOnly   = (bool) $input->getOption('tamper-only');
 
         // Before the verification runs, and before anything is written to the
         // output a monitoring wrapper might parse.
@@ -129,8 +133,8 @@ final class VaultAuditVerifyCommand extends Command
         if ($json) {
             $output->writeln(json_encode(
                 $report->toArray() + [
-                    'tamperOnly' => $tamperOnly,
-                    'exitFailure' => $failed,
+                    'tamperOnly'   => $tamperOnly,
+                    'exitFailure'  => $failed,
                     'sinkFailures' => $this->sinkRegistry->getFailureCountsBySink(),
                     'enabledSinks' => $this->sinkRegistry->getEnabledSinkIdentifiers(),
                 ],
@@ -154,7 +158,7 @@ final class VaultAuditVerifyCommand extends Command
      */
     private function refuse(SymfonyStyle $io, OutputInterface $output, bool $json): void
     {
-        $message = \sprintf(
+        $message = sprintf(
             'Access denied: the "%s" permission is required to verify the audit log integrity.',
             VaultPermission::AuditView->value,
         );
@@ -180,7 +184,7 @@ final class VaultAuditVerifyCommand extends Command
             ['Chain length (max uid)' => (string) $report->currentSequence],
             ['Hash chain' => $report->chainValid ? 'valid' : 'INVALID'],
             ['Anchor' => $anchor instanceof ChainTipAnchor
-                ? \sprintf(
+                ? sprintf(
                     'sequence %d, epoch %d, taken %s UTC',
                     $anchor->sequence,
                     $anchor->hmacEpoch,
@@ -192,7 +196,7 @@ final class VaultAuditVerifyCommand extends Command
         );
 
         if ($report->warnings !== []) {
-            $io->warning(\sprintf('%d chain warning(s):', \count($report->warnings)));
+            $io->warning(sprintf('%d chain warning(s):', count($report->warnings)));
             $io->table(
                 ['Entry UID', 'Warning'],
                 array_map(
@@ -225,13 +229,13 @@ final class VaultAuditVerifyCommand extends Command
         $codes = implode(', ', $report->getReasonCodes());
 
         if ($failed) {
-            $io->error(\sprintf('Audit integrity verification FAILED: %s', $codes));
+            $io->error(sprintf('Audit integrity verification FAILED: %s', $codes));
 
             return;
         }
 
         // Reached only with --tamper-only and non-tamper findings present.
-        $io->warning(\sprintf(
+        $io->warning(sprintf(
             'Audit integrity findings present but no tamper evidence (%s); '
             . 'exiting successfully because --tamper-only was given.',
             $codes,
@@ -257,10 +261,10 @@ final class VaultAuditVerifyCommand extends Command
 
         $parts = [];
         foreach ($report->epochCounts as $epoch => $count) {
-            $parts[] = \sprintf('epoch %d: %d row(s)', $epoch, $count);
+            $parts[] = sprintf('epoch %d: %d row(s)', $epoch, $count);
         }
 
-        return \sprintf(
+        return sprintf(
             '%s — lowest %d, highest %d',
             implode(', ', $parts),
             (int) $report->getMinEpoch(),
@@ -279,7 +283,7 @@ final class VaultAuditVerifyCommand extends Command
 
         return implode(', ', array_map(
             static fn (string $id): string => isset($failures[$id])
-                ? \sprintf('%s (%d failure(s))', $id, $failures[$id])
+                ? sprintf('%s (%d failure(s))', $id, $failures[$id])
                 : $id,
             $sinks,
         ));

@@ -17,6 +17,8 @@ use PHPUnit\Framework\Attributes\Test;
 use ReflectionClass;
 use ReflectionMethod;
 
+use function sprintf;
+
 #[CoversClass(EnvelopeRotationContext::class)]
 final class EnvelopeRotationContextTest extends TestCase
 {
@@ -65,7 +67,7 @@ final class EnvelopeRotationContextTest extends TestCase
         foreach ($reflection->getProperties() as $property) {
             self::assertTrue(
                 $property->isPrivate(),
-                \sprintf('Property $%s must be private; it may hold key material.', $property->getName()),
+                sprintf('Property $%s must be private; it may hold key material.', $property->getName()),
             );
         }
 

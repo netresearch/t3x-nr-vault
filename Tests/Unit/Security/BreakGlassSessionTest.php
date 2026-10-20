@@ -16,6 +16,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+use function sprintf;
+
 #[CoversClass(BreakGlassSession::class)]
 final class BreakGlassSessionTest extends TestCase
 {
@@ -46,7 +48,7 @@ final class BreakGlassSessionTest extends TestCase
         $session = $this->createSession(expiresAt: 1_760_000_900);
 
         foreach ($session->toArray() as $key => $value) {
-            self::assertIsScalar($value, \sprintf('payload key "%s" must be scalar', $key));
+            self::assertIsScalar($value, sprintf('payload key "%s" must be scalar', $key));
         }
     }
 
@@ -70,11 +72,11 @@ final class BreakGlassSessionTest extends TestCase
     public static function malformedPayloadProvider(): iterable
     {
         $valid = [
-            'activatedByUid' => 1,
+            'activatedByUid'      => 1,
             'activatedByUsername' => 'alice',
-            'reason' => 'incident',
-            'activatedAt' => 1_760_000_000,
-            'expiresAt' => 1_760_000_900,
+            'reason'              => 'incident',
+            'activatedAt'         => 1_760_000_000,
+            'expiresAt'           => 1_760_000_900,
         ];
 
         yield 'empty' => [[]];
@@ -96,11 +98,11 @@ final class BreakGlassSessionTest extends TestCase
     public function acceptsNumericStringsBecauseTheRegistryMayReturnThem(): void
     {
         $restored = BreakGlassSession::fromArray([
-            'activatedByUid' => '7',
+            'activatedByUid'      => '7',
             'activatedByUsername' => 'alice',
-            'reason' => 'incident',
-            'activatedAt' => '1760000000',
-            'expiresAt' => '1760000900',
+            'reason'              => 'incident',
+            'activatedAt'         => '1760000000',
+            'expiresAt'           => '1760000900',
         ]);
 
         self::assertInstanceOf(BreakGlassSession::class, $restored);

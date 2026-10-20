@@ -174,7 +174,7 @@ final class VaultListCommandTest extends TestCase
     public function appliesLimitToResults(): void
     {
         $secrets = [];
-        for ($i = 1; $i <= 10; $i++) {
+        for ($i = 1; $i <= 10; ++$i) {
             $secrets[] = new SecretMetadata(
                 identifier: "secret-$i",
                 ownerUid: 1,
@@ -316,7 +316,7 @@ final class VaultListCommandTest extends TestCase
     public function zeroLimitReturnsAllSecrets(): void
     {
         $secrets = [];
-        for ($i = 1; $i <= 5; $i++) {
+        for ($i = 1; $i <= 5; ++$i) {
             $secrets[] = new SecretMetadata(
                 identifier: "secret-$i",
                 ownerUid: 1,

@@ -31,10 +31,10 @@ final readonly class SecretPattern
     public const MASK = '***';
 
     /**
-     * @param string $name Human-readable shape name; surfaced in scan findings
-     * @param string|null $anchoredPattern Whole-value regex (``^…$``), or null if the shape is only ever embedded
-     * @param string|null $inlinePattern Embedded-occurrence regex, or null if the shape is too generic to redact inline
-     * @param string $inlineReplacement Replacement for an inline match; may reference capture groups of $inlinePattern
+     * @param string      $name              Human-readable shape name; surfaced in scan findings
+     * @param string|null $anchoredPattern   Whole-value regex (``^…$``), or null if the shape is only ever embedded
+     * @param string|null $inlinePattern     Embedded-occurrence regex, or null if the shape is too generic to redact inline
+     * @param string      $inlineReplacement Replacement for an inline match; may reference capture groups of $inlinePattern
      */
     public function __construct(
         public string $name,
