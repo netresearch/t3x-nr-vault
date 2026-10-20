@@ -369,6 +369,16 @@ recorded. Already accepted records and collected identifiers are retained.
 The iterator's unseen suffix cannot be recovered. The total can therefore
 exceed the sum of the counters for known destinations.
 
+Both unattributed failures also raise a ``SINK_FAILURE`` alert, unless an
+alert is already being delivered. That alert carries the ``record`` key
+(``identifier-probe`` or ``sink-iterator``) and no ``sink`` key, and its detail
+names the operation instead of a destination. An alert rule that groups
+``SINK_FAILURE`` by ``sink`` must route alerts without that key as well, or it
+drops them. Status reads raise these alerts too:
+:php:`hasExternalAuditSink()` and :php:`getEnabledSinkIdentifiers()` enumerate
+the sinks and probe their identifiers, so ``vault:audit-verify`` and
+``vault:audit-anchor`` can raise one when enumeration or a probe fails.
+
 Two further behaviours to know about when reading them:
 
 *   **A sink whose own enablement probe throws is counted as failed and
