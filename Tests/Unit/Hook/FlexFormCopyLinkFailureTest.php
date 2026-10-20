@@ -58,6 +58,8 @@ final class FlexFormCopyLinkFailureTest extends TestCase
 
     /**
      * @param class-string<Throwable> $throwableClass
+     * @param class-string<Throwable>|null $writerFailureClass
+     * @param class-string<Throwable>|null $cleanupFailureClass
      */
     #[Test]
     #[DataProvider('linkFailures')]
@@ -67,6 +69,8 @@ final class FlexFormCopyLinkFailureTest extends TestCase
         bool $copyStartsBlank = false,
         bool $failurePersists = false,
         bool $recoveryFails = false,
+        ?string $writerFailureClass = null,
+        ?string $cleanupFailureClass = null,
     ): void {
         if (!\defined('LF')) {
             \define('LF', "\n");
@@ -93,8 +97,16 @@ final class FlexFormCopyLinkFailureTest extends TestCase
         $vault
             ->method('delete')
             ->willReturnCallback(
-                static function (string $id) use (&$abandoned): void {
+                static function (
+                    string $id,
+                ) use (&$abandoned, $cleanupFailureClass): void {
                     $abandoned[] = $id;
+                    if ($cleanupFailureClass !== null) {
+                        throw new $cleanupFailureClass(
+                            'synthetic private cleanup failure',
+                            972712907,
+                        );
+                    }
                 },
             );
         $sourceXml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . self::SOURCE . '</value></field><field index="label"><value index="vDEF">synthetic nonsecret label</value></field></language></sheet></data></T3FlexForms>';
@@ -190,7 +202,7 @@ final class FlexFormCopyLinkFailureTest extends TestCase
                     $messages[] = $message;
                 },
             );
-        $logger = self::createStub(LoggerInterface::class);
+        $logger = $this->diagnosticLogger($writerFailureClass);
         $subject = new FlexFormVaultHook(
             $pool,
             $this->tcaSchemaFactory,
@@ -226,8 +238,17 @@ final class FlexFormCopyLinkFailureTest extends TestCase
         self::assertSame(
             $created,
             $abandoned,
-            'Every created clone must be compensated when its final link fails.',
+            'Every known clone must receive a compensation attempt when its final link fails.',
         );
+        if ($cleanupFailureClass !== null) {
+            self::assertIsString($storedCopy);
+            self::assertStringNotContainsString(
+                $created[0],
+                $storedCopy,
+                'Diagnostic delivery failure must not interrupt clearing an already-linked clone.',
+            );
+        }
+
         self::assertNull(
             $caught,
             'The editor must receive the existing correlated failure diagnostic.',
@@ -268,7 +289,7 @@ final class FlexFormCopyLinkFailureTest extends TestCase
     }
 
     /**
-     * @return iterable<string, array{string, class-string<Throwable>, bool, bool, bool}>
+     * @return iterable<string, array{string, class-string<Throwable>, bool, bool, bool, 5?: class-string<Throwable>, 6?: class-string<Throwable>}>
      */
     public static function linkFailures(): iterable
     {
@@ -281,6 +302,34 @@ final class FlexFormCopyLinkFailureTest extends TestCase
             foreach ([false, true] as $startsBlank) {
                 yield 'persisted-before-database-failure-' . (int) $startsBlank . '-' . $class => ['database', $class, $startsBlank, true, false];
             }
+
+            foreach ([RuntimeException::class, Error::class] as $cleanupClass) {
+                yield 'cleanup-and-diagnostic-failure-' . $class . '-' . $cleanupClass => [
+                    'database',
+                    RuntimeException::class,
+                    false,
+                    true,
+                    false,
+                    $class,
+                    $cleanupClass,
+                ];
+            }
         }
+    }
+
+    /**
+     * @param class-string<Throwable>|null $writerFailureClass
+     */
+    private function diagnosticLogger(
+        ?string $writerFailureClass,
+    ): LoggerInterface {
+        $logger = self::createMock(LoggerInterface::class);
+        if ($writerFailureClass !== null) {
+            $logger
+                ->method('error')
+                ->willThrowException(new $writerFailureClass('synthetic private diagnostic failure'));
+        }
+
+        return $logger;
     }
 }

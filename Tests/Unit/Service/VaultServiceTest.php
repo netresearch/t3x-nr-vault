@@ -1987,6 +1987,54 @@ final class VaultServiceTest extends TestCase
         }
     }
 
+    #[Test]
+    public function oldConstructorFailsClosedForNewSiteNamespacesWithoutValidation(): void
+    {
+        $this->adapter
+            ->expects(self::once())
+            ->method('retrieve')
+            ->with('site:main:api_key')
+            ->willReturn(null);
+        $this->encryptionService->expects(self::never())->method('encrypt');
+        $this->adapter->expects(self::never())->method('store');
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessageToContain('site validation is unavailable');
+        $this->subject->store('site:main:api_key', 'synthetic-value');
+    }
+
+    #[Test]
+    public function oldConstructorKeepsExistingEncryptedNamespaceWritableWithoutCurrentSite(): void
+    {
+        $existing = $this->createSecretEntity('site:former:api_key');
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->accessControlService->method('canWrite')->willReturn(true);
+        $this->encryptionService
+            ->expects(self::once())
+            ->method('encrypt')
+            ->with('synthetic-updated', 'site:former:api_key')
+            ->willReturn(
+                new EncryptedData(
+                    'enc_value',
+                    'enc_dek',
+                    'nonce1',
+                    'nonce2',
+                    'checksum',
+                ),
+            );
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(
+                self::callback(
+                    static fn (
+                        Secret $stored,
+                    ): bool => $stored->getIdentifier() === 'site:former:api_key',
+                ),
+            )
+            ->willReturnArgument(0);
+        $this->subject->store('site:former:api_key', 'synthetic-updated');
+    }
+
     /**
      * Build a subject wired to a different access-control seam, reusing the
      * remaining collaborators from setUp().
