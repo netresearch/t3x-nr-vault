@@ -437,6 +437,13 @@ columns or plain/FlexForm hooks remains separate audit work; this boundary does
 not make every record copy atomic (see
 :ref:`adr-046-flexform-copy-link-compensation`).
 
+For regular TCA vault fields, the same compensation applies if storing the fresh
+identifiers in the copied record fails after the secrets were cloned. Every
+created clone is considered for deletion, and clearing the copied record's
+vault fields is attempted. An
+exception or PHP error during that clearing attempt is reported as a failure
+requiring manual review.
+
 Both cleanup and clearing are best-effort. Successful clearing with failed
 clone deletion can leave an unreferenced clone requiring reconciliation. A
 failed clearing write leaves uncertain references: the duplicate may still
@@ -489,11 +496,25 @@ per-secret owner/group tiers. A backend user who may edit the record but holds
 neither will have the mutation refused, and the refusal is audited — see
 :ref:`security-operation-permissions` and :ref:`security-access-control`.
 
+A refused hook operation presents a cause-independent message and a fresh
+correlation reference. Its secondary diagnostic attempt uses that same
+reference; caller-supplied context cannot replace it. Other record metadata
+is preserved. Diagnostic string values, including the cause class, have
+control bytes removed and a final UTF-8-safe limit of 200 bytes, even when
+configured replacement of malformed UTF-8 expands the input or introduces
+control bytes. This concerns
+the hook's PSR-3 diagnostic context, rather than the persisted mutation-audit
+record. A correlation reference alone is not proof of log delivery.
+
 The reveal button requires explicit user action and is logged. Revealing also
 asserts ``secret.reveal``, which ``secret.use`` does not imply.
 
-On top of both gates, page TSconfig can narrow what the *widget* offers, per
-table and per field:
+On top of both gates, global (page 0) TSconfig can narrow field actions per
+table and field. The service resolves a field setting before the table default,
+then the global default; missing settings allow reveal, copy and edit, and
+leave the field writable. It does not read the edited record's page TSconfig.
+The same rules can be supplied as ``page.vault.permissions`` overrides in
+backend user TSconfig. For example:
 
 .. code-block:: typoscript
    :caption: Page TSconfig
@@ -519,9 +540,13 @@ table and per field:
        }
    }
 
-This layer only ever removes affordances from the form; it cannot grant an
-operation the permission gates withheld. Administrators are exempt from it,
-except for ``readOnly``.
+These rules cannot grant an operation that the vault permission gates
+withheld. ``reveal`` and ``copy`` control the widget. ``edit`` and ``readOnly``
+also protect the plain TCA-field DataHandler write path; FlexForm writes do
+not re-check this layer. Administrators bypass the restrictions: reveal, copy
+and edit remain allowed, and ``readOnly`` is always false. Non-admin results
+are cached separately by table, field, action and user UID until
+``VaultFieldPermissionService::clearCache()`` clears that service cache.
 
 .. _tca-security-audit:
 

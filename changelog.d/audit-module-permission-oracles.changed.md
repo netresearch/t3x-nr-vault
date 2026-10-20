@@ -1,0 +1,1 @@
+- Functional controller tests exercise real backend users and group grants across Vault module actions, including a non-admin creation grant.

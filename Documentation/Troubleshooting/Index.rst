@@ -44,16 +44,19 @@ Users get "Access denied" when reading secrets
 
 Check the following:
 
-1. **Backend user group**: The user must belong to a group that has
-   access to the secret. Verify group membership in
-   :guilabel:`Backend Users` module.
+1. **Operation and per-secret access**: Verify the required ``tx_nrvault:*``
+   group permission and the secret ownership or read/write group grants.
+   An operation grant alone does not grant access to every secret. Check
+   group membership in :guilabel:`Backend Users`.
 
-2. **TSconfig restrictions**: Check if Page TSconfig or User TSconfig
-   restricts access to vault features. Look for
-   ``tx_vault.`` prefixed settings.
+2. **Field restrictions**: For TCA vault fields, also check Page or User
+   TSconfig under ``vault.permissions`` (``reveal``, ``copy``, ``edit`` and
+   ``readOnly``). These field controls do not replace the vault ACL.
 
-3. **Ownership**: Only the secret creator and members of allowed groups
-   can access a secret. Administrators can access all secrets.
+3. **Administrator access**: Administrators normally bypass vault ACL
+   checks. In the hardened profile with ``disableAdminOverride`` enabled,
+   they need operation and per-secret grants too, unless an audited
+   break-glass session is active.
 
 4. **CLI access**: CLI commands require explicit configuration. See
    :ref:`configuration` for details.

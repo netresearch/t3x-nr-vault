@@ -1,0 +1,1 @@
+- Compensate successfully stored FlexForm clones when final XML serialization or record linking fails; attempt clearing even after a write has taken effect, and report uncertain references if recovery also fails.
