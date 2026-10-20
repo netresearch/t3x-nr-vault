@@ -17,6 +17,8 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Localization\LanguageService;
 
+use function assert;
+
 /**
  * Per-action operation-permission gate for the vault backend modules.
  *
@@ -117,7 +119,7 @@ final readonly class ModuleAccessGuard
         ServerRequestInterface $request,
         ?string $requiredPermission,
     ): ResponseInterface {
-        $lang = $this->getLanguageService();
+        $lang           = $this->getLanguageService();
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
         $moduleTemplate->setTitle($lang->sL(self::LL_PREFIX . 'accessDenied.title'));
@@ -130,7 +132,7 @@ final readonly class ModuleAccessGuard
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
+        assert($GLOBALS['LANG'] instanceof LanguageService);
 
         return $GLOBALS['LANG'];
     }

@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Exception;
 
+use function sprintf;
+
 /**
  * Thrown when extension configuration is invalid.
  */
@@ -17,7 +19,7 @@ final class ConfigurationException extends VaultException
     public static function invalidProvider(string $provider): self
     {
         return new self(
-            \sprintf('Unknown master key provider: %s', $provider),
+            sprintf('Unknown master key provider: %s', $provider),
             1703800015,
         );
     }
@@ -25,7 +27,7 @@ final class ConfigurationException extends VaultException
     public static function invalidAdapter(string $adapter): self
     {
         return new self(
-            \sprintf('Unknown vault adapter: %s', $adapter),
+            sprintf('Unknown vault adapter: %s', $adapter),
             1703800016,
         );
     }
@@ -33,7 +35,7 @@ final class ConfigurationException extends VaultException
     public static function missingConfiguration(string $key): self
     {
         return new self(
-            \sprintf('Missing required configuration: %s', $key),
+            sprintf('Missing required configuration: %s', $key),
             1703800017,
         );
     }
@@ -41,7 +43,7 @@ final class ConfigurationException extends VaultException
     public static function invalidSecurityProfile(string $profile): self
     {
         return new self(
-            \sprintf(
+            sprintf(
                 'Unknown security profile "%s". Valid profiles: standard, hardened. '
                 . 'Refusing to fall back to a weaker profile.',
                 $profile,
@@ -64,7 +66,7 @@ final class ConfigurationException extends VaultException
         string $conflictingClass,
     ): self {
         return new self(
-            \sprintf(
+            sprintf(
                 'Master key provider identifier "%s" is claimed by two providers: %s and %s. '
                 . 'Refusing to choose between them — an identifier decides which key source protects '
                 . 'the vault. Change the identifier of the extension-supplied provider, or remove it.',
@@ -86,7 +88,7 @@ final class ConfigurationException extends VaultException
     public static function blankProviderIdentifier(string $providerClass): self
     {
         return new self(
-            \sprintf(
+            sprintf(
                 'Master key provider %s returns a blank identifier. A provider must return a '
                 . 'non-empty identifier from getIdentifier(); the empty value is what an '
                 . 'unconfigured installation carries and must never select a provider.',
@@ -99,7 +101,7 @@ final class ConfigurationException extends VaultException
     public static function providerForbiddenInHardenedProfile(string $provider): self
     {
         return new self(
-            \sprintf(
+            sprintf(
                 'Master key provider "%s" is not permitted in the hardened security profile. '
                 . 'Only "typo3" is refused: configure file, env, transit or a provider another '
                 . 'extension registers — the TYPO3 encryption key must not protect vault secrets '

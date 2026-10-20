@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -101,7 +101,7 @@ final class ExtensionPointContractTest extends TestCase
 
         $start = strpos($documentation, '.. _api-extension-points:');
         self::assertIsInt($start, 'Api.rst has lost its extension-points section.');
-        $end = strpos($documentation, "\n.. _api-", $start + 1);
+        $end     = strpos($documentation, "\n.. _api-", $start + 1);
         $section = substr($documentation, $start, $end === false ? null : $end - $start);
 
         preg_match_all('/``(Netresearch\\\\NrVault\\\\[A-Za-z\\\\]+Interface)``/', $section, $matches);

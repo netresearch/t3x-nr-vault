@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -21,6 +21,10 @@ use ReflectionProperty;
 use ReflectionType;
 use ReflectionUnionType;
 use UnitEnum;
+
+use function assert;
+use function is_scalar;
+use function sprintf;
 
 /**
  * Renders the public signatures of a set of classes as deterministic text.
@@ -73,7 +77,7 @@ final class ApiSurfaceRenderer
         $blocks = [];
         foreach ($classes as $fqcn) {
             $reflection = new ReflectionClass($fqcn);
-            $lines = [\sprintf('%s (%s)', $fqcn, $this->kindOf($reflection))];
+            $lines      = [sprintf('%s (%s)', $fqcn, $this->kindOf($reflection))];
 
             foreach ($this->declaredLines($reflection) as $line) {
                 $lines[] = '  ' . $line;
@@ -181,10 +185,10 @@ final class ApiSurfaceRenderer
     private function kindOf(ReflectionClass $reflection): string
     {
         $kind = match (true) {
-            $reflection->isEnum() => 'enum',
+            $reflection->isEnum()      => 'enum',
             $reflection->isInterface() => 'interface',
-            $reflection->isTrait() => 'trait',
-            default => 'class',
+            $reflection->isTrait()     => 'trait',
+            default                    => 'class',
         };
 
         // The extension-point mark is part of the contract, so it is part of
@@ -207,7 +211,7 @@ final class ApiSurfaceRenderer
 
         if ($reflection->isEnum()) {
             $enumName = $reflection->getName();
-            \assert(is_subclass_of($enumName, UnitEnum::class));
+            assert(is_subclass_of($enumName, UnitEnum::class));
             $enum = new ReflectionEnum($enumName);
             foreach ($enum->getCases() as $case) {
                 // The BACKING VALUE is rendered, not just the case name: for
@@ -217,7 +221,7 @@ final class ApiSurfaceRenderer
                 // value change sail through green. Deliberate divergence
                 // from the nr-llm original, which renders names only.
                 $lines[] = $case instanceof ReflectionEnumBackedCase
-                    ? \sprintf('case %s = %s', $case->getName(), json_encode($case->getBackingValue(), JSON_THROW_ON_ERROR))
+                    ? sprintf('case %s = %s', $case->getName(), json_encode($case->getBackingValue(), JSON_THROW_ON_ERROR))
                     : 'case ' . $case->getName();
             }
         }
@@ -231,16 +235,16 @@ final class ApiSurfaceRenderer
                 continue;
             }
 
-            $value = $constant->getValue();
-            $lines[] = \sprintf(
+            $value   = $constant->getValue();
+            $lines[] = sprintf(
                 'const %s = %s',
                 $constant->getName(),
-                \is_scalar($value) || $value === null ? json_encode($value, JSON_THROW_ON_ERROR) : 'array',
+                is_scalar($value) || $value === null ? json_encode($value, JSON_THROW_ON_ERROR) : 'array',
             );
         }
 
         foreach ($this->declaredPublicProperties($reflection) as $property) {
-            $lines[] = \sprintf(
+            $lines[] = sprintf(
                 'property %s%s: %s',
                 $property->isReadOnly() ? 'readonly ' : '',
                 $property->getName(),
@@ -250,7 +254,7 @@ final class ApiSurfaceRenderer
 
         $constructor = $this->declaredPublicConstructor($reflection);
         if ($constructor instanceof ReflectionMethod) {
-            $lines[] = \sprintf(
+            $lines[] = sprintf(
                 'constructor(%s)',
                 // Canonicalised against the DECLARING class, not this one: an
                 // inherited constructor's `self` resolves to the parent, and
@@ -261,7 +265,7 @@ final class ApiSurfaceRenderer
         }
 
         foreach ($this->declaredPublicMethods($reflection) as $method) {
-            $lines[] = \sprintf(
+            $lines[] = sprintf(
                 'method %s%s(%s): %s',
                 $method->isStatic() ? 'static ' : '',
                 $method->getName(),
@@ -279,7 +283,7 @@ final class ApiSurfaceRenderer
     {
         $params = [];
         foreach ($method->getParameters() as $parameter) {
-            $params[] = \sprintf(
+            $params[] = sprintf(
                 '%s%s$%s%s',
                 $this->renderType($parameter->getType(), $selfClass),
                 $parameter->isVariadic() ? ' ...' : ' ',

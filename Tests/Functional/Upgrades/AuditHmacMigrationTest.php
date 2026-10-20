@@ -70,7 +70,7 @@ final class AuditHmacMigrationTest extends AbstractVaultFunctionalTestCase
 
         // Write new entries with epoch=1 (via VaultService which picks up the new epoch)
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
+        $identifier   = $this->generateUuidV7();
         $vaultService->store($identifier, 'hmac-test-value');
         $vaultService->delete($identifier, 'cleanup');
 
@@ -106,7 +106,7 @@ final class AuditHmacMigrationTest extends AbstractVaultFunctionalTestCase
         $this->configureAuditHmacEpoch(1);
 
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
+        $identifier   = $this->generateUuidV7();
         $vaultService->store($identifier, 'epoch1-value');
         $vaultService->delete($identifier, 'cleanup');
 
@@ -149,7 +149,7 @@ final class AuditHmacMigrationTest extends AbstractVaultFunctionalTestCase
         self::assertTrue($result, 'executeUpdate must return true on success');
 
         // All entries should now be at epoch=1
-        $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
+        $connection  = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
         $legacyCount = (int) $connection->createQueryBuilder()
             ->count('uid')
             ->from('tx_nrvault_audit_log')
@@ -175,7 +175,7 @@ final class AuditHmacMigrationTest extends AbstractVaultFunctionalTestCase
 
         // After migration, hash chain must verify correctly
         $auditService = $this->get(AuditLogServiceInterface::class);
-        $result = $auditService->verifyHashChain();
+        $result       = $auditService->verifyHashChain();
 
         self::assertTrue(
             $result->isValid(),
@@ -222,7 +222,7 @@ final class AuditHmacMigrationTest extends AbstractVaultFunctionalTestCase
 
         // Snapshot all entry_hash + hmac_key_epoch values
         $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
-        $snapshot1 = $connection->createQueryBuilder()
+        $snapshot1  = $connection->createQueryBuilder()
             ->select('uid', 'entry_hash', 'previous_hash', 'hmac_key_epoch')
             ->from('tx_nrvault_audit_log')
             ->orderBy('uid', 'ASC')

@@ -22,13 +22,13 @@ use JsonSerializable;
 final readonly class AuditIntegrityAlert implements JsonSerializable
 {
     /**
-     * @param AuditIntegrityReason $reason Machine-readable reason code
-     * @param string $detail Human-readable, secret-free description
-     * @param int $timestamp Unix timestamp the finding was raised
-     * @param array<string, bool|int|string> $context Scalar-only extra facts
-     *                                                (uid, sink identifier, anchored sequence, …).
-     *                                                Scalars only so the payload can never smuggle a
-     *                                                nested object graph into an external system.
+     * @param AuditIntegrityReason           $reason    Machine-readable reason code
+     * @param string                         $detail    Human-readable, secret-free description
+     * @param int                            $timestamp Unix timestamp the finding was raised
+     * @param array<string, bool|int|string> $context   Scalar-only extra facts
+     *                                                  (uid, sink identifier, anchored sequence, …).
+     *                                                  Scalars only so the payload can never smuggle a
+     *                                                  nested object graph into an external system.
      */
     public function __construct(
         public AuditIntegrityReason $reason,
@@ -51,11 +51,11 @@ final readonly class AuditIntegrityAlert implements JsonSerializable
     public function toArray(): array
     {
         return [
-            'reason' => $this->reason->value,
+            'reason'         => $this->reason->value,
             'tamperEvidence' => $this->reason->isTamperEvidence(),
-            'detail' => $this->detail,
-            'timestamp' => $this->timestamp,
-            'context' => $this->context,
+            'detail'         => $this->detail,
+            'timestamp'      => $this->timestamp,
+            'context'        => $this->context,
         ];
     }
 

@@ -11,6 +11,8 @@ namespace Netresearch\NrVault\Service\Analytics;
 
 use Netresearch\NrVault\Domain\StalenessRule;
 
+use function in_array;
+
 /**
  * Pure evaluation of staleness rules for a single secret. No I/O, no clock —
  * the caller passes `now` so the logic is deterministically testable.
@@ -38,13 +40,13 @@ final readonly class StalenessEvaluator
     ): array {
         $rules = [];
 
-        $ageDays = $this->daysBetween($crdate, $now);
+        $ageDays      = $this->daysBetween($crdate, $now);
         $lastReadDays = ($lastReadAt === null || $lastReadAt === 0)
             ? null
             : $this->daysBetween($lastReadAt, $now);
 
         $neverReadAndAged = $readCount === 0 && $ageDays >= $this->neverReadDays;
-        $coldRead = $lastReadDays !== null && $lastReadDays >= $this->notReadDays;
+        $coldRead         = $lastReadDays !== null && $lastReadDays >= $this->notReadDays;
         if ($neverReadAndAged || $coldRead) {
             $rules[] = StalenessRule::Dead;
         }
@@ -61,7 +63,7 @@ final readonly class StalenessEvaluator
         // Only flag automation-stale when the secret is NOT already dead: a
         // secret that IS being manually revealed but never automatically read
         // is a review candidate, not a delete candidate.
-        $alreadyDead = \in_array(StalenessRule::Dead, $rules, true);
+        $alreadyDead = in_array(StalenessRule::Dead, $rules, true);
         if (!$alreadyDead && $automatedReads === 0 && $manualReveals > 0) {
             $rules[] = StalenessRule::AutomationStale;
         }

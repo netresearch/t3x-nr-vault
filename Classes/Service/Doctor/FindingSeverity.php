@@ -49,8 +49,8 @@ enum FindingSeverity: string
     public function rank(): int
     {
         return match ($this) {
-            self::Pass => 0,
-            self::Warning => 1,
+            self::Pass     => 0,
+            self::Warning  => 1,
             self::Critical => 2,
         };
     }
@@ -61,8 +61,8 @@ enum FindingSeverity: string
     public function bootstrapContext(): string
     {
         return match ($this) {
-            self::Pass => 'success',
-            self::Warning => 'warning',
+            self::Pass     => 'success',
+            self::Warning  => 'warning',
             self::Critical => 'danger',
         };
     }

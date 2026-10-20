@@ -99,7 +99,7 @@ final class AccessControlServiceAdminOverrideTest extends TestCase
         // is what makes the disabled state survivable at all.
         $this->setAdminBackendUser();
         $subject = $this->createSubject(SecurityProfile::Hardened, overrideDisabled: true);
-        $own = $this->createSecret(self::ADMIN_UID);
+        $own     = $this->createSecret(self::ADMIN_UID);
 
         self::assertTrue($subject->canRead($own));
         self::assertTrue($subject->canWrite($own));

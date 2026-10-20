@@ -18,6 +18,9 @@ use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\FindingSeverity;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
 
+use function count;
+use function sprintf;
+
 /**
  * Who can read secrets from a shell?
  *
@@ -101,7 +104,7 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
      */
     private function checkFrontendPlaceholderLegacy(DoctorContext $context): Finding
     {
-        $id = 'cli.frontend_placeholder_legacy';
+        $id      = 'cli.frontend_placeholder_legacy';
         $enabled = $this->configuration->isFrontendPlaceholderLegacyCliEnabled();
         $details = ['frontendPlaceholderLegacyCli' => $enabled];
 
@@ -155,7 +158,7 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
      */
     private function checkAccessEnabled(DoctorContext $context): Finding
     {
-        $id = 'cli.access';
+        $id      = 'cli.access';
         $details = ['allowCliAccess' => true];
 
         if (!$context->isHardened()) {
@@ -206,7 +209,7 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
      */
     private function checkAllowedOperations(): Finding
     {
-        $id = 'cli.allowed_operations';
+        $id         = 'cli.allowed_operations';
         $operations = $this->configuration->getCliAllowedOperations();
 
         $known = array_map(
@@ -224,12 +227,12 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
         ];
 
         $unknown = array_values(array_diff($operations, $known));
-        $risky = array_values(array_intersect($operations, $highRisk));
+        $risky   = array_values(array_intersect($operations, $highRisk));
 
         $details = [
             'cliAllowedOperations' => implode(',', $operations),
-            'highRisk' => implode(',', $risky),
-            'unknown' => implode(',', $unknown),
+            'highRisk'             => implode(',', $risky),
+            'unknown'              => implode(',', $unknown),
         ];
 
         if ($risky === [] && $unknown === []) {
@@ -241,12 +244,12 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
                 // substitutes a credential the operator's own systems then
                 // use. The pass says the list holds nothing that needs an
                 // explicit opt-in — not that its contents are inert.
-                summary: \sprintf(
+                summary: sprintf(
                     'The CLI operation allowlist holds no operation that needs an explicit opt-in: '
                     . '%d automation operation(s) (%s). That is a scoped grant, not a harmless one — '
                     . 'everything listed is available to anyone with a shell on this host, under an '
                     . 'actor the audit trail cannot name.',
-                    \count($operations),
+                    count($operations),
                     implode(', ', $operations),
                 ),
                 docsUrl: DocsLink::ACCESS_CONTROL,
@@ -256,11 +259,11 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
 
         $summaryParts = [];
         if ($risky !== []) {
-            $summaryParts[] = \sprintf('grants high-risk operation(s) %s to the unattributed CLI actor', implode(', ', $risky));
+            $summaryParts[] = sprintf('grants high-risk operation(s) %s to the unattributed CLI actor', implode(', ', $risky));
         }
 
         if ($unknown !== []) {
-            $summaryParts[] = \sprintf('contains unknown value(s) %s', implode(', ', $unknown));
+            $summaryParts[] = sprintf('contains unknown value(s) %s', implode(', ', $unknown));
         }
 
         return Finding::warning(
@@ -318,9 +321,9 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
 
         return Finding::pass(
             id: $id,
-            summary: \sprintf('CLI access is scoped to %d backend group(s).', \count($groups)),
+            summary: sprintf('CLI access is scoped to %d backend group(s).', count($groups)),
             docsUrl: DocsLink::ACCESS_CONTROL,
-            details: ['cliAccessGroupCount' => \count($groups)],
+            details: ['cliAccessGroupCount' => count($groups)],
         );
     }
 }

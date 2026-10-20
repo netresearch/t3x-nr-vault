@@ -55,7 +55,7 @@ declare(strict_types=1);
  */
 
 $projectRoot = dirname(__DIR__, 2);
-$commandDir = $projectRoot . '/Classes/Command';
+$commandDir  = $projectRoot . '/Classes/Command';
 
 if (!is_dir($commandDir)) {
     fwrite(STDERR, "Command directory not found: {$commandDir}\n");
@@ -213,7 +213,7 @@ function parseCommandDefinitions(string $commandDir): array
 $extractExamples = static function (string $path): array {
     /** @var list<array{int, string}> $examples */
     $examples = [];
-    $lines = file($path, FILE_IGNORE_NEW_LINES);
+    $lines    = file($path, FILE_IGNORE_NEW_LINES);
     if ($lines === false) {
         return $examples;
     }
@@ -227,7 +227,7 @@ $extractExamples = static function (string $path): array {
         }
 
         $startLine = $i + 1;
-        $rest = $m[2];
+        $rest      = $m[2];
 
         // Join shell line continuations: a trailing backslash means the
         // options continue on the next line(s). Without this the guard would
@@ -261,11 +261,11 @@ $parseExample = static function (string $cmdLine): array {
     // A token is a run of non-space/non-quote chars, each optionally followed
     // by a quoted span, repeated (so --reason="a b" is one token).
     preg_match_all('/(?:[^\s"\']+(?:"[^"]*"|\'[^\']*\')?|"[^"]*"|\'[^\']*\')+/', trim($cmdLine), $tokMatch);
-    $tokens = $tokMatch[0] ?? [];
+    $tokens  = $tokMatch[0] ?? [];
     $command = array_shift($tokens) ?? '';
 
     /** @var list<string> $options */
-    $options = [];
+    $options    = [];
     $positional = 0;
 
     foreach ($tokens as $tok) {
@@ -276,7 +276,7 @@ $parseExample = static function (string $cmdLine): array {
         if (str_starts_with($tok, '--')) {
             // Strip a value: --opt=value  OR  bare --opt.
             $opt = substr($tok, 2);
-            $eq = strpos($opt, '=');
+            $eq  = strpos($opt, '=');
             if ($eq !== false) {
                 $opt = substr($opt, 0, $eq);
             }
@@ -356,24 +356,24 @@ function parseDocumentedOptions(string $rst): array
         return ['sections' => $sections, 'options' => $options];
     }
 
-    $command = null;
+    $command   = null;
     $inOptions = false;
-    $count = count($lines);
+    $count     = count($lines);
 
     // An explicit cursor rather than a `for` counter: a header consumes TWO
     // lines (title + underline), and advancing a loop counter from inside the
     // body is exactly the kind of hidden control flow this guard should not have.
     $cursor = 0;
     while ($cursor < $count) {
-        $line = $lines[$cursor];
+        $line   = $lines[$cursor];
         $lineNo = $cursor + 1;
-        $title = trim($line);
+        $title  = trim($line);
 
         if (isRstSectionHeader($title, $lines[$cursor + 1] ?? '')) {
             if (preg_match('/^(vault:[a-z][a-z0-9-]*)$/', $title, $sectionMatch) === 1) {
-                $command = $sectionMatch[1];
+                $command            = $sectionMatch[1];
                 $sections[$command] = $lineNo;
-                $inOptions = false;
+                $inOptions          = false;
             } else {
                 $inOptions = $title === 'Options';
             }
@@ -441,9 +441,9 @@ function parseOptionTerm(string $term): ?array
     $short = $parts[3] ?? '';
 
     return [
-        'name' => $parts[1],
-        'placeholder' => $parts[2] ?? '',
-        'short' => $short === '' ? null : $short,
+        'name'             => $parts[1],
+        'placeholder'      => $parts[2] ?? '',
+        'short'            => $short === '' ? null : $short,
         'shortPlaceholder' => $parts[4] ?? '',
     ];
 }
@@ -456,7 +456,7 @@ function parseOptionTerm(string $term): ?array
  * the option to the command.
  *
  * @param array<string, array{short: ?string, value: bool}> $real
- * @param list<string> $globalOptions
+ * @param list<string>                                      $globalOptions
  */
 function violationForUndeclaredOption(string $where, string $name, array $real, array $globalOptions): ?string
 {
@@ -488,13 +488,13 @@ function violationForUndeclaredOption(string $where, string $name, array $real, 
  * line to write.
  *
  * @param array{name: string, placeholder: string, short: ?string, shortPlaceholder: string} $parsed
- * @param array{short: ?string, value: bool} $real
+ * @param array{short: ?string, value: bool}                                                 $real
  */
 function violationForSignatureMismatch(string $where, string $term, array $parsed, array $real): ?string
 {
     $placeholder = $parsed['placeholder'] === '' ? 'VALUE' : $parsed['placeholder'];
 
-    $expected = renderOptionTerm($parsed['name'], $real['short'], $real['value'], $placeholder);
+    $expected  = renderOptionTerm($parsed['name'], $real['short'], $real['value'], $placeholder);
     $canonical = renderOptionTerm($parsed['name'], $parsed['short'], $parsed['placeholder'] !== '', $placeholder);
 
     $selfConsistent = $canonical === $term
@@ -511,7 +511,7 @@ function violationForSignatureMismatch(string $where, string $term, array $parse
  * Rule: every option the command declares must appear in the list.
  *
  * @param array<string, array{short: ?string, value: bool}> $real
- * @param array<string,int> $seen documented long name => line
+ * @param array<string,int>                                 $seen documented long name => line
  *
  * @return list<string>
  */
@@ -543,8 +543,8 @@ function violationsForUndocumentedOptions(
  * completeness rule over the list as a whole.
  *
  * @param array<string, array{short: ?string, value: bool}> $real
- * @param list<array{int, string}> $terms
- * @param list<string> $globalOptions
+ * @param list<array{int, string}>                          $terms
+ * @param list<string>                                      $globalOptions
  *
  * @return array{violations: list<string>, checked: int}
  */
@@ -614,8 +614,8 @@ function validateCommandOptionList(
  * "delete the section instead of fixing it" escape.
  *
  * @param array<string, array{options: array<string, array{short: ?string, value: bool}>, args: int}> $commands
- * @param array{sections: array<string,int>, options: array<string, list<array{int, string}>>} $documented
- * @param list<string> $globalOptions
+ * @param array{sections: array<string,int>, options: array<string, list<array{int, string}>>}        $documented
+ * @param list<string>                                                                                $globalOptions
  *
  * @return array{violations: list<string>, checked: int, covered: list<string>}
  */
@@ -669,7 +669,7 @@ function validateDocumentedOptions(
  * with no option reference at all.
  *
  * @param array<string, array{options: array<string, array{short: ?string, value: bool}>, args: int}> $commands
- * @param list<string> $covered
+ * @param list<string>                                                                                $covered
  *
  * @return list<string>
  */
@@ -708,7 +708,7 @@ if (is_array($arguments) && in_array('--self-test', $arguments, true)) {
 }
 
 [$commands, $parseErrors] = parseCommandDefinitions($commandDir);
-$violations = $parseErrors;
+$violations               = $parseErrors;
 
 // Scan README plus every doc under Documentation/ so a vault:* example
 // anywhere in the docs is validated — not just the two reference files.
@@ -730,14 +730,14 @@ if (is_dir($docDir)) {
             continue;
         }
 
-        $label = ltrim(str_replace($projectRoot, '', $file->getPathname()), '/');
+        $label            = ltrim(str_replace($projectRoot, '', $file->getPathname()), '/');
         $docFiles[$label] = $file->getPathname();
     }
 
     ksort($docFiles);
 }
 
-$checked = 0;
+$checked        = 0;
 $checkedOptions = 0;
 /** @var list<string> $covered commands whose Options list was validated */
 $covered = [];
@@ -769,7 +769,7 @@ foreach ($docFiles as $label => $path) {
 
             $known = array_keys($def['options']);
             sort($known);
-            $hint = $known === [] ? '(command has no options)' : '(have: --' . implode(', --', $known) . ')';
+            $hint         = $known === [] ? '(command has no options)' : '(have: --' . implode(', --', $known) . ')';
             $violations[] = "{$label}:{$lineNo}: '{$command}' has no option '--{$opt}' {$hint}";
         }
 
@@ -792,7 +792,7 @@ foreach ($docFiles as $label => $path) {
                 $label,
             );
             $violations = [...$violations, ...$result['violations']];
-            $covered = [...$covered, ...$result['covered']];
+            $covered    = [...$covered, ...$result['covered']];
             $checkedOptions += $result['checked'];
         }
     }

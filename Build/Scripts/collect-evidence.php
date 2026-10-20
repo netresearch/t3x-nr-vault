@@ -163,7 +163,7 @@ function loadXmlArtifact(string $path): SimpleXMLElement
     try {
         $xml = simplexml_load_string(readFileOrFail($path));
         if (!$xml instanceof SimpleXMLElement) {
-            $first = libxml_get_last_error();
+            $first  = libxml_get_last_error();
             $detail = $first === false ? 'unparseable XML' : trim($first->message);
 
             throw new MalformedArtifactException("{$path}: {$detail}", 3133594368);
@@ -323,12 +323,12 @@ function parseClover(string $path, array $prefixes): array
     $metrics = $projectMetrics[0];
 
     $statements = xmlInt($metrics, 'statements');
-    $covered = xmlInt($metrics, 'coveredstatements');
+    $covered    = xmlInt($metrics, 'coveredstatements');
     if ($statements === null || $covered === null) {
         throw new MalformedArtifactException("{$path}: project metrics lack statement counts", 6498936204);
     }
 
-    $conditionals = xmlInt($metrics, 'conditionals') ?? 0;
+    $conditionals        = xmlInt($metrics, 'conditionals') ?? 0;
     $coveredConditionals = xmlInt($metrics, 'coveredconditionals') ?? 0;
 
     /** @var array<string, int> $prefixStatements */
@@ -340,9 +340,9 @@ function parseClover(string $path, array $prefixes): array
     /** @var array<string, int> $prefixCoveredConditionals */
     $prefixCoveredConditionals = [];
     foreach ($prefixes as $prefix) {
-        $prefixStatements[$prefix] = 0;
-        $prefixCovered[$prefix] = 0;
-        $prefixConditionals[$prefix] = 0;
+        $prefixStatements[$prefix]          = 0;
+        $prefixCovered[$prefix]             = 0;
+        $prefixConditionals[$prefix]        = 0;
         $prefixCoveredConditionals[$prefix] = 0;
     }
 
@@ -352,13 +352,13 @@ function parseClover(string $path, array $prefixes): array
         if ($name === '') {
             continue;
         }
-        $normalized = str_replace('\\', '/', $name);
+        $normalized  = str_replace('\\', '/', $name);
         $fileMetrics = $file->metrics;
         if (!$fileMetrics instanceof SimpleXMLElement) {
             continue;
         }
         $fileStatements = xmlInt($fileMetrics, 'statements');
-        $fileCovered = xmlInt($fileMetrics, 'coveredstatements');
+        $fileCovered    = xmlInt($fileMetrics, 'coveredstatements');
         if ($fileStatements === null) {
             continue;
         }
@@ -382,7 +382,7 @@ function parseClover(string $path, array $prefixes): array
     /** @var array<string, float|null> $branchPerPrefix */
     $branchPerPrefix = [];
     foreach ($prefixStatements as $prefix => $total) {
-        $perPrefix[$prefix] = percentage($prefixCovered[$prefix], $total);
+        $perPrefix[$prefix]       = percentage($prefixCovered[$prefix], $total);
         $branchPerPrefix[$prefix] = percentage($prefixCoveredConditionals[$prefix], $prefixConditionals[$prefix]);
     }
 
@@ -390,13 +390,13 @@ function parseClover(string $path, array $prefixes): array
         'line' => percentage($covered, $statements),
         // A line-only driver (pcov) writes conditionals="0": that is "no branch
         // data", which percentage() reports as null rather than 0 % or 100 %.
-        'branch' => percentage($coveredConditionals, $conditionals),
-        'statements' => $statements,
-        'covered' => $covered,
-        'conditionals' => $conditionals,
+        'branch'              => percentage($coveredConditionals, $conditionals),
+        'statements'          => $statements,
+        'covered'             => $covered,
+        'conditionals'        => $conditionals,
         'coveredConditionals' => $coveredConditionals,
-        'perPrefix' => $perPrefix,
-        'branchPerPrefix' => $branchPerPrefix,
+        'perPrefix'           => $perPrefix,
+        'branchPerPrefix'     => $branchPerPrefix,
     ];
 }
 
@@ -425,7 +425,7 @@ function parseCoverageText(string $path): array
         return ['path' => null, 'executedPaths' => 0, 'executablePaths' => 0];
     }
 
-    $executed = (int) $m[1];
+    $executed   = (int) $m[1];
     $executable = (int) $m[2];
 
     return ['path' => percentage($executed, $executable), 'executedPaths' => $executed, 'executablePaths' => $executable];
@@ -449,10 +449,10 @@ function parseJunit(string $path): array
     }
 
     return [
-        'tests' => $tests,
+        'tests'    => $tests,
         'failures' => xmlInt($xml, 'failures') ?? xmlInt($root, 'failures') ?? 0,
-        'errors' => xmlInt($xml, 'errors') ?? xmlInt($root, 'errors') ?? 0,
-        'skipped' => xmlInt($xml, 'skipped') ?? xmlInt($root, 'skipped') ?? 0,
+        'errors'   => xmlInt($xml, 'errors') ?? xmlInt($root, 'errors') ?? 0,
+        'skipped'  => xmlInt($xml, 'skipped') ?? xmlInt($root, 'skipped') ?? 0,
     ];
 }
 
@@ -493,8 +493,8 @@ function checkTestResults(array $suites): array
         return check('tests', 'absent', 'no JUnit log produced by this build', $source);
     }
 
-    $parts = [];
-    $failed = false;
+    $parts      = [];
+    $failed     = false;
     $totalTests = 0;
     foreach ($suites as $suite => $path) {
         $totals = parseJunit($path);
@@ -526,7 +526,7 @@ function checkTestResults(array $suites): array
  * punish readable branching rather than missing tests.
  *
  * @param array{line: float|null, branch: float|null, statements: int, covered: int, conditionals: int, coveredConditionals: int, perPrefix: array<string, float|null>, branchPerPrefix: array<string, float|null>}|null $coverage
- * @param array{path: float|null, executedPaths: int, executablePaths: int}|null $paths
+ * @param array{path: float|null, executedPaths: int, executablePaths: int}|null                                                                                                                                         $paths
  *
  * @return array{id: string, status: string, summary: string, source: string}
  */
@@ -586,7 +586,7 @@ function checkBranchCoverage(?array $coverage, float $minimum, float $securityMi
     }
 
     $status = thresholdStatus($coverage['branch'], $minimum);
-    $parts = [];
+    $parts  = [];
     foreach ($coverage['branchPerPrefix'] as $prefix => $percent) {
         $parts[] = $prefix . ' ' . formatPercentage($percent);
         if ($percent === null) {
@@ -625,7 +625,7 @@ function checkSecurityCoverage(?array $coverage, float $minimum): array
         return check('coverage-security-dirs', 'absent', 'no coverage report produced by this build', $source);
     }
 
-    $parts = [];
+    $parts  = [];
     $status = 'pass';
     foreach ($coverage['perPrefix'] as $prefix => $percent) {
         $parts[] = $prefix . ' ' . formatPercentage($percent);
@@ -658,12 +658,12 @@ function readMutationThresholds(string $root, string $configName = 'infection.js
     if (!is_file($config)) {
         return ['minMsi' => null, 'minCoveredMsi' => null];
     }
-    $contents = readFileOrFail($config);
-    $minMsi = matchFirst('/"minMsi"\s*:\s*([0-9.]+)/', $contents);
+    $contents   = readFileOrFail($config);
+    $minMsi     = matchFirst('/"minMsi"\s*:\s*([0-9.]+)/', $contents);
     $minCovered = matchFirst('/"minCoveredMsi"\s*:\s*([0-9.]+)/', $contents);
 
     return [
-        'minMsi' => $minMsi === null ? null : (float) $minMsi,
+        'minMsi'        => $minMsi === null ? null : (float) $minMsi,
         'minCoveredMsi' => $minCovered === null ? null : (float) $minCovered,
     ];
 }
@@ -705,12 +705,12 @@ function checkMutation(
     }
 
     $report = decodeJsonArtifact($infectionJson);
-    $stats = $report['stats'] ?? null;
+    $stats  = $report['stats'] ?? null;
     if (!is_array($stats) || !isset($stats['msi']) || !is_numeric($stats['msi'])) {
         throw new MalformedArtifactException("{$infectionJson}: missing .stats.msi", 9904897261);
     }
 
-    $msi = (float) $stats['msi'];
+    $msi        = (float) $stats['msi'];
     $coveredMsi = isset($stats['coveredCodeMsi']) && is_numeric($stats['coveredCodeMsi'])
         ? (float) $stats['coveredCodeMsi']
         : null;
@@ -776,9 +776,9 @@ function checkDependencyAudit(?string $auditJson): array
         return check('dependency-audit', 'absent', 'no composer audit report in this build', $source);
     }
 
-    $report = decodeJsonArtifact($auditJson);
+    $report     = decodeJsonArtifact($auditJson);
     $advisories = $report['advisories'] ?? [];
-    $abandoned = $report['abandoned'] ?? [];
+    $abandoned  = $report['abandoned'] ?? [];
     if (!is_array($advisories) || !is_array($abandoned)) {
         throw new MalformedArtifactException("{$auditJson}: unexpected advisories/abandoned shape", 5665648318);
     }
@@ -883,8 +883,8 @@ function checkDoctor(string $root, ?string $doctorJson): array
     // `status` key. The string map is kept as a fallback in case the shape
     // grows one, and `exitCode` as a fallback in case severity is dropped.
     $severityMap = ['pass' => 'pass', 'warning' => 'warn', 'critical' => 'fail'];
-    $stringMap = [
-        'ok' => 'pass', 'pass' => 'pass', 'healthy' => 'pass',
+    $stringMap   = [
+        'ok'   => 'pass', 'pass' => 'pass', 'healthy' => 'pass',
         'warn' => 'warn', 'warning' => 'warn', 'degraded' => 'warn',
         'fail' => 'fail', 'error' => 'fail', 'critical' => 'fail',
     ];
@@ -893,19 +893,19 @@ function checkDoctor(string $root, ?string $doctorJson): array
     $severity = $report['highestSeverity'] ?? null;
     $severity = is_string($severity) ? strtolower($severity) : null;
 
-    $status = null;
+    $status   = null;
     $reported = null;
     if ($severity !== null && isset($severityMap[$severity])) {
-        $status = $severityMap[$severity];
+        $status   = $severityMap[$severity];
         $reported = $severity;
     } else {
         $raw = $report['status'] ?? $report['overallStatus'] ?? null;
         $raw = is_string($raw) ? strtolower($raw) : null;
         if ($raw !== null && isset($stringMap[$raw])) {
-            $status = $stringMap[$raw];
+            $status   = $stringMap[$raw];
             $reported = $raw;
         } elseif (isset($report['exitCode']) && is_int($report['exitCode']) && isset($exitMap[$report['exitCode']])) {
-            $status = $exitMap[$report['exitCode']];
+            $status   = $exitMap[$report['exitCode']];
             $reported = 'exit code ' . $report['exitCode'];
         }
     }
@@ -924,7 +924,7 @@ function checkDoctor(string $root, ?string $doctorJson): array
     // `profile` is the profile the run was evaluated against, which may be an
     // override (--profile=hardened on a standard install answers a hypothetical).
     // Recording both keeps the evidence unambiguous.
-    $profile = $report['profile'] ?? null;
+    $profile    = $report['profile'] ?? null;
     $configured = $report['configuredProfile'] ?? null;
     if (is_string($profile) && $profile !== '') {
         $summary .= " for profile {$profile}";
@@ -982,7 +982,7 @@ function crashedDoctorChecks(array $report): array
             continue;
         }
         $details = $finding['details'] ?? null;
-        $name = is_array($details) && isset($details['check']) && is_string($details['check'])
+        $name    = is_array($details) && isset($details['check']) && is_string($details['check'])
             ? $details['check']
             : 'unnamed check';
         $names[] = $name;
@@ -1078,7 +1078,7 @@ function releaseAssetPointers(string $repo, string $prefix, ?string $tag, ?strin
     // Build-provenance lives in GitHub's attestation store, not as a file asset.
     $pointers[] = [
         'name' => 'build-provenance attestation',
-        'url' => "https://github.com/{$repo}/attestations",
+        'url'  => "https://github.com/{$repo}/attestations",
     ];
 
     return $pointers;
@@ -1110,14 +1110,14 @@ function releaseAssetPointers(string $repo, string $prefix, ?string $tag, ?strin
  */
 function buildManifest(array $context): array
 {
-    $root = $context['root'];
-    $inputs = $context['inputs'];
+    $root    = $context['root'];
+    $inputs  = $context['inputs'];
     $version = readExtensionVersion($root);
 
-    $clover = $inputs['clover'] ?? null;
-    $coverage = $clover === null ? null : parseClover($clover, SECURITY_DIRS);
+    $clover       = $inputs['clover'] ?? null;
+    $coverage     = $clover === null ? null : parseClover($clover, SECURITY_DIRS);
     $coverageText = $inputs['coverageText'] ?? null;
-    $paths = $coverageText === null ? null : parseCoverageText($coverageText);
+    $paths        = $coverageText === null ? null : parseCoverageText($coverageText);
 
     $checks = [
         checkReleaseIdentity($context['tag'], $context['commit'], $version),
@@ -1149,12 +1149,12 @@ function buildManifest(array $context): array
 
     return [
         'schemaVersion' => SCHEMA_VERSION,
-        'extension' => $context['extensionKey'],
-        'version' => $version,
-        'commit' => $context['commit'],
-        'builtAt' => $context['builtAt'],
-        'checks' => $checks,
-        'artifacts' => $artifacts,
+        'extension'     => $context['extensionKey'],
+        'version'       => $version,
+        'commit'        => $context['commit'],
+        'builtAt'       => $context['builtAt'],
+        'checks'        => $checks,
+        'artifacts'     => $artifacts,
     ];
 }
 
@@ -1181,7 +1181,7 @@ function renderMarkdown(array $manifest): string
         $tally[$entry['status']] = ($tally[$entry['status']] ?? 0) + 1;
     }
 
-    $lines = [];
+    $lines   = [];
     $lines[] = '# Release evidence — ' . $manifest['extension'] . ' ' . ($manifest['version'] ?? 'unknown version');
     $lines[] = '';
     $lines[] = 'Generated by `Build/Scripts/collect-evidence.php` from the verification';
@@ -1227,7 +1227,7 @@ function renderMarkdown(array $manifest): string
     $lines[] = 'does not reproduce them.';
     $lines[] = '';
 
-    $bundled = [];
+    $bundled    = [];
     $referenced = [];
     foreach ($manifest['artifacts'] as $artifact) {
         if (isset($artifact['path'])) {
@@ -1302,13 +1302,13 @@ function ensureDirectory(string $path): void
 function bundleInputs(array $inputs, string $outputDir): array
 {
     $names = [
-        'clover' => 'clover.xml',
-        'coverageText' => 'coverage-text.txt',
-        'infection' => 'infection.json',
+        'clover'            => 'clover.xml',
+        'coverageText'      => 'coverage-text.txt',
+        'infection'         => 'infection.json',
         'infectionSecurity' => 'infection-security.json',
-        'infectionSummary' => 'infection-summary.log',
-        'audit' => 'composer-audit.json',
-        'doctor' => 'vault-doctor.json',
+        'infectionSummary'  => 'infection-summary.log',
+        'audit'             => 'composer-audit.json',
+        'doctor'            => 'vault-doctor.json',
     ];
     foreach (TEST_SUITES as $suite) {
         $names['junit-' . $suite] = 'junit-' . $suite . '.xml';
@@ -1393,53 +1393,53 @@ function parseArguments(array $argv): array
 function usage(): string
 {
     return <<<'TXT'
-    collect-evidence.php — assemble a release evidence bundle.
+        collect-evidence.php — assemble a release evidence bundle.
 
-    Usage:
-      Build/Scripts/collect-evidence.php [options]
-      Build/Scripts/collect-evidence.php --self-test
+        Usage:
+          Build/Scripts/collect-evidence.php [options]
+          Build/Scripts/collect-evidence.php --self-test
 
-    Options:
-      --output-dir=DIR            bundle destination (default .Build/evidence)
-      --parts=DIR                 drop-zone of CI-produced reports, checked
-                                  before the in-tree defaults. Expected names:
-                                    junit-unit.xml, junit-fuzz.xml,
-                                    junit-functional.xml, clover.xml,
-                                    coverage-text.txt,
-                                    infection.json, infection-security.json,
-                                    infection-summary.log,
-                                    composer-audit.json, doctor.json
-      --tag=TAG                   release tag (default $GITHUB_REF_NAME)
-      --commit=SHA                commit SHA (default $GITHUB_SHA, else git HEAD)
-      --built-at=RFC3339          build timestamp (default $BUILD_TIMESTAMP,
-                                  else the HEAD committer date — never wall clock)
-      --repo=OWNER/NAME           repo slug for release-asset URLs
-                                  (default $GITHUB_REPOSITORY)
-      --archive-prefix=PREFIX     release archive prefix (default nr-vault)
-      --extension-key=KEY         extension key (default nr_vault)
-      --clover=FILE               default .Build/coverage/clover.xml
-      --coverage-text=FILE        PHPUnit text coverage summary, source of the
-                                  path metric (default
-                                  .Build/coverage/coverage-text.txt)
-      --junit=FILE                unit-suite log, alias of --junit-unit
-                                  (default .Build/logs/junit.xml)
-      --junit-fuzz=FILE           default .Build/logs/junit-fuzz.xml
-      --junit-functional=FILE     default .Build/logs/junit-functional.xml
-      --infection=FILE            default .Build/infection/infection.json
-      --infection-security=FILE   security-scoped Infection report (default
-                                  .Build/infection-security/infection.json)
-      --infection-summary=FILE    default .Build/infection/summary.log
-      --audit=FILE                composer audit --format=json output
-                                  (default .Build/evidence-inputs/composer-audit.json)
-      --doctor=FILE               vault:doctor --format=json output
-                                  (default .Build/evidence-inputs/doctor.json)
-      --min-security-coverage=N   bar for the security dirs (default 90)
-      --self-test                 run fixture self-checks, write nothing
-      -h, --help                  this text
+        Options:
+          --output-dir=DIR            bundle destination (default .Build/evidence)
+          --parts=DIR                 drop-zone of CI-produced reports, checked
+                                      before the in-tree defaults. Expected names:
+                                        junit-unit.xml, junit-fuzz.xml,
+                                        junit-functional.xml, clover.xml,
+                                        coverage-text.txt,
+                                        infection.json, infection-security.json,
+                                        infection-summary.log,
+                                        composer-audit.json, doctor.json
+          --tag=TAG                   release tag (default $GITHUB_REF_NAME)
+          --commit=SHA                commit SHA (default $GITHUB_SHA, else git HEAD)
+          --built-at=RFC3339          build timestamp (default $BUILD_TIMESTAMP,
+                                      else the HEAD committer date — never wall clock)
+          --repo=OWNER/NAME           repo slug for release-asset URLs
+                                      (default $GITHUB_REPOSITORY)
+          --archive-prefix=PREFIX     release archive prefix (default nr-vault)
+          --extension-key=KEY         extension key (default nr_vault)
+          --clover=FILE               default .Build/coverage/clover.xml
+          --coverage-text=FILE        PHPUnit text coverage summary, source of the
+                                      path metric (default
+                                      .Build/coverage/coverage-text.txt)
+          --junit=FILE                unit-suite log, alias of --junit-unit
+                                      (default .Build/logs/junit.xml)
+          --junit-fuzz=FILE           default .Build/logs/junit-fuzz.xml
+          --junit-functional=FILE     default .Build/logs/junit-functional.xml
+          --infection=FILE            default .Build/infection/infection.json
+          --infection-security=FILE   security-scoped Infection report (default
+                                      .Build/infection-security/infection.json)
+          --infection-summary=FILE    default .Build/infection/summary.log
+          --audit=FILE                composer audit --format=json output
+                                      (default .Build/evidence-inputs/composer-audit.json)
+          --doctor=FILE               vault:doctor --format=json output
+                                      (default .Build/evidence-inputs/doctor.json)
+          --min-security-coverage=N   bar for the security dirs (default 90)
+          --self-test                 run fixture self-checks, write nothing
+          -h, --help                  this text
 
-    A producer that did not run is recorded as "absent" and the exit code stays
-    0. Only a present-but-malformed artifact is an error.
-    TXT;
+        A producer that did not run is recorded as "absent" and the exit code stays
+        0. Only a present-but-malformed artifact is an error.
+        TXT;
 }
 
 /**
@@ -1508,7 +1508,7 @@ function usableArtifact(string $path): bool
 function gitOutput(string $root, string $command): ?string
 {
     $escapedRoot = escapeshellarg($root);
-    $output = shell_exec("git -C {$escapedRoot} {$command} 2>/dev/null");
+    $output      = shell_exec("git -C {$escapedRoot} {$command} 2>/dev/null");
     if (!is_string($output)) {
         return null;
     }
@@ -1545,7 +1545,7 @@ function resolveBuiltAt(array $options, string $root): string
 function run(array $options, string $root): int
 {
     $outputDir = $options['output-dir'] ?? $root . '/.Build/evidence';
-    $commit = $options['commit']
+    $commit    = $options['commit']
         ?? (is_string($env = getenv('GITHUB_SHA')) && $env !== '' ? $env : null)
         ?? gitOutput($root, 'rev-parse HEAD')
         ?? 'unknown';
@@ -1572,22 +1572,22 @@ function run(array $options, string $root): int
     }
 
     $inputs = [
-        'junit-unit' => resolveInput($options, 'junit-unit', $root . '/.Build/logs/junit.xml', 'junit-unit.xml'),
-        'junit-fuzz' => resolveInput($options, 'junit-fuzz', $root . '/.Build/logs/junit-fuzz.xml', 'junit-fuzz.xml'),
+        'junit-unit'       => resolveInput($options, 'junit-unit', $root . '/.Build/logs/junit.xml', 'junit-unit.xml'),
+        'junit-fuzz'       => resolveInput($options, 'junit-fuzz', $root . '/.Build/logs/junit-fuzz.xml', 'junit-fuzz.xml'),
         'junit-functional' => resolveInput(
             $options,
             'junit-functional',
             $root . '/.Build/logs/junit-functional.xml',
             'junit-functional.xml',
         ),
-        'clover' => resolveInput($options, 'clover', $root . '/.Build/coverage/clover.xml', 'clover.xml'),
+        'clover'       => resolveInput($options, 'clover', $root . '/.Build/coverage/clover.xml', 'clover.xml'),
         'coverageText' => resolveInput(
             $options,
             'coverage-text',
             $root . '/.Build/coverage/coverage-text.txt',
             'coverage-text.txt',
         ),
-        'infection' => resolveInput($options, 'infection', $root . '/.Build/infection/infection.json', 'infection.json'),
+        'infection'         => resolveInput($options, 'infection', $root . '/.Build/infection/infection.json', 'infection.json'),
         'infectionSecurity' => resolveInput(
             $options,
             'infection-security',
@@ -1616,16 +1616,16 @@ function run(array $options, string $root): int
     ensureDirectory($outputDir);
 
     $manifest = buildManifest([
-        'root' => $root,
-        'tag' => $tag,
-        'commit' => $commit,
-        'builtAt' => resolveBuiltAt($options, $root),
-        'repo' => $repo,
-        'archivePrefix' => $options['archive-prefix'] ?? 'nr-vault',
-        'extensionKey' => $options['extension-key'] ?? 'nr_vault',
+        'root'                => $root,
+        'tag'                 => $tag,
+        'commit'              => $commit,
+        'builtAt'             => resolveBuiltAt($options, $root),
+        'repo'                => $repo,
+        'archivePrefix'       => $options['archive-prefix'] ?? 'nr-vault',
+        'extensionKey'        => $options['extension-key'] ?? 'nr_vault',
         'minSecurityCoverage' => $minSecurity,
-        'inputs' => $inputs,
-        'bundled' => bundleInputs($inputs, $outputDir),
+        'inputs'              => $inputs,
+        'bundled'             => bundleInputs($inputs, $outputDir),
     ]);
 
     $json = json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);

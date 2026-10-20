@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -37,6 +34,11 @@ use Psr\Http\Message\ResponseInterface;
 use RuntimeException;
 use Throwable;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
+
+use function assert;
+use function is_array;
+use function is_resource;
+use function is_string;
 
 /**
  * Integration tests for OAuth 2.0 functionality with real HTTP requests.
@@ -111,23 +113,23 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         parent::setUp();
         $this->setupCompleted = true;
 
-        $envUrl = getenv('MOCK_OAUTH_URL');
-        $this->mockOAuthUrl = \is_string($envUrl) && $envUrl !== ''
+        $envUrl             = getenv('MOCK_OAUTH_URL');
+        $this->mockOAuthUrl = is_string($envUrl) && $envUrl !== ''
             ? rtrim($envUrl, '/')
             : self::$embeddedServerUrl;
 
         // Create a temporary master key for testing
         $this->masterKeyPath = $this->instancePath . '/master.key';
-        $masterKey = sodium_crypto_secretbox_keygen();
+        $masterKey           = sodium_crypto_secretbox_keygen();
         file_put_contents($this->masterKeyPath, $masterKey);
         chmod($this->masterKeyPath, 0o600);
 
         // Configure extension to use file-based master key
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = [
             'masterKeySource' => $this->masterKeyPath,
-            'autoKeyPath' => $this->masterKeyPath,
-            'enableCache' => false,
-            'auditHmacEpoch' => 1,
+            'autoKeyPath'     => $this->masterKeyPath,
+            'enableCache'     => false,
+            'auditHmacEpoch'  => 1,
         ];
 
         // Import backend user for access control
@@ -136,7 +138,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
         // Get properly wired service from container
         $service = $this->get(VaultServiceInterface::class);
-        \assert($service instanceof VaultServiceInterface);
+        assert($service instanceof VaultServiceInterface);
         $this->vaultService = $service;
     }
 
@@ -178,7 +180,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
         // Get token manager and acquire token
         $tokenManager = new OAuthTokenManager($vaultService, $this->buildTestClient(), new SecureHttpClientFactory());
-        $accessToken = $tokenManager->getAccessToken($config);
+        $accessToken  = $tokenManager->getAccessToken($config);
 
         self::assertNotSame('', $accessToken);
     }
@@ -266,7 +268,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
         // Make a request to the mock server's userinfo endpoint
         // This verifies the OAuth token is properly injected
-        $request = new Request('GET', $this->mockOAuthUrl . '/default/userinfo');
+        $request  = new Request('GET', $this->mockOAuthUrl . '/default/userinfo');
         $response = $httpClient->sendRequest($request);
 
         // Mock server should return 200 with valid token
@@ -292,7 +294,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
         // The embedded server echoes the Authorization header it received, so the
         // assertion sees what actually went over the wire.
-        $request = new Request('GET', self::$embeddedServerUrl . '/echo/authorization');
+        $request  = new Request('GET', self::$embeddedServerUrl . '/echo/authorization');
         $response = $httpClient->sendRequest($request);
 
         self::assertSame(200, $response->getStatusCode());
@@ -350,7 +352,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         self::assertTrue($vaultService->exists('my_app_oauth_refresh_token'));
 
         // Get metadata - SecretDetails DTO does not have 'type' or 'credentialSet' properties
-        $clientIdMeta = $vaultService->getMetadata('my_app_oauth_client_id');
+        $clientIdMeta     = $vaultService->getMetadata('my_app_oauth_client_id');
         $clientSecretMeta = $vaultService->getMetadata('my_app_oauth_client_secret');
 
         // SecretDetails DTO has no 'type' or 'credentialSet' property - they're not semantically linked
@@ -391,8 +393,8 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         // We ALSO capture the grant_type sent in the body of each request so
         // we can assert the fallback grant switch actually happened.
         $capturedRequests = [];
-        $call = 0;
-        $httpClient = new class (
+        $call             = 0;
+        $httpClient       = new class (
             $capturedRequests,
             $call,
         ) implements ClientInterface {
@@ -407,20 +409,20 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             public function __construct(array &$capturedRequests, int &$call)
             {
                 $this->capturedRequests = &$capturedRequests;
-                $this->call = &$call;
+                $this->call             = &$call;
             }
 
             public function sendRequest(RequestInterface $request): ResponseInterface
             {
                 $body = (string) $request->getBody();
                 parse_str($body, $params);
-                $grantType = \is_string($params['grant_type'] ?? null) ? $params['grant_type'] : '';
+                $grantType = is_string($params['grant_type'] ?? null) ? $params['grant_type'] : '';
 
                 $this->capturedRequests[] = [
                     'grant_type' => $grantType,
-                    'body' => $body,
+                    'body'       => $body,
                 ];
-                $this->call++;
+                ++$this->call;
 
                 if ($grantType === 'refresh_token') {
                     return new Response(
@@ -436,9 +438,9 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                     ['Content-Type' => 'application/json'],
                     json_encode([
                         'access_token' => 'fallback-access-token',
-                        'token_type' => 'Bearer',
-                        'expires_in' => 3600,
-                        'scope' => 'read',
+                        'token_type'   => 'Bearer',
+                        'expires_in'   => 3600,
+                        'scope'        => 'read',
                     ], JSON_THROW_ON_ERROR) ?: '',
                 );
             }
@@ -554,7 +556,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         $vaultService->store('double_fail_client_secret', 'secret');
         $vaultService->store('double_fail_refresh_token', 'refresh');
 
-        $httpClient = new class () implements ClientInterface {
+        $httpClient = new class implements ClientInterface {
             public function sendRequest(RequestInterface $request): ResponseInterface
             {
                 // Both grant types fail.
@@ -607,7 +609,7 @@ final class OAuthIntegrationTest extends FunctionalTestCase
      */
     private function getVaultService(): VaultServiceInterface
     {
-        \assert($this->vaultService instanceof VaultServiceInterface);
+        assert($this->vaultService instanceof VaultServiceInterface);
 
         return $this->vaultService;
     }
@@ -653,8 +655,8 @@ final class OAuthIntegrationTest extends FunctionalTestCase
         self::assertIsArray($httpConfig);
 
         $httpConfig['allowed_hosts'] = array_values(array_unique($hosts));
-        $confVars['HTTP'] = $httpConfig;
-        $GLOBALS['TYPO3_CONF_VARS'] = $confVars;
+        $confVars['HTTP']            = $httpConfig;
+        $GLOBALS['TYPO3_CONF_VARS']  = $confVars;
     }
 
     /**
@@ -668,8 +670,8 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             throw new RuntimeException('Could not create a log file for the mock OAuth server', 1789000001);
         }
 
-        self::$serverLogFile = $logFile;
-        $environment = getenv();
+        self::$serverLogFile                       = $logFile;
+        $environment                               = getenv();
         $environment['NR_VAULT_MOCK_OAUTH_SECRET'] = bin2hex(random_bytes(32));
 
         for ($attempt = 1; $attempt <= self::SERVER_START_ATTEMPTS; ++$attempt) {
@@ -686,13 +688,13 @@ final class OAuthIntegrationTest extends FunctionalTestCase
                 null,
                 $environment,
             );
-            if (!\is_resource($process)) {
+            if (!is_resource($process)) {
                 continue;
             }
 
             self::$serverProcess = $process;
             // Plain HTTP on loopback: the built-in server cannot terminate TLS. NOSONAR — test-only.
-            $url = 'http://' . $address; // NOSONAR
+            $url      = 'http://' . $address; // NOSONAR
             $deadline = microtime(true) + self::SERVER_READY_TIMEOUT_SECONDS;
             while (microtime(true) < $deadline && proc_get_status($process)['running']) {
                 if (self::isDiscoveryDocumentServed($url . '/.well-known/openid-configuration')) {
@@ -719,12 +721,12 @@ final class OAuthIntegrationTest extends FunctionalTestCase
 
     private static function stopEmbeddedServer(bool $keepLog = false): void
     {
-        if (\is_resource(self::$serverProcess)) {
+        if (is_resource(self::$serverProcess)) {
             proc_terminate(self::$serverProcess);
             proc_close(self::$serverProcess);
         }
 
-        self::$serverProcess = null;
+        self::$serverProcess     = null;
         self::$embeddedServerUrl = '';
 
         if (!$keepLog && self::$serverLogFile !== '' && file_exists(self::$serverLogFile)) {
@@ -762,9 +764,9 @@ final class OAuthIntegrationTest extends FunctionalTestCase
     private function buildTestClient(): GuzzleClient
     {
         return new GuzzleClient([
-            'timeout' => 10,         // hard cap so a stuck sidecar doesn't hang CI
+            'timeout'         => 10,         // hard cap so a stuck sidecar doesn't hang CI
             'connect_timeout' => 5,
-            'http_errors' => false,  // OAuth manager handles non-2xx itself
+            'http_errors'     => false,  // OAuth manager handles non-2xx itself
         ]);
     }
 
@@ -781,9 +783,9 @@ final class OAuthIntegrationTest extends FunctionalTestCase
     {
         try {
             $response = (new GuzzleClient([
-                'timeout' => 2,
+                'timeout'         => 2,
                 'connect_timeout' => 1,
-                'http_errors' => false,
+                'http_errors'     => false,
                 'allow_redirects' => false,
             ]))->request('GET', $url);
         } catch (GuzzleException) {
@@ -800,8 +802,8 @@ final class OAuthIntegrationTest extends FunctionalTestCase
             return false;
         }
 
-        return \is_array($decoded)
+        return is_array($decoded)
             && isset($decoded['token_endpoint'])
-            && \is_string($decoded['token_endpoint']);
+            && is_string($decoded['token_endpoint']);
     }
 }

@@ -55,7 +55,7 @@ final class BreakGlassCheckTest extends TestCase
     public function anOpenWindowIsAWarningNamingWhoWhyAndUntilWhen(): void
     {
         $expiresAt = (new DateTimeImmutable())->setTimestamp(time() + 900);
-        $session = new BreakGlassSession(
+        $session   = new BreakGlassSession(
             activatedByUid: 7,
             activatedByUsername: 'alice',
             reason: 'INC-4711 rotate leaked key',
@@ -86,7 +86,7 @@ final class BreakGlassCheckTest extends TestCase
     {
         // `$now` is pinned: 61 seconds from the wall clock become 60 when the
         // second ticks over before the check runs, and 60 seconds are 1 minute.
-        $now = (new DateTimeImmutable())->setTimestamp(1_760_000_000);
+        $now     = (new DateTimeImmutable())->setTimestamp(1_760_000_000);
         $session = new BreakGlassSession(
             activatedByUid: 1,
             activatedByUsername: 'bob',

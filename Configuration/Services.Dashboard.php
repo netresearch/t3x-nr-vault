@@ -44,8 +44,8 @@ return static function (ContainerConfigurator $containerConfigurator): void {
         ->private();
 
     $adminOnlySupported = interface_exists(AdminOnlyWidgetInterface::class);
-    $numberWidgetClass = $adminOnlySupported ? AdminOnlyNumberWithIconWidget::class : NumberWithIconWidget::class;
-    $barWidgetClass = $adminOnlySupported ? AdminOnlyBarChartWidget::class : BarChartWidget::class;
+    $numberWidgetClass  = $adminOnlySupported ? AdminOnlyNumberWithIconWidget::class : NumberWithIconWidget::class;
+    $barWidgetClass     = $adminOnlySupported ? AdminOnlyBarChartWidget::class : BarChartWidget::class;
 
     $services->set(ActiveSecretCountDataProvider::class);
     $services->set(AuditActivityDataProvider::class);
@@ -53,29 +53,29 @@ return static function (ContainerConfigurator $containerConfigurator): void {
     $services->set('dashboard.widget.nrvault.secrets', $numberWidgetClass)
         ->arg('$dataProvider', service(ActiveSecretCountDataProvider::class))
         ->arg('$options', [
-            'icon' => 'vault-secret',
-            'title' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_dashboard.xlf:widget.secrets.title',
+            'icon'     => 'vault-secret',
+            'title'    => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_dashboard.xlf:widget.secrets.title',
             'subtitle' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_dashboard.xlf:widget.secrets.subtitle',
         ])
         ->tag('dashboard.widget', [
-            'identifier' => 'nrvault-secrets',
-            'groupNames' => 'nrvault',
-            'title' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_dashboard.xlf:widget.secrets.title',
-            'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_dashboard.xlf:widget.secrets.description',
+            'identifier'     => 'nrvault-secrets',
+            'groupNames'     => 'nrvault',
+            'title'          => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_dashboard.xlf:widget.secrets.title',
+            'description'    => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_dashboard.xlf:widget.secrets.description',
             'iconIdentifier' => 'vault-secret',
-            'height' => 'small',
-            'width' => 'small',
+            'height'         => 'small',
+            'width'          => 'small',
         ]);
 
     $services->set('dashboard.widget.nrvault.audit_activity', $barWidgetClass)
         ->arg('$dataProvider', service(AuditActivityDataProvider::class))
         ->tag('dashboard.widget', [
-            'identifier' => 'nrvault-audit-activity',
-            'groupNames' => 'nrvault',
-            'title' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_dashboard.xlf:widget.audit_activity.title',
-            'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_dashboard.xlf:widget.audit_activity.description',
+            'identifier'     => 'nrvault-audit-activity',
+            'groupNames'     => 'nrvault',
+            'title'          => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_dashboard.xlf:widget.audit_activity.title',
+            'description'    => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_dashboard.xlf:widget.audit_activity.description',
             'iconIdentifier' => 'module-vault',
-            'height' => 'medium',
-            'width' => 'medium',
+            'height'         => 'medium',
+            'width'          => 'medium',
         ]);
 };

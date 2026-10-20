@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -17,6 +17,8 @@ use Netresearch\NrVault\Service\Doctor\DoctorContext;
 use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+
+use function sprintf;
 
 /**
  * Do the vault's tables still agree with each other?
@@ -110,7 +112,7 @@ final readonly class InventoryConsistencyCheck implements ReadinessCheckInterfac
 
         return Finding::critical(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 '%d secret(s) the audit log records as created have no row in the secret table.',
                 $missing,
             ),
@@ -151,7 +153,7 @@ final readonly class InventoryConsistencyCheck implements ReadinessCheckInterfac
 
         return Finding::warning(
             id: $id,
-            summary: \sprintf('%d access-permission row(s) point at a secret that does not exist.', $orphans),
+            summary: sprintf('%d access-permission row(s) point at a secret that does not exist.', $orphans),
             risk: 'The permission tables and the secret table were restored from different moments. The '
                 . 'rows themselves grant nothing, but the mismatch says the two halves do not belong '
                 . 'together — and the opposite half of the same mistake, secrets whose permission rows '
@@ -251,7 +253,7 @@ final readonly class InventoryConsistencyCheck implements ReadinessCheckInterfac
     {
         return Finding::warning(
             id: $id,
-            summary: \sprintf('Could not compare %s.', $what),
+            summary: sprintf('Could not compare %s.', $what),
             risk: 'This check exists to catch a half-restored database, so a comparison that cannot run '
                 . 'is not evidence that the inventory is intact. A missing table is itself one of the '
                 . 'states it looks for.',

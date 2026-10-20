@@ -4,6 +4,7 @@
  * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Controller;
@@ -62,8 +63,8 @@ final class ModulePermissionTest extends AbstractVaultFunctionalTestCase
         string $action,
     ): void {
         $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->createFromUserPreferences(null);
-        $controller = $this->get($controllerClass);
-        $response = (new ReflectionMethod($controllerClass, $action))->invoke($controller, $this->moduleRequest());
+        $controller      = $this->get($controllerClass);
+        $response        = (new ReflectionMethod($controllerClass, $action))->invoke($controller, $this->moduleRequest());
         self::assertInstanceOf(ResponseInterface::class, $response);
 
         self::assertSame(403, $response->getStatusCode(), $controllerClass . '::' . $action);

@@ -24,8 +24,8 @@ final class ExtensionConfigurationAnalyticsTest extends TestCase
     public function returnsConfiguredThresholds(): void
     {
         $config = $this->makeConfig([
-            'staleNeverReadDays' => '15',
-            'staleNotReadDays' => '45',
+            'staleNeverReadDays'    => '15',
+            'staleNotReadDays'      => '45',
             'staleNeverRotatedDays' => '200',
         ]);
 

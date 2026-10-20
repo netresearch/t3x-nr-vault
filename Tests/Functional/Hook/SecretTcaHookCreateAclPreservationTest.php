@@ -17,6 +17,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function is_scalar;
+
 /**
  * A value-bearing FormEngine create that also assigns ACL groups must end up
  * with the groups the editor assigned.
@@ -51,12 +53,12 @@ final class SecretTcaHookCreateAclPreservationTest extends AbstractVaultFunction
             [
                 self::SECRET_TABLE => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => $identifier,
-                        'description' => 'Value-bearing create with ACL groups',
-                        'secret_input' => 'create-acl-test-value',
+                        'pid'            => 0,
+                        'identifier'     => $identifier,
+                        'description'    => 'Value-bearing create with ACL groups',
+                        'secret_input'   => 'create-acl-test-value',
                         'allowed_groups' => '10,11',
-                        'write_groups' => '20',
+                        'write_groups'   => '20',
                     ],
                 ],
             ],
@@ -133,6 +135,6 @@ final class SecretTcaHookCreateAclPreservationTest extends AbstractVaultFunction
             ->executeQuery()
             ->fetchOne();
 
-        return \is_scalar($value) ? (string) $value : '';
+        return is_scalar($value) ? (string) $value : '';
     }
 }

@@ -43,7 +43,7 @@ function cliDocsSelfTestCommands(): array
         'vault:demo' => [
             'options' => [
                 'value' => ['short' => null, 'value' => true],
-                'file' => ['short' => 'f', 'value' => true],
+                'file'  => ['short' => 'f', 'value' => true],
                 'force' => ['short' => 'o', 'value' => false],
             ],
             'args' => 1,
@@ -69,73 +69,73 @@ function cliDocsSelfTestOptionCases(): array
 
     return [
         [
-            'label' => 'clean list passes',
-            'rst' => $section($correct),
+            'label'  => 'clean list passes',
+            'rst'    => $section($correct),
             'expect' => null,
         ],
         [
-            'label' => 'invented option is caught',
-            'rst' => $section($correct . "\n--expires=DATE\n   Not a real option.\n"),
+            'label'  => 'invented option is caught',
+            'rst'    => $section($correct . "\n--expires=DATE\n   Not a real option.\n"),
             'expect' => "documents '--expires', which the command does not declare",
         ],
         [
-            'label' => 'wrong short form is caught',
-            'rst' => $section(str_replace('--force, -o', '--force, -f', $correct)),
+            'label'  => 'wrong short form is caught',
+            'rst'    => $section(str_replace('--force, -o', '--force, -f', $correct)),
             'expect' => "documents '--force, -f'; the real signature is '--force, -o'",
         ],
         [
-            'label' => 'malformed term is caught',
-            'rst' => $section(str_replace('-f PATH', '-f =PATH', $correct)),
+            'label'  => 'malformed term is caught',
+            'rst'    => $section(str_replace('-f PATH', '-f =PATH', $correct)),
             'expect' => 'has a malformed option term',
         ],
         [
-            'label' => 'global option is rejected, not whitelisted',
-            'rst' => $section($correct . "\n--quiet, -q\n   Suppress output.\n"),
+            'label'  => 'global option is rejected, not whitelisted',
+            'rst'    => $section($correct . "\n--quiet, -q\n   Suppress output.\n"),
             'expect' => "documents the global option '--quiet' as its own",
         ],
         [
-            'label' => 'omitted real option is caught',
-            'rst' => $section(str_replace("--file=PATH, -f PATH\n   A file.\n\n", '', $correct)),
+            'label'  => 'omitted real option is caught',
+            'rst'    => $section(str_replace("--file=PATH, -f PATH\n   A file.\n\n", '', $correct)),
             'expect' => "does not document '--file=VALUE, -f VALUE'",
         ],
         [
-            'label' => 'value option written as a flag is caught',
-            'rst' => $section(str_replace('--value=SECRET', '--value', $correct)),
+            'label'  => 'value option written as a flag is caught',
+            'rst'    => $section(str_replace('--value=SECRET', '--value', $correct)),
             'expect' => "documents '--value'; the real signature is '--value=VALUE'",
         ],
         [
-            'label' => 'flag written as a value option is caught',
-            'rst' => $section(str_replace('--force, -o', '--force=BOOL, -o BOOL', $correct)),
+            'label'  => 'flag written as a value option is caught',
+            'rst'    => $section(str_replace('--force, -o', '--force=BOOL, -o BOOL', $correct)),
             'expect' => "documents '--force=BOOL, -o BOOL'; the real signature is '--force, -o'",
         ],
         [
-            'label' => 'short placeholder disagreeing with the long one is caught',
-            'rst' => $section(str_replace('-f PATH', '-f FILE', $correct)),
+            'label'  => 'short placeholder disagreeing with the long one is caught',
+            'rst'    => $section(str_replace('-f PATH', '-f FILE', $correct)),
             'expect' => "the real signature is '--file=PATH, -f PATH'",
         ],
         [
-            'label' => 'duplicate entry is caught',
-            'rst' => $section($correct . "\n--force, -o\n   Again.\n"),
+            'label'  => 'duplicate entry is caught',
+            'rst'    => $section($correct . "\n--force, -o\n   Again.\n"),
             'expect' => "documents '--force' twice",
         ],
         [
             // A task-oriented page (Documentation/Usage/Index.rst) walks the
             // same commands with examples only. It must not be forced to
             // duplicate the reference — coverage is checked repo-wide instead.
-            'label' => 'command section without an Options list is skipped, not flagged',
-            'rst' => "vault:demo\n==========\n\nSome prose, no Options list.\n",
+            'label'  => 'command section without an Options list is skipped, not flagged',
+            'rst'    => "vault:demo\n==========\n\nSome prose, no Options list.\n",
             'expect' => null,
         ],
         [
-            'label' => 'section for a command that does not exist is caught',
-            'rst' => "vault:ghost\n===========\n\nOptions\n-------\n\n--force\n   Nope.\n",
+            'label'  => 'section for a command that does not exist is caught',
+            'rst'    => "vault:ghost\n===========\n\nOptions\n-------\n\n--force\n   Nope.\n",
             'expect' => "documents unknown command 'vault:ghost'",
         ],
         [
             // The guard must not read a neighbouring definition list as options:
             // vault:doctor documents its control catalogue exactly like this.
             'label' => 'definition list outside the Options section is ignored',
-            'rst' => $section($correct)
+            'rst'   => $section($correct)
                 . "\nControl catalogue\n-----------------\n\n--not-an-option\n   Prose, not an option.\n",
             'expect' => null,
         ],
@@ -152,22 +152,22 @@ function cliDocsSelfTestCoverageCases(): array
 {
     return [
         [
-            'label' => 'a documented command satisfies coverage',
-            'covered' => ['vault:demo'],
+            'label'    => 'a documented command satisfies coverage',
+            'covered'  => ['vault:demo'],
             'commands' => cliDocsSelfTestCommands(),
-            'expect' => null,
+            'expect'   => null,
         ],
         [
-            'label' => 'a command documented nowhere is caught',
-            'covered' => [],
+            'label'    => 'a command documented nowhere is caught',
+            'covered'  => [],
             'commands' => cliDocsSelfTestCommands(),
-            'expect' => "no Options list documents 'vault:demo'",
+            'expect'   => "no Options list documents 'vault:demo'",
         ],
         [
-            'label' => 'a command without options needs no Options list',
-            'covered' => [],
+            'label'    => 'a command without options needs no Options list',
+            'covered'  => [],
             'commands' => ['vault:bare' => ['options' => [], 'args' => 0]],
-            'expect' => null,
+            'expect'   => null,
         ],
     ];
 }
@@ -232,10 +232,10 @@ function echoCliDocsSelfTestViolations(array $violations): void
  */
 function checkCliDocsSelfTest(): int
 {
-    $commands = cliDocsSelfTestCommands();
+    $commands      = cliDocsSelfTestCommands();
     $globalOptions = ['help', 'quiet', 'verbose', 'no-interaction'];
 
-    $optionCases = cliDocsSelfTestOptionCases();
+    $optionCases   = cliDocsSelfTestOptionCases();
     $coverageCases = cliDocsSelfTestCoverageCases();
 
     $failures = 0;

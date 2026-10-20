@@ -15,6 +15,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+use function sprintf;
+
 /**
  * SSRF defence — defence-in-depth IP / hostname / port-form rejection.
  */
@@ -32,7 +34,7 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->subject = new SecureHttpClientFactory();
+        $this->subject         = new SecureHttpClientFactory();
         $this->originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         // Ensure no allowlist is configured so the IP guards alone decide.
         $GLOBALS['TYPO3_CONF_VARS'] = ['HTTP' => []];
@@ -133,7 +135,7 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
     {
         self::assertFalse(
             $this->subject->isHostAllowed($host),
-            \sprintf('Expected host %s to be blocked as dangerous, but it was allowed.', $host),
+            sprintf('Expected host %s to be blocked as dangerous, but it was allowed.', $host),
         );
     }
 
@@ -149,7 +151,7 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
         // it decodes. They must be blocked (#192).
         self::assertFalse(
             $this->subject->isHostAllowed($host),
-            \sprintf('Expected legacy numeric IP form %s to be blocked, but it was allowed.', $host),
+            sprintf('Expected legacy numeric IP form %s to be blocked, but it was allowed.', $host),
         );
     }
 
@@ -159,11 +161,11 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
     public static function legacyNumericIpFormProvider(): array
     {
         return [
-            'dword loopback' => [self::DWORD_LOOPBACK],       // -> 127.0.0.1
-            'hex dword loopback' => ['0x7f000001'],   // -> 127.0.0.1
-            'octal dotted loopback' => ['0177.0.0.1'],
-            'hex dotted loopback' => ['0x7f.0.0.1'],
-            'partial-dot loopback' => ['127.1'],      // -> 127.0.0.1
+            'dword loopback'              => [self::DWORD_LOOPBACK],       // -> 127.0.0.1
+            'hex dword loopback'          => ['0x7f000001'],   // -> 127.0.0.1
+            'octal dotted loopback'       => ['0177.0.0.1'],
+            'hex dotted loopback'         => ['0x7f.0.0.1'],
+            'partial-dot loopback'        => ['127.1'],      // -> 127.0.0.1
             'octal dotted public-looking' => ['010.010.010.010'], // -> 8.8.8.8
         ];
     }
@@ -247,7 +249,7 @@ final class SecureHttpClientFactorySsrfTest extends TestCase
     {
         self::assertTrue(
             $this->subject->isHostAllowed($host),
-            \sprintf('Expected public host %s to stay reachable, but it was blocked.', $host),
+            sprintf('Expected public host %s to stay reachable, but it was blocked.', $host),
         );
     }
 

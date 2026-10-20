@@ -31,6 +31,11 @@ use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
 
+use function assert;
+use function is_array;
+use function is_int;
+use function is_string;
+
 /**
  * Backend module controller for audit log management.
  */
@@ -76,49 +81,49 @@ final readonly class AuditController
         $this->addDocHeaderButtons($moduleTemplate);
 
         // Get filter parameters from POST body (filter form uses POST to avoid iframe issues)
-        $body = $request->getParsedBody();
-        $bodyArray = \is_array($body) ? $body : [];
+        $body        = $request->getParsedBody();
+        $bodyArray   = is_array($body) ? $body : [];
         $queryParams = $request->getQueryParams();
 
         // Merge POST body with query params (POST takes precedence for filters)
         /** @var array<string, mixed> $filterParams */
         $filterParams = array_merge($queryParams, $bodyArray);
-        $filterData = $this->buildAuditFilters($filterParams);
-        $filter = $filterData['filter'];
-        $formData = $filterData['form'];
+        $filterData   = $this->buildAuditFilters($filterParams);
+        $filter       = $filterData['filter'];
+        $formData     = $filterData['form'];
 
         $pageVal = $filterParams['page'] ?? 1;
-        $page = max(1, is_numeric($pageVal) ? (int) $pageVal : 1);
-        $limit = 50;
-        $offset = ($page - 1) * $limit;
+        $page    = max(1, is_numeric($pageVal) ? (int) $pageVal : 1);
+        $limit   = 50;
+        $offset  = ($page - 1) * $limit;
 
-        $entries = $this->auditLogService->query($filter, $limit, $offset);
+        $entries    = $this->auditLogService->query($filter, $limit, $offset);
         $totalCount = $this->auditLogService->count($filter);
         $totalPages = (int) ceil($totalCount / $limit);
 
         // Format entries and group by date
         $formattedEntries = [];
-        $groupedEntries = [];
+        $groupedEntries   = [];
         foreach ($entries as $entry) {
-            $date = date('Y-m-d', $entry->crdate);
+            $date      = date('Y-m-d', $entry->crdate);
             $formatted = [
-                'uid' => $entry->uid,
-                'timestamp' => date('Y-m-d H:i:s', $entry->crdate),
-                'date' => $date,
-                'time' => date('H:i:s', $entry->crdate),
+                'uid'              => $entry->uid,
+                'timestamp'        => date('Y-m-d H:i:s', $entry->crdate),
+                'date'             => $date,
+                'time'             => date('H:i:s', $entry->crdate),
                 'secretIdentifier' => $entry->secretIdentifier,
-                'action' => $entry->action,
+                'action'           => $entry->action,
                 'actionBadgeClass' => $this->getActionBadgeClass($entry->action),
-                'success' => $entry->success,
-                'errorMessage' => $entry->errorMessage,
-                'reason' => $entry->reason ?? '',
-                'actorUsername' => $entry->actorUsername,
-                'actorType' => $entry->actorType,
-                'ipAddress' => $entry->ipAddress,
-                'entryHash' => $entry->entryHash,
-                'entryHashShort' => substr($entry->entryHash, 0, 8) . '...',
+                'success'          => $entry->success,
+                'errorMessage'     => $entry->errorMessage,
+                'reason'           => $entry->reason ?? '',
+                'actorUsername'    => $entry->actorUsername,
+                'actorType'        => $entry->actorType,
+                'ipAddress'        => $entry->ipAddress,
+                'entryHash'        => $entry->entryHash,
+                'entryHashShort'   => substr($entry->entryHash, 0, 8) . '...',
             ];
-            $formattedEntries[] = $formatted;
+            $formattedEntries[]      = $formatted;
             $groupedEntries[$date][] = $formatted;
         }
 
@@ -127,30 +132,30 @@ final readonly class AuditController
         // Build pagination URLs with filter parameters preserved
         $baseFilterParams = array_filter([
             'secretIdentifier' => $formData['secretIdentifier'],
-            'filterAction' => $formData['action'],
-            'success' => $formData['success'],
-            'since' => $formData['since'],
-            'until' => $formData['until'],
+            'filterAction'     => $formData['action'],
+            'success'          => $formData['success'],
+            'since'            => $formData['since'],
+            'until'            => $formData['until'],
         ], static fn (string $v): bool => $v !== '');
 
         $pagination = [
-            'first' => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME, array_merge($baseFilterParams, ['page' => 1])),
-            'prev' => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME, array_merge($baseFilterParams, ['page' => max(1, $page - 1)])),
+            'first'   => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME, array_merge($baseFilterParams, ['page' => 1])),
+            'prev'    => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME, array_merge($baseFilterParams, ['page' => max(1, $page - 1)])),
             'current' => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME, array_merge($baseFilterParams, ['page' => $page])),
-            'next' => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME, array_merge($baseFilterParams, ['page' => min($totalPages, $page + 1)])),
-            'last' => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME, array_merge($baseFilterParams, ['page' => $totalPages])),
+            'next'    => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME, array_merge($baseFilterParams, ['page' => min($totalPages, $page + 1)])),
+            'last'    => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME, array_merge($baseFilterParams, ['page' => $totalPages])),
         ];
 
         $moduleTemplate->assignMultiple([
-            'entries' => $formattedEntries,
+            'entries'        => $formattedEntries,
             'groupedEntries' => $groupedEntries,
-            'totalCount' => $totalCount,
-            'currentPage' => $page,
-            'totalPages' => $totalPages,
-            'filters' => ['_form' => $formData],
-            'pagination' => $pagination,
-            'canExport' => $this->accessGuard->isGranted(VaultPermission::AuditExport),
-            'actions' => $this->filterableActions(),
+            'totalCount'     => $totalCount,
+            'currentPage'    => $page,
+            'totalPages'     => $totalPages,
+            'filters'        => ['_form' => $formData],
+            'pagination'     => $pagination,
+            'canExport'      => $this->accessGuard->isGranted(VaultPermission::AuditExport),
+            'actions'        => $this->filterableActions(),
         ]);
 
         $moduleTemplate->setTitle(
@@ -177,7 +182,7 @@ final readonly class AuditController
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
         $moduleTemplate->makeDocHeaderModuleMenu();
 
-        $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
+        $buttonBar  = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
         $backButton = $buttonBar->makeLinkButton()
             ->setIcon($this->iconFactory->getIcon('actions-view-go-back', IconSize::SMALL))
             ->setTitle($this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:action.back'))
@@ -189,11 +194,11 @@ final readonly class AuditController
         $result = $this->auditLogService->verifyHashChain();
 
         $moduleTemplate->assignMultiple([
-            'valid' => $result->valid,
-            'errors' => $result->errors,
-            'warnings' => $result->warnings,
+            'valid'        => $result->valid,
+            'errors'       => $result->errors,
+            'warnings'     => $result->warnings,
             'anchorStatus' => $result->anchorStatus->value,
-            'message' => $result->isValid()
+            'message'      => $result->isValid()
                 ? $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_valid')
                 : $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_invalid'),
         ]);
@@ -221,8 +226,8 @@ final readonly class AuditController
         }
 
         $queryParams = $request->getQueryParams();
-        $formatVal = $queryParams['format'] ?? 'json';
-        $format = \is_string($formatVal) ? $formatVal : 'json';
+        $formatVal   = $queryParams['format'] ?? 'json';
+        $format      = is_string($formatVal) ? $formatVal : 'json';
 
         /** @var array<string, mixed> $queryParams */
         $filterData = $this->buildAuditFilters($queryParams);
@@ -261,19 +266,19 @@ final readonly class AuditController
         $until = $this->parseFilterDate($queryParams['until'] ?? '');
 
         // Parse success filter
-        $success = null;
+        $success      = null;
         $successValue = $queryParams['success'] ?? '';
-        if (\is_string($successValue) && $successValue !== '') {
+        if (is_string($successValue) && $successValue !== '') {
             $success = (bool) (int) $successValue;
         }
 
         $secretIdentifierVal = $queryParams['secretIdentifier'] ?? '';
-        $actionVal = $queryParams['filterAction'] ?? '';
-        $actorUidVal = $queryParams['actorUid'] ?? '';
+        $actionVal           = $queryParams['filterAction'] ?? '';
+        $actorUidVal         = $queryParams['actorUid'] ?? '';
 
         $filter = new AuditLogFilter(
-            secretIdentifier: \is_string($secretIdentifierVal) && $secretIdentifierVal !== '' ? $secretIdentifierVal : null,
-            action: \is_string($actionVal) && $actionVal !== '' ? $actionVal : null,
+            secretIdentifier: is_string($secretIdentifierVal) && $secretIdentifierVal !== '' ? $secretIdentifierVal : null,
+            action: is_string($actionVal) && $actionVal !== '' ? $actionVal : null,
             actorUid: is_numeric($actorUidVal) ? (int) $actorUidVal : null,
             success: $success,
             since: $since,
@@ -282,7 +287,7 @@ final readonly class AuditController
 
         return [
             'filter' => $filter->isEmpty() ? null : $filter,
-            'form' => $formData,
+            'form'   => $formData,
         ];
     }
 
@@ -295,18 +300,18 @@ final readonly class AuditController
      */
     private function buildAuditFormData(array $queryParams): array
     {
-        $secretIdVal = $queryParams['secretIdentifier'] ?? '';
+        $secretIdVal     = $queryParams['secretIdentifier'] ?? '';
         $filterActionVal = $queryParams['filterAction'] ?? '';
-        $successFormVal = $queryParams['success'] ?? '';
-        $sinceFormVal = $queryParams['since'] ?? '';
-        $untilFormVal = $queryParams['until'] ?? '';
+        $successFormVal  = $queryParams['success'] ?? '';
+        $sinceFormVal    = $queryParams['since'] ?? '';
+        $untilFormVal    = $queryParams['until'] ?? '';
 
         return [
-            'secretIdentifier' => \is_string($secretIdVal) ? $secretIdVal : '',
-            'action' => \is_string($filterActionVal) ? $filterActionVal : '',
-            'success' => \is_string($successFormVal) || \is_int($successFormVal) ? (string) $successFormVal : '',
-            'since' => \is_string($sinceFormVal) ? $sinceFormVal : '',
-            'until' => \is_string($untilFormVal) ? $untilFormVal : '',
+            'secretIdentifier' => is_string($secretIdVal) ? $secretIdVal : '',
+            'action'           => is_string($filterActionVal) ? $filterActionVal : '',
+            'success'          => is_string($successFormVal) || is_int($successFormVal) ? (string) $successFormVal : '',
+            'since'            => is_string($sinceFormVal) ? $sinceFormVal : '',
+            'until'            => is_string($untilFormVal) ? $untilFormVal : '',
         ];
     }
 
@@ -317,7 +322,7 @@ final readonly class AuditController
      */
     private function parseFilterDate(mixed $value): ?DateTimeImmutable
     {
-        if (\is_string($value) && $value !== '') {
+        if (is_string($value) && $value !== '') {
             try {
                 return new DateTimeImmutable($value);
             } catch (Exception) {
@@ -335,7 +340,7 @@ final readonly class AuditController
     {
         /** @phpstan-ignore new.internalClass, method.internalClass */
         $response = new Response();
-        $output = fopen('php://temp', 'r+');
+        $output   = fopen('php://temp', 'r+');
 
         if ($output === false) {
             /** @phpstan-ignore method.internalClass */
@@ -359,7 +364,7 @@ final readonly class AuditController
 
             foreach ($entries as $entry) {
                 $row = $entry->jsonSerialize();
-                if (\is_array($row['context'])) {
+                if (is_array($row['context'])) {
                     $row['context'] = json_encode($row['context']);
                 }
 
@@ -374,7 +379,7 @@ final readonly class AuditController
         fclose($output);
 
         /** @phpstan-ignore method.internalClass */
-        $response->getBody()->write(\is_string($csv) ? $csv : '');
+        $response->getBody()->write(is_string($csv) ? $csv : '');
 
         /** @phpstan-ignore-next-line method.internalClass */
         return $response
@@ -385,7 +390,7 @@ final readonly class AuditController
     private function addDocHeaderButtons(ModuleTemplate $moduleTemplate): void
     {
         $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
-        $lang = $this->getLanguageService();
+        $lang      = $this->getLanguageService();
 
         // The buttons follow the same permissions the actions enforce, so the
         // UI never offers an operation that would answer 403.
@@ -436,11 +441,11 @@ final readonly class AuditController
     private function getActionBadgeClass(string $action): string
     {
         return match ($action) {
-            'create' => 'success',
-            'read' => 'info',
-            'update' => 'warning',
-            'delete' => 'danger',
-            'rotate' => 'info',
+            'create'        => 'success',
+            'read'          => 'info',
+            'update'        => 'warning',
+            'delete'        => 'danger',
+            'rotate'        => 'info',
             'access_denied' => 'danger',
             // An in-flight call torn down after its credential was injected.
             // Every row under this action means the credential went out, so it
@@ -453,7 +458,7 @@ final readonly class AuditController
             'http_call_cancelled_before_send' => 'info',
             // A break-glass activation is the most review-worthy row in the
             // log; it must not blend into the grey default.
-            'break_glass_activated' => 'danger',
+            'break_glass_activated'   => 'danger',
             'break_glass_deactivated' => 'success',
             // Core's neutral badge follows the backend scheme; badge-secondary
             // is a dark tile in light and dark alike.
@@ -463,7 +468,7 @@ final readonly class AuditController
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
+        assert($GLOBALS['LANG'] instanceof LanguageService);
 
         return $GLOBALS['LANG'];
     }

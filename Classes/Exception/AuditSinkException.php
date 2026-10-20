@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Exception;
 
+use function sprintf;
+
 /**
  * Thrown when an external audit sink cannot deliver a record.
  *
@@ -34,7 +36,7 @@ final class AuditSinkException extends VaultException
     public static function writeFailed(string $sinkIdentifier, string $detail): self
     {
         return new self(
-            \sprintf('Audit sink "%s" write failed: %s.', $sinkIdentifier, $detail),
+            sprintf('Audit sink "%s" write failed: %s.', $sinkIdentifier, $detail),
             1753900001,
         );
     }
@@ -45,7 +47,7 @@ final class AuditSinkException extends VaultException
     public static function encodingFailed(string $sinkIdentifier, string $detail): self
     {
         return new self(
-            \sprintf('Audit sink "%s" could not encode the record: %s.', $sinkIdentifier, $detail),
+            sprintf('Audit sink "%s" could not encode the record: %s.', $sinkIdentifier, $detail),
             1753900002,
         );
     }
@@ -56,7 +58,7 @@ final class AuditSinkException extends VaultException
     public static function rejectedByEndpoint(string $sinkIdentifier, int $statusCode): self
     {
         return new self(
-            \sprintf(
+            sprintf(
                 'Audit sink "%s" endpoint returned HTTP %d; the record was not accepted.',
                 $sinkIdentifier,
                 $statusCode,
@@ -71,7 +73,7 @@ final class AuditSinkException extends VaultException
     public static function transportFailed(string $sinkIdentifier, string $detail): self
     {
         return new self(
-            \sprintf('Audit sink "%s" transport failed: %s.', $sinkIdentifier, $detail),
+            sprintf('Audit sink "%s" transport failed: %s.', $sinkIdentifier, $detail),
             1753900004,
         );
     }

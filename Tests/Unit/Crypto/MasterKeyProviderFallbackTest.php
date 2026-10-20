@@ -4,6 +4,7 @@
  * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Crypto;
@@ -90,8 +91,8 @@ final class MasterKeyProviderFallbackTest extends TestCase
         bool $fileAvailable,
         callable $assertion,
     ): void {
-        $root = vfsStream::setup('factory-vault');
-        $source = vfsStream::url('factory-vault/master.key');
+        $root          = vfsStream::setup('factory-vault');
+        $source        = vfsStream::url('factory-vault/master.key');
         $previousValue = getenv($source);
         $configuration = self::createStub(ExtensionConfigurationInterface::class);
         $configuration->method('getMasterKeyProvider')->willReturn('unconfigured');

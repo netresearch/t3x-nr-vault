@@ -13,6 +13,10 @@ use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\AuditIntegrityAlert;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 
+use function is_bool;
+use function is_string;
+use function sprintf;
+
 /**
  * Builds RFC 5424 §6.3 STRUCTURED-DATA elements for the syslog sink.
  *
@@ -86,17 +90,17 @@ final readonly class Rfc5424Formatter
     public function formatEntry(AuditLogEntry $entry, string $chainTip): string
     {
         $sd = $this->buildStructuredData(self::SD_ID_ENTRY, [
-            'uid' => (string) $entry->uid,
-            'secret' => $entry->secretIdentifier,
-            'action' => $entry->action,
-            'actor' => $entry->actorUsername,
-            'actorUid' => (string) $entry->actorUid,
+            'uid'       => (string) $entry->uid,
+            'secret'    => $entry->secretIdentifier,
+            'action'    => $entry->action,
+            'actor'     => $entry->actorUsername,
+            'actorUid'  => (string) $entry->actorUid,
             'actorType' => $entry->actorType,
-            'success' => $entry->success ? 'true' : 'false',
-            'chainTip' => $chainTip,
+            'success'   => $entry->success ? 'true' : 'false',
+            'chainTip'  => $chainTip,
         ]);
 
-        return $sd . ' ' . $this->summary(\sprintf(
+        return $sd . ' ' . $this->summary(sprintf(
             'vault audit %s %s on %s by %s',
             $entry->action,
             $entry->success ? 'succeeded' : 'FAILED',
@@ -111,13 +115,13 @@ final readonly class Rfc5424Formatter
     public function formatAnchor(ChainTipAnchor $anchor): string
     {
         $sd = $this->buildStructuredData(self::SD_ID_ANCHOR, [
-            'sequence' => (string) $anchor->sequence,
-            'chainTip' => $anchor->chainTip,
-            'hmacEpoch' => (string) $anchor->hmacEpoch,
+            'sequence'   => (string) $anchor->sequence,
+            'chainTip'   => $anchor->chainTip,
+            'hmacEpoch'  => (string) $anchor->hmacEpoch,
             'anchoredAt' => (string) $anchor->timestamp,
         ]);
 
-        return $sd . ' ' . $this->summary(\sprintf(
+        return $sd . ' ' . $this->summary(sprintf(
             'vault audit chain anchored at sequence %d (epoch %d)',
             $anchor->sequence,
             $anchor->hmacEpoch,
@@ -130,20 +134,20 @@ final readonly class Rfc5424Formatter
     public function formatAlert(AuditIntegrityAlert $alert): string
     {
         $params = [
-            'reason' => $alert->reason->value,
+            'reason'         => $alert->reason->value,
             'tamperEvidence' => $alert->reason->isTamperEvidence() ? 'true' : 'false',
-            'raisedAt' => (string) $alert->timestamp,
+            'raisedAt'       => (string) $alert->timestamp,
         ];
 
         foreach ($alert->context as $key => $value) {
             // Prefix so a context key can never collide with (or override) one
             // of the fixed params above.
-            $params['ctx_' . $key] = \is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
+            $params['ctx_' . $key] = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
         }
 
         $sd = $this->buildStructuredData(self::SD_ID_ALERT, $params);
 
-        return $sd . ' ' . $this->summary(\sprintf(
+        return $sd . ' ' . $this->summary(sprintf(
             'vault audit integrity alert %s: %s',
             $alert->reason->value,
             $alert->detail,
@@ -163,7 +167,7 @@ final readonly class Rfc5424Formatter
     {
         $parts = [$sdId];
         foreach ($params as $name => $value) {
-            $parts[] = \sprintf('%s="%s"', $this->sanitizeParamName($name), $this->escapeParamValue($value));
+            $parts[] = sprintf('%s="%s"', $this->sanitizeParamName($name), $this->escapeParamValue($value));
         }
 
         return '[' . implode(' ', $parts) . ']';
@@ -226,7 +230,7 @@ final readonly class Rfc5424Formatter
 
         if (!mb_check_encoding($value, 'UTF-8')) {
             $scrubbed = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
-            $value = \is_string($scrubbed) ? $scrubbed : '';
+            $value    = is_string($scrubbed) ? $scrubbed : '';
         }
 
         return trim((string) preg_replace('/[\x00-\x1F\x7F]+/', ' ', $value));

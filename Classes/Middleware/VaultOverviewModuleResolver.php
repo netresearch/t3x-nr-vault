@@ -19,6 +19,8 @@ use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Http\RedirectResponse;
 
+use function is_array;
+
 /**
  * Make `/typo3/module/admin/vault` render the vault overview on every supported
  * TYPO3 major.
@@ -120,7 +122,7 @@ final readonly class VaultOverviewModuleResolver implements MiddlewareInterface
         }
 
         $moduleData = $backendUser->getModuleData(self::PARENT_MODULE);
-        $moduleData = \is_array($moduleData) ? $moduleData : [];
+        $moduleData = is_array($moduleData) ? $moduleData : [];
 
         if (($moduleData['action'] ?? null) !== self::OVERVIEW_MODULE) {
             $moduleData['action'] = self::OVERVIEW_MODULE;

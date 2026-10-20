@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -55,8 +52,8 @@ final class OAuthTokenRequestParams
     public function toHttpQuery(): string
     {
         $params = [
-            'grant_type' => $this->grantType,
-            'client_id' => $this->clientId,
+            'grant_type'    => $this->grantType,
+            'client_id'     => $this->clientId,
             'client_secret' => $this->clientSecret,
         ];
         if ($this->scope !== null) {

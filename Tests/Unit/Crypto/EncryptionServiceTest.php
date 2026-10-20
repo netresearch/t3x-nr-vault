@@ -22,6 +22,10 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 
+use function chr;
+use function ord;
+use function strlen;
+
 #[CoversClass(EncryptionService::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class EncryptionServiceTest extends TestCase
@@ -60,7 +64,7 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function encryptReturnsExpectedDtoStructure(): void
     {
-        $plaintext = 'my-secret-api-key-12345';
+        $plaintext  = 'my-secret-api-key-12345';
         $identifier = 'test-secret';
 
         $result = $this->subject->encrypt($plaintext, $identifier);
@@ -76,7 +80,7 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function encryptedValueIsDifferentFromPlaintext(): void
     {
-        $plaintext = 'sensitive-password-123';
+        $plaintext  = 'sensitive-password-123';
         $identifier = 'password-secret';
 
         $result = $this->subject->encrypt($plaintext, $identifier);
@@ -93,7 +97,7 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function encryptGeneratesUniqueNoncesPerCall(): void
     {
-        $plaintext = 'test-secret';
+        $plaintext  = 'test-secret';
         $identifier = 'nonce-test';
 
         $result1 = $this->subject->encrypt($plaintext, $identifier);
@@ -110,7 +114,7 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function decryptReturnsOriginalPlaintext(): void
     {
-        $plaintext = 'original-secret-value';
+        $plaintext  = 'original-secret-value';
         $identifier = 'decrypt-test';
 
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
@@ -131,7 +135,7 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function decryptRefusesAnUnimplementedEncryptionVersion(): void
     {
-        $plaintext = 'version-guard';
+        $plaintext  = 'version-guard';
         $identifier = 'version-guard-test';
 
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
@@ -154,7 +158,7 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function decryptRefusesAnEncryptionVersionBelowLegacy(): void
     {
-        $plaintext = 'version-floor';
+        $plaintext  = 'version-floor';
         $identifier = 'version-floor-test';
 
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
@@ -175,7 +179,7 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function decryptWithWrongIdentifierThrowsException(): void
     {
-        $plaintext = 'secret-with-aad';
+        $plaintext  = 'secret-with-aad';
         $identifier = 'correct-identifier';
 
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
@@ -196,7 +200,7 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function decryptWithTamperedDataThrowsException(): void
     {
-        $plaintext = 'untampered-secret';
+        $plaintext  = 'untampered-secret';
         $identifier = 'tamper-test';
 
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
@@ -209,8 +213,8 @@ final class EncryptionServiceTest extends TestCase
         // a different byte regardless of the underlying value.
         $raw = base64_decode($encrypted->encryptedValue, true);
         self::assertIsString($raw, 'EncryptedData::$encryptedValue must be valid base64');
-        $lastIndex = \strlen($raw) - 1;
-        $flipped = \chr(\ord($raw[$lastIndex]) ^ 0xFF);
+        $lastIndex     = strlen($raw) - 1;
+        $flipped       = chr(ord($raw[$lastIndex]) ^ 0xFF);
         $tamperedValue = base64_encode(substr($raw, 0, $lastIndex) . $flipped);
 
         $this->expectException(EncryptionException::class);
@@ -253,9 +257,9 @@ final class EncryptionServiceTest extends TestCase
 
         $arguments = [
             'encryptedValue' => $encrypted->encryptedValue,
-            'encryptedDek' => $encrypted->encryptedDek,
-            'dekNonce' => $encrypted->dekNonce,
-            'valueNonce' => $encrypted->valueNonce,
+            'encryptedDek'   => $encrypted->encryptedDek,
+            'dekNonce'       => $encrypted->dekNonce,
+            'valueNonce'     => $encrypted->valueNonce,
         ];
         $arguments[$field] = '!!!not-base64!!!';
 
@@ -328,7 +332,7 @@ final class EncryptionServiceTest extends TestCase
         $dek = $this->subject->generateDek();
 
         // AES-256-GCM key should be 32 bytes
-        self::assertEquals(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES, \strlen($dek));
+        self::assertEquals(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES, strlen($dek));
     }
 
     #[Test]
@@ -349,7 +353,7 @@ final class EncryptionServiceTest extends TestCase
         $checksum = $this->subject->calculateChecksum($plaintext);
 
         // SHA-256 produces 64 hex characters
-        self::assertEquals(64, \strlen($checksum));
+        self::assertEquals(64, strlen($checksum));
         self::assertEquals(hash('sha256', $plaintext), $checksum);
     }
 
@@ -370,7 +374,7 @@ final class EncryptionServiceTest extends TestCase
         $encrypted = $this->subject->encrypt('shape-check', 'shape-id');
 
         // Keep the 64-hex shape so downstream/audit usage is unchanged.
-        self::assertSame(64, \strlen($encrypted->valueChecksum));
+        self::assertSame(64, strlen($encrypted->valueChecksum));
         self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $encrypted->valueChecksum);
     }
 
@@ -391,7 +395,7 @@ final class EncryptionServiceTest extends TestCase
     {
         $plaintext = 'identical-plaintext-across-secrets';
 
-        $first = $this->subject->encrypt($plaintext, 'secret-a');
+        $first  = $this->subject->encrypt($plaintext, 'secret-a');
         $second = $this->subject->encrypt($plaintext, 'secret-b');
 
         // Per-secret DEK => per-secret MAC key + per-call ciphertext => the
@@ -405,15 +409,15 @@ final class EncryptionServiceTest extends TestCase
         // Proves the throw path's DEK wipe (a finally on a fresh local $dek)
         // does not clobber the shared request-cached master key: a tampered
         // decrypt throws, yet a subsequent legitimate decrypt still works.
-        $plaintext = 'sequential-decrypt-secret';
+        $plaintext  = 'sequential-decrypt-secret';
         $identifier = 'seq-id';
 
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
 
         $raw = base64_decode($encrypted->encryptedValue, true);
         self::assertIsString($raw);
-        $lastIndex = \strlen($raw) - 1;
-        $flipped = \chr(\ord($raw[$lastIndex]) ^ 0xFF);
+        $lastIndex     = strlen($raw) - 1;
+        $flipped       = chr(ord($raw[$lastIndex]) ^ 0xFF);
         $tamperedValue = base64_encode(substr($raw, 0, $lastIndex) . $flipped);
 
         $threw = false;
@@ -450,8 +454,8 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function reEncryptDekWorksWithNewMasterKey(): void
     {
-        $plaintext = 'reencrypt-test';
-        $identifier = 'reencrypt-secret';
+        $plaintext    = 'reencrypt-test';
+        $identifier   = 'reencrypt-secret';
         $oldMasterKey = $this->testMasterKey;
         $newMasterKey = random_bytes(SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES);
 
@@ -479,7 +483,7 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function encryptHandlesEmptyString(): void
     {
-        $plaintext = '';
+        $plaintext  = '';
         $identifier = 'empty-secret';
 
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
@@ -503,7 +507,7 @@ final class EncryptionServiceTest extends TestCase
     public function encryptHandlesLargePayload(): void
     {
         // 1MB of random data
-        $plaintext = random_bytes(1024 * 1024);
+        $plaintext  = random_bytes(1024 * 1024);
         $identifier = 'large-secret';
 
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
@@ -524,7 +528,7 @@ final class EncryptionServiceTest extends TestCase
     #[Test]
     public function encryptHandlesUnicodeContent(): void
     {
-        $plaintext = 'Secret with emoji: 🔐🔑 and unicode: äöü 中文';
+        $plaintext  = 'Secret with emoji: 🔐🔑 and unicode: äöü 中文';
         $identifier = 'unicode-secret';
 
         $encrypted = $this->subject->encrypt($plaintext, $identifier);
@@ -556,7 +560,7 @@ final class EncryptionServiceTest extends TestCase
             $this->configuration,
         );
 
-        $plaintext = 'xchacha-test';
+        $plaintext  = 'xchacha-test';
         $identifier = 'xchacha-secret';
 
         $encrypted = $subject->encrypt($plaintext, $identifier);
@@ -582,7 +586,7 @@ final class EncryptionServiceTest extends TestCase
             $xchachaConfig,
         );
 
-        $plaintext = 'xchacha-roundtrip-secret';
+        $plaintext  = 'xchacha-roundtrip-secret';
         $identifier = 'xchacha-roundtrip';
 
         $encrypted = $subject->encrypt($plaintext, $identifier);
@@ -614,7 +618,7 @@ final class EncryptionServiceTest extends TestCase
         $dek = $subject->generateDek();
 
         // XChaCha20-Poly1305 key should be 32 bytes
-        self::assertEquals(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES, \strlen($dek));
+        self::assertEquals(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES, strlen($dek));
     }
 
     #[Test]
@@ -630,8 +634,8 @@ final class EncryptionServiceTest extends TestCase
             $xchachaConfig,
         );
 
-        $plaintext = 'reencrypt-xchacha';
-        $identifier = 'reencrypt-xchacha-secret';
+        $plaintext    = 'reencrypt-xchacha';
+        $identifier   = 'reencrypt-xchacha-secret';
         $oldMasterKey = $this->testMasterKey;
         $newMasterKey = random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES);
 

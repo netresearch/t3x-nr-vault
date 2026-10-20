@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -44,7 +44,7 @@ final class SampleVaultAdapter implements VaultAdapterInterface
 
     public function store(Secret $secret, bool $persistGroupRelations = true): Secret
     {
-        $stored = $secret->getUid() === null ? $secret->withUid($this->nextUid++) : $secret;
+        $stored                                  = $secret->getUid() === null ? $secret->withUid($this->nextUid++) : $secret;
         $this->secrets[$stored->getIdentifier()] = $stored;
 
         return $stored;

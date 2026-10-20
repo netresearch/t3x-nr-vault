@@ -16,6 +16,8 @@ use Netresearch\NrVault\Service\Doctor\FindingSeverity;
 use Netresearch\NrVault\Service\Doctor\VaultDoctorServiceInterface;
 use Throwable;
 
+use function count;
+
 /**
  * View model for the Overview module's security status panel.
  *
@@ -104,17 +106,17 @@ final readonly class SecurityStatusProvider
         $severity = $report->highestSeverity();
 
         return [
-            'available' => true,
-            'profile' => $report->context->profile->value,
-            'auditReady' => $report->isAuditReady(),
-            'severity' => $severity->value,
-            'context' => $severity->bootstrapContext(),
-            'passed' => $report->passedControls(),
-            'total' => $report->totalControls(),
-            'criticalCount' => \count($report->findingsOfSeverity(FindingSeverity::Critical)),
-            'warningCount' => \count($report->findingsOfSeverity(FindingSeverity::Warning)),
-            'detailed' => $detailed,
-            'findings' => $detailed ? $this->shapeFindings($report->problems()) : [],
+            'available'     => true,
+            'profile'       => $report->context->profile->value,
+            'auditReady'    => $report->isAuditReady(),
+            'severity'      => $severity->value,
+            'context'       => $severity->bootstrapContext(),
+            'passed'        => $report->passedControls(),
+            'total'         => $report->totalControls(),
+            'criticalCount' => count($report->findingsOfSeverity(FindingSeverity::Critical)),
+            'warningCount'  => count($report->findingsOfSeverity(FindingSeverity::Warning)),
+            'detailed'      => $detailed,
+            'findings'      => $detailed ? $this->shapeFindings($report->problems()) : [],
         ];
     }
 
@@ -127,13 +129,13 @@ final readonly class SecurityStatusProvider
     {
         return array_map(
             static fn (Finding $finding): array => [
-                'id' => $finding->id,
-                'severity' => $finding->severity->value,
-                'context' => $finding->severity->bootstrapContext(),
-                'summary' => $finding->summary,
-                'risk' => $finding->risk,
+                'id'          => $finding->id,
+                'severity'    => $finding->severity->value,
+                'context'     => $finding->severity->bootstrapContext(),
+                'summary'     => $finding->summary,
+                'risk'        => $finding->risk,
                 'remediation' => $finding->remediation,
-                'docsUrl' => $finding->docsUrl,
+                'docsUrl'     => $finding->docsUrl,
             ],
             $findings,
         );
@@ -145,17 +147,17 @@ final readonly class SecurityStatusProvider
     private function unavailable(): array
     {
         return [
-            'available' => false,
-            'profile' => '',
-            'auditReady' => false,
-            'severity' => '',
-            'context' => 'warning',
-            'passed' => 0,
-            'total' => 0,
+            'available'     => false,
+            'profile'       => '',
+            'auditReady'    => false,
+            'severity'      => '',
+            'context'       => 'warning',
+            'passed'        => 0,
+            'total'         => 0,
             'criticalCount' => 0,
-            'warningCount' => 0,
-            'detailed' => false,
-            'findings' => [],
+            'warningCount'  => 0,
+            'detailed'      => false,
+            'findings'      => [],
         ];
     }
 }

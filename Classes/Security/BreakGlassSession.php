@@ -11,6 +11,8 @@ namespace Netresearch\NrVault\Security;
 
 use DateTimeImmutable;
 
+use function is_string;
+
 /**
  * An active (or expired) break-glass window.
  *
@@ -45,13 +47,13 @@ final readonly class BreakGlassSession
      */
     public static function fromArray(array $payload): ?self
     {
-        $uid = $payload['activatedByUid'] ?? null;
-        $username = $payload['activatedByUsername'] ?? null;
-        $reason = $payload['reason'] ?? null;
+        $uid         = $payload['activatedByUid'] ?? null;
+        $username    = $payload['activatedByUsername'] ?? null;
+        $reason      = $payload['reason'] ?? null;
         $activatedAt = $payload['activatedAt'] ?? null;
-        $expiresAt = $payload['expiresAt'] ?? null;
+        $expiresAt   = $payload['expiresAt'] ?? null;
 
-        if (!is_numeric($uid) || !\is_string($username) || !\is_string($reason)) {
+        if (!is_numeric($uid) || !is_string($username) || !is_string($reason)) {
             return null;
         }
 
@@ -76,11 +78,11 @@ final readonly class BreakGlassSession
     public function toArray(): array
     {
         return [
-            'activatedByUid' => $this->activatedByUid,
+            'activatedByUid'      => $this->activatedByUid,
             'activatedByUsername' => $this->activatedByUsername,
-            'reason' => $this->reason,
-            'activatedAt' => $this->activatedAt->getTimestamp(),
-            'expiresAt' => $this->expiresAt->getTimestamp(),
+            'reason'              => $this->reason,
+            'activatedAt'         => $this->activatedAt->getTimestamp(),
+            'expiresAt'           => $this->expiresAt->getTimestamp(),
         ];
     }
 

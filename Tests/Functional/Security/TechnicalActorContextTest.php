@@ -43,7 +43,7 @@ final class TechnicalActorContextTest extends AbstractVaultFunctionalTestCase
     public function runAsGrantsOwnerAccessOnlyInsideTheScope(): void
     {
         $accessControl = $this->get(AccessControlServiceInterface::class);
-        $context = $this->get(TechnicalActorContextInterface::class);
+        $context       = $this->get(TechnicalActorContextInterface::class);
 
         $secret = new Secret(identifier: 'tech/owned', ownerUid: 10);
 
@@ -59,15 +59,15 @@ final class TechnicalActorContextTest extends AbstractVaultFunctionalTestCase
     public function runAsResolvesGroupAclIncludingSubgroupExpansion(): void
     {
         $accessControl = $this->get(AccessControlServiceInterface::class);
-        $context = $this->get(TechnicalActorContextInterface::class);
+        $context       = $this->get(TechnicalActorContextInterface::class);
 
         // Readable via group 5, which user 10 only reaches through the
         // subgroup relation of its direct group 6.
         $secret = new Secret(identifier: 'tech/group-read', ownerUid: 999, allowedGroups: [5]);
 
         $decisions = $context->runAs(10, static fn (): array => [
-            'read' => $accessControl->canRead($secret),
-            'write' => $accessControl->canWrite($secret),
+            'read'   => $accessControl->canRead($secret),
+            'write'  => $accessControl->canWrite($secret),
             'delete' => $accessControl->canDelete($secret),
         ]);
 
@@ -101,7 +101,7 @@ final class TechnicalActorContextTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function auditLogRecordsTheTechnicalActorAsSuch(): void
     {
-        $context = $this->get(TechnicalActorContextInterface::class);
+        $context  = $this->get(TechnicalActorContextInterface::class);
         $auditLog = $this->get(AuditLogServiceInterface::class);
 
         $context->runAs(10, static function () use ($auditLog): void {
@@ -132,19 +132,19 @@ final class TechnicalActorContextTest extends AbstractVaultFunctionalTestCase
         $groups->insert(
             'be_groups',
             [
-                'uid' => 7,
-                'pid' => 0,
-                'title' => 'Unrelated operation grants',
+                'uid'            => 7,
+                'pid'            => 0,
+                'title'          => 'Unrelated operation grants',
                 'custom_options' => 'tx_nrvault:secret.delete',
             ],
         );
         $accessControl = $this->get(AccessControlServiceInterface::class);
-        $context = $this->get(TechnicalActorContextInterface::class);
+        $context       = $this->get(TechnicalActorContextInterface::class);
 
         $decisions = $context->runAs(
             10,
             static fn (): array => [
-                'use' => $accessControl->isGranted(VaultPermission::SecretUse),
+                'use'    => $accessControl->isGranted(VaultPermission::SecretUse),
                 'create' => $accessControl->isGranted(VaultPermission::SecretCreate),
                 'rotate' => $accessControl->isGranted(VaultPermission::SecretRotate),
                 'delete' => $accessControl->isGranted(VaultPermission::SecretDelete),
@@ -153,7 +153,7 @@ final class TechnicalActorContextTest extends AbstractVaultFunctionalTestCase
 
         self::assertSame(
             [
-                'use' => true,
+                'use'    => true,
                 'create' => true,
                 'rotate' => true,
                 'delete' => false,
@@ -171,19 +171,19 @@ final class TechnicalActorContextTest extends AbstractVaultFunctionalTestCase
             ->insert(
                 'be_groups',
                 [
-                    'uid' => 7,
-                    'pid' => 0,
-                    'title' => 'Unrelated operation grants',
+                    'uid'            => 7,
+                    'pid'            => 0,
+                    'title'          => 'Unrelated operation grants',
                     'custom_options' => 'tx_nrvault:secret.create',
                 ],
             );
         $accessControl = $this->get(AccessControlServiceInterface::class);
-        $context = $this->get(TechnicalActorContextInterface::class);
+        $context       = $this->get(TechnicalActorContextInterface::class);
 
         $decisions = $context->runAs(
             10,
             static fn (): array => [
-                'use' => $accessControl->isGranted(VaultPermission::SecretUse),
+                'use'    => $accessControl->isGranted(VaultPermission::SecretUse),
                 'create' => $accessControl->isGranted(VaultPermission::SecretCreate),
             ],
         );

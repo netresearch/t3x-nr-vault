@@ -15,18 +15,18 @@ declare(strict_types=1);
  */
 return [
     'ctrl' => [
-        'title' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret',
-        'label' => 'identifier',
-        'label_alt' => 'description',
-        'tstamp' => 'tstamp',
-        'crdate' => 'crdate',
-        'delete' => 'deleted',
+        'title'          => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret',
+        'label'          => 'identifier',
+        'label_alt'      => 'description',
+        'tstamp'         => 'tstamp',
+        'crdate'         => 'crdate',
+        'delete'         => 'deleted',
         'default_sortby' => 'identifier ASC',
         // No `searchFields` here: TYPO3 v14 removed the option (#106972) and
         // logs a deprecation for every table that still sets it. The search
         // scope is the per-column `searchable` flag; TYPO3 v13 ignores that
         // flag, so Overrides/tx_nrvault_secret.php sets `searchFields` for v13.
-        'hideTable' => false,
+        'hideTable'     => false,
         'enablecolumns' => [
             'disabled' => 'hidden',
         ],
@@ -39,14 +39,14 @@ return [
 
     'columns' => [
         'hidden' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.enabled',
+            'label'  => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.enabled',
             'config' => [
-                'type' => 'check',
+                'type'       => 'check',
                 'renderType' => 'checkboxToggle',
-                'default' => 0,
-                'items' => [
+                'default'    => 0,
+                'items'      => [
                     [
-                        'label' => '',
+                        'label'              => '',
                         'invertStateDisplay' => true,
                     ],
                 ],
@@ -54,13 +54,13 @@ return [
         ],
 
         'identifier' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.identifier',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.identifier',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.identifier.description',
-            'l10n_mode' => 'exclude',
-            'config' => [
+            'l10n_mode'   => 'exclude',
+            'config'      => [
                 'type' => 'input',
                 'size' => 50,
-                'max' => 255,
+                'max'  => 255,
                 // `trim` only. `alphanum_x` used to sit here and silently
                 // rewrote whatever the editor typed — `<script>alert(1)</script>`
                 // was stored as `scriptalert1script`, a record nobody asked for
@@ -68,51 +68,51 @@ return [
                 // such a value in the datamap hook (IdentifierValidator), which
                 // runs before checkValue(), so the editor is told what is wrong
                 // instead of getting a mangled secret.
-                'eval' => 'trim',
+                'eval'        => 'trim',
                 'placeholder' => 'my_api_key',
-                'required' => true,
-                'searchable' => true,
+                'required'    => true,
+                'searchable'  => true,
                 // Identifier is immutable after creation - use readOnly in edit context
             ],
         ],
 
         'secret_input' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.secret_input',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.secret_input',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.secret_input.description',
-            'config' => [
-                'type' => 'user',
+            'config'      => [
+                'type'       => 'user',
                 'renderType' => 'vaultSecretInput',
-                'size' => 50,
+                'size'       => 50,
             ],
         ],
 
         'description' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.description',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.description',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.description.description',
-            'config' => [
-                'type' => 'text',
-                'rows' => 3,
-                'cols' => 50,
-                'max' => 1000,
+            'config'      => [
+                'type'       => 'text',
+                'rows'       => 3,
+                'cols'       => 50,
+                'max'        => 1000,
                 'searchable' => true,
             ],
         ],
 
         'owner_uid' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.owner_uid',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.owner_uid',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.owner_uid.description',
             // Privileged ACL column: editable only by BE groups explicitly
             // granted this excludefield (and admins). SecretTcaHook enforces a
             // second, write-path layer (owner/admin-only) so a stray grant
             // still cannot widen another user's ACL.
             'exclude' => true,
-            'config' => [
-                'type' => 'group',
-                'allowed' => 'be_users',
-                'relationship' => 'manyToOne',
-                'size' => 1,
-                'maxitems' => 1,
-                'minitems' => 0,
+            'config'  => [
+                'type'           => 'group',
+                'allowed'        => 'be_users',
+                'relationship'   => 'manyToOne',
+                'size'           => 1,
+                'maxitems'       => 1,
+                'minitems'       => 0,
                 'suggestOptions' => [
                     'default' => [
                         'additionalSearchFields' => 'realName,email',
@@ -122,17 +122,17 @@ return [
         ],
 
         'allowed_groups' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.allowed_groups',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.allowed_groups',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.allowed_groups.description',
             // Privileged ACL column (read tier). See owner_uid note.
             'exclude' => true,
-            'config' => [
-                'type' => 'group',
-                'allowed' => 'be_groups',
-                'size' => 5,
-                'maxitems' => 20,
-                'minitems' => 0,
-                'MM' => 'tx_nrvault_secret_begroups_mm',
+            'config'  => [
+                'type'           => 'group',
+                'allowed'        => 'be_groups',
+                'size'           => 5,
+                'maxitems'       => 20,
+                'minitems'       => 0,
+                'MM'             => 'tx_nrvault_secret_begroups_mm',
                 'suggestOptions' => [
                     'default' => [
                         'additionalSearchFields' => 'description',
@@ -142,17 +142,17 @@ return [
         ],
 
         'write_groups' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.write_groups',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.write_groups',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.write_groups.description',
             // Privileged ACL column (write tier). See owner_uid note.
             'exclude' => true,
-            'config' => [
-                'type' => 'group',
-                'allowed' => 'be_groups',
-                'size' => 5,
-                'maxitems' => 20,
-                'minitems' => 0,
-                'MM' => 'tx_nrvault_secret_writegroups_mm',
+            'config'  => [
+                'type'           => 'group',
+                'allowed'        => 'be_groups',
+                'size'           => 5,
+                'maxitems'       => 20,
+                'minitems'       => 0,
+                'MM'             => 'tx_nrvault_secret_writegroups_mm',
                 'suggestOptions' => [
                     'default' => [
                         'additionalSearchFields' => 'description',
@@ -162,111 +162,111 @@ return [
         ],
 
         'context' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.context',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.context',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.context.description',
-            'config' => [
-                'type' => 'input',
-                'size' => 30,
-                'max' => 50,
+            'config'      => [
+                'type'        => 'input',
+                'size'        => 30,
+                'max'         => 50,
                 'placeholder' => 'production',
-                'searchable' => true,
+                'searchable'  => true,
             ],
         ],
 
         'frontend_accessible' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.frontend_accessible',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.frontend_accessible',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.frontend_accessible.description',
             // Privileged column: flips a secret from ACL-gated to world-readable
             // by the frontend. See owner_uid note.
             'exclude' => true,
-            'config' => [
-                'type' => 'check',
+            'config'  => [
+                'type'       => 'check',
                 'renderType' => 'checkboxToggle',
-                'default' => 0,
+                'default'    => 0,
             ],
         ],
 
         'expires_at' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.expires_at',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.expires_at',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.expires_at.description',
-            'config' => [
-                'type' => 'datetime',
-                'format' => 'datetime',
-                'default' => 0,
+            'config'      => [
+                'type'       => 'datetime',
+                'format'     => 'datetime',
+                'default'    => 0,
                 'searchable' => false,
             ],
         ],
 
         'metadata' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.metadata',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.metadata',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.metadata.description',
-            'config' => [
-                'type' => 'text',
+            'config'      => [
+                'type'       => 'text',
                 'renderType' => 'codeEditor',
-                'format' => 'json',
-                'rows' => 5,
+                'format'     => 'json',
+                'rows'       => 5,
                 'searchable' => false,
             ],
         ],
 
         'scope_pid' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.scope_pid',
+            'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.scope_pid',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.scope_pid.description',
             // Privileged column: constrains which page scope a secret resolves
             // under. See owner_uid note.
             'exclude' => true,
-            'config' => [
-                'type' => 'group',
-                'allowed' => 'pages',
+            'config'  => [
+                'type'         => 'group',
+                'allowed'      => 'pages',
                 'relationship' => 'manyToOne',
-                'size' => 1,
-                'maxitems' => 1,
-                'minitems' => 0,
+                'size'         => 1,
+                'maxitems'     => 1,
+                'minitems'     => 0,
             ],
         ],
 
         // Read-only info fields
         'version' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.version',
+            'label'  => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.version',
             'config' => [
-                'type' => 'number',
+                'type'     => 'number',
                 'readOnly' => true,
             ],
         ],
 
         'last_rotated_at' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.last_rotated_at',
+            'label'  => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.last_rotated_at',
             'config' => [
-                'type' => 'datetime',
-                'format' => 'datetime',
-                'readOnly' => true,
+                'type'       => 'datetime',
+                'format'     => 'datetime',
+                'readOnly'   => true,
                 'searchable' => false,
             ],
         ],
 
         'read_count' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.read_count',
+            'label'  => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.read_count',
             'config' => [
-                'type' => 'number',
+                'type'     => 'number',
                 'readOnly' => true,
             ],
         ],
 
         'last_read_at' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.last_read_at',
+            'label'  => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.last_read_at',
             'config' => [
-                'type' => 'datetime',
-                'format' => 'datetime',
-                'readOnly' => true,
+                'type'       => 'datetime',
+                'format'     => 'datetime',
+                'readOnly'   => true,
                 'searchable' => false,
             ],
         ],
 
         'adapter' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.adapter',
+            'label'  => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.adapter',
             'config' => [
-                'type' => 'input',
-                'readOnly' => true,
+                'type'       => 'input',
+                'readOnly'   => true,
                 'searchable' => false,
             ],
         ],
@@ -275,10 +275,10 @@ return [
         // surfaced read-only so operators can see which AEAD algorithm a
         // secret's envelope uses (empty = legacy, host-derived at decrypt).
         'encryption_algorithm' => [
-            'label' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.encryption_algorithm',
+            'label'  => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.encryption_algorithm',
             'config' => [
-                'type' => 'input',
-                'readOnly' => true,
+                'type'       => 'input',
+                'readOnly'   => true,
                 'searchable' => false,
             ],
         ],

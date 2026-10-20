@@ -19,6 +19,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+use function sprintf;
+use function strlen;
+
 /**
  * Functional tests for EncryptionService.
  *
@@ -43,14 +46,14 @@ final class EncryptionServiceTest extends FunctionalTestCase
         parent::setUp();
 
         $this->masterKeyPath = $this->instancePath . '/master.key';
-        $masterKey = sodium_crypto_secretbox_keygen();
+        $masterKey           = sodium_crypto_secretbox_keygen();
         file_put_contents($this->masterKeyPath, $masterKey);
         chmod($this->masterKeyPath, 0o600);
 
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault'] = [
             'masterKeySource' => $this->masterKeyPath,
-            'autoKeyPath' => $this->masterKeyPath,
-            'enableCache' => false,
+            'autoKeyPath'     => $this->masterKeyPath,
+            'enableCache'     => false,
         ];
     }
 
@@ -75,8 +78,8 @@ final class EncryptionServiceTest extends FunctionalTestCase
     public function encryptAndDecryptRoundTripProducesOriginalPlaintext(): void
     {
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $identifier = 'enc_roundtrip_' . bin2hex(random_bytes(4));
-        $plaintext = 'super-secret-value-12345';
+        $identifier        = 'enc_roundtrip_' . bin2hex(random_bytes(4));
+        $plaintext         = 'super-secret-value-12345';
 
         $encrypted = $encryptionService->encrypt($plaintext, $identifier);
 
@@ -99,8 +102,8 @@ final class EncryptionServiceTest extends FunctionalTestCase
     public function encryptProducesDifferentCiphertextEachTime(): void
     {
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $identifier = 'test_uniqueness_' . bin2hex(random_bytes(4));
-        $plaintext = 'same-plaintext-value';
+        $identifier        = 'test_uniqueness_' . bin2hex(random_bytes(4));
+        $plaintext         = 'same-plaintext-value';
 
         FileMasterKeyProvider::clearCachedKey();
         $encrypted1 = $encryptionService->encrypt($plaintext, $identifier);
@@ -119,8 +122,8 @@ final class EncryptionServiceTest extends FunctionalTestCase
     public function decryptWithWrongIdentifierThrowsException(): void
     {
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $identifier = 'test_aad_check_' . bin2hex(random_bytes(4));
-        $plaintext = 'secret-with-aad';
+        $identifier        = 'test_aad_check_' . bin2hex(random_bytes(4));
+        $plaintext         = 'secret-with-aad';
 
         $encrypted = $encryptionService->encrypt($plaintext, $identifier);
         FileMasterKeyProvider::clearCachedKey();
@@ -145,7 +148,7 @@ final class EncryptionServiceTest extends FunctionalTestCase
 
         $dek = $encryptionService->generateDek();
 
-        self::assertSame(32, \strlen((string) $dek), 'DEK must be exactly 32 bytes');
+        self::assertSame(32, strlen((string) $dek), 'DEK must be exactly 32 bytes');
 
         $dek2 = $encryptionService->generateDek();
         self::assertNotSame($dek, $dek2, 'Each DEK must be unique');
@@ -158,7 +161,7 @@ final class EncryptionServiceTest extends FunctionalTestCase
 
         $checksum = $encryptionService->calculateChecksum('test-value');
 
-        self::assertSame(64, \strlen((string) $checksum), 'SHA-256 hex hash must be 64 characters');
+        self::assertSame(64, strlen((string) $checksum), 'SHA-256 hex hash must be 64 characters');
         self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $checksum);
     }
 
@@ -180,12 +183,12 @@ final class EncryptionServiceTest extends FunctionalTestCase
         // stored change-detection token must be a keyed MAC over the ciphertext,
         // not an offline-computable hash of the plaintext (SEC-CRYPTO-1).
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $plaintext = 'low-entropy-guessable';
+        $plaintext         = 'low-entropy-guessable';
 
         FileMasterKeyProvider::clearCachedKey();
         $encrypted = $encryptionService->encrypt($plaintext, 'checksum_keyed_' . bin2hex(random_bytes(4)));
 
-        self::assertSame(64, \strlen((string) $encrypted->valueChecksum));
+        self::assertSame(64, strlen((string) $encrypted->valueChecksum));
         self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $encrypted->valueChecksum);
         self::assertNotSame(
             hash('sha256', $plaintext),
@@ -198,7 +201,7 @@ final class EncryptionServiceTest extends FunctionalTestCase
     public function encryptValueChecksumDiffersPerSecretForIdenticalPlaintext(): void
     {
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $plaintext = 'identical-across-secrets';
+        $plaintext         = 'identical-across-secrets';
 
         FileMasterKeyProvider::clearCachedKey();
         $first = $encryptionService->encrypt($plaintext, 'checksum_a_' . bin2hex(random_bytes(4)));
@@ -226,7 +229,7 @@ final class EncryptionServiceTest extends FunctionalTestCase
         $this->setUpBackendUser(1);
 
         $identifier = $this->generateUuidV7();
-        $plaintext = 'rotation-test-secret';
+        $plaintext  = 'rotation-test-secret';
         $vaultService->store($identifier, $plaintext);
 
         // Get the stored secret's DEK
@@ -246,8 +249,8 @@ final class EncryptionServiceTest extends FunctionalTestCase
     public function encryptLargeValueRoundTrips(): void
     {
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $identifier = 'test_large_value_' . bin2hex(random_bytes(4));
-        $largeValue = str_repeat('abcdef0123456789', 1000); // 16000 bytes
+        $identifier        = 'test_large_value_' . bin2hex(random_bytes(4));
+        $largeValue        = str_repeat('abcdef0123456789', 1000); // 16000 bytes
 
         FileMasterKeyProvider::clearCachedKey();
         $encrypted = $encryptionService->encrypt($largeValue, $identifier);
@@ -279,8 +282,8 @@ final class EncryptionServiceTest extends FunctionalTestCase
         FileMasterKeyProvider::clearCachedKey();
 
         $encryptionService = $this->get(EncryptionServiceInterface::class);
-        $identifier = 'test_xchacha20_' . bin2hex(random_bytes(4));
-        $plaintext = 'xchacha20-only-path-value';
+        $identifier        = 'test_xchacha20_' . bin2hex(random_bytes(4));
+        $plaintext         = 'xchacha20-only-path-value';
 
         $encrypted = $encryptionService->encrypt($plaintext, $identifier);
 
@@ -308,14 +311,14 @@ final class EncryptionServiceTest extends FunctionalTestCase
             self::markTestSkipped('AES-256-GCM not available in this libsodium build');
         }
 
-        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['preferXChaCha20'] = false;
+        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['preferXChaCha20']     = false;
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['encryptionAlgorithm'] = 'aes256gcm';
         FileMasterKeyProvider::clearCachedKey();
 
         try {
             $encryptionService = $this->get(EncryptionServiceInterface::class);
-            $identifier = 'test_aes_gcm_' . bin2hex(random_bytes(4));
-            $plaintext = 'aes-256-gcm-only-path-value';
+            $identifier        = 'test_aes_gcm_' . bin2hex(random_bytes(4));
+            $plaintext         = 'aes-256-gcm-only-path-value';
 
             $encrypted = $encryptionService->encrypt($plaintext, $identifier);
             self::assertSame('aes256gcm', $encrypted->encryptionAlgorithm->value);
@@ -342,12 +345,12 @@ final class EncryptionServiceTest extends FunctionalTestCase
      */
     private function generateUuidV7(): string
     {
-        $timestamp = (int) (microtime(true) * 1000);
+        $timestamp    = (int) (microtime(true) * 1000);
         $timestampHex = str_pad(dechex($timestamp), 12, '0', STR_PAD_LEFT);
-        $randomBytes = random_bytes(10);
-        $randomHex = bin2hex($randomBytes);
+        $randomBytes  = random_bytes(10);
+        $randomHex    = bin2hex($randomBytes);
 
-        return \sprintf(
+        return sprintf(
             '%s-%s-7%s-%s%s-%s',
             substr($timestampHex, 0, 8),
             substr($timestampHex, 8, 4),

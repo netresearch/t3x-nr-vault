@@ -43,7 +43,7 @@ final class TypoScriptVaultListenerTest extends TestCase
         parent::setUp();
 
         $this->vaultService = $this->createMock(VaultServiceInterface::class);
-        $this->logger = $this->createMock(LoggerInterface::class);
+        $this->logger       = $this->createMock(LoggerInterface::class);
 
         // A real policy, at its shipped defaults — including a strict CLI,
         // which is what PHPUnit runs as. Every case below therefore publishes
@@ -54,7 +54,7 @@ final class TypoScriptVaultListenerTest extends TestCase
         $extensionConfiguration = $this->createMock(ExtensionConfigurationInterface::class);
         $extensionConfiguration->method('isFrontendPlaceholderLegacyCliEnabled')->willReturn(false);
 
-        $this->policy = new FrontendPlaceholderPolicy($extensionConfiguration);
+        $this->policy   = new FrontendPlaceholderPolicy($extensionConfiguration);
         $this->listener = new TypoScriptVaultListener(
             $this->vaultService,
             $this->logger,
@@ -78,7 +78,7 @@ final class TypoScriptVaultListenerTest extends TestCase
     public function skipsProcessingWhenNoVaultReferences(): void
     {
         $content = 'Regular content without vault references';
-        $event = $this->createEvent($content);
+        $event   = $this->createEvent($content);
 
         $this->vaultService->expects($this->never())->method('retrieveForFrontend');
 

@@ -73,7 +73,7 @@ final class AuditChainRekeyServiceTest extends TestCase
             $this->row(uid: 4, epoch: 3),
         ];
 
-        $updates = [];
+        $updates   = [];
         $rewritten = $this->rekey($rows, $updates);
 
         self::assertSame(4, $rewritten, 'every row carried a stale hash and had to be rewritten');
@@ -160,8 +160,8 @@ final class AuditChainRekeyServiceTest extends TestCase
     #[Test]
     public function alreadyCorrectRowsAreLeftUntouched(): void
     {
-        $hmacKey = $this->hmacKey();
-        $first = $this->row(uid: 1, epoch: 3);
+        $hmacKey             = $this->hmacKey();
+        $first               = $this->row(uid: 1, epoch: 3);
         $first['entry_hash'] = AuditLogService::calculateHashV3(
             AuditLogService::extractV3HashRow($first),
             '',
@@ -169,7 +169,7 @@ final class AuditChainRekeyServiceTest extends TestCase
         );
         $first['previous_hash'] = '';
 
-        $updates = [];
+        $updates   = [];
         $rewritten = $this->rekey([$first], $updates);
 
         self::assertSame(0, $rewritten);
@@ -183,8 +183,8 @@ final class AuditChainRekeyServiceTest extends TestCase
     #[Test]
     public function aRowWithACorrectHashButAWrongLinkIsStillRewritten(): void
     {
-        $hmacKey = $this->hmacKey();
-        $first = $this->row(uid: 1, epoch: 3);
+        $hmacKey             = $this->hmacKey();
+        $first               = $this->row(uid: 1, epoch: 3);
         $first['entry_hash'] = AuditLogService::calculateHashV3(
             AuditLogService::extractV3HashRow($first),
             '',
@@ -257,13 +257,13 @@ final class AuditChainRekeyServiceTest extends TestCase
     public function theWalkResumesAtTheLastUidOfAFullBatch(): void
     {
         $firstBatch = [];
-        for ($uid = 1; $uid <= self::BATCH_SIZE; $uid++) {
-            $row = $this->row(uid: $uid, epoch: 0);
-            $row['uid'] = (string) $uid;
+        for ($uid = 1; $uid <= self::BATCH_SIZE; ++$uid) {
+            $row          = $this->row(uid: $uid, epoch: 0);
+            $row['uid']   = (string) $uid;
             $firstBatch[] = $row;
         }
 
-        $updates = [];
+        $updates   = [];
         $rewritten = $this->rekeyBatches(
             [$firstBatch, [$this->row(uid: self::BATCH_SIZE + 1, epoch: 0)]],
             $updates,
@@ -292,7 +292,7 @@ final class AuditChainRekeyServiceTest extends TestCase
             $row['uid'] = $uid;
         }
 
-        $updates = [];
+        $updates   = [];
         $rewritten = $this->rekeyBatches(
             [array_fill(0, self::BATCH_SIZE, $row), [$this->row(uid: 2, epoch: 0)]],
             $updates,
@@ -314,7 +314,7 @@ final class AuditChainRekeyServiceTest extends TestCase
     /**
      * Run the re-key over `$rows` and collect every UPDATE the service issued.
      *
-     * @param list<array<string, mixed>> $rows
+     * @param list<array<string, mixed>>                                       $rows
      * @param list<array{uid: mixed, entry_hash: mixed, previous_hash: mixed}> $updates
      */
     private function rekey(array $rows, array &$updates, ?AuditChainAnchorStoreInterface $anchorStore = null): int
@@ -326,7 +326,7 @@ final class AuditChainRekeyServiceTest extends TestCase
      * Run the re-key over consecutive keyset batches, collecting every UPDATE
      * and every keyset bound the service asked for.
      *
-     * @param non-empty-list<list<array<string, mixed>>> $batches consecutive `fetchAllAssociative()` results
+     * @param non-empty-list<list<array<string, mixed>>>                       $batches consecutive `fetchAllAssociative()` results
      * @param list<array{uid: mixed, entry_hash: mixed, previous_hash: mixed}> $updates
      */
     private function rekeyBatches(
@@ -334,7 +334,7 @@ final class AuditChainRekeyServiceTest extends TestCase
         array &$updates,
         ?AuditChainAnchorStoreInterface $anchorStore = null,
     ): int {
-        $collected = [];
+        $collected          = [];
         $this->keysetBounds = [];
 
         $result = self::createStub(Result::class);
@@ -361,8 +361,8 @@ final class AuditChainRekeyServiceTest extends TestCase
         $connection->method('update')->willReturnCallback(
             static function (string $table, array $data, array $identifier) use (&$collected): int {
                 $collected[] = [
-                    'uid' => $identifier['uid'] ?? null,
-                    'entry_hash' => $data['entry_hash'] ?? null,
+                    'uid'           => $identifier['uid'] ?? null,
+                    'entry_hash'    => $data['entry_hash'] ?? null,
                     'previous_hash' => $data['previous_hash'] ?? null,
                 ];
 
@@ -388,9 +388,9 @@ final class AuditChainRekeyServiceTest extends TestCase
      */
     private function expectedHashes(array $rows): array
     {
-        $hmacKey = $this->hmacKey();
+        $hmacKey      = $this->hmacKey();
         $previousHash = '';
-        $hashes = [];
+        $hashes       = [];
 
         foreach ($rows as $row) {
             $entry = AuditLogService::extractHashRow($row);
@@ -443,26 +443,26 @@ final class AuditChainRekeyServiceTest extends TestCase
     private function row(int $uid, int $epoch): array
     {
         return [
-            'uid' => $uid,
+            'uid'               => $uid,
             'secret_identifier' => 'api/stripe',
-            'action' => 'read',
-            'success' => 1,
-            'actor_uid' => 7,
-            'crdate' => 1_750_000_000 + $uid,
-            'error_message' => '',
-            'reason' => '',
-            'ip_address' => '203.0.113.7',
-            'user_agent' => 'curl/8',
-            'hash_before' => '',
-            'hash_after' => '',
-            'context' => '{}',
-            'hmac_key_epoch' => $epoch,
-            'actor_type' => 'be_user',
-            'actor_username' => 'editor',
-            'actor_role' => 'groups:1',
-            'request_id' => 'req-' . $uid,
-            'previous_hash' => 'stale-previous',
-            'entry_hash' => 'stale-entry',
+            'action'            => 'read',
+            'success'           => 1,
+            'actor_uid'         => 7,
+            'crdate'            => 1_750_000_000 + $uid,
+            'error_message'     => '',
+            'reason'            => '',
+            'ip_address'        => '203.0.113.7',
+            'user_agent'        => 'curl/8',
+            'hash_before'       => '',
+            'hash_after'        => '',
+            'context'           => '{}',
+            'hmac_key_epoch'    => $epoch,
+            'actor_type'        => 'be_user',
+            'actor_username'    => 'editor',
+            'actor_role'        => 'groups:1',
+            'request_id'        => 'req-' . $uid,
+            'previous_hash'     => 'stale-previous',
+            'entry_hash'        => 'stale-entry',
         ];
     }
 }

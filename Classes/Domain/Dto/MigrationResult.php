@@ -101,11 +101,11 @@ readonly class MigrationResult
     public function toArray(): array
     {
         $result = [
-            'table' => $this->table,
-            'column' => $this->column,
+            'table'    => $this->table,
+            'column'   => $this->column,
             'migrated' => $this->migrated,
-            'failed' => $this->failed,
-            'skipped' => $this->skipped,
+            'failed'   => $this->failed,
+            'skipped'  => $this->skipped,
         ];
 
         if ($this->error !== null) {

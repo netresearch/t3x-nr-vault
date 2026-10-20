@@ -21,6 +21,11 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+use function count;
+use function is_string;
+use function sprintf;
+use function trim;
+
 /**
  * CLI command to scan for potential plaintext secrets.
  *
@@ -79,36 +84,36 @@ final class VaultScanCommand extends Command
             )
             ->setHelp(
                 <<<'HELP'
-                The <info>%command.name%</info> command scans your TYPO3 installation for potential
-                plaintext secrets that should be migrated to the vault.
+                    The <info>%command.name%</info> command scans your TYPO3 installation for potential
+                    plaintext secrets that should be migrated to the vault.
 
-                <comment>Scan all sources:</comment>
-                  <info>%command.full_name%</info>
+                    <comment>Scan all sources:</comment>
+                      <info>%command.full_name%</info>
 
-                <comment>Output as JSON:</comment>
-                  <info>%command.full_name% --format=json</info>
+                    <comment>Output as JSON:</comment>
+                      <info>%command.full_name% --format=json</info>
 
-                <comment>Exclude specific tables:</comment>
-                  <info>%command.full_name% --exclude=tx_myext_cache,tx_temp_*</info>
+                    <comment>Exclude specific tables:</comment>
+                      <info>%command.full_name% --exclude=tx_myext_cache,tx_temp_*</info>
 
-                <comment>Only show high severity and above:</comment>
-                  <info>%command.full_name% --severity=high</info>
+                    <comment>Only show high severity and above:</comment>
+                      <info>%command.full_name% --severity=high</info>
 
-                <comment>Scan only database:</comment>
-                  <info>%command.full_name% --database-only</info>
+                    <comment>Scan only database:</comment>
+                      <info>%command.full_name% --database-only</info>
 
-                The command detects:
-                - Database columns with secret-like names (password, api_key, token, etc.)
-                - Known API key patterns (Stripe, AWS, GitHub, Slack, etc.)
-                - Extension configuration secrets
-                - LocalConfiguration secrets (SMTP password, etc.)
+                    The command detects:
+                    - Database columns with secret-like names (password, api_key, token, etc.)
+                    - Known API key patterns (Stripe, AWS, GitHub, Slack, etc.)
+                    - Extension configuration secrets
+                    - LocalConfiguration secrets (SMTP password, etc.)
 
-                Severity levels:
-                - <error>critical</error>: Known API key pattern detected
-                - <comment>high</comment>: Password or private key fields
-                - <info>medium</info>: Token or API key fields
-                - low: Other potential secrets
-                HELP,
+                    Severity levels:
+                    - <error>critical</error>: Known API key pattern detected
+                    - <comment>high</comment>: Password or private key fields
+                    - <info>medium</info>: Token or API key fields
+                    - low: Other potential secrets
+                    HELP,
             );
     }
 
@@ -116,16 +121,16 @@ final class VaultScanCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
 
-        $formatOption = $input->getOption('format');
-        $format = \is_string($formatOption) ? $formatOption : 'table';
+        $formatOption  = $input->getOption('format');
+        $format        = is_string($formatOption) ? $formatOption : 'table';
         $excludeOption = $input->getOption('exclude');
         $excludeTables = array_filter(
-            array_map(\trim(...), explode(',', \is_string($excludeOption) ? $excludeOption : '')),
+            array_map(trim(...), explode(',', is_string($excludeOption) ? $excludeOption : '')),
         );
         $severityOption = $input->getOption('severity');
-        $minSeverity = \is_string($severityOption) ? $severityOption : 'low';
-        $databaseOnly = $input->getOption('database-only');
-        $configOnly = $input->getOption('config-only');
+        $minSeverity    = is_string($severityOption) ? $severityOption : 'low';
+        $databaseOnly   = $input->getOption('database-only');
+        $configOnly     = $input->getOption('config-only');
 
         if ($databaseOnly && $configOnly) {
             $io->error('Cannot use both --database-only and --config-only');
@@ -147,9 +152,9 @@ final class VaultScanCommand extends Command
             $this->detectionService->scan($excludeTables);
         }
 
-        $secrets = $this->detectionService->getDetectedSecretsBySeverity();
+        $secrets         = $this->detectionService->getDetectedSecretsBySeverity();
         $filteredSecrets = $this->filterBySeverity($secrets, $minSeverity);
-        $totalCount = $this->countSecrets($filteredSecrets);
+        $totalCount      = $this->countSecrets($filteredSecrets);
 
         if ($totalCount === 0) {
             $io->success('No potential plaintext secrets detected.');
@@ -158,13 +163,13 @@ final class VaultScanCommand extends Command
         }
 
         match ($format) {
-            'json' => $this->outputJson($output, $filteredSecrets),
+            'json'    => $this->outputJson($output, $filteredSecrets),
             'summary' => $this->outputSummary($io, $secrets),
-            default => $this->outputTable($io, $filteredSecrets),
+            default   => $this->outputTable($io, $filteredSecrets),
         };
 
         $io->newLine();
-        $io->warning(\sprintf(
+        $io->warning(sprintf(
             'Found %d potential plaintext %s.',
             $totalCount,
             $totalCount === 1 ? 'secret' : 'secrets',
@@ -212,7 +217,7 @@ final class VaultScanCommand extends Command
     {
         $count = 0;
         foreach ($secrets as $items) {
-            $count += \count($items);
+            $count += count($items);
         }
 
         return $count;
@@ -239,12 +244,12 @@ final class VaultScanCommand extends Command
 
         $rows = [];
         foreach (Severity::cases() as $severity) {
-            $count = \count($secrets[$severity->value] ?? []);
+            $count = count($secrets[$severity->value] ?? []);
             $label = match ($severity) {
                 Severity::Critical => '<error>Critical</error>',
-                Severity::High => '<comment>High</comment>',
-                Severity::Medium => '<info>Medium</info>',
-                Severity::Low => 'Low',
+                Severity::High     => '<comment>High</comment>',
+                Severity::Medium   => '<info>Medium</info>',
+                Severity::Low      => 'Low',
             };
             $rows[] = [$label, (string) $count];
         }
@@ -267,12 +272,12 @@ final class VaultScanCommand extends Command
 
             $severityLabel = match ($severity) {
                 Severity::Critical => '<error>CRITICAL</error>',
-                Severity::High => '<comment>HIGH</comment>',
-                Severity::Medium => '<info>MEDIUM</info>',
-                Severity::Low => 'LOW',
+                Severity::High     => '<comment>HIGH</comment>',
+                Severity::Medium   => '<info>MEDIUM</info>',
+                Severity::Low      => 'LOW',
             };
 
-            $io->section(\sprintf('%s Severity (%d)', $severityLabel, \count($items)));
+            $io->section(sprintf('%s Severity (%d)', $severityLabel, count($items)));
 
             $table = new Table($io);
             $table->setHeaders(['Location', 'Details', 'Patterns']);

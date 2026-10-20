@@ -4,6 +4,7 @@
  * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Service;
@@ -17,6 +18,8 @@ use Netresearch\NrVault\Service\VaultHealthServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+
+use function strlen;
 
 /**
  * The read-only health status must describe the provider used by the real
@@ -37,8 +40,8 @@ final class VaultHealthServiceTest extends AbstractVaultFunctionalTestCase
         self::assertIsArray($configuration);
         $system = $configuration['SYS'] ?? [];
         self::assertIsArray($system);
-        $system['encryptionKey'] = bin2hex(random_bytes(48));
-        $configuration['SYS'] = $system;
+        $system['encryptionKey']    = bin2hex(random_bytes(48));
+        $configuration['SYS']       = $system;
         $GLOBALS['TYPO3_CONF_VARS'] = $configuration;
     }
 
@@ -56,7 +59,7 @@ final class VaultHealthServiceTest extends AbstractVaultFunctionalTestCase
         );
         $this->configureVault(['autoKeyPath' => $this->instancePath . '/missing-auto.key']);
 
-        $factory = $this->get(MasterKeyProviderFactoryInterface::class);
+        $factory    = $this->get(MasterKeyProviderFactoryInterface::class);
         $configured = $this->get(MasterKeyProviderInterface::class);
         self::assertSame('file', $configured->getIdentifier());
         self::assertFalse($configured->isAvailable());
@@ -78,7 +81,7 @@ final class VaultHealthServiceTest extends AbstractVaultFunctionalTestCase
         $configured = $this->get(MasterKeyProviderInterface::class);
         self::assertSame('file', $configured->getIdentifier());
         self::assertTrue($configured->isAvailable());
-        self::assertSame(32, \strlen($configured->getMasterKey()));
+        self::assertSame(32, strlen($configured->getMasterKey()));
 
         $status = $this->get(VaultHealthServiceInterface::class)->checkHealth();
         self::assertSame('file', $status->masterKeyProvider);
@@ -115,8 +118,8 @@ final class VaultHealthServiceTest extends AbstractVaultFunctionalTestCase
         self::assertIsArray($extensions);
         $vault = $extensions['nr_vault'] ?? [];
         self::assertIsArray($vault);
-        $extensions['nr_vault'] = array_replace($vault, $settings);
+        $extensions['nr_vault']      = array_replace($vault, $settings);
         $configuration['EXTENSIONS'] = $extensions;
-        $GLOBALS['TYPO3_CONF_VARS'] = $configuration;
+        $GLOBALS['TYPO3_CONF_VARS']  = $configuration;
     }
 }

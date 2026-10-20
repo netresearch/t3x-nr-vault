@@ -58,7 +58,7 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
         $hooks = $scOptions['t3lib/class.t3lib_tcemain.php'] ?? null;
         self::assertIsArray($hooks);
         $datamapHooks = $hooks['processDatamapClass'] ?? null;
-        $cmdmapHooks = $hooks['processCmdmapClass'] ?? null;
+        $cmdmapHooks  = $hooks['processCmdmapClass'] ?? null;
         self::assertIsArray($datamapHooks);
         self::assertIsArray($cmdmapHooks);
 
@@ -71,8 +71,8 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
     {
         $plaintext = 'tca-create-' . bin2hex(random_bytes(8));
 
-        $uid = $this->createRecord($plaintext);
-        $record = $this->fetchRecord($uid);
+        $uid        = $this->createRecord($plaintext);
+        $record     = $this->fetchRecord($uid);
         $identifier = $record['api_key'] ?? null;
         self::assertIsString($identifier);
 
@@ -89,10 +89,10 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
     public function dataHandlerRotatesVaultSecretOnUpdate(): void
     {
         $original = 'tca-original-' . bin2hex(random_bytes(8));
-        $rotated = 'tca-rotated-' . bin2hex(random_bytes(8));
+        $rotated  = 'tca-rotated-' . bin2hex(random_bytes(8));
 
-        $uid = $this->createRecord($original);
-        $identifier = $this->fetchApiKey($uid);
+        $uid           = $this->createRecord($original);
+        $identifier    = $this->fetchApiKey($uid);
         $versionBefore = $this->vault()->getMetadata($identifier)->version;
 
         $checksum = $this->get(EncryptionServiceInterface::class)->calculateChecksum($original);
@@ -100,9 +100,9 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
             self::TABLE => [
                 $uid => [
                     'api_key' => [
-                        'value' => $rotated,
+                        'value'             => $rotated,
                         '_vault_identifier' => $identifier,
-                        '_vault_checksum' => $checksum,
+                        '_vault_checksum'   => $checksum,
                     ],
                 ],
             ],
@@ -118,7 +118,7 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function dataHandlerDeletesVaultSecretOnRecordDelete(): void
     {
-        $uid = $this->createRecord('tca-delete-' . bin2hex(random_bytes(8)));
+        $uid        = $this->createRecord('tca-delete-' . bin2hex(random_bytes(8)));
         $identifier = $this->fetchApiKey($uid);
         self::assertTrue($this->vault()->exists($identifier));
 
@@ -131,8 +131,8 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function dataHandlerCopiesVaultSecretOnRecordCopy(): void
     {
-        $plaintext = 'tca-copy-' . bin2hex(random_bytes(8));
-        $uid = $this->createRecord($plaintext);
+        $plaintext        = 'tca-copy-' . bin2hex(random_bytes(8));
+        $uid              = $this->createRecord($plaintext);
         $sourceIdentifier = $this->fetchApiKey($uid);
 
         $this->runDataHandler([], [self::TABLE => [$uid => ['copy' => 0]]]);
@@ -164,12 +164,12 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
         // VaultFieldResolver is private in the container; GeneralUtility resolves it through DI.
         $vaultFieldResolver = GeneralUtility::makeInstance(VaultFieldResolver::class);
 
-        $identifier = $this->generateUuidV7();
+        $identifier  = $this->generateUuidV7();
         $secretValue = 'resolver-secret';
         $vaultService->store($identifier, $secretValue);
 
         $data = [
-            'title' => 'Resolver Test',
+            'title'   => 'Resolver Test',
             'api_key' => $identifier,
         ];
 
@@ -184,7 +184,7 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function multipleVaultFieldsAreHandledCorrectly(): void
     {
-        $vaultService = $this->vault();
+        $vaultService       = $this->vault();
         $vaultFieldResolver = GeneralUtility::makeInstance(VaultFieldResolver::class);
 
         $identifier1 = $this->generateUuidV7();
@@ -193,8 +193,8 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
         $vaultService->store($identifier2, 'my-secret');
 
         $data = [
-            'title' => 'Multi Field Test',
-            'api_key' => $identifier1,
+            'title'      => 'Multi Field Test',
+            'api_key'    => $identifier1,
             'api_secret' => $identifier2,
         ];
 
@@ -220,8 +220,8 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
         $this->runDataHandler([
             self::TABLE => [
                 'NEW1' => [
-                    'pid' => 0,
-                    'title' => 'Vault TCA integration',
+                    'pid'     => 0,
+                    'title'   => 'Vault TCA integration',
                     'api_key' => $apiKey,
                 ],
             ],
@@ -247,7 +247,7 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
      * `errorLog` property.
      *
      * @param array<string, array<int|string, array<string, mixed>>> $data
-     * @param array<string, array<int, array<string, int>>> $commands
+     * @param array<string, array<int, array<string, int>>>          $commands
      */
     private function runDataHandler(array $data, array $commands = []): void
     {
@@ -257,7 +257,7 @@ final class TcaIntegrationTest extends AbstractVaultFunctionalTestCase
         $dataHandler->process_cmdmap();
 
         $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('sys_log');
-        $errors = $queryBuilder
+        $errors       = $queryBuilder
             ->select('details', 'log_data')
             ->from('sys_log')
             ->where($queryBuilder->expr()->gt('error', $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)))

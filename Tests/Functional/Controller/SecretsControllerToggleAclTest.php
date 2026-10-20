@@ -265,10 +265,10 @@ final class SecretsControllerToggleAclTest extends AbstractVaultFunctionalTestCa
         $this->getConnectionPool()
             ->getConnectionForTable(self::SECRET_TABLE)
             ->insert(self::SECRET_TABLE, [
-                'pid' => 0,
+                'pid'        => 0,
                 'identifier' => $identifier,
-                'owner_uid' => $ownerUid,
-                'hidden' => 0,
+                'owner_uid'  => $ownerUid,
+                'hidden'     => 0,
             ]);
 
         return $identifier;

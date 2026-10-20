@@ -21,6 +21,8 @@ use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function count;
+
 /**
  * Every DataHandler command that duplicates a record, driven against real
  * vault fields.
@@ -76,8 +78,8 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
     #[Test]
     public function localizeGivesTheTranslationItsOwnSecret(): void
     {
-        $plaintext = 'localize-' . bin2hex(random_bytes(8));
-        $uid = $this->createRecord($plaintext);
+        $plaintext        = 'localize-' . bin2hex(random_bytes(8));
+        $uid              = $this->createRecord($plaintext);
         $sourceIdentifier = $this->fetchVaultField(self::TABLE, $uid);
 
         $this->runDataHandler([], [self::TABLE => [$uid => ['localize' => 1]]]);
@@ -91,8 +93,8 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
     #[Test]
     public function copyToLanguageGivesTheCopyItsOwnSecret(): void
     {
-        $plaintext = 'copy-to-language-' . bin2hex(random_bytes(8));
-        $uid = $this->createRecord($plaintext);
+        $plaintext        = 'copy-to-language-' . bin2hex(random_bytes(8));
+        $uid              = $this->createRecord($plaintext);
         $sourceIdentifier = $this->fetchVaultField(self::TABLE, $uid);
 
         $this->runDataHandler([], [self::TABLE => [$uid => ['copyToLanguage' => 1]]]);
@@ -109,28 +111,28 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
     public function copyingAParentGivesTheInlineChildItsOwnSecret(): void
     {
         $parentSecret = 'inline-parent-' . bin2hex(random_bytes(8));
-        $childSecret = 'inline-child-' . bin2hex(random_bytes(8));
+        $childSecret  = 'inline-child-' . bin2hex(random_bytes(8));
 
         $this->runDataHandler([
             self::TABLE => [
                 'NEW-parent' => [
-                    'pid' => 1,
-                    'title' => 'Parent',
-                    'api_key' => $parentSecret,
+                    'pid'      => 1,
+                    'title'    => 'Parent',
+                    'api_key'  => $parentSecret,
                     'children' => 'NEW-child',
                 ],
             ],
             self::CHILD_TABLE => [
                 'NEW-child' => [
-                    'pid' => 1,
-                    'title' => 'Child',
+                    'pid'     => 1,
+                    'title'   => 'Child',
                     'api_key' => $childSecret,
                 ],
             ],
         ]);
 
-        $parentUid = $this->findOtherUid(self::TABLE, []);
-        $childUid = $this->findOtherUid(self::CHILD_TABLE, []);
+        $parentUid       = $this->findOtherUid(self::TABLE, []);
+        $childUid        = $this->findOtherUid(self::CHILD_TABLE, []);
         $childIdentifier = $this->fetchVaultField(self::CHILD_TABLE, $childUid);
 
         $this->runDataHandler([], [self::TABLE => [$parentUid => ['copy' => 1]]]);
@@ -139,10 +141,10 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
 
         self::assertSame(
             [
-                'newRecordHasOwnIdentifier' => true,
-                'newRecordPlaintext' => $childSecret,
-                'activeSecrets' => 4,
-                'createAudits' => 4,
+                'newRecordHasOwnIdentifier'  => true,
+                'newRecordPlaintext'         => $childSecret,
+                'activeSecrets'              => 4,
+                'createAudits'               => 4,
                 'secretsHoldingAnIdentifier' => 0,
             ],
             $this->inventoryFor(self::CHILD_TABLE, $copiedChildUid, $childIdentifier),
@@ -152,8 +154,8 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
     #[Test]
     public function copyingAPageGivesItsRecordsOwnSecrets(): void
     {
-        $plaintext = 'page-copy-' . bin2hex(random_bytes(8));
-        $uid = $this->createRecord($plaintext);
+        $plaintext        = 'page-copy-' . bin2hex(random_bytes(8));
+        $uid              = $this->createRecord($plaintext);
         $sourceIdentifier = $this->fetchVaultField(self::TABLE, $uid);
 
         $this->runDataHandler([], ['pages' => [1 => ['copy' => 0]]]);
@@ -178,8 +180,8 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
     #[Test]
     public function updatingTheDefaultRecordLeavesTheTranslationSecretSound(): void
     {
-        $plaintext = 'sync-untouched-' . bin2hex(random_bytes(8));
-        $uid = $this->createRecordWithToken($plaintext);
+        $plaintext      = 'sync-untouched-' . bin2hex(random_bytes(8));
+        $uid            = $this->createRecordWithToken($plaintext);
         $translationUid = $this->localizeRecord($uid);
 
         $this->runDataHandler([self::TABLE => [$uid => ['title' => 'Changed title']]]);
@@ -199,20 +201,20 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
     public function rotatingTheDefaultRecordSecretLeavesTheTranslationSound(): void
     {
         $plaintext = 'sync-rotate-' . bin2hex(random_bytes(8));
-        $rotated = 'sync-rotated-' . bin2hex(random_bytes(8));
+        $rotated   = 'sync-rotated-' . bin2hex(random_bytes(8));
 
-        $uid = $this->createRecordWithToken($plaintext);
+        $uid            = $this->createRecordWithToken($plaintext);
         $translationUid = $this->localizeRecord($uid);
-        $identifier = $this->fetchVaultField(self::TABLE, $uid, 'api_token');
+        $identifier     = $this->fetchVaultField(self::TABLE, $uid, 'api_token');
 
         $checksum = $this->get(EncryptionServiceInterface::class)->calculateChecksum($plaintext);
         $this->runDataHandler([
             self::TABLE => [
                 $uid => [
                     'api_token' => [
-                        'value' => $rotated,
+                        'value'             => $rotated,
                         '_vault_identifier' => $identifier,
-                        '_vault_checksum' => $checksum,
+                        '_vault_checksum'   => $checksum,
                     ],
                 ],
             ],
@@ -232,25 +234,25 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
     #[Test]
     public function deletingATranslationKeepsTheSharedSecret(): void
     {
-        $plaintext = 'sync-delete-' . bin2hex(random_bytes(8));
-        $uid = $this->createRecordWithToken($plaintext);
+        $plaintext      = 'sync-delete-' . bin2hex(random_bytes(8));
+        $uid            = $this->createRecordWithToken($plaintext);
         $translationUid = $this->localizeRecord($uid);
 
         $this->runDataHandler([], [self::TABLE => [$translationUid => ['delete' => 1]]]);
 
-        $identifier = $this->fetchVaultField(self::TABLE, $uid, 'api_token');
+        $identifier   = $this->fetchVaultField(self::TABLE, $uid, 'api_token');
         $vaultService = $this->get(VaultServiceInterface::class);
 
         self::assertSame(
             [
-                'defaultPlaintext' => $plaintext,
+                'defaultPlaintext'  => $plaintext,
                 'secretStillExists' => true,
-                'activeSecrets' => 1,
+                'activeSecrets'     => 1,
             ],
             [
-                'defaultPlaintext' => $identifier === '' ? null : $vaultService->retrieve($identifier),
+                'defaultPlaintext'  => $identifier === '' ? null : $vaultService->retrieve($identifier),
                 'secretStillExists' => $identifier !== '' && $vaultService->exists($identifier),
-                'activeSecrets' => \count($this->activeSecretIdentifiers()),
+                'activeSecrets'     => count($this->activeSecretIdentifiers()),
             ],
         );
     }
@@ -265,12 +267,12 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
     private function expectedSynchronisationState(string $defaultPlaintext, string $translationPlaintext): array
     {
         return [
-            'defaultPlaintext' => $defaultPlaintext,
-            'translationPlaintext' => $translationPlaintext,
+            'defaultPlaintext'                      => $defaultPlaintext,
+            'translationPlaintext'                  => $translationPlaintext,
             'translationSharesTheDefaultIdentifier' => true,
-            'activeSecrets' => 1,
-            'createAudits' => 1,
-            'secretsHoldingAnIdentifier' => 0,
+            'activeSecrets'                         => 1,
+            'createAudits'                          => 1,
+            'secretsHoldingAnIdentifier'            => 0,
         ];
     }
 
@@ -279,17 +281,17 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
      */
     private function synchronisationStateOf(int $uid, int $translationUid): array
     {
-        $defaultIdentifier = $this->fetchVaultField(self::TABLE, $uid, 'api_token');
+        $defaultIdentifier     = $this->fetchVaultField(self::TABLE, $uid, 'api_token');
         $translationIdentifier = $this->fetchVaultField(self::TABLE, $translationUid, 'api_token');
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService          = $this->get(VaultServiceInterface::class);
 
         return [
-            'defaultPlaintext' => $defaultIdentifier === '' ? null : $vaultService->retrieve($defaultIdentifier),
-            'translationPlaintext' => $translationIdentifier === '' ? null : $vaultService->retrieve($translationIdentifier),
+            'defaultPlaintext'                      => $defaultIdentifier === '' ? null : $vaultService->retrieve($defaultIdentifier),
+            'translationPlaintext'                  => $translationIdentifier === '' ? null : $vaultService->retrieve($translationIdentifier),
             'translationSharesTheDefaultIdentifier' => $translationIdentifier === $defaultIdentifier,
-            'activeSecrets' => \count($this->activeSecretIdentifiers()),
-            'createAudits' => $this->countAuditRows('create'),
-            'secretsHoldingAnIdentifier' => $this->countSecretsHoldingAVaultIdentifier(),
+            'activeSecrets'                         => count($this->activeSecretIdentifiers()),
+            'createAudits'                          => $this->countAuditRows('create'),
+            'secretsHoldingAnIdentifier'            => $this->countSecretsHoldingAVaultIdentifier(),
         ];
     }
 
@@ -301,8 +303,8 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
         $this->runDataHandler([
             self::TABLE => [
                 'NEW1' => [
-                    'pid' => 1,
-                    'title' => 'Synchronisation source',
+                    'pid'       => 1,
+                    'title'     => 'Synchronisation source',
                     'api_token' => $token,
                 ],
             ],
@@ -329,10 +331,10 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
     private function expectedInventory(string $plaintext): array
     {
         return [
-            'newRecordHasOwnIdentifier' => true,
-            'newRecordPlaintext' => $plaintext,
-            'activeSecrets' => 2,
-            'createAudits' => 2,
+            'newRecordHasOwnIdentifier'  => true,
+            'newRecordPlaintext'         => $plaintext,
+            'activeSecrets'              => 2,
+            'createAudits'               => 2,
             'secretsHoldingAnIdentifier' => 0,
         ];
     }
@@ -349,13 +351,13 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
         string $sourceIdentifier,
     ): array {
         $newIdentifier = $this->fetchVaultField($table, $newUid);
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService  = $this->get(VaultServiceInterface::class);
 
         return [
-            'newRecordHasOwnIdentifier' => $newIdentifier !== '' && $newIdentifier !== $sourceIdentifier,
-            'newRecordPlaintext' => $newIdentifier === '' ? null : $vaultService->retrieve($newIdentifier),
-            'activeSecrets' => \count($this->activeSecretIdentifiers()),
-            'createAudits' => $this->countAuditRows('create'),
+            'newRecordHasOwnIdentifier'  => $newIdentifier !== '' && $newIdentifier !== $sourceIdentifier,
+            'newRecordPlaintext'         => $newIdentifier === '' ? null : $vaultService->retrieve($newIdentifier),
+            'activeSecrets'              => count($this->activeSecretIdentifiers()),
+            'createAudits'               => $this->countAuditRows('create'),
             'secretsHoldingAnIdentifier' => $this->countSecretsHoldingAVaultIdentifier(),
         ];
     }
@@ -365,8 +367,8 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
         $this->runDataHandler([
             self::TABLE => [
                 'NEW1' => [
-                    'pid' => 1,
-                    'title' => 'Vault duplication source',
+                    'pid'     => 1,
+                    'title'   => 'Vault duplication source',
                     'api_key' => $apiKey,
                 ],
             ],
@@ -379,7 +381,7 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
      * Run DataHandler and fail on any error it logged.
      *
      * @param array<string, array<int|string, array<string, mixed>>> $data
-     * @param array<string, array<int, array<string, mixed>>> $commands
+     * @param array<string, array<int, array<string, mixed>>>        $commands
      */
     private function runDataHandler(array $data, array $commands = []): void
     {
@@ -389,7 +391,7 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
         $dataHandler->process_cmdmap();
 
         $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('sys_log');
-        $errors = $queryBuilder
+        $errors       = $queryBuilder
             ->select('details', 'log_data')
             ->from('sys_log')
             ->where($queryBuilder->expr()->gt('error', $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)))
@@ -463,21 +465,21 @@ final class RecordDuplicationVaultSecretTest extends AbstractVaultFunctionalTest
         $path = $this->instancePath . '/typo3conf/sites/testsite';
         GeneralUtility::mkdir_deep($path);
         file_put_contents($path . '/config.yaml', <<<'YAML'
-        rootPageId: 1
-        base: /
-        languages:
-          - title: English
-            enabled: true
-            languageId: 0
+            rootPageId: 1
             base: /
-            locale: en_US.UTF-8
-            flag: us
-          - title: German
-            enabled: true
-            languageId: 1
-            base: /de/
-            locale: de_DE.UTF-8
-            flag: de
-        YAML);
+            languages:
+              - title: English
+                enabled: true
+                languageId: 0
+                base: /
+                locale: en_US.UTF-8
+                flag: us
+              - title: German
+                enabled: true
+                languageId: 1
+                base: /de/
+                locale: de_DE.UTF-8
+                flag: de
+            YAML);
     }
 }

@@ -18,6 +18,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function is_scalar;
+
 /**
  * The `secret.create` gate on the FormEngine create path.
  *
@@ -76,8 +78,8 @@ final class SecretTcaHookCreateAclTest extends AbstractVaultFunctionalTestCase
         $identifier = 'valueless_' . bin2hex(random_bytes(4));
 
         $dataHandler = $this->processCreate([
-            'pid' => self::STORAGE_PID,
-            'identifier' => $identifier,
+            'pid'         => self::STORAGE_PID,
+            'identifier'  => $identifier,
             'description' => 'A record carrying no secret value at all',
         ]);
 
@@ -116,8 +118,8 @@ final class SecretTcaHookCreateAclTest extends AbstractVaultFunctionalTestCase
         $identifier = 'valuebearing_' . bin2hex(random_bytes(4));
 
         $this->processCreate([
-            'pid' => self::STORAGE_PID,
-            'identifier' => $identifier,
+            'pid'          => self::STORAGE_PID,
+            'identifier'   => $identifier,
             'secret_input' => 'must-not-be-stored',
         ]);
 
@@ -143,10 +145,10 @@ final class SecretTcaHookCreateAclTest extends AbstractVaultFunctionalTestCase
         $identifier = 'acl_refused_' . bin2hex(random_bytes(4));
 
         $this->processCreate([
-            'pid' => self::STORAGE_PID,
-            'identifier' => $identifier,
+            'pid'            => self::STORAGE_PID,
+            'identifier'     => $identifier,
             'allowed_groups' => '30,31',
-            'write_groups' => '31',
+            'write_groups'   => '31',
         ]);
 
         self::assertNull($this->findRecord($identifier));
@@ -167,8 +169,8 @@ final class SecretTcaHookCreateAclTest extends AbstractVaultFunctionalTestCase
         $identifier = 'granted_valueless_' . bin2hex(random_bytes(4));
 
         $dataHandler = $this->processCreate([
-            'pid' => self::STORAGE_PID,
-            'identifier' => $identifier,
+            'pid'         => self::STORAGE_PID,
+            'identifier'  => $identifier,
             'description' => 'Deliberately created without a value',
         ]);
 
@@ -201,8 +203,8 @@ final class SecretTcaHookCreateAclTest extends AbstractVaultFunctionalTestCase
         $identifier = 'granted_value_' . bin2hex(random_bytes(4));
 
         $this->processCreate([
-            'pid' => self::STORAGE_PID,
-            'identifier' => $identifier,
+            'pid'          => self::STORAGE_PID,
+            'identifier'   => $identifier,
             'secret_input' => 'a-real-value',
         ]);
 
@@ -239,8 +241,8 @@ final class SecretTcaHookCreateAclTest extends AbstractVaultFunctionalTestCase
         $identifier = 'admin_created_' . bin2hex(random_bytes(4));
 
         $this->processCreate([
-            'pid' => self::STORAGE_PID,
-            'identifier' => $identifier,
+            'pid'         => self::STORAGE_PID,
+            'identifier'  => $identifier,
             'description' => 'Created by an administrator',
         ]);
 
@@ -325,7 +327,7 @@ final class SecretTcaHookCreateAclTest extends AbstractVaultFunctionalTestCase
         // fails PHPStan on that matrix leg only.
         $lines = [];
         foreach ($errorLog as $line) {
-            if (\is_scalar($line)) {
+            if (is_scalar($line)) {
                 $lines[] = (string) $line;
             }
         }

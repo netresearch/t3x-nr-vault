@@ -45,7 +45,7 @@ final class SecureHttpClientFactoryTest extends TestCase
         // `any.example.com` — so what they measure would depend on the network
         // the suite runs on. A fixed public answer keeps the allowlist the
         // only variable.
-        $this->factory = new SecureHttpClientFactory(new AlwaysPublicDnsResolver());
+        $this->factory              = new SecureHttpClientFactory(new AlwaysPublicDnsResolver());
         $GLOBALS['TYPO3_CONF_VARS'] = [];
     }
 
@@ -85,9 +85,9 @@ final class SecureHttpClientFactoryTest extends TestCase
     public function createWithTypo3HttpConfig(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
-            'timeout' => 60,
+            'timeout'         => 60,
             'connect_timeout' => 5,
-            'version' => '2.0',
+            'version'         => '2.0',
         ];
 
         $client = $this->factory->create();
@@ -184,12 +184,12 @@ final class SecureHttpClientFactoryTest extends TestCase
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
             'allow_redirects' => [
-                'max' => 5,
-                'strict' => true,
-                'referer' => 'yes',
-                'protocols' => ['https', 42],
+                'max'             => 5,
+                'strict'          => true,
+                'referer'         => 'yes',
+                'protocols'       => ['https', 42],
                 'track_redirects' => false,
-                'unknown' => 'dropped',
+                'unknown'         => 'dropped',
             ],
         ];
 
@@ -225,10 +225,10 @@ final class SecureHttpClientFactoryTest extends TestCase
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
             'proxy' => [
-                'http' => self::PROXY_URL,
+                'http'  => self::PROXY_URL,
                 'https' => 42,
-                'no' => ['internal.example', 7],
-                'ftp' => 'dropped',
+                'no'    => ['internal.example', 7],
+                'ftp'   => 'dropped',
             ],
         ];
 
@@ -244,7 +244,7 @@ final class SecureHttpClientFactoryTest extends TestCase
     public function aCertificateSettingKeepsItsPassphrasePairAndDropsAnythingElse(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
-            'cert' => [self::CLIENT_CERT, 'secret'],
+            'cert'    => [self::CLIENT_CERT, 'secret'],
             'ssl_key' => [42],
         ];
 
@@ -308,7 +308,7 @@ final class SecureHttpClientFactoryTest extends TestCase
     #[Test]
     public function aRedirectCallbackSurvivesAndAnEmptyProtocolListDoesNot(): void
     {
-        $onRedirect = static fn (): null => null;
+        $onRedirect                         = static fn (): null => null;
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
             'allow_redirects' => ['on_redirect' => $onRedirect, 'protocols' => [42]],
         ];
@@ -364,10 +364,10 @@ final class SecureHttpClientFactoryTest extends TestCase
     public function theCancellableTransportCarriesAnIdleBudgetOnlyWithoutATotalTimeout(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['timeout' => 0, 'connect_timeout' => 7];
-        $withoutTimeout = $this->factory->createCancellable();
+        $withoutTimeout                     = $this->factory->createCancellable();
 
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = ['timeout' => 1, 'connect_timeout' => 7];
-        $withTimeout = $this->factory->createCancellable();
+        $withTimeout                        = $this->factory->createCancellable();
 
         self::assertNotNull($withoutTimeout);
         self::assertNotNull($withTimeout);
@@ -379,8 +379,8 @@ final class SecureHttpClientFactoryTest extends TestCase
     public function createWithSslConfig(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
-            'verify' => false,
-            'cert' => self::CLIENT_CERT,
+            'verify'  => false,
+            'cert'    => self::CLIENT_CERT,
             'ssl_key' => '/path/to/key.pem',
         ];
 
@@ -521,7 +521,7 @@ final class SecureHttpClientFactoryTest extends TestCase
     public function createWithNonIntegerTimeoutUsesDefault(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
-            'timeout' => 'not-an-integer',
+            'timeout'         => 'not-an-integer',
             'connect_timeout' => 'also-not-an-integer',
         ];
 
@@ -535,7 +535,7 @@ final class SecureHttpClientFactoryTest extends TestCase
     public function createAppliesPositiveTimeoutOverride(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['HTTP'] = [
-            'timeout' => 60,
+            'timeout'         => 60,
             'connect_timeout' => 5,
         ];
 
@@ -648,17 +648,17 @@ final class SecureHttpClientFactoryTest extends TestCase
             [
                 'HTTPS_PROXY' => 'http://https-proxy.example.com:8080',
                 'https_proxy' => 'http://lowercase-proxy.example.com:8080',
-                'HTTP_PROXY' => 'http://http-proxy.example.com:3128',
-                'NO_PROXY' => 'localhost,127.0.0.1,.local',
+                'HTTP_PROXY'  => 'http://http-proxy.example.com:3128',
+                'NO_PROXY'    => 'localhost,127.0.0.1,.local',
             ],
             function (): void {
                 $config = $this->getGuzzleConfig($this->factory->create());
 
                 self::assertSame(
                     [
-                        'http' => 'http://http-proxy.example.com:3128',
+                        'http'  => 'http://http-proxy.example.com:3128',
                         'https' => 'http://https-proxy.example.com:8080',
-                        'no' => ['localhost', '127.0.0.1', '.local'],
+                        'no'    => ['localhost', '127.0.0.1', '.local'],
                     ],
                     $config['proxy'] ?? null,
                 );
@@ -675,10 +675,10 @@ final class SecureHttpClientFactoryTest extends TestCase
             [
                 'HTTPS_PROXY' => '',
                 'https_proxy' => '',
-                'HTTP_PROXY' => '',
-                'http_proxy' => '',
-                'NO_PROXY' => '',
-                'no_proxy' => '',
+                'HTTP_PROXY'  => '',
+                'http_proxy'  => '',
+                'NO_PROXY'    => '',
+                'no_proxy'    => '',
             ],
             function (): void {
                 $config = $this->getGuzzleConfig($this->factory->create());
@@ -700,10 +700,10 @@ final class SecureHttpClientFactoryTest extends TestCase
             [
                 'HTTPS_PROXY' => null,
                 'https_proxy' => 'http://lowercase-proxy.example.com:8080',
-                'HTTP_PROXY' => null,
-                'http_proxy' => null,
-                'NO_PROXY' => null,
-                'no_proxy' => 'example.org',
+                'HTTP_PROXY'  => null,
+                'http_proxy'  => null,
+                'NO_PROXY'    => null,
+                'no_proxy'    => 'example.org',
             ],
             function (): void {
                 $config = $this->getGuzzleConfig($this->factory->create());
@@ -711,7 +711,7 @@ final class SecureHttpClientFactoryTest extends TestCase
                 self::assertSame(
                     [
                         'https' => 'http://lowercase-proxy.example.com:8080',
-                        'no' => ['example.org'],
+                        'no'    => ['example.org'],
                     ],
                     $config['proxy'] ?? null,
                 );
@@ -736,7 +736,7 @@ final class SecureHttpClientFactoryTest extends TestCase
      * caller set to `null` (meaning: must be unset while the callable runs).
      *
      * @param array<string, string|null> $variables
-     * @param callable(): void $assertions
+     * @param callable(): void           $assertions
      */
     private function withProxyEnvironment(array $variables, callable $assertions): void
     {

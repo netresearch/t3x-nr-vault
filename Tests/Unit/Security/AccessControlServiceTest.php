@@ -30,6 +30,9 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\DefaultRestrictionContainer;
 use TYPO3\CMS\Core\Http\ServerRequest;
 
+use function define;
+use function defined;
+
 #[CoversClass(AccessControlService::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class AccessControlServiceTest extends TestCase
@@ -43,7 +46,7 @@ final class AccessControlServiceTest extends TestCase
         parent::setUp();
 
         $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
-        $this->subject = new AccessControlService($this->configuration);
+        $this->subject       = new AccessControlService($this->configuration);
 
         // Reset GLOBALS for clean state
         unset($GLOBALS['BE_USER'], $GLOBALS['TYPO3_REQUEST']);
@@ -250,8 +253,8 @@ final class AccessControlServiceTest extends TestCase
     #[Test]
     public function actorTypeIgnoresAFalsyLegacyCliModeConstant(): void
     {
-        if (!\defined('TYPO3_cliMode')) {
-            \define('TYPO3_cliMode', false);
+        if (!defined('TYPO3_cliMode')) {
+            define('TYPO3_cliMode', false);
         }
 
         self::assertSame('api', $this->subject->getCurrentActorType());
@@ -356,8 +359,8 @@ final class AccessControlServiceTest extends TestCase
     public function getCurrentActorUsernameReturnsUnknownWhenUsernameIsNotString(): void
     {
         // User record exists but username key is missing / non-string
-        $backendUser = $this->createMock(BackendUserAuthentication::class);
-        $backendUser->user = ['uid' => 1]; // no 'username' key
+        $backendUser                = $this->createMock(BackendUserAuthentication::class);
+        $backendUser->user          = ['uid' => 1]; // no 'username' key
         $backendUser->userGroupsUID = [];
         $backendUser->method('isAdmin')->willReturn(false);
         $backendUser->method('isSystemMaintainer')->willReturn(false);
@@ -370,8 +373,8 @@ final class AccessControlServiceTest extends TestCase
     public function getCurrentActorUidReturnsZeroWhenUserUidIsNotInt(): void
     {
         // User record exists but uid is a string
-        $backendUser = $this->createMock(BackendUserAuthentication::class);
-        $backendUser->user = ['uid' => 'not-an-int'];
+        $backendUser                = $this->createMock(BackendUserAuthentication::class);
+        $backendUser->user          = ['uid' => 'not-an-int'];
         $backendUser->userGroupsUID = [];
         $backendUser->method('isAdmin')->willReturn(false);
         $backendUser->method('isSystemMaintainer')->willReturn(false);
@@ -384,8 +387,8 @@ final class AccessControlServiceTest extends TestCase
     public function getCurrentUserGroupsConvertsStringNumericGroupIds(): void
     {
         // userGroupsUID may contain string representations of integers
-        $backendUser = $this->createMock(BackendUserAuthentication::class);
-        $backendUser->user = ['uid' => 1, 'username' => 'tester'];
+        $backendUser                = $this->createMock(BackendUserAuthentication::class);
+        $backendUser->user          = ['uid' => 1, 'username' => 'tester'];
         $backendUser->userGroupsUID = ['5', '10', '15'];
         $backendUser->method('isAdmin')->willReturn(false);
         $backendUser->method('isSystemMaintainer')->willReturn(false);
@@ -399,8 +402,8 @@ final class AccessControlServiceTest extends TestCase
     #[Test]
     public function getCurrentUserGroupsConvertsNonNumericStringGroupIdToZero(): void
     {
-        $backendUser = $this->createMock(BackendUserAuthentication::class);
-        $backendUser->user = ['uid' => 1, 'username' => 'tester'];
+        $backendUser                = $this->createMock(BackendUserAuthentication::class);
+        $backendUser->user          = ['uid' => 1, 'username' => 'tester'];
         $backendUser->userGroupsUID = ['not-a-number'];
         $backendUser->method('isAdmin')->willReturn(false);
         $backendUser->method('isSystemMaintainer')->willReturn(false);
@@ -862,9 +865,9 @@ final class AccessControlServiceTest extends TestCase
         $this->configuration->method('getCliAccessGroups')->willReturn([5]);
         $this->setUnauthenticatedCommandLineUser();
 
-        $inScope = $this->createSecret(ownerUid: 42, allowedGroups: [5]);
+        $inScope    = $this->createSecret(ownerUid: 42, allowedGroups: [5]);
         $outOfScope = $this->createSecret(ownerUid: 42, allowedGroups: [7]);
-        $writable = $this->createSecret(ownerUid: 42, writeGroups: [5]);
+        $writable   = $this->createSecret(ownerUid: 42, writeGroups: [5]);
 
         self::assertTrue($this->subject->canRead($inScope), 'read-tier group in CLI scope: read granted');
         self::assertFalse($this->subject->canWrite($inScope), 'read-tier group only: write denied');
@@ -919,11 +922,11 @@ final class AccessControlServiceTest extends TestCase
         // apply. isCliAccessAllowed() must not even be consulted.
         $this->configuration->expects(self::never())->method('isCliAccessAllowed');
 
-        $commandLineUser = $this->createMock(CommandLineUserAuthentication::class);
+        $commandLineUser       = $this->createMock(CommandLineUserAuthentication::class);
         $commandLineUser->user = [
-            'uid' => 1,
+            'uid'      => 1,
             'username' => '_cli_',
-            'disable' => 0,
+            'disable'  => 0,
         ];
         $commandLineUser->userGroupsUID = [];
         $commandLineUser->method('isAdmin')->willReturn(true);
@@ -1138,7 +1141,7 @@ final class AccessControlServiceTest extends TestCase
         $restrictions->expects(self::once())->method('removeAll');
 
         $parameters = [];
-        $subject = $this->createSubjectWithObservableGroupLookup(
+        $subject    = $this->createSubjectWithObservableGroupLookup(
             [['uid' => 7]],
             restrictions: $restrictions,
             capturedParameters: $parameters,
@@ -1219,7 +1222,7 @@ final class AccessControlServiceTest extends TestCase
         $this->configuration->method('isCliAccessAllowed')->willReturn(false);
 
         $subject = $this->createSubjectWithTechnicalActor(null);
-        $secret = $this->createSecret(ownerUid: 0);
+        $secret  = $this->createSecret(ownerUid: 0);
 
         self::assertSame('cli', $subject->getCurrentActorType());
         self::assertFalse($subject->canRead($secret), 'CLI disabled: denied');
@@ -1282,11 +1285,11 @@ final class AccessControlServiceTest extends TestCase
         bool $isSystemMaintainer = false,
         int $disable = 0,
     ): void {
-        $backendUser = $this->createMock(BackendUserAuthentication::class);
+        $backendUser       = $this->createMock(BackendUserAuthentication::class);
         $backendUser->user = [
-            'uid' => $uid,
+            'uid'      => $uid,
             'username' => $username,
-            'disable' => $disable,
+            'disable'  => $disable,
         ];
         $backendUser->userGroupsUID = $groups;
 
@@ -1307,11 +1310,11 @@ final class AccessControlServiceTest extends TestCase
      */
     private function setCommandLineUser(): void
     {
-        $commandLineUser = $this->createMock(CommandLineUserAuthentication::class);
+        $commandLineUser       = $this->createMock(CommandLineUserAuthentication::class);
         $commandLineUser->user = [
-            'uid' => 1,
+            'uid'      => 1,
             'username' => '_cli_',
-            'disable' => 0,
+            'disable'  => 0,
         ];
         $commandLineUser->userGroupsUID = [];
 
@@ -1366,11 +1369,11 @@ final class AccessControlServiceTest extends TestCase
      * often it runs, which restrictions it drops and which named parameters it
      * binds.
      *
-     * @param list<array<string, mixed>> $rows rows the lookup returns
-     * @param int|null $expectedQueries exact number of lookups
-     *                                  expected; null = at least one
-     * @param list<array{mixed, mixed}> $capturedParameters collects every
-     *                                                      createNamedParameter() call as [value, type]
+     * @param list<array<string, mixed>> $rows               rows the lookup returns
+     * @param int|null                   $expectedQueries    exact number of lookups
+     *                                                       expected; null = at least one
+     * @param list<array{mixed, mixed}>  $capturedParameters collects every
+     *                                                       createNamedParameter() call as [value, type]
      */
     private function createSubjectWithObservableGroupLookup(
         array $rows,

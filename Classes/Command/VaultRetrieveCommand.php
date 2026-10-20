@@ -22,6 +22,10 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+use function dirname;
+use function is_string;
+use function sprintf;
+
 /**
  * CLI command to retrieve a secret from the vault.
  */
@@ -68,9 +72,9 @@ final class VaultRetrieveCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io            = new SymfonyStyle($input, $output);
         $identifierArg = $input->getArgument('identifier');
-        $identifier = \is_string($identifierArg) ? $identifierArg : '';
+        $identifier    = is_string($identifierArg) ? $identifierArg : '';
 
         // This command prints plaintext to a terminal (or writes it to a file),
         // so it is a reveal surface and needs `secret.reveal` on top of the
@@ -78,7 +82,7 @@ final class VaultRetrieveCommand extends Command
         // trusted CLI operator the vault's `allowCliAccess` switch decides;
         // when invoked as a backend user, that user's group grants do.
         if (!$this->accessControlService->isGranted(VaultPermission::SecretReveal)) {
-            $io->error(\sprintf(
+            $io->error(sprintf(
                 'Access denied: the "%s" permission is required to print a secret value.',
                 VaultPermission::SecretReveal->value,
             ));
@@ -94,12 +98,12 @@ final class VaultRetrieveCommand extends Command
             }
 
             $outputFileOption = $input->getOption('output');
-            $outputFile = \is_string($outputFileOption) ? $outputFileOption : null;
+            $outputFile       = is_string($outputFileOption) ? $outputFileOption : null;
             if ($outputFile !== null) {
                 // Check if parent directory exists
-                $directory = \dirname($outputFile);
+                $directory = dirname($outputFile);
                 if (!is_dir($directory)) {
-                    $io->error(\sprintf('Failed to write to file: %s', $outputFile));
+                    $io->error(sprintf('Failed to write to file: %s', $outputFile));
                     sodium_memzero($value);
 
                     return Command::FAILURE;
@@ -122,7 +126,7 @@ final class VaultRetrieveCommand extends Command
                 }
 
                 if ($result === false) {
-                    $io->error(\sprintf('Failed to write to file: %s', $outputFile));
+                    $io->error(sprintf('Failed to write to file: %s', $outputFile));
                     sodium_memzero($value);
 
                     return Command::FAILURE;
@@ -131,13 +135,13 @@ final class VaultRetrieveCommand extends Command
                 // Enforce restrictive permissions (also tightens a pre-existing
                 // file, which umask cannot) and fail loudly if it cannot be set
                 if (!chmod($outputFile, 0o600)) {
-                    $io->error(\sprintf('Failed to set permissions on file: %s', $outputFile));
+                    $io->error(sprintf('Failed to set permissions on file: %s', $outputFile));
                     sodium_memzero($value);
 
                     return Command::FAILURE;
                 }
 
-                $io->success(\sprintf('Secret written to: %s', $outputFile));
+                $io->success(sprintf('Secret written to: %s', $outputFile));
             } else {
                 // Write to stdout
                 $newline = $input->getOption('no-newline') ? '' : PHP_EOL;
@@ -149,7 +153,7 @@ final class VaultRetrieveCommand extends Command
 
             return Command::SUCCESS;
         } catch (SecretNotFoundException) {
-            $io->error(\sprintf('Secret not found: %s', $identifier));
+            $io->error(sprintf('Secret not found: %s', $identifier));
 
             return Command::FAILURE;
         } catch (VaultException $e) {

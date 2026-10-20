@@ -21,6 +21,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\ContentObject\Event\AfterStdWrapFunctionsExecutedEvent;
 
+use function sprintf;
+
 /**
  * Functional tests for TypoScriptVaultListener.
  *
@@ -52,11 +54,11 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
     public function listenerResolvesVaultPlaceholderInContent(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = 'ts_apikey_' . bin2hex(random_bytes(4));
+        $identifier   = 'ts_apikey_' . bin2hex(random_bytes(4));
         $vaultService->store($identifier, 'resolved-typoscript-secret', self::FRONTEND_ACCESSIBLE);
 
         $listener = $this->get(TypoScriptVaultListener::class);
-        $event = $this->createEvent(\sprintf('%%vault(%s)%%', $identifier), $identifier);
+        $event    = $this->createEvent(sprintf('%%vault(%s)%%', $identifier), $identifier);
 
         $listener($event);
 
@@ -70,12 +72,12 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
     public function listenerResolvesVaultPlaceholderEmbeddedInLargerContent(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = 'ts_embedded_' . bin2hex(random_bytes(4));
+        $identifier   = 'ts_embedded_' . bin2hex(random_bytes(4));
         $vaultService->store($identifier, 'my-api-key', self::FRONTEND_ACCESSIBLE);
 
         $listener = $this->get(TypoScriptVaultListener::class);
-        $content = \sprintf('Bearer %%vault(%s)%%', $identifier);
-        $event = $this->createEvent($content, $identifier);
+        $content  = sprintf('Bearer %%vault(%s)%%', $identifier);
+        $event    = $this->createEvent($content, $identifier);
 
         $listener($event);
 
@@ -93,12 +95,12 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
         // access to every secret. A secret withheld from the frontend must
         // still not be resolved into the (cacheable) page output.
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = 'ts_private_' . bin2hex(random_bytes(4));
+        $identifier   = 'ts_private_' . bin2hex(random_bytes(4));
         $vaultService->store($identifier, 'smtp-password-never-in-frontend');
 
-        $listener = $this->get(TypoScriptVaultListener::class);
-        $placeholder = \sprintf('%%vault(%s)%%', $identifier);
-        $event = $this->createEvent($placeholder, $identifier);
+        $listener    = $this->get(TypoScriptVaultListener::class);
+        $placeholder = sprintf('%%vault(%s)%%', $identifier);
+        $event       = $this->createEvent($placeholder, $identifier);
 
         $listener($event);
 
@@ -115,9 +117,9 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function listenerSkipsContentWithNoVaultPlaceholders(): void
     {
-        $listener = $this->get(TypoScriptVaultListener::class);
+        $listener        = $this->get(TypoScriptVaultListener::class);
         $originalContent = 'No vault references here, plain text content.';
-        $event = $this->createEvent($originalContent);
+        $event           = $this->createEvent($originalContent);
 
         $listener($event);
 
@@ -127,9 +129,9 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function listenerPreservesPlaceholderWhenSecretNotFound(): void
     {
-        $listener = $this->get(TypoScriptVaultListener::class);
+        $listener    = $this->get(TypoScriptVaultListener::class);
         $placeholder = '%vault(nonexistent/identifier/xyz)%';
-        $event = $this->createEvent($placeholder, 'nonexistent/identifier/xyz');
+        $event       = $this->createEvent($placeholder, 'nonexistent/identifier/xyz');
 
         $listener($event);
 
@@ -141,15 +143,15 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
     public function listenerResolvesMultipleVaultPlaceholders(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $prefix = 'ts_multi_' . bin2hex(random_bytes(4));
-        $id1 = $prefix . '_k1';
-        $id2 = $prefix . '_k2';
+        $prefix       = 'ts_multi_' . bin2hex(random_bytes(4));
+        $id1          = $prefix . '_k1';
+        $id2          = $prefix . '_k2';
         $vaultService->store($id1, 'first-value', self::FRONTEND_ACCESSIBLE);
         $vaultService->store($id2, 'second-value', self::FRONTEND_ACCESSIBLE);
 
         $listener = $this->get(TypoScriptVaultListener::class);
-        $content = \sprintf('%%vault(%s)%%:%%vault(%s)%%', $id1, $id2);
-        $event = $this->createEvent($content, $id1, $id2);
+        $content  = sprintf('%%vault(%s)%%:%%vault(%s)%%', $id1, $id2);
+        $event    = $this->createEvent($content, $id1, $id2);
 
         $listener($event);
 
@@ -164,7 +166,7 @@ final class TypoScriptVaultListenerTest extends AbstractVaultFunctionalTestCase
     public function listenerSkipsNullContent(): void
     {
         $listener = $this->get(TypoScriptVaultListener::class);
-        $event = $this->createEvent(null);
+        $event    = $this->createEvent(null);
 
         $listener($event);
 

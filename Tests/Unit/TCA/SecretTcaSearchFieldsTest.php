@@ -13,6 +13,8 @@ use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 
+use function dirname;
+
 /**
  * TYPO3 v14 removed `ctrl.searchFields` (#106972) and its TCA migration logs a
  * deprecation for every table that still sets it, so the base TCA must not set
@@ -25,7 +27,7 @@ final class SecretTcaSearchFieldsTest extends TestCase
     #[Test]
     public function baseTcaDoesNotSetSearchFields(): void
     {
-        $tca = require \dirname(__DIR__, 3) . '/Configuration/TCA/tx_nrvault_secret.php';
+        $tca = require dirname(__DIR__, 3) . '/Configuration/TCA/tx_nrvault_secret.php';
         self::assertIsArray($tca);
         self::assertIsArray($tca['ctrl']);
 

@@ -16,6 +16,9 @@ use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
 use TYPO3\CMS\Core\Core\Environment;
 
+use function is_array;
+use function sprintf;
+
 /**
  * The TYPO3 installation around the vault.
  *
@@ -67,22 +70,22 @@ final readonly class EnvironmentCheck implements ReadinessCheckInterface
      */
     private function checkApplicationContext(DoctorContext $context): Finding
     {
-        $id = 'environment.production_context';
+        $id                 = 'environment.production_context';
         $applicationContext = (string) Environment::getContext();
-        $isProduction = Environment::getContext()->isProduction();
-        $details = ['applicationContext' => $applicationContext];
+        $isProduction       = Environment::getContext()->isProduction();
+        $details            = ['applicationContext' => $applicationContext];
 
         if ($isProduction || !$context->isHardened()) {
             return Finding::pass(
                 id: $id,
-                summary: \sprintf('Application context is "%s".', $applicationContext),
+                summary: sprintf('Application context is "%s".', $applicationContext),
                 details: $details,
             );
         }
 
         return Finding::warning(
             id: $id,
-            summary: \sprintf(
+            summary: sprintf(
                 'The hardened profile is active but the application context is "%s", not Production.',
                 $applicationContext,
             ),
@@ -141,12 +144,12 @@ final readonly class EnvironmentCheck implements ReadinessCheckInterface
     private function isBackendSslLocked(): bool
     {
         $confVars = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
-        if (!\is_array($confVars)) {
+        if (!is_array($confVars)) {
             return false;
         }
 
         $backend = $confVars['BE'] ?? null;
-        if (!\is_array($backend)) {
+        if (!is_array($backend)) {
             return false;
         }
 

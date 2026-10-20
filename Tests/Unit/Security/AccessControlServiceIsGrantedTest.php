@@ -30,6 +30,8 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\DefaultRestrictionContainer;
 use TYPO3\CMS\Core\Http\ServerRequest;
 
+use function in_array;
+
 /**
  * Operation-permission matrix for {@see AccessControlService::isGranted()}.
  *
@@ -50,7 +52,7 @@ final class AccessControlServiceIsGrantedTest extends TestCase
         parent::setUp();
 
         $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
-        $this->subject = new AccessControlService($this->configuration);
+        $this->subject       = new AccessControlService($this->configuration);
 
         unset($GLOBALS['BE_USER'], $GLOBALS['TYPO3_REQUEST']);
     }
@@ -199,7 +201,7 @@ final class AccessControlServiceIsGrantedTest extends TestCase
         );
         $this->setUnauthenticatedCommandLineUser();
 
-        $expected = \in_array(
+        $expected = in_array(
             $permission,
             [VaultPermission::SecretUse, VaultPermission::SecretCreate, VaultPermission::SecretRotate],
             true,

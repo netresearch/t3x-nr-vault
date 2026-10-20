@@ -28,6 +28,8 @@ use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function sprintf;
+
 /**
  * CLI command to migrate audit log entries from legacy SHA-256 to HMAC-SHA256.
  */
@@ -63,7 +65,7 @@ final class VaultAuditMigrateCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io     = new SymfonyStyle($input, $output);
         $dryRun = (bool) $input->getOption('dry-run');
 
         $targetEpoch = $this->extensionConfiguration->getAuditHmacEpoch();
@@ -86,7 +88,7 @@ final class VaultAuditMigrateCommand extends Command
         // forensic fields, so a 1 → 2 rehash is required for tamper
         // detection of success/error_message/reason/ip/UA/context).
         $queryBuilder = $connection->createQueryBuilder();
-        $countResult = $queryBuilder
+        $countResult  = $queryBuilder
             ->count('uid')
             ->from(self::TABLE_NAME)
             ->where(
@@ -101,7 +103,7 @@ final class VaultAuditMigrateCommand extends Command
         $outdatedCount = is_numeric($countResult) ? (int) $countResult : 0;
 
         if ($outdatedCount === 0) {
-            $io->success(\sprintf(
+            $io->success(sprintf(
                 'All entries already at epoch %d or higher. Nothing to migrate.',
                 $targetEpoch,
             ));
@@ -128,7 +130,7 @@ final class VaultAuditMigrateCommand extends Command
 
         // Count total entries (we must re-hash ALL to maintain chain integrity)
         $totalQueryBuilder = $connection->createQueryBuilder();
-        $totalResult = $totalQueryBuilder
+        $totalResult       = $totalQueryBuilder
             ->count('uid')
             ->from(self::TABLE_NAME)
             ->executeQuery()
@@ -136,7 +138,7 @@ final class VaultAuditMigrateCommand extends Command
 
         $totalEntries = is_numeric($totalResult) ? (int) $totalResult : 0;
 
-        $io->writeln(\sprintf(
+        $io->writeln(sprintf(
             'Found %d entries below epoch %d (re-hashing all %d entries to maintain chain integrity)',
             $outdatedCount,
             $targetEpoch,
@@ -168,7 +170,7 @@ final class VaultAuditMigrateCommand extends Command
         try {
             // Stream ALL entries in UID order using fetchAssociative() to avoid loading entire table
             $queryBuilder = $connection->createQueryBuilder();
-            $result = $queryBuilder
+            $result       = $queryBuilder
                 ->select('*')
                 ->from(self::TABLE_NAME)
                 ->orderBy('uid', 'ASC')
@@ -177,12 +179,12 @@ final class VaultAuditMigrateCommand extends Command
             $progressBar = new ProgressBar($output, $totalEntries);
             $progressBar->start();
 
-            $previousHash = '';
+            $previousHash  = '';
             $migratedCount = 0;
 
             while (($row = $result->fetchAssociative()) !== false) {
                 $entry = AuditLogService::extractHashRow($row);
-                $uid = $entry['uid'];
+                $uid   = $entry['uid'];
                 $epoch = $entry['epoch'];
 
                 // Re-hash ALL entries to maintain chain integrity. Dispatch by
@@ -194,7 +196,7 @@ final class VaultAuditMigrateCommand extends Command
                 // row, so seed it with the target epoch before extraction.
                 if ($targetEpoch >= 3) {
                     $row['hmac_key_epoch'] = $targetEpoch;
-                    $newHash = AuditLogService::calculateHashV3(
+                    $newHash               = AuditLogService::calculateHashV3(
                         AuditLogService::extractV3HashRow($row),
                         $previousHash,
                         $hmacKey,
@@ -221,8 +223,8 @@ final class VaultAuditMigrateCommand extends Command
                     $connection->update(
                         self::TABLE_NAME,
                         [
-                            'entry_hash' => $newHash,
-                            'previous_hash' => $previousHash,
+                            'entry_hash'     => $newHash,
+                            'previous_hash'  => $previousHash,
                             'hmac_key_epoch' => $targetEpoch,
                         ],
                         ['uid' => $uid],
@@ -258,9 +260,9 @@ final class VaultAuditMigrateCommand extends Command
         $io->newLine(2);
 
         if ($dryRun) {
-            $io->success(\sprintf('DRY RUN: Would migrate %d entries to epoch %d', $migratedCount, $targetEpoch));
+            $io->success(sprintf('DRY RUN: Would migrate %d entries to epoch %d', $migratedCount, $targetEpoch));
         } else {
-            $io->success(\sprintf('Migrated %d entries to epoch %d', $migratedCount, $targetEpoch));
+            $io->success(sprintf('Migrated %d entries to epoch %d', $migratedCount, $targetEpoch));
         }
 
         return Command::SUCCESS;

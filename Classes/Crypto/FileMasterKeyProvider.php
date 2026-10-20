@@ -14,6 +14,9 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\MasterKeyException;
 use SensitiveParameter;
 
+use function dirname;
+use function strlen;
+
 /**
  * File-based master key provider.
  */
@@ -47,8 +50,8 @@ final class FileMasterKeyProvider extends AbstractMasterKeyProvider
 
     public function storeMasterKey(#[SensitiveParameter] string $key): void
     {
-        if (\strlen($key) !== self::KEY_LENGTH) {
-            throw MasterKeyException::invalidLength(self::KEY_LENGTH, \strlen($key));
+        if (strlen($key) !== self::KEY_LENGTH) {
+            throw MasterKeyException::invalidLength(self::KEY_LENGTH, strlen($key));
         }
 
         $path = $this->getKeyPath();
@@ -56,7 +59,7 @@ final class FileMasterKeyProvider extends AbstractMasterKeyProvider
             $path = $this->configuration->getAutoKeyPath();
         }
 
-        $dir = \dirname($path);
+        $dir = dirname($path);
         if (!is_dir($dir) && (!mkdir($dir, 0o700, true) && !is_dir($dir))) {
             throw MasterKeyException::cannotStore("Cannot create directory: {$dir}");
         }
@@ -118,22 +121,22 @@ final class FileMasterKeyProvider extends AbstractMasterKeyProvider
         $trimmed = trim($raw);
 
         // Try trimmed value as raw binary key
-        if (\strlen($trimmed) === self::KEY_LENGTH) {
+        if (strlen($trimmed) === self::KEY_LENGTH) {
             return $trimmed;
         }
 
         // Try base64 decode of trimmed value
         $decoded = base64_decode($trimmed, true);
-        if ($decoded !== false && \strlen($decoded) === self::KEY_LENGTH) {
+        if ($decoded !== false && strlen($decoded) === self::KEY_LENGTH) {
             return $decoded;
         }
 
         // Try raw file contents as binary (no trimming of binary data)
-        if (\strlen($raw) === self::KEY_LENGTH) {
+        if (strlen($raw) === self::KEY_LENGTH) {
             return $raw;
         }
 
-        throw MasterKeyException::invalidLength(self::KEY_LENGTH, \strlen($trimmed));
+        throw MasterKeyException::invalidLength(self::KEY_LENGTH, strlen($trimmed));
     }
 
     private function getKeyPath(): string

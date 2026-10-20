@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -30,7 +27,7 @@ final class TransferProgressTest extends TestCase
     #[Test]
     public function nothingCountsBeforeTheFirstHead(): void
     {
-        $progress = $this->progress();
+        $progress    = $this->progress();
         $this->bytes = 10;
 
         self::assertSame(0, $progress->count());
@@ -41,7 +38,7 @@ final class TransferProgressTest extends TestCase
     public function aFinalHeadCountsAndSoDoBytesAfterIt(): void
     {
         $progress = $this->progress();
-        $head = new Response(200);
+        $head     = new Response(200);
 
         $progress->onHeaders($head);
         self::assertSame(1, $progress->count());
@@ -75,9 +72,9 @@ final class TransferProgressTest extends TestCase
     #[Test]
     public function aLaterFinalHeadReplacesTheEarlierOneAndCountsAgain(): void
     {
-        $progress = $this->progress();
+        $progress   = $this->progress();
         $proxyReply = new Response(200, [], null, '1.1', 'Connection established');
-        $origin = new Response(401);
+        $origin     = new Response(401);
 
         $progress->onHeaders($proxyReply);
         $progress->onHeaders($origin);

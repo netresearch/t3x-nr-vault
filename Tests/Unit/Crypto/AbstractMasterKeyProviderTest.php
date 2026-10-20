@@ -85,7 +85,7 @@ final class AbstractMasterKeyProviderTest extends TestCase
     #[Test]
     public function cacheSlotsAreIsolatedPerConcreteClass(): void
     {
-        $first = new FirstFakeMasterKeyProvider();
+        $first  = new FirstFakeMasterKeyProvider();
         $second = new SecondFakeMasterKeyProvider();
 
         self::assertSame(str_repeat("\xAA", 32), $first->getMasterKey());

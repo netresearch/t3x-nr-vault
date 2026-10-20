@@ -1,9 +1,10 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\EventListener;
@@ -29,6 +30,8 @@ use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\ContentObject\Event\AfterStdWrapFunctionsExecutedEvent;
 
+use function dirname;
+
 #[CoversClass(TypoScriptVaultListener::class)]
 #[RunTestsInSeparateProcesses]
 #[PreserveGlobalState(false)]
@@ -41,7 +44,7 @@ final class TypoScriptVaultListenerDiagnosticsTest extends TestCase
         string $context,
         string $fault,
     ): void {
-        $project = \dirname(__DIR__, 3);
+        $project = dirname(__DIR__, 3);
         // Core documents initialize() for tests. An isolated child models a web
         // SAPI without leaking its application context or CLI flag to the suite.
         /** @phpstan-ignore staticMethod.internal */
@@ -58,8 +61,8 @@ final class TypoScriptVaultListenerDiagnosticsTest extends TestCase
         );
         $failure = match ($fault) {
             'runtime' => new RuntimeException('diagnostic sink rejected record', 1785000101),
-            'error' => new Error('diagnostic sink rejected record', 1785000102),
-            default => null,
+            'error'   => new Error('diagnostic sink rejected record', 1785000102),
+            default   => null,
         };
         $logger = new class ($failure) extends AbstractLogger {
             /** @var list<array{0: mixed, 1: string, 2: array<array-key, mixed>}> */
@@ -82,7 +85,7 @@ final class TypoScriptVaultListenerDiagnosticsTest extends TestCase
         $config
             ->method('isFrontendPlaceholderLegacyCliEnabled')
             ->willReturn(false);
-        $policy = new FrontendPlaceholderPolicy($config);
+        $policy  = new FrontendPlaceholderPolicy($config);
         $request = (new ServerRequest('GET', 'https://example.com/'))->withAttribute(
             'applicationType',
             1,
@@ -111,9 +114,9 @@ final class TypoScriptVaultListenerDiagnosticsTest extends TestCase
         $renderer = self::createStub(ContentObjectRenderer::class);
         $renderer->method('getRequest')->willReturn($request);
         $original = '%vault(missing_key)% and %vault(missing_key)% then %vault(public_key)%';
-        $event = new AfterStdWrapFunctionsExecutedEvent($original, [], $renderer);
+        $event    = new AfterStdWrapFunctionsExecutedEvent($original, [], $renderer);
         $listener = new TypoScriptVaultListener($vault, $logger, $policy);
-        $caught = null;
+        $caught   = null;
 
         try {
             $listener($event);

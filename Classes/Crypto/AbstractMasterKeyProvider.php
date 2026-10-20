@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -50,7 +47,7 @@ abstract class AbstractMasterKeyProvider implements MasterKeyProviderInterface
             return self::$cachedKeys[$class];
         }
 
-        $key = $this->loadRawKey();
+        $key                      = $this->loadRawKey();
         self::$cachedKeys[$class] = $key;
 
         return $key;

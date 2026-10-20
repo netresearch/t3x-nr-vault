@@ -455,12 +455,12 @@ final class SecretTest extends TestCase
     public function isExpiredBoundaries(string $kind, bool $expected): void
     {
         $expiresAt = match ($kind) {
-            'zero' => 0,
+            'zero'       => 0,
             'far-future' => PHP_INT_MAX,
-            'negative' => -1,
-            '+60' => time() + 60,
-            '-60' => time() - 60,
-            default => throw new InvalidArgumentException("Unknown kind: $kind", 7112662888),
+            'negative'   => -1,
+            '+60'        => time() + 60,
+            '-60'        => time() - 60,
+            default      => throw new InvalidArgumentException("Unknown kind: $kind", 7112662888),
         };
         $secret = new Secret(identifier: 't', expiresAt: $expiresAt);
 
@@ -486,34 +486,34 @@ final class SecretTest extends TestCase
     public function fromDatabaseRowCreatesCorrectSecret(): void
     {
         $row = [
-            'uid' => 42,
-            'scope_pid' => 1,
-            'identifier' => 'api-key',
-            'description' => self::PAYMENT_GATEWAY_DESCRIPTION,
-            'encrypted_value' => 'base64_encrypted_data',
-            'encrypted_dek' => 'base64_encrypted_dek',
-            'dek_nonce' => 'base64_nonce',
-            'value_nonce' => 'base64_value_nonce',
+            'uid'                => 42,
+            'scope_pid'          => 1,
+            'identifier'         => 'api-key',
+            'description'        => self::PAYMENT_GATEWAY_DESCRIPTION,
+            'encrypted_value'    => 'base64_encrypted_data',
+            'encrypted_dek'      => 'base64_encrypted_dek',
+            'dek_nonce'          => 'base64_nonce',
+            'value_nonce'        => 'base64_value_nonce',
             'encryption_version' => 1,
-            'value_checksum' => 'sha256hash',
-            'owner_uid' => 5,
+            'value_checksum'     => 'sha256hash',
+            'owner_uid'          => 5,
             // MM-backed column: the value is the relation COUNT, and the UIDs
             // are passed separately by the repository from the MM table.
-            'allowed_groups' => 3,
-            'context' => 'payment',
-            'version' => 3,
-            'expires_at' => 1735689600,
-            'last_rotated_at' => 1704067200,
-            'metadata' => '{"service":"stripe"}',
-            'adapter' => 'local',
+            'allowed_groups'     => 3,
+            'context'            => 'payment',
+            'version'            => 3,
+            'expires_at'         => 1735689600,
+            'last_rotated_at'    => 1704067200,
+            'metadata'           => '{"service":"stripe"}',
+            'adapter'            => 'local',
             'external_reference' => '',
-            'tstamp' => 1704067200,
-            'crdate' => 1704067200,
-            'cruser_id' => 1,
-            'deleted' => 0,
-            'hidden' => 0,
-            'read_count' => 10,
-            'last_read_at' => 1704153600,
+            'tstamp'             => 1704067200,
+            'crdate'             => 1704067200,
+            'cruser_id'          => 1,
+            'deleted'            => 0,
+            'hidden'             => 0,
+            'read_count'         => 10,
+            'last_read_at'       => 1704153600,
         ];
 
         $secret = Secret::fromDatabaseRow($row, [1, 2, 3]);
@@ -535,15 +535,15 @@ final class SecretTest extends TestCase
     public function fromDatabaseRowHydratesVersionTwoAlgorithmMarker(): void
     {
         $secret = Secret::fromDatabaseRow([
-            'uid' => 7,
-            'identifier' => 'v2-row',
-            'encrypted_value' => 'v',
-            'encrypted_dek' => 'dek',
-            'dek_nonce' => 'dn',
-            'value_nonce' => 'vn',
-            'encryption_version' => 2,
+            'uid'                  => 7,
+            'identifier'           => 'v2-row',
+            'encrypted_value'      => 'v',
+            'encrypted_dek'        => 'dek',
+            'dek_nonce'            => 'dn',
+            'value_nonce'          => 'vn',
+            'encryption_version'   => 2,
             'encryption_algorithm' => 'xchacha20poly1305',
-            'value_checksum' => 'cs',
+            'value_checksum'       => 'cs',
         ]);
 
         self::assertSame(2, $secret->getEncryptionVersion());
@@ -558,9 +558,9 @@ final class SecretTest extends TestCase
     public function fromDatabaseRowHandlesEmptyMetadata(): void
     {
         $secret = Secret::fromDatabaseRow([
-            'uid' => 1,
+            'uid'        => 1,
             'identifier' => 'test',
-            'metadata' => '',
+            'metadata'   => '',
         ]);
 
         self::assertSame([], $secret->getMetadata());
@@ -570,9 +570,9 @@ final class SecretTest extends TestCase
     public function fromDatabaseRowHandlesInvalidMetadataJson(): void
     {
         $secret = Secret::fromDatabaseRow([
-            'uid' => 1,
+            'uid'        => 1,
             'identifier' => 'test',
-            'metadata' => 'not-valid-json{',
+            'metadata'   => 'not-valid-json{',
         ]);
 
         self::assertSame([], $secret->getMetadata());
@@ -582,8 +582,8 @@ final class SecretTest extends TestCase
     public function fromDatabaseRowHandlesNullValues(): void
     {
         $secret = Secret::fromDatabaseRow([
-            'uid' => null,
-            'identifier' => null,
+            'uid'             => null,
+            'identifier'      => null,
             'encrypted_value' => null,
         ]);
 
@@ -596,8 +596,8 @@ final class SecretTest extends TestCase
     public function fromDatabaseRowHandlesEmptyAllowedGroups(): void
     {
         $secret = Secret::fromDatabaseRow([
-            'uid' => 1,
-            'identifier' => 'test',
+            'uid'            => 1,
+            'identifier'     => 'test',
             'allowed_groups' => '',
         ]);
 
@@ -608,8 +608,8 @@ final class SecretTest extends TestCase
     public function fromDatabaseRowHandlesFrontendAccessibleTrue(): void
     {
         $secret = Secret::fromDatabaseRow([
-            'uid' => 1,
-            'identifier' => 'test',
+            'uid'                 => 1,
+            'identifier'          => 'test',
             'frontend_accessible' => 1,
         ]);
 
@@ -648,11 +648,11 @@ final class SecretTest extends TestCase
         // Version 2+ rows must satisfy the marker invariant (full envelope
         // plus a known algorithm marker), so those provider rows carry one.
         $envelope = [
-            'encrypted_value' => 'v',
-            'encrypted_dek' => 'dek',
-            'dek_nonce' => 'dn',
-            'value_nonce' => 'vn',
-            'value_checksum' => 'cs',
+            'encrypted_value'      => 'v',
+            'encrypted_dek'        => 'dek',
+            'dek_nonce'            => 'dn',
+            'value_nonce'          => 'vn',
+            'value_checksum'       => 'cs',
             'encryption_algorithm' => 'xchacha20poly1305',
         ];
 
@@ -807,34 +807,34 @@ final class SecretTest extends TestCase
     public function fromDatabaseRowFullRoundTripStrictAssertions(): void
     {
         $row = [
-            'uid' => 42,
-            'scope_pid' => 1,
-            'identifier' => 'api-key',
-            'description' => self::PAYMENT_GATEWAY_DESCRIPTION,
-            'encrypted_value' => 'enc_data',
-            'encrypted_dek' => 'dek',
-            'dek_nonce' => 'dn',
-            'value_nonce' => 'vn',
-            'encryption_version' => 2,
+            'uid'                  => 42,
+            'scope_pid'            => 1,
+            'identifier'           => 'api-key',
+            'description'          => self::PAYMENT_GATEWAY_DESCRIPTION,
+            'encrypted_value'      => 'enc_data',
+            'encrypted_dek'        => 'dek',
+            'dek_nonce'            => 'dn',
+            'value_nonce'          => 'vn',
+            'encryption_version'   => 2,
             'encryption_algorithm' => 'xchacha20poly1305',
-            'value_checksum' => 'cs',
-            'owner_uid' => 5,
-            'allowed_groups' => 3,
-            'context' => 'payment',
-            'frontend_accessible' => 1,
-            'version' => 3,
-            'expires_at' => 1735689600,
-            'last_rotated_at' => 1704067200,
-            'metadata' => '{"service":"stripe"}',
-            'adapter' => 'hashicorp',
-            'external_reference' => 'vault:foo',
-            'tstamp' => 1704067210,
-            'crdate' => 1704067200,
-            'cruser_id' => 11,
-            'deleted' => 0,
-            'hidden' => 0,
-            'read_count' => 10,
-            'last_read_at' => 1704153600,
+            'value_checksum'       => 'cs',
+            'owner_uid'            => 5,
+            'allowed_groups'       => 3,
+            'context'              => 'payment',
+            'frontend_accessible'  => 1,
+            'version'              => 3,
+            'expires_at'           => 1735689600,
+            'last_rotated_at'      => 1704067200,
+            'metadata'             => '{"service":"stripe"}',
+            'adapter'              => 'hashicorp',
+            'external_reference'   => 'vault:foo',
+            'tstamp'               => 1704067210,
+            'crdate'               => 1704067200,
+            'cruser_id'            => 11,
+            'deleted'              => 0,
+            'hidden'               => 0,
+            'read_count'           => 10,
+            'last_read_at'         => 1704153600,
         ];
 
         $secret = Secret::fromDatabaseRow($row, [7, 8, 9]);
@@ -877,14 +877,14 @@ final class SecretTest extends TestCase
     public function fromDatabaseRowEncryptionVersionCastsStringToInt(): void
     {
         $secret = Secret::fromDatabaseRow([
-            'uid' => 1,
-            'identifier' => 't',
-            'encrypted_value' => 'v',
-            'encrypted_dek' => 'dek',
-            'dek_nonce' => 'dn',
-            'value_nonce' => 'vn',
-            'value_checksum' => 'cs',
-            'encryption_version' => '3',
+            'uid'                  => 1,
+            'identifier'           => 't',
+            'encrypted_value'      => 'v',
+            'encrypted_dek'        => 'dek',
+            'dek_nonce'            => 'dn',
+            'value_nonce'          => 'vn',
+            'value_checksum'       => 'cs',
+            'encryption_version'   => '3',
             'encryption_algorithm' => 'xchacha20poly1305',
         ]);
 
@@ -1051,10 +1051,10 @@ final class SecretTest extends TestCase
     public function fromDatabaseRowIgnoresTheRelationCountColumns(): void
     {
         $secret = Secret::fromDatabaseRow([
-            'uid' => 1,
-            'identifier' => 't',
+            'uid'            => 1,
+            'identifier'     => 't',
             'allowed_groups' => 3,
-            'write_groups' => 2,
+            'write_groups'   => 2,
         ]);
 
         self::assertSame([], $secret->getAllowedGroups());
@@ -1070,10 +1070,10 @@ final class SecretTest extends TestCase
     public function fromDatabaseRowIgnoresACommaSeparatedGroupsColumn(): void
     {
         $secret = Secret::fromDatabaseRow([
-            'uid' => 1,
-            'identifier' => 't',
+            'uid'            => 1,
+            'identifier'     => 't',
             'allowed_groups' => '1,2,3',
-            'write_groups' => '4,5',
+            'write_groups'   => '4,5',
         ]);
 
         self::assertSame([], $secret->getAllowedGroups());
@@ -1089,10 +1089,10 @@ final class SecretTest extends TestCase
     {
         $secret = Secret::fromDatabaseRow(
             [
-                'uid' => 1,
-                'identifier' => 't',
+                'uid'            => 1,
+                'identifier'     => 't',
                 'allowed_groups' => 99,
-                'write_groups' => 98,
+                'write_groups'   => 98,
             ],
             [4, 5],
             [6],
@@ -1173,7 +1173,7 @@ final class SecretTest extends TestCase
     public function toDatabaseRowHasExactKeySet(): void
     {
         $secret = new Secret(identifier: 't');
-        $row = $secret->toDatabaseRow();
+        $row    = $secret->toDatabaseRow();
 
         $expectedKeys = [
             'adapter',

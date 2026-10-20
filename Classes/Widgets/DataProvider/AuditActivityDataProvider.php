@@ -13,6 +13,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Dashboard\Widgets\ChartDataProviderInterface;
 
+use function count;
+
 /**
  * Chart.js bar-chart data provider for "vault audit activity (last 14 days)".
  *
@@ -41,12 +43,12 @@ final readonly class AuditActivityDataProvider implements ChartDataProviderInter
      */
     public function getChartData(): array
     {
-        $days = max(1, $this->days);
-        $todayStart = intdiv(time(), self::SECONDS_PER_DAY) * self::SECONDS_PER_DAY;
+        $days          = max(1, $this->days);
+        $todayStart    = intdiv(time(), self::SECONDS_PER_DAY) * self::SECONDS_PER_DAY;
         $firstDayStart = $todayStart - (($days - 1) * self::SECONDS_PER_DAY);
 
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
-        $rows = $queryBuilder
+        $rows         = $queryBuilder
             ->addSelectLiteral('(crdate - (crdate % 86400)) AS day_start')
             ->addSelectLiteral('COUNT(*) AS entry_count')
             ->from(self::TABLE)
@@ -90,21 +92,21 @@ final readonly class AuditActivityDataProvider implements ChartDataProviderInter
         }
 
         $labels = [];
-        $data = [];
+        $data   = [];
 
         for ($i = 0; $i < $days; ++$i) {
             $dayStart = $firstDayStart + ($i * self::SECONDS_PER_DAY);
             $labels[] = gmdate('Y-m-d', $dayStart);
-            $data[] = $countPerDay[$dayStart] ?? 0;
+            $data[]   = $countPerDay[$dayStart] ?? 0;
         }
 
         return [
-            'labels' => $labels,
+            'labels'   => $labels,
             'datasets' => [
                 [
-                    'label' => 'Audit events',
-                    'data' => $data,
-                    'backgroundColor' => array_fill(0, \count($data), self::BAR_COLOR),
+                    'label'           => 'Audit events',
+                    'data'            => $data,
+                    'backgroundColor' => array_fill(0, count($data), self::BAR_COLOR),
                 ],
             ],
         ];

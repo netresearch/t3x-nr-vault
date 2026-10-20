@@ -28,6 +28,12 @@ use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Package\PackageManager;
 
+use function count;
+use function in_array;
+use function is_array;
+use function is_string;
+use function strlen;
+
 /**
  * Service for detecting potential plaintext secrets in the TYPO3 installation.
  *
@@ -101,9 +107,9 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
         $excludeTables = array_merge($defaultExclusions, $excludeTables);
 
         try {
-            $connection = $this->connectionPool->getConnectionByName('Default');
+            $connection    = $this->connectionPool->getConnectionByName('Default');
             $schemaManager = $connection->createSchemaManager();
-            $tables = $schemaManager->listTableNames();
+            $tables        = $schemaManager->listTableNames();
 
             foreach ($tables as $tableName) {
                 if ($this->isTableExcluded($tableName, $excludeTables)) {
@@ -129,7 +135,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
 
             try {
                 $config = $this->extensionConfiguration->get($extKey);
-                if (\is_array($config)) {
+                if (is_array($config)) {
                     /** @var array<string, mixed> $configArray */
                     $configArray = $config;
                     $this->scanConfigArray($configArray, "extension:{$extKey}");
@@ -139,7 +145,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
             } catch (Exception $e) {
                 $this->logger->warning('Failed to scan extension configuration', [
                     'extension' => $extKey,
-                    'error' => $e->getMessage(),
+                    'error'     => $e->getMessage(),
                 ]);
             }
         }
@@ -159,9 +165,9 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
 
         // Check MAIL configuration
         /** @var array<string, mixed> $mailConfig */
-        $mailConfig = \is_array($typo3ConfVars['MAIL'] ?? null) ? $typo3ConfVars['MAIL'] : [];
+        $mailConfig   = is_array($typo3ConfVars['MAIL'] ?? null) ? $typo3ConfVars['MAIL'] : [];
         $smtpPassword = $mailConfig['transport_smtp_password'] ?? '';
-        if (\is_string($smtpPassword) && $smtpPassword !== '' && !IdentifierValidator::looksLikeVaultIdentifier($smtpPassword)) {
+        if (is_string($smtpPassword) && $smtpPassword !== '' && !IdentifierValidator::looksLikeVaultIdentifier($smtpPassword)) {
             $finding = new ConfigSecretFinding(
                 path: 'MAIL.transport_smtp_password',
                 severity: Severity::High,
@@ -172,9 +178,9 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
 
         // Check SYS encryptionKey if it looks weak
         /** @var array<string, mixed> $sysConfig */
-        $sysConfig = \is_array($typo3ConfVars['SYS'] ?? null) ? $typo3ConfVars['SYS'] : [];
+        $sysConfig     = is_array($typo3ConfVars['SYS'] ?? null) ? $typo3ConfVars['SYS'] : [];
         $encryptionKey = $sysConfig['encryptionKey'] ?? '';
-        if (\is_string($encryptionKey) && $encryptionKey !== '' && \strlen($encryptionKey) < 32) {
+        if (is_string($encryptionKey) && $encryptionKey !== '' && strlen($encryptionKey) < 32) {
             $finding = new ConfigSecretFinding(
                 path: 'SYS.encryptionKey',
                 severity: Severity::Medium,
@@ -197,9 +203,9 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
     {
         $grouped = [
             Severity::Critical->value => [],
-            Severity::High->value => [],
-            Severity::Medium->value => [],
-            Severity::Low->value => [],
+            Severity::High->value     => [],
+            Severity::Medium->value   => [],
+            Severity::Low->value      => [],
         ];
 
         foreach ($this->detectedSecrets as $key => $finding) {
@@ -214,7 +220,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
      */
     public function getDetectedSecretsCount(): int
     {
-        return \count($this->detectedSecrets);
+        return count($this->detectedSecrets);
     }
 
     /**
@@ -223,9 +229,9 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
     private function scanTable(string $tableName): void
     {
         try {
-            $connection = $this->connectionPool->getConnectionByName('Default');
+            $connection    = $this->connectionPool->getConnectionByName('Default');
             $schemaManager = $connection->createSchemaManager();
-            $columns = $schemaManager->listTableColumns($tableName);
+            $columns       = $schemaManager->listTableColumns($tableName);
 
             foreach ($columns as $column) {
                 /** @phpstan-ignore method.internalClass */
@@ -240,7 +246,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
                 }
 
                 // Skip known hash columns (e.g., be_users.password, fe_users.password)
-                if (\in_array("{$tableName}.{$columnName}", self::EXCLUDED_COLUMNS, true)) {
+                if (in_array("{$tableName}.{$columnName}", self::EXCLUDED_COLUMNS, true)) {
                     continue;
                 }
 
@@ -278,7 +284,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
             if ($count > 0) {
                 // Check if values look encrypted (vault identifiers or encrypted blobs)
                 $sampleQuery = $this->connectionPool->getQueryBuilderForTable($tableName);
-                $samples = $sampleQuery
+                $samples     = $sampleQuery
                     ->select($columnName)
                     ->from($tableName)
                     ->where(
@@ -293,7 +299,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
 
                 if ($plaintextCount > 0) {
                     $recordCount = is_numeric($count) ? (int) $count : 0;
-                    $finding = new DatabaseSecretFinding(
+                    $finding     = new DatabaseSecretFinding(
                         table: $tableName,
                         column: $columnName,
                         recordCount: $recordCount,
@@ -306,9 +312,9 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
             }
         } catch (DbalException $e) {
             $this->logger->warning('Secret detection: failed to analyze column', [
-                'table' => $tableName,
+                'table'  => $tableName,
                 'column' => $columnName,
-                'error' => $e->getMessage(),
+                'error'  => $e->getMessage(),
             ]);
         }
     }
@@ -323,11 +329,11 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
     private function matchPattern(array $samples, string $columnName): array
     {
         $plaintextCount = 0;
-        $patterns = [];
+        $patterns       = [];
 
         foreach ($samples as $row) {
             $rawValue = $row[$columnName] ?? '';
-            $value = \is_string($rawValue) || is_numeric($rawValue) ? (string) $rawValue : '';
+            $value    = is_string($rawValue) || is_numeric($rawValue) ? (string) $rawValue : '';
 
             // Skip if it looks like a vault identifier
             if (IdentifierValidator::looksLikeVaultIdentifier($value)) {
@@ -355,19 +361,19 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
      * Recursively scan a configuration array for secret keys.
      *
      * @param array<string, mixed> $config Configuration array
-     * @param string $prefix Path prefix for keys
+     * @param string               $prefix Path prefix for keys
      */
     private function scanConfigArray(array $config, string $prefix): void
     {
         foreach ($config as $key => $value) {
-            if (\is_array($value)) {
+            if (is_array($value)) {
                 /** @var array<string, mixed> $valueArray */
                 $valueArray = $value;
                 $this->scanConfigArray($valueArray, "{$prefix}.{$key}");
                 continue;
             }
 
-            if (!\is_string($value)) {
+            if (!is_string($value)) {
                 continue;
             }
 
@@ -383,7 +389,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
                 }
 
                 $detectedPattern = $this->detectValuePattern($value);
-                $patterns = $detectedPattern !== null ? [$detectedPattern] : [];
+                $patterns        = $detectedPattern !== null ? [$detectedPattern] : [];
 
                 $finding = new ConfigSecretFinding(
                     path: "{$prefix}.{$key}",
@@ -416,7 +422,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
     /**
      * Check if a table should be excluded from scanning.
      *
-     * @param string $tableName Table name
+     * @param string        $tableName       Table name
      * @param array<string> $excludePatterns Patterns to exclude
      */
     private function isTableExcluded(string $tableName, array $excludePatterns): bool
@@ -425,7 +431,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
             if (str_contains($pattern, '*')) {
                 // Quote all special chars first, then replace escaped \* with .*
                 $quotedPattern = preg_quote($pattern, '/');
-                $regex = '/^' . str_replace('\\*', '.*', $quotedPattern) . '$/';
+                $regex         = '/^' . str_replace('\\*', '.*', $quotedPattern) . '$/';
                 if (preg_match($regex, $tableName)) {
                     return true;
                 }
@@ -453,12 +459,12 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
         }
 
         // Check for base64-encoded encrypted data (typically >= 80 chars, high entropy)
-        if (\strlen($value) >= 80 && preg_match('/^[A-Za-z0-9+\/]{40,}={0,2}$/', $value)) {
+        if (strlen($value) >= 80 && preg_match('/^[A-Za-z0-9+\/]{40,}={0,2}$/', $value)) {
             return true;
         }
 
         // Check for hex-encoded data (require longer length to reduce false positives)
-        return \strlen($value) >= 80 && preg_match('/^[0-9a-f]+$/i', $value);
+        return strlen($value) >= 80 && preg_match('/^[0-9a-f]+$/i', $value);
     }
 
     /**
@@ -472,7 +478,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
     /**
      * Calculate severity based on column/key name and detected patterns.
      *
-     * @param string $name Column or config key name
+     * @param string        $name     Column or config key name
      * @param array<string> $patterns Detected value patterns
      */
     private function calculateSeverity(string $name, array $patterns): Severity

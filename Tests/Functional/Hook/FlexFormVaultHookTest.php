@@ -70,10 +70,10 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
         $this->registerDataStructure(self::DATA_STRUCTURE);
 
         $vaultService = $this->get(VaultServiceInterface::class);
-        $hook = $this->get(FlexFormVaultHook::class);
+        $hook         = $this->get(FlexFormVaultHook::class);
 
         $secretValue = 'flexform-api-key-value';
-        $fieldArray = $this->buildFieldArray($secretValue);
+        $fieldArray  = $this->buildFieldArray($secretValue);
 
         $hook->processDatamap_preProcessFieldArray($fieldArray, 'tt_content', 'NEW1');
 
@@ -92,7 +92,7 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
         );
 
         try {
-            $dataHandler = $this->createDataHandler();
+            $dataHandler                          = $this->createDataHandler();
             $dataHandler->substNEWwithIDs['NEW1'] = 4711;
             $hook->processDatamap_afterDatabaseOperations('new', 'tt_content', 'NEW1', $fieldArray, $dataHandler);
 
@@ -125,7 +125,7 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
         $hook = $this->get(FlexFormVaultHook::class);
 
         $secretValue = 'must-never-be-persisted';
-        $fieldArray = $this->buildFieldArray($secretValue);
+        $fieldArray  = $this->buildFieldArray($secretValue);
 
         $hook->processDatamap_preProcessFieldArray($fieldArray, 'tt_content', 'NEW1');
 
@@ -149,8 +149,8 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
         $hook = $this->get(FlexFormVaultHook::class);
 
         $existingIdentifier = $this->generateUuidV7();
-        $secretValue = 'must-never-be-persisted';
-        $fieldArray = $this->buildFieldArray($secretValue, $existingIdentifier);
+        $secretValue        = 'must-never-be-persisted';
+        $fieldArray         = $this->buildFieldArray($secretValue, $existingIdentifier);
 
         $hook->processDatamap_preProcessFieldArray($fieldArray, 'tt_content', 'NEW1');
 
@@ -197,7 +197,7 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
                         'lDEF' => [
                             'apiKey' => [
                                 'vDEF' => [
-                                    'value' => $secretValue,
+                                    'value'             => $secretValue,
                                     '_vault_identifier' => $existingIdentifier,
                                 ],
                             ],
@@ -211,7 +211,7 @@ final class FlexFormVaultHookTest extends AbstractVaultFunctionalTestCase
     private function createDataHandler(): DataHandler
     {
         /** @phpstan-ignore new.internalClass */
-        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler          = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->BE_USER = $GLOBALS['BE_USER'];
 
         return $dataHandler;

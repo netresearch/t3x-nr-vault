@@ -88,7 +88,7 @@ final class CustomMasterKeyProviderTest extends AbstractVaultFunctionalTestCase
         // encryption service holds IS the third-party one, so the key below is
         // the key every envelope in this request is wrapped with.
         $encryptionService = $this->get(EncryptionService::class);
-        $provider = (new ReflectionProperty($encryptionService, 'masterKeyProvider'))->getValue($encryptionService);
+        $provider          = (new ReflectionProperty($encryptionService, 'masterKeyProvider'))->getValue($encryptionService);
 
         self::assertInstanceOf(CustomKmsMasterKeyProvider::class, $provider);
         self::assertSame(CustomKmsMasterKeyProvider::expectedKey(), $provider->getMasterKey());
@@ -97,7 +97,7 @@ final class CustomMasterKeyProviderTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function anEnvelopeSealedUnderTheThirdPartyKeyOpensAgain(): void
     {
-        $codec = $this->get(EnvelopeCodecInterface::class);
+        $codec     = $this->get(EnvelopeCodecInterface::class);
         $plaintext = 'value protected by a third-party key source';
 
         $sealed = $codec->seal($plaintext, 'custom-provider-round-trip');

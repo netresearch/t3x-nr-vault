@@ -13,6 +13,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
+use function is_string;
+
 /**
  * Which records share a vault secret with which.
  *
@@ -104,7 +106,7 @@ final readonly class TranslationSharedSecretResolver
             ->executeQuery()
             ->fetchOne();
 
-        return \is_string($value) || is_numeric($value) ? (string) $value : null;
+        return is_string($value) || is_numeric($value) ? (string) $value : null;
     }
 
     /**
@@ -138,7 +140,7 @@ final readonly class TranslationSharedSecretResolver
         int $uid,
     ): bool {
         $queryBuilder = $this->liveRecordsOtherThan($table, $uid);
-        $pattern = '%' . $queryBuilder->escapeLikeWildcards($identifier) . '%';
+        $pattern      = '%' . $queryBuilder->escapeLikeWildcards($identifier) . '%';
         $queryBuilder->andWhere(
             $queryBuilder->expr()->like($column, $queryBuilder->createNamedParameter($pattern)),
         );
@@ -153,7 +155,7 @@ final readonly class TranslationSharedSecretResolver
     private function liveRecordsOtherThan(string $table, int $uid): QueryBuilder
     {
         /** @var array<string, array{ctrl?: array{delete?: string}}> $tca */
-        $tca = $GLOBALS['TCA'] ?? [];
+        $tca         = $GLOBALS['TCA'] ?? [];
         $deleteField = $tca[$table]['ctrl']['delete'] ?? null;
 
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
@@ -165,7 +167,7 @@ final readonly class TranslationSharedSecretResolver
                 $queryBuilder->expr()->neq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)),
             );
 
-        if (\is_string($deleteField) && $deleteField !== '') {
+        if (is_string($deleteField) && $deleteField !== '') {
             $queryBuilder->andWhere(
                 $queryBuilder->expr()->eq($deleteField, $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)),
             );

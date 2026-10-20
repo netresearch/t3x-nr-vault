@@ -75,7 +75,7 @@ final class OverviewControllerTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function theDocHeaderLinksTargetRoutesCoreDoesNotRewrite(): void
     {
-        $router = $this->get(Router::class);
+        $router     = $this->get(Router::class);
         $uriBuilder = $this->get(UriBuilder::class);
 
         foreach ([OverviewController::HELP_ROUTE => '::helpAction', OverviewController::OVERVIEW_ROUTE => '::indexAction'] as $routeName => $action) {
@@ -107,7 +107,7 @@ final class OverviewControllerTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function theHelpPageLinksItsTabsAndDashboardToTheOverviewSubmodule(): void
     {
-        $html = $this->renderHelpPage();
+        $html  = $this->renderHelpPage();
         $links = $this->linkPaths($html);
 
         // The docheader tab menu: one entry per tab. 13.4 renders it as a
@@ -192,8 +192,8 @@ final class OverviewControllerTest extends AbstractVaultFunctionalTestCase
         // ServerRequest, the request-type constant and NormalizedParams
         // @internal and offers no public equivalent.
         /** @phpstan-ignore new.internalClass, method.internalClass */
-        $request = new ServerRequest('https://localhost/typo3' . $route->getPath(), 'GET');
-        $request = $this->withModuleContext($request, $route, $module);
+        $request                  = new ServerRequest('https://localhost/typo3' . $route->getPath(), 'GET');
+        $request                  = $this->withModuleContext($request, $route, $module);
         $GLOBALS['TYPO3_REQUEST'] = $request;
 
         // Collect every deprecation the action raises. Core 14.3 deprecates

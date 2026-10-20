@@ -21,6 +21,9 @@ use TYPO3\CMS\Core\Page\JavaScriptModuleInstruction;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 
+use function is_array;
+use function is_string;
+
 /**
  * TCA form element for vault secrets.
  *
@@ -45,18 +48,18 @@ final class VaultSecretElement extends AbstractFormElement
         /** @var array<string, mixed> $resultArray */
         $resultArray = $this->initializeResultArray();
 
-        $context = $this->extractRenderContext();
-        $hasValue = $this->probeHasValue($context['vaultIdentifier']);
+        $context     = $this->extractRenderContext();
+        $hasValue    = $this->probeHasValue($context['vaultIdentifier']);
         $placeholder = $this->resolvePlaceholder($hasValue, $context['config']);
-        $attributes = $this->buildInputAttributes($context, $hasValue, $placeholder);
+        $attributes  = $this->buildInputAttributes($context, $hasValue, $placeholder);
 
-        $html = [];
+        $html   = [];
         $html[] = $this->renderLabel($context['fieldId']);
         $html[] = '<div class="formengine-field-item t3js-formengine-field-item">';
 
         /** @var array<string, mixed> $fieldInformationResult */
         $fieldInformationResult = $this->renderFieldInformation();
-        $html[] = \is_string($fieldInformationResult['html'] ?? null) ? $fieldInformationResult['html'] : '';
+        $html[]                 = is_string($fieldInformationResult['html'] ?? null) ? $fieldInformationResult['html'] : '';
         /** @var array<string, mixed> $resultArray */
         $resultArray = $this->mergeChildReturnIntoExistingResult($resultArray, $fieldInformationResult, false);
 
@@ -80,7 +83,7 @@ final class VaultSecretElement extends AbstractFormElement
 
         /** @var array<string, mixed> $fieldWizardResult */
         $fieldWizardResult = $this->renderFieldWizard();
-        $html[] = \is_string($fieldWizardResult['html'] ?? null) ? $fieldWizardResult['html'] : '';
+        $html[]            = is_string($fieldWizardResult['html'] ?? null) ? $fieldWizardResult['html'] : '';
         /** @var array<string, mixed> $resultArray */
         $resultArray = $this->mergeChildReturnIntoExistingResult($resultArray, $fieldWizardResult, false);
 
@@ -88,13 +91,13 @@ final class VaultSecretElement extends AbstractFormElement
         $html[] = '</div>'; // formengine-field-item
         $html[] = $this->renderHiddenFields($context['itemName'], $context['vaultIdentifier'], $hasValue);
 
-        $resultArray['html'] = implode(self::LINE_FEED, $html);
+        $resultArray['html']              = implode(self::LINE_FEED, $html);
         $resultArray['javaScriptModules'] = $this->appendJsModule($resultArray);
         // The widget JS renders localized strings (reveal/copy labels, the
         // auto-hide countdown) via TYPO3.lang — register the label catalogue.
-        $labelFiles = \is_array($resultArray['additionalInlineLanguageLabelFiles'] ?? null)
+        $labelFiles = is_array($resultArray['additionalInlineLanguageLabelFiles'] ?? null)
             ? $resultArray['additionalInlineLanguageLabelFiles'] : [];
-        $labelFiles[] = 'EXT:nr_vault/Resources/Private/Language/locallang_js.xlf';
+        $labelFiles[]                                      = 'EXT:nr_vault/Resources/Private/Language/locallang_js.xlf';
         $resultArray['additionalInlineLanguageLabelFiles'] = $labelFiles;
 
         return $resultArray;
@@ -119,34 +122,34 @@ final class VaultSecretElement extends AbstractFormElement
         /** @var array<string, mixed> $data */
         $data = $this->data;
         /** @var array<string, mixed> $parameterArray */
-        $parameterArray = \is_array($data['parameterArray'] ?? null) ? $data['parameterArray'] : [];
+        $parameterArray = is_array($data['parameterArray'] ?? null) ? $data['parameterArray'] : [];
         /** @var array<string, mixed> $fieldConf */
-        $fieldConf = \is_array($parameterArray['fieldConf'] ?? null) ? $parameterArray['fieldConf'] : [];
+        $fieldConf = is_array($parameterArray['fieldConf'] ?? null) ? $parameterArray['fieldConf'] : [];
         /** @var array<string, mixed> $config */
-        $config = \is_array($fieldConf['config'] ?? null) ? $fieldConf['config'] : [];
+        $config = is_array($fieldConf['config'] ?? null) ? $fieldConf['config'] : [];
 
         $itemNameValue = $parameterArray['itemFormElName'] ?? '';
-        $itemName = \is_string($itemNameValue) ? $itemNameValue : '';
+        $itemName      = is_string($itemNameValue) ? $itemNameValue : '';
 
         $sizeValue = $config['size'] ?? 30;
-        $width = $this->formMaxWidth(is_numeric($sizeValue) ? (int) $sizeValue : 30);
+        $width     = $this->formMaxWidth(is_numeric($sizeValue) ? (int) $sizeValue : 30);
 
         $tableValue = $data['tableName'] ?? '';
-        $table = \is_string($tableValue) ? $tableValue : '';
+        $table      = is_string($tableValue) ? $tableValue : '';
         $fieldValue = $data['fieldName'] ?? '';
-        $field = \is_string($fieldValue) ? $fieldValue : '';
+        $field      = is_string($fieldValue) ? $fieldValue : '';
 
         $itemFormElValue = $parameterArray['itemFormElValue'] ?? '';
-        $vaultIdentifier = \is_string($itemFormElValue) ? $itemFormElValue : '';
+        $vaultIdentifier = is_string($itemFormElValue) ? $itemFormElValue : '';
 
         return [
-            'itemName' => $itemName,
-            'fieldId' => StringUtility::getUniqueId('formengine-vault-'),
-            'width' => $width,
+            'itemName'        => $itemName,
+            'fieldId'         => StringUtility::getUniqueId('formengine-vault-'),
+            'width'           => $width,
             'vaultIdentifier' => $vaultIdentifier,
-            'config' => $config,
-            'fieldConf' => $fieldConf,
-            'permissions' => $this->permissionService->getPermissions($table, $field),
+            'config'          => $config,
+            'fieldConf'       => $fieldConf,
+            'permissions'     => $this->permissionService->getPermissions($table, $field),
         ];
     }
 
@@ -188,7 +191,7 @@ final class VaultSecretElement extends AbstractFormElement
 
         $placeholderValue = $config['placeholder'] ?? '';
 
-        return \is_string($placeholderValue) ? $placeholderValue : '';
+        return is_string($placeholderValue) ? $placeholderValue : '';
     }
 
     /**
@@ -209,29 +212,29 @@ final class VaultSecretElement extends AbstractFormElement
      */
     private function buildInputAttributes(array $context, bool $hasValue, string $placeholder): array
     {
-        $config = $context['config'];
+        $config      = $context['config'];
         $permissions = $context['permissions'];
 
         $attributes = [
-            'type' => 'password',
-            'id' => $context['fieldId'],
-            'name' => $context['itemName'] . '[value]',
-            'value' => '',
-            'class' => implode(' ', ['form-control', 't3js-clearable', 'hasDefaultValue']),
+            'type'                             => 'password',
+            'id'                               => $context['fieldId'],
+            'name'                             => $context['itemName'] . '[value]',
+            'value'                            => '',
+            'class'                            => implode(' ', ['form-control', 't3js-clearable', 'hasDefaultValue']),
             'data-formengine-validation-rules' => $this->getValidationDataAsJsonString($config),
-            'data-formengine-input-name' => $context['itemName'],
-            'data-vault-identifier' => $context['vaultIdentifier'],
-            'data-vault-has-value' => $hasValue ? '1' : '0',
-            'data-vault-can-reveal' => $permissions['reveal'] ? '1' : '0',
-            'data-vault-can-copy' => $permissions['copy'] ? '1' : '0',
-            'data-vault-can-edit' => $permissions['edit'] ? '1' : '0',
-            'autocomplete' => 'off',
-            'data-form-type' => 'other',
-            'data-1p-ignore' => 'true',
-            'data-lpignore' => 'true',
-            'data-bwignore' => 'true',
-            'data-protonpass-ignore' => 'true',
-            'data-dashlane-ignore' => 'true',
+            'data-formengine-input-name'       => $context['itemName'],
+            'data-vault-identifier'            => $context['vaultIdentifier'],
+            'data-vault-has-value'             => $hasValue ? '1' : '0',
+            'data-vault-can-reveal'            => $permissions['reveal'] ? '1' : '0',
+            'data-vault-can-copy'              => $permissions['copy'] ? '1' : '0',
+            'data-vault-can-edit'              => $permissions['edit'] ? '1' : '0',
+            'autocomplete'                     => 'off',
+            'data-form-type'                   => 'other',
+            'data-1p-ignore'                   => 'true',
+            'data-lpignore'                    => 'true',
+            'data-bwignore'                    => 'true',
+            'data-protonpass-ignore'           => 'true',
+            'data-dashlane-ignore'             => 'true',
         ];
 
         if ($placeholder !== '') {
@@ -266,7 +269,7 @@ final class VaultSecretElement extends AbstractFormElement
     private function renderVaultDescription(array $fieldConf): string
     {
         $fieldDescriptionValue = $fieldConf['description'] ?? '';
-        if (!\is_string($fieldDescriptionValue) || $fieldDescriptionValue === '') {
+        if (!is_string($fieldDescriptionValue) || $fieldDescriptionValue === '') {
             return '';
         }
 
@@ -283,11 +286,11 @@ final class VaultSecretElement extends AbstractFormElement
      * clear) wrapped in `<div class="input-group">`.
      *
      * @param array<string, string> $attributes
-     * @param array<string, bool> $permissions
+     * @param array<string, bool>   $permissions
      */
     private function renderInputGroup(array $attributes, array $permissions, bool $hasValue): string
     {
-        $parts = ['<div class="input-group">'];
+        $parts   = ['<div class="input-group">'];
         $parts[] = '<input ' . GeneralUtility::implodeAttributes($attributes, true) . ' />';
 
         if ($permissions['reveal']) {
@@ -335,7 +338,7 @@ final class VaultSecretElement extends AbstractFormElement
      */
     private function renderHiddenFields(string $itemName, string $vaultIdentifier, bool $hasValue): string
     {
-        $parts = [];
+        $parts   = [];
         $parts[] = '<input type="hidden" name="' . htmlspecialchars($itemName) . '[_vault_identifier]" value="' . htmlspecialchars($vaultIdentifier) . '" />';
 
         if ($hasValue && $vaultIdentifier !== '') {
@@ -355,7 +358,7 @@ final class VaultSecretElement extends AbstractFormElement
     private function appendJsModule(array $resultArray): array
     {
         /** @var list<JavaScriptModuleInstruction> $javaScriptModules */
-        $javaScriptModules = \is_array($resultArray['javaScriptModules'] ?? null) ? $resultArray['javaScriptModules'] : [];
+        $javaScriptModules   = is_array($resultArray['javaScriptModules'] ?? null) ? $resultArray['javaScriptModules'] : [];
         $javaScriptModules[] = JavaScriptModuleInstruction::create(
             '@netresearch/nr-vault/vault-secret-element.js',
         );

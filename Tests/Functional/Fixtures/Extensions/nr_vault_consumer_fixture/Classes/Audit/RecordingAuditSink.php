@@ -33,8 +33,8 @@ final class RecordingAuditSink implements AuditSinkInterface
     {
         $this->entries[] = [
             'identifier' => $entry->secretIdentifier,
-            'action' => $entry->action,
-            'chainTip' => $chainTip,
+            'action'     => $entry->action,
+            'chainTip'   => $chainTip,
         ];
     }
 

@@ -72,7 +72,7 @@ enum AuditIntegrityReason: string
     {
         return match ($this) {
             self::HashMismatch, self::UidGap, self::TableReset, self::EpochDowngrade => true,
-            self::SinkFailure, self::NoExternalSink, self::BreakGlass => false,
+            self::SinkFailure, self::NoExternalSink, self::BreakGlass                => false,
         };
     }
 

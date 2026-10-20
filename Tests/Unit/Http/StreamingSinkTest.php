@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -14,6 +14,8 @@ use Netresearch\NrVault\Http\StreamingSink;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+
+use function strlen;
 
 /**
  * The bounded buffer a streaming response body is written into.
@@ -84,7 +86,7 @@ final class StreamingSinkTest extends TestCase
     public function drainingAFullBufferInSmallReadsReturnsEveryByteOnce(): void
     {
         $payload = random_bytes(64 * 1024);
-        $sink = new StreamingSink(128 * 1024);
+        $sink    = new StreamingSink(128 * 1024);
         $sink->write($payload);
 
         $read = '';
@@ -93,7 +95,7 @@ final class StreamingSinkTest extends TestCase
         }
 
         self::assertSame($payload, $read);
-        self::assertSame(\strlen($payload), $sink->tell());
+        self::assertSame(strlen($payload), $sink->tell());
     }
 
     #[Test]

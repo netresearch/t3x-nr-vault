@@ -17,6 +17,8 @@ use Netresearch\NrVault\Service\Doctor\DoctorContext;
 use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
 
+use function sprintf;
+
 /**
  * Is the profile a real profile, and do the toggles around it agree with it?
  *
@@ -89,7 +91,7 @@ final readonly class SecurityProfileCheck implements ReadinessCheckInterface
 
         return Finding::pass(
             id: $id,
-            summary: \sprintf('Security profile "%s" is in force.', $profile->value),
+            summary: sprintf('Security profile "%s" is in force.', $profile->value),
             docsUrl: DocsLink::SECURITY_PROFILES,
             details: ['profile' => $profile->value],
         );
@@ -100,11 +102,11 @@ final readonly class SecurityProfileCheck implements ReadinessCheckInterface
      */
     private function checkAdminOverrideConsistency(DoctorContext $context): Finding
     {
-        $id = 'profile.admin_override';
+        $id       = 'profile.admin_override';
         $disabled = $this->configuration->isAdminOverrideDisabled();
-        $details = [
+        $details  = [
             'disableAdminOverride' => $disabled,
-            'profile' => $context->profile->value,
+            'profile'              => $context->profile->value,
         ];
 
         if ($disabled && !$context->isHardened()) {

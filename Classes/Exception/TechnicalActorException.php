@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Exception;
 
+use function sprintf;
+
 /**
  * Thrown when a technical-actor identity cannot be established.
  *
@@ -21,7 +23,7 @@ final class TechnicalActorException extends VaultException
     public static function invalidUid(int $beUserUid): self
     {
         return new self(
-            \sprintf('Technical actor uid must be a positive integer, got %d', $beUserUid),
+            sprintf('Technical actor uid must be a positive integer, got %d', $beUserUid),
             1784000001,
         );
     }
@@ -29,7 +31,7 @@ final class TechnicalActorException extends VaultException
     public static function userNotFound(int $beUserUid): self
     {
         return new self(
-            \sprintf('Technical actor uid %d does not resolve to a non-deleted be_users record', $beUserUid),
+            sprintf('Technical actor uid %d does not resolve to a non-deleted be_users record', $beUserUid),
             1784000002,
         );
     }
@@ -37,7 +39,7 @@ final class TechnicalActorException extends VaultException
     public static function userDisabled(int $beUserUid): self
     {
         return new self(
-            \sprintf('Technical actor uid %d refers to a disabled be_users record', $beUserUid),
+            sprintf('Technical actor uid %d refers to a disabled be_users record', $beUserUid),
             1784000003,
         );
     }
@@ -45,7 +47,7 @@ final class TechnicalActorException extends VaultException
     public static function userNotActive(int $beUserUid): self
     {
         return new self(
-            \sprintf('Technical actor uid %d refers to a be_users record outside its start/end time window', $beUserUid),
+            sprintf('Technical actor uid %d refers to a be_users record outside its start/end time window', $beUserUid),
             1784000004,
         );
     }
@@ -53,7 +55,7 @@ final class TechnicalActorException extends VaultException
     public static function userNotAtRootLevel(int $beUserUid): self
     {
         return new self(
-            \sprintf('Technical actor uid %d refers to a be_users record outside the root level (pid != 0)', $beUserUid),
+            sprintf('Technical actor uid %d refers to a be_users record outside the root level (pid != 0)', $beUserUid),
             1784000005,
         );
     }

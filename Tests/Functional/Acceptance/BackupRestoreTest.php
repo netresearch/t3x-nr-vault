@@ -27,6 +27,11 @@ use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 
+use function is_array;
+use function is_string;
+use function sprintf;
+use function strlen;
+
 /**
  * Backup and restore, following Documentation/Operations/BackupAndRestore.rst.
  *
@@ -89,7 +94,7 @@ final class BackupRestoreTest extends AbstractVaultFunctionalTestCase
     /** @var array<string, mixed> */
     protected array $extensionConfiguration = [
         'masterKeyProvider' => 'file',
-        'auditHmacEpoch' => 3,
+        'auditHmacEpoch'    => 3,
     ];
 
     /**
@@ -170,7 +175,7 @@ final class BackupRestoreTest extends AbstractVaultFunctionalTestCase
         foreach (array_keys($this->plaintexts) as $identifier) {
             try {
                 $value = $this->get(VaultServiceInterface::class)->retrieve($identifier);
-                self::fail(\sprintf('Secret "%s" came back under a foreign master key (%d bytes) instead of failing.', $identifier, \strlen((string) $value)));
+                self::fail(sprintf('Secret "%s" came back under a foreign master key (%d bytes) instead of failing.', $identifier, strlen((string) $value)));
             } catch (EncryptionException) {
                 // expected: the AEAD tag on the DEK envelope does not verify
             }
@@ -211,15 +216,15 @@ final class BackupRestoreTest extends AbstractVaultFunctionalTestCase
         $vault = $this->get(VaultServiceInterface::class);
 
         $this->plaintexts = [
-            'acceptance_restore_reader_tier' => 'reader-tier-value-' . bin2hex(random_bytes(8)),
-            'acceptance_restore_writer_tier' => 'writer-tier-value-' . bin2hex(random_bytes(8)),
+            'acceptance_restore_reader_tier'     => 'reader-tier-value-' . bin2hex(random_bytes(8)),
+            'acceptance_restore_writer_tier'     => 'writer-tier-value-' . bin2hex(random_bytes(8)),
             'acceptance_restore_owned_by_reader' => 'owner-value-' . bin2hex(random_bytes(8)),
-            'acceptance_restore_rotated' => 'before-rotation-' . bin2hex(random_bytes(8)),
+            'acceptance_restore_rotated'         => 'before-rotation-' . bin2hex(random_bytes(8)),
         ];
 
         $vault->store('acceptance_restore_reader_tier', $this->plaintexts['acceptance_restore_reader_tier'], [
-            'groups' => [self::READER_GROUP],
-            'context' => 'payment',
+            'groups'      => [self::READER_GROUP],
+            'context'     => 'payment',
             'description' => 'Read tier granted to the reader group',
         ]);
         $vault->store('acceptance_restore_writer_tier', $this->plaintexts['acceptance_restore_writer_tier'], [
@@ -313,7 +318,7 @@ final class BackupRestoreTest extends AbstractVaultFunctionalTestCase
         $this->setUpBackendUser(self::ADMIN);
         $vault = $this->get(VaultServiceInterface::class);
         foreach ($this->plaintexts as $identifier => $plaintext) {
-            self::assertSame($plaintext, $vault->retrieve($identifier), \sprintf('Probe decrypt of "%s" after the restore.', $identifier));
+            self::assertSame($plaintext, $vault->retrieve($identifier), sprintf('Probe decrypt of "%s" after the restore.', $identifier));
         }
     }
 
@@ -347,7 +352,7 @@ final class BackupRestoreTest extends AbstractVaultFunctionalTestCase
             return;
         }
 
-        self::fail(\sprintf('"%s" must stay closed to a user outside its tiers.', $identifier));
+        self::fail(sprintf('"%s" must stay closed to a user outside its tiers.', $identifier));
     }
 
     private function secretUid(string $identifier): int
@@ -362,7 +367,7 @@ final class BackupRestoreTest extends AbstractVaultFunctionalTestCase
 
     /**
      * @param class-string<Command> $commandClass
-     * @param array<string, mixed> $input
+     * @param array<string, mixed>  $input
      */
     private function runCommand(string $commandClass, array $input = []): CommandTester
     {
@@ -381,10 +386,10 @@ final class BackupRestoreTest extends AbstractVaultFunctionalTestCase
      */
     private function findingIds(array $report, string $severity): array
     {
-        $ids = [];
-        $findings = \is_array($report['findings'] ?? null) ? $report['findings'] : [];
+        $ids      = [];
+        $findings = is_array($report['findings'] ?? null) ? $report['findings'] : [];
         foreach ($findings as $finding) {
-            if (\is_array($finding) && \is_string($finding['id'] ?? null) && ($finding['severity'] ?? null) === $severity) {
+            if (is_array($finding) && is_string($finding['id'] ?? null) && ($finding['severity'] ?? null) === $severity) {
                 $ids[] = $finding['id'];
             }
         }

@@ -22,7 +22,7 @@ final class MasterKeyRotatedEventTest extends TestCase
     public function constructorSetsProperties(): void
     {
         $rotatedAt = new DateTimeImmutable('2024-01-15 10:30:00');
-        $event = new MasterKeyRotatedEvent(150, 1, $rotatedAt);
+        $event     = new MasterKeyRotatedEvent(150, 1, $rotatedAt);
 
         self::assertEquals(150, $event->getSecretsReEncrypted());
         self::assertEquals(1, $event->getActorUid());

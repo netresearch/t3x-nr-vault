@@ -49,9 +49,9 @@ final class SecretFiltersTest extends TestCase
     public function fromArrayCreatesObjectWithAllFields(): void
     {
         $subject = SecretFilters::fromArray([
-            'owner' => 10,
-            'prefix' => 'service/',
-            'context' => 'default',
+            'owner'    => 10,
+            'prefix'   => 'service/',
+            'context'  => 'default',
             'scopePid' => 7,
         ]);
 
@@ -138,9 +138,9 @@ final class SecretFiltersTest extends TestCase
         );
 
         self::assertSame([
-            'owner' => 1,
-            'prefix' => 'svc/',
-            'context' => 'backend',
+            'owner'    => 1,
+            'prefix'   => 'svc/',
+            'context'  => 'backend',
             'scopePid' => 3,
         ], $subject->toArray());
     }
@@ -171,10 +171,10 @@ final class SecretFiltersTest extends TestCase
     public function fromArrayRoundTripToArray(): void
     {
         $original = [
-            'owner' => 7,
-            'prefix' => 'test/',
-            'context' => 'backend',
-            'scopePid' => 5,
+            'owner'           => 7,
+            'prefix'          => 'test/',
+            'context'         => 'backend',
+            'scopePid'        => 5,
             'includeDisabled' => true,
         ];
 

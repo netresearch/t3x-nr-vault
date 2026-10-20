@@ -37,6 +37,12 @@ use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 
+use function assert;
+use function count;
+use function is_array;
+use function is_string;
+use function sprintf;
+
 /**
  * Backend module controller for secrets management.
  */
@@ -95,22 +101,22 @@ final readonly class SecretsController
         $this->addDocHeaderButtons($moduleTemplate);
 
         // Get filter parameters from POST body (filter form uses POST to avoid iframe issues)
-        $bodyRaw = $request->getParsedBody();
-        $body = \is_array($bodyRaw) ? $bodyRaw : [];
+        $bodyRaw       = $request->getParsedBody();
+        $body          = is_array($bodyRaw) ? $bodyRaw : [];
         $identifierVal = $body['identifier'] ?? '';
-        $statusVal = $body['status'] ?? '';
-        $ownerVal = $body['owner'] ?? 0;
-        $filters = [
-            'identifier' => \is_string($identifierVal) ? trim($identifierVal) : '',
-            'status' => \is_string($statusVal) ? $statusVal : '',
-            'owner' => is_numeric($ownerVal) ? (int) $ownerVal : 0,
+        $statusVal     = $body['status'] ?? '';
+        $ownerVal      = $body['owner'] ?? 0;
+        $filters       = [
+            'identifier' => is_string($identifierVal) ? trim($identifierVal) : '',
+            'status'     => is_string($statusVal) ? $statusVal : '',
+            'owner'      => is_numeric($ownerVal) ? (int) $ownerVal : 0,
         ];
 
         // Disabled secrets are listed too. They are the only surface from
         // which one can be re-enabled — the toggle renders per listed row —
         // so omitting them made disabling a one-way door. The row carries a
         // "Disabled" badge and the status filter narrows to either state.
-        $secrets = $this->vaultService->list(includeDisabled: true);
+        $secrets   = $this->vaultService->list(includeDisabled: true);
         $userCache = $this->getUsernameCache($secrets);
 
         // Get unique owners for filter dropdown
@@ -135,17 +141,17 @@ final readonly class SecretsController
                 continue;
             }
 
-            $ownerUid = $secret->ownerUid;
+            $ownerUid           = $secret->ownerUid;
             $formattedSecrets[] = [
-                'identifier' => $secret->identifier,
-                'owner_uid' => $ownerUid,
-                'owner_name' => $userCache[$ownerUid] ?? 'User #' . $ownerUid,
-                'created' => date(self::DATE_FORMAT, $secret->createdAt),
-                'updated' => date(self::DATE_FORMAT, $secret->updatedAt),
-                'read_count' => $secret->readCount,
-                'last_read' => $secret->lastReadAt !== null ? date(self::DATE_FORMAT, $secret->lastReadAt) : '-',
+                'identifier'  => $secret->identifier,
+                'owner_uid'   => $ownerUid,
+                'owner_name'  => $userCache[$ownerUid] ?? 'User #' . $ownerUid,
+                'created'     => date(self::DATE_FORMAT, $secret->createdAt),
+                'updated'     => date(self::DATE_FORMAT, $secret->updatedAt),
+                'read_count'  => $secret->readCount,
+                'last_read'   => $secret->lastReadAt !== null ? date(self::DATE_FORMAT, $secret->lastReadAt) : '-',
                 'description' => $secret->description,
-                'hidden' => !$secret->enabled,
+                'hidden'      => !$secret->enabled,
             ];
         }
 
@@ -155,17 +161,17 @@ final readonly class SecretsController
         $this->pageRenderer->addInlineLanguageLabelFile('EXT:nr_vault/Resources/Private/Language/locallang_js.xlf');
 
         $moduleTemplate->assignMultiple([
-            'secrets' => $formattedSecrets,
-            'totalCount' => \count($formattedSecrets),
-            'filters' => $filters,
+            'secrets'      => $formattedSecrets,
+            'totalCount'   => count($formattedSecrets),
+            'filters'      => $filters,
             'ownerOptions' => $ownerOptions,
             // Per-action flags so the row actions mirror what the endpoints
             // enforce — a rendered button never leads to a 403.
-            'canReveal' => $this->accessGuard->isGranted(VaultPermission::SecretReveal),
-            'canRotate' => $this->accessGuard->isGranted(VaultPermission::SecretRotate),
-            'canDelete' => $this->accessGuard->isGranted(VaultPermission::SecretDelete),
+            'canReveal'       => $this->accessGuard->isGranted(VaultPermission::SecretReveal),
+            'canRotate'       => $this->accessGuard->isGranted(VaultPermission::SecretRotate),
+            'canDelete'       => $this->accessGuard->isGranted(VaultPermission::SecretDelete),
             'canManagePolicy' => $this->accessGuard->isGranted(VaultPermission::SecretManagePolicy),
-            'breakGlass' => $this->breakGlassBanner->forView(),
+            'breakGlass'      => $this->breakGlassBanner->forView(),
         ]);
 
         $moduleTemplate->setTitle(
@@ -214,9 +220,9 @@ final readonly class SecretsController
             return $this->accessGuard->deniedResponse($request, VaultPermission::SecretManagePolicy);
         }
 
-        $queryParams = $request->getQueryParams();
+        $queryParams   = $request->getQueryParams();
         $identifierVal = $queryParams['identifier'] ?? '';
-        $identifier = \is_string($identifierVal) ? $identifierVal : '';
+        $identifier    = is_string($identifierVal) ? $identifierVal : '';
 
         $lang = $this->getLanguageService();
 
@@ -236,7 +242,7 @@ final readonly class SecretsController
             $metadata = $this->vaultService->getMetadata($identifier);
         } catch (SecretNotFoundException) {
             $this->addFlashMessage(
-                \sprintf($lang->sL(self::LL_NOT_FOUND), $identifier),
+                sprintf($lang->sL(self::LL_NOT_FOUND), $identifier),
                 ContextualFeedbackSeverity::ERROR,
             );
 
@@ -285,11 +291,11 @@ final readonly class SecretsController
      */
     public function toggleAction(ServerRequestInterface $request): ResponseInterface
     {
-        $bodyRaw = $request->getParsedBody();
-        $body = \is_array($bodyRaw) ? $bodyRaw : [];
+        $bodyRaw       = $request->getParsedBody();
+        $body          = is_array($bodyRaw) ? $bodyRaw : [];
         $identifierVal = $body['identifier'] ?? '';
-        $identifier = \is_string($identifierVal) ? $identifierVal : '';
-        $isAjax = $this->isAjaxRequest($request);
+        $identifier    = is_string($identifierVal) ? $identifierVal : '';
+        $isAjax        = $this->isAjaxRequest($request);
 
         // Enabling/disabling a secret changes its availability to every
         // consumer, so it belongs to policy management rather than to editing
@@ -346,7 +352,7 @@ final readonly class SecretsController
             }
 
             $this->addFlashMessage(
-                \sprintf($lang->sL(self::LL_NOT_FOUND), $identifier),
+                sprintf($lang->sL(self::LL_NOT_FOUND), $identifier),
                 ContextualFeedbackSeverity::ERROR,
             );
         } catch (Exception $e) {
@@ -364,7 +370,7 @@ final readonly class SecretsController
             }
 
             $this->addFlashMessage(
-                \sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.error'), $e->getMessage()),
+                sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.error'), $e->getMessage()),
                 ContextualFeedbackSeverity::ERROR,
             );
         }
@@ -386,12 +392,12 @@ final readonly class SecretsController
             return $this->accessGuard->deniedResponse($request, VaultPermission::SecretDelete);
         }
 
-        $bodyRaw = $request->getParsedBody();
-        $body = \is_array($bodyRaw) ? $bodyRaw : [];
+        $bodyRaw       = $request->getParsedBody();
+        $body          = is_array($bodyRaw) ? $bodyRaw : [];
         $identifierVal = $body['identifier'] ?? '';
-        $identifier = \is_string($identifierVal) ? $identifierVal : '';
-        $reasonVal = $body['reason'] ?? '';
-        $reason = \is_string($reasonVal) ? trim($reasonVal) : '';
+        $identifier    = is_string($identifierVal) ? $identifierVal : '';
+        $reasonVal     = $body['reason'] ?? '';
+        $reason        = is_string($reasonVal) ? trim($reasonVal) : '';
 
         $lang = $this->getLanguageService();
 
@@ -416,7 +422,7 @@ final readonly class SecretsController
             );
         } catch (SecretNotFoundException) {
             $this->addFlashMessage(
-                \sprintf($lang->sL(self::LL_NOT_FOUND), $identifier),
+                sprintf($lang->sL(self::LL_NOT_FOUND), $identifier),
                 ContextualFeedbackSeverity::ERROR,
             );
         } catch (AccessDeniedException) {
@@ -426,7 +432,7 @@ final readonly class SecretsController
             );
         } catch (Exception $e) {
             $this->addFlashMessage(
-                \sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.error'), $e->getMessage()),
+                sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:secrets.error'), $e->getMessage()),
                 ContextualFeedbackSeverity::ERROR,
             );
         }
@@ -482,7 +488,7 @@ final readonly class SecretsController
             /** @phpstan-ignore new.internalClass, method.internalClass */
             return new JsonResponse([
                 'success' => true,
-                'hidden' => !$enable,
+                'hidden'  => !$enable,
                 'message' => $message,
             ]);
         }
@@ -509,7 +515,7 @@ final readonly class SecretsController
     private function addDocHeaderButtons(ModuleTemplate $moduleTemplate): void
     {
         $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
-        $lang = $this->getLanguageService();
+        $lang      = $this->getLanguageService();
 
         // Create Secret button — only for actors createAction() would admit.
         if ($this->accessGuard->isGranted(VaultPermission::SecretCreate)) {
@@ -532,7 +538,7 @@ final readonly class SecretsController
 
     private function getLanguageService(): LanguageService
     {
-        \assert($GLOBALS['LANG'] instanceof LanguageService);
+        assert($GLOBALS['LANG'] instanceof LanguageService);
 
         return $GLOBALS['LANG'];
     }
@@ -556,7 +562,7 @@ final readonly class SecretsController
         }
 
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable('be_users');
-        $result = $queryBuilder
+        $result       = $queryBuilder
             ->select('uid', 'username', 'realName')
             ->from('be_users')
             ->where(
@@ -566,16 +572,16 @@ final readonly class SecretsController
 
         $cache = [];
         while ($row = $result->fetchAssociative()) {
-            $realName = $row['realName'] ?? '';
-            $username = $row['username'] ?? '';
+            $realName    = $row['realName'] ?? '';
+            $username    = $row['username'] ?? '';
             $displayName = '';
-            if (\is_string($realName) && $realName !== '') {
+            if (is_string($realName) && $realName !== '') {
                 $displayName = $realName;
-            } elseif (\is_string($username)) {
+            } elseif (is_string($username)) {
                 $displayName = $username;
             }
 
-            $uidVal = $row['uid'] ?? 0;
+            $uidVal                                         = $row['uid'] ?? 0;
             $cache[is_numeric($uidVal) ? (int) $uidVal : 0] = $displayName;
         }
 
@@ -586,7 +592,7 @@ final readonly class SecretsController
      * Get unique owner options for the filter dropdown.
      *
      * @param list<SecretMetadata> $secrets
-     * @param array<int, string> $userCache
+     * @param array<int, string>   $userCache
      *
      * @return array<array{uid: int, name: string}>
      */
@@ -599,7 +605,7 @@ final readonly class SecretsController
         $options = [];
         foreach ($ownerIds as $uid) {
             $options[] = [
-                'uid' => $uid,
+                'uid'  => $uid,
                 'name' => $userCache[$uid] ?? 'User #' . $uid,
             ];
         }

@@ -48,13 +48,13 @@ final class VaultAuditMigrateCommandTest extends TestCase
     {
         parent::setUp();
 
-        $this->connectionPool = $this->createStub(ConnectionPool::class);
-        $this->masterKeyProvider = $this->createStub(MasterKeyProviderInterface::class);
+        $this->connectionPool         = $this->createStub(ConnectionPool::class);
+        $this->masterKeyProvider      = $this->createStub(MasterKeyProviderInterface::class);
         $this->extensionConfiguration = $this->createStub(ExtensionConfigurationInterface::class);
         // Default: chain is safe to re-seal (verifyChainForReseal() returns null).
         $this->auditLogService = $this->createStub(AuditLogServiceInterface::class);
-        $this->queryBuilder = $this->createStub(QueryBuilder::class);
-        $this->anchorStore = $this->createStub(AuditChainAnchorStoreInterface::class);
+        $this->queryBuilder    = $this->createStub(QueryBuilder::class);
+        $this->anchorStore     = $this->createStub(AuditChainAnchorStoreInterface::class);
 
         $this->masterKeyProvider
             ->method('getMasterKey')
@@ -112,14 +112,14 @@ final class VaultAuditMigrateCommandTest extends TestCase
         $selectResult->method('fetchAssociative')
             ->willReturnOnConsecutiveCalls(
                 [
-                    'uid' => 1,
+                    'uid'               => 1,
                     'secret_identifier' => 'test',
-                    'action' => 'create',
-                    'actor_uid' => 1,
-                    'crdate' => 1704067200,
-                    'previous_hash' => '',
-                    'entry_hash' => 'oldhash',
-                    'hmac_key_epoch' => 0,
+                    'action'            => 'create',
+                    'actor_uid'         => 1,
+                    'crdate'            => 1704067200,
+                    'previous_hash'     => '',
+                    'entry_hash'        => 'oldhash',
+                    'hmac_key_epoch'    => 0,
                 ],
                 false,
             );
@@ -165,14 +165,14 @@ final class VaultAuditMigrateCommandTest extends TestCase
         $selectResult->method('fetchAssociative')
             ->willReturnOnConsecutiveCalls(
                 [
-                    'uid' => 1,
+                    'uid'               => 1,
                     'secret_identifier' => 'test',
-                    'action' => 'create',
-                    'actor_uid' => 1,
-                    'crdate' => 1704067200,
-                    'previous_hash' => '',
-                    'entry_hash' => 'oldhash',
-                    'hmac_key_epoch' => 0,
+                    'action'            => 'create',
+                    'actor_uid'         => 1,
+                    'crdate'            => 1704067200,
+                    'previous_hash'     => '',
+                    'entry_hash'        => 'oldhash',
+                    'hmac_key_epoch'    => 0,
                 ],
                 false,
             );
@@ -243,7 +243,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
         $application = new Application();
         $application->addCommand($command);
 
-        $tester = new CommandTester($command);
+        $tester   = new CommandTester($command);
         $exitCode = $tester->execute([]);
 
         self::assertSame(1, $exitCode);
@@ -283,7 +283,7 @@ final class VaultAuditMigrateCommandTest extends TestCase
         $application = new Application();
         $application->addCommand($command);
 
-        $tester = new CommandTester($command);
+        $tester   = new CommandTester($command);
         $exitCode = $tester->execute([]);
 
         self::assertSame(1, $exitCode);

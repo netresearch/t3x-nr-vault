@@ -17,6 +17,8 @@ use TYPO3\CMS\Core\Schema\Field\FieldTypeInterface;
 use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
+use function sprintf;
+
 /**
  * Shared helper for mocking TYPO3 TCA schema in unit tests.
  *
@@ -96,7 +98,7 @@ trait TcaSchemaMockTrait
                 self::assertArrayHasKey(
                     $requested,
                     $fieldStubs,
-                    \sprintf('Unexpected TCA field lookup for "%s".', $requested),
+                    sprintf('Unexpected TCA field lookup for "%s".', $requested),
                 );
 
                 return $fieldStubs[$requested];
@@ -106,7 +108,7 @@ trait TcaSchemaMockTrait
         $factory = $this->tcaSchemaFactory ?? null;
         if (!$factory instanceof TcaSchemaFactory || !$factory instanceof Stub) {
             throw new LogicException(
-                \sprintf(
+                sprintf(
                     '%s requires the test to define a protected `$tcaSchemaFactory` property '
                     . 'of type `TcaSchemaFactory&Stub` before calling %s().',
                     self::class,
@@ -116,7 +118,7 @@ trait TcaSchemaMockTrait
             );
         }
 
-        $firstRegistration = $this->mockedTcaSchemas === [];
+        $firstRegistration              = $this->mockedTcaSchemas === [];
         $this->mockedTcaSchemas[$table] = $schema;
 
         if (!$firstRegistration) {
@@ -127,7 +129,7 @@ trait TcaSchemaMockTrait
             self::assertArrayHasKey(
                 $requested,
                 $this->mockedTcaSchemas,
-                \sprintf('Unexpected TCA schema lookup for table "%s".', $requested),
+                sprintf('Unexpected TCA schema lookup for table "%s".', $requested),
             );
 
             return $this->mockedTcaSchemas[$requested];

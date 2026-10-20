@@ -111,12 +111,12 @@ function selfTestFixtureRoot(bool $withDoctorCommand): string
     $root = selfTestTempDir('root');
 
     selfTestWrite($root . '/ext_emconf.php', <<<'PHP'
-    <?php
-    $EM_CONF[$_EXTKEY] = [
-        'title' => 'Fixture',
-        'version' => '9.9.9',
-    ];
-    PHP);
+        <?php
+        $EM_CONF[$_EXTKEY] = [
+            'title' => 'Fixture',
+            'version' => '9.9.9',
+        ];
+        PHP);
 
     selfTestWrite($root . '/phpstan.neon', "parameters:\n    level: 10\n    paths:\n        - Classes\n");
     selfTestWrite($root . '/infection.json5', "{\n    // comment\n    \"minMsi\": 72,\n    \"minCoveredMsi\": 72\n}\n");
@@ -145,28 +145,28 @@ function selfTestFixtureRoot(bool $withDoctorCommand): string
 function selfTestCloverHealthy(string $dir): string
 {
     return selfTestWrite($dir . '/clover.xml', <<<'XML'
-    <?xml version="1.0" encoding="UTF-8"?>
-    <coverage generated="1">
-      <project timestamp="1">
-        <file name="/src/Classes/Crypto/EncryptionService.php">
-          <metrics statements="40" coveredstatements="38" conditionals="20" coveredconditionals="19"/>
-        </file>
-        <file name="/src/Classes/Security/AccessControlService.php">
-          <metrics statements="30" coveredstatements="29" conditionals="20" coveredconditionals="19"/>
-        </file>
-        <file name="/src/Classes/Audit/AuditLogService.php">
-          <metrics statements="20" coveredstatements="19" conditionals="10" coveredconditionals="10"/>
-        </file>
-        <file name="/src/Classes/Http/VaultHttpClient.php">
-          <metrics statements="20" coveredstatements="19" conditionals="8" coveredconditionals="8"/>
-        </file>
-        <file name="/src/Classes/Service/VaultService.php">
-          <metrics statements="10" coveredstatements="9" conditionals="2" coveredconditionals="1"/>
-        </file>
-        <metrics statements="120" coveredstatements="114" conditionals="60" coveredconditionals="57"/>
-      </project>
-    </coverage>
-    XML);
+        <?xml version="1.0" encoding="UTF-8"?>
+        <coverage generated="1">
+          <project timestamp="1">
+            <file name="/src/Classes/Crypto/EncryptionService.php">
+              <metrics statements="40" coveredstatements="38" conditionals="20" coveredconditionals="19"/>
+            </file>
+            <file name="/src/Classes/Security/AccessControlService.php">
+              <metrics statements="30" coveredstatements="29" conditionals="20" coveredconditionals="19"/>
+            </file>
+            <file name="/src/Classes/Audit/AuditLogService.php">
+              <metrics statements="20" coveredstatements="19" conditionals="10" coveredconditionals="10"/>
+            </file>
+            <file name="/src/Classes/Http/VaultHttpClient.php">
+              <metrics statements="20" coveredstatements="19" conditionals="8" coveredconditionals="8"/>
+            </file>
+            <file name="/src/Classes/Service/VaultService.php">
+              <metrics statements="10" coveredstatements="9" conditionals="2" coveredconditionals="1"/>
+            </file>
+            <metrics statements="120" coveredstatements="114" conditionals="60" coveredconditionals="57"/>
+          </project>
+        </coverage>
+        XML);
 }
 
 /**
@@ -176,16 +176,16 @@ function selfTestCloverHealthy(string $dir): string
 function selfTestCloverLineOnly(string $dir): string
 {
     return selfTestWrite($dir . '/clover-line-only.xml', <<<'XML'
-    <?xml version="1.0" encoding="UTF-8"?>
-    <coverage generated="1">
-      <project timestamp="1">
-        <file name="/src/Classes/Crypto/EncryptionService.php">
-          <metrics statements="40" coveredstatements="38" conditionals="0" coveredconditionals="0"/>
-        </file>
-        <metrics statements="120" coveredstatements="114" conditionals="0" coveredconditionals="0"/>
-      </project>
-    </coverage>
-    XML);
+        <?xml version="1.0" encoding="UTF-8"?>
+        <coverage generated="1">
+          <project timestamp="1">
+            <file name="/src/Classes/Crypto/EncryptionService.php">
+              <metrics statements="40" coveredstatements="38" conditionals="0" coveredconditionals="0"/>
+            </file>
+            <metrics statements="120" coveredstatements="114" conditionals="0" coveredconditionals="0"/>
+          </project>
+        </coverage>
+        XML);
 }
 
 /**
@@ -197,14 +197,14 @@ function selfTestCoverageTextWithPaths(string $dir): string
     return selfTestWrite($dir . '/coverage-text.txt', <<<'TXT'
 
 
-    Code Coverage Report Summary:
-      Classes: 50.00% (10/20)
-      Methods: 80.00% (80/100)
-      Paths:   60.00% (600/1000)
-      Branches:   95.00% (57/60)
-      Lines:   95.00% (114/120)
+        Code Coverage Report Summary:
+          Classes: 50.00% (10/20)
+          Methods: 80.00% (80/100)
+          Paths:   60.00% (600/1000)
+          Branches:   95.00% (57/60)
+          Lines:   95.00% (114/120)
 
-    TXT);
+        TXT);
 }
 
 /**
@@ -213,16 +213,16 @@ function selfTestCoverageTextWithPaths(string $dir): string
 function selfTestCloverWeakCrypto(string $dir): string
 {
     return selfTestWrite($dir . '/clover.xml', <<<'XML'
-    <?xml version="1.0" encoding="UTF-8"?>
-    <coverage generated="1">
-      <project timestamp="1">
-        <file name="/src/Classes/Crypto/EncryptionService.php">
-          <metrics statements="40" coveredstatements="20" conditionals="10" coveredconditionals="4"/>
-        </file>
-        <metrics statements="100" coveredstatements="40" conditionals="22" coveredconditionals="8"/>
-      </project>
-    </coverage>
-    XML);
+        <?xml version="1.0" encoding="UTF-8"?>
+        <coverage generated="1">
+          <project timestamp="1">
+            <file name="/src/Classes/Crypto/EncryptionService.php">
+              <metrics statements="40" coveredstatements="20" conditionals="10" coveredconditionals="4"/>
+            </file>
+            <metrics statements="100" coveredstatements="40" conditionals="22" coveredconditionals="8"/>
+          </project>
+        </coverage>
+        XML);
 }
 
 /**
@@ -251,24 +251,24 @@ function selfTestDoctorPayload(int $passCount, array $problems, string $profile 
 
     $bySeverity = ['pass' => $passCount, 'warning' => 0, 'critical' => 0];
     foreach ($problems as $problem) {
-        $severity = is_string($problem['severity'] ?? null) ? $problem['severity'] : 'pass';
+        $severity              = is_string($problem['severity'] ?? null) ? $problem['severity'] : 'pass';
         $bySeverity[$severity] = ($bySeverity[$severity] ?? 0) + 1;
     }
 
     $highest = $bySeverity['critical'] > 0 ? 'critical' : ($bySeverity['warning'] > 0 ? 'warning' : 'pass');
-    $exit = ['pass' => 0, 'warning' => 1, 'critical' => 2][$highest];
+    $exit    = ['pass' => 0, 'warning' => 1, 'critical' => 2][$highest];
 
     return [
-        'profile' => $profile,
+        'profile'           => $profile,
         'configuredProfile' => $profile,
         'profileOverridden' => false,
-        'auditReady' => $highest === 'pass',
-        'highestSeverity' => $highest,
-        'exitCode' => $exit,
-        'summary' => [
-            'total' => count($findings),
-            'pass' => $bySeverity['pass'],
-            'warning' => $bySeverity['warning'],
+        'auditReady'        => $highest === 'pass',
+        'highestSeverity'   => $highest,
+        'exitCode'          => $exit,
+        'summary'           => [
+            'total'    => count($findings),
+            'pass'     => $bySeverity['pass'],
+            'warning'  => $bySeverity['warning'],
             'critical' => $bySeverity['critical'],
         ],
         'findings' => $findings,
@@ -291,16 +291,16 @@ function selfTestDoctorPayload(int $passCount, array $problems, string $profile 
 function selfTestManifest(string $root, array $inputs, ?string $tag = 'v9.9.9', ?string $outputDir = null): array
 {
     return buildManifest([
-        'root' => $root,
-        'tag' => $tag,
-        'commit' => 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
-        'builtAt' => '2026-07-31T12:00:00+00:00',
-        'repo' => 'netresearch/t3x-nr-vault',
-        'archivePrefix' => 'nr-vault',
-        'extensionKey' => 'nr_vault',
+        'root'                => $root,
+        'tag'                 => $tag,
+        'commit'              => 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+        'builtAt'             => '2026-07-31T12:00:00+00:00',
+        'repo'                => 'netresearch/t3x-nr-vault',
+        'archivePrefix'       => 'nr-vault',
+        'extensionKey'        => 'nr_vault',
         'minSecurityCoverage' => MIN_SECURITY_COVERAGE,
-        'inputs' => $inputs,
-        'bundled' => $outputDir === null ? [] : bundleInputs($inputs, $outputDir),
+        'inputs'              => $inputs,
+        'bundled'             => $outputDir === null ? [] : bundleInputs($inputs, $outputDir),
     ]);
 }
 
@@ -345,11 +345,11 @@ function selfTest(string $projectRoot): int
 
     try {
         // --- 1. Every optional producer absent -----------------------------
-        $bareRoot = selfTestFixtureRoot(false);
+        $bareRoot    = selfTestFixtureRoot(false);
         $temporary[] = $bareRoot;
         $emptyInputs = [
-            'junit-unit' => null, 'junit-fuzz' => null, 'junit-functional' => null,
-            'clover' => null, 'coverageText' => null, 'infection' => null, 'infectionSecurity' => null,
+            'junit-unit'       => null, 'junit-fuzz' => null, 'junit-functional' => null,
+            'clover'           => null, 'coverageText' => null, 'infection' => null, 'infectionSecurity' => null,
             'infectionSummary' => null, 'audit' => null, 'doctor' => null,
         ];
         $absent = selfTestManifest($bareRoot, $emptyInputs);
@@ -414,9 +414,9 @@ function selfTest(string $projectRoot): int
         }
 
         // --- 2. Every producer present and healthy -------------------------
-        $doctorRoot = selfTestFixtureRoot(true);
+        $doctorRoot  = selfTestFixtureRoot(true);
         $temporary[] = $doctorRoot;
-        $fixtures = selfTestTempDir('inputs');
+        $fixtures    = selfTestTempDir('inputs');
         $temporary[] = $fixtures;
 
         $healthy = [
@@ -432,9 +432,9 @@ function selfTest(string $projectRoot): int
                 $fixtures . '/junit-functional.xml',
                 '<?xml version="1.0"?><testsuites tests="45" errors="0" failures="0" skipped="0"/>',
             ),
-            'clover' => selfTestCloverHealthy($fixtures),
+            'clover'       => selfTestCloverHealthy($fixtures),
             'coverageText' => selfTestCoverageTextWithPaths($fixtures),
-            'infection' => selfTestWrite(
+            'infection'    => selfTestWrite(
                 $fixtures . '/infection.json',
                 '{"stats":{"msi":80.5,"coveredCodeMsi":85.25,"totalMutantsCount":900}}',
             ),
@@ -443,7 +443,7 @@ function selfTest(string $projectRoot): int
                 '{"stats":{"msi":91.5,"coveredCodeMsi":94.25,"totalMutantsCount":210}}',
             ),
             'infectionSummary' => selfTestWrite($fixtures . '/summary.log', "Mutation Score Indicator (MSI): 80%\n"),
-            'audit' => selfTestWrite($fixtures . '/composer-audit.json', '{"advisories":{},"abandoned":{}}'),
+            'audit'            => selfTestWrite($fixtures . '/composer-audit.json', '{"advisories":{},"abandoned":{}}'),
             // Real DoctorReport::toArray() shape, verified against
             // feature/vault-doctor: highestSeverity + exitCode, no `status` key.
             // 22 controls is the healthy total for the functional deployment
@@ -454,10 +454,10 @@ function selfTest(string $projectRoot): int
             ),
         ];
 
-        $output = selfTestTempDir('bundle');
+        $output      = selfTestTempDir('bundle');
         $temporary[] = $output;
-        $good = selfTestManifest($doctorRoot, $healthy, 'v9.9.9', $output);
-        $goodById = selfTestById($good['checks']);
+        $good        = selfTestManifest($doctorRoot, $healthy, 'v9.9.9', $output);
+        $goodById    = selfTestById($good['checks']);
 
         foreach (selfTestExpectedCheckIds() as $id) {
             selfTestEquals('pass', $goodById[$id]['status'], "`{$id}` passes with a healthy artifact");
@@ -620,9 +620,9 @@ function selfTest(string $projectRoot): int
         }
 
         // --- 3. Present artifacts that report problems ---------------------
-        $bad = selfTestTempDir('failing');
+        $bad         = selfTestTempDir('failing');
         $temporary[] = $bad;
-        $failing = [
+        $failing     = [
             // Only the fuzz suite broke: the aggregate must still fail, and the
             // healthy unit suite must not mask it.
             'junit-unit' => selfTestWrite(
@@ -633,15 +633,15 @@ function selfTest(string $projectRoot): int
                 $bad . '/junit-fuzz.xml',
                 '<?xml version="1.0"?><testsuites tests="30" errors="1" failures="2" skipped="0"/>',
             ),
-            'junit-functional' => null,
-            'clover' => selfTestCloverWeakCrypto($bad),
-            'infection' => selfTestWrite($bad . '/infection.json', '{"stats":{"msi":50.0,"coveredCodeMsi":55.0}}'),
+            'junit-functional'  => null,
+            'clover'            => selfTestCloverWeakCrypto($bad),
+            'infection'         => selfTestWrite($bad . '/infection.json', '{"stats":{"msi":50.0,"coveredCodeMsi":55.0}}'),
             'infectionSecurity' => selfTestWrite(
                 $bad . '/infection-security.json',
                 '{"stats":{"msi":60.0,"coveredCodeMsi":65.0}}',
             ),
             'infectionSummary' => null,
-            'audit' => selfTestWrite(
+            'audit'            => selfTestWrite(
                 $bad . '/composer-audit.json',
                 '{"advisories":{"acme/lib":[{"advisoryId":"PKSA-1"}]},"abandoned":{}}',
             ),
@@ -685,9 +685,9 @@ function selfTest(string $projectRoot): int
 
         // The inverse contradiction: a report for a command this version does
         // not ship must be reported as ignored, never silently accepted.
-        $foreignInputs = $emptyInputs;
+        $foreignInputs           = $emptyInputs;
         $foreignInputs['doctor'] = $healthy['doctor'];
-        $foreign = selfTestById(selfTestManifest($bareRoot, $foreignInputs)['checks']);
+        $foreign                 = selfTestById(selfTestManifest($bareRoot, $foreignInputs)['checks']);
         selfTestEquals(
             'warn',
             $foreign['vault-doctor']['status'],
@@ -702,10 +702,10 @@ function selfTest(string $projectRoot): int
         // Contract verified against DoctorReport::toArray() and the command's
         // renderCrash()/renderInvalidProfile() paths on feature/vault-doctor.
         $doctorFixtures = selfTestTempDir('doctor');
-        $temporary[] = $doctorFixtures;
+        $temporary[]    = $doctorFixtures;
 
         $doctorCase = static function (string $name, string $json) use ($doctorRoot, $emptyInputs, $doctorFixtures): array {
-            $inputs = $emptyInputs;
+            $inputs           = $emptyInputs;
             $inputs['doctor'] = selfTestWrite($doctorFixtures . '/' . $name . '.json', $json);
 
             return selfTestById(selfTestManifest($doctorRoot, $inputs)['checks'])['vault-doctor'];
@@ -833,21 +833,21 @@ function selfTest(string $projectRoot): int
         );
 
         // --- 4. Present but malformed is an error --------------------------
-        $malformed = selfTestTempDir('malformed');
+        $malformed   = selfTestTempDir('malformed');
         $temporary[] = $malformed;
 
         $cases = [
-            'audit' => selfTestWrite($malformed . '/composer-audit.json', '{"advisories": '),
-            'clover' => selfTestWrite($malformed . '/clover.xml', '<coverage><project></project>'),
-            'coverageText' => selfTestWrite($malformed . '/coverage-text.txt', "PHPUnit 13.3.3 by Sebastian Bergmann\n"),
-            'infection' => selfTestWrite($malformed . '/infection.json', '{"stats":{}}'),
-            'junit-unit' => selfTestWrite($malformed . '/junit-unit.xml', '<?xml version="1.0"?><testsuites/>'),
+            'audit'             => selfTestWrite($malformed . '/composer-audit.json', '{"advisories": '),
+            'clover'            => selfTestWrite($malformed . '/clover.xml', '<coverage><project></project>'),
+            'coverageText'      => selfTestWrite($malformed . '/coverage-text.txt', "PHPUnit 13.3.3 by Sebastian Bergmann\n"),
+            'infection'         => selfTestWrite($malformed . '/infection.json', '{"stats":{}}'),
+            'junit-unit'        => selfTestWrite($malformed . '/junit-unit.xml', '<?xml version="1.0"?><testsuites/>'),
             'infectionSecurity' => selfTestWrite($malformed . '/infection-security.json', '{"stats":{}}'),
         ];
         foreach ($cases as $key => $path) {
-            $inputs = $emptyInputs;
+            $inputs       = $emptyInputs;
             $inputs[$key] = $path;
-            $threw = false;
+            $threw        = false;
 
             try {
                 selfTestManifest($doctorRoot, $inputs);
@@ -860,14 +860,14 @@ function selfTest(string $projectRoot): int
         // --- 4b. The --parts drop-zone resolves CI-produced reports ---------
         // The producing jobs run on separate runners and merge their uploads
         // into one flat directory; --parts must find them there.
-        $parts = selfTestTempDir('parts');
+        $parts       = selfTestTempDir('parts');
         $temporary[] = $parts;
         foreach (
             [
-                'junit-unit.xml' => '<?xml version="1.0"?><testsuites tests="7" errors="0" failures="0"/>',
+                'junit-unit.xml'       => '<?xml version="1.0"?><testsuites tests="7" errors="0" failures="0"/>',
                 'junit-functional.xml' => '<?xml version="1.0"?><testsuites tests="3" errors="0" failures="0"/>',
-                'composer-audit.json' => '{"advisories":{},"abandoned":{}}',
-                'doctor.json' => '{"highestSeverity":"pass","exitCode":0}',
+                'composer-audit.json'  => '{"advisories":{},"abandoned":{}}',
+                'doctor.json'          => '{"highestSeverity":"pass","exitCode":0}',
             ] as $name => $body
         ) {
             selfTestWrite($parts . '/' . $name, $body);
@@ -901,9 +901,9 @@ function selfTest(string $projectRoot): int
         // A shell redirect creates the file before the command runs, so a
         // producer that crashes at startup leaves a zero-byte file. Aborting the
         // bundle over that would discard every other piece of evidence.
-        $emptyDir = selfTestTempDir('empty');
+        $emptyDir    = selfTestTempDir('empty');
         $temporary[] = $emptyDir;
-        $emptyNames = [
+        $emptyNames  = [
             'junit-unit.xml', 'junit-fuzz.xml', 'junit-functional.xml', 'clover.xml', 'coverage-text.txt',
             'infection.json', 'infection-security.json', 'composer-audit.json', 'doctor.json',
         ];
@@ -914,13 +914,13 @@ function selfTest(string $projectRoot): int
 
         foreach (
             [
-                'junit-unit' => 'junit-unit.xml',
-                'clover' => 'clover.xml',
-                'coverage-text' => 'coverage-text.txt',
-                'infection' => 'infection.json',
+                'junit-unit'         => 'junit-unit.xml',
+                'clover'             => 'clover.xml',
+                'coverage-text'      => 'coverage-text.txt',
+                'infection'          => 'infection.json',
                 'infection-security' => 'infection-security.json',
-                'audit' => 'composer-audit.json',
-                'doctor' => 'doctor.json',
+                'audit'              => 'composer-audit.json',
+                'doctor'             => 'doctor.json',
             ] as $option => $name
         ) {
             selfTestEquals(
@@ -936,12 +936,12 @@ function selfTest(string $projectRoot): int
         );
 
         // The whole bundle must still be produced, with the dead producer absent.
-        $emptyBundle = selfTestTempDir('emptybundle');
-        $temporary[] = $emptyBundle;
-        $survivingInputs = $emptyInputs;
+        $emptyBundle               = selfTestTempDir('emptybundle');
+        $temporary[]               = $emptyBundle;
+        $survivingInputs           = $emptyInputs;
         $survivingInputs['clover'] = $healthy['clover'];
         $survivingInputs['doctor'] = resolveInput(['parts' => $emptyDir], 'doctor', '/nonexistent', 'doctor.json');
-        $survived = selfTestById(selfTestManifest($doctorRoot, $survivingInputs, 'v9.9.9', $emptyBundle)['checks']);
+        $survived                  = selfTestById(selfTestManifest($doctorRoot, $survivingInputs, 'v9.9.9', $emptyBundle)['checks']);
         selfTestEquals(
             'pass',
             $survived['coverage-line']['status'],
@@ -955,11 +955,11 @@ function selfTest(string $projectRoot): int
 
         // A truncated but NON-empty artifact is still malformed — the producer
         // did write something, so ignoring it would misreport a check that ran.
-        $truncated = selfTestWrite($emptyDir . '/truncated.json', '{"stats":');
+        $truncated      = selfTestWrite($emptyDir . '/truncated.json', '{"stats":');
         $threwTruncated = false;
 
         try {
-            $truncatedInputs = $emptyInputs;
+            $truncatedInputs              = $emptyInputs;
             $truncatedInputs['infection'] = $truncated;
             selfTestManifest($doctorRoot, $truncatedInputs);
         } catch (MalformedArtifactException) {
@@ -986,7 +986,7 @@ function selfTest(string $projectRoot): int
         );
 
         // --- 6. Reproducibility --------------------------------------------
-        $first = json_encode(selfTestManifest($doctorRoot, $healthy), JSON_THROW_ON_ERROR);
+        $first  = json_encode(selfTestManifest($doctorRoot, $healthy), JSON_THROW_ON_ERROR);
         $second = json_encode(selfTestManifest($doctorRoot, $healthy), JSON_THROW_ON_ERROR);
         selfTestEquals($first, $second, 'identical inputs produce an identical manifest');
 

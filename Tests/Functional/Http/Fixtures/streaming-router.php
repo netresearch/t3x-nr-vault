@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -34,22 +31,22 @@ declare(strict_types=1);
  * file there named after itself, so a test can prove a route was never hit.
  */
 $requestUri = is_string($_SERVER['REQUEST_URI'] ?? null) ? $_SERVER['REQUEST_URI'] : '/';
-$path = (string) parse_url($requestUri, PHP_URL_PATH);
-$query = [];
+$path       = (string) parse_url($requestUri, PHP_URL_PATH);
+$query      = [];
 parse_str((string) parse_url($requestUri, PHP_URL_QUERY), $query);
 
 $hitsDirectory = getenv('NR_VAULT_STREAM_HITS');
 // The file name comes from this fixed map, never from the request.
 $hitNames = [
-    '/chunks' => 'chunks',
-    '/stall' => 'stall',
-    '/silent' => 'silent',
-    '/truncated' => 'truncated',
-    '/redirect' => 'redirect',
+    '/chunks'          => 'chunks',
+    '/stall'           => 'stall',
+    '/silent'          => 'silent',
+    '/truncated'       => 'truncated',
+    '/redirect'        => 'redirect',
     '/redirect-target' => 'redirect-target',
-    '/echo-auth' => 'echo-auth',
-    '/large' => 'large',
-    '/bomb' => 'bomb',
+    '/echo-auth'       => 'echo-auth',
+    '/large'           => 'large',
+    '/bomb'            => 'bomb',
 ];
 if (is_string($hitsDirectory) && $hitsDirectory !== '' && is_dir($hitsDirectory) && isset($hitNames[$path])) {
     touch($hitsDirectory . '/' . $hitNames[$path]);
@@ -70,7 +67,7 @@ $line = static function (string $text): void {
 
 switch ($path) {
     case '/chunks':
-        $count = max(1, (int) ($query['count'] ?? 3));
+        $count             = max(1, (int) ($query['count'] ?? 3));
         $delayMicroseconds = max(0, (int) ($query['delay_ms'] ?? 0)) * 1000;
         header('Content-Type: text/plain');
         for ($i = 1; $i <= $count; ++$i) {
@@ -124,7 +121,7 @@ switch ($path) {
             echo json_encode(
                 [
                     'authorization' => $authorization,
-                    'body' => file_get_contents('php://input'),
+                    'body'          => file_get_contents('php://input'),
                 ],
                 JSON_THROW_ON_ERROR,
             );
@@ -148,14 +145,14 @@ switch ($path) {
         return true;
     case '/bomb':
         $megabytes = max(1, (int) ($query['mb'] ?? 1));
-        $deflate = deflate_init(ZLIB_ENCODING_GZIP, ['level' => 9]);
+        $deflate   = deflate_init(ZLIB_ENCODING_GZIP, ['level' => 9]);
         if ($deflate === false) {
             http_response_code(500);
 
             return true;
         }
 
-        $zeros = str_repeat("\0", 1024 * 1024);
+        $zeros      = str_repeat("\0", 1024 * 1024);
         $compressed = '';
         for ($i = 0; $i < $megabytes; ++$i) {
             $compressed .= (string) deflate_add($deflate, $zeros, ZLIB_NO_FLUSH);

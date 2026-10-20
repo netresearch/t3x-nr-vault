@@ -21,25 +21,25 @@ final class AuditLogEntryTest extends TestCase
     public function fromDatabaseRowCreatesCorrectEntry(): void
     {
         $row = [
-            'uid' => 42,
+            'uid'               => 42,
             'secret_identifier' => 'api-key',
-            'action' => 'read',
-            'success' => 1,
-            'error_message' => '',
-            'reason' => 'API call',
-            'actor_uid' => 5,
-            'actor_type' => 'backend',
-            'actor_username' => 'admin',
-            'actor_role' => 'Administrator',
-            'ip_address' => '192.168.1.1',
-            'user_agent' => 'Mozilla/5.0',
-            'request_id' => 'req-123',
-            'previous_hash' => 'abc',
-            'entry_hash' => 'def',
-            'hash_before' => 'ghi',
-            'hash_after' => 'jkl',
-            'crdate' => 1704067200,
-            'context' => '{"service":"stripe"}',
+            'action'            => 'read',
+            'success'           => 1,
+            'error_message'     => '',
+            'reason'            => 'API call',
+            'actor_uid'         => 5,
+            'actor_type'        => 'backend',
+            'actor_username'    => 'admin',
+            'actor_role'        => 'Administrator',
+            'ip_address'        => '192.168.1.1',
+            'user_agent'        => 'Mozilla/5.0',
+            'request_id'        => 'req-123',
+            'previous_hash'     => 'abc',
+            'entry_hash'        => 'def',
+            'hash_before'       => 'ghi',
+            'hash_after'        => 'jkl',
+            'crdate'            => 1704067200,
+            'context'           => '{"service":"stripe"}',
         ];
 
         $entry = AuditLogEntry::fromDatabaseRow($row);
@@ -64,7 +64,7 @@ final class AuditLogEntryTest extends TestCase
     public function fromDatabaseRowHandlesEmptyContext(): void
     {
         $row = [
-            'uid' => 1,
+            'uid'     => 1,
             'context' => '',
         ];
 
@@ -77,7 +77,7 @@ final class AuditLogEntryTest extends TestCase
     public function fromDatabaseRowHandlesInvalidJson(): void
     {
         $row = [
-            'uid' => 1,
+            'uid'     => 1,
             'context' => 'not-valid-json',
         ];
 
@@ -142,8 +142,8 @@ final class AuditLogEntryTest extends TestCase
     public function fromDatabaseRowHandlesErrorMessage(): void
     {
         $row = [
-            'uid' => 1,
-            'success' => 0,
+            'uid'           => 1,
+            'success'       => 0,
             'error_message' => 'Access denied',
         ];
 

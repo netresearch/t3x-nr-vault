@@ -154,7 +154,7 @@ final class MasterKeyProviderFactoryTest extends TestCase
             ->method('getMasterKeyProvider')
             ->willReturn('acme_kms');
 
-        $custom = $this->customProvider('acme_kms');
+        $custom  = $this->customProvider('acme_kms');
         $factory = new MasterKeyProviderFactory(
             $this->configuration,
             new MasterKeyProviderRegistry([new Typo3MasterKeyProvider(), $custom]),
@@ -170,7 +170,7 @@ final class MasterKeyProviderFactoryTest extends TestCase
         // settings.php. An extension-supplied provider is the case it asks for,
         // so the deny list names `typo3` and nothing else.
         $configuration = $this->hardenedConfiguration('acme_kms');
-        $custom = $this->customProvider('acme_kms');
+        $custom        = $this->customProvider('acme_kms');
 
         $factory = new MasterKeyProviderFactory(
             $configuration,
@@ -187,8 +187,8 @@ final class MasterKeyProviderFactoryTest extends TestCase
             ->method('getMasterKeyProvider')
             ->willReturn('acme_kms');
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = bin2hex(random_bytes(48));
-        $custom = $this->customProvider('acme_kms');
-        $factory = new MasterKeyProviderFactory(
+        $custom                                             = $this->customProvider('acme_kms');
+        $factory                                            = new MasterKeyProviderFactory(
             $this->configuration,
             new MasterKeyProviderRegistry(
                 [new Typo3MasterKeyProvider(), $custom],

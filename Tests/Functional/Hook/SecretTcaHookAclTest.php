@@ -19,6 +19,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function is_scalar;
+
 /**
  * Functional tests for the write-path authorization in SecretTcaHook: the
  * per-secret object ACL on every update (CWE-862) and the privileged-column
@@ -144,10 +146,10 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
         [$secretUid, $identifier] = $this->seedSecretOwnedByOther();
 
         $this->submitDatamap($secretUid, [
-            'description' => 'documented by the write tier',
-            'expires_at' => '2000-01-01T00:00:00+00:00',
-            'metadata' => '{"source":"tca_field","table":"tt_content","field":"x","uid":2147483647}',
-            'context' => 'staging',
+            'description'         => 'documented by the write tier',
+            'expires_at'          => '2000-01-01T00:00:00+00:00',
+            'metadata'            => '{"source":"tca_field","table":"tt_content","field":"x","uid":2147483647}',
+            'context'             => 'staging',
             'frontend_accessible' => 1,
         ]);
 
@@ -182,7 +184,7 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
         // Attacker appends their own group to BOTH tiers.
         $this->submitDatamap($secretUid, [
             'allowed_groups' => self::EXISTING_READ_GROUP . ',' . self::ATTACKER_GROUP,
-            'write_groups' => self::EXISTING_WRITE_GROUP . ',' . self::ATTACKER_GROUP,
+            'write_groups'   => self::EXISTING_WRITE_GROUP . ',' . self::ATTACKER_GROUP,
         ]);
 
         self::assertSame(
@@ -205,7 +207,7 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
 
         // Attacker grabs ownership and flips frontend exposure.
         $this->submitDatamap($secretUid, [
-            'owner_uid' => self::WRITER_UID,
+            'owner_uid'           => self::WRITER_UID,
             'frontend_accessible' => 1,
         ]);
 
@@ -255,10 +257,10 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
     private function seededRow(): array
     {
         return [
-            'description' => 'seeded description',
-            'context' => 'production',
-            'expires_at' => 0,
-            'metadata' => '{"source":"tca_field"}',
+            'description'         => 'seeded description',
+            'context'             => 'production',
+            'expires_at'          => 0,
+            'metadata'            => '{"source":"tca_field"}',
             'frontend_accessible' => 0,
         ];
     }
@@ -273,7 +275,7 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
     {
         $value = $this->seededRow()[$column];
 
-        return \is_scalar($value) ? (string) $value : '';
+        return is_scalar($value) ? (string) $value : '';
     }
 
     /**
@@ -285,7 +287,7 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
     {
         $value = $record[$column] ?? null;
 
-        return \is_scalar($value) ? (string) $value : '';
+        return is_scalar($value) ? (string) $value : '';
     }
 
     /**
@@ -297,7 +299,7 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
      */
     private function submitDatamap(int $secretUid, array $fields): void
     {
-        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler          = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->BE_USER = $GLOBALS['BE_USER'];
         $dataHandler->start([self::SECRET_TABLE => [$secretUid => $fields]], []);
         $dataHandler->process_datamap();
@@ -315,12 +317,12 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
         $connection = $this->getConnectionPool()->getConnectionForTable(self::SECRET_TABLE);
         $connection->insert(self::SECRET_TABLE, [
             ...$this->seededRow(),
-            'pid' => self::PAGE_UID,
+            'pid'        => self::PAGE_UID,
             'identifier' => $identifier,
-            'owner_uid' => self::OWNER_UID,
+            'owner_uid'  => self::OWNER_UID,
             // DataHandler stores the relation count in the row column.
             'allowed_groups' => 1,
-            'write_groups' => 1,
+            'write_groups'   => 1,
         ]);
         $secretUid = (int) $connection->lastInsertId();
 
@@ -335,9 +337,9 @@ final class SecretTcaHookAclTest extends AbstractVaultFunctionalTestCase
         $this->getConnectionPool()
             ->getConnectionForTable($mmTable)
             ->insert($mmTable, [
-                'uid_local' => $secretUid,
-                'uid_foreign' => $groupUid,
-                'sorting' => 1,
+                'uid_local'       => $secretUid,
+                'uid_foreign'     => $groupUid,
+                'sorting'         => 1,
                 'sorting_foreign' => 0,
             ]);
     }
