@@ -9,9 +9,25 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Service;
 
+use Psr\Log\LoggerAwareInterface;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
+use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Context\UserAspect;
+use TYPO3\CMS\Core\Log\LogManager;
+use TYPO3\CMS\Core\Page\PageLayoutResolver;
 use TYPO3\CMS\Core\SingletonInterface;
+use TYPO3\CMS\Core\Site\Entity\NullSite;
+use TYPO3\CMS\Core\TypoScript\IncludeTree\IncludeNode\TsConfigInclude;
+use TYPO3\CMS\Core\TypoScript\IncludeTree\Traverser\ConditionVerdictAwareIncludeTreeTraverser;
+use TYPO3\CMS\Core\TypoScript\IncludeTree\TsConfigTreeBuilder;
+use TYPO3\CMS\Core\TypoScript\IncludeTree\Visitor\IncludeTreeAstBuilderVisitor;
+use TYPO3\CMS\Core\TypoScript\IncludeTree\Visitor\IncludeTreeConditionMatcherVisitor;
+use TYPO3\CMS\Core\TypoScript\PageTsConfig;
+use TYPO3\CMS\Core\TypoScript\Tokenizer\LossyTokenizer;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Service for checking TSconfig-based permissions on vault fields.
@@ -81,7 +97,7 @@ final class VaultFieldPermissionService implements SingletonInterface
             return $this->permissionCache[$cacheKey];
         }
 
-        $allowed = $this->checkPermission($table, $field, $permission);
+        $allowed = $this->checkPermission($table, $field, $permission, $backendUser);
         $this->permissionCache[$cacheKey] = $allowed;
 
         return $allowed;
@@ -129,8 +145,9 @@ final class VaultFieldPermissionService implements SingletonInterface
         string $table,
         string $field,
         VaultFieldPermission $permission,
+        BackendUserAuthentication $backendUser,
     ): bool {
-        $tsConfig = $this->getVaultTsConfig();
+        $tsConfig = $this->getVaultTsConfig($backendUser);
 
         // Check field-specific setting: vault.permissions.{table}.{field}.{permission}
         $fieldValue = $this->getNestedValue($tsConfig, [$table, $field, $permission->value]);
@@ -157,9 +174,12 @@ final class VaultFieldPermissionService implements SingletonInterface
     /**
      * @return array<string, mixed>
      */
-    private function getVaultTsConfig(): array
-    {
-        $pageTsConfig = BackendUtility::getPagesTSconfig(0);
+    private function getVaultTsConfig(
+        BackendUserAuthentication $backendUser,
+    ): array {
+        // The selected-user coordinator's native Core result is the ADR049 boundary.
+        /** @phpstan-ignore method.internalClass */
+        $pageTsConfig = $backendUser === $this->getBackendUser() ? BackendUtility::getPagesTSconfig(0) : $this->getSelectedUserPageTsConfig($backendUser)->getPageTsConfigArray();
         /** @var array<string, mixed> $vaultConfig */
         $vaultConfig = \is_array($pageTsConfig['vault.'] ?? null) ? $pageTsConfig['vault.'] : [];
 
@@ -221,5 +241,104 @@ final class VaultFieldPermissionService implements SingletonInterface
             VaultFieldPermission::Edit => true,
             VaultFieldPermission::ReadOnly => false,
         };
+    }
+
+    /**
+     * Build a private page-zero policy for a distinct selected user. Core's
+     * ordinary page-zero runtime cache and the ambient Context stay untouched.
+     *
+     * ADR049 deliberately coordinates these Core internals; native Core 13/14
+     * functional tests cover their signatures, configured AST visitor and state.
+     */
+    private function getSelectedUserPageTsConfig(
+        BackendUserAuthentication $backendUser,
+    ): PageTsConfig {
+        /** @phpstan-ignore new.internalClass */
+        $tokenizer = new LossyTokenizer();
+        /** @var PhpFrontend $cache */
+        $cache = GeneralUtility::makeInstance(CacheManager::class)->getCache(
+            'typoscript',
+        );
+        /** @phpstan-ignore classConstant.internalClass, method.internalClass */
+        $tree = GeneralUtility::makeInstance(TsConfigTreeBuilder::class)->getPagesTsConfigTree(
+            [],
+            $tokenizer,
+            $cache,
+        );
+        $overrides = '';
+        /**
+         * Core AST flattening excludes null values.
+         *
+         * @var array<string, string> $flatOverrides
+         *
+         * @phpstan-ignore method.internal, method.internalClass
+         */
+        $flatOverrides = $backendUser->getUserTsConfig()?->getUserTsConfigTree()->flatten() ?? [];
+        foreach ($flatOverrides as $key => $value) {
+            if (str_starts_with($key, 'page.')) {
+                $overrides .= substr($key, 5) . ' = ' . $value . "\n";
+            }
+        }
+
+        if ($overrides !== '') {
+            /** @phpstan-ignore new.internalClass */
+            $node = new TsConfigInclude();
+            /** @phpstan-ignore method.internalClass */
+            $node->setName('selected-page-overrides');
+            /** @phpstan-ignore method.internalClass */
+            $overrideLines = $tokenizer->tokenize($overrides);
+            /** @phpstan-ignore method.internalClass */
+            $node->setLineStream($overrideLines);
+            /** @phpstan-ignore method.internalClass */
+            $tree->addChild($node);
+        }
+
+        $context = clone GeneralUtility::makeInstance(Context::class);
+        $context->setAspect('backend.user', new UserAspect($backendUser));
+        /** @phpstan-ignore classConstant.internalClass */
+        $layout = GeneralUtility::makeInstance(PageLayoutResolver::class);
+        /** @phpstan-ignore classConstant.internalClass */
+        $conditionVisitorClass = IncludeTreeConditionMatcherVisitor::class;
+        $logger = GeneralUtility::makeInstance(LogManager::class)->getLogger(
+            $conditionVisitorClass,
+        );
+
+        // Core 13 uses setter injection; Core 14 requires its logger in the constructor.
+        // The loaded-major analyzer sees only one side of this native-tested branch.
+        /** @phpstan-ignore function.impossibleType, function.alreadyNarrowedType */
+        if (is_a($conditionVisitorClass, LoggerAwareInterface::class, true)) {
+            /** @phpstan-ignore arguments.count, method.internalClass, new.internalClass */
+            $matcher = new IncludeTreeConditionMatcherVisitor($context, $layout);
+            /** @phpstan-ignore method.notFound, method.internalClass */
+            $matcher->setLogger($logger);
+        } else {
+            /** @phpstan-ignore arguments.count, method.internalClass, new.internalClass */
+            $matcher = new IncludeTreeConditionMatcherVisitor($context, $layout, $logger);
+        }
+
+        /** @phpstan-ignore method.internalClass */
+        $matcher->initializeExpressionMatcherWithVariables(
+            [
+                'fullRootLine' => [],
+                'site' => new NullSite(),
+                'page' => [],
+                'pageId' => 0,
+            ],
+        );
+        /** @phpstan-ignore classConstant.internalClass */
+        $astVisitor = GeneralUtility::makeInstance(IncludeTreeAstBuilderVisitor::class);
+        /** @phpstan-ignore method.internalClass, new.internalClass */
+        (new ConditionVerdictAwareIncludeTreeTraverser())->traverse(
+            $tree,
+            [$matcher, $astVisitor],
+        );
+
+        /** @phpstan-ignore method.internalClass, new.internalClass */
+        return new PageTsConfig(
+            /** @phpstan-ignore method.internalClass */
+            $astVisitor->getAst(),
+            /** @phpstan-ignore method.internalClass */
+            $matcher->getConditionListWithVerdicts(),
+        );
     }
 }

@@ -71,6 +71,7 @@ ADR      Title                                                    Status
 041      :ref:`adr-041-additional-body-credentials`               Accepted
 042      :ref:`adr-042-identifier-list-patterns`                  Accepted
 046      :ref:`adr-046-flexform-copy-link-compensation`           Accepted
+049      :ref:`adr-049-selected-user-field-tsconfig`              Accepted
 =======  =======================================================  ========
 
 .. toctree::
@@ -120,3 +121,4 @@ ADR      Title                                                    Status
    ADR-041-AdditionalBodyCredentials
    ADR-042-IdentifierListPatterns
    ADR-046-FlexFormCopyLinkCompensation
+   ADR-049-SelectedUserFieldTsconfig
