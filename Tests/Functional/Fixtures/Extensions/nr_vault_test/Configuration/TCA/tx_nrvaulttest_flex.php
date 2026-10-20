@@ -19,20 +19,52 @@ use TYPO3\CMS\Core\Information\Typo3Version;
  * must leave alone is one a translation shares with its default-language
  * record. `tt_content` soft-deletes, so no test against it can reach that
  * branch.
+ *
+ * Only elements configured with renderType `vaultSecret` hold vault
+ * identifiers: `apiKey`, `apiKey0` to `apiKey2` and the `token` of an
+ * `endpoints` section item. `note`, `reference` and the section item's `url`
+ * are ordinary elements whose content is never a vault reference.
  */
+$vaultSecretElement = static fn (string $name, string $label): string => '<' . $name . '>
+                        <label>' . $label . '</label>
+                        <config>
+                            <type>input</type>
+                            <renderType>vaultSecret</renderType>
+                        </config>
+                    </' . $name . '>';
+$ordinaryElement = static fn (string $name, string $label): string => '<' . $name . '>
+                        <label>' . $label . '</label>
+                        <config>
+                            <type>input</type>
+                        </config>
+                    </' . $name . '>';
 $dataStructure = '<T3DataStructure>
     <sheets>
         <sDEF>
             <ROOT>
                 <type>array</type>
                 <el>
-                    <apiKey>
-                        <label>API Key</label>
-                        <config>
-                            <type>input</type>
-                            <renderType>vaultSecret</renderType>
-                        </config>
-                    </apiKey>
+                    ' . $vaultSecretElement('apiKey', 'API Key') . '
+                    ' . $vaultSecretElement('apiKey0', 'First key') . '
+                    ' . $vaultSecretElement('apiKey1', 'Second key') . '
+                    ' . $vaultSecretElement('apiKey2', 'Third key') . '
+                    ' . $ordinaryElement('note', 'Note') . '
+                    ' . $ordinaryElement('reference', 'Reference') . '
+                    <endpoints>
+                        <title>Endpoints</title>
+                        <type>array</type>
+                        <section>1</section>
+                        <el>
+                            <endpoint>
+                                <title>Endpoint</title>
+                                <type>array</type>
+                                <el>
+                                    ' . $vaultSecretElement('token', 'Token') . '
+                                    ' . $ordinaryElement('url', 'URL') . '
+                                </el>
+                            </endpoint>
+                        </el>
+                    </endpoints>
                 </el>
             </ROOT>
         </sDEF>

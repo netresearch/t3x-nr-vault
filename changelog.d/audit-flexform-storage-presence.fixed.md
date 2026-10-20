@@ -1,0 +1,5 @@
+- FlexForm hard deletion now distinguishes disabled stored secrets from absent references after complete sharing exclusions. Administrative lookup failures cancel the cascade before any preflight or deletion; existing availability behavior and plaintext read paths remain unchanged.
+
+- FlexForm hard deletion selects only values at elements the data structure configures with renderType `vaultSecret`, including section containers. A secret whose identifier merely appears in an ordinary FlexForm element is no longer deleted with the record. A record whose FlexForm value holds an identifier-shaped string but whose data structure cannot be resolved is kept, and the delete is cancelled.
+
+- FlexForm hard deletion preflights every unique, unshared secret before the first delete. Refused discovery, authorization or deletion retains the owning record and stops further deletes. The failure diagnostic discloses that secrets may already have been deleted, including a current delete whose post-persistence observer throws. Soft-delete/recycle still retains FlexForm secrets for restoration. See ADR-045.

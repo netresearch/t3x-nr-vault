@@ -40,6 +40,17 @@ from all its FlexForm columns and preflight every selected identifier through
 ``VaultServiceInterface::assertDeletable()`` before the first secret deletion.
 Use the same service for the actual deletions.
 
+A reference is a value at a position the column's data structure configures
+with renderType ``vaultSecret``, as a flat element or inside a section
+container. Candidate selection walks the data structure with the same matcher
+the write path uses. A UUID in any other element is ordinary content and never
+a candidate, whether or not a secret with that identifier exists. A column
+value without any identifier-shaped string needs no data structure. When such
+a string exists but the data structure cannot be resolved, or the stored value
+cannot be parsed, the vault positions cannot be located. That is a discovery
+failure: it cancels the record deletion like any other, and never reads as a
+column without vault positions.
+
 On discovery, authorization or deletion failure, stop the cascade and set
 Core's existing cancellation flag before invoking diagnostics. Report the
 existing correlation reference to the editor without including the raw cause. On success, leave Core to
@@ -75,6 +86,11 @@ failing current operation may itself have persisted its deletion before a
 secrets may already have been deleted; it must not imply rollback or promise
 that the failing target is intact. Cancellation is set before reporting so a
 diagnostic failure cannot defer that protection.
+
+A record whose FlexForm value holds an identifier-shaped string and whose data
+structure cannot be resolved cannot be hard-deleted until its data structure
+resolves again. Deleting it anyway would either miss its secrets or delete
+secrets this record merely mentions.
 
 This is a preflight within the FlexForm hook. A record mixing plain TCA vault
 fields and FlexForm fields still needs a separate cross-hook coordination
