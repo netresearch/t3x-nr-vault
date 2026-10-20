@@ -546,6 +546,15 @@ and edit remain allowed, and ``readOnly`` is always false. Non-admin results
 are cached separately by table, field, action and user UID until
 ``VaultFieldPermissionService::clearCache()`` clears that service cache.
 
+All three public field-permission wrappers accept an optional backend-user
+object. Supplying a distinct user evaluates that user's materialized
+``page.*`` overrides and native ``backend.user`` conditions against the same
+page-0 defaults. It leaves the global backend account, other Context aspects
+and Core's ambient Page TSconfig runtime cache untouched. The ordinary widget
+and Hook calls that omit the object retain Core's ambient resolution. This
+argument selects a field policy; it does not log in as that user or grant a
+Vault operation or secret ACL. See :ref:`adr-049-selected-user-field-tsconfig`.
+
 .. _tca-security-audit:
 
 Audit trail
