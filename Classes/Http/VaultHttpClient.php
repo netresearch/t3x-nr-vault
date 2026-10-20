@@ -1666,7 +1666,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         }
 
         foreach ($this->additionalBodyFields as $field => $identifier) {
-            if (!\is_string($field) || (\strlen($field) > 64 || preg_match('/\A[A-Za-z_]/D', $field) !== 1 || strspn($field, self::ADDITIONAL_BODY_FIELD_CHARACTERS) !== \strlen($field)) || !\is_string($identifier) || (!IdentifierValidator::isValid($identifier) || preg_match('/[\x00-\x1F\x7F]/', $identifier) === 1)) {
+            if (!\is_string($field) || (\strlen($field) > 64 || preg_match('/\A[A-Za-z_]/D', $field) !== 1 || strspn($field, self::ADDITIONAL_BODY_FIELD_CHARACTERS) !== \strlen($field)) || !\is_string($identifier) || (!IdentifierValidator::isValidForStorage($identifier) || preg_match('/[\x00-\x1F\x7F]/', $identifier) === 1)) {
                 throw new InvalidArgumentException(
                     'Additional body credentials require a simple field name and a Vault identifier.',
                     4345651550,
