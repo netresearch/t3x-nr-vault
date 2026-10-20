@@ -26,26 +26,14 @@ use PHPUnit\Framework\MockObject\Stub;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Client\ClientInterface;
 use Psr\Log\NullLogger;
-use Throwable;
 
 /**
- * Fuzz tests for OAuth token parsing / response handling.
+ * Adversarial OAuth token response and value-object regression cases.
  *
- * Properties under test:
- * - Malformed token-endpoint responses (missing fields, wrong types,
- *   nested arrays, extra keys) MUST NOT crash — always raise OAuthException
- *   or succeed with documented defaults.
- * - `expires_in`: negative, zero, PHP_INT_MAX, float, string — must clamp or
- *   be defaulted (3600) but MUST NOT cause fatal errors.
- * - OAuthToken::isExpired() returns true for far-past expiry, false for
- *   far-future expiry, regardless of buffer input.
- * - OAuthToken::getAuthorizationHeader() concatenates type + token
- *   without CRLF injection opportunity.
- * - Malformed JWT strings (missing segments, oversized header, base64 garbage,
- *   alg=none) passed as access_token survive without PHP fatal.
- * - Empty / whitespace / control-char refresh tokens in body don't trigger
- *   a re-store (positive security property — tested indirectly via exception
- *   shape because VaultService::store would be called on valid strings).
+ * Response cases exercise malformed fields, documented defaults and OAuthException
+ * handling. Expiry cases assert exact answers for past/future timestamps and signed
+ * buffers, including PHP_INT_MAX. Header cases assert raw concatenation only; they
+ * do not verify downstream PSR-7 validation or refresh-token persistence.
  */
 #[CoversClass(OAuthTokenManager::class)]
 #[CoversClass(OAuthToken::class)]
@@ -269,17 +257,11 @@ final class OAuthFuzzTest extends TestCase
             expiresAt: $expiresAt,
         );
 
-        try {
-            self::assertSame(
-                $expectedExpired,
-                $token->isExpired($buffer),
-                "Token expiry check for buffer={$buffer} should be " . ($expectedExpired ? 'true' : 'false'),
-            );
-        } catch (Throwable $e) {
-            // PHP_INT_MAX buffer causes DateTime overflow — surfacing as Throwable
-            // is acceptable; what is NOT acceptable is wrong-answer silent success.
-            self::assertInstanceOf(Throwable::class, $e);
-        }
+        self::assertSame(
+            $expectedExpired,
+            $token->isExpired($buffer),
+            "Token expiry check for buffer={$buffer} should be " . ($expectedExpired ? 'true' : 'false'),
+        );
     }
 
     /**
@@ -314,9 +296,7 @@ final class OAuthFuzzTest extends TestCase
     }
 
     /**
-     * OAuthToken construction never injects CRLF into the Authorization header
-     * — the caller/PSR-7 layer is expected to enforce this, but we document
-     * the contract so regressions are caught.
+     * The value object preserves raw CRLF. Downstream HTTP rejection is a separate test.
      */
     #[Test]
     public function authorizationHeaderContainsCrlfVerbatim(): void

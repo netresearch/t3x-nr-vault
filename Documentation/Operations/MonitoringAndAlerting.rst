@@ -356,7 +356,30 @@ sink identifier (``syslog``, ``file``, ``webhook``). These are what let a
 health surface say "the audit pipeline stopped flowing" rather than only
 "something logged an error".
 
-Two behaviours to know about when reading them:
+The total also includes failures whose destination cannot be identified.
+If ``getIdentifier()`` throws, the registry records an ``identifier-probe``
+failure and still attempts publication. An accepted record remains accepted;
+the unknown destination is omitted from the identifier list and persisted
+delivery state. No synthetic destination is invented for the per-sink counters.
+Unattributed diagnostics contain the operation and exception class, without
+the raw exception text.
+
+If enumeration of the tagged sinks throws, a ``sink-iterator`` failure is
+recorded. Already accepted records and collected identifiers are retained.
+The iterator's unseen suffix cannot be recovered. The total can therefore
+exceed the sum of the counters for known destinations.
+
+Both unattributed failures also raise a ``SINK_FAILURE`` alert, unless an
+alert is already being delivered. That alert carries the ``record`` key
+(``identifier-probe`` or ``sink-iterator``) and no ``sink`` key, and its detail
+names the operation instead of a destination. An alert rule that groups
+``SINK_FAILURE`` by ``sink`` must route alerts without that key as well, or it
+drops them. Status reads raise these alerts too:
+:php:`hasExternalAuditSink()` and :php:`getEnabledSinkIdentifiers()` enumerate
+the sinks and probe their identifiers, so ``vault:audit-verify`` and
+``vault:audit-anchor`` can raise one when enumeration or a probe fails.
+
+Two further behaviours to know about when reading them:
 
 *   **A sink whose own enablement probe throws is counted as failed and
     treated as disabled** — under the record kind ``enablement-probe``. Without
