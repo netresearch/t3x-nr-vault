@@ -68,9 +68,10 @@ ADR      Title                                                    Status
 038      :ref:`adr-038-unresolvable-host-is-refused`              Accepted
 039      :ref:`adr-039-streaming-send-keeps-the-dns-pin`          Accepted
 040      :ref:`adr-040-cancellable-send-bounds-silence`           Accepted
-041      :ref:`adr-041-additional-body-credentials`               Accepted
+041      :ref:`adr-041-additional-body-credentials`              Accepted
 042      :ref:`adr-042-identifier-list-patterns`                  Accepted
 043      :ref:`adr-043-site-secret-namespaces`                   Accepted
+044      :ref:`adr-044-signed-oauth-expiry-buffers`              Accepted
 046      :ref:`adr-046-flexform-copy-link-compensation`           Accepted
 047      :ref:`adr-047-hook-diagnostic-containment`               Proposed
 049      :ref:`adr-049-selected-user-field-tsconfig`              Accepted
@@ -123,6 +124,7 @@ ADR      Title                                                    Status
    ADR-041-AdditionalBodyCredentials
    ADR-042-IdentifierListPatterns
    ADR-043-SiteSecretNamespaces
+   ADR-044-SignedOAuthExpiryBuffers
    ADR-046-FlexFormCopyLinkCompensation
    ADR-047-HookDiagnosticContainment
    ADR-049-SelectedUserFieldTsconfig
