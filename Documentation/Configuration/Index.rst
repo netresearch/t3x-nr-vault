@@ -303,12 +303,28 @@ CLI access
    changes *which* secrets exist — a secret without
    ``frontend_accessible`` stays unreadable either way.
 
+.. confval:: provisioningBeUserUid
+   :name: ext-nrvault-provisioningBeUserUid
+   :type: integer
+   :Default: 0
+
+   Backend user UID used by :bash:`vault:store --as-provisioner`.
+   The default 0 disables this option. Configure a dedicated non-admin user
+   with the required ``tx_nrvault:secret.create`` and, for rotation,
+   ``tx_nrvault:secret.rotate`` group permissions. Writes remain subject to
+   access control and are attributed to this identity in the audit log.
+   The UID is read from trusted configuration, never from a CLI argument.
+
 .. confval:: auditLogRetention
    :name: ext-nrvault-auditLogRetention
    :type: integer
    :Default: 365
 
-   Number of days to retain audit log entries. Set to 0 for unlimited retention.
+   Configured retention policy in days, reported by :bash:`vault:doctor`.
+   Set to 0 to declare unlimited retention. This is advisory: nr-vault does
+   not automatically purge audit entries. Changing this value does not
+   delete existing rows. External archival or deletion requires a separate
+   strategy that preserves verifiable audit-chain boundaries.
 
 .. confval:: auditReads
    :name: ext-nrvault-auditReads
@@ -522,8 +538,13 @@ usable external sink is reported as a ``NO_EXTERNAL_SINK`` finding.
 
    Mirror every audit entry, chain-tip anchor and integrity alert to the local
    syslog as an RFC 5424 structured-data message on facility ``local0``. The
-   cheapest useful sink: on any host with a log shipper the audit trail leaves
-   the TYPO3 database with no extra infrastructure.
+   forwarding depends on the host's syslog and collector configuration.
+   PHP's ``syslog()`` always returns ``true``; it does not acknowledge delivery
+   to the local logging service or a collector, even if no socket is present.
+   A successful probe or recorded publish call therefore does not prove
+   receipt.
+   Verify the probe's chain-tip anchor in the collector's actual records.
+   See the `PHP syslog reference <https://www.php.net/manual/en/function.syslog.php>`__.
 
 .. confval:: auditSinkSyslogIdent
    :name: ext-nrvault-auditSinkSyslogIdent
@@ -614,9 +635,10 @@ usable external sink is reported as a ``NO_EXTERNAL_SINK`` finding.
    ``audit.sink_state.<sink>``: warning under the standard profile, critical
    under hardened). The per-sink delivery state — last success, last
    failure, consecutive failures — is persisted in ``sys_registry`` by the
-   sink registry, so a freshly started process still knows a collector has
-   been unreachable for days. Use
-   :bash:`vault:doctor --active-probes` to verify delivery end-to-end.
+   sink registry, so a freshly started process still sees observed failures.
+   Use :bash:`vault:doctor --active-probes` to exercise publication.
+   For syslog, recorded success means that PHP completed the publish calls;
+   confirm receipt separately in the local logging service or collector.
 
    .. note::
 
