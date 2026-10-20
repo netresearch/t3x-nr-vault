@@ -71,6 +71,87 @@ final class ChangelogFragmentsTest extends TestCase
             $this->changelog(),
         );
         self::assertFileDoesNotExist($this->repo . '/changelog.d/feat-x.fixed.md');
+        self::assertSame([], glob($this->repo . '/CHANGELOG.md.collect*'));
+    }
+
+    #[Test]
+    public function collectKeepsTheModeOfTheChangelog(): void
+    {
+        chmod($this->repo . '/CHANGELOG.md', 0o644);
+        $this->fragment('feat-x.fixed.md', "- A new fix.\n");
+
+        [$exit] = $this->runScript('collect');
+
+        clearstatcache();
+        self::assertSame(0, $exit);
+        self::assertSame(0o644, fileperms($this->repo . '/CHANGELOG.md') & 0o777);
+    }
+
+    #[Test]
+    public function collectDoesNotWriteThroughACheckedInSymlink(): void
+    {
+        // A pull request could check in CHANGELOG.md.collect as a symlink to
+        // any file of the person who later runs collect.
+        $victim = $this->repo . '/.git/victim.txt';
+        file_put_contents($victim, "untouched\n");
+        symlink($victim, $this->repo . '/CHANGELOG.md.collect');
+        $this->fragment('feat-x.fixed.md', "- A new fix.\n");
+
+        [$exit] = $this->runScript('collect');
+
+        self::assertSame(0, $exit);
+        self::assertSame("untouched\n", file_get_contents($victim));
+        self::assertTrue(is_link($this->repo . '/CHANGELOG.md.collect'));
+        self::assertStringContainsString("- A new fix.\n", $this->changelog());
+    }
+
+    #[Test]
+    public function collectKeepsTheFragmentsWhenTheChangelogCannotBeWritten(): void
+    {
+        $this->fragment('feat-x.fixed.md', "- A new fix.\n");
+        // In a read-only project directory tempnam() falls back to the system
+        // temp directory, which collect must refuse.
+        chmod($this->repo, 0o555);
+        clearstatcache();
+
+        try {
+            if (is_writable($this->repo)) {
+                self::markTestSkipped('The test user can write a read-only directory (root).');
+            }
+
+            [$exit, , $stderr] = $this->runScript('collect');
+        } finally {
+            chmod($this->repo, 0o755);
+        }
+
+        self::assertSame(2, $exit);
+        self::assertStringContainsString('it and the fragments are unchanged', $stderr);
+        self::assertSame(self::CHANGELOG, $this->changelog());
+        self::assertFileExists($this->repo . '/changelog.d/feat-x.fixed.md');
+    }
+
+    #[Test]
+    public function collectFailsWhenAFragmentCannotBeDeleted(): void
+    {
+        $this->fragment('feat-x.fixed.md', "- A new fix.\n");
+        // A read-only directory refuses the deletion of the file inside it.
+        chmod($this->repo . '/changelog.d', 0o555);
+        clearstatcache();
+
+        try {
+            if (is_writable($this->repo . '/changelog.d')) {
+                self::markTestSkipped('The test user can write a read-only directory (root).');
+            }
+
+            [$exit, , $stderr] = $this->runScript('collect');
+        } finally {
+            chmod($this->repo . '/changelog.d', 0o755);
+        }
+
+        self::assertSame(2, $exit);
+        self::assertStringContainsString('1 could not be deleted', $stderr);
+        self::assertStringContainsString('feat-x.fixed.md', $stderr);
+        self::assertStringContainsString("- A fixed line.\n\n- A new fix.\n", $this->changelog());
     }
 
     #[Test]

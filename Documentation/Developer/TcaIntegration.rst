@@ -429,19 +429,26 @@ and its audit entry commit together throughout, including the MM rows behind
 completion hook runs, so a snapshot taken beforehand is what restores them if
 the audit write fails.
 
-A **copy** clones every field or none: if one secret cannot be cloned, the
-secrets already cloned for that copy are deleted again and *all* vault fields
-of the new record are cleared, so the copy should not end up holding the source
-record's identifiers — it would otherwise share the original's secrets, and
-rotating or deleting one record would silently change the other. The editor
-gets an error message and re-enters the values.
+A **copy** gives the duplicate independent secret references. The plain TCA
+hook compensates across its recognized vault fields. FlexForm compensation
+currently covers each column: if cloning, final XML serialization or its link
+write fails, successfully stored clones of that column are abandoned and all
+recognized vault positions in the duplicate's column are cleared. Other
+FlexForm data is preserved. Whole-record coordination across several FlexForm
+columns or plain/FlexForm hooks remains separate audit work; this boundary does
+not make every record copy atomic (see
+:ref:`adr-046-flexform-copy-link-compensation`).
 
-Both halves of that rollback are best-effort. If a rollback delete fails, the
-clone it should have removed survives as an orphan that nothing references any
-more; the failure is logged for the administrator rather than shown to the
-editor. If the blanking write fails, the copy keeps the source record's
-identifiers and does share its secrets — the editor's error message says so
-explicitly, and the record needs manual review.
+Both cleanup and clearing are best-effort. Successful clearing with failed
+clone deletion can leave an unreferenced clone requiring reconciliation. A
+failed clearing write leaves uncertain references: the duplicate may still
+point to source secrets or to cloned secrets whose deletion already took
+effect. Its editor error therefore states that clearing failed and the record
+needs manual review, rather than claiming a successful rollback. The clearing
+update is attempted even if its XML matches the original copy snapshot,
+because a failing link write may already have changed the stored record.
+Diagnostic-provider failures and stores that throw after persistence remain
+separate audit work.
 
 A **delete** checks the delete permission of every vault field handled by
 its hook *before*
@@ -497,11 +504,25 @@ per-secret owner/group tiers. A backend user who may edit the record but holds
 neither will have the mutation refused, and the refusal is audited — see
 :ref:`security-operation-permissions` and :ref:`security-access-control`.
 
+A refused hook operation presents a cause-independent message and a fresh
+correlation reference. Its secondary diagnostic attempt uses that same
+reference; caller-supplied context cannot replace it. Other record metadata
+is preserved. Diagnostic string values, including the cause class, have
+control bytes removed and a final UTF-8-safe limit of 200 bytes, even when
+configured replacement of malformed UTF-8 expands the input or introduces
+control bytes. This concerns
+the hook's PSR-3 diagnostic context, rather than the persisted mutation-audit
+record. A correlation reference alone is not proof of log delivery.
+
 The reveal button requires explicit user action and is logged. Revealing also
 asserts ``secret.reveal``, which ``secret.use`` does not imply.
 
-On top of both gates, page TSconfig can narrow what the *widget* offers, per
-table and per field:
+On top of both gates, global (page 0) TSconfig can narrow field actions per
+table and field. The service resolves a field setting before the table default,
+then the global default; missing settings allow reveal, copy and edit, and
+leave the field writable. It does not read the edited record's page TSconfig.
+The same rules can be supplied as ``page.vault.permissions`` overrides in
+backend user TSconfig. For example:
 
 .. code-block:: typoscript
    :caption: Page TSconfig
@@ -527,9 +548,13 @@ table and per field:
        }
    }
 
-This layer only ever removes affordances from the form; it cannot grant an
-operation the permission gates withheld. Administrators are exempt from it,
-except for ``readOnly``.
+These rules cannot grant an operation that the vault permission gates
+withheld. ``reveal`` and ``copy`` control the widget. ``edit`` and ``readOnly``
+also protect the plain TCA-field DataHandler write path; FlexForm writes do
+not re-check this layer. Administrators bypass the restrictions: reveal, copy
+and edit remain allowed, and ``readOnly`` is always false. Non-admin results
+are cached separately by table, field, action and user UID until
+``VaultFieldPermissionService::clearCache()`` clears that service cache.
 
 .. _tca-security-audit:
 
