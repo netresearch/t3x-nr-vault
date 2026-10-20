@@ -323,7 +323,13 @@ final class FlexFormDeletePreflightTest extends TestCase
             );
         $cancelled = false;
         $caught = $this->runDelete(['flex_a' => self::FIRST], $cancelled);
-        self::assertSame($diagnosticFailure, $caught);
+        if ($diagnosticStage === 'reporter') {
+            // VaultFailureReporter swallows its own logger failure.
+            self::assertNull($caught);
+        } else {
+            self::assertSame($diagnosticFailure, $caught);
+        }
+
         self::assertTrue(
             $cancelled,
             'Even a broken logger must observe the already-set Core cancellation flag.',
