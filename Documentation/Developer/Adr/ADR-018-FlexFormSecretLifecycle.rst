@@ -79,8 +79,10 @@ own them.
     the same fail-closed copy and delete semantics to plain TCA vault fields,
     while :php:`FlexFormVaultHook` handles the FlexForm shape. The FlexForm
     cascade acts only on hard deletion; soft-delete/recycle keeps its secrets
-    for restoration. Its cancellation and preflight decision is clarified in
-    :ref:`adr-045-flexform-delete-refusal`. Multi-secret deletion has the
+    for restoration. The shipped FlexForm delete path does not fail closed
+    yet: it logs a failed secret delete, and core still removes the record.
+    :ref:`adr-045-flexform-delete-refusal` defines the cancellation and
+    preflight that the implementation repair adds. Multi-secret deletion has the
     preflight and best-effort residual described by
     :ref:`adr-036-mutation-audit-atomicity`, including an already-applied
     deletion whose post-persistence observer fails. Mixed plain-TCA and FlexForm records still need a
