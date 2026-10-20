@@ -177,9 +177,9 @@ namespace Netresearch\NrVault\Tests\Unit\Http {
         }
 
         /**
-         * NXDOMAIN / SERVFAIL / timeout all surface as `false`. The empty list
-         * hands the decision back to the HTTP client's normal connection-error
-         * path instead of inventing an address.
+         * A lookup returning false yields no checked address. The secured transport
+         * refuses an unresolved hostname unless it has an explicit allowlist entry;
+         * the resolver itself neither permits egress nor invents an address.
          */
         #[Test]
         public function failedLookupYieldsTheEmptyList(): void
@@ -283,28 +283,35 @@ namespace Netresearch\NrVault\Tests\Unit\Http {
         }
 
         /**
-         * The suppression sits in a `try/finally`: an exception escaping the
-         * lookup must not leave the whole request running under a swallow-all
-         * error handler.
+         * A thrown lookup failure must propagate unchanged and restore the caller's
+         * error handler. Assertions run after the execution catch and cleanup.
          */
         #[Test]
         public function errorHandlerIsRestoredWhenTheLookupThrows(): void
         {
-            self::$dnsHandler = static function (): never {
-                throw new RuntimeException('resolver exploded', 8304165671);
+            $failure = new RuntimeException('resolver exploded', 8304165671);
+            self::$dnsHandler = static function () use ($failure): never {
+                throw $failure;
             };
-
             $sentinel = static fn (): bool => true;
             set_error_handler($sentinel);
+            $caught = null;
 
             try {
                 $this->subject->resolve('vault.example.com');
-                self::fail('The exception from the lookup should propagate');
-            } catch (RuntimeException) {
-                self::assertSame($sentinel, $this->currentErrorHandler());
+            } catch (RuntimeException $exception) {
+                $caught = $exception;
             } finally {
+                $restored = $this->currentErrorHandler();
                 restore_error_handler();
             }
+
+            self::assertSame(
+                $failure,
+                $caught,
+                'The exact lookup failure must reach the caller.',
+            );
+            self::assertSame($sentinel, $restored);
         }
 
         /**

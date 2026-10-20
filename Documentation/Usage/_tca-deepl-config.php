@@ -1,14 +1,16 @@
 <?php
 
+declare(strict_types=1);
+
 /*
  * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
 return [
     'ctrl' => [
         'title' => 'DeepL Configuration',
         'label' => 'name',
+        'delete' => 'deleted',
         'rootLevel' => 1,
         'security' => [
             'ignorePageTypeRestriction' => true,

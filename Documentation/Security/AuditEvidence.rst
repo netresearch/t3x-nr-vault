@@ -240,8 +240,10 @@ and a delivery failure never fails the audited operation.
             the conventional slot for application audit streams). Severity:
             ``LOG_INFO`` for a successful entry, ``LOG_WARNING`` for a failed
             one, ``LOG_NOTICE`` for an anchor, ``LOG_CRIT`` for tamper
-            evidence, ``LOG_ERR`` for a delivery failure. The cheapest useful
-            sink: any host with a log shipper gets the chain off the database.
+            evidence, ``LOG_ERR`` for a delivery failure.
+            Forwarding depends on host configuration.
+            PHP reports completed calls without acknowledging receipt;
+            verify the anchor in the logging service or collector's records.
 
     *   -   ``file``
         -   ``auditSinkFileEnabled``,
