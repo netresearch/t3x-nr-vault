@@ -1,0 +1,16 @@
+{
+    "name": "netresearch/nr-vault-permission-config",
+    "description": "Page TSconfig condition and extension-default functional fixture",
+    "type": "typo3-cms-extension",
+    "version": "1.0.0",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "netresearch/nr-vault": "*"
+    },
+    "extra": {
+        "typo3/cms": {
+            "extension-key": "nr_vault_permission_config",
+            "providesPackages": {}
+        }
+    }
+}

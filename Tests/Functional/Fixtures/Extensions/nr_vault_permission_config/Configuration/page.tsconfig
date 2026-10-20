@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
+vault.permissions.extension_default.field.reveal = 0
+vault.permissions.uid_condition.field.reveal = 0
+[backend.user.userId == 2]
+vault.permissions.uid_condition.field.reveal = 1
+[end]
+vault.permissions.group_condition.field.reveal = 0
+[5 in backend.user.userGroupIds]
+vault.permissions.group_condition.field.reveal = 1
+[end]
+vault.permissions.admin_condition.field.reveal = 0
+[backend.user.isAdmin]
+vault.permissions.admin_condition.field.reveal = 1
+[end]
