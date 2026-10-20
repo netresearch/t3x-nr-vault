@@ -45,17 +45,17 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
     public function testRendersTheProfileBadgeAndPassRatio(): void
     {
         $html = $this->render([
-            'available' => true,
-            'profile' => 'hardened',
-            'auditReady' => false,
-            'severity' => 'warning',
-            'context' => 'warning',
-            'passed' => 19,
-            'total' => 22,
+            'available'     => true,
+            'profile'       => 'hardened',
+            'auditReady'    => false,
+            'severity'      => 'warning',
+            'context'       => 'warning',
+            'passed'        => 19,
+            'total'         => 22,
             'criticalCount' => 0,
-            'warningCount' => 3,
-            'detailed' => false,
-            'findings' => [],
+            'warningCount'  => 3,
+            'detailed'      => false,
+            'findings'      => [],
         ]);
 
         self::assertStringContainsString('vault-security-status', $html);
@@ -94,13 +94,13 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
             criticalCount: 1,
             findings: [
                 [
-                    'id' => 'audit.external_sink',
-                    'severity' => 'critical',
-                    'context' => 'danger',
-                    'summary' => 'No external audit sink is enabled.',
-                    'risk' => 'The audit trail exists only in the database it protects.',
+                    'id'          => 'audit.external_sink',
+                    'severity'    => 'critical',
+                    'context'     => 'danger',
+                    'summary'     => 'No external audit sink is enabled.',
+                    'risk'        => 'The audit trail exists only in the database it protects.',
                     'remediation' => 'Enable auditSinkFileEnabled.',
-                    'docsUrl' => 'https://example.org/docs/sinks',
+                    'docsUrl'     => 'https://example.org/docs/sinks',
                 ],
             ],
         ));
@@ -135,13 +135,13 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
             // must not render it even if a future caller forgets to.
             findings: [
                 [
-                    'id' => 'audit.external_sink',
-                    'severity' => 'critical',
-                    'context' => 'danger',
-                    'summary' => 'No external audit sink is enabled.',
-                    'risk' => 'leaked risk text',
+                    'id'          => 'audit.external_sink',
+                    'severity'    => 'critical',
+                    'context'     => 'danger',
+                    'summary'     => 'No external audit sink is enabled.',
+                    'risk'        => 'leaked risk text',
                     'remediation' => 'leaked remediation text',
-                    'docsUrl' => 'https://example.org/docs/sinks',
+                    'docsUrl'     => 'https://example.org/docs/sinks',
                 ],
             ],
         ));
@@ -156,17 +156,17 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
     public function testAnUnavailableRunRendersAWarningRatherThanABlankPanel(): void
     {
         $html = $this->render([
-            'available' => false,
-            'profile' => '',
-            'auditReady' => false,
-            'severity' => '',
-            'context' => 'warning',
-            'passed' => 0,
-            'total' => 0,
+            'available'     => false,
+            'profile'       => '',
+            'auditReady'    => false,
+            'severity'      => '',
+            'context'       => 'warning',
+            'passed'        => 0,
+            'total'         => 0,
             'criticalCount' => 0,
-            'warningCount' => 0,
-            'detailed' => false,
-            'findings' => [],
+            'warningCount'  => 0,
+            'detailed'      => false,
+            'findings'      => [],
         ]);
 
         self::assertStringContainsString('vault-security-unavailable', $html);
@@ -188,13 +188,13 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
             criticalCount: 1,
             findings: [
                 [
-                    'id' => 'audit.external_sink',
-                    'severity' => 'critical',
-                    'context' => 'danger',
-                    'summary' => '<script>alert(1)</script>',
-                    'risk' => '',
+                    'id'          => 'audit.external_sink',
+                    'severity'    => 'critical',
+                    'context'     => 'danger',
+                    'summary'     => '<script>alert(1)</script>',
+                    'risk'        => '',
                     'remediation' => '',
-                    'docsUrl' => '',
+                    'docsUrl'     => '',
                 ],
             ],
         ));
@@ -210,24 +210,24 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
         // doubles as the control that hides them — which only counts as a
         // control if it says so to assistive technology.
         $html = $this->render([
-            'available' => true,
-            'profile' => 'standard',
-            'auditReady' => false,
-            'severity' => 'warning',
-            'context' => 'warning',
-            'passed' => 20,
-            'total' => 24,
+            'available'     => true,
+            'profile'       => 'standard',
+            'auditReady'    => false,
+            'severity'      => 'warning',
+            'context'       => 'warning',
+            'passed'        => 20,
+            'total'         => 24,
             'criticalCount' => 1,
-            'warningCount' => 3,
-            'detailed' => true,
-            'findings' => [
+            'warningCount'  => 3,
+            'detailed'      => true,
+            'findings'      => [
                 [
-                    'id' => 'audit.hash_chain',
-                    'context' => 'danger',
-                    'summary' => 'Hash chain verification failed.',
-                    'risk' => '',
+                    'id'          => 'audit.hash_chain',
+                    'context'     => 'danger',
+                    'summary'     => 'Hash chain verification failed.',
+                    'risk'        => '',
                     'remediation' => '',
-                    'docsUrl' => '',
+                    'docsUrl'     => '',
                 ],
             ],
         ]);
@@ -244,7 +244,7 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
 
         // And the findings really do sit inside the collapsible region.
         $regionStart = strpos($html, 'id="vault-security-details"');
-        $findingPos = strpos($html, 'vault-security-finding"');
+        $findingPos  = strpos($html, 'vault-security-finding"');
         self::assertIsInt($regionStart);
         self::assertIsInt($findingPos);
         self::assertGreaterThan($regionStart, $findingPos);
@@ -268,17 +268,17 @@ final class SecurityStatusPartialTest extends FunctionalTestCase
         array $findings = [],
     ): array {
         return [
-            'available' => true,
-            'profile' => $profile,
-            'auditReady' => $auditReady,
-            'severity' => $auditReady ? 'pass' : 'warning',
-            'context' => $context,
-            'passed' => 19,
-            'total' => 22,
+            'available'     => true,
+            'profile'       => $profile,
+            'auditReady'    => $auditReady,
+            'severity'      => $auditReady ? 'pass' : 'warning',
+            'context'       => $context,
+            'passed'        => 19,
+            'total'         => 22,
             'criticalCount' => $criticalCount,
-            'warningCount' => $warningCount,
-            'detailed' => $detailed,
-            'findings' => $findings,
+            'warningCount'  => $warningCount,
+            'detailed'      => $detailed,
+            'findings'      => $findings,
         ];
     }
 

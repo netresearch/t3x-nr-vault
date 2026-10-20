@@ -50,7 +50,7 @@ final class VaultDoctorServiceTest extends TestCase
     #[Test]
     public function skipsChecksThatDoNotApplyToTheTargetProfile(): void
     {
-        $applicable = $this->check('a', [Finding::pass('a.one', 'ok')]);
+        $applicable   = $this->check('a', [Finding::pass('a.one', 'ok')]);
         $inapplicable = $this->check('b', [Finding::pass('b.one', 'ok')], appliesTo: false);
 
         $report = $this->service(SecurityProfile::Standard, $applicable, $inapplicable)->run();
@@ -115,7 +115,7 @@ final class VaultDoctorServiceTest extends TestCase
     public function oneCriticalOutweighsAnyNumberOfPasses(): void
     {
         $findings = [Finding::critical('a.bad', 'broken', 'risk', 'fix')];
-        for ($i = 0; $i < 20; $i++) {
+        for ($i = 0; $i < 20; ++$i) {
             $findings[] = Finding::pass('a.ok' . $i, 'ok');
         }
 

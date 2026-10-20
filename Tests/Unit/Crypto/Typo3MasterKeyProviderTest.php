@@ -15,6 +15,8 @@ use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 
+use function strlen;
+
 #[CoversClass(Typo3MasterKeyProvider::class)]
 final class Typo3MasterKeyProviderTest extends TestCase
 {
@@ -122,9 +124,9 @@ final class Typo3MasterKeyProviderTest extends TestCase
         ];
 
         $provider = new Typo3MasterKeyProvider();
-        $key = $provider->getMasterKey();
+        $key      = $provider->getMasterKey();
 
-        self::assertEquals(32, \strlen($key));
+        self::assertEquals(32, strlen($key));
     }
 
     #[Test]
@@ -137,8 +139,8 @@ final class Typo3MasterKeyProviderTest extends TestCase
         ];
 
         $provider = new Typo3MasterKeyProvider();
-        $key1 = $provider->getMasterKey();
-        $key2 = $provider->getMasterKey();
+        $key1     = $provider->getMasterKey();
+        $key2     = $provider->getMasterKey();
 
         self::assertEquals($key1, $key2);
     }
@@ -219,7 +221,7 @@ final class Typo3MasterKeyProviderTest extends TestCase
 
         $key = $provider->generateMasterKey();
 
-        self::assertEquals(32, \strlen($key));
+        self::assertEquals(32, strlen($key));
     }
 
     #[Test]

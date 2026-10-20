@@ -22,6 +22,9 @@ use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function is_resource;
+use function is_string;
+
 /**
  * Functional tests for the audit-chain re-key on master-key rotation:
  * the chain HMAC key derives from the master key, so after a re-key the
@@ -38,7 +41,7 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
     /** @var array<string, mixed> */
     protected array $extensionConfiguration = [
         'masterKeyProvider' => 'file',
-        'auditHmacEpoch' => 2,
+        'auditHmacEpoch'    => 2,
     ];
 
     #[Test]
@@ -46,7 +49,7 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
         $rekeyService = $this->get(AuditChainRekeyServiceInterface::class);
-        $connection = $this->getAuditConnection();
+        $connection   = $this->getAuditConnection();
 
         // Seed a chain sealed under the ORIGINAL master key.
         $auditService->log('rekey_test_secret', 'create', true);
@@ -91,7 +94,7 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
         $rekeyService = $this->get(AuditChainRekeyServiceInterface::class);
-        $connection = $this->getAuditConnection();
+        $connection   = $this->getAuditConnection();
 
         // Two legacy keyless (epoch 0) rows at the head of the chain — these
         // do not depend on the master key at all.
@@ -137,7 +140,7 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
         $rekeyService = $this->get(AuditChainRekeyServiceInterface::class);
-        $connection = $this->getAuditConnection();
+        $connection   = $this->getAuditConnection();
 
         $auditService->log('idempotency_secret', 'create', true);
         $auditService->log('idempotency_secret', 'read', true);
@@ -170,7 +173,7 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
         $rekeyService = $this->get(AuditChainRekeyServiceInterface::class);
-        $connection = $this->getAuditConnection();
+        $connection   = $this->getAuditConnection();
 
         $auditService->log('truncation_secret', 'create', true);
         $auditService->log('truncation_secret', 'read', true);
@@ -215,9 +218,9 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
 
     private function rawAnchorValue(): ?string
     {
-        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('sys_registry');
+        $connection   = $this->get(ConnectionPool::class)->getConnectionForTable('sys_registry');
         $queryBuilder = $connection->createQueryBuilder();
-        $value = $queryBuilder
+        $value        = $queryBuilder
             ->select('entry_value')
             ->from('sys_registry')
             ->where(
@@ -227,13 +230,13 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
             ->executeQuery()
             ->fetchOne();
 
-        if (\is_resource($value)) {
+        if (is_resource($value)) {
             $contents = stream_get_contents($value);
 
-            return \is_string($contents) ? $contents : null;
+            return is_string($contents) ? $contents : null;
         }
 
-        return \is_string($value) ? $value : null;
+        return is_string($value) ? $value : null;
     }
 
     private function getAuditConnection(): Connection
@@ -260,19 +263,19 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
     private function insertKeylessEntry(Connection $connection, string $secretIdentifier, string $action): void
     {
         $previousHash = $this->fetchLatestEntryHash($connection);
-        $crdate = time();
+        $crdate       = time();
 
         $connection->insert(self::TABLE_NAME, [
-            'pid' => 0,
+            'pid'               => 0,
             'secret_identifier' => $secretIdentifier,
-            'action' => $action,
-            'success' => 1,
-            'actor_uid' => 1,
-            'actor_type' => 'backend',
-            'previous_hash' => $previousHash,
-            'crdate' => $crdate,
-            'hmac_key_epoch' => 0,
-            'context' => '{}',
+            'action'            => $action,
+            'success'           => 1,
+            'actor_uid'         => 1,
+            'actor_type'        => 'backend',
+            'previous_hash'     => $previousHash,
+            'crdate'            => $crdate,
+            'hmac_key_epoch'    => 0,
+            'context'           => '{}',
         ]);
         $uid = (int) $connection->lastInsertId();
 
@@ -293,7 +296,7 @@ final class AuditChainRekeyServiceTest extends AbstractVaultFunctionalTestCase
             ->executeQuery()
             ->fetchOne();
 
-        return \is_string($hash) ? $hash : '';
+        return is_string($hash) ? $hash : '';
     }
 
     /**

@@ -38,7 +38,7 @@ interface EncryptionServiceInterface
      * Always produces {@see self::ENCRYPTION_VERSION_CURRENT} envelopes with
      * an explicit algorithm marker recorded in the returned DTO.
      *
-     * @param string $plaintext The value to encrypt
+     * @param string $plaintext  The value to encrypt
      * @param string $identifier Secret identifier (used as AAD)
      *
      * @throws EncryptionException If encryption fails
@@ -53,21 +53,21 @@ interface EncryptionServiceInterface
      * from host capabilities + configuration exactly as before the marker
      * existed.
      *
-     * @param string $encryptedValue Base64-encoded ciphertext
-     * @param string $encryptedDek Base64-encoded encrypted DEK
-     * @param string $dekNonce Base64-encoded DEK nonce
-     * @param string $valueNonce Base64-encoded value nonce
-     * @param string $identifier Secret identifier (used as AAD)
-     * @param int $encryptionVersion Stored per-secret encryption version
+     * @param string $encryptedValue      Base64-encoded ciphertext
+     * @param string $encryptedDek        Base64-encoded encrypted DEK
+     * @param string $dekNonce            Base64-encoded DEK nonce
+     * @param string $valueNonce          Base64-encoded value nonce
+     * @param string $identifier          Secret identifier (used as AAD)
+     * @param int    $encryptionVersion   Stored per-secret encryption version
      * @param string $encryptionAlgorithm Stored per-secret algorithm marker
      *                                    ({@see EncryptionAlgorithm} value);
      *                                    required for version 2+, must be ''
      *                                    for version 1
      *
+     * @return string The decrypted plaintext
+     *
      * @throws EncryptionException If decryption fails or the marker is
      *                             unknown/unavailable on this host
-     *
-     * @return string The decrypted plaintext
      */
     public function decrypt(
         #[SensitiveParameter]
@@ -105,12 +105,12 @@ interface EncryptionServiceInterface
      * legacy host-derived algorithm for version 1. The secret's version and
      * algorithm marker are unchanged by this operation.
      *
-     * @param string $encryptedDek Current encrypted DEK
-     * @param string $dekNonce Current DEK nonce
-     * @param string $identifier Secret identifier
-     * @param string $oldMasterKey Previous master key
-     * @param string $newMasterKey New master key
-     * @param int $encryptionVersion Stored per-secret encryption version
+     * @param string $encryptedDek        Current encrypted DEK
+     * @param string $dekNonce            Current DEK nonce
+     * @param string $identifier          Secret identifier
+     * @param string $oldMasterKey        Previous master key
+     * @param string $newMasterKey        New master key
+     * @param int    $encryptionVersion   Stored per-secret encryption version
      * @param string $encryptionAlgorithm Stored per-secret algorithm marker
      *                                    (required for version 2+, '' for
      *                                    version 1)

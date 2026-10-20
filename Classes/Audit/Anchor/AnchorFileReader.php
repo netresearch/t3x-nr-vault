@@ -13,6 +13,8 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
+use function is_array;
+
 /**
  * Reads chain-tip anchors from the NDJSON anchor file written by
  * {@see \Netresearch\NrVault\Audit\Sink\JsonFileAuditSink}.
@@ -118,12 +120,12 @@ final readonly class AnchorFileReader implements AnchorReaderInterface
             return null;
         }
 
-        if (!\is_array($decoded) || ($decoded['type'] ?? null) !== 'anchor') {
+        if (!is_array($decoded) || ($decoded['type'] ?? null) !== 'anchor') {
             return null;
         }
 
         $payload = $decoded['anchor'] ?? null;
-        if (!\is_array($payload)) {
+        if (!is_array($payload)) {
             return null;
         }
 

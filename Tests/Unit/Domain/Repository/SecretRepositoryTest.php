@@ -27,6 +27,11 @@ use TYPO3\CMS\Core\Database\Query\Restriction\DefaultRestrictionContainer;
 use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface;
 
+use function count;
+use function in_array;
+use function is_int;
+use function sprintf;
+
 /**
  * Unit tests for {@see SecretRepository}.
  *
@@ -54,9 +59,9 @@ final class SecretRepositoryTest extends TestCase
     {
         parent::setUp();
 
-        $this->connectionPool = $this->createStub(ConnectionPool::class);
-        $this->connection = $this->createStub(Connection::class);
-        $this->queryBuilder = $this->createStub(QueryBuilder::class);
+        $this->connectionPool    = $this->createStub(ConnectionPool::class);
+        $this->connection        = $this->createStub(Connection::class);
+        $this->queryBuilder      = $this->createStub(QueryBuilder::class);
         $this->expressionBuilder = $this->createStub(ExpressionBuilder::class);
 
         $this->connectionPool
@@ -89,7 +94,7 @@ final class SecretRepositoryTest extends TestCase
     public function findByIdentifierReturnsSecretWhenFound(): void
     {
         $secretRow = $this->createSecretRow('test-id');
-        $result = $this->createStub(Result::class);
+        $result    = $this->createStub(Result::class);
         $result->method('fetchAssociative')->willReturn($secretRow);
 
         // Group load issues two further executeQuery calls on the MM tables
@@ -243,7 +248,7 @@ final class SecretRepositoryTest extends TestCase
     public function findByUidReturnsSecretWhenFound(): void
     {
         $secretRow = $this->createSecretRow('uid-test', 42);
-        $result = $this->createStub(Result::class);
+        $result    = $this->createStub(Result::class);
         $result->method('fetchAssociative')->willReturn($secretRow);
 
         // Read tier + write tier MM lookups follow the secret-row fetch.
@@ -272,7 +277,7 @@ final class SecretRepositoryTest extends TestCase
     #[Test]
     public function findByUidIncludingDisabledLiftsOnlyTheHiddenRestriction(): void
     {
-        $predicates = [];
+        $predicates   = [];
         $restrictions = $this->wireIncludingDisabledLookup($this->createMissingRowResult(), $predicates);
 
         $restrictions
@@ -296,7 +301,7 @@ final class SecretRepositoryTest extends TestCase
     #[Test]
     public function findByUidIncludingDisabledKeepsTheDeletedPredicate(): void
     {
-        $predicates = [];
+        $predicates   = [];
         $restrictions = $this->wireIncludingDisabledLookup($this->createMissingRowResult(), $predicates);
 
         $restrictions
@@ -324,9 +329,9 @@ final class SecretRepositoryTest extends TestCase
     #[Test]
     public function findByUidIncludingDisabledReturnsSecretWhenFound(): void
     {
-        $secretRow = $this->createSecretRow('disabled-uid-test', 42);
+        $secretRow           = $this->createSecretRow('disabled-uid-test', 42);
         $secretRow['hidden'] = 1;
-        $result = $this->createStub(Result::class);
+        $result              = $this->createStub(Result::class);
         $result->method('fetchAssociative')->willReturn($secretRow);
 
         // Read tier + write tier MM lookups follow the secret-row fetch.
@@ -632,7 +637,7 @@ final class SecretRepositoryTest extends TestCase
     #[Test]
     public function findExpiredReturnsExpiredSecrets(): void
     {
-        $expiredRow = $this->createSecretRow('expired', 1);
+        $expiredRow               = $this->createSecretRow('expired', 1);
         $expiredRow['expires_at'] = time() - 3600;
 
         $result = $this->createStub(Result::class);
@@ -649,7 +654,7 @@ final class SecretRepositoryTest extends TestCase
     #[Test]
     public function findExpiringSoonReturnsSecretsExpiringSoon(): void
     {
-        $soonRow = $this->createSecretRow('expiring-soon', 1);
+        $soonRow               = $this->createSecretRow('expiring-soon', 1);
         $soonRow['expires_at'] = time() + 3600;
 
         $result = $this->createStub(Result::class);
@@ -688,8 +693,8 @@ final class SecretRepositoryTest extends TestCase
     public function findByIdentifierLoadsGroupsWhenPresent(): void
     {
         // Use a fresh subject to avoid setUp createQueryBuilder stub conflict
-        $connectionPool = $this->createStub(ConnectionPool::class);
-        $connection = $this->createStub(Connection::class);
+        $connectionPool    = $this->createStub(ConnectionPool::class);
+        $connection        = $this->createStub(Connection::class);
         $expressionBuilder = $this->createStub(ExpressionBuilder::class);
         $expressionBuilder->method('eq')->willReturn(self::EXPR_EQ);
 
@@ -729,8 +734,8 @@ final class SecretRepositoryTest extends TestCase
     public function findByUidLoadsGroupsWhenPresent(): void
     {
         // Use a fresh subject to avoid setUp createQueryBuilder stub conflict
-        $connectionPool = $this->createStub(ConnectionPool::class);
-        $connection = $this->createStub(Connection::class);
+        $connectionPool    = $this->createStub(ConnectionPool::class);
+        $connection        = $this->createStub(Connection::class);
         $expressionBuilder = $this->createStub(ExpressionBuilder::class);
         $expressionBuilder->method('eq')->willReturn(self::EXPR_EQ);
 
@@ -873,9 +878,9 @@ final class SecretRepositoryTest extends TestCase
             ->method('executeStatement')
             ->with(
                 self::equalTo($expectedSql),
-                self::callback(static fn (array $params): bool => \count($params) === 2
+                self::callback(static fn (array $params): bool => count($params) === 2
                     && $params[1] === 42
-                    && \is_int($params[0])
+                    && is_int($params[0])
                     && $params[0] >= (time() - 2)
                     && $params[0] <= (time() + 2)),
                 self::anything(),
@@ -901,8 +906,8 @@ final class SecretRepositoryTest extends TestCase
     public function findAllWithFiltersReturnsSecretsWithBatchLoadedGroups(): void
     {
         // Use a fresh subject to avoid setUp createQueryBuilder stub conflict
-        $connectionPool = $this->createStub(ConnectionPool::class);
-        $connection = $this->createStub(Connection::class);
+        $connectionPool    = $this->createStub(ConnectionPool::class);
+        $connection        = $this->createStub(Connection::class);
         $expressionBuilder = $this->createStub(ExpressionBuilder::class);
         $expressionBuilder->method('eq')->willReturn(self::EXPR_EQ);
         $expressionBuilder->method('in')->willReturn(self::EXPR_IN);
@@ -979,8 +984,8 @@ final class SecretRepositoryTest extends TestCase
     public function findByGroupsReturnsSecretsForMatchingGroups(): void
     {
         // Create a fresh subject with its own connection mock to avoid setUp stub conflicts
-        $connectionPool = $this->createStub(ConnectionPool::class);
-        $connection = $this->createStub(Connection::class);
+        $connectionPool    = $this->createStub(ConnectionPool::class);
+        $connection        = $this->createStub(Connection::class);
         $expressionBuilder = $this->createStub(ExpressionBuilder::class);
         $expressionBuilder->method('eq')->willReturn(self::EXPR_EQ);
         $expressionBuilder->method('in')->willReturn(self::EXPR_IN);
@@ -994,8 +999,8 @@ final class SecretRepositoryTest extends TestCase
         $mmResult->method('fetchFirstColumn')->willReturn([1, 2]);
 
         // Second call: main secrets query
-        $row1 = $this->createSecretRow('group-secret-1', 1);
-        $row2 = $this->createSecretRow('group-secret-2', 2);
+        $row1          = $this->createSecretRow('group-secret-1', 1);
+        $row2          = $this->createSecretRow('group-secret-2', 2);
         $secretsResult = $this->createStub(Result::class);
         $secretsResult->method('fetchAllAssociative')->willReturn([$row1, $row2]);
 
@@ -1096,7 +1101,7 @@ final class SecretRepositoryTest extends TestCase
         self::assertSame(
             $expectedUid,
             $saved->getUid(),
-            \sprintf('Failed asserting UID fallback for case: %s', $description),
+            sprintf('Failed asserting UID fallback for case: %s', $description),
         );
     }
 
@@ -1128,7 +1133,7 @@ final class SecretRepositoryTest extends TestCase
             ->with(
                 'tx_nrvault_secret_begroups_mm',
                 self::callback(static fn (array $data): bool => $data['uid_local'] === 77
-                    && \in_array($data['uid_foreign'], [11, 13], true)
+                    && in_array($data['uid_foreign'], [11, 13], true)
                     && isset($data['sorting'])),
             );
 
@@ -1171,13 +1176,13 @@ final class SecretRepositoryTest extends TestCase
     public function findByIdentifierResolvesMmConnectionForGroupsLookup(): void
     {
         $secretRow = [
-            'uid' => 42,
-            'identifier' => 'route-test',
+            'uid'             => 42,
+            'identifier'      => 'route-test',
             'encrypted_value' => 'enc',
-            'encrypted_dek' => 'dek',
-            'dek_nonce' => 'dn',
-            'value_nonce' => 'vn',
-            'value_checksum' => 'cs',
+            'encrypted_dek'   => 'dek',
+            'dek_nonce'       => 'dn',
+            'value_nonce'     => 'vn',
+            'value_checksum'  => 'cs',
         ];
 
         $secretResult = $this->createStub(Result::class);
@@ -1187,7 +1192,7 @@ final class SecretRepositoryTest extends TestCase
         $mmResult->method('fetchAllAssociative')->willReturn([]);
 
         // Two separate Connection stubs — one per table.
-        $secretConnection = $this->createStub(Connection::class);
+        $secretConnection   = $this->createStub(Connection::class);
         $secretQueryBuilder = $this->createStub(QueryBuilder::class);
         $secretQueryBuilder->method('expr')->willReturn($this->expressionBuilder);
         $secretQueryBuilder->method('select')->willReturnSelf();
@@ -1197,7 +1202,7 @@ final class SecretRepositoryTest extends TestCase
         $secretQueryBuilder->method('executeQuery')->willReturn($secretResult);
         $secretConnection->method('createQueryBuilder')->willReturn($secretQueryBuilder);
 
-        $mmConnection = $this->createStub(Connection::class);
+        $mmConnection   = $this->createStub(Connection::class);
         $mmQueryBuilder = $this->createStub(QueryBuilder::class);
         $mmQueryBuilder->method('expr')->willReturn($this->expressionBuilder);
         $mmQueryBuilder->method('select')->willReturnSelf();
@@ -1211,7 +1216,7 @@ final class SecretRepositoryTest extends TestCase
         // be called with BOTH 'tx_nrvault_secret' (for the row fetch) AND
         // 'tx_nrvault_secret_begroups_mm' (for the groups lookup).
         $requestedTables = [];
-        $pool = self::createStub(ConnectionPool::class);
+        $pool            = self::createStub(ConnectionPool::class);
         $pool->method('getConnectionForTable')->willReturnCallback(
             static function (string $table) use (&$requestedTables, $secretConnection, $mmConnection): Connection {
                 $requestedTables[] = $table;
@@ -1289,7 +1294,7 @@ final class SecretRepositoryTest extends TestCase
      */
     private function useStrictQueryBuilderAndExpressionBuilderMocks(): array
     {
-        $exprMock = $this->createMock(ExpressionBuilder::class);
+        $exprMock                = $this->createMock(ExpressionBuilder::class);
         $this->expressionBuilder = $exprMock;
 
         $qbMock = $this->createMock(QueryBuilder::class);
@@ -1439,25 +1444,25 @@ final class SecretRepositoryTest extends TestCase
     private function createSecretRow(string $identifier, int $uid = 1): array
     {
         return [
-            'uid' => $uid,
-            'pid' => 0,
-            'identifier' => $identifier,
-            'encrypted_value' => base64_encode('encrypted'),
-            'encrypted_dek' => base64_encode('dek'),
-            'dek_nonce' => base64_encode('deknonce'),
-            'value_nonce' => base64_encode('valuenonce'),
-            'value_checksum' => str_repeat('c', 64),
+            'uid'                => $uid,
+            'pid'                => 0,
+            'identifier'         => $identifier,
+            'encrypted_value'    => base64_encode('encrypted'),
+            'encrypted_dek'      => base64_encode('dek'),
+            'dek_nonce'          => base64_encode('deknonce'),
+            'value_nonce'        => base64_encode('valuenonce'),
+            'value_checksum'     => str_repeat('c', 64),
             'encryption_version' => 1,
-            'context' => '',
-            'label' => 'Test Secret',
-            'description' => 'Test description',
-            'owner_uid' => 0,
-            'scope_pid' => 0,
-            'expires_at' => 0,
-            'allowed_groups' => 0,
-            'tstamp' => time(),
-            'crdate' => time(),
-            'deleted' => 0,
+            'context'            => '',
+            'label'              => 'Test Secret',
+            'description'        => 'Test description',
+            'owner_uid'          => 0,
+            'scope_pid'          => 0,
+            'expires_at'         => 0,
+            'allowed_groups'     => 0,
+            'tstamp'             => time(),
+            'crdate'             => time(),
+            'deleted'            => 0,
         ];
     }
 }

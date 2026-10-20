@@ -21,7 +21,7 @@ final class OrphanSecretInfoTest extends TestCase
     #[Test]
     public function constructorSetsAllProperties(): void
     {
-        $metadata = ['env' => 'production', 'owner' => 'team-a'];
+        $metadata  = ['env' => 'production', 'owner' => 'team-a'];
         $createdAt = 1700000000;
 
         $subject = new OrphanSecretInfo(
@@ -40,7 +40,7 @@ final class OrphanSecretInfoTest extends TestCase
     {
         $subject = OrphanSecretInfo::fromArray([
             'identifier' => 'api-key',
-            'metadata' => ['service' => 'stripe'],
+            'metadata'   => ['service' => 'stripe'],
             'created_at' => 1700000000,
         ]);
 
@@ -73,7 +73,7 @@ final class OrphanSecretInfoTest extends TestCase
     public function getAgeInSecondsReturnsPositiveValueForPastTimestamp(): void
     {
         $pastTimestamp = time() - 3600; // 1 hour ago
-        $subject = new OrphanSecretInfo('id', [], $pastTimestamp);
+        $subject       = new OrphanSecretInfo('id', [], $pastTimestamp);
 
         $age = $subject->getAgeInSeconds();
 
@@ -93,9 +93,9 @@ final class OrphanSecretInfoTest extends TestCase
     #[Test]
     public function getAgeInDaysReturnsCorrectNumberOfDays(): void
     {
-        $daysAgo = 10;
+        $daysAgo       = 10;
         $pastTimestamp = time() - ($daysAgo * 86400);
-        $subject = new OrphanSecretInfo('id', [], $pastTimestamp);
+        $subject       = new OrphanSecretInfo('id', [], $pastTimestamp);
 
         // Allow 1 day tolerance for boundary conditions
         self::assertGreaterThanOrEqual($daysAgo - 1, $subject->getAgeInDays());
@@ -118,7 +118,7 @@ final class OrphanSecretInfoTest extends TestCase
         bool $expected,
     ): void {
         $pastTimestamp = time() - ($ageInDays * 86400);
-        $subject = new OrphanSecretInfo('id', [], $pastTimestamp);
+        $subject       = new OrphanSecretInfo('id', [], $pastTimestamp);
 
         self::assertSame($expected, $subject->isOlderThanDays($threshold));
     }
@@ -171,11 +171,11 @@ final class OrphanSecretInfoTest extends TestCase
     public function toArrayReturnsCorrectStructure(): void
     {
         $metadata = ['service' => 'aws'];
-        $subject = new OrphanSecretInfo('orphan-key', $metadata, 1700000000);
+        $subject  = new OrphanSecretInfo('orphan-key', $metadata, 1700000000);
 
         self::assertSame([
             'identifier' => 'orphan-key',
-            'metadata' => $metadata,
+            'metadata'   => $metadata,
             'created_at' => 1700000000,
         ], $subject->toArray());
     }
@@ -185,7 +185,7 @@ final class OrphanSecretInfoTest extends TestCase
     {
         $original = [
             'identifier' => 'test-secret',
-            'metadata' => ['region' => 'eu-west-1'],
+            'metadata'   => ['region' => 'eu-west-1'],
             'created_at' => 1700000000,
         ];
 

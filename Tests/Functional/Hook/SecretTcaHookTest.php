@@ -39,9 +39,9 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
             [
                 'tx_nrvault_secret' => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => 'test_secret_' . bin2hex(random_bytes(4)),
-                        'description' => 'Test secret created via DataHandler',
+                        'pid'          => 0,
+                        'identifier'   => 'test_secret_' . bin2hex(random_bytes(4)),
+                        'description'  => 'Test secret created via DataHandler',
                         'secret_input' => 'my-secret-value-123',
                     ],
                 ],
@@ -69,9 +69,9 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
             [
                 'tx_nrvault_secret' => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => $identifier,
-                        'description' => 'Test',
+                        'pid'          => 0,
+                        'identifier'   => $identifier,
+                        'description'  => 'Test',
                         'secret_input' => 'should-not-be-in-database',
                     ],
                 ],
@@ -86,7 +86,7 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
         // Verify secret_input is not stored in database (it's not a real column)
         // The secret should be stored via VaultService, not directly in the record
         $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret');
-        $record = $connection->select(
+        $record     = $connection->select(
             ['*'],
             'tx_nrvault_secret',
             ['uid' => $newUid],
@@ -106,10 +106,10 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
             [
                 'tx_nrvault_secret' => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => $identifier,
+                        'pid'         => 0,
+                        'identifier'  => $identifier,
                         'description' => 'Test owner uid extraction',
-                        'owner_uid' => 'be_users_42',
+                        'owner_uid'   => 'be_users_42',
                     ],
                 ],
             ],
@@ -122,7 +122,7 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
 
         // Verify owner_uid was extracted to numeric value
         $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret');
-        $record = $connection->select(
+        $record     = $connection->select(
             ['owner_uid'],
             'tx_nrvault_secret',
             ['uid' => $newUid],
@@ -142,10 +142,10 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
             [
                 'tx_nrvault_secret' => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => $identifier,
+                        'pid'         => 0,
+                        'identifier'  => $identifier,
                         'description' => 'Test scope pid extraction',
-                        'scope_pid' => 'pages_100',
+                        'scope_pid'   => 'pages_100',
                     ],
                 ],
             ],
@@ -158,7 +158,7 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
 
         // Verify scope_pid was extracted to numeric value
         $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret');
-        $record = $connection->select(
+        $record     = $connection->select(
             ['scope_pid'],
             'tx_nrvault_secret',
             ['uid' => $newUid],
@@ -171,7 +171,7 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function secretIsStoredViaVaultService(): void
     {
-        $identifier = 'test_vault_store_' . bin2hex(random_bytes(4));
+        $identifier  = 'test_vault_store_' . bin2hex(random_bytes(4));
         $secretValue = 'my-stored-secret-value';
 
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
@@ -179,9 +179,9 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
             [
                 'tx_nrvault_secret' => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => $identifier,
-                        'description' => 'Test secret storage',
+                        'pid'          => 0,
+                        'identifier'   => $identifier,
+                        'description'  => 'Test secret storage',
                         'secret_input' => $secretValue,
                     ],
                 ],
@@ -208,9 +208,9 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function updateSecretRecordRotatesSecret(): void
     {
-        $identifier = 'test_rotate_' . bin2hex(random_bytes(4));
+        $identifier    = 'test_rotate_' . bin2hex(random_bytes(4));
         $originalValue = 'original-secret-value';
-        $rotatedValue = 'rotated-secret-value';
+        $rotatedValue  = 'rotated-secret-value';
 
         // First, create the record
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
@@ -218,9 +218,9 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
             [
                 'tx_nrvault_secret' => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => $identifier,
-                        'description' => 'Test rotation',
+                        'pid'          => 0,
+                        'identifier'   => $identifier,
+                        'description'  => 'Test rotation',
                         'secret_input' => $originalValue,
                     ],
                 ],
@@ -271,9 +271,9 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
             [
                 'tx_nrvault_secret' => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => $identifier,
-                        'description' => 'Before metadata update',
+                        'pid'          => 0,
+                        'identifier'   => $identifier,
+                        'description'  => 'Before metadata update',
                         'secret_input' => 'metadata-update-secret',
                     ],
                 ],
@@ -308,7 +308,7 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
 
         // The metadata change must be sealed into the audit chain
         $auditService = $this->get(AuditLogServiceInterface::class);
-        $actions = array_map(
+        $actions      = array_map(
             static fn (AuditLogEntry $entry): string => $entry->action,
             $auditService->query(AuditLogFilter::forSecret($identifier)),
         );
@@ -329,9 +329,9 @@ final class SecretTcaHookTest extends AbstractVaultFunctionalTestCase
             [
                 'tx_nrvault_secret' => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => $identifier,
-                        'description' => 'Test delete audit',
+                        'pid'          => 0,
+                        'identifier'   => $identifier,
+                        'description'  => 'Test delete audit',
                         'secret_input' => 'to-be-deleted',
                     ],
                 ],

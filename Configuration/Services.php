@@ -23,9 +23,9 @@ return static function (ContainerConfigurator $containerConfigurator, ContainerB
     // majors fill their registry from. The shells are excluded from the
     // Services.yaml resource glob, so nothing tries to load the other one.
     $upgradeWizard = match (true) {
-        interface_exists(CoreUpgradeWizardInterface::class) => AuditHmacMigrationWizard::class,
+        interface_exists(CoreUpgradeWizardInterface::class)    => AuditHmacMigrationWizard::class,
         interface_exists(InstallUpgradeWizardInterface::class) => AuditHmacMigrationWizardV13::class,
-        default => null,
+        default                                                => null,
     };
     if ($upgradeWizard !== null) {
         $containerConfigurator->services()

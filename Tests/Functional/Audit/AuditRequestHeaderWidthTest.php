@@ -46,7 +46,7 @@ final class AuditRequestHeaderWidthTest extends AbstractVaultFunctionalTestCase
             ->withHeader('User-Agent', str_repeat('B', 900));
 
         $auditService = $this->get(AuditLogServiceInterface::class);
-        $identifier = 'test_audit_header_width';
+        $identifier   = 'test_audit_header_width';
 
         $auditService->log($identifier, 'create', true);
 

@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Exception;
 
+use function sprintf;
+
 /**
  * Thrown when encryption or decryption operations fail.
  */
@@ -37,7 +39,7 @@ final class EncryptionException extends VaultException
     public static function algorithmNotAvailable(string $algorithm): self
     {
         return new self(
-            \sprintf('Encryption algorithm "%s" is not available', $algorithm),
+            sprintf('Encryption algorithm "%s" is not available', $algorithm),
             1703800007,
         );
     }

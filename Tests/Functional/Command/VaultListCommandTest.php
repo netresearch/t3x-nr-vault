@@ -17,6 +17,8 @@ use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Console\Tester\CommandTester;
 use Throwable;
 
+use function count;
+
 /**
  * Functional tests for VaultListCommand end-to-end via CommandTester.
  *
@@ -37,15 +39,15 @@ final class VaultListCommandTest extends AbstractVaultFunctionalTestCase
     public function listCommandShowsStoredSecrets(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $prefix = 'cmd_list_show_' . bin2hex(random_bytes(4));
-        $id1 = $prefix . '_s1';
-        $id2 = $prefix . '_s2';
+        $prefix       = 'cmd_list_show_' . bin2hex(random_bytes(4));
+        $id1          = $prefix . '_s1';
+        $id2          = $prefix . '_s2';
         $vaultService->store($id1, 'value1');
         $vaultService->store($id2, 'value2');
 
         try {
             $command = $this->get(VaultListCommand::class);
-            $tester = new CommandTester($command);
+            $tester  = new CommandTester($command);
 
             $exitCode = $tester->execute([]);
 
@@ -63,12 +65,12 @@ final class VaultListCommandTest extends AbstractVaultFunctionalTestCase
     public function listCommandWithJsonFormatOutputsValidJson(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = 'cmd_list_json_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_list_json_' . bin2hex(random_bytes(4));
         $vaultService->store($identifier, 'json-list-value');
 
         try {
             $command = $this->get(VaultListCommand::class);
-            $tester = new CommandTester($command);
+            $tester  = new CommandTester($command);
 
             $exitCode = $tester->execute(['--format' => 'json']);
 
@@ -84,12 +86,12 @@ final class VaultListCommandTest extends AbstractVaultFunctionalTestCase
     public function listCommandWithCsvFormatOutputsCsvHeader(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = 'cmd_list_csv_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_list_csv_' . bin2hex(random_bytes(4));
         $vaultService->store($identifier, 'csv-list-value');
 
         try {
             $command = $this->get(VaultListCommand::class);
-            $tester = new CommandTester($command);
+            $tester  = new CommandTester($command);
 
             $exitCode = $tester->execute(['--format' => 'csv']);
 
@@ -105,7 +107,7 @@ final class VaultListCommandTest extends AbstractVaultFunctionalTestCase
     {
         // No secrets stored in this test — nothing to clean up.
         $command = $this->get(VaultListCommand::class);
-        $tester = new CommandTester($command);
+        $tester  = new CommandTester($command);
 
         $exitCode = $tester->execute([]);
 
@@ -118,24 +120,24 @@ final class VaultListCommandTest extends AbstractVaultFunctionalTestCase
     public function listCommandRespectsLimitOption(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $prefix = 'cmd_list_limit_' . bin2hex(random_bytes(4));
-        $ids = [];
-        for ($i = 0; $i < 5; $i++) {
-            $id = $prefix . '_s' . $i;
+        $prefix       = 'cmd_list_limit_' . bin2hex(random_bytes(4));
+        $ids          = [];
+        for ($i = 0; $i < 5; ++$i) {
+            $id    = $prefix . '_s' . $i;
             $ids[] = $id;
             $vaultService->store($id, 'value' . $i);
         }
 
         try {
             $command = $this->get(VaultListCommand::class);
-            $tester = new CommandTester($command);
+            $tester  = new CommandTester($command);
 
             $exitCode = $tester->execute(['--limit' => '2', '--format' => 'json']);
 
             self::assertSame(0, $exitCode, $tester->getDisplay());
             $json = json_decode($tester->getDisplay(), true);
             self::assertIsArray($json);
-            self::assertLessThanOrEqual(2, \count($json), 'Limit option must cap the number of results');
+            self::assertLessThanOrEqual(2, count($json), 'Limit option must cap the number of results');
         } finally {
             foreach ($ids as $id) {
                 $this->safeDelete($vaultService, $id);

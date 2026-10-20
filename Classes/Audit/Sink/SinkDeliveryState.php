@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Audit\Sink;
 
+use function is_string;
+
 /**
  * Persisted delivery health of one external audit sink.
  *
@@ -50,12 +52,12 @@ final readonly class SinkDeliveryState
     public function toArray(): array
     {
         return [
-            'sinkIdentifier' => $this->sinkIdentifier,
-            'lastSuccessAt' => $this->lastSuccessAt,
-            'lastFailureAt' => $this->lastFailureAt,
+            'sinkIdentifier'      => $this->sinkIdentifier,
+            'lastSuccessAt'       => $this->lastSuccessAt,
+            'lastFailureAt'       => $this->lastFailureAt,
             'consecutiveFailures' => $this->consecutiveFailures,
-            'totalFailures' => $this->totalFailures,
-            'lastError' => $this->lastError,
+            'totalFailures'       => $this->totalFailures,
+            'lastError'           => $this->lastError,
         ];
     }
 
@@ -70,7 +72,7 @@ final readonly class SinkDeliveryState
             lastFailureAt: is_numeric($row['lastFailureAt'] ?? null) ? (int) $row['lastFailureAt'] : 0,
             consecutiveFailures: is_numeric($row['consecutiveFailures'] ?? null) ? (int) $row['consecutiveFailures'] : 0,
             totalFailures: is_numeric($row['totalFailures'] ?? null) ? (int) $row['totalFailures'] : 0,
-            lastError: \is_string($row['lastError'] ?? null) ? $row['lastError'] : '',
+            lastError: is_string($row['lastError'] ?? null) ? $row['lastError'] : '',
         );
     }
 }

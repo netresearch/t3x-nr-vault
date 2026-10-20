@@ -27,6 +27,8 @@ use Netresearch\NrVault\Tests\Functional\Fixtures\ConcurrentReadAdapter;
 use Netresearch\NrVault\Tests\Functional\Traits\SecretRowTrait;
 use PHPUnit\Framework\Attributes\Test;
 
+use function in_array;
+
 /**
  * SEC-3 atomicity: a secret mutation and its tamper-evident audit entry must
  * be all-or-nothing. The audit writer owns its own transaction lifecycle
@@ -284,7 +286,7 @@ final class VaultServiceAtomicityTest extends AbstractVaultFunctionalTestCase
      */
     private function createFailingAuditLogService(): AuditLogServiceInterface
     {
-        return new class () implements AuditLogServiceInterface {
+        return new class implements AuditLogServiceInterface {
             public function log(
                 string $secretIdentifier,
                 string $action,
@@ -303,7 +305,7 @@ final class VaultServiceAtomicityTest extends AbstractVaultFunctionalTestCase
                     // The action an availability change writes.
                     AuditAction::MetadataUpdate->value,
                 ];
-                if ($success && \in_array($action, $mutating, true)) {
+                if ($success && in_array($action, $mutating, true)) {
                     throw new AuditWriteException('Simulated audit write failure', 9334453097);
                 }
             }

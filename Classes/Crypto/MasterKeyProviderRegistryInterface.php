@@ -41,9 +41,9 @@ interface MasterKeyProviderRegistryInterface
     /**
      * Every registered identifier, in registration order.
      *
-     * @throws ConfigurationException If the registered set is ambiguous
-     *
      * @return list<string>
+     *
+     * @throws ConfigurationException If the registered set is ambiguous
      */
     public function getIdentifiers(): array;
 

@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -24,25 +21,25 @@ use Netresearch\NrVault\Domain\Model\Secret;
 readonly class SecretDetails
 {
     /**
-     * @param int $uid Database UID
-     * @param string $identifier Unique secret identifier
-     * @param string $description Human-readable description
-     * @param int $ownerUid Owner backend user UID
-     * @param list<int> $groups Allowed backend user group UIDs
-     * @param string $context Application context tag
-     * @param bool $frontendAccessible Whether secret can be accessed in frontend
-     * @param int $version Secret version number
-     * @param int $createdAt Unix timestamp of creation
-     * @param int $updatedAt Unix timestamp of last update
-     * @param int|null $expiresAt Unix timestamp when secret expires
-     * @param int|null $lastRotatedAt Unix timestamp of last rotation
-     * @param int $readCount Number of times secret was read
-     * @param int|null $lastReadAt Unix timestamp of last read
-     * @param array<string, mixed> $metadata Custom metadata
-     * @param int $scopePid Stored page tag; does not itself enforce access
-     * @param bool $enabled Whether the secret is available to consumers — a
-     *                      disabled one exists and can be administered, but
-     *                      resolves to nothing on every read path
+     * @param int                  $uid                Database UID
+     * @param string               $identifier         Unique secret identifier
+     * @param string               $description        Human-readable description
+     * @param int                  $ownerUid           Owner backend user UID
+     * @param list<int>            $groups             Allowed backend user group UIDs
+     * @param string               $context            Application context tag
+     * @param bool                 $frontendAccessible Whether secret can be accessed in frontend
+     * @param int                  $version            Secret version number
+     * @param int                  $createdAt          Unix timestamp of creation
+     * @param int                  $updatedAt          Unix timestamp of last update
+     * @param int|null             $expiresAt          Unix timestamp when secret expires
+     * @param int|null             $lastRotatedAt      Unix timestamp of last rotation
+     * @param int                  $readCount          Number of times secret was read
+     * @param int|null             $lastReadAt         Unix timestamp of last read
+     * @param array<string, mixed> $metadata           Custom metadata
+     * @param int                  $scopePid           Stored page tag; does not itself enforce access
+     * @param bool                 $enabled            Whether the secret is available to consumers — a
+     *                                                 disabled one exists and can be administered, but
+     *                                                 resolves to nothing on every read path
      */
     public function __construct(
         public int $uid,
@@ -147,25 +144,25 @@ readonly class SecretDetails
     public function toArray(): array
     {
         return [
-            'uid' => $this->uid,
-            'identifier' => $this->identifier,
-            'description' => $this->description,
-            'owner' => $this->ownerUid,
-            'owner_uid' => $this->ownerUid,
-            'groups' => $this->groups,
-            'context' => $this->context,
+            'uid'                 => $this->uid,
+            'identifier'          => $this->identifier,
+            'description'         => $this->description,
+            'owner'               => $this->ownerUid,
+            'owner_uid'           => $this->ownerUid,
+            'groups'              => $this->groups,
+            'context'             => $this->context,
             'frontend_accessible' => $this->frontendAccessible,
-            'version' => $this->version,
-            'createdAt' => $this->createdAt,
-            'updatedAt' => $this->updatedAt,
-            'expiresAt' => $this->expiresAt,
-            'expires_at' => $this->expiresAt,
-            'lastRotatedAt' => $this->lastRotatedAt,
-            'read_count' => $this->readCount,
-            'last_read_at' => $this->lastReadAt,
-            'metadata' => $this->metadata,
-            'scopePid' => $this->scopePid,
-            'enabled' => $this->enabled,
+            'version'             => $this->version,
+            'createdAt'           => $this->createdAt,
+            'updatedAt'           => $this->updatedAt,
+            'expiresAt'           => $this->expiresAt,
+            'expires_at'          => $this->expiresAt,
+            'lastRotatedAt'       => $this->lastRotatedAt,
+            'read_count'          => $this->readCount,
+            'last_read_at'        => $this->lastReadAt,
+            'metadata'            => $this->metadata,
+            'scopePid'            => $this->scopePid,
+            'enabled'             => $this->enabled,
         ];
     }
 }

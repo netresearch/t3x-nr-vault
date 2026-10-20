@@ -20,6 +20,10 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use Throwable;
 
+use function array_slice;
+use function count;
+use function is_string;
+
 /**
  * Functional tests for AuditLogService — log creation, hash-chain computation,
  * query with filters, and verifyHashChain (valid and tampered scenarios).
@@ -40,7 +44,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
     public function logCreatesAuditEntry(): void
     {
         $auditService = $this->get(AuditLogServiceInterface::class);
-        $identifier = 'test_audit_logcreation';
+        $identifier   = 'test_audit_logcreation';
 
         $auditService->log($identifier, 'create', true, null, 'Unit test');
 
@@ -80,7 +84,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
 
         // VaultService logs 'create' (not 'store') and 'read' (not 'retrieve')
         $createEntries = $auditService->query(AuditLogFilter::forAction('create'));
-        $readEntries = $auditService->query(AuditLogFilter::forAction('read'));
+        $readEntries   = $auditService->query(AuditLogFilter::forAction('read'));
 
         $createForIdent = array_filter(
             $createEntries,
@@ -107,7 +111,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         $identifier = $this->generateUuidV7();
         $vaultService->store($identifier, 'success-filter-test');
 
-        $filter = new AuditLogFilter(success: true);
+        $filter  = new AuditLogFilter(success: true);
         $entries = $auditService->query($filter);
 
         foreach ($entries as $entry) {
@@ -124,12 +128,12 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         $auditService = $this->get(AuditLogServiceInterface::class);
         $vaultService = $this->get(VaultServiceInterface::class);
 
-        $before = new DateTimeImmutable('-1 hour');
+        $before     = new DateTimeImmutable('-1 hour');
         $identifier = $this->generateUuidV7();
         $vaultService->store($identifier, 'date-range-value');
         $after = new DateTimeImmutable('+1 hour');
 
-        $filter = AuditLogFilter::dateRange($before, $after);
+        $filter  = AuditLogFilter::dateRange($before, $after);
         $entries = $auditService->query($filter);
 
         $forIdent = array_filter(
@@ -149,7 +153,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         $vaultService = $this->get(VaultServiceInterface::class);
 
         // Create several entries
-        for ($i = 0; $i < 5; $i++) {
+        for ($i = 0; $i < 5; ++$i) {
             $id = $this->generateUuidV7();
             $vaultService->store($id, 'limit-test-' . $i);
             $vaultService->delete($id, 'cleanup');
@@ -157,7 +161,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
 
         $entries = $auditService->query(null, 3, 0);
 
-        self::assertLessThanOrEqual(3, \count($entries));
+        self::assertLessThanOrEqual(3, count($entries));
     }
 
     #[Test]
@@ -168,8 +172,8 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
 
         // Create several entries
         $identifiers = [];
-        for ($i = 0; $i < 4; $i++) {
-            $id = $this->generateUuidV7();
+        for ($i = 0; $i < 4; ++$i) {
+            $id            = $this->generateUuidV7();
             $identifiers[] = $id;
             $vaultService->store($id, 'offset-test-' . $i);
         }
@@ -180,7 +184,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         // pages should not overlap
         $page1Uids = array_map(static fn ($e) => $e->uid, $page1);
         $page2Uids = array_map(static fn ($e) => $e->uid, $page2);
-        $overlap = array_intersect($page1Uids, $page2Uids);
+        $overlap   = array_intersect($page1Uids, $page2Uids);
         self::assertSame([], $overlap, 'Paginated queries must not return overlapping entries');
 
         // Cleanup
@@ -283,8 +287,8 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
 
         // Seed 10 audit entries
         $identifiers = [];
-        for ($i = 0; $i < 10; $i++) {
-            $id = $this->generateUuidV7();
+        for ($i = 0; $i < 10; ++$i) {
+            $id            = $this->generateUuidV7();
             $identifiers[] = $id;
             $vaultService->store($id, 'propagation-test-' . $i);
         }
@@ -293,10 +297,10 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         $allEntries = $auditService->query(null, 200, 0);
         // query() orders by crdate DESC; reverse to get ascending order
         $allEntries = array_reverse($allEntries);
-        self::assertGreaterThanOrEqual(10, \count($allEntries), 'Must have at least 10 entries');
+        self::assertGreaterThanOrEqual(10, count($allEntries), 'Must have at least 10 entries');
 
         // Take the last 10 (our seeded entries)
-        $seededEntries = \array_slice($allEntries, -10);
+        $seededEntries = array_slice($allEntries, -10);
 
         // Entry at index 4 = the 5th seeded entry (0-based)
         $tamperedEntry = $seededEntries[4];
@@ -329,7 +333,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         // proving the chain propagation check, not just single-row detection.
         $subsequentUids = array_map(
             static fn ($e) => $e->uid,
-            \array_slice($seededEntries, 5),
+            array_slice($seededEntries, 5),
         );
         $propagatedErrors = array_intersect($errorUids, $subsequentUids);
         self::assertNotSame(
@@ -352,21 +356,21 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
 
         // Seed 5 audit entries
         $identifiers = [];
-        for ($i = 0; $i < 5; $i++) {
-            $id = $this->generateUuidV7();
+        for ($i = 0; $i < 5; ++$i) {
+            $id            = $this->generateUuidV7();
             $identifiers[] = $id;
             $vaultService->store($id, 'delete-row-test-' . $i);
         }
 
         // Collect entries in ascending order
         $allEntries = array_reverse($auditService->query(null, 200, 0));
-        self::assertGreaterThanOrEqual(5, \count($allEntries));
-        $seededEntries = \array_slice($allEntries, -5);
+        self::assertGreaterThanOrEqual(5, count($allEntries));
+        $seededEntries = array_slice($allEntries, -5);
 
         // Delete the 3rd entry (index 2) directly from the DB,
         // bypassing the audit service to simulate a malicious deletion.
         $deletedEntry = $seededEntries[2];
-        $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
+        $connection   = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
         $connection->delete('tx_nrvault_audit_log', ['uid' => $deletedEntry->uid]);
 
         $result = $auditService->verifyHashChain();
@@ -390,7 +394,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         // whose uid is > deleted_uid).
         $successorUids = array_map(
             static fn ($e) => $e->uid,
-            \array_slice($seededEntries, 3),
+            array_slice($seededEntries, 3),
         );
         self::assertNotSame(
             [],
@@ -416,17 +420,17 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
 
         // Seed 5 audit entries
         $identifiers = [];
-        for ($i = 0; $i < 5; $i++) {
-            $id = $this->generateUuidV7();
+        for ($i = 0; $i < 5; ++$i) {
+            $id            = $this->generateUuidV7();
             $identifiers[] = $id;
             $vaultService->store($id, 'gap-patch-test-' . $i);
         }
 
         $allEntries = array_reverse($auditService->query(null, 200, 0));
-        self::assertGreaterThanOrEqual(5, \count($allEntries));
-        $seededEntries = \array_slice($allEntries, -5);
+        self::assertGreaterThanOrEqual(5, count($allEntries));
+        $seededEntries = array_slice($allEntries, -5);
 
-        $victim = $seededEntries[2];        // to be deleted
+        $victim    = $seededEntries[2];        // to be deleted
         $successor = $seededEntries[3];     // will be patched
 
         $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
@@ -441,7 +445,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
             ->executeQuery()
             ->fetchAssociative();
         self::assertNotFalse($victimRow);
-        $preVictimHash = \is_string($victimRow['previous_hash'] ?? null)
+        $preVictimHash = is_string($victimRow['previous_hash'] ?? null)
             ? $victimRow['previous_hash']
             : '';
 
@@ -496,7 +500,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         // Attacker relabels EVERY row to keyless epoch-0 and recomputes a valid
         // keyless SHA-256 chain (identity fields only) in UID order.
         $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_audit_log');
-        $rows = $connection->createQueryBuilder()
+        $rows       = $connection->createQueryBuilder()
             ->select('uid', 'secret_identifier', 'action', 'actor_uid', 'crdate')
             ->from('tx_nrvault_audit_log')
             ->orderBy('uid', 'ASC')
@@ -530,7 +534,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         // The distribution names what the verdict only implies: every row is
         // now keyless. This is the report an operator acts on — "invalid" alone
         // does not say the algorithm selector was rewritten wholesale.
-        self::assertSame([0 => \count($rows)], $result->epochCounts);
+        self::assertSame([0 => count($rows)], $result->epochCounts);
         self::assertSame(0, $result->getMinEpoch());
         self::assertSame(0, $result->getMaxEpoch());
         self::assertFalse($result->hasMixedEpochs());
@@ -580,7 +584,7 @@ final class AuditLogServiceTest extends AbstractVaultFunctionalTestCase
         self::assertSame(array_sum($expected), array_sum($result->epochCounts));
         self::assertSame(min(array_keys($expected)), $result->getMinEpoch());
         self::assertSame(max(array_keys($expected)), $result->getMaxEpoch());
-        self::assertSame(\count($expected) > 1, $result->hasMixedEpochs());
+        self::assertSame(count($expected) > 1, $result->hasMixedEpochs());
     }
 
     /**

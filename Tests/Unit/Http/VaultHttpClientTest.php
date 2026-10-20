@@ -66,9 +66,9 @@ final class VaultHttpClientTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
+        $this->vaultService    = $this->createMock(VaultServiceInterface::class);
         $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
-        $this->innerClient = $this->createMock(ClientInterface::class);
+        $this->innerClient     = $this->createMock(ClientInterface::class);
         // Every request runs through the host gate, which requires a checked
         // address. These cases are about headers, audit rows and retries, not
         // about DNS — left to the production resolver they would ask the
@@ -113,7 +113,7 @@ final class VaultHttpClientTest extends TestCase
             secureHttpClientFactory: $this->httpClientFactory,
         );
 
-        $request = new Request('GET', self::API_URL);
+        $request  = new Request('GET', self::API_URL);
         $response = $client->sendRequest($request);
 
         self::assertSame(200, $response->getStatusCode());
@@ -162,7 +162,7 @@ final class VaultHttpClientTest extends TestCase
 
         $authenticatedClient = $client->withAuthentication('my_api_key', SecretPlacement::Bearer);
 
-        $request = new Request('GET', self::API_URL);
+        $request  = new Request('GET', self::API_URL);
         $response = $authenticatedClient->sendRequest($request);
 
         self::assertSame(200, $response->getStatusCode());
@@ -601,7 +601,7 @@ final class VaultHttpClientTest extends TestCase
         );
 
         $platformConfig = $this->getGuzzleConfig((new SecureHttpClientFactory(new AlwaysPublicDnsResolver()))->create());
-        $config = $this->getInnerGuzzleConfig($client->withTimeout($seconds));
+        $config         = $this->getInnerGuzzleConfig($client->withTimeout($seconds));
 
         self::assertSame($platformConfig['timeout'], $config['timeout']);
     }
@@ -685,7 +685,7 @@ final class VaultHttpClientTest extends TestCase
 
         $request = new Request('POST', self::API_URL, [
             'Content-Type' => self::CONTENT_TYPE_JSON,
-            'User-Agent' => 'CustomAgent',
+            'User-Agent'   => 'CustomAgent',
         ]);
 
         $authenticatedClient->sendRequest($request);
@@ -777,7 +777,7 @@ final class VaultHttpClientTest extends TestCase
             ->expects(self::once())
             ->method('sendRequest')
             ->willReturnCallback(function (RequestInterface $request): Response {
-                $body = (string) $request->getBody();
+                $body    = (string) $request->getBody();
                 $decoded = json_decode($body, true);
                 self::assertSame('secret-value', $decoded['api_key']);
                 self::assertSame('existing', $decoded['field']);
@@ -851,7 +851,7 @@ final class VaultHttpClientTest extends TestCase
             ->expects(self::once())
             ->method('sendRequest')
             ->willReturnCallback(function (RequestInterface $request): Response {
-                $body = (string) $request->getBody();
+                $body    = (string) $request->getBody();
                 $decoded = json_decode($body, true);
                 self::assertSame('secret-token', $decoded['access_token']);
 
@@ -1173,8 +1173,8 @@ final class VaultHttpClientTest extends TestCase
         $tokenResponseBody = $this->createMock(StreamInterface::class);
         $tokenResponseBody->method('__toString')->willReturn(json_encode([
             'access_token' => 'issued-access-token',
-            'token_type' => 'Bearer',
-            'expires_in' => 3600,
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
         ], JSON_THROW_ON_ERROR));
 
         $tokenResponse = $this->createMock(ResponseInterface::class);
@@ -1187,9 +1187,9 @@ final class VaultHttpClientTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                'oauth_client_id' => 'my-client-id',
+                'oauth_client_id'     => 'my-client-id',
                 'oauth_client_secret' => 'my-client-secret',
-                default => null,
+                default               => null,
             });
 
         $this->auditLogService
@@ -1294,7 +1294,7 @@ final class VaultHttpClientTest extends TestCase
             secureHttpClientFactory: $this->httpClientFactory,
         );
 
-        $request = new Request('GET', self::API_URL);
+        $request  = new Request('GET', self::API_URL);
         $response = $client->sendRequest($request);
 
         self::assertSame(200, $response->getStatusCode());
@@ -1375,7 +1375,7 @@ final class VaultHttpClientTest extends TestCase
             ->expects(self::once())
             ->method('sendRequest')
             ->willReturnCallback(function (RequestInterface $request): Response {
-                $body = (string) $request->getBody();
+                $body    = (string) $request->getBody();
                 $decoded = json_decode($body, true);
                 self::assertSame('secret-value', $decoded['api_key']);
 
@@ -1513,7 +1513,7 @@ final class VaultHttpClientTest extends TestCase
                 secureHttpClientFactory: $this->httpClientFactory,
             );
 
-            $request = new Request('GET', self::API_URL);
+            $request  = new Request('GET', self::API_URL);
             $response = $client->sendRequest($request);
 
             self::assertSame(200, $response->getStatusCode());
@@ -1694,7 +1694,7 @@ final class VaultHttpClientTest extends TestCase
             ->method('retrieve')
             ->willReturn(null);
 
-        $rows = [];
+        $rows     = [];
         $contexts = [];
         $this->auditLogService
             ->expects(self::once())
@@ -1710,7 +1710,7 @@ final class VaultHttpClientTest extends TestCase
                     ?string $hashAfter = null,
                     ?AuditContextInterface $context = null,
                 ) use (&$rows, &$contexts): void {
-                    $rows[] = [$action, $success, $error];
+                    $rows[]     = [$action, $success, $error];
                     $contexts[] = $context;
                 },
             );
@@ -1744,9 +1744,9 @@ final class VaultHttpClientTest extends TestCase
         self::assertInstanceOf(HttpCallContext::class, $contexts[0]);
         self::assertSame(
             [
-                'method' => 'POST',
-                'host' => 'api.example.com',
-                'path' => '/data',
+                'method'      => 'POST',
+                'host'        => 'api.example.com',
+                'path'        => '/data',
                 'status_code' => 0,
             ],
             $contexts[0]->toArray(),
@@ -1796,9 +1796,9 @@ final class VaultHttpClientTest extends TestCase
             self::assertInstanceOf(HttpCallContext::class, $context);
             self::assertSame(
                 [
-                    'method' => 'POST',
-                    'host' => 'untrusted.other.com',
-                    'path' => '/data',
+                    'method'      => 'POST',
+                    'host'        => 'untrusted.other.com',
+                    'path'        => '/data',
                     'status_code' => 0,
                 ],
                 $context->toArray(),
@@ -1874,14 +1874,14 @@ final class VaultHttpClientTest extends TestCase
 
         $originalManager = $this->extractOAuthManager($client);
 
-        $afterAuth = $client->withAuthentication('my_key', SecretPlacement::Bearer);
+        $afterAuth  = $client->withAuthentication('my_key', SecretPlacement::Bearer);
         $afterOAuth = $client->withOAuth(OAuthConfig::clientCredentials(
             tokenEndpoint: self::TOKEN_ENDPOINT,
             clientIdSecret: 'cid',
             clientSecretSecret: 'csec',
         ));
         $afterReason = $afterAuth->withReason('updated');
-        $afterChain = $afterOAuth->withReason('chained');
+        $afterChain  = $afterOAuth->withReason('chained');
 
         self::assertSame(
             $originalManager,
@@ -1953,7 +1953,7 @@ final class VaultHttpClientTest extends TestCase
     private function extractOAuthManager(VaultHttpClient $client): OAuthTokenManager
     {
         $property = (new ReflectionClass(VaultHttpClient::class))->getProperty('oauthManager');
-        $value = $property->getValue($client);
+        $value    = $property->getValue($client);
         self::assertInstanceOf(OAuthTokenManager::class, $value);
 
         return $value;

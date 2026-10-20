@@ -33,6 +33,8 @@ use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Scheduler\Scheduler;
 
+use function array_key_exists;
+
 #[CoversClass(OrphanCleanupTask::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class OrphanCleanupTaskTest extends TestCase
@@ -53,10 +55,10 @@ final class OrphanCleanupTaskTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
-        $this->connectionPool = $this->createMock(ConnectionPool::class);
+        $this->vaultService     = $this->createMock(VaultServiceInterface::class);
+        $this->connectionPool   = $this->createMock(ConnectionPool::class);
         $this->secretRepository = $this->createMock(SecretRepositoryInterface::class);
-        $this->logger = $this->createMock(LoggerInterface::class);
+        $this->logger           = $this->createMock(LoggerInterface::class);
 
         // Mock GeneralUtility::makeInstance
         $logManager = $this->createMock(LogManager::class);
@@ -101,7 +103,7 @@ final class OrphanCleanupTaskTest extends TestCase
     {
         $this->secretRepository->method('findPaginatedAfterUid')->willReturn([]);
 
-        $task = $this->createTask();
+        $task   = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -116,7 +118,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = $this->createTask();
+        $task   = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -136,7 +138,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->mockRecordExists(1, true);
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = $this->createTask();
+        $task   = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -218,7 +220,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $task = $this->createTask();
         $task->setTaskParameters([
             'nr_vault_retention_days' => 0,
-            'nr_vault_table_filter' => 'tx_myext',
+            'nr_vault_table_filter'   => 'tx_myext',
         ]);
         $result = $task->execute();
 
@@ -289,7 +291,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = $this->createTask();
+        $task   = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -308,7 +310,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = $this->createTask();
+        $task   = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -327,7 +329,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = $this->createTask();
+        $task   = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -346,7 +348,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $this->vaultService->expects($this->never())->method('delete');
 
-        $task = $this->createTask();
+        $task   = $this->createTask();
         $result = $task->execute();
 
         self::assertTrue($result);
@@ -492,8 +494,8 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('info')
             ->with(
                 self::callback(fn (string $message): bool => $message !== ''),
-                self::callback(fn (array $context): bool => (\array_key_exists('retentionDays', $context) && \array_key_exists('tableFilter', $context))
-                    || (\array_key_exists('secretsChecked', $context) && \array_key_exists('orphansFound', $context))),
+                self::callback(fn (array $context): bool => (array_key_exists('retentionDays', $context) && array_key_exists('tableFilter', $context))
+                    || (array_key_exists('secretsChecked', $context) && array_key_exists('orphansFound', $context))),
             );
 
         $logManager = $this->createMock(LogManager::class);
@@ -829,10 +831,9 @@ final class OrphanCleanupTaskTest extends TestCase
             ->method('error')
             ->with(
                 self::stringContains('Failed to delete orphan secret'),
-                self::callback(fn (array $context): bool =>
-                    \array_key_exists('error', $context)
+                self::callback(fn (array $context): bool => array_key_exists('error', $context)
                     && $context['error'] === 'exact exception text'
-                    && \array_key_exists('identifier', $context)),
+                    && array_key_exists('identifier', $context)),
             );
 
         $logManager = $this->createMock(LogManager::class);

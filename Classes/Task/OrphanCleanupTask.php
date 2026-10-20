@@ -21,6 +21,10 @@ use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Scheduler\Task\AbstractTask;
 
+use function count;
+use function is_string;
+use function sprintf;
+
 /**
  * Scheduler task to clean up orphaned vault secrets.
  *
@@ -63,7 +67,7 @@ final class OrphanCleanupTask extends AbstractTask
     {
         return [
             'nr_vault_retention_days' => $this->retentionDays,
-            'nr_vault_table_filter' => $this->tableFilter,
+            'nr_vault_table_filter'   => $this->tableFilter,
         ];
     }
 
@@ -74,23 +78,23 @@ final class OrphanCleanupTask extends AbstractTask
      */
     public function setTaskParameters(array $parameters): void
     {
-        $retentionDays = $parameters['nr_vault_retention_days'] ?? 7;
+        $retentionDays       = $parameters['nr_vault_retention_days'] ?? 7;
         $this->retentionDays = is_numeric($retentionDays) ? (int) $retentionDays : 7;
 
-        $tableFilter = $parameters['nr_vault_table_filter'] ?? '';
-        $this->tableFilter = \is_string($tableFilter) ? trim($tableFilter) : '';
+        $tableFilter       = $parameters['nr_vault_table_filter'] ?? '';
+        $this->tableFilter = is_string($tableFilter) ? trim($tableFilter) : '';
     }
 
     public function execute(): bool
     {
-        $vaultService = $this->getVaultService();
+        $vaultService   = $this->getVaultService();
         $connectionPool = $this->getConnectionPool();
-        $repository = $this->getSecretRepository();
-        $logger = $this->getLogger();
+        $repository     = $this->getSecretRepository();
+        $logger         = $this->getLogger();
 
         $logger->info('Starting vault orphan cleanup', [
             'retentionDays' => $this->retentionDays,
-            'tableFilter' => $this->tableFilter ?: '(all)',
+            'tableFilter'   => $this->tableFilter ?: '(all)',
         ]);
 
         $retentionCutoff = $this->retentionDays > 0
@@ -101,10 +105,10 @@ final class OrphanCleanupTask extends AbstractTask
         // the page size, not the total vault size (PERFORMANCE-8). Identify
         // and delete orphans page-by-page; deletes still route through
         // VaultService (ACL + audit preserved).
-        $afterUid = 0;
-        $checked = 0;
+        $afterUid     = 0;
+        $checked      = 0;
         $orphansFound = 0;
-        $success = true;
+        $success      = true;
 
         do {
             $page = $repository->findPaginatedAfterUid($afterUid, self::PAGE_SIZE);
@@ -123,7 +127,7 @@ final class OrphanCleanupTask extends AbstractTask
                     continue;
                 }
 
-                $checked++;
+                ++$checked;
 
                 // Only delete if the source record is gone AND the secret is
                 // older than the retention period.
@@ -131,17 +135,17 @@ final class OrphanCleanupTask extends AbstractTask
                     continue;
                 }
 
-                $orphansFound++;
+                ++$orphansFound;
 
                 if (!$this->deleteOrphan($vaultService, $logger, $secret->getIdentifier())) {
                     $success = false;
                 }
             }
-        } while (\count($page) === self::PAGE_SIZE);
+        } while (count($page) === self::PAGE_SIZE);
 
         $logger->info('Orphan check complete', [
             'secretsChecked' => $checked,
-            'orphansFound' => $orphansFound,
+            'orphansFound'   => $orphansFound,
         ]);
 
         return $success;
@@ -152,11 +156,11 @@ final class OrphanCleanupTask extends AbstractTask
      */
     public function getAdditionalInformation(): string
     {
-        $info = [];
-        $info[] = \sprintf('Retention: %d days', $this->retentionDays);
+        $info   = [];
+        $info[] = sprintf('Retention: %d days', $this->retentionDays);
 
         if ($this->tableFilter !== '') {
-            $info[] = \sprintf('Table filter: %s', $this->tableFilter);
+            $info[] = sprintf('Table filter: %s', $this->tableFilter);
         }
 
         return implode(', ', $info);
@@ -206,7 +210,7 @@ final class OrphanCleanupTask extends AbstractTask
         } catch (Throwable $e) {
             $logger->error('Failed to delete orphan secret', [
                 'identifier' => $identifier,
-                'error' => $e->getMessage(),
+                'error'      => $e->getMessage(),
             ]);
 
             return false;
@@ -225,9 +229,9 @@ final class OrphanCleanupTask extends AbstractTask
     {
         $table = $metadata['table'] ?? '';
         $field = $metadata['field'] ?? $metadata['flexField'] ?? '';
-        $uid = $metadata['uid'] ?? null;
+        $uid   = $metadata['uid'] ?? null;
 
-        if (!\is_string($table) || $table === '') {
+        if (!is_string($table) || $table === '') {
             return null;
         }
 
@@ -237,7 +241,7 @@ final class OrphanCleanupTask extends AbstractTask
 
         return new OrphanReference(
             table: $table,
-            field: \is_string($field) ? $field : '',
+            field: is_string($field) ? $field : '',
             uid: (int) $uid,
         );
     }
@@ -272,7 +276,7 @@ final class OrphanCleanupTask extends AbstractTask
             if (!$connection->createSchemaManager()->tablesExist([$table])) {
                 $logger->warning('Orphan reference names an unknown table; keeping the secret', [
                     'table' => $table,
-                    'uid' => $uid,
+                    'uid'   => $uid,
                 ]);
 
                 return true;
@@ -294,7 +298,7 @@ final class OrphanCleanupTask extends AbstractTask
         } catch (Throwable $e) {
             $logger->warning('Orphan reference could not be resolved; keeping the secret', [
                 'table' => $table,
-                'uid' => $uid,
+                'uid'   => $uid,
                 'error' => $e->getMessage(),
             ]);
 

@@ -13,6 +13,11 @@ use JsonException;
 use Netresearch\NrVault\Exception\EnvelopeFormatException;
 use SensitiveParameter;
 
+use function is_array;
+use function is_int;
+use function is_string;
+use function strlen;
+
 /**
  * Framing for {@see EnvelopeCodecInterface}: pack an {@see EncryptedData} into one
  * string and parse it back, with strict field validation (ADR-032).
@@ -70,7 +75,7 @@ final readonly class EnvelopeCodec implements EnvelopeCodecInterface
         #[SensitiveParameter]
         string $newMasterKey,
     ): string {
-        $body = $this->decodeBody($sealed);
+        $body     = $this->decodeBody($sealed);
         $envelope = $this->validate($body);
 
         $reEncrypted = $this->encryptionService->reEncryptDek(
@@ -96,7 +101,7 @@ final readonly class EnvelopeCodec implements EnvelopeCodecInterface
         // untouched, so re-wrapping is not a re-encryption and never materialises
         // the plaintext.
         $body['encrypted_dek'] = $reEncrypted->encryptedDek;
-        $body['dek_nonce'] = $reEncrypted->nonce;
+        $body['dek_nonce']     = $reEncrypted->nonce;
 
         return self::MARKER . base64_encode(json_encode($body, JSON_THROW_ON_ERROR));
     }
@@ -104,9 +109,9 @@ final readonly class EnvelopeCodec implements EnvelopeCodecInterface
     /**
      * Split off the marker and decode the body, without inspecting its fields.
      *
-     * @throws EnvelopeFormatException
-     *
      * @return array<string, mixed>
+     *
+     * @throws EnvelopeFormatException
      */
     private function decodeBody(string $sealed): array
     {
@@ -114,7 +119,7 @@ final readonly class EnvelopeCodec implements EnvelopeCodecInterface
             throw EnvelopeFormatException::missingMarker();
         }
 
-        $json = base64_decode(substr($sealed, \strlen(self::MARKER)), true);
+        $json = base64_decode(substr($sealed, strlen(self::MARKER)), true);
         if ($json === false) {
             throw EnvelopeFormatException::notBase64();
         }
@@ -125,7 +130,7 @@ final readonly class EnvelopeCodec implements EnvelopeCodecInterface
             throw EnvelopeFormatException::notJson();
         }
 
-        if (!\is_array($decoded)) {
+        if (!is_array($decoded)) {
             throw EnvelopeFormatException::notJson();
         }
 
@@ -141,8 +146,6 @@ final readonly class EnvelopeCodec implements EnvelopeCodecInterface
      *
      * @param array<string, mixed> $decoded
      *
-     * @throws EnvelopeFormatException
-     *
      * @return array{
      *     encrypted_value: string,
      *     encrypted_dek: string,
@@ -152,33 +155,35 @@ final readonly class EnvelopeCodec implements EnvelopeCodecInterface
      *     encryption_version: int,
      *     encryption_algorithm: string,
      * }
+     *
+     * @throws EnvelopeFormatException
      */
     private function validate(array $decoded): array
     {
-        $value = $decoded['encrypted_value'] ?? null;
-        $dek = $decoded['encrypted_dek'] ?? null;
-        $dekNonce = $decoded['dek_nonce'] ?? null;
-        $valNonce = $decoded['value_nonce'] ?? null;
-        $version = $decoded['encryption_version'] ?? null;
+        $value     = $decoded['encrypted_value'] ?? null;
+        $dek       = $decoded['encrypted_dek'] ?? null;
+        $dekNonce  = $decoded['dek_nonce'] ?? null;
+        $valNonce  = $decoded['value_nonce'] ?? null;
+        $version   = $decoded['encryption_version'] ?? null;
         $algorithm = $decoded['encryption_algorithm'] ?? null;
         // Carried through re-wrapping but not required to open an envelope: it is
         // a change-detection token, and integrity is the AEAD tag's job.
         $checksum = $decoded['value_checksum'] ?? '';
 
-        if (!\is_string($value) || !\is_string($dek) || !\is_string($dekNonce)
-            || !\is_string($valNonce) || !\is_int($version) || !\is_string($algorithm)
-            || !\is_string($checksum)
+        if (!is_string($value) || !is_string($dek) || !is_string($dekNonce)
+            || !is_string($valNonce) || !is_int($version) || !is_string($algorithm)
+            || !is_string($checksum)
         ) {
             throw EnvelopeFormatException::malformedFields();
         }
 
         return [
-            'encrypted_value' => $value,
-            'encrypted_dek' => $dek,
-            'dek_nonce' => $dekNonce,
-            'value_nonce' => $valNonce,
-            'value_checksum' => $checksum,
-            'encryption_version' => $version,
+            'encrypted_value'      => $value,
+            'encrypted_dek'        => $dek,
+            'dek_nonce'            => $dekNonce,
+            'value_nonce'          => $valNonce,
+            'value_checksum'       => $checksum,
+            'encryption_version'   => $version,
             'encryption_algorithm' => $algorithm,
         ];
     }

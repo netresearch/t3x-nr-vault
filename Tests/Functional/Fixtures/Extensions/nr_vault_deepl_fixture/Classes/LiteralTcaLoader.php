@@ -1,10 +1,15 @@
 <?php
 
-/* Copyright (c) 2026 Netresearch DTT GmbH
- * SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Fixtures\DeepL;
+
+use function dirname;
 
 /**
  * Fixture-only cache: Core can compile TCA repeatedly in one PHP process.
@@ -19,7 +24,7 @@ final class LiteralTcaLoader
      */
     public static function load(): array
     {
-        self::$configuration ??= require_once \dirname(__DIR__, 6) . '/Documentation/Usage/_tca-deepl-config.php';
+        self::$configuration ??= require_once dirname(__DIR__, 6) . '/Documentation/Usage/_tca-deepl-config.php';
 
         return self::$configuration;
     }

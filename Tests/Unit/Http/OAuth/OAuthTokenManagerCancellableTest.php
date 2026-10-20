@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -38,6 +38,10 @@ use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
+
+use function assert;
+use function is_callable;
+use function strlen;
 
 /**
  * The cancellable OAuth token round trip (issue #303).
@@ -87,10 +91,10 @@ final class OAuthTokenManagerCancellableTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = self::createStub(VaultServiceInterface::class);
+        $this->vaultService   = self::createStub(VaultServiceInterface::class);
         $this->blockingClient = self::createStub(ClientInterface::class);
 
-        $this->originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $this->originalGlobals      = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['HTTP' => []];
     }
 
@@ -111,7 +115,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $this->programCredentialReads();
 
         $transfer = new TokenTransfer();
-        $ticker = new TokenLoopTicker(static function (int $tick) use ($transfer): void {
+        $ticker   = new TokenLoopTicker(static function (int $tick) use ($transfer): void {
             if ($tick >= 1) {
                 $transfer->settleWith(self::tokenResponse('cancellable-access-token'));
             }
@@ -124,7 +128,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $blockingClient->expects(self::never())->method('sendRequest');
         $this->blockingClient = $blockingClient;
 
-        $rows = [];
+        $rows    = [];
         $subject = $this->managerWith($transfer, $ticker, $rows);
 
         $token = $subject->getAccessToken($this->config(), new TokenNeverCancelledSignal());
@@ -156,11 +160,11 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $this->blockingClient = $blockingClient;
 
         $transfer = new TokenTransfer();
-        $ticker = new TokenLoopTicker(static function () use ($transfer): void {
+        $ticker   = new TokenLoopTicker(static function () use ($transfer): void {
             $transfer->settleWith(self::tokenResponse('pinned-access-token'));
         });
 
-        $rows = [];
+        $rows    = [];
         $subject = $this->managerWith($transfer, $ticker, $rows, clientFollowsRedirects: true);
 
         self::assertSame('pinned-access-token', $subject->getAccessToken($this->config(), new TokenNeverCancelledSignal()));
@@ -181,7 +185,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         // Never settles: the only way out of the loop is the signal.
         $ticker = new TokenLoopTicker(static function (): void {});
 
-        $rows = [];
+        $rows    = [];
         $subject = $this->managerWith($transfer, $ticker, $rows);
 
         // Question 1: the pre-read check in getAccessToken(). Question 2: the
@@ -216,7 +220,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $blockingClient->expects(self::never())->method('sendRequest');
         $this->blockingClient = $blockingClient;
 
-        $rows = [];
+        $rows    = [];
         $subject = $this->managerWith($transfer, new TokenLoopTicker(static function (): void {}), $rows);
 
         // Question 1 (pre-read): false. Question 2 (pre-send): true.
@@ -244,8 +248,8 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $this->vaultService = $vaultService;
 
         $transfer = new TokenTransfer();
-        $rows = [];
-        $subject = $this->managerWith($transfer, new TokenLoopTicker(static function (): void {}), $rows);
+        $rows     = [];
+        $subject  = $this->managerWith($transfer, new TokenLoopTicker(static function (): void {}), $rows);
 
         try {
             $subject->getAccessToken($this->config(), new TokenAlreadyCancelledSignal());
@@ -265,7 +269,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $this->programCredentialReads();
 
         $transfer = new TokenTransfer();
-        $rows = [];
+        $rows     = [];
         // Budget zero: the deadline has passed on the loop's first check.
         $subject = $this->managerWith(
             $transfer,
@@ -302,16 +306,16 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $this->programCredentialReads();
 
         $transfer = new TokenTransfer();
-        $ticker = new TokenLoopTicker(static function (int $tick) use ($transfer): void {
+        $ticker   = new TokenLoopTicker(static function (int $tick) use ($transfer): void {
             usleep(20_000);
             match (true) {
-                $tick === 1 => $transfer->deliverHead(200),
+                $tick === 1  => $transfer->deliverHead(200),
                 $tick === 13 => $transfer->settleWith(self::tokenResponse('slow-access-token')),
-                default => $transfer->deliverBytes('x'),
+                default      => $transfer->deliverBytes('x'),
             };
         });
 
-        $rows = [];
+        $rows    = [];
         $subject = $this->managerWith($transfer, $ticker, $rows, wallClockBudgetSeconds: 0.0, idleBudgetSeconds: 0.05);
 
         self::assertSame('slow-access-token', $subject->getAccessToken($this->config(), new TokenNeverCancelledSignal()));
@@ -326,7 +330,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $this->programCredentialReads();
 
         $transfer = new TokenTransfer();
-        $ticker = new TokenLoopTicker(static function (): void {
+        $ticker   = new TokenLoopTicker(static function (): void {
             usleep(20_000);
         });
 
@@ -339,7 +343,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $this->programCredentialReads();
 
         $transfer = new TokenTransfer();
-        $ticker = new TokenLoopTicker(static function () use ($transfer): void {
+        $ticker   = new TokenLoopTicker(static function () use ($transfer): void {
             usleep(20_000);
             $transfer->deliverHead(100);
         });
@@ -358,15 +362,15 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                'oauth/refresh-token' => 'old-refresh-token',
-                default => null,
+                'oauth/refresh-token'      => 'old-refresh-token',
+                default                    => null,
             });
 
         $transfer = new TokenTransfer();
-        $rows = [];
-        $subject = $this->managerWith($transfer, new TokenLoopTicker(static function (): void {}), $rows);
+        $rows     = [];
+        $subject  = $this->managerWith($transfer, new TokenLoopTicker(static function (): void {}), $rows);
 
         $config = OAuthConfig::refreshToken(
             tokenEndpoint: self::TOKEN_ENDPOINT,
@@ -396,7 +400,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $this->programCredentialReads();
 
         $transfer = new TokenTransfer();
-        $ticker = new TokenLoopTicker(static function (int $tick) use ($transfer): void {
+        $ticker   = new TokenLoopTicker(static function (int $tick) use ($transfer): void {
             if ($tick >= 1) {
                 $transfer->rejectWith(new RequestException(
                     'cURL error 7 while sending client_secret=super-secret-value',
@@ -405,7 +409,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
             }
         });
 
-        $rows = [];
+        $rows    = [];
         $subject = $this->managerWith($transfer, $ticker, $rows);
 
         try {
@@ -443,9 +447,9 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
     }
 
@@ -455,7 +459,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
      */
     private function assertTokenIdleAbort(TokenTransfer $transfer, TokenLoopTicker $ticker): void
     {
-        $rows = [];
+        $rows    = [];
         $subject = $this->managerWith($transfer, $ticker, $rows, wallClockBudgetSeconds: 0.0, idleBudgetSeconds: 0.05);
 
         try {
@@ -493,7 +497,7 @@ final class OAuthTokenManagerCancellableTest extends TestCase
         bool $clientFollowsRedirects = false,
         ?float $idleBudgetSeconds = null,
     ): OAuthTokenManager {
-        $rows = [];
+        $rows            = [];
         $auditLogService = self::createStub(AuditLogServiceInterface::class);
         $auditLogService
             ->method('log')
@@ -542,8 +546,8 @@ final class OAuthTokenManagerCancellableTest extends TestCase
     {
         return new Response(200, ['Content-Type' => 'application/json'], json_encode([
             'access_token' => $accessToken,
-            'token_type' => 'Bearer',
-            'expires_in' => 3600,
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
         ], JSON_THROW_ON_ERROR));
     }
 }
@@ -612,8 +616,8 @@ final class TokenTransfer
     public function deliverHead(int $status): void
     {
         $onHeaders = $this->options['on_headers'] ?? null;
-        $sink = $this->options['sink'] ?? null;
-        \assert(\is_callable($onHeaders) && $sink instanceof StreamInterface);
+        $sink      = $this->options['sink'] ?? null;
+        assert(is_callable($onHeaders) && $sink instanceof StreamInterface);
 
         $onHeaders(new Response($status, [], $sink));
     }
@@ -624,9 +628,9 @@ final class TokenTransfer
     public function deliverBytes(string $bytes): void
     {
         $sink = $this->options['sink'] ?? null;
-        \assert($sink instanceof StreamInterface);
+        assert($sink instanceof StreamInterface);
 
-        if ($sink->write($bytes) !== \strlen($bytes)) {
+        if ($sink->write($bytes) !== strlen($bytes)) {
             throw new RuntimeException('The sink must accept every byte, or curl aborts the transfer.', 1790500103);
         }
     }

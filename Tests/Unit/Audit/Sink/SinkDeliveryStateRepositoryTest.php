@@ -78,7 +78,7 @@ final class SinkDeliveryStateRepositoryTest extends TestCase
     #[Test]
     public function healthySuccessesAreThrottledToOneWritePerInterval(): void
     {
-        $writes = 0;
+        $writes  = 0;
         $subject = $this->createSubject($writes);
 
         $subject->recordSuccess('syslog');
@@ -137,10 +137,10 @@ final class SinkDeliveryStateRepositoryTest extends TestCase
         string $loggerFailureClass,
     ): void {
         $registryFailure = new $registryFailureClass('synthetic registry unavailable');
-        $loggerFailure = new $loggerFailureClass('synthetic logger unavailable');
-        $reads = [];
-        $writes = [];
-        $registry = self::createStub(Registry::class);
+        $loggerFailure   = new $loggerFailureClass('synthetic logger unavailable');
+        $reads           = [];
+        $writes          = [];
+        $registry        = self::createStub(Registry::class);
         $registry
             ->method('get')
             ->willReturnCallback(
@@ -170,7 +170,7 @@ final class SinkDeliveryStateRepositoryTest extends TestCase
                 },
             );
         $diagnostics = [];
-        $logger = self::createStub(LoggerInterface::class);
+        $logger      = self::createStub(LoggerInterface::class);
         $logger
             ->method('warning')
             ->willReturnCallback(
@@ -184,8 +184,8 @@ final class SinkDeliveryStateRepositoryTest extends TestCase
                 },
             );
         $subject = new SinkDeliveryStateRepository($registry, $logger);
-        $caught = null;
-        $state = null;
+        $caught  = null;
+        $state   = null;
 
         try {
             if ($operation === 'read') {
@@ -210,7 +210,7 @@ final class SinkDeliveryStateRepositoryTest extends TestCase
                 [
                     'message' => 'nr-vault could not read/write the persisted sink delivery state.',
                     'context' => [
-                        'sink' => 'webhook',
+                        'sink'  => 'webhook',
                         'error' => $registryFailure->getMessage(),
                     ],
                 ],

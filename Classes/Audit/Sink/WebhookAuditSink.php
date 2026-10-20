@@ -21,6 +21,9 @@ use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Throwable;
 
+use function in_array;
+use function is_string;
+
 /**
  * POSTs audit evidence as JSON to an HTTP endpoint (typically a SIEM collector).
  *
@@ -70,8 +73,8 @@ final readonly class WebhookAuditSink implements AuditSinkInterface
     private StreamFactoryInterface $streamFactory;
 
     /**
-     * @param ClientInterface $httpClient MUST be a hardened client — `Services.yaml`
-     *                                    injects one built by `SecureHttpClientFactory::create(3)`
+     * @param ClientInterface              $httpClient     MUST be a hardened client — `Services.yaml`
+     *                                                     injects one built by `SecureHttpClientFactory::create(3)`
      * @param RequestFactoryInterface|null $requestFactory PSR-17 factories are not
      *                                                     registered in the TYPO3 core DI container, so they default to
      *                                                     Guzzle's `HttpFactory` (the same approach as
@@ -84,26 +87,26 @@ final readonly class WebhookAuditSink implements AuditSinkInterface
         ?RequestFactoryInterface $requestFactory = null,
         ?StreamFactoryInterface $streamFactory = null,
     ) {
-        $httpFactory = new HttpFactory();
+        $httpFactory          = new HttpFactory();
         $this->requestFactory = $requestFactory ?? $httpFactory;
-        $this->streamFactory = $streamFactory ?? $httpFactory;
+        $this->streamFactory  = $streamFactory ?? $httpFactory;
     }
 
     public function publish(AuditLogEntry $entry, string $chainTip): void
     {
         $this->post([
-            'type' => 'entry',
-            'source' => self::PAYLOAD_SOURCE,
-            'uid' => $entry->uid,
+            'type'     => 'entry',
+            'source'   => self::PAYLOAD_SOURCE,
+            'uid'      => $entry->uid,
             'chainTip' => $chainTip,
-            'entry' => $entry->jsonSerialize(),
+            'entry'    => $entry->jsonSerialize(),
         ]);
     }
 
     public function publishAnchor(ChainTipAnchor $anchor): void
     {
         $this->post([
-            'type' => 'anchor',
+            'type'   => 'anchor',
             'source' => self::PAYLOAD_SOURCE,
             'anchor' => $anchor->toArray(),
         ]);
@@ -112,9 +115,9 @@ final readonly class WebhookAuditSink implements AuditSinkInterface
     public function publishAlert(AuditIntegrityAlert $alert): void
     {
         $this->post([
-            'type' => 'alert',
+            'type'   => 'alert',
             'source' => self::PAYLOAD_SOURCE,
-            'alert' => $alert->toArray(),
+            'alert'  => $alert->toArray(),
         ]);
     }
 
@@ -198,12 +201,12 @@ final readonly class WebhookAuditSink implements AuditSinkInterface
         }
 
         $scheme = parse_url($url, PHP_URL_SCHEME);
-        if (!\is_string($scheme) || !\in_array(strtolower($scheme), ['http', 'https'], true)) {
+        if (!is_string($scheme) || !in_array(strtolower($scheme), ['http', 'https'], true)) {
             return false;
         }
 
         $host = parse_url($url, PHP_URL_HOST);
 
-        return \is_string($host) && $host !== '';
+        return is_string($host) && $host !== '';
     }
 }

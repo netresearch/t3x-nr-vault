@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -26,6 +26,8 @@ use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 
+use function array_slice;
+
 /**
  * Proves what ApiSurfaceSnapshotTest cannot prove about itself.
  *
@@ -43,7 +45,7 @@ final class ApiSurfaceRendererTest extends TestCase
     {
         $renderer = new ApiSurfaceRenderer();
 
-        $narrow = $this->linesOf($renderer->render([NarrowConstructor::class]));
+        $narrow  = $this->linesOf($renderer->render([NarrowConstructor::class]));
         $widened = $this->linesOf($renderer->render([WidenedConstructor::class]));
 
         // Everything but the constructor is identical between the two
@@ -298,7 +300,7 @@ final class ApiSurfaceRendererTest extends TestCase
 
         // Drop the `FQCN (class)` header — the fixtures have different names
         // by construction, and that is not the difference under test.
-        return array_values(\array_slice($lines, 1));
+        return array_values(array_slice($lines, 1));
     }
 
     /**

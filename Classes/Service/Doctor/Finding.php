@@ -42,12 +42,12 @@ namespace Netresearch\NrVault\Service\Doctor;
 final readonly class Finding
 {
     /**
-     * @param string $id Stable dotted control id, e.g. `audit.external_sink`
-     * @param string $summary What was observed, one sentence
-     * @param string $risk What the finding costs the operator ('' for Pass)
-     * @param string $remediation Concrete next action ('' for Pass)
-     * @param string $docsUrl Deep link into the rendered documentation ('' when none applies)
-     * @param array<string, bool|int|string> $details Machine-readable specifics — never secret material
+     * @param string                         $id          Stable dotted control id, e.g. `audit.external_sink`
+     * @param string                         $summary     What was observed, one sentence
+     * @param string                         $risk        What the finding costs the operator ('' for Pass)
+     * @param string                         $remediation Concrete next action ('' for Pass)
+     * @param string                         $docsUrl     Deep link into the rendered documentation ('' when none applies)
+     * @param array<string, bool|int|string> $details     Machine-readable specifics — never secret material
      */
     public function __construct(
         public string $id,
@@ -162,13 +162,13 @@ final readonly class Finding
     public function toArray(): array
     {
         return [
-            'id' => $this->id,
-            'severity' => $this->severity->value,
-            'summary' => $this->summary,
-            'risk' => $this->risk,
+            'id'          => $this->id,
+            'severity'    => $this->severity->value,
+            'summary'     => $this->summary,
+            'risk'        => $this->risk,
             'remediation' => $this->remediation,
-            'docsUrl' => $this->docsUrl,
-            'details' => $this->details,
+            'docsUrl'     => $this->docsUrl,
+            'details'     => $this->details,
         ];
     }
 }

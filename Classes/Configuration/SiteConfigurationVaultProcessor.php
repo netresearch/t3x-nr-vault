@@ -16,6 +16,10 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 use TYPO3\CMS\Core\Site\Entity\Site;
 
+use function is_array;
+use function is_string;
+use function sprintf;
+
 /**
  * Processor for resolving vault references in site configuration.
  *
@@ -79,7 +83,7 @@ final readonly class SiteConfigurationVaultProcessor implements SiteConfiguratio
      */
     public function processValue(mixed $value, ?Site $site = null): mixed
     {
-        if (!\is_string($value)) {
+        if (!is_string($value)) {
             return $value;
         }
 
@@ -95,7 +99,7 @@ final readonly class SiteConfigurationVaultProcessor implements SiteConfiguratio
      */
     public function isVaultReference(mixed $value): bool
     {
-        return \is_string($value) && preg_match(self::VAULT_PATTERN, $value) === 1;
+        return is_string($value) && preg_match(self::VAULT_PATTERN, $value) === 1;
     }
 
     /**
@@ -103,7 +107,7 @@ final readonly class SiteConfigurationVaultProcessor implements SiteConfiguratio
      */
     public static function buildVaultReference(string $identifier): string
     {
-        return \sprintf('%%vault(%s)%%', $identifier);
+        return sprintf('%%vault(%s)%%', $identifier);
     }
 
     /**
@@ -128,11 +132,11 @@ final readonly class SiteConfigurationVaultProcessor implements SiteConfiguratio
         $resolved = [];
 
         foreach ($configuration as $key => $value) {
-            $keyStr = \is_string($key) ? $key : (string) $key;
-            if (\is_array($value)) {
+            $keyStr = is_string($key) ? $key : (string) $key;
+            if (is_array($value)) {
                 /** @var array<string, mixed> $value */
                 $resolved[$keyStr] = $this->resolveVaultReferences($value, $site);
-            } elseif (\is_string($value) && $this->isVaultReference($value)) {
+            } elseif (is_string($value) && $this->isVaultReference($value)) {
                 $resolved[$keyStr] = $this->resolveVaultReference($value, $site);
             } else {
                 $resolved[$keyStr] = $value;
@@ -150,7 +154,7 @@ final readonly class SiteConfigurationVaultProcessor implements SiteConfiguratio
         }
 
         if ($site instanceof Site && !str_contains($identifier, ':')) {
-            $siteIdentifier = \sprintf('site:%s:%s', $site->getIdentifier(), $identifier);
+            $siteIdentifier = sprintf('site:%s:%s', $site->getIdentifier(), $identifier);
 
             try {
                 $metadata = $this->vaultService->getMetadata($siteIdentifier);

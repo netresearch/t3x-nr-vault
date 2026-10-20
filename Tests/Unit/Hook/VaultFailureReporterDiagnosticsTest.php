@@ -1,9 +1,10 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Hook;
@@ -35,13 +36,13 @@ final class VaultFailureReporterDiagnosticsTest extends TestCase
         bool $denied,
     ): void {
         $identifier = 'synthetic-foreign-record';
-        $cause = $denied ? AccessDeniedException::forIdentifier(
+        $cause      = $denied ? AccessDeniedException::forIdentifier(
             $identifier,
             'synthetic private denial',
         ) : SecretNotFoundException::forIdentifier($identifier);
         $writerFailure = new $loggerFailureClass('synthetic private writer failure');
-        $attempts = [];
-        $logger = self::createMock(LoggerInterface::class);
+        $attempts      = [];
+        $logger        = self::createMock(LoggerInterface::class);
         $logger
             ->method('error')
             ->willReturnCallback(
@@ -54,16 +55,16 @@ final class VaultFailureReporterDiagnosticsTest extends TestCase
                     throw $writerFailure;
                 },
             );
-        $subject = new VaultFailureReporter($logger);
+        $subject  = new VaultFailureReporter($logger);
         $returned = null;
-        $escaped = null;
+        $escaped  = null;
 
         try {
             $returned = $subject->report(
                 $cause,
                 [
                     'identifier' => $identifier,
-                    'operation' => 'synthetic_diagnostic_probe',
+                    'operation'  => 'synthetic_diagnostic_probe',
                 ],
             );
         } catch (Throwable $error) {

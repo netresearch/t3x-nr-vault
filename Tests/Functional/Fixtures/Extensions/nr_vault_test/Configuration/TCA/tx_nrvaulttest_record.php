@@ -24,32 +24,32 @@ use Netresearch\NrVault\TCA\VaultFieldHelper;
  */
 return [
     'ctrl' => [
-        'title' => 'Vault test record',
-        'label' => 'title',
-        'delete' => 'deleted',
-        'crdate' => 'crdate',
-        'tstamp' => 'tstamp',
-        'sortby' => 'sorting',
-        'languageField' => 'sys_language_uid',
+        'title'                 => 'Vault test record',
+        'label'                 => 'title',
+        'delete'                => 'deleted',
+        'crdate'                => 'crdate',
+        'tstamp'                => 'tstamp',
+        'sortby'                => 'sorting',
+        'languageField'         => 'sys_language_uid',
         'transOrigPointerField' => 'l10n_parent',
-        'translationSource' => 'l10n_source',
-        'rootLevel' => -1,
+        'translationSource'     => 'l10n_source',
+        'rootLevel'             => -1,
     ],
     'columns' => [
         'sys_language_uid' => [
-            'label' => 'Language',
+            'label'  => 'Language',
             'config' => [
                 'type' => 'language',
             ],
         ],
         'l10n_parent' => [
-            'label' => 'Translation parent',
+            'label'  => 'Translation parent',
             'config' => [
-                'type' => 'select',
-                'renderType' => 'selectSingle',
-                'default' => 0,
-                'items' => [['label' => '', 'value' => 0]],
-                'foreign_table' => 'tx_nrvaulttest_record',
+                'type'                => 'select',
+                'renderType'          => 'selectSingle',
+                'default'             => 0,
+                'items'               => [['label' => '', 'value' => 0]],
+                'foreign_table'       => 'tx_nrvaulttest_record',
                 'foreign_table_where' => 'AND {#tx_nrvaulttest_record}.{#sys_language_uid} IN (-1,0)',
             ],
         ],
@@ -59,22 +59,22 @@ return [
             ],
         ],
         'title' => [
-            'label' => 'Title',
+            'label'  => 'Title',
             'config' => [
                 'type' => 'input',
             ],
         ],
-        'api_key' => VaultFieldHelper::getFieldConfig(['label' => 'API key']),
+        'api_key'    => VaultFieldHelper::getFieldConfig(['label' => 'API key']),
         'api_secret' => VaultFieldHelper::getFieldConfig(['label' => 'API secret']),
         // What integrators get from VaultFieldHelper::getSecureFieldConfig():
         // l10n_mode = exclude, which makes core's DataMapProcessor push the
         // default-language record's stored value into every translation's
         // data map on an ordinary update.
         'api_token' => VaultFieldHelper::getSecureFieldConfig('API token'),
-        'children' => [
-            'label' => 'Children',
+        'children'  => [
+            'label'  => 'Children',
             'config' => [
-                'type' => 'inline',
+                'type'          => 'inline',
                 'foreign_table' => 'tx_nrvaulttest_child',
                 'foreign_field' => 'parent',
             ],

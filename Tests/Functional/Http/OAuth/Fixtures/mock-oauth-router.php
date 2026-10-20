@@ -25,7 +25,7 @@ declare(strict_types=1);
  * passes in NR_VAULT_MOCK_OAUTH_SECRET.
  */
 
-const MOCK_OAUTH_CLIENT_ID = 'test-client-id';
+const MOCK_OAUTH_CLIENT_ID     = 'test-client-id';
 const MOCK_OAUTH_CLIENT_SECRET = 'test-client-secret';
 
 /**
@@ -66,18 +66,18 @@ if (!is_string($secret) || $secret === '') {
 }
 
 $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
-$path = parse_url(is_string($requestUri) ? $requestUri : '/', PHP_URL_PATH);
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$host = $_SERVER['HTTP_HOST'] ?? '127.0.0.1';
+$path       = parse_url(is_string($requestUri) ? $requestUri : '/', PHP_URL_PATH);
+$method     = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$host       = $_SERVER['HTTP_HOST'] ?? '127.0.0.1';
 // Plain HTTP: PHP's built-in server on loopback cannot terminate TLS. NOSONAR — test-only.
 $issuer = 'http://' . (is_string($host) ? $host : '127.0.0.1') . '/default'; // NOSONAR
 
 switch (true) {
     case $method === 'GET' && in_array($path, ['/.well-known/openid-configuration', '/default/.well-known/openid-configuration'], true):
         mockOAuthRespond(200, [
-            'issuer' => $issuer,
-            'token_endpoint' => $issuer . '/token',
-            'userinfo_endpoint' => $issuer . '/userinfo',
+            'issuer'                => $issuer,
+            'token_endpoint'        => $issuer . '/token',
+            'userinfo_endpoint'     => $issuer . '/userinfo',
             'grant_types_supported' => ['client_credentials'],
         ]);
         break;
@@ -98,9 +98,9 @@ switch (true) {
         $nonce = bin2hex(random_bytes(16));
         mockOAuthRespond(200, [
             'access_token' => $nonce . '.' . mockOAuthSign($nonce, $secret),
-            'token_type' => 'Bearer',
-            'expires_in' => 3600,
-            'scope' => mockOAuthPostString('scope'),
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
+            'scope'        => mockOAuthPostString('scope'),
         ]);
         break;
     case $method === 'GET' && $path === '/default/userinfo':

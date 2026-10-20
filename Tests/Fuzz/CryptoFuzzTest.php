@@ -19,6 +19,10 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
+use function ord;
+use function sprintf;
+use function strlen;
+
 /**
  * Fuzz tests for envelope encryption round-trip and tamper detection.
  *
@@ -63,7 +67,7 @@ final class CryptoFuzzTest extends TestCase
         $aesConfig->method('getEncryptionAlgorithm')->willReturn('aes256gcm');
 
         $this->xchacha = new EncryptionService($provider, $xchachaConfig);
-        $this->aes = new EncryptionService($provider, $aesConfig);
+        $this->aes     = new EncryptionService($provider, $aesConfig);
     }
 
     /**
@@ -77,14 +81,14 @@ final class CryptoFuzzTest extends TestCase
         mt_srand($seed);
 
         $cases = [
-            'empty string' => ['', '01937b6e-4b6c-7abc-8def-000000000001'],
-            'single byte' => ["\x00", '01937b6e-4b6c-7abc-8def-000000000002'],
-            'single printable' => ['a', '01937b6e-4b6c-7abc-8def-000000000003'],
-            'ascii short' => ['hello world', '01937b6e-4b6c-7abc-8def-000000000004'],
-            'ascii with null' => ["abc\x00def", '01937b6e-4b6c-7abc-8def-000000000005'],
-            'unicode emoji' => ['🔐 secret 🗝', '01937b6e-4b6c-7abc-8def-000000000006'],
-            'unicode mixed' => ["パスワード: \u{0041}\u{0042}\u{0043}", '01937b6e-4b6c-7abc-8def-000000000007'],
-            'cr lf' => ["\r\n\t", '01937b6e-4b6c-7abc-8def-000000000008'],
+            'empty string'      => ['', '01937b6e-4b6c-7abc-8def-000000000001'],
+            'single byte'       => ["\x00", '01937b6e-4b6c-7abc-8def-000000000002'],
+            'single printable'  => ['a', '01937b6e-4b6c-7abc-8def-000000000003'],
+            'ascii short'       => ['hello world', '01937b6e-4b6c-7abc-8def-000000000004'],
+            'ascii with null'   => ["abc\x00def", '01937b6e-4b6c-7abc-8def-000000000005'],
+            'unicode emoji'     => ['🔐 secret 🗝', '01937b6e-4b6c-7abc-8def-000000000006'],
+            'unicode mixed'     => ["パスワード: \u{0041}\u{0042}\u{0043}", '01937b6e-4b6c-7abc-8def-000000000007'],
+            'cr lf'             => ["\r\n\t", '01937b6e-4b6c-7abc-8def-000000000008'],
             'all zero bytes 16' => [str_repeat("\x00", 16), '01937b6e-4b6c-7abc-8def-000000000009'],
             'all 0xff bytes 16' => [str_repeat("\xff", 16), '01937b6e-4b6c-7abc-8def-000000000010'],
             // Every byte value exactly once: catches any accidental
@@ -114,14 +118,14 @@ final class CryptoFuzzTest extends TestCase
         ];
 
         // Add 50 random plaintext cases seeded for reproducibility
-        for ($i = 0; $i < 50; $i++) {
-            $length = mt_rand(0, 512);
+        for ($i = 0; $i < 50; ++$i) {
+            $length    = mt_rand(0, 512);
             $plaintext = '';
-            for ($j = 0; $j < $length; $j++) {
+            for ($j = 0; $j < $length; ++$j) {
                 $plaintext .= \chr(mt_rand(0, 255));
             }
 
-            $id = \sprintf('01937b6e-4b6c-7abc-8def-%012d', $i + 100);
+            $id                                = sprintf('01937b6e-4b6c-7abc-8def-%012d', $i + 100);
             $cases["random_{$i}_len{$length}"] = [$plaintext, $id];
         }
 
@@ -181,20 +185,20 @@ final class CryptoFuzzTest extends TestCase
     #[Test]
     public function encryptGeneratesUniqueNonces(): void
     {
-        $plaintext = 'same-secret';
+        $plaintext  = 'same-secret';
         $identifier = '01937b6e-4b6c-7abc-8def-aabbccddeeff';
 
-        $iterations = 1000;
+        $iterations  = 1000;
         $ciphertexts = [];
         $valueNonces = [];
-        $dekNonces = [];
+        $dekNonces   = [];
 
         $start = hrtime(true);
-        for ($i = 0; $i < $iterations; $i++) {
-            $encrypted = $this->xchacha->encrypt($plaintext, $identifier);
+        for ($i = 0; $i < $iterations; ++$i) {
+            $encrypted     = $this->xchacha->encrypt($plaintext, $identifier);
             $ciphertexts[] = $encrypted->encryptedValue;
             $valueNonces[] = $encrypted->valueNonce;
-            $dekNonces[] = $encrypted->dekNonce;
+            $dekNonces[]   = $encrypted->dekNonce;
         }
 
         $elapsedMs = (hrtime(true) - $start) / 1_000_000;
@@ -261,9 +265,9 @@ final class CryptoFuzzTest extends TestCase
         // Cover short, medium, long plaintexts so ciphertext-body flips
         // exercise different lengths.
         $plaintexts = [
-            'short' => ['short', '01937b6e-4b6c-7abc-8def-cccccccccc01'],
+            'short'  => ['short', '01937b6e-4b6c-7abc-8def-cccccccccc01'],
             'medium' => [str_repeat('Medium body payload. ', 10), '01937b6e-4b6c-7abc-8def-cccccccccc02'],
-            'long' => [str_repeat('L', 512), '01937b6e-4b6c-7abc-8def-cccccccccc03'],
+            'long'   => [str_repeat('L', 512), '01937b6e-4b6c-7abc-8def-cccccccccc03'],
         ];
 
         // XOR masks — spread single-bit flips and multi-bit flips
@@ -276,7 +280,7 @@ final class CryptoFuzzTest extends TestCase
                 // of positions that covers first, last, and interior bytes.
                 foreach (['encryptedValue', 'encryptedDek', 'dekNonce', 'valueNonce'] as $component) {
                     foreach ([0, 1, 3, 7, 11, 15, 23, 24, 31, 47] as $pos) {
-                        $key = \sprintf('%s_%s_pos%d_xor%02x', $ptName, $component, $pos, $mask);
+                        $key = sprintf('%s_%s_pos%d_xor%02x', $ptName, $component, $pos, $mask);
                         yield $key => [$plaintext, $identifier, $component, $pos, $mask];
                     }
                 }
@@ -301,30 +305,30 @@ final class CryptoFuzzTest extends TestCase
 
         $field = match ($component) {
             'encryptedValue' => $encrypted->encryptedValue,
-            'encryptedDek' => $encrypted->encryptedDek,
-            'dekNonce' => $encrypted->dekNonce,
-            'valueNonce' => $encrypted->valueNonce,
+            'encryptedDek'   => $encrypted->encryptedDek,
+            'dekNonce'       => $encrypted->dekNonce,
+            'valueNonce'     => $encrypted->valueNonce,
         };
 
         $raw = base64_decode($field, true);
         self::assertIsString($raw, "{$component} must be decodable");
 
-        $len = \strlen($raw);
+        $len = strlen($raw);
         if ($len === 0) {
             // Cannot tamper a zero-length buffer — skip.
             self::markTestSkipped("{$component} is empty");
         }
 
         // Clamp position to buffer length
-        $actualPos = $position % $len;
-        $raw[$actualPos] = \chr(\ord($raw[$actualPos]) ^ $xorMask);
-        $tampered = base64_encode($raw);
+        $actualPos       = $position % $len;
+        $raw[$actualPos] = \chr(ord($raw[$actualPos]) ^ $xorMask);
+        $tampered        = base64_encode($raw);
 
         $args = [
             'encryptedValue' => $encrypted->encryptedValue,
-            'encryptedDek' => $encrypted->encryptedDek,
-            'dekNonce' => $encrypted->dekNonce,
-            'valueNonce' => $encrypted->valueNonce,
+            'encryptedDek'   => $encrypted->encryptedDek,
+            'dekNonce'       => $encrypted->dekNonce,
+            'valueNonce'     => $encrypted->valueNonce,
         ];
         $args[$component] = $tampered;
 
@@ -345,7 +349,7 @@ final class CryptoFuzzTest extends TestCase
     #[Test]
     public function oneMegabytePlaintextRoundTrips(): void
     {
-        $plaintext = random_bytes(1024 * 1024);
+        $plaintext  = random_bytes(1024 * 1024);
         $identifier = '01937b6e-4b6c-7abc-8def-aaaaaaaaaaaa';
 
         $encrypted = $this->xchacha->encrypt($plaintext, $identifier);

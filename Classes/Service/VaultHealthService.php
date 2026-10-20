@@ -35,12 +35,12 @@ final readonly class VaultHealthService implements VaultHealthServiceInterface
     public function checkHealth(): VaultHealthStatus
     {
         $masterKeyAvailable = false;
-        $masterKeyProvider = '';
-        $encryptionWorking = false;
-        $hasIssues = false;
+        $masterKeyProvider  = '';
+        $encryptionWorking  = false;
+        $hasIssues          = false;
 
         try {
-            $provider = $this->masterKeyProviderFactory->create();
+            $provider          = $this->masterKeyProviderFactory->create();
             $masterKeyProvider = $provider->getIdentifier();
 
             if ($provider->isAvailable()) {

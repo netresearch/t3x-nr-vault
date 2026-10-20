@@ -63,8 +63,8 @@ final class ChainTipAnchorTest extends TestCase
     public function numericStringsAreCoercedToIntegers(): void
     {
         $anchor = ChainTipAnchor::fromArray([
-            'sequence' => '42',
-            'chainTip' => 'tip',
+            'sequence'  => '42',
+            'chainTip'  => 'tip',
             'timestamp' => '1750000000',
             'hmacEpoch' => '3',
         ]);

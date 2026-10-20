@@ -31,6 +31,9 @@ use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\ContentObject\Event\AfterStdWrapFunctionsExecutedEvent;
 
+use function dirname;
+use function sprintf;
+
 /**
  * Unit coverage for the allow-set harvester: the hardening caps, the
  * memoisation, the log latch, and the regex parity that makes the gate
@@ -91,7 +94,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     public function siteSettingsPublishIdentifiers(): void
     {
         $site = new Site('acme', 1, [
-            'base' => 'https://example.com/',
+            'base'     => 'https://example.com/',
             'settings' => ['payment' => ['key' => '%vault(' . self::IDENTIFIER . ')%']],
         ]);
         $cObj = $this->contentObjectRenderer($this->frontendRequest()->withAttribute('site', $site));
@@ -115,7 +118,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     public function allowIdentifierPublishesAndTrims(): void
     {
         $request = $this->frontendRequest();
-        $cObj = $this->contentObjectRenderer($request);
+        $cObj    = $this->contentObjectRenderer($request);
 
         $this->subject->allowIdentifier('  ' . self::IDENTIFIER . '  ', $request);
         $this->subject->allowIdentifier('   ', $request);
@@ -128,7 +131,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     public function aSecondGrantDoesNotDropTheFirst(): void
     {
         $request = $this->frontendRequest();
-        $cObj = $this->contentObjectRenderer($request);
+        $cObj    = $this->contentObjectRenderer($request);
 
         $this->subject->allowIdentifier('first_grant', $request);
         $this->subject->allowIdentifier('second_grant', $request);
@@ -146,7 +149,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     #[Test]
     public function scopingRestoresTheGlobalRequestItTemporarilyRemoved(): void
     {
-        $stale = $this->backendRequest();
+        $stale                    = $this->backendRequest();
         $GLOBALS['TYPO3_REQUEST'] = $stale;
 
         $this->subject->isResolvable(self::IDENTIFIER, $this->contentObjectRenderer($this->frontendRequest()));
@@ -177,7 +180,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     #[Test]
     public function grantDoesNotCrossRequestBoundaries(): void
     {
-        $firstRequest = $this->frontendRequest();
+        $firstRequest  = $this->frontendRequest();
         $secondRequest = $this->frontendRequest();
 
         $this->subject->allowIdentifier('stripe_secret', $firstRequest);
@@ -242,7 +245,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
         $GLOBALS['TYPO3_REQUEST'] = $this->frontendRequest();
 
         $claiming = $this->contentObjectRenderer($this->eidRequest());
-        $later = $this->contentObjectRenderer($this->eidRequest());
+        $later    = $this->contentObjectRenderer($this->eidRequest());
 
         self::assertTrue($this->subject->claimLogSlot($claiming));
         self::assertFalse($this->subject->claimLogSlot($claiming), 'One record per request, not per rejection');
@@ -296,7 +299,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
         $vaultService->expects(self::never())->method('retrieveForFrontend');
 
         $content = 'editor typed %vault(' . self::IDENTIFIER . ')% here';
-        $event = new AfterStdWrapFunctionsExecutedEvent($content, [], $cObj);
+        $event   = new AfterStdWrapFunctionsExecutedEvent($content, [], $cObj);
         (new TypoScriptVaultListener($vaultService, new NullLogger(), $this->subject))($event);
 
         self::assertSame($content, $event->getContent());
@@ -321,7 +324,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     #[Test]
     public function logSlotIsNotSharedAcrossRequests(): void
     {
-        $firstRequest = $this->contentObjectRenderer($this->frontendRequest());
+        $firstRequest  = $this->contentObjectRenderer($this->frontendRequest());
         $secondRequest = $this->contentObjectRenderer($this->frontendRequest());
 
         self::assertTrue($this->subject->claimLogSlot($firstRequest));
@@ -350,8 +353,8 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     public function walkStopsAtTheDepthCap(): void
     {
         $shallow = $this->nest('%vault(shallow_key)%', 5);
-        $deep = $this->nest('%vault(deep_key)%', 40);
-        $cObj = $this->contentObjectRenderer($this->frontendRequest(['a.' => $shallow, 'b.' => $deep]));
+        $deep    = $this->nest('%vault(deep_key)%', 40);
+        $cObj    = $this->contentObjectRenderer($this->frontendRequest(['a.' => $shallow, 'b.' => $deep]));
 
         self::assertTrue($this->subject->isResolvable('shallow_key', $cObj));
         self::assertFalse($this->subject->isResolvable('deep_key', $cObj), 'Beyond the depth cap the set only shrinks');
@@ -362,7 +365,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     {
         $setup = [];
         for ($i = 0; $i < 1100; ++$i) {
-            $setup['key' . $i] = \sprintf('%%vault(id_%04d)%%', $i);
+            $setup['key' . $i] = sprintf('%%vault(id_%04d)%%', $i);
         }
 
         $cObj = $this->contentObjectRenderer($this->frontendRequest($setup));
@@ -392,12 +395,12 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     {
         $setup = [];
         for ($i = 0; $i < 1000; ++$i) {
-            $setup['key' . $i] = \sprintf('%%vault(id_%04d)%%', $i);
+            $setup['key' . $i] = sprintf('%%vault(id_%04d)%%', $i);
         }
 
         // Both harvest sources meet the full set and must refuse to add to it.
         $setup['overflow'] = '%vault(leaf_overflow)%';
-        $setup['plugin.'] = ['tx_nrvault.' => ['frontendResolvableIdentifiers' => 'optin_overflow']];
+        $setup['plugin.']  = ['tx_nrvault.' => ['frontendResolvableIdentifiers' => 'optin_overflow']];
 
         $cObj = $this->contentObjectRenderer($this->frontendRequest($setup));
 
@@ -417,8 +420,8 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     {
         $cObj = $this->contentObjectRenderer($this->frontendRequest([
             'nested.' => ['value' => '%vault(nested_key)%'],
-            'plain' => 'nothing to resolve here',
-            'later' => '%vault(sibling_key)%',
+            'plain'   => 'nothing to resolve here',
+            'later'   => '%vault(sibling_key)%',
         ]));
 
         self::assertTrue($this->subject->isResolvable('nested_key', $cObj));
@@ -443,7 +446,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     public function siteConfigurationOutsideSettingsPublishesIdentifiers(): void
     {
         $site = new Site('acme', 1, [
-            'base' => 'https://example.com/',
+            'base'         => 'https://example.com/',
             'websiteTitle' => '%vault(' . self::IDENTIFIER . ')%',
         ]);
         $cObj = $this->contentObjectRenderer($this->frontendRequest()->withAttribute('site', $site));
@@ -475,8 +478,8 @@ final class FrontendPlaceholderPolicyTest extends TestCase
     public function everyIdentifierOfASitePublishesNotJustTheFirst(): void
     {
         $site = new Site('acme', 1, [
-            'base' => 'https://example.com/',
-            'first' => '%vault(first_site_key)%',
+            'base'   => 'https://example.com/',
+            'first'  => '%vault(first_site_key)%',
             'second' => '%vault(second_site_key)%',
         ]);
         $cObj = $this->contentObjectRenderer($this->frontendRequest()->withAttribute('site', $site));
@@ -652,7 +655,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
         $this->initializeWebEnvironment(cli: true);
 
         $subject = $this->policy(legacyCli: $legacyCli);
-        $cObj = $this->contentObjectRenderer($this->frontendRequest());
+        $cObj    = $this->contentObjectRenderer($this->frontendRequest());
 
         self::assertTrue($subject->claimLogSlot($cObj));
         self::assertTrue($subject->claimLogSlot($cObj), 'the CLI must keep every warning of a long-running process');
@@ -694,7 +697,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
         $vaultService->method('retrieveForFrontend')->willReturn('RESOLVED');
 
         $listener = new TypoScriptVaultListener($vaultService, new NullLogger(), $this->subject);
-        $event = new AfterStdWrapFunctionsExecutedEvent($content, [], $cObj);
+        $event    = new AfterStdWrapFunctionsExecutedEvent($content, [], $cObj);
         $listener($event);
 
         self::assertStringNotContainsString(
@@ -792,7 +795,7 @@ final class FrontendPlaceholderPolicyTest extends TestCase
 
     private function initializeWebEnvironment(bool $cli = false): void
     {
-        $projectPath = \dirname(__DIR__, 3);
+        $projectPath = dirname(__DIR__, 3);
 
         Environment::initialize(
             new ApplicationContext('Testing'),

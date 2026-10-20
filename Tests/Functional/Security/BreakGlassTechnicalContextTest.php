@@ -4,6 +4,7 @@
  * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Security;
@@ -34,8 +35,8 @@ final class BreakGlassTechnicalContextTest extends AbstractVaultFunctionalTestCa
 
     /** @var array<string, mixed> */
     protected array $extensionConfiguration = [
-        'securityProfile' => 'hardened',
-        'masterKeyProvider' => 'file',
+        'securityProfile'      => 'hardened',
+        'masterKeyProvider'    => 'file',
         'disableAdminOverride' => 1,
     ];
 
@@ -55,14 +56,14 @@ final class BreakGlassTechnicalContextTest extends AbstractVaultFunctionalTestCa
             ->getConnectionForTable('be_users')
             ->update('be_users', ['admin' => $technicalAdmin], ['uid' => 10]);
         $context = $this->get(TechnicalActorContextInterface::class);
-        $access = $this->get(AccessControlServiceInterface::class);
+        $access  = $this->get(AccessControlServiceInterface::class);
         $service = $this->createRecordingSubject();
         $ambient = $GLOBALS['BE_USER'];
         if ($alreadyActive) {
             $service->activate('real administrator window');
         }
 
-        $before = $this->readEffects();
+        $before        = $this->readEffects();
         $sessionBefore = $service->getActiveSession()?->toArray();
         $actorEvidence = null;
 
@@ -96,13 +97,13 @@ final class BreakGlassTechnicalContextTest extends AbstractVaultFunctionalTestCa
         );
         self::assertSame(
             [
-                'error' => AccessDeniedException::class,
-                'code' => 1753900001,
+                'error'  => AccessDeniedException::class,
+                'code'   => 1753900001,
                 'active' => $alreadyActive,
             ],
             [
-                'error' => $caught instanceof AccessDeniedException ? $caught::class : null,
-                'code' => $caught?->getCode(),
+                'error'  => $caught instanceof AccessDeniedException ? $caught::class : null,
+                'code'   => $caught?->getCode(),
                 'active' => $service->isActive(),
             ],
         );
@@ -178,8 +179,8 @@ final class BreakGlassTechnicalContextTest extends AbstractVaultFunctionalTestCa
         unset($GLOBALS['BE_USER']);
         $context = $this->get(TechnicalActorContextInterface::class);
         $service = $this->createRecordingSubject();
-        $before = $this->readEffects();
-        $caught = $this->captureRefusal(
+        $before  = $this->readEffects();
+        $caught  = $this->captureRefusal(
             static function () use ($context, $service): void {
                 $context->runAs(
                     10,
@@ -198,11 +199,11 @@ final class BreakGlassTechnicalContextTest extends AbstractVaultFunctionalTestCa
     public function realCliCanOperateAfterItsTechnicalScopeIsRefused(): void
     {
         $this->importCSVDataSet(__DIR__ . '/Fixtures/technical_actors.csv');
-        $cliUser = GeneralUtility::makeInstance(CommandLineUserAuthentication::class);
+        $cliUser            = GeneralUtility::makeInstance(CommandLineUserAuthentication::class);
         $GLOBALS['BE_USER'] = $cliUser;
-        $context = $this->get(TechnicalActorContextInterface::class);
-        $access = $this->get(AccessControlServiceInterface::class);
-        $service = $this->createRecordingSubject();
+        $context            = $this->get(TechnicalActorContextInterface::class);
+        $access             = $this->get(AccessControlServiceInterface::class);
+        $service            = $this->createRecordingSubject();
         self::assertSame('cli', $access->getCurrentActorType());
         $service->activate('real CLI opens window');
         $before = $this->readEffects();
@@ -297,8 +298,8 @@ final class BreakGlassTechnicalContextTest extends AbstractVaultFunctionalTestCa
 
         return [
             'registry' => $raw,
-            'audit' => $rows,
-            'events' => $this->dispatchedEvents,
+            'audit'    => $rows,
+            'events'   => $this->dispatchedEvents,
         ];
     }
 

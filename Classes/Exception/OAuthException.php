@@ -11,6 +11,8 @@ namespace Netresearch\NrVault\Exception;
 
 use Throwable;
 
+use function sprintf;
+
 /**
  * Thrown when OAuth 2.0 token operations fail.
  */
@@ -34,8 +36,8 @@ final class OAuthException extends VaultException
     {
         $self = new self(
             $oauthError !== null
-                ? \sprintf('OAuth token request failed with status %d (%s)', $statusCode, $oauthError)
-                : \sprintf('OAuth token request failed with status %d', $statusCode),
+                ? sprintf('OAuth token request failed with status %d (%s)', $statusCode, $oauthError)
+                : sprintf('OAuth token request failed with status %d', $statusCode),
             2477018617,
         );
         $self->httpStatus = $statusCode;
@@ -64,7 +66,7 @@ final class OAuthException extends VaultException
     public static function requestFailed(string $message, ?Throwable $previous = null): self
     {
         return new self(
-            \sprintf('OAuth token request failed: %s', $message),
+            sprintf('OAuth token request failed: %s', $message),
             1703800021,
             $previous,
         );

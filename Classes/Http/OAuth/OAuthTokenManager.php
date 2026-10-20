@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -37,6 +34,12 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
+
+use function in_array;
+use function is_array;
+use function is_int;
+use function is_string;
+use function sprintf;
 
 /**
  * Manages OAuth 2.0 token acquisition and refresh.
@@ -149,30 +152,30 @@ final class OAuthTokenManager
     private readonly StreamFactoryInterface $streamFactory;
 
     /**
-     * @param ClientInterface $httpClient HTTP client to dispatch the token
-     *                                    request through. Callers MUST inject a hardened client (e.g. built
-     *                                    by `SecureHttpClientFactory::create()`) — the default plain
-     *                                    `GuzzleHttp\Client` was removed to prevent OAuth token endpoints
-     *                                    bypassing the SSRF + DNS-rebinding + no-redirect-by-default guards.
-     *                                    A misconfigured (or attacker-controlled) `OAuthConfig.tokenEndpoint`
-     *                                    would otherwise leak the bearer `client_secret` to internal IPs,
-     *                                    cloud-metadata services, or arbitrary redirect targets.
-     * @param SecureHttpClientFactory $secureHttpClientFactory used ONLY to
-     *                                                         gate the token endpoint host through `isHostAllowed()` before the
-     *                                                         request is sent. The `$httpClient` middleware already rejects
-     *                                                         dangerous resolved IPs at request time, but it does NOT apply the
-     *                                                         `$GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']` allowlist
-     *                                                         admins use to restrict outbound calls to a known set of partner
-     *                                                         hostnames. Without this extra gate, an attacker-controlled
-     *                                                         `tokenEndpoint` could reach any public host the IP guards consider
-     *                                                         "safe" — defeating the allowlist on the OAuth leg only.
-     * @param CancellableTransport|null $cancellableTransport Explicit transport
-     *                                                        for a token request carrying a cancellation signal. Normally null:
-     *                                                        the transport is built on demand from `$secureHttpClientFactory`,
-     *                                                        so a manager whose callers never pass a signal pays nothing.
-     *                                                        `@internal` test seam, mirroring the parameter of the same name on
-     *                                                        `VaultHttpClient` — it is how the suite drives the token-leg tick
-     *                                                        loop deterministically. Trailing position preserves positional BC.
+     * @param ClientInterface           $httpClient              HTTP client to dispatch the token
+     *                                                           request through. Callers MUST inject a hardened client (e.g. built
+     *                                                           by `SecureHttpClientFactory::create()`) — the default plain
+     *                                                           `GuzzleHttp\Client` was removed to prevent OAuth token endpoints
+     *                                                           bypassing the SSRF + DNS-rebinding + no-redirect-by-default guards.
+     *                                                           A misconfigured (or attacker-controlled) `OAuthConfig.tokenEndpoint`
+     *                                                           would otherwise leak the bearer `client_secret` to internal IPs,
+     *                                                           cloud-metadata services, or arbitrary redirect targets.
+     * @param SecureHttpClientFactory   $secureHttpClientFactory used ONLY to
+     *                                                           gate the token endpoint host through `isHostAllowed()` before the
+     *                                                           request is sent. The `$httpClient` middleware already rejects
+     *                                                           dangerous resolved IPs at request time, but it does NOT apply the
+     *                                                           `$GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']` allowlist
+     *                                                           admins use to restrict outbound calls to a known set of partner
+     *                                                           hostnames. Without this extra gate, an attacker-controlled
+     *                                                           `tokenEndpoint` could reach any public host the IP guards consider
+     *                                                           "safe" — defeating the allowlist on the OAuth leg only.
+     * @param CancellableTransport|null $cancellableTransport    Explicit transport
+     *                                                           for a token request carrying a cancellation signal. Normally null:
+     *                                                           the transport is built on demand from `$secureHttpClientFactory`,
+     *                                                           so a manager whose callers never pass a signal pays nothing.
+     *                                                           `@internal` test seam, mirroring the parameter of the same name on
+     *                                                           `VaultHttpClient` — it is how the suite drives the token-leg tick
+     *                                                           loop deterministically. Trailing position preserves positional BC.
      */
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
@@ -184,9 +187,9 @@ final class OAuthTokenManager
         private readonly ?AuditLogServiceInterface $auditLogService = null,
         private readonly ?CancellableTransport $cancellableTransport = null,
     ) {
-        $httpFactory = new HttpFactory();
+        $httpFactory          = new HttpFactory();
         $this->requestFactory = $requestFactory ?? $httpFactory;
-        $this->streamFactory = $streamFactory ?? $httpFactory;
+        $this->streamFactory  = $streamFactory ?? $httpFactory;
     }
 
     public function __destruct()
@@ -214,7 +217,7 @@ final class OAuthTokenManager
      *                                                             without consulting the signal — it costs nothing and egresses
      *                                                             nothing.
      *
-     * @throws OAuthException If token cannot be obtained
+     * @throws OAuthException            If token cannot be obtained
      * @throws RequestCancelledException When the signal aborted the token round trip
      */
     public function getAccessToken(OAuthConfig $config, ?CancellationSignalInterface $cancellationSignal = null): string
@@ -244,7 +247,7 @@ final class OAuthTokenManager
         }
 
         // Fetch new token, with fallback to client_credentials on refresh failure.
-        $token = $this->fetchTokenWithFallback($config, $cancellationSignal);
+        $token                       = $this->fetchTokenWithFallback($config, $cancellationSignal);
         $this->tokenCache[$cacheKey] = $token;
 
         return $token->accessToken;
@@ -312,10 +315,10 @@ final class OAuthTokenManager
             // the refresh token. Everything else (5xx, 429, transport
             // errors, invalid_client, invalid_request) bubbles up so a
             // real outage / misconfig is not masked by retry noise.
-            $shouldFallBack =
-                $e->getCode() === 2477018617
+            $shouldFallBack
+                = $e->getCode() === 2477018617
                 && ($e->httpStatus === 400 || $e->httpStatus === 401)
-                && ($e->oauthError === null || \in_array($e->oauthError, ['invalid_grant', 'invalid_token'], true));
+                && ($e->oauthError === null || in_array($e->oauthError, ['invalid_grant', 'invalid_token'], true));
 
             if (!$shouldFallBack) {
                 throw $e;
@@ -375,7 +378,7 @@ final class OAuthTokenManager
      * about reading the credentials, and the `oauth_refresh_*` rows about the
      * refresh flow, are unchanged — they answer different questions.
      *
-     * @throws OAuthException If token request fails
+     * @throws OAuthException            If token request fails
      * @throws RequestCancelledException When the signal aborted the round trip
      */
     private function fetchToken(
@@ -387,12 +390,12 @@ final class OAuthTokenManager
         // `finally` block regardless of send success.
         $params = $this->buildTokenRequestParams($config);
 
-        $auditStatus = 0;
+        $auditStatus  = 0;
         $auditSuccess = false;
         $auditMessage = self::TOKEN_REQUEST_UNEXPECTED_MESSAGE;
 
         try {
-            $response = $this->dispatchTokenRequest($config, $params, $cancellationSignal);
+            $response    = $this->dispatchTokenRequest($config, $params, $cancellationSignal);
             $auditStatus = $response->getStatusCode();
             $this->assertSuccessResponse($response);
             $body = $this->decodeTokenBody($response);
@@ -427,14 +430,14 @@ final class OAuthTokenManager
         } catch (ClientExceptionInterface $e) {
             $redacted = $this->redactCredentials($e->getMessage());
             $this->logger?->error('OAuth token request failed', [
-                'error' => $redacted,
+                'error'          => $redacted,
                 'previous_class' => $e::class,
             ]);
 
             $auditMessage = $redacted;
 
             throw OAuthException::requestFailed(
-                $redacted . \sprintf(' (caused by %s)', $e::class),
+                $redacted . sprintf(' (caused by %s)', $e::class),
             );
         } catch (JsonException $e) {
             // Fixed literal, not the JsonException message: the parser error
@@ -499,7 +502,7 @@ final class OAuthTokenManager
             try {
                 $this->logger?->error('OAuth token round trip could not be audited', [
                     'token_endpoint' => $config->tokenEndpoint,
-                    'error' => $this->redactCredentials($auditException->getMessage()),
+                    'error'          => $this->redactCredentials($auditException->getMessage()),
                 ]);
             } catch (Throwable) {
                 error_log(
@@ -573,11 +576,11 @@ final class OAuthTokenManager
         // the gate `VaultHttpClient::sendRequest()` applies on outer API
         // requests (see VaultHttpClient.php — same call shape).
         $host = parse_url($config->tokenEndpoint, PHP_URL_HOST);
-        if (!\is_string($host) || !$this->secureHttpClientFactory->isHostAllowed($host)) {
+        if (!is_string($host) || !$this->secureHttpClientFactory->isHostAllowed($host)) {
             throw new OAuthException(
-                \sprintf(
+                sprintf(
                     'OAuth token endpoint host "%s" is not in the allowed hosts list.',
-                    \is_string($host) ? $host : '(unparseable)',
+                    is_string($host) ? $host : '(unparseable)',
                 ),
                 3149205122,
             );
@@ -596,7 +599,7 @@ final class OAuthTokenManager
         // the stream/request factories (or sendRequest) bubbles to the
         // outer `finally` in `fetchToken()` which calls
         // `$params->wipeCredentials()` — no `try/finally` needed here.
-        $body = $this->streamFactory->createStream($params->toHttpQuery());
+        $body    = $this->streamFactory->createStream($params->toHttpQuery());
         $request = $this->requestFactory->createRequest('POST', $config->tokenEndpoint)
             ->withHeader('Content-Type', 'application/x-www-form-urlencoded')
             ->withHeader('Accept', 'application/json')
@@ -633,8 +636,8 @@ final class OAuthTokenManager
      * `dispatchTokenRequest()` has already run.
      *
      * @throws RequestCancelledException When the signal aborted the transfer
-     * @throws OAuthException For the loop's own failure modes
-     * @throws ClientExceptionInterface When the transfer itself failed
+     * @throws OAuthException            For the loop's own failure modes
+     * @throws ClientExceptionInterface  When the transfer itself failed
      */
     private function dispatchCancellable(
         RequestInterface $request,
@@ -653,14 +656,14 @@ final class OAuthTokenManager
             // A sink and an `on_headers` callback only so that progress can be
             // counted for the idle bound; the token response is read whole, as
             // before.
-            $sink = Utils::streamFor(Utils::tryFopen('php://temp', 'w+'));
+            $sink     = Utils::streamFor(Utils::tryFopen('php://temp', 'w+'));
             $progress = new TransferProgress(static fn (): int => $sink->getSize() ?? 0);
 
             $promise = $transport->client()->sendAsync($request, [
                 RequestOptions::ALLOW_REDIRECTS => false,
-                RequestOptions::HTTP_ERRORS => false,
-                RequestOptions::SINK => $sink,
-                RequestOptions::ON_HEADERS => $progress->onHeaders(...),
+                RequestOptions::HTTP_ERRORS     => false,
+                RequestOptions::SINK            => $sink,
+                RequestOptions::ON_HEADERS      => $progress->onHeaders(...),
             ]);
 
             // The step `VaultHttpClient` uses: settlement through `then()`
@@ -693,7 +696,7 @@ final class OAuthTokenManager
                 }
             }
 
-            $rejected = $transfer->isRejected();
+            $rejected     = $transfer->isRejected();
             $settledValue = $transfer->settledValue();
 
             if ($rejected) {
@@ -758,10 +761,10 @@ final class OAuthTokenManager
         }
 
         if (
-            \is_array($errorBody)
+            is_array($errorBody)
             && isset($errorBody['error'])
-            && \is_string($errorBody['error'])
-            && \in_array($errorBody['error'], self::KNOWN_OAUTH_ERROR_CODES, true)
+            && is_string($errorBody['error'])
+            && in_array($errorBody['error'], self::KNOWN_OAUTH_ERROR_CODES, true)
         ) {
             return $errorBody['error'];
         }
@@ -770,16 +773,16 @@ final class OAuthTokenManager
     }
 
     /**
+     * @return array<string, mixed>
+     *
      * @throws JsonException
      * @throws OAuthException
-     *
-     * @return array<string, mixed>
      */
     private function decodeTokenBody(ResponseInterface $response): array
     {
         /** @var array<string, mixed>|null $body */
         $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        if (!\is_array($body) || !isset($body['access_token'])) {
+        if (!is_array($body) || !isset($body['access_token'])) {
             throw OAuthException::missingAccessToken();
         }
 
@@ -791,10 +794,10 @@ final class OAuthTokenManager
      */
     private function buildToken(array $body): OAuthToken
     {
-        $accessToken = \is_string($body['access_token']) ? $body['access_token'] : '';
-        $tokenType = \is_string($body['token_type'] ?? null) ? $body['token_type'] : 'Bearer';
-        $scope = isset($body['scope']) && \is_string($body['scope']) ? $body['scope'] : null;
-        $expiresIn = \is_int($body['expires_in'] ?? null) ? $body['expires_in'] : 3600;
+        $accessToken = is_string($body['access_token']) ? $body['access_token'] : '';
+        $tokenType   = is_string($body['token_type'] ?? null) ? $body['token_type'] : 'Bearer';
+        $scope       = isset($body['scope']) && is_string($body['scope']) ? $body['scope'] : null;
+        $expiresIn   = is_int($body['expires_in'] ?? null) ? $body['expires_in'] : 3600;
 
         return new OAuthToken(
             accessToken: $accessToken,
@@ -822,7 +825,7 @@ final class OAuthTokenManager
      */
     private function storeRotatedRefreshToken(OAuthConfig $config, array $body): void
     {
-        if (!isset($body['refresh_token']) || !\is_string($body['refresh_token']) || $config->refreshTokenSecret === null) {
+        if (!isset($body['refresh_token']) || !is_string($body['refresh_token']) || $config->refreshTokenSecret === null) {
             return;
         }
 
@@ -859,10 +862,10 @@ final class OAuthTokenManager
             . 'subsequent refresh will fail until vault is writeable (auto-recovers via '
             . 'fetchTokenWithFallback()).';
         $redactedError = $this->redactCredentials($storeException->getMessage());
-        $context = [
-            'token_endpoint' => $config->tokenEndpoint,
+        $context       = [
+            'token_endpoint'            => $config->tokenEndpoint,
             'refresh_token_secret_hash' => $secretIdHash,
-            'error' => $redactedError,
+            'error'                     => $redactedError,
         ];
 
         try {

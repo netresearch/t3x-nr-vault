@@ -14,6 +14,8 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
+use function is_string;
+
 /**
  * Service for resolving vault identifiers to actual secret values.
  *
@@ -42,13 +44,13 @@ final readonly class VaultFieldResolver
     /**
      * Resolve vault identifiers in an array to their actual secret values.
      *
-     * @param array<string, mixed> $data Record data potentially containing vault identifiers
-     * @param list<string> $fields Field names to check and resolve
-     * @param bool $throwOnError If true, throws exception on vault errors; if false, sets field to null
-     *
-     * @throws VaultException If throwOnError is true and vault retrieval fails
+     * @param array<string, mixed> $data         Record data potentially containing vault identifiers
+     * @param list<string>         $fields       Field names to check and resolve
+     * @param bool                 $throwOnError If true, throws exception on vault errors; if false, sets field to null
      *
      * @return array<string, mixed> Data with vault identifiers replaced by actual values
+     *
+     * @throws VaultException If throwOnError is true and vault retrieval fails
      */
     public function resolveFields(array $data, array $fields, bool $throwOnError = false): array
     {
@@ -64,7 +66,7 @@ final readonly class VaultFieldResolver
             }
 
             // isVaultIdentifier guarantees value is a string - cast safely
-            $identifier = \is_string($value) ? $value : '';
+            $identifier = is_string($value) ? $value : '';
 
             try {
                 $data[$field] = $this->vaultService->retrieve($identifier);
@@ -74,9 +76,9 @@ final readonly class VaultFieldResolver
                 }
 
                 $this->logger->error('Failed to resolve vault field', [
-                    'field' => $field,
+                    'field'      => $field,
                     'identifier' => $identifier,
-                    'error' => $e->getMessage(),
+                    'error'      => $e->getMessage(),
                 ]);
                 $data[$field] = null;
             }
@@ -110,7 +112,7 @@ final readonly class VaultFieldResolver
      *
      * Automatically detects which fields use renderType 'vaultSecret'.
      *
-     * @param string $table The TCA table name
+     * @param string               $table  The TCA table name
      * @param array<string, mixed> $record The record data
      *
      * @return array<string, mixed> Record with vault fields resolved
@@ -135,7 +137,7 @@ final readonly class VaultFieldResolver
      */
     public function isVaultIdentifier(mixed $value): bool
     {
-        if (!\is_string($value) || $value === '') {
+        if (!is_string($value) || $value === '') {
             return false;
         }
 
@@ -155,7 +157,7 @@ final readonly class VaultFieldResolver
             return [];
         }
 
-        $schema = $this->tcaSchemaFactory->get($table);
+        $schema      = $this->tcaSchemaFactory->get($table);
         $vaultFields = [];
 
         foreach ($schema->getFields() as $field) {
@@ -202,7 +204,7 @@ final readonly class VaultFieldResolver
             return [];
         }
 
-        $schema = $this->tcaSchemaFactory->get($table);
+        $schema       = $this->tcaSchemaFactory->get($table);
         $sharedFields = [];
 
         foreach ($schema->getFields() as $field) {
@@ -229,7 +231,7 @@ final readonly class VaultFieldResolver
      * the FlexForm path both ask here, so neither can drift into treating a
      * shared column as translatable.
      *
-     * @param string $table The table name
+     * @param string $table  The table name
      * @param string $column The column name
      */
     public function isTranslationSharedColumn(string $table, string $column): bool
@@ -258,10 +260,10 @@ final readonly class VaultFieldResolver
     public function getTranslationParentField(string $table): ?string
     {
         /** @var array<string, array{ctrl?: array{transOrigPointerField?: string}}> $tca */
-        $tca = $GLOBALS['TCA'] ?? [];
+        $tca         = $GLOBALS['TCA'] ?? [];
         $parentField = $tca[$table]['ctrl']['transOrigPointerField'] ?? null;
 
-        return \is_string($parentField) && $parentField !== '' ? $parentField : null;
+        return is_string($parentField) && $parentField !== '' ? $parentField : null;
     }
 
     /**

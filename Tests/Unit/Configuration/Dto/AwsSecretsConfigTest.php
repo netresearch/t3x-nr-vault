@@ -43,7 +43,7 @@ final class AwsSecretsConfigTest extends TestCase
     public function fromArrayCreatesObjectWithAllFields(): void
     {
         $subject = AwsSecretsConfig::fromArray([
-            'region' => 'us-east-1',
+            'region'       => 'us-east-1',
             'secretPrefix' => 'prod',
         ]);
 
@@ -88,7 +88,7 @@ final class AwsSecretsConfigTest extends TestCase
     #[Test]
     public function isValidIgnoresSecretPrefix(): void
     {
-        $withPrefix = new AwsSecretsConfig(region: 'us-east-1', secretPrefix: 'app');
+        $withPrefix    = new AwsSecretsConfig(region: 'us-east-1', secretPrefix: 'app');
         $withoutPrefix = new AwsSecretsConfig(region: 'us-east-1');
 
         self::assertTrue($withPrefix->isValid());
@@ -129,7 +129,7 @@ final class AwsSecretsConfigTest extends TestCase
         $subject = new AwsSecretsConfig(region: 'eu-west-1', secretPrefix: 'staging');
 
         self::assertSame([
-            'region' => 'eu-west-1',
+            'region'       => 'eu-west-1',
             'secretPrefix' => 'staging',
         ], $subject->toArray());
     }
@@ -140,7 +140,7 @@ final class AwsSecretsConfigTest extends TestCase
         $subject = new AwsSecretsConfig();
 
         self::assertSame([
-            'region' => '',
+            'region'       => '',
             'secretPrefix' => '',
         ], $subject->toArray());
     }
@@ -149,7 +149,7 @@ final class AwsSecretsConfigTest extends TestCase
     public function fromArrayRoundTripToArray(): void
     {
         $original = [
-            'region' => 'eu-north-1',
+            'region'       => 'eu-north-1',
             'secretPrefix' => 'my-service',
         ];
 

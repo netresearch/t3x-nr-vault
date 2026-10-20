@@ -27,15 +27,15 @@ final class OAuthTokenRequestParamsTest extends TestCase
     #[Test]
     public function requiredFieldsAreAlwaysPresentInTheBody(): void
     {
-        $clientId = $this->fakeCredential('client-id');
+        $clientId     = $this->fakeCredential('client-id');
         $clientSecret = $this->fakeCredential('client-secret');
 
         $params = new OAuthTokenRequestParams('client_credentials', $clientId, $clientSecret);
 
         self::assertSame(
             [
-                'grant_type' => 'client_credentials',
-                'client_id' => $clientId,
+                'grant_type'    => 'client_credentials',
+                'client_id'     => $clientId,
                 'client_secret' => $clientSecret,
             ],
             $this->decode($params->toHttpQuery()),
@@ -141,7 +141,7 @@ final class OAuthTokenRequestParamsTest extends TestCase
     #[Test]
     public function additionalParamsOverrideTheComposedCredentials(): void
     {
-        $vaultSecret = $this->fakeCredential('vault-client-secret');
+        $vaultSecret    = $this->fakeCredential('vault-client-secret');
         $overrideSecret = $this->fakeCredential('override-client-secret');
 
         $params = new OAuthTokenRequestParams(
@@ -274,7 +274,7 @@ final class OAuthTokenRequestParamsTest extends TestCase
         $refreshToken = $this->fakeCredential('refresh-token');
         // urlencode() returns fresh strings, so these needles survive the
         // in-place zeroing that wipeCredentials() performs on the properties.
-        $secretNeedle = urlencode($clientSecret);
+        $secretNeedle  = urlencode($clientSecret);
         $refreshNeedle = urlencode($refreshToken);
 
         $params = new OAuthTokenRequestParams(

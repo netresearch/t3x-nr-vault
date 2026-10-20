@@ -46,7 +46,7 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
     public function executeReturnsTrueWhenNoOrphansExist(): void
     {
         $connectionPool = $this->get(ConnectionPool::class);
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService   = $this->get(VaultServiceInterface::class);
 
         $task = new OrphanCleanupTask($connectionPool, $vaultService);
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
@@ -59,7 +59,7 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function executeDeletesOrphanedSecretsWhenRetentionPeriodHasPassed(): void
     {
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService   = $this->get(VaultServiceInterface::class);
         $connectionPool = $this->get(ConnectionPool::class);
 
         // Store a secret with tca_field source metadata
@@ -67,9 +67,9 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
         // Store it with metadata indicating it belongs to a TCA record
         $vaultService->store($identifier, 'orphan_value', [
             'metadata' => [
-                'table' => 'be_users',
-                'field' => 'some_field',
-                'uid' => 99999, // non-existent UID
+                'table'  => 'be_users',
+                'field'  => 'some_field',
+                'uid'    => 99999, // non-existent UID
                 'source' => 'tca_field',
             ],
         ]);
@@ -86,7 +86,7 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
         $task = new OrphanCleanupTask($connectionPool, $vaultService);
         $task->setTaskParameters([
             'nr_vault_retention_days' => 0,
-            'nr_vault_table_filter' => '',
+            'nr_vault_table_filter'   => '',
         ]);
 
         $result = $task->execute();
@@ -100,7 +100,7 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function executeKeepsNonOrphanedSecrets(): void
     {
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService   = $this->get(VaultServiceInterface::class);
         $connectionPool = $this->get(ConnectionPool::class);
 
         // Store a secret without TCA metadata (not an orphan candidate)
@@ -123,16 +123,16 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function executeDoesNotDeleteOrphansWithinRetentionPeriod(): void
     {
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService   = $this->get(VaultServiceInterface::class);
         $connectionPool = $this->get(ConnectionPool::class);
 
         // Store a secret with tca_field source for a non-existent record
         $identifier = $this->generateUuidV7();
         $vaultService->store($identifier, 'freshorphan_value', [
             'metadata' => [
-                'table' => 'be_users',
-                'field' => 'some_field',
-                'uid' => 99999, // non-existent UID
+                'table'  => 'be_users',
+                'field'  => 'some_field',
+                'uid'    => 99999, // non-existent UID
                 'source' => 'tca_field',
             ],
         ]);
@@ -173,7 +173,7 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
         $task = new OrphanCleanupTask();
         $task->setTaskParameters([
             'nr_vault_retention_days' => 7,
-            'nr_vault_table_filter' => 'tt_content',
+            'nr_vault_table_filter'   => 'tt_content',
         ]);
 
         $info = $task->getAdditionalInformation();

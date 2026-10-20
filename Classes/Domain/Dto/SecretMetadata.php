@@ -19,11 +19,11 @@ readonly class SecretMetadata
 {
     /**
      * @param array<string, mixed> $metadata Custom metadata from the secret
-     * @param bool $enabled Whether the secret is available to consumers. A
-     *                      disabled secret exists and can be administered but
-     *                      resolves to nothing on every read path, so a
-     *                      listing that omitted this could not tell the two
-     *                      states apart.
+     * @param bool                 $enabled  Whether the secret is available to consumers. A
+     *                                       disabled secret exists and can be administered but
+     *                                       resolves to nothing on every read path, so a
+     *                                       listing that omitted this could not tell the two
+     *                                       states apart.
      */
     public function __construct(
         public string $identifier,
@@ -74,16 +74,16 @@ readonly class SecretMetadata
     public function toArray(): array
     {
         return [
-            'identifier' => $this->identifier,
-            'owner_uid' => $this->ownerUid,
-            'crdate' => $this->createdAt,
-            'tstamp' => $this->updatedAt,
-            'read_count' => $this->readCount,
+            'identifier'   => $this->identifier,
+            'owner_uid'    => $this->ownerUid,
+            'crdate'       => $this->createdAt,
+            'tstamp'       => $this->updatedAt,
+            'read_count'   => $this->readCount,
             'last_read_at' => $this->lastReadAt,
-            'description' => $this->description,
-            'version' => $this->version,
-            'metadata' => $this->metadata,
-            'enabled' => $this->enabled,
+            'description'  => $this->description,
+            'version'      => $this->version,
+            'metadata'     => $this->metadata,
+            'enabled'      => $this->enabled,
         ];
     }
 }

@@ -29,6 +29,13 @@ use TYPO3\CMS\Core\TypoScript\PageTsConfig;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\LossyTokenizer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function in_array;
+use function is_array;
+use function is_bool;
+use function is_int;
+use function is_string;
+use function sprintf;
+
 /**
  * Service for checking TSconfig-based permissions on vault fields.
  *
@@ -89,15 +96,15 @@ final class VaultFieldPermissionService implements SingletonInterface
         /** @phpstan-ignore property.internal */
         $userRecord = $backendUser->user;
         /** @var array<string, mixed> $userRecordTyped */
-        $userRecordTyped = \is_array($userRecord) ? $userRecord : [];
-        $uid = \is_int($userRecordTyped['uid'] ?? null) ? $userRecordTyped['uid'] : 0;
-        $cacheKey = \sprintf('%s:%s:%s:%d', $table, $field, $permission->value, $uid);
+        $userRecordTyped = is_array($userRecord) ? $userRecord : [];
+        $uid             = is_int($userRecordTyped['uid'] ?? null) ? $userRecordTyped['uid'] : 0;
+        $cacheKey        = sprintf('%s:%s:%s:%d', $table, $field, $permission->value, $uid);
 
         if (isset($this->permissionCache[$cacheKey])) {
             return $this->permissionCache[$cacheKey];
         }
 
-        $allowed = $this->checkPermission($table, $field, $permission, $backendUser);
+        $allowed                          = $this->checkPermission($table, $field, $permission, $backendUser);
         $this->permissionCache[$cacheKey] = $allowed;
 
         return $allowed;
@@ -181,10 +188,10 @@ final class VaultFieldPermissionService implements SingletonInterface
         /** @phpstan-ignore method.internalClass */
         $pageTsConfig = $backendUser === $this->getBackendUser() ? BackendUtility::getPagesTSconfig(0) : $this->getSelectedUserPageTsConfig($backendUser)->getPageTsConfigArray();
         /** @var array<string, mixed> $vaultConfig */
-        $vaultConfig = \is_array($pageTsConfig['vault.'] ?? null) ? $pageTsConfig['vault.'] : [];
+        $vaultConfig = is_array($pageTsConfig['vault.'] ?? null) ? $pageTsConfig['vault.'] : [];
 
         /** @phpstan-ignore return.type */
-        return \is_array($vaultConfig['permissions.'] ?? null) ? $vaultConfig['permissions.'] : [];
+        return is_array($vaultConfig['permissions.'] ?? null) ? $vaultConfig['permissions.'] : [];
     }
 
     private function getBackendUser(): ?BackendUserAuthentication
@@ -196,14 +203,14 @@ final class VaultFieldPermissionService implements SingletonInterface
 
     /**
      * @param array<string, mixed> $array
-     * @param array<int, string> $keys
+     * @param array<int, string>   $keys
      */
     private function getNestedValue(array $array, array $keys): mixed
     {
         $current = $array;
 
         foreach ($keys as $key) {
-            if (!\is_array($current)) {
+            if (!is_array($current)) {
                 return null;
             }
 
@@ -222,12 +229,12 @@ final class VaultFieldPermissionService implements SingletonInterface
 
     private function toBoolean(mixed $value): bool
     {
-        if (\is_bool($value)) {
+        if (is_bool($value)) {
             return $value;
         }
 
-        if (\is_string($value)) {
-            return \in_array(strtolower($value), ['1', 'true', 'yes', 'on'], true);
+        if (is_string($value)) {
+            return in_array(strtolower($value), ['1', 'true', 'yes', 'on'], true);
         }
 
         return (bool) $value;
@@ -236,9 +243,9 @@ final class VaultFieldPermissionService implements SingletonInterface
     private function getBuiltInDefault(VaultFieldPermission $permission): bool
     {
         return match ($permission) {
-            VaultFieldPermission::Reveal => true,
-            VaultFieldPermission::Copy => true,
-            VaultFieldPermission::Edit => true,
+            VaultFieldPermission::Reveal   => true,
+            VaultFieldPermission::Copy     => true,
+            VaultFieldPermission::Edit     => true,
             VaultFieldPermission::ReadOnly => false,
         };
     }
@@ -299,7 +306,7 @@ final class VaultFieldPermissionService implements SingletonInterface
         $layout = GeneralUtility::makeInstance(PageLayoutResolver::class);
         /** @phpstan-ignore classConstant.internalClass */
         $conditionVisitorClass = IncludeTreeConditionMatcherVisitor::class;
-        $logger = GeneralUtility::makeInstance(LogManager::class)->getLogger(
+        $logger                = GeneralUtility::makeInstance(LogManager::class)->getLogger(
             $conditionVisitorClass,
         );
 
@@ -320,9 +327,9 @@ final class VaultFieldPermissionService implements SingletonInterface
         $matcher->initializeExpressionMatcherWithVariables(
             [
                 'fullRootLine' => [],
-                'site' => new NullSite(),
-                'page' => [],
-                'pageId' => 0,
+                'site'         => new NullSite(),
+                'page'         => [],
+                'pageId'       => 0,
             ],
         );
         /** @phpstan-ignore classConstant.internalClass */

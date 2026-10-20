@@ -32,7 +32,7 @@ foreach ([
 ] as $identifier) {
     $icons[$identifier] = [
         'provider' => SvgIconProvider::class,
-        'source' => 'EXT:nr_vault/Resources/Public/Icons/' . $identifier . $suffix,
+        'source'   => 'EXT:nr_vault/Resources/Public/Icons/' . $identifier . $suffix,
     ];
 }
 

@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Secret;
 
+use function is_string;
+
 /**
  * Catalogue-driven implementation of {@see SecretRedactorInterface} (ADR-031).
  */
@@ -83,6 +85,6 @@ final readonly class SecretRedactor implements SecretRedactorInterface
     {
         $result = preg_replace($pattern, $replacement, $text);
 
-        return \is_string($result) ? $result : $text;
+        return is_string($result) ? $result : $text;
     }
 }

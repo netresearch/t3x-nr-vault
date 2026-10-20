@@ -17,6 +17,10 @@ use TYPO3\CMS\Core\Configuration\ExtensionConfiguration as Typo3ExtensionConfigu
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\SingletonInterface;
 
+use function array_key_exists;
+use function is_array;
+use function is_string;
+
 /**
  * Extension configuration wrapper with typed accessors.
  */
@@ -131,7 +135,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     ) {
         $config = $this->extensionConfiguration->get(self::EXTENSION_KEY);
         /** @var array<string, mixed> $configArray */
-        $configArray = \is_array($config) ? $config : [];
+        $configArray         = is_array($config) ? $config : [];
         $this->configuration = $configArray;
     }
 
@@ -147,7 +151,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     public function getSecurityProfile(): SecurityProfile
     {
         $val = $this->configuration['securityProfile'] ?? self::DEFAULT_SECURITY_PROFILE;
-        if (!\is_string($val) || $val === '') {
+        if (!is_string($val) || $val === '') {
             $val = self::DEFAULT_SECURITY_PROFILE;
         }
 
@@ -162,7 +166,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     {
         $val = $this->configuration['storageAdapter'] ?? self::DEFAULT_STORAGE_ADAPTER;
 
-        return \is_string($val) ? $val : self::DEFAULT_STORAGE_ADAPTER;
+        return is_string($val) ? $val : self::DEFAULT_STORAGE_ADAPTER;
     }
 
     /**
@@ -172,7 +176,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     {
         $val = $this->configuration['masterKeyProvider'] ?? self::DEFAULT_MASTER_KEY_PROVIDER;
 
-        return \is_string($val) ? $val : self::DEFAULT_MASTER_KEY_PROVIDER;
+        return is_string($val) ? $val : self::DEFAULT_MASTER_KEY_PROVIDER;
     }
 
     /**
@@ -182,7 +186,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     {
         $val = $this->configuration['masterKeySource'] ?? self::DEFAULT_MASTER_KEY_SOURCE;
 
-        return \is_string($val) ? $val : self::DEFAULT_MASTER_KEY_SOURCE;
+        return is_string($val) ? $val : self::DEFAULT_MASTER_KEY_SOURCE;
     }
 
     /**
@@ -232,14 +236,14 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     public function getCliAccessGroups(): array
     {
         $groups = $this->configuration['cliAccessGroups'] ?? [];
-        if (\is_string($groups)) {
+        if (is_string($groups)) {
             return array_filter(array_map(
                 static fn (string $v): int => (int) trim($v),
                 explode(',', $groups),
             ));
         }
 
-        if (\is_array($groups)) {
+        if (is_array($groups)) {
             return array_map(
                 static fn (mixed $v): int => is_numeric($v) ? (int) $v : 0,
                 $groups,
@@ -261,7 +265,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     public function getCliAllowedOperations(): array
     {
         $raw = $this->configuration['cliAllowedOperations'] ?? self::DEFAULT_CLI_ALLOWED_OPERATIONS;
-        if (!\is_string($raw)) {
+        if (!is_string($raw)) {
             $raw = self::DEFAULT_CLI_ALLOWED_OPERATIONS;
         }
 
@@ -363,7 +367,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     {
         $val = $this->configuration['encryptionAlgorithm'] ?? self::DEFAULT_ENCRYPTION_ALGORITHM;
 
-        return \is_string($val) ? $val : self::DEFAULT_ENCRYPTION_ALGORITHM;
+        return is_string($val) ? $val : self::DEFAULT_ENCRYPTION_ALGORITHM;
     }
 
     /**
@@ -407,7 +411,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     public function getAuditSinkSyslogIdent(): string
     {
         $val = $this->configuration['auditSinkSyslogIdent'] ?? null;
-        if (!\is_string($val) || trim($val) === '') {
+        if (!is_string($val) || trim($val) === '') {
             return self::DEFAULT_AUDIT_SINK_SYSLOG_IDENT;
         }
 
@@ -478,7 +482,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     {
         $val = $this->configuration['auditSinkWebhookUrl'] ?? self::DEFAULT_AUDIT_SINK_WEBHOOK_URL;
 
-        return \is_string($val) ? trim($val) : self::DEFAULT_AUDIT_SINK_WEBHOOK_URL;
+        return is_string($val) ? trim($val) : self::DEFAULT_AUDIT_SINK_WEBHOOK_URL;
     }
 
     /**
@@ -518,7 +522,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     {
         $config = $this->configuration['hashicorp'] ?? [];
 
-        if (!\is_array($config)) {
+        if (!is_array($config)) {
             return new VaultServerConfig();
         }
 
@@ -538,12 +542,12 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     {
         $config = $this->configuration['hashicorp'] ?? [];
 
-        if (!\is_array($config)) {
+        if (!is_array($config)) {
             $config = [];
         }
 
         /** @var array{address?: string, authMethod?: string, token?: string, transitMount?: string, transitKeyName?: string, transitWrappedKeyPath?: string, tokenEnvVar?: string} $config */
-        $configuredPath = \is_string($config['transitWrappedKeyPath'] ?? null)
+        $configuredPath = is_string($config['transitWrappedKeyPath'] ?? null)
             ? trim($config['transitWrappedKeyPath'])
             : '';
 
@@ -562,7 +566,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     {
         $config = $this->configuration['aws'] ?? [];
 
-        if (!\is_array($config)) {
+        if (!is_array($config)) {
             return new AwsSecretsConfig();
         }
 
@@ -588,7 +592,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
      */
     private function resolveLogPath(mixed $configured, string $defaultBasename): string
     {
-        if (\is_string($configured) && trim($configured) !== '') {
+        if (is_string($configured) && trim($configured) !== '') {
             return trim($configured);
         }
 
@@ -601,19 +605,19 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
      * `LocalConfiguration.php` / `additional.php`, where it is NOT reachable
      * from the BE Settings module. (Other `ext_localconf.php` files can
      * technically write it too; treat the override as filesystem-bound only
-     * when the rest of the bootstrap is trusted.)
+     * when the rest of the bootstrap is trusted.).
      *
      * Returns null when the key is absent, so callers fall through to the
      * BE-editable extension configuration.
      */
     private function pinnedOverride(string $key): ?bool
     {
-        $sys = \is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null)
-            && \is_array($GLOBALS['TYPO3_CONF_VARS']['SYS'] ?? null)
+        $sys = is_array($GLOBALS['TYPO3_CONF_VARS'] ?? null)
+            && is_array($GLOBALS['TYPO3_CONF_VARS']['SYS'] ?? null)
                 ? $GLOBALS['TYPO3_CONF_VARS']['SYS'] : [];
-        $nrVault = \is_array($sys['nrVault'] ?? null) ? $sys['nrVault'] : [];
+        $nrVault = is_array($sys['nrVault'] ?? null) ? $sys['nrVault'] : [];
 
-        return \array_key_exists($key, $nrVault) ? (bool) $nrVault[$key] : null;
+        return array_key_exists($key, $nrVault) ? (bool) $nrVault[$key] : null;
     }
 
     /**

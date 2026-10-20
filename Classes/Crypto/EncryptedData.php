@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -46,12 +43,12 @@ final readonly class EncryptedData
     /**
      * Create from raw encryption output.
      *
-     * @param string $encryptedValue Raw ciphertext bytes
-     * @param string $encryptedDek Raw encrypted DEK bytes
-     * @param string $dekNonce Raw DEK nonce bytes
-     * @param string $valueNonce Raw value nonce bytes
-     * @param string $valueChecksum Hex-encoded keyed HMAC-SHA-256 over the ciphertext
-     * @param int $encryptionVersion Encryption version marker
+     * @param string              $encryptedValue      Raw ciphertext bytes
+     * @param string              $encryptedDek        Raw encrypted DEK bytes
+     * @param string              $dekNonce            Raw DEK nonce bytes
+     * @param string              $valueNonce          Raw value nonce bytes
+     * @param string              $valueChecksum       Hex-encoded keyed HMAC-SHA-256 over the ciphertext
+     * @param int                 $encryptionVersion   Encryption version marker
      * @param EncryptionAlgorithm $encryptionAlgorithm AEAD algorithm used for both envelope layers
      */
     public static function fromRaw(
@@ -90,12 +87,12 @@ final readonly class EncryptedData
     public function toArray(): array
     {
         return [
-            'encrypted_value' => $this->encryptedValue,
-            'encrypted_dek' => $this->encryptedDek,
-            'dek_nonce' => $this->dekNonce,
-            'value_nonce' => $this->valueNonce,
-            'value_checksum' => $this->valueChecksum,
-            'encryption_version' => $this->encryptionVersion,
+            'encrypted_value'      => $this->encryptedValue,
+            'encrypted_dek'        => $this->encryptedDek,
+            'dek_nonce'            => $this->dekNonce,
+            'value_nonce'          => $this->valueNonce,
+            'value_checksum'       => $this->valueChecksum,
+            'encryption_version'   => $this->encryptionVersion,
             'encryption_algorithm' => $this->encryptionAlgorithm->value,
         ];
     }

@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -12,6 +12,8 @@ namespace Netresearch\NrVault\Tests\Unit\Http;
 use GuzzleHttp\Client;
 use Psr\Http\Client\ClientInterface;
 use ReflectionProperty;
+
+use function is_object;
 
 /**
  * Reads the request-option configuration out of a built Guzzle client.
@@ -53,7 +55,7 @@ trait GuzzleClientConfigTrait
     private function comparableGuzzleConfig(array $config): array
     {
         return array_map(
-            static fn (mixed $value): mixed => \is_object($value) ? $value::class : $value,
+            static fn (mixed $value): mixed => is_object($value) ? $value::class : $value,
             $config,
         );
     }

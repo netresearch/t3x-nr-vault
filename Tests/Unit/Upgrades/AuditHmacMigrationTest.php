@@ -43,11 +43,11 @@ final class AuditHmacMigrationTest extends TestCase
     {
         parent::setUp();
 
-        $this->connectionPool = self::createStub(ConnectionPool::class);
+        $this->connectionPool    = self::createStub(ConnectionPool::class);
         $this->masterKeyProvider = self::createStub(MasterKeyProviderInterface::class);
-        $this->configuration = self::createStub(ExtensionConfigurationInterface::class);
+        $this->configuration     = self::createStub(ExtensionConfigurationInterface::class);
         // Default: chain is safe to re-seal (verifyChainForReseal() returns null).
-        $auditLogService = self::createStub(AuditLogServiceInterface::class);
+        $auditLogService   = self::createStub(AuditLogServiceInterface::class);
         $this->anchorStore = self::createStub(AuditChainAnchorStoreInterface::class);
 
         $this->subject = new AuditHmacMigration(
@@ -223,7 +223,7 @@ final class AuditHmacMigrationTest extends TestCase
         $lockResult->method('fetchOne')->willReturn(0); // timeout
 
         $connection = $this->createMock(Connection::class);
-        $platform = self::createStub(MySQLPlatform::class);
+        $platform   = self::createStub(MySQLPlatform::class);
         $connection->method('getDatabasePlatform')->willReturn($platform);
         $connection->method('executeQuery')->willReturn($lockResult);
         $connection->expects(self::never())->method('beginTransaction');

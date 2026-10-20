@@ -15,6 +15,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionClass;
 
+use function sprintf;
+
 /**
  * `AccessControlService` treats this snapshot as equivalent to an authenticated
  * backend user for the duration of a `runAs()` scope, so its three
@@ -90,7 +92,7 @@ final class TechnicalActorTest extends TestCase
         foreach (['uid', 'username', 'admin', 'groupIds'] as $property) {
             self::assertTrue(
                 $reflection->getProperty($property)->isReadOnly(),
-                \sprintf('%s must be readonly', $property),
+                sprintf('%s must be readonly', $property),
             );
         }
     }

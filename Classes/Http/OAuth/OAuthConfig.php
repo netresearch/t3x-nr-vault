@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -13,6 +10,9 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Http\OAuth;
 
 use Netresearch\NrVault\Exception\ValidationException;
+
+use function in_array;
+use function sprintf;
 
 /**
  * Configuration for OAuth 2.0 authentication.
@@ -25,14 +25,14 @@ final readonly class OAuthConfig
     private const SUPPORTED_GRANT_TYPES = ['client_credentials', 'refresh_token'];
 
     /**
-     * @param string $tokenEndpoint OAuth token endpoint URL
-     * @param string $clientIdSecret Vault identifier for client ID
-     * @param string $clientSecretSecret Vault identifier for client secret
-     * @param string $grantType Grant type (client_credentials, refresh_token)
-     * @param string|null $refreshTokenSecret Vault identifier for refresh token (if using refresh_token grant)
-     * @param array<string> $scopes OAuth scopes to request
-     * @param int $tokenExpiryBuffer Seconds before expiry to trigger refresh (default: 60)
-     * @param array<string, string> $additionalParams Additional parameters for token request
+     * @param string                $tokenEndpoint      OAuth token endpoint URL
+     * @param string                $clientIdSecret     Vault identifier for client ID
+     * @param string                $clientSecretSecret Vault identifier for client secret
+     * @param string                $grantType          Grant type (client_credentials, refresh_token)
+     * @param string|null           $refreshTokenSecret Vault identifier for refresh token (if using refresh_token grant)
+     * @param array<string>         $scopes             OAuth scopes to request
+     * @param int                   $tokenExpiryBuffer  Seconds before expiry to trigger refresh (default: 60)
+     * @param array<string, string> $additionalParams   Additional parameters for token request
      *
      * @throws ValidationException If the grant type is unsupported, or the
      *                             refresh_token grant is requested without a
@@ -48,10 +48,10 @@ final readonly class OAuthConfig
         public int $tokenExpiryBuffer = 60,
         public array $additionalParams = [],
     ) {
-        if (!\in_array($this->grantType, self::SUPPORTED_GRANT_TYPES, true)) {
+        if (!in_array($this->grantType, self::SUPPORTED_GRANT_TYPES, true)) {
             throw ValidationException::invalidOption(
                 'grantType',
-                \sprintf(
+                sprintf(
                     'must be one of: %s',
                     implode(', ', self::SUPPORTED_GRANT_TYPES),
                 ),
@@ -74,10 +74,10 @@ final readonly class OAuthConfig
     /**
      * Create config for client credentials flow.
      *
-     * @param string $tokenEndpoint OAuth token endpoint URL
-     * @param string $clientIdSecret Vault identifier for client ID
-     * @param string $clientSecretSecret Vault identifier for client secret
-     * @param array<string> $scopes OAuth scopes to request
+     * @param string        $tokenEndpoint      OAuth token endpoint URL
+     * @param string        $clientIdSecret     Vault identifier for client ID
+     * @param string        $clientSecretSecret Vault identifier for client secret
+     * @param array<string> $scopes             OAuth scopes to request
      */
     public static function clientCredentials(
         string $tokenEndpoint,
@@ -97,11 +97,11 @@ final readonly class OAuthConfig
     /**
      * Create config for refresh token flow.
      *
-     * @param string $tokenEndpoint OAuth token endpoint URL
-     * @param string $clientIdSecret Vault identifier for client ID
-     * @param string $clientSecretSecret Vault identifier for client secret
-     * @param string $refreshTokenSecret Vault identifier for refresh token
-     * @param array<string> $scopes OAuth scopes to request
+     * @param string        $tokenEndpoint      OAuth token endpoint URL
+     * @param string        $clientIdSecret     Vault identifier for client ID
+     * @param string        $clientSecretSecret Vault identifier for client secret
+     * @param string        $refreshTokenSecret Vault identifier for refresh token
+     * @param array<string> $scopes             OAuth scopes to request
      */
     public static function refreshToken(
         string $tokenEndpoint,

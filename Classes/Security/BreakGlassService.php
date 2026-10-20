@@ -20,6 +20,8 @@ use Netresearch\NrVault\Exception\ValidationException;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 
+use function is_array;
+
 /**
  * Opens and closes break-glass windows.
  *
@@ -49,8 +51,8 @@ final readonly class BreakGlassService implements BreakGlassServiceInterface
         $this->assertMayOperate('activation');
 
         $ttlMinutes = $this->clampTtl($minutes);
-        $now = new DateTimeImmutable();
-        $session = new BreakGlassSession(
+        $now        = new DateTimeImmutable();
+        $session    = new BreakGlassSession(
             activatedByUid: $this->accessControlService->getCurrentActorUid(),
             activatedByUsername: $this->accessControlService->getCurrentActorUsername(),
             reason: $reason,
@@ -74,10 +76,10 @@ final readonly class BreakGlassService implements BreakGlassServiceInterface
             null,
             null,
             new GenericContext([
-                'actorUid' => $session->activatedByUid,
+                'actorUid'      => $session->activatedByUid,
                 'actorUsername' => $session->activatedByUsername,
-                'expiresAt' => $session->expiresAt->getTimestamp(),
-                'ttlMinutes' => $ttlMinutes,
+                'expiresAt'     => $session->expiresAt->getTimestamp(),
+                'ttlMinutes'    => $ttlMinutes,
             ]),
         );
 
@@ -122,12 +124,12 @@ final readonly class BreakGlassService implements BreakGlassServiceInterface
             null,
             null,
             new GenericContext([
-                'actorUid' => $this->accessControlService->getCurrentActorUid(),
-                'actorUsername' => $this->accessControlService->getCurrentActorUsername(),
-                'activatedByUid' => $session->activatedByUid,
+                'actorUid'            => $this->accessControlService->getCurrentActorUid(),
+                'actorUsername'       => $this->accessControlService->getCurrentActorUsername(),
+                'activatedByUid'      => $session->activatedByUid,
                 'activatedByUsername' => $session->activatedByUsername,
-                'activationReason' => $session->reason,
-                'expiresAt' => $session->expiresAt->getTimestamp(),
+                'activationReason'    => $session->reason,
+                'expiresAt'           => $session->expiresAt->getTimestamp(),
             ]),
         );
 
@@ -194,8 +196,8 @@ final readonly class BreakGlassService implements BreakGlassServiceInterface
         /** @phpstan-ignore property.internal */
         $userRecord = $backendUser->user;
         /** @var array<string, mixed> $userRecordTyped */
-        $userRecordTyped = \is_array($userRecord) ? $userRecord : [];
-        $disable = $userRecordTyped['disable'] ?? 0;
+        $userRecordTyped = is_array($userRecord) ? $userRecord : [];
+        $disable         = $userRecordTyped['disable'] ?? 0;
         if (is_numeric($disable) && (int) $disable !== 0) {
             throw AccessDeniedException::breakGlassRequiresAdmin($operation);
         }

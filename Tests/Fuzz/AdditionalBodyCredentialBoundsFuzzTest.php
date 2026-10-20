@@ -1,7 +1,10 @@
 <?php
 
-/* Copyright (c) 2025-2026 Netresearch DTT GmbH
- * SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Fuzz;
@@ -16,6 +19,8 @@ use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Client\ClientInterface;
+
+use function chr;
 
 #[CoversClass(VaultHttpClient::class)]
 final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
@@ -74,9 +79,9 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
         }
 
         foreach (range(0, 255) as $byte) {
-            $character = \chr($byte);
+            $character = chr($byte);
             if ($this->isAllowedFieldByte($byte)) {
-                $original = $this->client();
+                $original   = $this->client();
                 $configured = $original->withAdditionalBodyField('identifier', 'field' . $character);
                 self::assertNotSame($original, $configured);
                 continue;
@@ -92,7 +97,7 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
 
         foreach (array_merge(range(0, 31), [127]) as $byte) {
             try {
-                $this->client()->withAdditionalBodyField('identifier' . \chr($byte), 'field');
+                $this->client()->withAdditionalBodyField('identifier' . chr($byte), 'field');
                 self::fail('An identifier control character was accepted.');
             } catch (InvalidArgumentException $exception) {
                 self::assertStringContainsString('identifier', $exception->getMessage());
@@ -108,8 +113,8 @@ final class AdditionalBodyCredentialBoundsFuzzTest extends TestCase
             $accepted = false;
 
             try {
-                $original = $this->client();
-                $configured = $original->withAdditionalBodyField('identifier', \chr($byte) . 'field');
+                $original   = $this->client();
+                $configured = $original->withAdditionalBodyField('identifier', chr($byte) . 'field');
                 self::assertNotSame($original, $configured);
                 $accepted = true;
             } catch (InvalidArgumentException $exception) {

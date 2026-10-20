@@ -18,6 +18,8 @@ use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 
+use function is_string;
+
 /**
  * The operation-permission gate on `vault:audit`, end to end.
  *
@@ -128,7 +130,7 @@ final class VaultAuditCommandTest extends AbstractVaultFunctionalTestCase
         $this->seedAuditEntry();
         $this->setUpBackendUser(self::AUDIT_VIEWER);
         $entriesBefore = $this->countAuditEntries();
-        $exportFile = $this->instancePath . '/refused-audit-export.json';
+        $exportFile    = $this->instancePath . '/refused-audit-export.json';
 
         $tester = $this->executeAudit(['--export' => $exportFile]);
 
@@ -286,7 +288,7 @@ final class VaultAuditCommandTest extends AbstractVaultFunctionalTestCase
 
     private function countAuditEntries(?string $action = null): int
     {
-        $connection = $this->getConnectionPool()->getConnectionForTable(self::AUDIT_TABLE);
+        $connection   = $this->getConnectionPool()->getConnectionForTable(self::AUDIT_TABLE);
         $queryBuilder = $connection->createQueryBuilder();
         $queryBuilder->count('uid')->from(self::AUDIT_TABLE);
 
@@ -304,9 +306,9 @@ final class VaultAuditCommandTest extends AbstractVaultFunctionalTestCase
      */
     private function readAnchor(): ?string
     {
-        $connection = $this->getConnectionPool()->getConnectionForTable(self::REGISTRY_TABLE);
+        $connection   = $this->getConnectionPool()->getConnectionForTable(self::REGISTRY_TABLE);
         $queryBuilder = $connection->createQueryBuilder();
-        $value = $queryBuilder
+        $value        = $queryBuilder
             ->select('entry_value')
             ->from(self::REGISTRY_TABLE)
             ->where(
@@ -322,7 +324,7 @@ final class VaultAuditCommandTest extends AbstractVaultFunctionalTestCase
             ->executeQuery()
             ->fetchOne();
 
-        return \is_string($value) ? $value : null;
+        return is_string($value) ? $value : null;
     }
 
     /**

@@ -20,6 +20,9 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+use function is_string;
+use function sprintf;
+
 /**
  * CLI command to rotate a secret in the vault.
  */
@@ -72,17 +75,17 @@ final class VaultRotateCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io            = new SymfonyStyle($input, $output);
         $identifierArg = $input->getArgument('identifier');
-        $identifier = \is_string($identifierArg) ? $identifierArg : '';
-        $reasonOption = $input->getOption('reason');
-        $reason = \is_string($reasonOption) ? $reasonOption : 'Manual rotation via CLI';
+        $identifier    = is_string($identifierArg) ? $identifierArg : '';
+        $reasonOption  = $input->getOption('reason');
+        $reason        = is_string($reasonOption) ? $reasonOption : 'Manual rotation via CLI';
 
         // Check if secret exists
         try {
             $this->vaultService->getMetadata($identifier);
         } catch (SecretNotFoundException) {
-            $io->error(\sprintf('Secret not found: %s', $identifier));
+            $io->error(sprintf('Secret not found: %s', $identifier));
 
             return Command::FAILURE;
         }
@@ -97,7 +100,7 @@ final class VaultRotateCommand extends Command
 
         try {
             $this->vaultService->rotate($identifier, $newValue, $reason);
-            $io->success(\sprintf('Secret "%s" rotated successfully', $identifier));
+            $io->success(sprintf('Secret "%s" rotated successfully', $identifier));
 
             // Show rotation info
             $io->table(
@@ -114,7 +117,7 @@ final class VaultRotateCommand extends Command
 
             return Command::SUCCESS;
         } catch (SecretNotFoundException) {
-            $io->error(\sprintf('Secret not found: %s', $identifier));
+            $io->error(sprintf('Secret not found: %s', $identifier));
 
             return Command::FAILURE;
         } catch (VaultException $e) {
@@ -128,7 +131,7 @@ final class VaultRotateCommand extends Command
     {
         // Option 1: From --value option
         $value = $input->getOption('value');
-        if (\is_string($value)) {
+        if (is_string($value)) {
             return $value;
         }
 
@@ -144,9 +147,9 @@ final class VaultRotateCommand extends Command
 
         // Option 3: From file
         $file = $input->getOption('file');
-        if (\is_string($file)) {
+        if (is_string($file)) {
             if (!file_exists($file)) {
-                $io->error(\sprintf('File not found: %s', $file));
+                $io->error(sprintf('File not found: %s', $file));
 
                 return null;
             }
@@ -163,7 +166,7 @@ final class VaultRotateCommand extends Command
         if ($input->isInteractive()) {
             $hiddenInput = $io->askHidden('Enter new secret value');
 
-            return \is_string($hiddenInput) ? $hiddenInput : null;
+            return is_string($hiddenInput) ? $hiddenInput : null;
         }
 
         return null;

@@ -16,6 +16,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+use function ini_get;
+use function sprintf;
+
 #[CoversClass(SecretRedactor::class)]
 final class SecretRedactorTest extends TestCase
 {
@@ -75,7 +78,7 @@ final class SecretRedactorTest extends TestCase
         self::assertStringNotContainsString(
             $mustNotRemain,
             $redacted,
-            \sprintf('Secret material survived redaction: %s', $redacted),
+            sprintf('Secret material survived redaction: %s', $redacted),
         );
         self::assertNotSame($input, $redacted, 'Redaction did not change the input at all.');
     }
@@ -84,7 +87,7 @@ final class SecretRedactorTest extends TestCase
     #[DataProvider('secretShapeProvider')]
     public function redactionIsIdempotent(string $input, string $mustNotRemain): void
     {
-        $once = $this->redactor->redact($input);
+        $once  = $this->redactor->redact($input);
         $twice = $this->redactor->redact($once);
 
         self::assertSame($once, $twice, 'A second pass changed already-redacted output.');
@@ -156,7 +159,7 @@ final class SecretRedactorTest extends TestCase
     #[Test]
     public function aFailingRegexEngineDoesNotWipeTheContent(): void
     {
-        $original = \ini_get('pcre.backtrack_limit');
+        $original = ini_get('pcre.backtrack_limit');
         ini_set('pcre.backtrack_limit', '1');
 
         try {
@@ -246,7 +249,7 @@ final class SecretRedactorTest extends TestCase
     #[Test]
     public function aSecretNameRuleAloneMissesGithubPatButValueClassificationCatchesIt(): void
     {
-        $name = 'GITHUB_PAT';
+        $name  = 'GITHUB_PAT';
         $value = 'ghp_' . self::repeat('a', 36);
 
         self::assertFalse($this->redactor->isSecretIdentifier($name, SecretIdentifierKind::EnvironmentVariable));
@@ -318,7 +321,7 @@ final class SecretRedactorTest extends TestCase
     /**
      * A port followed later by an unrelated e-mail address is not a userinfo
      * component. This turned
-     * '{"url":"https://example.com:8080","contact":"support@example.org"}' into
+     * '{"url":"https://example.com:8080","contact":"support@example.org"}' into.
      *
      * '{"url":"https://example.com:***@example.org"}' — deleting the port and the
      * contact field, and inventing a credential for a host never contacted.

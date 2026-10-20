@@ -117,7 +117,7 @@ final class FlexFormPendingSecretTest extends TestCase
     #[Test]
     public function getFullPathContainsAllThreeSegments(): void
     {
-        $subject = new FlexFormPendingSecret('field', 'sheet', 'path', 'val', 'id', '', false);
+        $subject  = new FlexFormPendingSecret('field', 'sheet', 'path', 'val', 'id', '', false);
         $fullPath = $subject->getFullPath();
 
         self::assertStringContainsString('field', $fullPath);
@@ -157,7 +157,7 @@ final class FlexFormPendingSecretTest extends TestCase
     public function hasChangedReturnsFalseWhenChecksumMatches(): void
     {
         $checksum = 'sha256:abc123';
-        $subject = FlexFormPendingSecret::createUpdate('f', 's', 'p', 'val', 'id', $checksum);
+        $subject  = FlexFormPendingSecret::createUpdate('f', 's', 'p', 'val', 'id', $checksum);
 
         self::assertFalse($subject->hasChanged($checksum));
     }
@@ -192,13 +192,13 @@ final class FlexFormPendingSecretTest extends TestCase
         );
 
         self::assertSame([
-            'flexField' => 'pi_flexform',
-            'sheet' => 'sDEF',
-            'fieldPath' => 'settings.token',
-            'value' => '[REDACTED]',
-            'identifier' => 'app/token',
+            'flexField'        => 'pi_flexform',
+            'sheet'            => 'sDEF',
+            'fieldPath'        => 'settings.token',
+            'value'            => '[REDACTED]',
+            'identifier'       => 'app/token',
             'originalChecksum' => 'checksum123',
-            'isNew' => false,
+            'isNew'            => false,
         ], $subject->toArray());
     }
 
@@ -206,7 +206,7 @@ final class FlexFormPendingSecretTest extends TestCase
     public function toArrayForNewSecretHasEmptyChecksumAndIsNewTrue(): void
     {
         $subject = FlexFormPendingSecret::createNew('f', 's', 'p', 'val', 'id');
-        $array = $subject->toArray();
+        $array   = $subject->toArray();
 
         self::assertSame('', $array['originalChecksum']);
         self::assertTrue($array['isNew']);

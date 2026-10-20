@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -30,7 +27,7 @@ final readonly class ReEncryptedDek
      * Create from raw encryption output.
      *
      * @param string $encryptedDek Raw encrypted DEK bytes
-     * @param string $nonce Raw nonce bytes
+     * @param string $nonce        Raw nonce bytes
      */
     public static function fromRaw(string $encryptedDek, string $nonce): self
     {
@@ -49,7 +46,7 @@ final readonly class ReEncryptedDek
     {
         return [
             'encrypted_dek' => $this->encryptedDek,
-            'nonce' => $this->nonce,
+            'nonce'         => $this->nonce,
         ];
     }
 }

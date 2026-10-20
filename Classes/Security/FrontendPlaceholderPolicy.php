@@ -19,6 +19,13 @@ use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use WeakMap;
 
+use function array_key_exists;
+use function count;
+use function is_array;
+use function is_string;
+
+use const PHP_SAPI;
+
 /**
  * Per-request allow-set of vault identifiers that may be resolved in a
  * frontend request (ADR-035).
@@ -132,19 +139,19 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
         private readonly ExtensionConfigurationInterface $extensionConfiguration,
     ) {
         /** @var WeakMap<FrontendTypoScript, array<string, true>> $setupIdentifiers */
-        $setupIdentifiers = new WeakMap();
+        $setupIdentifiers       = new WeakMap();
         $this->setupIdentifiers = $setupIdentifiers;
 
         /** @var WeakMap<Site, array<string, true>> $siteIdentifiers */
-        $siteIdentifiers = new WeakMap();
+        $siteIdentifiers       = new WeakMap();
         $this->siteIdentifiers = $siteIdentifiers;
 
         /** @var WeakMap<ServerRequestInterface, array<string, true>> $runtimeAllowed */
-        $runtimeAllowed = new WeakMap();
+        $runtimeAllowed       = new WeakMap();
         $this->runtimeAllowed = $runtimeAllowed;
 
         /** @var WeakMap<ServerRequestInterface, true> $logClaimed */
-        $logClaimed = new WeakMap();
+        $logClaimed       = new WeakMap();
         $this->logClaimed = $logClaimed;
     }
 
@@ -155,8 +162,8 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
             return;
         }
 
-        $granted = $this->runtimeAllowed[$request] ?? [];
-        $granted[$identifier] = true;
+        $granted                        = $this->runtimeAllowed[$request] ?? [];
+        $granted[$identifier]           = true;
         $this->runtimeAllowed[$request] = $granted;
     }
 
@@ -247,8 +254,8 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
      */
     private function scopeRequest(ContentObjectRenderer $contentObjectRenderer): ?ServerRequestInterface
     {
-        $hasGlobal = \array_key_exists('TYPO3_REQUEST', $GLOBALS);
-        $global = $GLOBALS['TYPO3_REQUEST'] ?? null;
+        $hasGlobal = array_key_exists('TYPO3_REQUEST', $GLOBALS);
+        $global    = $GLOBALS['TYPO3_REQUEST'] ?? null;
         unset($GLOBALS['TYPO3_REQUEST']);
 
         try {
@@ -321,7 +328,7 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
         try {
             return Environment::isCli();
         } catch (Throwable) {
-            return \PHP_SAPI === 'cli';
+            return PHP_SAPI === 'cli';
         }
     }
 
@@ -427,21 +434,21 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
     /**
      * Read the comma-separated A3 opt-in list out of the setup array.
      *
-     * @param array<mixed> $setup
+     * @param array<mixed>        $setup
      * @param array<string, true> $identifiers
      */
     private function addOptInList(array $setup, array &$identifiers): void
     {
         $node = $setup;
         foreach (self::A3_SETUP_PATH as $segment) {
-            if (!\is_array($node) || !isset($node[$segment])) {
+            if (!is_array($node) || !isset($node[$segment])) {
                 return;
             }
 
             $node = $node[$segment];
         }
 
-        if (!\is_string($node)) {
+        if (!is_string($node)) {
             return;
         }
 
@@ -451,7 +458,7 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
                 continue;
             }
 
-            if (\count($identifiers) >= self::MAX_IDENTIFIERS) {
+            if (count($identifiers) >= self::MAX_IDENTIFIERS) {
                 continue;
             }
 
@@ -463,23 +470,23 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
      * Collect every %vault(id)% identifier appearing in a string leaf, using
      * the same pattern and the same trim() the listener applies.
      *
-     * @param array<mixed> $node
+     * @param array<mixed>        $node
      * @param array<string, true> $identifiers
      */
     private function harvest(array $node, array &$identifiers, int $depth = 0): void
     {
-        if ($depth >= self::MAX_DEPTH || \count($identifiers) >= self::MAX_IDENTIFIERS) {
+        if ($depth >= self::MAX_DEPTH || count($identifiers) >= self::MAX_IDENTIFIERS) {
             return;
         }
 
         foreach ($node as $value) {
-            if (\is_array($value)) {
+            if (is_array($value)) {
                 $this->harvest($value, $identifiers, $depth + 1);
 
                 continue;
             }
 
-            if (!\is_string($value)) {
+            if (!is_string($value)) {
                 continue;
             }
 
@@ -497,7 +504,7 @@ final class FrontendPlaceholderPolicy implements FrontendPlaceholderPolicyInterf
                     continue;
                 }
 
-                if (\count($identifiers) >= self::MAX_IDENTIFIERS) {
+                if (count($identifiers) >= self::MAX_IDENTIFIERS) {
                     continue;
                 }
 

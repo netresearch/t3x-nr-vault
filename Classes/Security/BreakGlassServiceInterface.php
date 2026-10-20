@@ -42,12 +42,12 @@ interface BreakGlassServiceInterface extends BreakGlassStateInterface
     /**
      * Open a break-glass window, replacing any window already open.
      *
-     * @param string $reason Mandatory justification. Trimmed before recording in
-     *                       the audit row and display in the backend banner
-     * @param int $minutes Requested TTL, clamped to
-     *                     {@see self::MIN_TTL_MINUTES}..{@see self::MAX_TTL_MINUTES}
+     * @param string $reason  Mandatory justification. Trimmed before recording in
+     *                        the audit row and display in the backend banner
+     * @param int    $minutes Requested TTL, clamped to
+     *                        {@see self::MIN_TTL_MINUTES}..{@see self::MAX_TTL_MINUTES}
      *
-     * @throws ValidationException if the reason is empty after trimming
+     * @throws ValidationException   if the reason is empty after trimming
      * @throws AccessDeniedException if the actor is neither a real backend
      *                               admin / system maintainer nor a real CLI
      *                               operator

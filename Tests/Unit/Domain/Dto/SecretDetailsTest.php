@@ -22,22 +22,22 @@ final class SecretDetailsTest extends TestCase
     public function constructorSetsAllProperties(): void
     {
         $subject = $this->buildSubject([
-            'uid' => 42,
-            'identifier' => 'api-key',
-            'description' => 'Payment API key',
-            'ownerUid' => 10,
-            'groups' => [3, 4, 5],
-            'context' => 'payment',
+            'uid'                => 42,
+            'identifier'         => 'api-key',
+            'description'        => 'Payment API key',
+            'ownerUid'           => 10,
+            'groups'             => [3, 4, 5],
+            'context'            => 'payment',
             'frontendAccessible' => true,
-            'version' => 3,
-            'createdAt' => 1700000000,
-            'updatedAt' => 1700100000,
-            'expiresAt' => 1800000000,
-            'lastRotatedAt' => 1700050000,
-            'readCount' => 17,
-            'lastReadAt' => 1700090000,
-            'metadata' => ['env' => 'production'],
-            'scopePid' => 7,
+            'version'            => 3,
+            'createdAt'          => 1700000000,
+            'updatedAt'          => 1700100000,
+            'expiresAt'          => 1800000000,
+            'lastRotatedAt'      => 1700050000,
+            'readCount'          => 17,
+            'lastReadAt'         => 1700090000,
+            'metadata'           => ['env' => 'production'],
+            'scopePid'           => 7,
         ]);
 
         self::assertSame(42, $subject->uid);
@@ -121,7 +121,7 @@ final class SecretDetailsTest extends TestCase
     public function toArrayContainsAllExpectedKeys(): void
     {
         $subject = $this->buildSubject();
-        $array = $subject->toArray();
+        $array   = $subject->toArray();
 
         $expectedKeys = [
             'uid', 'identifier', 'description', 'owner', 'owner_uid',
@@ -140,7 +140,7 @@ final class SecretDetailsTest extends TestCase
     public function toArrayMapsOwnerUidToBothOwnerAndOwnerUid(): void
     {
         $subject = $this->buildSubject(['ownerUid' => 99]);
-        $array = $subject->toArray();
+        $array   = $subject->toArray();
 
         self::assertSame(99, $array['owner']);
         self::assertSame(99, $array['owner_uid']);
@@ -150,8 +150,8 @@ final class SecretDetailsTest extends TestCase
     public function toArrayMapsExpiresAtToBothCamelAndSnakeCase(): void
     {
         $expiresAt = 1900000000;
-        $subject = $this->buildSubject(['expiresAt' => $expiresAt]);
-        $array = $subject->toArray();
+        $subject   = $this->buildSubject(['expiresAt' => $expiresAt]);
+        $array     = $subject->toArray();
 
         self::assertSame($expiresAt, $array['expiresAt']);
         self::assertSame($expiresAt, $array['expires_at']);
@@ -161,9 +161,9 @@ final class SecretDetailsTest extends TestCase
     public function toArrayPreservesNullValues(): void
     {
         $subject = $this->buildSubject([
-            'expiresAt' => null,
+            'expiresAt'     => null,
             'lastRotatedAt' => null,
-            'lastReadAt' => null,
+            'lastReadAt'    => null,
         ]);
         $array = $subject->toArray();
 
@@ -177,22 +177,22 @@ final class SecretDetailsTest extends TestCase
     public function toArrayReturnsCorrectValues(): void
     {
         $subject = $this->buildSubject([
-            'uid' => 10,
-            'identifier' => 'stripe-key',
-            'description' => 'Stripe API',
-            'ownerUid' => 3,
-            'groups' => [1],
-            'context' => 'payment',
+            'uid'                => 10,
+            'identifier'         => 'stripe-key',
+            'description'        => 'Stripe API',
+            'ownerUid'           => 3,
+            'groups'             => [1],
+            'context'            => 'payment',
             'frontendAccessible' => true,
-            'version' => 2,
-            'createdAt' => 1700000000,
-            'updatedAt' => 1700100000,
-            'expiresAt' => 1800000000,
-            'lastRotatedAt' => 1750000000,
-            'readCount' => 5,
-            'lastReadAt' => 1700090000,
-            'metadata' => ['key' => 'val'],
-            'scopePid' => 1,
+            'version'            => 2,
+            'createdAt'          => 1700000000,
+            'updatedAt'          => 1700100000,
+            'expiresAt'          => 1800000000,
+            'lastRotatedAt'      => 1750000000,
+            'readCount'          => 5,
+            'lastReadAt'         => 1700090000,
+            'metadata'           => ['key' => 'val'],
+            'scopePid'           => 1,
         ]);
 
         $array = $subject->toArray();
@@ -309,22 +309,22 @@ final class SecretDetailsTest extends TestCase
     private function buildSubject(array $overrides = []): SecretDetails
     {
         $defaults = [
-            'uid' => 1,
-            'identifier' => 'test-secret',
-            'description' => 'A test secret',
-            'ownerUid' => 5,
-            'groups' => [1, 2],
-            'context' => 'default',
+            'uid'                => 1,
+            'identifier'         => 'test-secret',
+            'description'        => 'A test secret',
+            'ownerUid'           => 5,
+            'groups'             => [1, 2],
+            'context'            => 'default',
             'frontendAccessible' => false,
-            'version' => 1,
-            'createdAt' => 1700000000,
-            'updatedAt' => 1700086400,
-            'expiresAt' => null,
-            'lastRotatedAt' => null,
-            'readCount' => 0,
-            'lastReadAt' => null,
-            'metadata' => [],
-            'scopePid' => 0,
+            'version'            => 1,
+            'createdAt'          => 1700000000,
+            'updatedAt'          => 1700086400,
+            'expiresAt'          => null,
+            'lastRotatedAt'      => null,
+            'readCount'          => 0,
+            'lastReadAt'         => null,
+            'metadata'           => [],
+            'scopePid'           => 0,
         ];
 
         $params = array_merge($defaults, $overrides);

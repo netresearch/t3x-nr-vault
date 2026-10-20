@@ -24,6 +24,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+use function sprintf;
+
 #[CoversClass(MasterKeyProviderCheck::class)]
 final class MasterKeyProviderCheckTest extends TestCase
 {
@@ -72,7 +74,7 @@ final class MasterKeyProviderCheckTest extends TestCase
         foreach ($findings as $finding) {
             self::assertTrue(
                 $finding->isPass(),
-                \sprintf('%s should pass: %s', $finding->id, $finding->summary),
+                sprintf('%s should pass: %s', $finding->id, $finding->summary),
             );
         }
 
@@ -230,7 +232,7 @@ final class MasterKeyProviderCheckTest extends TestCase
             'provider.key_permissions',
         );
 
-        self::assertSame(\sprintf('0%o', $mode), $finding->details['mode']);
+        self::assertSame(sprintf('0%o', $mode), $finding->details['mode']);
         // The path must never reach the finding — the JSON report goes into CI logs.
         self::assertStringNotContainsString($path, $finding->summary . $finding->risk . $finding->remediation);
     }

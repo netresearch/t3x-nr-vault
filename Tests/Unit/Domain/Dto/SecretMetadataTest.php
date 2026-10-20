@@ -66,15 +66,15 @@ final class SecretMetadataTest extends TestCase
     public function fromArrayCreatesMetadataWithAllFields(): void
     {
         $row = [
-            'identifier' => 'api-key',
-            'owner_uid' => 5,
-            'crdate' => 1704067200,
-            'tstamp' => 1704153600,
-            'read_count' => 10,
+            'identifier'   => 'api-key',
+            'owner_uid'    => 5,
+            'crdate'       => 1704067200,
+            'tstamp'       => 1704153600,
+            'read_count'   => 10,
             'last_read_at' => 1704150000,
-            'description' => self::TEST_SECRET_DESCRIPTION,
-            'version' => 2,
-            'metadata' => ['key' => 'value'],
+            'description'  => self::TEST_SECRET_DESCRIPTION,
+            'version'      => 2,
+            'metadata'     => ['key' => 'value'],
         ];
 
         $metadata = SecretMetadata::fromArray($row);
@@ -126,16 +126,16 @@ final class SecretMetadataTest extends TestCase
         $array = $metadata->toArray();
 
         self::assertEquals([
-            'identifier' => 'api-key',
-            'owner_uid' => 5,
-            'crdate' => 1704067200,
-            'tstamp' => 1704153600,
-            'read_count' => 10,
+            'identifier'   => 'api-key',
+            'owner_uid'    => 5,
+            'crdate'       => 1704067200,
+            'tstamp'       => 1704153600,
+            'read_count'   => 10,
             'last_read_at' => 1704150000,
-            'description' => self::TEST_SECRET_DESCRIPTION,
-            'version' => 2,
-            'metadata' => ['key' => 'value'],
-            'enabled' => true,
+            'description'  => self::TEST_SECRET_DESCRIPTION,
+            'version'      => 2,
+            'metadata'     => ['key' => 'value'],
+            'enabled'      => true,
         ], $array);
     }
 
@@ -149,7 +149,7 @@ final class SecretMetadataTest extends TestCase
     {
         $metadata = SecretMetadata::fromArray([
             'identifier' => 'retired-key',
-            'hidden' => 1,
+            'hidden'     => 1,
         ]);
 
         self::assertFalse($metadata->enabled);
@@ -178,8 +178,8 @@ final class SecretMetadataTest extends TestCase
     #[Test]
     public function fromArrayReportsANeverReadSecretAsNullRatherThanTheEpoch(): void
     {
-        $never = SecretMetadata::fromArray(['identifier' => 'never-read', 'last_read_at' => 0]);
-        $read = SecretMetadata::fromArray(['identifier' => 'has-been-read', 'last_read_at' => 1_700_000_000]);
+        $never  = SecretMetadata::fromArray(['identifier' => 'never-read', 'last_read_at' => 0]);
+        $read   = SecretMetadata::fromArray(['identifier' => 'has-been-read', 'last_read_at' => 1_700_000_000]);
         $absent = SecretMetadata::fromArray(['identifier' => 'column-absent']);
 
         self::assertNull($never->lastReadAt, 'a 0 from the database means never read');
@@ -191,32 +191,32 @@ final class SecretMetadataTest extends TestCase
     public function roundTripFromArrayToArray(): void
     {
         $original = [
-            'identifier' => 'roundtrip-test',
-            'owner_uid' => 42,
-            'crdate' => 1704067200,
-            'tstamp' => 1704153600,
-            'read_count' => 5,
+            'identifier'   => 'roundtrip-test',
+            'owner_uid'    => 42,
+            'crdate'       => 1704067200,
+            'tstamp'       => 1704153600,
+            'read_count'   => 5,
             'last_read_at' => null,
-            'description' => 'Test',
-            'version' => 1,
-            'metadata' => [],
-            'enabled' => true,
+            'description'  => 'Test',
+            'version'      => 1,
+            'metadata'     => [],
+            'enabled'      => true,
         ];
 
         // `fromArray()` reads the row's `hidden` column, `toArray()` emits the
         // DTO's `enabled` property, so the round trip is over the DTO's own
         // shape with the row's negative form supplied alongside.
         $metadata = SecretMetadata::fromArray([
-            'identifier' => 'roundtrip-test',
-            'owner_uid' => 42,
-            'crdate' => 1704067200,
-            'tstamp' => 1704153600,
-            'read_count' => 5,
+            'identifier'   => 'roundtrip-test',
+            'owner_uid'    => 42,
+            'crdate'       => 1704067200,
+            'tstamp'       => 1704153600,
+            'read_count'   => 5,
             'last_read_at' => null,
-            'description' => 'Test',
-            'version' => 1,
-            'metadata' => [],
-            'hidden' => 0,
+            'description'  => 'Test',
+            'version'      => 1,
+            'metadata'     => [],
+            'hidden'       => 0,
         ]);
         $result = $metadata->toArray();
 

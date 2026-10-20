@@ -1,9 +1,10 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Documentation;
@@ -34,9 +35,9 @@ final class FrontendAccessibleExampleTest extends AbstractVaultFunctionalTestCas
     {
         require_once __DIR__ . '/../../../Documentation/Configuration/_FrontendAccessibleSecret.php';
 
-        $vault = $this->get(VaultServiceInterface::class);
+        $vault   = $this->get(VaultServiceInterface::class);
         $example = new FrontendAccessibleSecret($vault);
-        $value = 'public-client-api-example';
+        $value   = 'public-client-api-example';
         $example->storeApiKey($value);
 
         $row = $this->findRecord('google_maps_key');
@@ -81,8 +82,8 @@ final class FrontendAccessibleExampleTest extends AbstractVaultFunctionalTestCas
         );
 
         $GLOBALS['TYPO3_REQUEST'] = $this->frontendRequest();
-        $caught = null;
-        $actual = null;
+        $caught                   = null;
+        $actual                   = null;
 
         try {
             $actual = $vault->retrieveForFrontend('metadata_only_key');

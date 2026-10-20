@@ -41,11 +41,11 @@ trait BackendUserMockTrait
      * cannot tell a real group grant from the admin override and would pass
      * while the override is disabled.
      *
-     * @param list<int> $groupIds backend user group UIDs (populates `userGroupsUID`)
-     * @param bool $isSystemMaintainer answer for `isSystemMaintainer()` — core
-     *                                 treats the role as strictly stronger than
-     *                                 `admin`, and the vault's permission gates
-     *                                 must honour it independently
+     * @param list<int>             $groupIds           backend user group UIDs (populates `userGroupsUID`)
+     * @param bool                  $isSystemMaintainer answer for `isSystemMaintainer()` — core
+     *                                                  treats the role as strictly stronger than
+     *                                                  `admin`, and the vault's permission gates
+     *                                                  must honour it independently
      * @param list<VaultPermission> $grantedPermissions vault operation
      *                                                  permissions granted via
      *                                                  the user's groups
@@ -64,9 +64,9 @@ trait BackendUserMockTrait
         $backendUser->method('isSystemMaintainer')->willReturn($isSystemMaintainer);
 
         $backendUser->user = [
-            'uid' => $uid,
+            'uid'      => $uid,
             'username' => 'test-user-' . $uid,
-            'disable' => $disabled ? 1 : 0,
+            'disable'  => $disabled ? 1 : 0,
         ];
         $backendUser->userGroupsUID = $groupIds;
         /** @phpstan-ignore property.internal */

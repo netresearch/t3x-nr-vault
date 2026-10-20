@@ -1,9 +1,10 @@
 <?php
 
 /*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
- * SPDX-FileCopyrightText: Netresearch DTT GmbH
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Documentation;
@@ -29,6 +30,8 @@ use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;
 use Throwable;
 use UnexpectedValueException;
 
+use function in_array;
+
 final class TechnicalActorExampleTest extends AbstractVaultFunctionalTestCase
 {
     protected ?string $backendUserFixture = __DIR__ . '/../Controller/Fixtures/be_users.csv';
@@ -49,10 +52,10 @@ final class TechnicalActorExampleTest extends AbstractVaultFunctionalTestCase
             'example-secret',
             $vault->retrieve('my_ext_embeddings_api_key'),
         );
-        $before = $this->get(AuditLogServiceInterface::class)->query();
+        $before  = $this->get(AuditLogServiceInterface::class)->query();
         $context = $this->get(TechnicalActorContextInterface::class);
         $ambient = $GLOBALS['BE_USER'];
-        $caught = null;
+        $caught  = null;
         set_error_handler(
             static function (
                 int $severity,
@@ -116,10 +119,10 @@ final class TechnicalActorExampleTest extends AbstractVaultFunctionalTestCase
             'example-secret',
             ['owner' => 999, 'groups' => [5]],
         );
-        $before = $this->get(AuditLogServiceInterface::class)->query();
+        $before  = $this->get(AuditLogServiceInterface::class)->query();
         $context = $this->get(TechnicalActorContextInterface::class);
         $ambient = $GLOBALS['BE_USER'];
-        $caught = null;
+        $caught  = null;
 
         try {
             $handler = $this->configuredHandler(11);
@@ -147,10 +150,10 @@ final class TechnicalActorExampleTest extends AbstractVaultFunctionalTestCase
             'example-secret',
             ['owner' => 999, 'groups' => [10]],
         );
-        $before = $this->get(AuditLogServiceInterface::class)->query();
+        $before  = $this->get(AuditLogServiceInterface::class)->query();
         $context = $this->get(TechnicalActorContextInterface::class);
         $ambient = $GLOBALS['BE_USER'];
-        $caught = null;
+        $caught  = null;
 
         try {
             $handler = $this->configuredHandler();
@@ -182,7 +185,7 @@ final class TechnicalActorExampleTest extends AbstractVaultFunctionalTestCase
         );
         $context = $this->get(TechnicalActorContextInterface::class);
         $ambient = $GLOBALS['BE_USER'];
-        $caught = null;
+        $caught  = null;
 
         try {
             $handler = $this->configuredHandler();
@@ -207,7 +210,7 @@ final class TechnicalActorExampleTest extends AbstractVaultFunctionalTestCase
         require_once __DIR__ . '/Fixtures/IngestMessage.php';
         require_once __DIR__ . '/../../../Documentation/Examples/TechnicalActor/IngestHandler.php';
         $container = new ContainerBuilder();
-        $loader = new YamlFileLoader(
+        $loader    = new YamlFileLoader(
             $container,
             new FileLocator(
                 __DIR__ . '/../../../Documentation/Examples/TechnicalActor',
@@ -258,7 +261,7 @@ final class TechnicalActorExampleTest extends AbstractVaultFunctionalTestCase
                 $this->get(AuditLogServiceInterface::class)->query(),
                 static fn (
                     AuditLogEntry $entry,
-                ): bool => !\in_array($entry->uid, $knownUids, true),
+                ): bool => !in_array($entry->uid, $knownUids, true),
             ),
         );
     }

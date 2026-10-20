@@ -26,6 +26,8 @@ use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function strlen;
+
 /**
  * The SUT is excluded from unit coverage in Build/phpunit.xml, so this test is
  * `CoversNothing`: with CoversClass, PHPUnit 12 raises "not a valid target for
@@ -77,7 +79,7 @@ final class VaultSecretInputElementTest extends TestCase
         $subject->setData([
             'parameterArray' => [
                 'itemFormElName' => 'data[tx_nrvault_secret][7][secret]',
-                'fieldConf' => ['config' => []],
+                'fieldConf'      => ['config' => []],
             ],
             'databaseRow' => ['uid' => 7, 'identifier' => 'orphaned_key'],
         ]);
@@ -103,8 +105,8 @@ final class VaultSecretInputElementTest extends TestCase
     public function iconButtonsAreNamedInTheBackendLanguage(): void
     {
         $prefix = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_js.xlf:';
-        $html = $this->renderExistingSecret(
-            static fn (string $key): string => str_starts_with($key, $prefix) ? '[' . substr($key, \strlen($prefix)) . ']' : '',
+        $html   = $this->renderExistingSecret(
+            static fn (string $key): string => str_starts_with($key, $prefix) ? '[' . substr($key, strlen($prefix)) . ']' : '',
         );
 
         self::assertStringContainsString(
@@ -166,7 +168,7 @@ final class VaultSecretInputElementTest extends TestCase
         $subject->setData([
             'parameterArray' => [
                 'itemFormElName' => 'data[tx_nrvault_secret][7][secret]',
-                'fieldConf' => ['config' => []],
+                'fieldConf'      => ['config' => []],
             ],
             'databaseRow' => ['uid' => 7, 'identifier' => 'stored_key'],
         ]);

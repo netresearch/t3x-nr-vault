@@ -39,12 +39,12 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
         $this->setUpBackendUser(1);
 
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
-        $secretValue = 'my-super-secret-value';
+        $identifier   = $this->generateUuidV7();
+        $secretValue  = 'my-super-secret-value';
         $vaultService->store($identifier, $secretValue);
 
         $controller = $this->get(AjaxController::class);
-        $request = $this->createJsonPostRequest(['identifier' => $identifier]);
+        $request    = $this->createJsonPostRequest(['identifier' => $identifier]);
 
         $response = $controller->revealAction($request);
 
@@ -68,7 +68,7 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
         $this->setUpBackendUser(1);
 
         $controller = $this->get(AjaxController::class);
-        $request = $this->createJsonPostRequest([]);
+        $request    = $this->createJsonPostRequest([]);
 
         $response = $controller->revealAction($request);
 
@@ -93,14 +93,14 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
         // Store as admin, admitting the revealer's group to the read tier.
         $this->setUpBackendUser(1);
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
-        $secretValue = 'group-readable-value';
+        $identifier   = $this->generateUuidV7();
+        $secretValue  = 'group-readable-value';
         $vaultService->store($identifier, $secretValue, ['groups' => [10]]);
 
         $this->setUpBackendUser(3);
 
         $controller = $this->get(AjaxController::class);
-        $response = $controller->revealAction($this->createJsonPostRequest(['identifier' => $identifier]));
+        $response   = $controller->revealAction($this->createJsonPostRequest(['identifier' => $identifier]));
 
         self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
         $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
@@ -123,13 +123,13 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
     {
         $this->setUpBackendUser(1);
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
+        $identifier   = $this->generateUuidV7();
         $vaultService->store($identifier, 'not-for-auditors', ['groups' => [11]]);
 
         $this->setUpBackendUser(4);
 
         $controller = $this->get(AjaxController::class);
-        $response = $controller->revealAction($this->createJsonPostRequest(['identifier' => $identifier]));
+        $response   = $controller->revealAction($this->createJsonPostRequest(['identifier' => $identifier]));
 
         self::assertSame(403, $response->getStatusCode());
         $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
@@ -151,15 +151,15 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
     {
         $this->setUpBackendUser(1);
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
+        $identifier   = $this->generateUuidV7();
         $vaultService->store($identifier, 'original-secret', ['groups' => [10]]);
 
         $this->setUpBackendUser(3);
 
         $controller = $this->get(AjaxController::class);
-        $response = $controller->rotateAction($this->createJsonPostRequest([
+        $response   = $controller->rotateAction($this->createJsonPostRequest([
             'identifier' => $identifier,
-            'secret' => 'rotated-by-revealer',
+            'secret'     => 'rotated-by-revealer',
         ]));
 
         self::assertSame(403, $response->getStatusCode());
@@ -179,14 +179,14 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
         // Store secret as admin first
         $this->setUpBackendUser(1);
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
+        $identifier   = $this->generateUuidV7();
         $vaultService->store($identifier, 'admin-secret');
 
         // Switch to non-admin user
         $this->setUpBackendUser(2);
 
         $controller = $this->get(AjaxController::class);
-        $request = $this->createJsonPostRequest(['identifier' => $identifier]);
+        $request    = $this->createJsonPostRequest(['identifier' => $identifier]);
 
         $response = $controller->revealAction($request);
 
@@ -206,13 +206,13 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
         $this->setUpBackendUser(1);
 
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = $this->generateUuidV7();
+        $identifier   = $this->generateUuidV7();
         $vaultService->store($identifier, 'original-secret');
 
         $controller = $this->get(AjaxController::class);
-        $request = $this->createJsonPostRequest([
+        $request    = $this->createJsonPostRequest([
             'identifier' => $identifier,
-            'secret' => 'rotated-secret',
+            'secret'     => 'rotated-secret',
         ]);
 
         $response = $controller->rotateAction($request);
@@ -237,7 +237,7 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
         $this->setUpBackendUser(1);
 
         $controller = $this->get(AjaxController::class);
-        $request = $this->createJsonPostRequest([
+        $request    = $this->createJsonPostRequest([
             'secret' => 'some-value',
         ]);
 
@@ -255,7 +255,7 @@ final class AjaxControllerTest extends AbstractVaultFunctionalTestCase
         $this->setUpBackendUser(1);
 
         $controller = $this->get(AjaxController::class);
-        $request = $this->createJsonPostRequest([
+        $request    = $this->createJsonPostRequest([
             'identifier' => $this->generateUuidV7(),
         ]);
 

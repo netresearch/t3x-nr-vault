@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -27,6 +24,9 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Core\Http\JsonResponse;
+
+use function is_array;
+use function is_string;
 
 /**
  * AJAX controller for vault backend operations.
@@ -98,7 +98,7 @@ final readonly class AjaxController
             /** @phpstan-ignore new.internalClass, method.internalClass */
             $response = new JsonResponse([
                 'success' => true,
-                'secret' => $secret,
+                'secret'  => $secret,
                 // The hardened profile disables copy-to-clipboard: the
                 // clipboard outlives the reveal dialog and cannot be
                 // reliably cleared from JavaScript.
@@ -140,9 +140,9 @@ final readonly class AjaxController
             return $this->jsonError(self::ERROR_ACCESS_DENIED, 403);
         }
 
-        $body = $this->getJsonBody($request);
-        $identifier = isset($body['identifier']) && \is_string($body['identifier']) ? $body['identifier'] : '';
-        $newSecret = isset($body['secret']) && \is_string($body['secret']) ? $body['secret'] : '';
+        $body       = $this->getJsonBody($request);
+        $identifier = isset($body['identifier']) && is_string($body['identifier']) ? $body['identifier'] : '';
+        $newSecret  = isset($body['secret']) && is_string($body['secret']) ? $body['secret'] : '';
 
         if ($identifier === '') {
             return $this->jsonError('No identifier provided', 400);
@@ -190,7 +190,7 @@ final readonly class AjaxController
         /** @phpstan-ignore new.internalClass, method.internalClass */
         $response = new JsonResponse([
             'success' => false,
-            'error' => $message,
+            'error'   => $message,
         ], $status);
 
         return $this->withNoStore($response);
@@ -216,7 +216,7 @@ final readonly class AjaxController
     {
         $body = $this->getJsonBody($request);
 
-        return isset($body['identifier']) && \is_string($body['identifier']) ? $body['identifier'] : '';
+        return isset($body['identifier']) && is_string($body['identifier']) ? $body['identifier'] : '';
     }
 
     /**
@@ -227,7 +227,7 @@ final readonly class AjaxController
     private function getJsonBody(ServerRequestInterface $request): array
     {
         $parsedBody = $request->getParsedBody();
-        if (\is_array($parsedBody)) {
+        if (is_array($parsedBody)) {
             /** @var array<string, mixed> $parsedBody */
             return $parsedBody;
         }
@@ -240,7 +240,7 @@ final readonly class AjaxController
         try {
             $decoded = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
 
-            if (\is_array($decoded)) {
+            if (is_array($decoded)) {
                 /** @var array<string, mixed> $decoded */
                 return $decoded;
             }

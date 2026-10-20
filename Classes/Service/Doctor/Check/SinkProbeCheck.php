@@ -19,6 +19,8 @@ use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
 use Throwable;
 
+use function sprintf;
+
 /**
  * Active end-to-end verification of every enabled audit sink.
  *
@@ -64,9 +66,9 @@ final readonly class SinkProbeCheck implements ReadinessCheckInterface
             return [];
         }
 
-        $anchor = $this->anchorService->capture();
+        $anchor   = $this->anchorService->capture();
         $findings = [];
-        $probed = 0;
+        $probed   = 0;
 
         foreach ($this->sinks as $sink) {
             if (!$this->isEnabledSafely($sink)) {
@@ -75,7 +77,7 @@ final readonly class SinkProbeCheck implements ReadinessCheckInterface
 
             ++$probed;
             $identifier = $sink->getIdentifier();
-            $id = 'audit.sink_probe.' . $identifier;
+            $id         = 'audit.sink_probe.' . $identifier;
 
             try {
                 $sink->publishAnchor($anchor);
@@ -83,7 +85,7 @@ final readonly class SinkProbeCheck implements ReadinessCheckInterface
 
                 $findings[] = Finding::pass(
                     id: $id,
-                    summary: \sprintf(
+                    summary: sprintf(
                         'Audit sink "%s" accepted the probe (chain-tip anchor, sequence %d).',
                         $identifier,
                         $anchor->sequence,
@@ -96,7 +98,7 @@ final readonly class SinkProbeCheck implements ReadinessCheckInterface
 
                 $findings[] = Finding::critical(
                     id: $id,
-                    summary: \sprintf(
+                    summary: sprintf(
                         'Audit sink "%s" REFUSED the probe: %s',
                         $identifier,
                         $e->getMessage(),

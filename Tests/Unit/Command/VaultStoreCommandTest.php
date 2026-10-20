@@ -41,8 +41,8 @@ final class VaultStoreCommandTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
-        $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
+        $this->vaultService          = $this->createMock(VaultServiceInterface::class);
+        $this->configuration         = $this->createMock(ExtensionConfigurationInterface::class);
         $this->technicalActorContext = $this->createMock(TechnicalActorContextInterface::class);
 
         $command = $this->createCommand();
@@ -73,7 +73,7 @@ final class VaultStoreCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'openai_api_key',
-            '--value' => 'secret-value',
+            '--value'    => 'secret-value',
         ]);
 
         self::assertSame(0, $exitCode);
@@ -98,8 +98,8 @@ final class VaultStoreCommandTest extends TestCase
         $this->vaultService->expects($this->once())->method('store');
 
         $exitCode = $this->commandTester->execute([
-            'identifier' => 'openai_api_key',
-            '--value' => 'secret-value',
+            'identifier'       => 'openai_api_key',
+            '--value'          => 'secret-value',
             '--as-provisioner' => true,
         ]);
 
@@ -120,8 +120,8 @@ final class VaultStoreCommandTest extends TestCase
         $this->vaultService->expects($this->never())->method('store');
 
         $exitCode = $this->commandTester->execute([
-            'identifier' => 'openai_api_key',
-            '--value' => 'secret-value',
+            'identifier'       => 'openai_api_key',
+            '--value'          => 'secret-value',
             '--as-provisioner' => true,
         ]);
 
@@ -139,7 +139,7 @@ final class VaultStoreCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'my-api-key',
-            '--value' => 'secret-value-123',
+            '--value'    => 'secret-value-123',
         ]);
 
         self::assertSame(0, $exitCode);
@@ -161,7 +161,7 @@ final class VaultStoreCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'file-secret',
-            '--file' => vfsStream::url('test/secret.txt'),
+            '--file'     => vfsStream::url('test/secret.txt'),
         ]);
 
         self::assertSame(0, $exitCode);
@@ -172,7 +172,7 @@ final class VaultStoreCommandTest extends TestCase
     {
         $exitCode = $this->commandTester->execute([
             'identifier' => 'test',
-            '--file' => '/nonexistent/file.txt',
+            '--file'     => '/nonexistent/file.txt',
         ]);
 
         self::assertSame(1, $exitCode);
@@ -206,7 +206,7 @@ final class VaultStoreCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'metadata-test',
-            '--value' => 'secret',
+            '--value'    => 'secret',
             '--metadata' => ['service=stripe', 'env=production'],
         ]);
 
@@ -228,8 +228,8 @@ final class VaultStoreCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'groups-test',
-            '--value' => 'secret',
-            '--groups' => ['1', '2', '3'],
+            '--value'    => 'secret',
+            '--groups'   => ['1', '2', '3'],
         ]);
 
         self::assertSame(0, $exitCode);
@@ -258,8 +258,8 @@ final class VaultStoreCommandTest extends TestCase
         $this->expectException(RuntimeException::class);
 
         $this->commandTester->execute([
-            'identifier' => 'openai_api_key',
-            '--value' => 'secret-value',
+            'identifier'       => 'openai_api_key',
+            '--value'          => 'secret-value',
             '--as-provisioner' => true,
         ]);
     }
@@ -273,7 +273,7 @@ final class VaultStoreCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'test',
-            '--value' => 'secret',
+            '--value'    => 'secret',
         ]);
 
         self::assertSame(1, $exitCode);
@@ -289,7 +289,7 @@ final class VaultStoreCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'bad!identifier',
-            '--value' => 'secret',
+            '--value'    => 'secret',
         ]);
 
         self::assertSame(1, $exitCode);
@@ -311,7 +311,7 @@ final class VaultStoreCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'file-trim-test',
-            '--file' => vfsStream::url('test/secret-with-newline.txt'),
+            '--file'     => vfsStream::url('test/secret-with-newline.txt'),
         ]);
 
         self::assertSame(0, $exitCode);
@@ -331,7 +331,7 @@ final class VaultStoreCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'metadata-no-equals',
-            '--value' => 'secret',
+            '--value'    => 'secret',
             '--metadata' => ['valid=value', 'invalid-no-equals'],
         ]);
 
@@ -343,7 +343,7 @@ final class VaultStoreCommandTest extends TestCase
     {
         $exitCode = $this->commandTester->execute([
             'identifier' => 'display-test-id',
-            '--value' => 'secret',
+            '--value'    => 'secret',
         ]);
 
         self::assertSame(0, $exitCode);
@@ -361,8 +361,8 @@ final class VaultStoreCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'empty-groups',
-            '--value' => 'secret',
-            '--groups' => [],
+            '--value'    => 'secret',
+            '--groups'   => [],
         ]);
 
         self::assertSame(0, $exitCode);
@@ -383,8 +383,8 @@ final class VaultStoreCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'single-group',
-            '--value' => 'secret',
-            '--groups' => ['5'],
+            '--value'    => 'secret',
+            '--groups'   => ['5'],
         ]);
 
         self::assertSame(0, $exitCode);

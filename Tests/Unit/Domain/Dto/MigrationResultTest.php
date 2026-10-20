@@ -196,11 +196,11 @@ final class MigrationResultTest extends TestCase
         $subject = MigrationResult::success('pages', 'title', 5, 1);
 
         self::assertSame([
-            'table' => 'pages',
-            'column' => 'title',
+            'table'    => 'pages',
+            'column'   => 'title',
             'migrated' => 5,
-            'failed' => 0,
-            'skipped' => 1,
+            'failed'   => 0,
+            'skipped'  => 1,
         ], $subject->toArray());
     }
 

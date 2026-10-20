@@ -64,20 +64,20 @@ final class CsvFormulaSanitizerTest extends TestCase
     public function neutralizeRowNeutralizesStringsAndPreservesOtherTypes(): void
     {
         $row = [
-            'id' => '=cmd',
-            'count' => 5,
-            'ratio' => 1.5,
-            'ok' => true,
-            'empty' => null,
+            'id'     => '=cmd',
+            'count'  => 5,
+            'ratio'  => 1.5,
+            'ok'     => true,
+            'empty'  => null,
             'benign' => 'read',
         ];
 
         self::assertSame([
-            'id' => "'=cmd",
-            'count' => 5,
-            'ratio' => 1.5,
-            'ok' => true,
-            'empty' => null,
+            'id'     => "'=cmd",
+            'count'  => 5,
+            'ratio'  => 1.5,
+            'ok'     => true,
+            'empty'  => null,
             'benign' => 'read',
         ], CsvFormulaSanitizer::neutralizeRow($row));
     }

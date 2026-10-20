@@ -17,6 +17,9 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
+use function in_array;
+use function is_scalar;
+
 /**
  * Aggregates KPIs and redaction candidates from `tx_nrvault_secret` (durable
  * signals) and `tx_nrvault_audit_log` (automated-vs-manual read split).
@@ -46,13 +49,13 @@ final class VaultAnalyticsService implements VaultAnalyticsServiceInterface
 
     public function getUsageStats(int $windowDays): VaultUsageStats
     {
-        $now = time();
-        $windowStart = $now - ($windowDays * 86400);
+        $now          = time();
+        $windowStart  = $now - ($windowDays * 86400);
         $rotateCutoff = $now - ($this->extensionConfiguration->getStaleNeverRotatedDays() * 86400);
 
-        $total = $this->countSecrets(static fn (QueryBuilder $qb): QueryBuilder => $qb);
+        $total    = $this->countSecrets(static fn (QueryBuilder $qb): QueryBuilder => $qb);
         $disabled = $this->countSecrets(static fn (QueryBuilder $qb): QueryBuilder => $qb->andWhere($qb->expr()->eq('hidden', 1)));
-        $expired = $this->countSecrets(static fn (QueryBuilder $qb): QueryBuilder => $qb->andWhere(
+        $expired  = $this->countSecrets(static fn (QueryBuilder $qb): QueryBuilder => $qb->andWhere(
             $qb->expr()->gt('expires_at', 0),
             $qb->expr()->lt('expires_at', $qb->createNamedParameter($now, Connection::PARAM_INT)),
         ));
@@ -90,22 +93,22 @@ final class VaultAnalyticsService implements VaultAnalyticsServiceInterface
 
     public function getRedactionCandidates(int $windowDays): array
     {
-        $now = time();
+        $now         = time();
         $windowStart = $now - ($windowDays * 86400);
-        $evaluator = new StalenessEvaluator(
+        $evaluator   = new StalenessEvaluator(
             $this->extensionConfiguration->getStaleNeverReadDays(),
             $this->extensionConfiguration->getStaleNotReadDays(),
             $this->extensionConfiguration->getStaleNeverRotatedDays(),
         );
 
-        $readMap = $this->readSplitByIdentifier($windowStart);
+        $readMap    = $this->readSplitByIdentifier($windowStart);
         $candidates = [];
 
         foreach ($this->allSecretRows() as $row) {
             $identifier = $this->toStr($row['identifier']);
-            $automated = $readMap[$identifier]['automated'] ?? 0;
-            $manual = $readMap[$identifier]['manual'] ?? 0;
-            $crdate = $this->toInt($row['crdate']);
+            $automated  = $readMap[$identifier]['automated'] ?? 0;
+            $manual     = $readMap[$identifier]['manual'] ?? 0;
+            $crdate     = $this->toInt($row['crdate']);
             $lastReadAt = $this->toInt($row['last_read_at']);
 
             $rules = $evaluator->evaluate(
@@ -157,7 +160,7 @@ final class VaultAnalyticsService implements VaultAnalyticsServiceInterface
      */
     private function distribution(string $column): array
     {
-        $qb = $this->secretQuery();
+        $qb   = $this->secretQuery();
         $rows = $qb
             ->select($column)
             ->addSelectLiteral($qb->expr()->count('uid', 'cnt'))
@@ -175,8 +178,8 @@ final class VaultAnalyticsService implements VaultAnalyticsServiceInterface
 
         $bars = [];
         foreach ($rows as $r) {
-            $value = $this->toInt($r['cnt']);
-            $label = $this->toStr($r[$column]);
+            $value  = $this->toInt($r['cnt']);
+            $label  = $this->toStr($r[$column]);
             $bars[] = new UsageBar(
                 label: $label === '' ? '(none)' : $label,
                 value: $value,
@@ -193,7 +196,7 @@ final class VaultAnalyticsService implements VaultAnalyticsServiceInterface
     private function totalReadSplit(int $windowStart): array
     {
         $automated = 0;
-        $manual = 0;
+        $manual    = 0;
         foreach ($this->readSplitByIdentifier($windowStart) as $split) {
             $automated += $split['automated'];
             $manual += $split['manual'];
@@ -213,7 +216,7 @@ final class VaultAnalyticsService implements VaultAnalyticsServiceInterface
 
         // Audit table has no TCA enable-fields; use the connection's plain
         // QueryBuilder (no restrictions), mirroring AuditLogService.
-        $qb = $this->connectionPool->getConnectionForTable(self::AUDIT_TABLE)->createQueryBuilder();
+        $qb   = $this->connectionPool->getConnectionForTable(self::AUDIT_TABLE)->createQueryBuilder();
         $rows = $qb
             ->select('secret_identifier', 'actor_type')
             ->addSelectLiteral($qb->expr()->count('uid', 'cnt'))
@@ -231,7 +234,7 @@ final class VaultAnalyticsService implements VaultAnalyticsServiceInterface
         foreach ($rows as $r) {
             $id = $this->toStr($r['secret_identifier']);
             $map[$id] ??= ['automated' => 0, 'manual' => 0];
-            $bucket = \in_array($this->toStr($r['actor_type']), self::AUTOMATED_ACTORS, true) ? 'automated' : 'manual';
+            $bucket = in_array($this->toStr($r['actor_type']), self::AUTOMATED_ACTORS, true) ? 'automated' : 'manual';
             $map[$id][$bucket] += $this->toInt($r['cnt']);
         }
 
@@ -251,7 +254,7 @@ final class VaultAnalyticsService implements VaultAnalyticsServiceInterface
      */
     private function toStr(mixed $value): string
     {
-        return \is_scalar($value) ? (string) $value : '';
+        return is_scalar($value) ? (string) $value : '';
     }
 
     /**

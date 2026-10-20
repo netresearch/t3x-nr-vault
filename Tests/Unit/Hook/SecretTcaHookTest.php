@@ -81,10 +81,10 @@ final class SecretTcaHookTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
-        $this->auditService = $this->createMock(AuditLogServiceInterface::class);
+        $this->vaultService         = $this->createMock(VaultServiceInterface::class);
+        $this->auditService         = $this->createMock(AuditLogServiceInterface::class);
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
-        $this->secretRepository = $this->createMock(SecretRepositoryInterface::class);
+        $this->secretRepository     = $this->createMock(SecretRepositoryInterface::class);
 
         // Default to an admin actor so the pre-existing field-normalisation
         // tests (NEW records, owner/scope extraction) are not coerced by the
@@ -127,7 +127,7 @@ final class SecretTcaHookTest extends TestCase
     #[Test]
     public function preProcessIgnoresOtherTables(): void
     {
-        $fieldArray = ['field' => 'value'];
+        $fieldArray  = ['field' => 'value'];
         $dataHandler = $this->createMock(DataHandler::class);
 
         $this->hook->processDatamap_preProcessFieldArray(
@@ -145,7 +145,7 @@ final class SecretTcaHookTest extends TestCase
     public function preProcessRemovesSecretInputField(): void
     {
         $fieldArray = [
-            'identifier' => 'test_secret',
+            'identifier'   => 'test_secret',
             'secret_input' => 'secret-value',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -169,7 +169,7 @@ final class SecretTcaHookTest extends TestCase
             // A NEW record carries an identifier the vault accepts; the hook
             // refuses one it cannot represent before it gets this far.
             'identifier' => 'test_secret',
-            'owner_uid' => 'be_users_42',
+            'owner_uid'  => 'be_users_42',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
 
@@ -189,7 +189,7 @@ final class SecretTcaHookTest extends TestCase
     {
         $fieldArray = [
             'identifier' => 'test_secret',
-            'scope_pid' => 'pages_100',
+            'scope_pid'  => 'pages_100',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
 
@@ -209,7 +209,7 @@ final class SecretTcaHookTest extends TestCase
     {
         $fieldArray = [
             'identifier' => 'test_secret',
-            'owner_uid' => '15',
+            'owner_uid'  => '15',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
 
@@ -320,7 +320,7 @@ final class SecretTcaHookTest extends TestCase
     {
         $fieldArray = [
             'identifier' => 'test_secret',
-            'owner_uid' => 42, // Integer, not string
+            'owner_uid'  => 42, // Integer, not string
         ];
         $dataHandler = $this->createMock(DataHandler::class);
 
@@ -341,7 +341,7 @@ final class SecretTcaHookTest extends TestCase
     {
         $fieldArray = [
             'identifier' => 'test_secret',
-            'scope_pid' => '99', // No 'pages' prefix
+            'scope_pid'  => '99', // No 'pages' prefix
         ];
         $dataHandler = $this->createMock(DataHandler::class);
 
@@ -361,7 +361,7 @@ final class SecretTcaHookTest extends TestCase
     public function preProcessStoresSecretInputForNewRecord(): void
     {
         $fieldArray = [
-            'identifier' => 'test_secret',
+            'identifier'   => 'test_secret',
             'secret_input' => 'my-secret-value',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -385,7 +385,7 @@ final class SecretTcaHookTest extends TestCase
     public function preProcessIgnoresEmptySecretInput(): void
     {
         $fieldArray = [
-            'identifier' => 'test_secret',
+            'identifier'   => 'test_secret',
             'secret_input' => '',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
@@ -407,7 +407,7 @@ final class SecretTcaHookTest extends TestCase
     public function extractUidFromGroupValueWithTablePrefix(): void
     {
         $reflection = new ReflectionClass($this->hook);
-        $method = $reflection->getMethod('extractUidFromGroupValue');
+        $method     = $reflection->getMethod('extractUidFromGroupValue');
 
         // Test table_uid format
         self::assertSame(123, $method->invoke($this->hook, 'be_users_123'));
@@ -419,7 +419,7 @@ final class SecretTcaHookTest extends TestCase
     public function extractUidFromGroupValueWithNumericString(): void
     {
         $reflection = new ReflectionClass($this->hook);
-        $method = $reflection->getMethod('extractUidFromGroupValue');
+        $method     = $reflection->getMethod('extractUidFromGroupValue');
 
         // Test plain numeric values
         self::assertSame(42, $method->invoke($this->hook, '42'));
@@ -431,7 +431,7 @@ final class SecretTcaHookTest extends TestCase
     public function extractUidFromGroupValueWithInvalidFormat(): void
     {
         $reflection = new ReflectionClass($this->hook);
-        $method = $reflection->getMethod('extractUidFromGroupValue');
+        $method     = $reflection->getMethod('extractUidFromGroupValue');
 
         // Test non-numeric string
         self::assertSame(0, $method->invoke($this->hook, 'not_a_number'));
@@ -538,7 +538,7 @@ final class SecretTcaHookTest extends TestCase
 
         $fieldArray = [
             'identifier' => 'test_secret',
-            'owner_uid' => 'be_users_42',
+            'owner_uid'  => 'be_users_42',
         ];
         $dataHandler = $this->createMock(DataHandler::class);
 
@@ -590,7 +590,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         $fieldArray = ['identifier' => 'squatted_identifier', 'description' => 'no value'];
-        $messages = [];
+        $messages   = [];
 
         $hook->processDatamap_preProcessFieldArray(
             $fieldArray,
@@ -641,7 +641,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         $fieldArray = ['identifier' => 'denied_identifier'];
-        $messages = [];
+        $messages   = [];
 
         $hook->processDatamap_preProcessFieldArray(
             $fieldArray,
@@ -682,7 +682,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         $fieldArray = [
-            'identifier' => 'value_bearing',
+            'identifier'   => 'value_bearing',
             'secret_input' => 'must-not-be-stored',
         ];
         $messages = [];
@@ -731,7 +731,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         $fieldArray = ['description' => 'edited'];
-        $messages = [];
+        $messages   = [];
 
         $hook->processDatamap_preProcessFieldArray(
             $fieldArray,
@@ -786,7 +786,7 @@ final class SecretTcaHookTest extends TestCase
         $this->auditService->expects($this->never())->method('log');
 
         $fieldArray = ['identifier' => 'allowed_identifier'];
-        $messages = [];
+        $messages   = [];
 
         $hook->processDatamap_preProcessFieldArray(
             $fieldArray,
@@ -826,7 +826,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         $fieldArray = ['identifier' => 'audit_fails'];
-        $messages = [];
+        $messages   = [];
 
         $hook->processDatamap_preProcessFieldArray(
             $fieldArray,
@@ -871,8 +871,8 @@ final class SecretTcaHookTest extends TestCase
         $this->secretRepository->expects($this->never())->method('findByUidIncludingDisabled');
         $this->vaultService->expects($this->never())->method('delete');
 
-        $hook = $this->hookWith($this->recordPool());
-        $messages = [];
+        $hook        = $this->hookWith($this->recordPool());
+        $messages    = [];
         $dataHandler = $this->capturingDataHandler($messages);
 
         $hook->processCmdmap_preProcess($command, self::TABLE, 5, null, $dataHandler);
@@ -945,8 +945,8 @@ final class SecretTcaHookTest extends TestCase
         $this->stubBackendRecords([false]);
         $this->auditService->expects($this->never())->method('log');
 
-        $hook = $this->hookWith($this->recordPool());
-        $messages = [];
+        $hook        = $this->hookWith($this->recordPool());
+        $messages    = [];
         $dataHandler = $this->capturingDataHandler($messages);
 
         $hook->processCmdmap_preProcess('undelete', self::TABLE, 5, null, $dataHandler);
@@ -998,7 +998,7 @@ final class SecretTcaHookTest extends TestCase
     {
         $this->stubBackendRecords([['identifier' => 'api/token']]);
 
-        $hook = $this->hookWith($this->recordPool());
+        $hook        = $this->hookWith($this->recordPool());
         $dataHandler = $this->createMock(DataHandler::class);
 
         $hook->processCmdmap_preProcess('undelete', self::TABLE, 5, null, $dataHandler);
@@ -1020,7 +1020,7 @@ final class SecretTcaHookTest extends TestCase
     public function snapshotMmRelationsSkipsANewRecordWithoutTouchingTheDatabase(): void
     {
         $calls = [];
-        $hook = $this->hookWith($this->queryBuilderPool([], $calls));
+        $hook  = $this->hookWith($this->queryBuilderPool([], $calls));
 
         self::assertSame([], $this->invokePrivate($hook, 'snapshotMmRelations', [0, ['allowed_groups']]));
         self::assertSame([], $calls, 'a record without a uid must not be read');
@@ -1041,7 +1041,7 @@ final class SecretTcaHookTest extends TestCase
     public function snapshotMmRelationsOnlyReadsTheTiersTheSaveSubmits(): void
     {
         $calls = [];
-        $pool = $this->queryBuilderPool([self::READ_GROUPS_MM => []], $calls);
+        $pool  = $this->queryBuilderPool([self::READ_GROUPS_MM => []], $calls);
 
         $snapshot = $this->invokePrivate(
             $this->hookWith($pool),
@@ -1058,7 +1058,7 @@ final class SecretTcaHookTest extends TestCase
     public function snapshotMmRelationsReadsTheRecordsRowsInSortingOrder(): void
     {
         $calls = [];
-        $pool = $this->queryBuilderPool([self::READ_GROUPS_MM => []], $calls);
+        $pool  = $this->queryBuilderPool([self::READ_GROUPS_MM => []], $calls);
 
         $this->invokePrivate($this->hookWith($pool), 'snapshotMmRelations', [5, ['allowed_groups']]);
 
@@ -1073,8 +1073,8 @@ final class SecretTcaHookTest extends TestCase
     public function snapshotMmRelationsOmitsATierWhoseReadFails(): void
     {
         $calls = [];
-        $pool = $this->queryBuilderPool([
-            self::READ_GROUPS_MM => new RuntimeException('mm read failed'),
+        $pool  = $this->queryBuilderPool([
+            self::READ_GROUPS_MM  => new RuntimeException('mm read failed'),
             self::WRITE_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
         ], $calls);
 
@@ -1098,7 +1098,7 @@ final class SecretTcaHookTest extends TestCase
     public function snapshotMmRelationsCoercesNonNumericRowValuesToZero(): void
     {
         $calls = [];
-        $pool = $this->queryBuilderPool([
+        $pool  = $this->queryBuilderPool([
             self::READ_GROUPS_MM => [['uid_foreign' => '7', 'sorting' => null, 'sorting_foreign' => 'x']],
         ], $calls);
 
@@ -1115,7 +1115,7 @@ final class SecretTcaHookTest extends TestCase
     public function restoreMmRelationsRefusesARecordWithoutAUid(): void
     {
         $calls = [];
-        $pool = $this->poolWith([self::READ_GROUPS_MM => $this->recordingConnection($calls)]);
+        $pool  = $this->poolWith([self::READ_GROUPS_MM => $this->recordingConnection($calls)]);
 
         $restored = $this->invokePrivate(
             $this->hookWith($pool),
@@ -1139,7 +1139,7 @@ final class SecretTcaHookTest extends TestCase
     public function restoreMmRelationsReplacesATierInsideOneTransaction(): void
     {
         $calls = [];
-        $pool = $this->poolWith([self::READ_GROUPS_MM => $this->recordingConnection($calls)]);
+        $pool  = $this->poolWith([self::READ_GROUPS_MM => $this->recordingConnection($calls)]);
 
         $restored = $this->invokePrivate($this->hookWith($pool), 'restoreMmRelations', [5, [
             self::READ_GROUPS_MM => [
@@ -1164,7 +1164,7 @@ final class SecretTcaHookTest extends TestCase
     public function restoreMmRelationsHonoursAnEmptyTierByDeletingWhatTheChangeAdded(): void
     {
         $calls = [];
-        $pool = $this->poolWith([self::WRITE_GROUPS_MM => $this->recordingConnection($calls)]);
+        $pool  = $this->poolWith([self::WRITE_GROUPS_MM => $this->recordingConnection($calls)]);
 
         $restored = $this->invokePrivate(
             $this->hookWith($pool),
@@ -1184,7 +1184,7 @@ final class SecretTcaHookTest extends TestCase
     {
         $failingCalls = [];
         $healthyCalls = [];
-        $pool = $this->poolWith([
+        $pool         = $this->poolWith([
             self::READ_GROUPS_MM => $this->recordingConnection(
                 $failingCalls,
                 transactionFailure: new RuntimeException('transaction rolled back'),
@@ -1193,7 +1193,7 @@ final class SecretTcaHookTest extends TestCase
         ]);
 
         $restored = $this->invokePrivate($this->hookWith($pool), 'restoreMmRelations', [5, [
-            self::READ_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
+            self::READ_GROUPS_MM  => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
             self::WRITE_GROUPS_MM => [['uid_foreign' => 4, 'sorting' => 1, 'sorting_foreign' => 0]],
         ]]);
 
@@ -1211,7 +1211,7 @@ final class SecretTcaHookTest extends TestCase
     public function purgeMmRelationsRefusesARecordWithoutAUid(): void
     {
         $calls = [];
-        $pool = $this->poolWith([self::READ_GROUPS_MM => $this->recordingConnection($calls)]);
+        $pool  = $this->poolWith([self::READ_GROUPS_MM => $this->recordingConnection($calls)]);
 
         self::assertFalse($this->invokePrivate($this->hookWith($pool), 'purgeMmRelations', [0]));
         self::assertSame([], $calls);
@@ -1226,10 +1226,10 @@ final class SecretTcaHookTest extends TestCase
     #[Test]
     public function purgeMmRelationsDeletesTheRecordsRowsInBothTiers(): void
     {
-        $calls = [];
+        $calls      = [];
         $connection = $this->recordingConnection($calls);
-        $pool = $this->poolWith([
-            self::READ_GROUPS_MM => $connection,
+        $pool       = $this->poolWith([
+            self::READ_GROUPS_MM  => $connection,
             self::WRITE_GROUPS_MM => $connection,
         ]);
 
@@ -1245,7 +1245,7 @@ final class SecretTcaHookTest extends TestCase
     {
         $failingCalls = [];
         $healthyCalls = [];
-        $pool = $this->poolWith([
+        $pool         = $this->poolWith([
             self::READ_GROUPS_MM => $this->recordingConnection(
                 $failingCalls,
                 writeFailure: new RuntimeException('delete refused'),
@@ -1261,7 +1261,7 @@ final class SecretTcaHookTest extends TestCase
     public function revertRowRefusesARecordWithoutAUid(): void
     {
         $calls = [];
-        $pool = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
+        $pool  = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
 
         self::assertFalse($this->invokePrivate($this->hookWith($pool), 'revertRow', [0, null]));
         self::assertSame([], $calls);
@@ -1277,7 +1277,7 @@ final class SecretTcaHookTest extends TestCase
     public function revertRowRemovesTheRecordWhenNoOriginalValuesWereCaptured(): void
     {
         $calls = [];
-        $pool = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
+        $pool  = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
 
         self::assertTrue($this->invokePrivate($this->hookWith($pool), 'revertRow', [5, null]));
         self::assertSame([['delete', self::TABLE, ['uid' => 5]]], $calls);
@@ -1287,7 +1287,7 @@ final class SecretTcaHookTest extends TestCase
     public function revertRowRefusesAnEmptyValueMapWithoutWriting(): void
     {
         $calls = [];
-        $pool = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
+        $pool  = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
 
         // An empty map is not "restore nothing" — it is a failed capture, and
         // writing it would delete every column value.
@@ -1299,7 +1299,7 @@ final class SecretTcaHookTest extends TestCase
     public function revertRowRestoresTheCapturedColumnValues(): void
     {
         $calls = [];
-        $pool = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
+        $pool  = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
 
         $reverted = $this->invokePrivate(
             $this->hookWith($pool),
@@ -1318,7 +1318,7 @@ final class SecretTcaHookTest extends TestCase
     public function revertRowReportsFailureWhenTheWriteThrows(): void
     {
         $calls = [];
-        $pool = $this->poolWith([
+        $pool  = $this->poolWith([
             self::TABLE => $this->recordingConnection($calls, writeFailure: new RuntimeException('write refused')),
         ]);
 
@@ -1330,11 +1330,11 @@ final class SecretTcaHookTest extends TestCase
     {
         $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
 
-        $calls = [];
+        $calls      = [];
         $connection = $this->recordingConnection($calls);
-        $pool = $this->poolWith([
-            self::TABLE => $connection,
-            self::READ_GROUPS_MM => $connection,
+        $pool       = $this->poolWith([
+            self::TABLE           => $connection,
+            self::READ_GROUPS_MM  => $connection,
             self::WRITE_GROUPS_MM => $connection,
         ]);
 
@@ -1345,7 +1345,7 @@ final class SecretTcaHookTest extends TestCase
             ['allowed_groups', 'write_groups'],
             ['allowed_groups' => 1, 'write_groups' => 0],
             [
-                self::READ_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
+                self::READ_GROUPS_MM  => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
                 self::WRITE_GROUPS_MM => [],
             ],
             $this->capturingDataHandler($messages),
@@ -1362,7 +1362,7 @@ final class SecretTcaHookTest extends TestCase
         $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
 
         $calls = [];
-        $pool = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
+        $pool  = $this->poolWith([self::TABLE => $this->recordingConnection($calls)]);
 
         $messages = [];
         $this->invokePrivate($this->hookWith($pool), 'auditMetadataUpdateOrCompensate', [
@@ -1391,8 +1391,8 @@ final class SecretTcaHookTest extends TestCase
         $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
 
         $rowCalls = [];
-        $pool = $this->poolWith([
-            self::TABLE => $this->recordingConnection($rowCalls),
+        $pool     = $this->poolWith([
+            self::TABLE          => $this->recordingConnection($rowCalls),
             self::READ_GROUPS_MM => $this->recordingConnection(
                 $rowCalls,
                 transactionFailure: new RuntimeException('transaction rolled back'),
@@ -1416,10 +1416,10 @@ final class SecretTcaHookTest extends TestCase
     #[Test]
     public function afterAllOperationsPurgesTheRelationsOfARevertedCreationSilently(): void
     {
-        $calls = [];
+        $calls      = [];
         $connection = $this->recordingConnection($calls);
-        $hook = $this->hookWith($this->poolWith([
-            self::READ_GROUPS_MM => $connection,
+        $hook       = $this->hookWith($this->poolWith([
+            self::READ_GROUPS_MM  => $connection,
             self::WRITE_GROUPS_MM => $connection,
         ]));
         $this->queueRevertedCreation($hook, 5);
@@ -1438,8 +1438,8 @@ final class SecretTcaHookTest extends TestCase
     public function afterAllOperationsLogsAnUnpurgeableRevertedCreationOnce(): void
     {
         $calls = [];
-        $hook = $this->hookWith($this->poolWith([
-            self::READ_GROUPS_MM => $this->recordingConnection($calls, writeFailure: new RuntimeException('delete refused')),
+        $hook  = $this->hookWith($this->poolWith([
+            self::READ_GROUPS_MM  => $this->recordingConnection($calls, writeFailure: new RuntimeException('delete refused')),
             self::WRITE_GROUPS_MM => $this->recordingConnection($calls),
         ]));
         $this->queueRevertedCreation($hook, 5);
@@ -1462,11 +1462,11 @@ final class SecretTcaHookTest extends TestCase
     {
         $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
 
-        $calls = [];
+        $calls      = [];
         $connection = $this->recordingConnection($calls);
-        $hook = $this->hookWith($this->poolWith([
-            self::TABLE => $connection,
-            self::READ_GROUPS_MM => $connection,
+        $hook       = $this->hookWith($this->poolWith([
+            self::TABLE           => $connection,
+            self::READ_GROUPS_MM  => $connection,
             self::WRITE_GROUPS_MM => $connection,
         ]));
 
@@ -1501,7 +1501,7 @@ final class SecretTcaHookTest extends TestCase
         $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
 
         $calls = [];
-        $pool = $this->poolWith([
+        $pool  = $this->poolWith([
             self::TABLE => $this->recordingConnection($calls, writeFailure: new RuntimeException('delete refused')),
         ]);
         $hook = $this->hookWith($pool);
@@ -1534,11 +1534,11 @@ final class SecretTcaHookTest extends TestCase
         $this->stubBackendRecords([['allowed_groups' => 2]]);
 
         $queryCalls = [];
-        $hook = $this->hookWith($this->queryBuilderPool([
+        $hook       = $this->hookWith($this->queryBuilderPool([
             self::READ_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]],
         ], $queryCalls));
 
-        $fieldArray = ['allowed_groups' => '3,4'];
+        $fieldArray  = ['allowed_groups' => '3,4'];
         $dataHandler = $this->createMock(DataHandler::class);
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $dataHandler);
 
@@ -1560,7 +1560,7 @@ final class SecretTcaHookTest extends TestCase
         $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
 
         $fieldArray = ['allowed_groups' => '3,4'];
-        $messages = [];
+        $messages   = [];
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
 
         // Dropped, not reverted: the row column holds only the relation count,
@@ -1590,7 +1590,7 @@ final class SecretTcaHookTest extends TestCase
         $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
 
         $fieldArray = ['owner_uid' => 'be_users_7'];
-        $messages = [];
+        $messages   = [];
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
 
         // Dropped, not written back: DataHandler then leaves the column alone,
@@ -1615,7 +1615,7 @@ final class SecretTcaHookTest extends TestCase
         $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
 
         $fieldArray = ['owner_uid' => 'be_users_99'];
-        $messages = [];
+        $messages   = [];
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
 
         // Dropped, not written back — and not null, so the record was not
@@ -1649,7 +1649,7 @@ final class SecretTcaHookTest extends TestCase
         $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
 
         $fieldArray = [$column => $submitted];
-        $messages = [];
+        $messages   = [];
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
 
         self::assertSame([], $fieldArray);
@@ -1699,7 +1699,7 @@ final class SecretTcaHookTest extends TestCase
         $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
 
         $fieldArray = [$column => $submitted];
-        $messages = [];
+        $messages   = [];
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
 
         self::assertSame([], $fieldArray);
@@ -1745,7 +1745,7 @@ final class SecretTcaHookTest extends TestCase
         );
 
         $fieldArray = ['description' => 'edited', 'frontend_accessible' => 1];
-        $messages = [];
+        $messages   = [];
         $this->hookWith($this->recordPool())->processDatamap_preProcessFieldArray(
             $fieldArray,
             self::TABLE,
@@ -1775,7 +1775,7 @@ final class SecretTcaHookTest extends TestCase
         $this->auditService->expects($this->never())->method('log');
 
         $fieldArray = ['description' => 'edited'];
-        $messages = [];
+        $messages   = [];
         $this->hookWith($this->recordPool())->processDatamap_preProcessFieldArray(
             $fieldArray,
             self::TABLE,
@@ -1808,7 +1808,7 @@ final class SecretTcaHookTest extends TestCase
         $hook = $this->hookForNonAdmin(7, connectionPool: $this->recordPool());
 
         $fieldArray = ['description' => 'edited'];
-        $messages = [];
+        $messages   = [];
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
 
         self::assertNull($fieldArray);
@@ -1830,7 +1830,7 @@ final class SecretTcaHookTest extends TestCase
         $hook = $this->hookWith($this->recordPool());
 
         $fieldArray = ['description' => 'edited', 'secret_input' => 'plaintext'];
-        $messages = [];
+        $messages   = [];
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
 
         self::assertNull($fieldArray);
@@ -1852,7 +1852,7 @@ final class SecretTcaHookTest extends TestCase
         // An identifier the vault accepts: the create path judges it now, and
         // this test is about the unresolvable-target refusal, not about that.
         $fieldArray = ['identifier' => 'api_token'];
-        $messages = [];
+        $messages   = [];
         $this->hook->processDatamap_preProcessFieldArray(
             $fieldArray,
             self::TABLE,
@@ -1874,13 +1874,13 @@ final class SecretTcaHookTest extends TestCase
         ]);
 
         $queryCalls = [];
-        $hook = $this->hookForNonAdmin(7, canManagePolicy: true, connectionPool: $this->queryBuilderPool(
+        $hook       = $this->hookForNonAdmin(7, canManagePolicy: true, connectionPool: $this->queryBuilderPool(
             [self::READ_GROUPS_MM => []],
             $queryCalls,
         ));
 
         $fieldArray = ['allowed_groups' => '3,4'];
-        $messages = [];
+        $messages   = [];
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $this->capturingDataHandler($messages));
 
         self::assertSame(['allowed_groups' => '3,4'], $fieldArray);
@@ -1975,10 +1975,10 @@ final class SecretTcaHookTest extends TestCase
         ]);
         $this->auditService->method('log')->willThrowException(new RuntimeException('audit sink down'));
 
-        $writes = [];
-        $reads = [];
+        $writes     = [];
+        $reads      = [];
         $connection = $this->recordingConnection($writes);
-        $pool = self::createStub(ConnectionPool::class);
+        $pool       = self::createStub(ConnectionPool::class);
         $pool->method('getConnectionForTable')->willReturn($connection);
         $pool->method('getQueryBuilderForTable')->willReturnCallback($this->queryBuilderFactory(
             [self::READ_GROUPS_MM => [['uid_foreign' => 3, 'sorting' => 1, 'sorting_foreign' => 0]]],
@@ -1986,7 +1986,7 @@ final class SecretTcaHookTest extends TestCase
         ));
         $hook = $this->hookWith($pool);
 
-        $fieldArray = ['allowed_groups' => '3,4'];
+        $fieldArray  = ['allowed_groups' => '3,4'];
         $dataHandler = $this->createMock(DataHandler::class);
         $hook->processDatamap_preProcessFieldArray($fieldArray, self::TABLE, 5, $dataHandler);
         self::assertIsArray($fieldArray, self::NOT_ABORTED);
@@ -2033,7 +2033,7 @@ final class SecretTcaHookTest extends TestCase
         ]);
         $this->vaultService->method('store')->willThrowException(new RuntimeException('refused'));
 
-        $deleted = [];
+        $deleted    = [];
         $connection = $this->createMock(Connection::class);
         $connection->method('delete')->willReturnCallback(
             static function (string $table, array $criteria) use (&$deleted): int {
@@ -2044,13 +2044,13 @@ final class SecretTcaHookTest extends TestCase
         );
 
         $reads = [];
-        $pool = self::createStub(ConnectionPool::class);
+        $pool  = self::createStub(ConnectionPool::class);
         $pool->method('getConnectionForTable')->willReturn($connection);
         $pool->method('getQueryBuilderForTable')->willReturnCallback($this->queryBuilderFactory([], $reads));
         $hook = $this->hookWith($pool);
 
-        $messages = [];
-        $dataHandler = $this->capturingDataHandler($messages);
+        $messages                     = [];
+        $dataHandler                  = $this->capturingDataHandler($messages);
         $dataHandler->substNEWwithIDs = ['NEW1' => 42];
 
         $fieldArray = ['identifier' => 'refused_secret', 'secret_input' => 'plaintext'];
@@ -2183,7 +2183,7 @@ final class SecretTcaHookTest extends TestCase
      * raise the configured failure), recording the query shape into $calls.
      *
      * @param array<string, list<array<string, mixed>>|Throwable> $outcomes
-     * @param list<array<int, mixed>> $calls
+     * @param list<array<int, mixed>>                             $calls
      */
     private function queryBuilderPool(array $outcomes, array &$calls): ConnectionPool
     {
@@ -2199,7 +2199,7 @@ final class SecretTcaHookTest extends TestCase
      * connections.
      *
      * @param array<string, list<array<string, mixed>>|Throwable> $outcomes
-     * @param list<array<int, mixed>> $calls
+     * @param list<array<int, mixed>>                             $calls
      *
      * @return Closure(string): QueryBuilder
      */
@@ -2408,8 +2408,8 @@ final class SecretTcaHookTest extends TestCase
         $accessControl->method('isGranted')->willReturnCallback(
             static fn (VaultPermission $permission): bool => match ($permission) {
                 VaultPermission::SecretManagePolicy => $canManagePolicy,
-                VaultPermission::SecretCreate => $canCreate,
-                default => false,
+                VaultPermission::SecretCreate       => $canCreate,
+                default                             => false,
             },
         );
 

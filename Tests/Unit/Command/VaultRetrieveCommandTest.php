@@ -103,7 +103,7 @@ final class VaultRetrieveCommandTest extends TestCase
             ->willReturn('no-newline');
 
         $exitCode = $this->commandTester->execute([
-            'identifier' => 'test',
+            'identifier'   => 'test',
             '--no-newline' => true,
         ]);
 
@@ -128,7 +128,7 @@ final class VaultRetrieveCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'file-secret',
-            '--output' => $outputFile,
+            '--output'   => $outputFile,
         ]);
 
         self::assertSame(0, $exitCode);
@@ -193,7 +193,7 @@ final class VaultRetrieveCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'test-secret',
-            '--reason' => 'Security audit',
+            '--reason'   => 'Security audit',
         ]);
 
         self::assertSame(0, $exitCode);
@@ -225,7 +225,7 @@ final class VaultRetrieveCommandTest extends TestCase
         // Try to write to a non-existent directory
         $exitCode = $this->commandTester->execute([
             'identifier' => 'test',
-            '--output' => '/non/existent/directory/file.txt',
+            '--output'   => '/non/existent/directory/file.txt',
         ]);
 
         self::assertSame(1, $exitCode);
@@ -246,7 +246,7 @@ final class VaultRetrieveCommandTest extends TestCase
         try {
             $exitCode = $this->commandTester->execute([
                 'identifier' => 'file-secret',
-                '--output' => $outputFile,
+                '--output'   => $outputFile,
             ]);
         } finally {
             umask($previousUmask);
@@ -271,7 +271,7 @@ final class VaultRetrieveCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'file-secret',
-            '--output' => $outputFile,
+            '--output'   => $outputFile,
         ]);
 
         self::assertSame(0, $exitCode);
@@ -300,7 +300,7 @@ final class VaultRetrieveCommandTest extends TestCase
             ->method('retrieve');
 
         $command = new VaultRetrieveCommand($this->vaultService, $accessControlService);
-        $tester = new CommandTester($command);
+        $tester  = new CommandTester($command);
 
         $exitCode = $tester->execute(['identifier' => 'some-secret']);
 

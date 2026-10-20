@@ -11,6 +11,9 @@ namespace Netresearch\NrVault\Audit;
 
 use JsonSerializable;
 
+use function is_array;
+use function is_string;
+
 /**
  * Represents an audit log entry.
  */
@@ -77,25 +80,25 @@ final readonly class AuditLogEntry implements JsonSerializable
     public function jsonSerialize(): array
     {
         return [
-            'uid' => $this->uid,
+            'uid'              => $this->uid,
             'secretIdentifier' => $this->secretIdentifier,
-            'action' => $this->action,
-            'success' => $this->success,
-            'errorMessage' => $this->errorMessage,
-            'reason' => $this->reason,
-            'actorUid' => $this->actorUid,
-            'actorType' => $this->actorType,
-            'actorUsername' => $this->actorUsername,
-            'actorRole' => $this->actorRole,
-            'ipAddress' => $this->ipAddress,
-            'userAgent' => $this->userAgent,
-            'requestId' => $this->requestId,
-            'previousHash' => $this->previousHash,
-            'entryHash' => $this->entryHash,
-            'hashBefore' => $this->hashBefore,
-            'hashAfter' => $this->hashAfter,
-            'timestamp' => date('c', $this->crdate),
-            'context' => $this->context,
+            'action'           => $this->action,
+            'success'          => $this->success,
+            'errorMessage'     => $this->errorMessage,
+            'reason'           => $this->reason,
+            'actorUid'         => $this->actorUid,
+            'actorType'        => $this->actorType,
+            'actorUsername'    => $this->actorUsername,
+            'actorRole'        => $this->actorRole,
+            'ipAddress'        => $this->ipAddress,
+            'userAgent'        => $this->userAgent,
+            'requestId'        => $this->requestId,
+            'previousHash'     => $this->previousHash,
+            'entryHash'        => $this->entryHash,
+            'hashBefore'       => $this->hashBefore,
+            'hashAfter'        => $this->hashAfter,
+            'timestamp'        => date('c', $this->crdate),
+            'context'          => $this->context,
         ];
     }
 
@@ -110,8 +113,8 @@ final readonly class AuditLogEntry implements JsonSerializable
             return [];
         }
 
-        $decoded = json_decode(\is_string($contextValue) ? $contextValue : '', true);
-        if (\is_array($decoded)) {
+        $decoded = json_decode(is_string($contextValue) ? $contextValue : '', true);
+        if (is_array($decoded)) {
             /** @var array<string, mixed> $decoded */
             return $decoded;
         }
@@ -121,12 +124,12 @@ final readonly class AuditLogEntry implements JsonSerializable
 
     private static function stringOrEmpty(mixed $value): string
     {
-        return \is_string($value) ? $value : '';
+        return is_string($value) ? $value : '';
     }
 
     private static function nonEmptyStringOrNull(mixed $value): ?string
     {
-        return \is_string($value) && $value !== '' ? $value : null;
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     private static function intOrZero(mixed $value): int

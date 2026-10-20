@@ -28,6 +28,13 @@ use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function array_key_exists;
+use function in_array;
+use function is_array;
+use function is_int;
+use function is_string;
+use function sprintf;
+
 /**
  * DataHandler hook for vault secrets in FlexForm fields.
  *
@@ -98,7 +105,7 @@ final class FlexFormVaultHook
         $schema = $this->tcaSchemaFactory->get($table);
 
         $this->inDuplicationPass = $this->duplicationCommands !== []
-            && \is_string($id)
+            && is_string($id)
             && str_starts_with($id, 'NEW')
             && $dataHandler instanceof DataHandler
             && $dataHandler->dontProcessTransformations;
@@ -167,7 +174,7 @@ final class FlexFormVaultHook
 
         foreach ($flexFieldNames as $flexFieldName) {
             $xmlValue = $recordToDelete[$flexFieldName] ?? '';
-            if (!\is_string($xmlValue)) {
+            if (!is_string($xmlValue)) {
                 continue;
             }
 
@@ -199,11 +206,11 @@ final class FlexFormVaultHook
                     $this->vaultService->delete($identifier, 'Record deleted');
                 } catch (Throwable $e) {
                     $userMessage = $this->failureReporter->report($e, [
-                        'table' => $table,
-                        'flexField' => $flexFieldName,
-                        'uid' => $id,
+                        'table'      => $table,
+                        'flexField'  => $flexFieldName,
+                        'uid'        => $id,
                         'identifier' => $identifier,
-                        'operation' => 'flexform_delete',
+                        'operation'  => 'flexform_delete',
                     ]);
 
                     /** @phpstan-ignore method.internal */
@@ -239,8 +246,8 @@ final class FlexFormVaultHook
         DataHandler $dataHandler,
         mixed $pasteUpdate,
     ): void {
-        if (\in_array($command, self::DUPLICATION_COMMANDS, true)) {
-            $handlerId = spl_object_id($dataHandler);
+        if (in_array($command, self::DUPLICATION_COMMANDS, true)) {
+            $handlerId                             = spl_object_id($dataHandler);
             $this->duplicationCommands[$handlerId] = ($this->duplicationCommands[$handlerId] ?? 0) + 1;
         }
     }
@@ -260,7 +267,7 @@ final class FlexFormVaultHook
      *                                               (an array) on the localize / copy-to-
      *                                               language path, so the type must accept
      *                                               both to avoid a TypeError before the
-     *                                               command guard below runs.
+     *                                               command guard below runs
      */
     public function processCmdmap_postProcess(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
         string $command,
@@ -270,14 +277,14 @@ final class FlexFormVaultHook
         DataHandler $dataHandler,
         bool|array $pasteUpdate,
     ): void {
-        if (!\in_array($command, self::DUPLICATION_COMMANDS, true)) {
+        if (!in_array($command, self::DUPLICATION_COMMANDS, true)) {
             return;
         }
 
         try {
             /** @phpstan-ignore property.internal */
             foreach ($dataHandler->copyMappingArray as $duplicatedTable => $idMap) {
-                if (!\is_string($duplicatedTable) || !\is_array($idMap)) {
+                if (!is_string($duplicatedTable) || !is_array($idMap)) {
                     continue;
                 }
 
@@ -291,7 +298,7 @@ final class FlexFormVaultHook
                 /** @var mixed $newIdRaw */
                 foreach ($idMap as $sourceIdRaw => $newIdRaw) {
                     $sourceUid = is_numeric($sourceIdRaw) ? (int) $sourceIdRaw : 0;
-                    $newUid = is_numeric($newIdRaw) ? (int) $newIdRaw : 0;
+                    $newUid    = is_numeric($newIdRaw) ? (int) $newIdRaw : 0;
                     if ($sourceUid <= 0 || $newUid <= 0) {
                         continue;
                     }
@@ -337,7 +344,7 @@ final class FlexFormVaultHook
 
             // Check for FlexForm type fields
             $configType = $fieldConfig['type'] ?? '';
-            if (!\is_string($configType)) {
+            if (!is_string($configType)) {
                 continue;
             }
 
@@ -352,7 +359,7 @@ final class FlexFormVaultHook
                 continue;
             }
 
-            if (!\is_array($fieldArray[$fieldName])) {
+            if (!is_array($fieldArray[$fieldName])) {
                 continue;
             }
 
@@ -420,13 +427,13 @@ final class FlexFormVaultHook
             // that rotating the default record's credential would leave the
             // translation on the old one. A same-language copy is not a
             // translation, so it still gets its own clones.
-            if ($duplicateIsTranslation && \in_array($flexFieldName, $sharedFlexFields, true)) {
+            if ($duplicateIsTranslation && in_array($flexFieldName, $sharedFlexFields, true)) {
                 continue;
             }
 
             $sourceXml = $sourceRecord[$flexFieldName] ?? '';
-            $copyXml = $copiedRecord[$flexFieldName] ?? '';
-            if (!\is_string($sourceXml) || !\is_string($copyXml)) {
+            $copyXml   = $copiedRecord[$flexFieldName] ?? '';
+            if (!is_string($sourceXml) || !is_string($copyXml)) {
                 continue;
             }
 
@@ -437,8 +444,8 @@ final class FlexFormVaultHook
             // xml2arrayProcess() rather than xml2array(): the latter memoizes
             // through the runtime cache, which a hook must not depend on.
             $sourceArray = GeneralUtility::xml2arrayProcess($sourceXml);
-            $copyArray = GeneralUtility::xml2arrayProcess($copyXml);
-            if (!\is_array($sourceArray) || !\is_array($copyArray)) {
+            $copyArray   = GeneralUtility::xml2arrayProcess($copyXml);
+            if (!is_array($sourceArray) || !is_array($copyArray)) {
                 continue;
             }
 
@@ -476,7 +483,7 @@ final class FlexFormVaultHook
      * Read the FlexForm columns of the given records, indexed by uid.
      *
      * @param list<string> $flexFieldNames
-     * @param list<int> $uids
+     * @param list<int>    $uids
      *
      * @return array<int, array<string, mixed>>
      */
@@ -520,7 +527,7 @@ final class FlexFormVaultHook
      * best-effort; the editor notice distinguishes cleared and uncertain state.
      *
      * @param list<array{path: list<string>, identifier: string}> $positions
-     * @param array<array-key, mixed> $copyArray
+     * @param array<array-key, mixed>                             $copyArray
      */
     private function cloneFlexField(
         Connection $connection,
@@ -534,12 +541,12 @@ final class FlexFormVaultHook
     ): void {
         /** @var list<string> $clonedIdentifiers */
         $clonedIdentifiers = [];
-        $sourceIdentifier = $positions[0]['identifier'];
+        $sourceIdentifier  = $positions[0]['identifier'];
 
         try {
             foreach ($positions as $position) {
                 $sourceIdentifier = $position['identifier'];
-                $currentValue = $this->valueAtPath($copyArray, $position['path']);
+                $currentValue     = $this->valueAtPath($copyArray, $position['path']);
                 if ($currentValue !== '' && $currentValue !== $sourceIdentifier) {
                     continue;
                 }
@@ -559,10 +566,10 @@ final class FlexFormVaultHook
                         $newIdentifier,
                         $secretValue,
                         [
-                            'table' => $table,
-                            'flexField' => $flexFieldName,
-                            'uid' => $newUid,
-                            'source' => 'flexform_record_copy',
+                            'table'       => $table,
+                            'flexField'   => $flexFieldName,
+                            'uid'         => $newUid,
+                            'source'      => 'flexform_record_copy',
                             'copied_from' => $sourceIdentifier,
                         ],
                     );
@@ -614,9 +621,9 @@ final class FlexFormVaultHook
                 $this->failureReporter->report(
                     $clearingError,
                     [
-                        'table' => $table,
+                        'table'     => $table,
                         'flexField' => $flexFieldName,
-                        'uid' => $newUid,
+                        'uid'       => $newUid,
                         'operation' => 'flexform_copy_clear',
                     ],
                 );
@@ -661,11 +668,11 @@ final class FlexFormVaultHook
                 $this->failureReporter->report(
                     $compensationError,
                     [
-                        'table' => $table,
-                        'flexField' => $flexFieldName,
-                        'uid' => $newUid,
+                        'table'      => $table,
+                        'flexField'  => $flexFieldName,
+                        'uid'        => $newUid,
                         'identifier' => $clonedIdentifier,
-                        'operation' => 'flexform_copy_rollback',
+                        'operation'  => 'flexform_copy_rollback',
                     ],
                 );
             }
@@ -687,11 +694,11 @@ final class FlexFormVaultHook
         $userMessage = $this->failureReporter->report(
             $error,
             [
-                'table' => $table,
-                'flexField' => $flexFieldName,
-                'uid' => $newUid,
+                'table'      => $table,
+                'flexField'  => $flexFieldName,
+                'uid'        => $newUid,
                 'identifier' => $sourceIdentifier,
-                'operation' => 'flexform_copy',
+                'operation'  => 'flexform_copy',
             ],
         );
 
@@ -711,7 +718,7 @@ final class FlexFormVaultHook
      * identifier, as the path of array keys leading to it.
      *
      * @param array<array-key, mixed> $node
-     * @param list<string> $path
+     * @param list<string>            $path
      *
      * @return list<array{path: list<string>, identifier: string}>
      */
@@ -723,13 +730,13 @@ final class FlexFormVaultHook
         foreach ($node as $key => $value) {
             $childPath = [...$path, (string) $key];
 
-            if (\is_array($value)) {
+            if (is_array($value)) {
                 $positions = [...$positions, ...$this->collectVaultIdentifierPositions($value, $childPath)];
 
                 continue;
             }
 
-            if ((string) $key !== 'vDEF' || !\is_string($value)) {
+            if ((string) $key !== 'vDEF' || !is_string($value)) {
                 continue;
             }
 
@@ -748,39 +755,39 @@ final class FlexFormVaultHook
      * not lead to one.
      *
      * @param array<array-key, mixed> $node
-     * @param list<string> $path
+     * @param list<string>            $path
      */
     private function valueAtPath(array $node, array $path): string
     {
         $current = $node;
 
         foreach ($path as $key) {
-            if (!\is_array($current) || !\array_key_exists($key, $current)) {
+            if (!is_array($current) || !array_key_exists($key, $current)) {
                 return '';
             }
 
             $current = $current[$key];
         }
 
-        return \is_string($current) ? $current : '';
+        return is_string($current) ? $current : '';
     }
 
     /**
      * Write a string value at a path, leaving the rest of the structure alone.
      *
      * @param array<array-key, mixed> $node
-     * @param list<string> $path
+     * @param list<string>            $path
      */
     private function setValueAtPath(array &$node, array $path, string $value): void
     {
         $current = &$node;
 
         foreach ($path as $key) {
-            if (!\is_array($current)) {
+            if (!is_array($current)) {
                 return;
             }
 
-            if (!\array_key_exists($key, $current)) {
+            if (!array_key_exists($key, $current)) {
                 return;
             }
 
@@ -820,35 +827,35 @@ final class FlexFormVaultHook
             return;
         }
 
-        if (!\is_array($data['data'] ?? null)) {
+        if (!is_array($data['data'] ?? null)) {
             return;
         }
 
         foreach ($data['data'] as $sheetName => &$sheetData) {
-            if (!\is_array($sheetData)) {
+            if (!is_array($sheetData)) {
                 continue;
             }
 
             /** @var array<string, mixed> $sheets */
             $sheets = $dataStructure['sheets'] ?? [];
             /** @var array{ROOT?: array{el?: array<string, mixed>}} $sheetConfig */
-            $sheetConfig = \is_array($sheets[$sheetName] ?? null) ? $sheets[$sheetName] : [];
+            $sheetConfig = is_array($sheets[$sheetName] ?? null) ? $sheets[$sheetName] : [];
 
-            if (!\is_array($sheetData['lDEF'] ?? null)) {
+            if (!is_array($sheetData['lDEF'] ?? null)) {
                 continue;
             }
 
             foreach ($sheetData['lDEF'] as $fieldPath => &$fieldData) {
-                if (!\is_array($fieldData)) {
+                if (!is_array($fieldData)) {
                     continue;
                 }
 
-                $fieldPathStr = (string) $fieldPath;
+                $fieldPathStr  = (string) $fieldPath;
                 $elementConfig = $this->getFlexFormElementConfig($sheetConfig, $fieldPathStr);
 
                 $configArray = $elementConfig['config'] ?? [];
-                $renderType = \is_array($configArray) ? ($configArray['renderType'] ?? '') : '';
-                if (\is_string($renderType) && $renderType === 'vaultSecret') {
+                $renderType  = is_array($configArray) ? ($configArray['renderType'] ?? '') : '';
+                if (is_string($renderType) && $renderType === 'vaultSecret') {
                     $this->processVaultSecretValue(
                         $fieldData,
                         $table,
@@ -900,30 +907,30 @@ final class FlexFormVaultHook
         // record's stored identifier, which only looks like a typed secret.
         // Clear it here and let processCmdmap_postProcess() clone the source
         // secret into the same position of the copied XML.
-        if ($this->inDuplicationPass && !\is_array($value)) {
+        if ($this->inDuplicationPass && !is_array($value)) {
             $fieldData['vDEF'] = '';
 
             return;
         }
 
-        if (\is_array($value)) {
-            $rawSecretValue = $value['value'] ?? $value[0] ?? '';
-            $rawIdentifier = $value['_vault_identifier'] ?? '';
-            $rawChecksum = $value['_vault_checksum'] ?? '';
-            $secretValue = \is_string($rawSecretValue) || \is_int($rawSecretValue) ? (string) $rawSecretValue : '';
-            $existingIdentifier = \is_string($rawIdentifier) ? $rawIdentifier : '';
-            $originalChecksum = \is_string($rawChecksum) ? $rawChecksum : '';
+        if (is_array($value)) {
+            $rawSecretValue     = $value['value'] ?? $value[0] ?? '';
+            $rawIdentifier      = $value['_vault_identifier'] ?? '';
+            $rawChecksum        = $value['_vault_checksum'] ?? '';
+            $secretValue        = is_string($rawSecretValue) || is_int($rawSecretValue) ? (string) $rawSecretValue : '';
+            $existingIdentifier = is_string($rawIdentifier) ? $rawIdentifier : '';
+            $originalChecksum   = is_string($rawChecksum) ? $rawChecksum : '';
         } else {
-            $secretValue = \is_string($value) || \is_int($value) ? (string) $value : '';
+            $secretValue        = is_string($value) || is_int($value) ? (string) $value : '';
             $existingIdentifier = '';
-            $originalChecksum = '';
+            $originalChecksum   = '';
         }
 
         // A new plaintext value was entered: store it as a new secret or rotate
         // the existing one. See PendingSecretExtractor::extract() for the full
         // empty-value rationale — this mirrors it for FlexForm-embedded fields.
         if ($secretValue !== '') {
-            $isNewSecret = $existingIdentifier === '' || $originalChecksum === '';
+            $isNewSecret     = $existingIdentifier === '' || $originalChecksum === '';
             $vaultIdentifier = $isNewSecret ? IdentifierValidator::generateUuid() : $existingIdentifier;
 
             $this->pendingFlexSecrets[$table][$id][] = $isNewSecret
@@ -990,17 +997,17 @@ final class FlexFormVaultHook
         string $sheetName,
         string $fieldPath,
     ): void {
-        if (!isset($fieldData['el']) || !\is_array($fieldData['el'])) {
+        if (!isset($fieldData['el']) || !is_array($fieldData['el'])) {
             return;
         }
 
         foreach ($fieldData['el'] as &$sectionItem) {
-            if (!\is_array($sectionItem)) {
+            if (!is_array($sectionItem)) {
                 continue;
             }
 
             foreach ($sectionItem as &$containerData) {
-                if (!\is_array($containerData)) {
+                if (!is_array($containerData)) {
                     continue;
                 }
 
@@ -1008,21 +1015,21 @@ final class FlexFormVaultHook
                     continue;
                 }
 
-                if (!\is_array($containerData['el'])) {
+                if (!is_array($containerData['el'])) {
                     continue;
                 }
 
                 foreach ($containerData['el'] as $innerFieldName => &$innerFieldData) {
-                    if (!\is_array($innerFieldData)) {
+                    if (!is_array($innerFieldData)) {
                         continue;
                     }
 
                     /** @var array{ROOT?: array{el?: array<string, mixed>}} $typedSheetConfig */
                     $typedSheetConfig = $sheetConfig;
-                    $elementConfig = $this->getFlexFormElementConfig($typedSheetConfig, (string) $innerFieldName);
+                    $elementConfig    = $this->getFlexFormElementConfig($typedSheetConfig, (string) $innerFieldName);
                     $innerConfigArray = $elementConfig['config'] ?? [];
-                    $renderType = \is_array($innerConfigArray) ? ($innerConfigArray['renderType'] ?? '') : '';
-                    if (!\is_string($renderType)) {
+                    $renderType       = is_array($innerConfigArray) ? ($innerConfigArray['renderType'] ?? '') : '';
+                    if (!is_string($renderType)) {
                         continue;
                     }
 
@@ -1067,12 +1074,12 @@ final class FlexFormVaultHook
                 }
             } elseif ($pending->isNew) {
                 $this->vaultService->store($pending->identifier, $pending->value, [
-                    'table' => $table,
+                    'table'     => $table,
                     'flexField' => $pending->flexField,
-                    'sheet' => $pending->sheet,
+                    'sheet'     => $pending->sheet,
                     'fieldPath' => $pending->fieldPath,
-                    'uid' => $uid,
-                    'source' => 'flexform_field',
+                    'uid'       => $uid,
+                    'source'    => 'flexform_field',
                 ]);
             } else {
                 $this->vaultService->rotate($pending->identifier, $pending->value, 'FlexForm field updated');
@@ -1082,12 +1089,12 @@ final class FlexFormVaultHook
             // DataHandler log detail are replayed to the editor, so both must
             // carry the same correlation reference and neither the cause.
             $userMessage = $this->failureReporter->report($e, [
-                'table' => $table,
-                'flexField' => $pending->flexField,
-                'fieldPath' => $pending->fieldPath,
-                'uid' => $uid,
+                'table'      => $table,
+                'flexField'  => $pending->flexField,
+                'fieldPath'  => $pending->fieldPath,
+                'uid'        => $uid,
                 'identifier' => $pending->identifier,
-                'operation' => 'flexform_field',
+                'operation'  => 'flexform_field',
             ]);
 
             /** @phpstan-ignore method.internal */
@@ -1101,7 +1108,7 @@ final class FlexFormVaultHook
             );
 
             $this->addFlashMessage(
-                \sprintf(
+                sprintf(
                     'Vault storage failed for FlexForm field "%s" on %s:%d: %s',
                     $pending->fieldPath,
                     $table,
@@ -1213,7 +1220,7 @@ final class FlexFormVaultHook
                     ->select(['*'], $table, ['uid' => (int) $id])
                     ->fetchAssociative();
 
-                if (\is_array($row)) {
+                if (is_array($row)) {
                     $persistedRow = $row;
                 }
             } catch (Throwable) {
@@ -1246,7 +1253,7 @@ final class FlexFormVaultHook
         }
 
         $this->addFlashMessage(
-            \sprintf(
+            sprintf(
                 'A vault secret submitted for FlexForm field "%s" on %s:%s was discarded because the'
                 . ' field could not be resolved to a vault secret element. Storing it would have'
                 . ' written the value unencrypted into the record.',
@@ -1277,14 +1284,14 @@ final class FlexFormVaultHook
         $stripped = false;
 
         foreach ($node as &$value) {
-            if (!\is_array($value)) {
+            if (!is_array($value)) {
                 continue;
             }
 
             if ($this->carriesVaultPlaintext($value)) {
                 /** @var mixed $rawIdentifier */
                 $rawIdentifier = $value['_vault_identifier'] ?? '';
-                $value = \is_string($rawIdentifier) && IdentifierValidator::looksLikeVaultIdentifier($rawIdentifier)
+                $value         = is_string($rawIdentifier) && IdentifierValidator::looksLikeVaultIdentifier($rawIdentifier)
                     ? $rawIdentifier
                     : '';
                 $stripped = true;
@@ -1310,14 +1317,14 @@ final class FlexFormVaultHook
      */
     private function carriesVaultPlaintext(array $value): bool
     {
-        if (!\array_key_exists('_vault_identifier', $value) && !\array_key_exists('_vault_checksum', $value)) {
+        if (!array_key_exists('_vault_identifier', $value) && !array_key_exists('_vault_checksum', $value)) {
             return false;
         }
 
         /** @var mixed $rawSecretValue */
         $rawSecretValue = $value['value'] ?? $value[0] ?? '';
 
-        return (\is_string($rawSecretValue) || \is_int($rawSecretValue)) && (string) $rawSecretValue !== '';
+        return (is_string($rawSecretValue) || is_int($rawSecretValue)) && (string) $rawSecretValue !== '';
     }
 
     /**
@@ -1330,45 +1337,45 @@ final class FlexFormVaultHook
      */
     private function getFlexFormElementConfig(array $sheetConfig, string $fieldPath): array
     {
-        $root = $sheetConfig['ROOT'] ?? [];
-        $elements = \is_array($root) ? ($root['el'] ?? []) : [];
-        if (!\is_array($elements)) {
+        $root     = $sheetConfig['ROOT'] ?? [];
+        $elements = is_array($root) ? ($root['el'] ?? []) : [];
+        if (!is_array($elements)) {
             return [];
         }
 
-        if (isset($elements[$fieldPath]) && \is_array($elements[$fieldPath])) {
+        if (isset($elements[$fieldPath]) && is_array($elements[$fieldPath])) {
             return $elements[$fieldPath];
         }
 
         // Search in section container elements for repeating fields
         foreach ($elements as $element) {
-            if (!\is_array($element)) {
+            if (!is_array($element)) {
                 continue;
             }
 
             /** @var mixed $elementConfig */
             $elementConfig = $element['config'] ?? [];
-            $sectionFlag = $element['section'] ?? (\is_array($elementConfig) ? ($elementConfig['section'] ?? null) : null);
+            $sectionFlag   = $element['section'] ?? (is_array($elementConfig) ? ($elementConfig['section'] ?? null) : null);
             if ($sectionFlag !== 1 && $sectionFlag !== '1') {
                 continue;
             }
 
             $containerEl = $element['el'] ?? [];
-            if (!\is_array($containerEl)) {
+            if (!is_array($containerEl)) {
                 continue;
             }
 
             foreach ($containerEl as $container) {
-                if (!\is_array($container)) {
+                if (!is_array($container)) {
                     continue;
                 }
 
                 $innerEl = $container['el'] ?? [];
-                if (!\is_array($innerEl)) {
+                if (!is_array($innerEl)) {
                     continue;
                 }
 
-                if (isset($innerEl[$fieldPath]) && \is_array($innerEl[$fieldPath])) {
+                if (isset($innerEl[$fieldPath]) && is_array($innerEl[$fieldPath])) {
                     return $innerEl[$fieldPath];
                 }
             }
@@ -1417,13 +1424,13 @@ final class FlexFormVaultHook
             return [];
         }
 
-        $schema = $this->tcaSchemaFactory->get($table);
+        $schema     = $this->tcaSchemaFactory->get($table);
         $flexFields = [];
 
         foreach ($schema->getFields() as $field) {
             $fieldConfig = $field->getConfiguration();
-            $configType = $fieldConfig['type'] ?? '';
-            if (\is_string($configType) && $configType === 'flex') {
+            $configType  = $fieldConfig['type'] ?? '';
+            if (is_string($configType) && $configType === 'flex') {
                 $flexFields[] = $field->getName();
             }
         }
@@ -1437,9 +1444,9 @@ final class FlexFormVaultHook
     private function isHardDelete(string $table): bool
     {
         /** @var array<string, array{ctrl?: array{delete?: string}}> $tca */
-        $tca = $GLOBALS['TCA'] ?? [];
+        $tca         = $GLOBALS['TCA'] ?? [];
         $deleteField = $tca[$table]['ctrl']['delete'] ?? null;
 
-        return !\is_string($deleteField) || $deleteField === '';
+        return !is_string($deleteField) || $deleteField === '';
     }
 }

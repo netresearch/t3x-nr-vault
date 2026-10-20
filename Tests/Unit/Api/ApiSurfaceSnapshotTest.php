@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -28,6 +28,9 @@ use ReflectionType;
 use ReflectionUnionType;
 use SplFileInfo;
 use Throwable;
+
+use function sprintf;
+use function strlen;
 
 /**
  * Freezes the rendered public surface of this package in `api-surface.txt`
@@ -100,7 +103,7 @@ final class ApiSurfaceSnapshotTest extends TestCase
 
         if (!is_file(self::SNAPSHOT_PATH)) {
             file_put_contents(self::SNAPSHOT_PATH, $rendered);
-            self::fail(\sprintf(
+            self::fail(sprintf(
                 'Snapshot regenerated at %s — inspect the diff and commit it. '
                 . 'A removed or changed line is a break and needs a CHANGELOG entry.',
                 self::SNAPSHOT_PATH,
@@ -132,7 +135,7 @@ final class ApiSurfaceSnapshotTest extends TestCase
     {
         $renderer = new ApiSurfaceRenderer();
         $included = [];
-        $queue = [...$this->discoverSeedClasses(), ...$this->implementerFacingDocblockTypes()];
+        $queue    = [...$this->discoverSeedClasses(), ...$this->implementerFacingDocblockTypes()];
 
         while ($queue !== []) {
             $fqcn = array_shift($queue);
@@ -175,8 +178,8 @@ final class ApiSurfaceSnapshotTest extends TestCase
                 continue;
             }
 
-            $relative = substr($file->getPathname(), \strlen(self::CLASSES_DIR) + 1, -4);
-            $fqcn = self::NAMESPACE_PREFIX . str_replace('/', '\\', $relative);
+            $relative = substr($file->getPathname(), strlen(self::CLASSES_DIR) + 1, -4);
+            $fqcn     = self::NAMESPACE_PREFIX . str_replace('/', '\\', $relative);
 
             try {
                 $loadable = class_exists($fqcn) || interface_exists($fqcn) || trait_exists($fqcn) || enum_exists($fqcn);
@@ -204,7 +207,7 @@ final class ApiSurfaceSnapshotTest extends TestCase
             // matrix difference, and stays a hard failure.
             self::assertTrue(
                 $loadable,
-                \sprintf('File under Classes/ does not autoload as %s — the PSR-4 discovery rule is broken.', $fqcn),
+                sprintf('File under Classes/ does not autoload as %s — the PSR-4 discovery rule is broken.', $fqcn),
             );
 
             if (
@@ -242,7 +245,7 @@ final class ApiSurfaceSnapshotTest extends TestCase
 
         foreach (ExtensionPointCatalogue::markedInterfaces() as $interface) {
             $reflection = new ReflectionClass($interface);
-            $imports = $this->importsOf($reflection);
+            $imports    = $this->importsOf($reflection);
 
             foreach ($reflection->getMethods() as $method) {
                 foreach ($this->docblockTypeNames($method->getDocComment()) as $name) {
@@ -317,7 +320,7 @@ final class ApiSurfaceSnapshotTest extends TestCase
 
         $imports = [];
         foreach ($matches as $match) {
-            $fqcn = $match[1];
+            $fqcn  = $match[1];
             $alias = ($match[2] ?? '') !== ''
                 ? $match[2]
                 : substr((string) strrchr('\\' . $fqcn, '\\'), 1);
@@ -339,8 +342,8 @@ final class ApiSurfaceSnapshotTest extends TestCase
     {
         $candidate = match (true) {
             str_starts_with($name, '\\') => substr($name, 1),
-            isset($imports[$name]) => $imports[$name],
-            default => $namespace . '\\' . $name,
+            isset($imports[$name])       => $imports[$name],
+            default                      => $namespace . '\\' . $name,
         };
 
         if (!str_starts_with($candidate, self::NAMESPACE_PREFIX)) {

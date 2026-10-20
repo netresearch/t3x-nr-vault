@@ -20,6 +20,9 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+use function is_string;
+use function sprintf;
+
 /**
  * CLI command to delete a secret from the vault.
  */
@@ -60,17 +63,17 @@ final class VaultDeleteCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io            = new SymfonyStyle($input, $output);
         $identifierArg = $input->getArgument('identifier');
-        $identifier = \is_string($identifierArg) ? $identifierArg : '';
-        $reasonOption = $input->getOption('reason');
-        $reason = \is_string($reasonOption) ? $reasonOption : 'Manual deletion via CLI';
+        $identifier    = is_string($identifierArg) ? $identifierArg : '';
+        $reasonOption  = $input->getOption('reason');
+        $reason        = is_string($reasonOption) ? $reasonOption : 'Manual deletion via CLI';
 
         // Check if secret exists
         try {
             $metadata = $this->vaultService->getMetadata($identifier);
         } catch (SecretNotFoundException) {
-            $io->error(\sprintf('Secret not found: %s', $identifier));
+            $io->error(sprintf('Secret not found: %s', $identifier));
 
             return Command::FAILURE;
         }
@@ -90,7 +93,7 @@ final class VaultDeleteCommand extends Command
         // Confirm unless --force
         if (!$input->getOption('force')) {
             $confirmed = $io->confirm(
-                \sprintf(
+                sprintf(
                     'Are you sure you want to delete secret "%s"? The vault cannot restore it. '
                     . 'The encrypted row is retained in the database until it is removed there.',
                     $identifier,
@@ -107,11 +110,11 @@ final class VaultDeleteCommand extends Command
 
         try {
             $this->vaultService->delete($identifier, $reason);
-            $io->success(\sprintf('Secret "%s" deleted successfully', $identifier));
+            $io->success(sprintf('Secret "%s" deleted successfully', $identifier));
 
             return Command::SUCCESS;
         } catch (SecretNotFoundException) {
-            $io->error(\sprintf('Secret not found: %s', $identifier));
+            $io->error(sprintf('Secret not found: %s', $identifier));
 
             return Command::FAILURE;
         } catch (VaultException $e) {

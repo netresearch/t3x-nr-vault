@@ -26,6 +26,9 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
+use function chr;
+use function count;
+
 /**
  * Fuzz tests for audit log filter construction and query-builder binding.
  *
@@ -74,37 +77,37 @@ final class AuditFilterFuzzTest extends TestCase
         mt_srand($seed);
 
         $cases = [
-            'classic OR 1=1' => ["' OR 1=1--"],
-            'union select' => ["x' UNION SELECT NULL,password FROM be_users--"],
-            'drop table' => ["foo'; DROP TABLE tx_nrvault_audit_log;--"],
-            'stacked select' => ["'; SELECT * FROM be_users; --"],
-            'sql comment' => ['foo/*comment*/bar'],
+            'classic OR 1=1'      => ["' OR 1=1--"],
+            'union select'        => ["x' UNION SELECT NULL,password FROM be_users--"],
+            'drop table'          => ["foo'; DROP TABLE tx_nrvault_audit_log;--"],
+            'stacked select'      => ["'; SELECT * FROM be_users; --"],
+            'sql comment'         => ['foo/*comment*/bar'],
             'double dash comment' => ['foo-- bar'],
-            'hash comment' => ['foo# bar'],
-            'backtick' => ['foo`bar'],
-            'double quote' => ['foo"bar'],
-            'single quote' => ["foo'bar"],
-            'backslash escape' => ['foo\\bar'],
-            'null byte' => ["foo\x00bar"],
-            'unicode mixed' => ['пароль-🔐-パスワード'],
-            'control chars' => ["\x01\x02\x03\x04\x05"],
-            'crlf' => ["foo\r\nbar"],
-            'empty string' => [''],
-            'whitespace only' => ['   '],
-            'percent wildcard' => ['%'],
+            'hash comment'        => ['foo# bar'],
+            'backtick'            => ['foo`bar'],
+            'double quote'        => ['foo"bar'],
+            'single quote'        => ["foo'bar"],
+            'backslash escape'    => ['foo\\bar'],
+            'null byte'           => ["foo\x00bar"],
+            'unicode mixed'       => ['пароль-🔐-パスワード'],
+            'control chars'       => ["\x01\x02\x03\x04\x05"],
+            'crlf'                => ["foo\r\nbar"],
+            'empty string'        => [''],
+            'whitespace only'     => ['   '],
+            'percent wildcard'    => ['%'],
             'underscore wildcard' => ['_'],
-            'one mb string' => [str_repeat('a', 1024 * 1024)],
-            'utf8 4-byte' => ["\xF0\x9F\x94\x90"],
-            'overlong utf8' => ["\xC0\xAF"], // invalid overlong encoding of '/'
-            'truncated utf8' => ["\xC3"], // incomplete 2-byte sequence
+            'one mb string'       => [str_repeat('a', 1024 * 1024)],
+            'utf8 4-byte'         => ["\xF0\x9F\x94\x90"],
+            'overlong utf8'       => ["\xC0\xAF"], // invalid overlong encoding of '/'
+            'truncated utf8'      => ["\xC3"], // incomplete 2-byte sequence
         ];
 
         // Add 10 random adversarial strings
-        for ($i = 0; $i < 10; $i++) {
+        for ($i = 0; $i < 10; ++$i) {
             $len = mt_rand(1, 256);
             $buf = '';
-            for ($j = 0; $j < $len; $j++) {
-                $buf .= \chr(mt_rand(0, 255));
+            for ($j = 0; $j < $len; ++$j) {
+                $buf .= chr(mt_rand(0, 255));
             }
 
             $cases["random_{$i}_len{$len}"] = [$buf];
@@ -121,13 +124,13 @@ final class AuditFilterFuzzTest extends TestCase
     public static function integerEdgeCaseProvider(): array
     {
         return [
-            'zero' => [0],
-            'negative one' => [-1],
+            'zero'             => [0],
+            'negative one'     => [-1],
             'negative million' => [-1_000_000],
-            'php int min' => [PHP_INT_MIN],
-            'php int max' => [PHP_INT_MAX],
-            'typical' => [42],
-            'large pid' => [1_000_000],
+            'php int min'      => [PHP_INT_MIN],
+            'php int max'      => [PHP_INT_MAX],
+            'typical'          => [42],
+            'large pid'        => [1_000_000],
         ];
     }
 
@@ -180,7 +183,7 @@ final class AuditFilterFuzzTest extends TestCase
     public function factoryMethodsProduceEquivalentInstances(): void
     {
         $byFactory = AuditLogFilter::forSecret('id1');
-        $byCtor = new AuditLogFilter(secretIdentifier: 'id1');
+        $byCtor    = new AuditLogFilter(secretIdentifier: 'id1');
 
         self::assertSame($byFactory->secretIdentifier, $byCtor->secretIdentifier);
         self::assertSame($byFactory->isEmpty(), $byCtor->isEmpty());
@@ -191,7 +194,7 @@ final class AuditFilterFuzzTest extends TestCase
     {
         $since = new DateTimeImmutable('2026-01-01');
         $until = new DateTimeImmutable('2026-02-01');
-        $base = new AuditLogFilter(
+        $base  = new AuditLogFilter(
             secretIdentifier: 'id1',
             action: 'store',
             actorUid: 5,
@@ -216,7 +219,7 @@ final class AuditFilterFuzzTest extends TestCase
     public function applyFilterRoutesAllStringsThroughNamedParameter(string $payload): void
     {
         $this->recordedParams = [];
-        $queryBuilder = $this->buildRecordingQueryBuilder();
+        $queryBuilder         = $this->buildRecordingQueryBuilder();
 
         $filter = new AuditLogFilter(
             secretIdentifier: $payload,
@@ -243,7 +246,7 @@ final class AuditFilterFuzzTest extends TestCase
     public function applyFilterBindsIntegersAsIntType(int $uid): void
     {
         $this->recordedParams = [];
-        $queryBuilder = $this->buildRecordingQueryBuilder();
+        $queryBuilder         = $this->buildRecordingQueryBuilder();
 
         $filter = new AuditLogFilter(
             actorUid: $uid,
@@ -267,7 +270,7 @@ final class AuditFilterFuzzTest extends TestCase
     {
         foreach ([true, false] as $b) {
             $this->recordedParams = [];
-            $queryBuilder = $this->buildRecordingQueryBuilder();
+            $queryBuilder         = $this->buildRecordingQueryBuilder();
 
             $this->invokeApplyFilter(
                 $queryBuilder,
@@ -275,7 +278,7 @@ final class AuditFilterFuzzTest extends TestCase
             );
 
             $expected = $b ? 1 : 0;
-            $found = false;
+            $found    = false;
             foreach ($this->recordedParams as [$value, $type]) {
                 if ($value === $expected && $type === Connection::PARAM_INT) {
                     $found = true;
@@ -297,7 +300,7 @@ final class AuditFilterFuzzTest extends TestCase
         $until = (new DateTimeImmutable())->setTimestamp(1_800_000_000);
 
         $this->recordedParams = [];
-        $queryBuilder = $this->buildRecordingQueryBuilder();
+        $queryBuilder         = $this->buildRecordingQueryBuilder();
 
         $this->invokeApplyFilter(
             $queryBuilder,
@@ -326,7 +329,7 @@ final class AuditFilterFuzzTest extends TestCase
         $dt = (new DateTimeImmutable())->setTimestamp($timestamp);
 
         $this->recordedParams = [];
-        $queryBuilder = $this->buildRecordingQueryBuilder();
+        $queryBuilder         = $this->buildRecordingQueryBuilder();
 
         $this->invokeApplyFilter(
             $queryBuilder,
@@ -348,13 +351,13 @@ final class AuditFilterFuzzTest extends TestCase
     public static function extremeTimestampProvider(): array
     {
         return [
-            'zero' => [0],
-            'negative one' => [-1],
-            'year 1900' => [-2_208_988_800],
-            'y2k' => [946_684_800],
+            'zero'            => [0],
+            'negative one'    => [-1],
+            'year 1900'       => [-2_208_988_800],
+            'y2k'             => [946_684_800],
             'far future 2286' => [9_999_999_999],
-            'php int max' => [PHP_INT_MAX],
-            'php int min' => [PHP_INT_MIN],
+            'php int max'     => [PHP_INT_MAX],
+            'php int min'     => [PHP_INT_MIN],
         ];
     }
 
@@ -379,7 +382,7 @@ final class AuditFilterFuzzTest extends TestCase
                 $test->recordedParams[] = [$value, $type];
 
                 // Return a placeholder that could never be confused with the payload
-                return ':placeholder' . \count($test->recordedParams);
+                return ':placeholder' . count($test->recordedParams);
             },
         );
 
@@ -401,7 +404,7 @@ final class AuditFilterFuzzTest extends TestCase
         // AuditLogService. We bypass the constructor because applyFilter()
         // only needs the QueryBuilder passed in.
         $reflection = new ReflectionClass(AuditLogService::class);
-        $service = $reflection->newInstanceWithoutConstructor();
+        $service    = $reflection->newInstanceWithoutConstructor();
 
         $method = $reflection->getMethod('applyFilter');
         $method->invoke($service, $qb, $filter);

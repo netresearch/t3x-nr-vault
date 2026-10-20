@@ -11,6 +11,8 @@ namespace Netresearch\NrVault\Configuration\Dto;
 
 use SensitiveParameter;
 
+use function sprintf;
+
 /**
  * Data Transfer Object for the HashiCorp Vault Transit master-key provider.
  *
@@ -32,17 +34,17 @@ readonly class TransitConfig
     public const DEFAULT_TOKEN_ENV_VAR = 'VAULT_TOKEN';
 
     /**
-     * @param string $address Vault base address, e.g. https://vault.example.com:8200
-     * @param string $mount transit engine mount path (without /v1/)
-     * @param string $keyName transit key that wraps the master key
+     * @param string $address        Vault base address, e.g. https://vault.example.com:8200
+     * @param string $mount          transit engine mount path (without /v1/)
+     * @param string $keyName        transit key that wraps the master key
      * @param string $wrappedKeyPath absolute path of the locally stored wrapped
      *                               (Vault-encrypted) master key
-     * @param string $authMethod configured auth method; only `token` is
-     *                           implemented (see TransitMasterKeyProvider)
-     * @param string $tokenEnvVar environment variable read for the Vault
-     *                            token; preferred over $token
-     * @param string $token token from extension configuration —
-     *                      fallback for development only
+     * @param string $authMethod     configured auth method; only `token` is
+     *                               implemented (see TransitMasterKeyProvider)
+     * @param string $tokenEnvVar    environment variable read for the Vault
+     *                               token; preferred over $token
+     * @param string $token          token from extension configuration —
+     *                               fallback for development only
      */
     public function __construct(
         public string $address = '',
@@ -59,17 +61,17 @@ readonly class TransitConfig
      * Create from the `hashicorp` extension-configuration sub-array.
      *
      * @param array{address?: string, authMethod?: string, token?: string, transitMount?: string, transitKeyName?: string, transitWrappedKeyPath?: string, tokenEnvVar?: string} $config
-     * @param string $fallbackWrappedKeyPath used when `transitWrappedKeyPath` is
-     *                                       empty; callers resolve it from the TYPO3 var
-     *                                       path so this DTO stays free of environment
-     *                                       lookups
+     * @param string                                                                                                                                                             $fallbackWrappedKeyPath used when `transitWrappedKeyPath` is
+     *                                                                                                                                                                                                   empty; callers resolve it from the TYPO3 var
+     *                                                                                                                                                                                                   path so this DTO stays free of environment
+     *                                                                                                                                                                                                   lookups
      */
     public static function fromArray(array $config, string $fallbackWrappedKeyPath = ''): self
     {
-        $wrappedKeyPath = trim($config['transitWrappedKeyPath'] ?? '');
-        $mount = trim($config['transitMount'] ?? '', " \t\n\r\0\x0B/");
-        $configuredKeyName = trim($config['transitKeyName'] ?? '');
-        $authMethod = trim($config['authMethod'] ?? '');
+        $wrappedKeyPath        = trim($config['transitWrappedKeyPath'] ?? '');
+        $mount                 = trim($config['transitMount'] ?? '', " \t\n\r\0\x0B/");
+        $configuredKeyName     = trim($config['transitKeyName'] ?? '');
+        $authMethod            = trim($config['authMethod'] ?? '');
         $configuredTokenEnvVar = trim($config['tokenEnvVar'] ?? '');
 
         return new self(
@@ -112,7 +114,7 @@ readonly class TransitConfig
      */
     public function endpointFor(string $operation): string
     {
-        return \sprintf('%s/v1/%s/%s/%s', $this->address, $this->mount, $operation, $this->keyName);
+        return sprintf('%s/v1/%s/%s/%s', $this->address, $this->mount, $operation, $this->keyName);
     }
 
     /**
@@ -124,12 +126,12 @@ readonly class TransitConfig
     public function toArray(): array
     {
         return [
-            'address' => $this->address,
-            'mount' => $this->mount,
-            'keyName' => $this->keyName,
+            'address'        => $this->address,
+            'mount'          => $this->mount,
+            'keyName'        => $this->keyName,
             'wrappedKeyPath' => $this->wrappedKeyPath,
-            'authMethod' => $this->authMethod,
-            'tokenEnvVar' => $this->tokenEnvVar,
+            'authMethod'     => $this->authMethod,
+            'tokenEnvVar'    => $this->tokenEnvVar,
         ];
     }
 }

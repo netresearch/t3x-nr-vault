@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -19,6 +19,8 @@ use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+
+use function sprintf;
 
 /**
  * The inventory comparison against a real database.
@@ -162,7 +164,7 @@ final class InventoryConsistencyCheckTest extends AbstractVaultFunctionalTestCas
             }
         }
 
-        self::fail(\sprintf('No finding with id "%s" among: %s', $id, implode(', ', array_map(
+        self::fail(sprintf('No finding with id "%s" among: %s', $id, implode(', ', array_map(
             static fn (Finding $candidate): string => $candidate->id,
             $findings,
         ))));
@@ -172,9 +174,9 @@ final class InventoryConsistencyCheckTest extends AbstractVaultFunctionalTestCas
     {
         $connection = $this->get(ConnectionPool::class)->getConnectionForTable(self::SECRET_TABLE);
         $connection->insert(self::SECRET_TABLE, [
-            'pid' => 0,
+            'pid'        => 0,
             'identifier' => $identifier,
-            'deleted' => $deleted,
+            'deleted'    => $deleted,
         ]);
 
         return (int) $connection->lastInsertId();
@@ -183,17 +185,17 @@ final class InventoryConsistencyCheckTest extends AbstractVaultFunctionalTestCas
     private function recordCreate(string $identifier): void
     {
         $this->get(ConnectionPool::class)->getConnectionForTable(self::AUDIT_TABLE)->insert(self::AUDIT_TABLE, [
-            'pid' => 0,
-            'action' => AuditAction::Create->value,
+            'pid'               => 0,
+            'action'            => AuditAction::Create->value,
             'secret_identifier' => $identifier,
-            'success' => 1,
+            'success'           => 1,
         ]);
     }
 
     private function grant(string $table, int $secretUid, int $groupUid): void
     {
         $this->get(ConnectionPool::class)->getConnectionForTable($table)->insert($table, [
-            'uid_local' => $secretUid,
+            'uid_local'   => $secretUid,
             'uid_foreign' => $groupUid,
         ]);
     }

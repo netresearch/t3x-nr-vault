@@ -166,7 +166,7 @@ final class SecretsControllerToggleTest extends AbstractVaultFunctionalTestCase
 
         return [
             'success' => $decoded['success'] ?? null,
-            'hidden' => $decoded['hidden'] ?? null,
+            'hidden'  => $decoded['hidden'] ?? null,
         ];
     }
 
@@ -189,10 +189,10 @@ final class SecretsControllerToggleTest extends AbstractVaultFunctionalTestCase
         $this->getConnectionPool()
             ->getConnectionForTable(self::SECRET_TABLE)
             ->insert(self::SECRET_TABLE, [
-                'pid' => 0,
+                'pid'        => 0,
                 'identifier' => $identifier,
-                'owner_uid' => 1,
-                'hidden' => 0,
+                'owner_uid'  => 1,
+                'hidden'     => 0,
             ]);
 
         return $identifier;

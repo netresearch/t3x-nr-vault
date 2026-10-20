@@ -18,6 +18,8 @@ use Symfony\Component\Console\Tester\CommandTester;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+use function dirname;
+
 #[CoversClass(VaultSeedDemoCommand::class)]
 final class VaultSeedDemoCommandTest extends FunctionalTestCase
 {
@@ -35,7 +37,7 @@ final class VaultSeedDemoCommandTest extends FunctionalTestCase
     {
         parent::setUp();
         $this->masterKeyPath = $this->instancePath . '/var/secrets/vault-master.key';
-        $dir = \dirname($this->masterKeyPath);
+        $dir                 = dirname($this->masterKeyPath);
         if (!is_dir($dir)) {
             mkdir($dir, 0o700, true);
         }
@@ -43,7 +45,7 @@ final class VaultSeedDemoCommandTest extends FunctionalTestCase
         file_put_contents($this->masterKeyPath, sodium_crypto_secretbox_keygen());
         chmod($this->masterKeyPath, 0o600);
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['masterKeySource'] = $this->masterKeyPath;
-        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['autoKeyPath'] = $this->masterKeyPath;
+        $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['nr_vault']['autoKeyPath']     = $this->masterKeyPath;
         $this->importCSVDataSet(__DIR__ . '/../Hook/Fixtures/be_users.csv');
         $this->setUpBackendUser(1);
     }
@@ -52,7 +54,7 @@ final class VaultSeedDemoCommandTest extends FunctionalTestCase
     public function seedsHistoricDataWithValidChainAndDecryptableSecrets(): void
     {
         $tester = new CommandTester($this->get(VaultSeedDemoCommand::class));
-        $exit = $tester->execute([]);
+        $exit   = $tester->execute([]);
         self::assertSame(0, $exit, $tester->getDisplay());
 
         $vault = $this->get(VaultServiceInterface::class);

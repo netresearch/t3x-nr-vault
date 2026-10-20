@@ -30,6 +30,8 @@ use Psr\Http\Message\RequestInterface;
 use RuntimeException;
 use Throwable;
 
+use function chr;
+
 /**
  * Fuzz tests for VaultHttpClient secret-injection logic.
  *
@@ -64,9 +66,9 @@ final class HttpClientFuzzTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createStub(VaultServiceInterface::class);
+        $this->vaultService    = $this->createStub(VaultServiceInterface::class);
         $this->auditLogService = $this->createStub(AuditLogServiceInterface::class);
-        $this->innerClient = $this->createStub(ClientInterface::class);
+        $this->innerClient     = $this->createStub(ClientInterface::class);
 
         // Ensure allowed_hosts is not set so all hosts pass the factory check
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = [];
@@ -99,33 +101,33 @@ final class HttpClientFuzzTest extends TestCase
         mt_srand($seed);
 
         $cases = [
-            'empty string' => [''],
-            'simple ascii' => ['my-secret-key-abc123'],
-            'unicode emoji' => ['🔐token🗝'],
-            'unicode mixed' => ['パスワード_secret'],
-            'space in value' => ['secret value with spaces'],
-            'ampersand' => ['secret&value=1'],
-            'equals sign' => ['value=secret'],
-            'percent encoded' => ['val%20ue'],
-            'hash char' => ['secret#hash'],
-            'question mark' => ['secret?param=1'],
-            'plus sign' => ['secret+plus'],
-            'slash' => ['secret/path'],
-            'backslash' => ['secret\\path'],
-            'single quote' => ["secret'value"],
-            'double quote' => ['secret"value'],
-            'angle brackets' => ['<secret>'],
-            'null byte' => ["sec\x00ret"],
-            'tab char' => ["sec\tret"],
+            'empty string'        => [''],
+            'simple ascii'        => ['my-secret-key-abc123'],
+            'unicode emoji'       => ['🔐token🗝'],
+            'unicode mixed'       => ['パスワード_secret'],
+            'space in value'      => ['secret value with spaces'],
+            'ampersand'           => ['secret&value=1'],
+            'equals sign'         => ['value=secret'],
+            'percent encoded'     => ['val%20ue'],
+            'hash char'           => ['secret#hash'],
+            'question mark'       => ['secret?param=1'],
+            'plus sign'           => ['secret+plus'],
+            'slash'               => ['secret/path'],
+            'backslash'           => ['secret\\path'],
+            'single quote'        => ["secret'value"],
+            'double quote'        => ['secret"value'],
+            'angle brackets'      => ['<secret>'],
+            'null byte'           => ["sec\x00ret"],
+            'tab char'            => ["sec\tret"],
             'very long value 1kb' => [str_repeat('x', 1024)],
         ];
 
         // 30 random printable-ASCII secrets
-        for ($i = 0; $i < 30; $i++) {
-            $len = mt_rand(1, 200);
+        for ($i = 0; $i < 30; ++$i) {
+            $len   = mt_rand(1, 200);
             $value = '';
-            for ($j = 0; $j < $len; $j++) {
-                $value .= \chr(mt_rand(33, 126)); // printable, excludes space
+            for ($j = 0; $j < $len; ++$j) {
+                $value .= chr(mt_rand(33, 126)); // printable, excludes space
             }
 
             $cases["random_printable_{$i}"] = [$value];
@@ -142,13 +144,13 @@ final class HttpClientFuzzTest extends TestCase
     public static function unsafeSchemeProvider(): array
     {
         return [
-            'file scheme' => ['file:///etc/passwd'],
-            'gopher scheme' => ['gopher://attacker.example.com:70/'],
-            'ftp scheme' => ['ftp://ftp.example.com/file.txt'],
-            'data scheme' => ['data:text/html,<script>alert(1)</script>'],
+            'file scheme'       => ['file:///etc/passwd'],
+            'gopher scheme'     => ['gopher://attacker.example.com:70/'],
+            'ftp scheme'        => ['ftp://ftp.example.com/file.txt'],
+            'data scheme'       => ['data:text/html,<script>alert(1)</script>'],
             'javascript scheme' => ['javascript:alert(1)'],
-            'ldap scheme' => ['ldap://ldap.example.com/'],
-            'dict scheme' => ['dict://dict.example.com/'],
+            'ldap scheme'       => ['ldap://ldap.example.com/'],
+            'dict scheme'       => ['dict://dict.example.com/'],
         ];
     }
 
@@ -238,7 +240,7 @@ final class HttpClientFuzzTest extends TestCase
             },
         );
 
-        $client = $this->buildClient(SecretPlacement::BodyField, ['bodyField' => 'api_key']);
+        $client  = $this->buildClient(SecretPlacement::BodyField, ['bodyField' => 'api_key']);
         $request = new Request(
             'POST',
             'https://api.example.com/submit',
@@ -368,13 +370,13 @@ final class HttpClientFuzzTest extends TestCase
     public static function headerNameProvider(): array
     {
         return [
-            'valid: X-API-Key' => ['X-API-Key', true],
+            'valid: X-API-Key'     => ['X-API-Key', true],
             'valid: Authorization' => ['Authorization', true],
-            'valid: X-Custom-123' => ['X-Custom-123', true],
-            'invalid: empty' => ['', false],
-            'invalid: CRLF' => ["X-Head\r\ner: evil", false],
-            'invalid: space' => ['X-My Header', false],
-            'invalid: colon' => ['X:Bad', false],
+            'valid: X-Custom-123'  => ['X-Custom-123', true],
+            'invalid: empty'       => ['', false],
+            'invalid: CRLF'        => ["X-Head\r\ner: evil", false],
+            'invalid: space'       => ['X-My Header', false],
+            'invalid: colon'       => ['X:Bad', false],
         ];
     }
 
@@ -401,7 +403,7 @@ final class HttpClientFuzzTest extends TestCase
                     return new Response(200);
                 },
             );
-        $failure = null;
+        $failure  = null;
         $response = null;
 
         try {

@@ -1,7 +1,10 @@
 <?php
 
-/* Copyright (c) 2025-2026 Netresearch DTT GmbH
- * SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Http;
@@ -20,7 +23,7 @@ interface AdditionalSecretHttpClientInterface extends VaultHttpClientInterface
      * Clones preserve bindings; duplicate/primary collisions and more than
      * eight fields are refused. Secrets never leave Vault's send boundary.
      *
-     * @throws InvalidArgumentException For malformed or ambiguous bindings.
+     * @throws InvalidArgumentException for malformed or ambiguous bindings
      */
     public function withAdditionalBodyField(
         string $secretIdentifier,
