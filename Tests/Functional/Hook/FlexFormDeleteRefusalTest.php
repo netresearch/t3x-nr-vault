@@ -520,6 +520,114 @@ final class FlexFormDeleteRefusalTest extends AbstractVaultFunctionalTestCase
         );
     }
 
+    #[Test]
+    public function identifiersInOrdinaryElementsSurviveTheRecordHardDelete(): void
+    {
+        $this->grantDeleteOperation();
+        $configured = $this->seedSecret(1);
+        $active     = $this->seedSecret(1);
+        $disabled   = $this->seedSecret(1, true);
+        $this->completeSyntheticEnvelope($disabled);
+        $uid = $this->seedRecordWithElements(
+            $this->element('apiKey', $configured)
+            . $this->element('note', $active)
+            . $this->element('reference', $disabled),
+        );
+        self::assertNull($this->runCoreDelete($uid));
+        self::assertSame(
+            1,
+            $this->secretDeletedFlag($configured),
+            'The configured vaultSecret position must still cascade.',
+        );
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvaulttest_flex')
+                ->count('*', 'tx_nrvaulttest_flex', ['uid' => $uid]),
+        );
+        self::assertSame(
+            ['active' => 0, 'disabled' => 0],
+            [
+                'active'   => $this->secretDeletedFlag($active),
+                'disabled' => $this->secretDeletedFlag($disabled),
+            ],
+            'Secrets named in ordinary elements are not owned by this record.',
+        );
+    }
+
+    #[Test]
+    public function vaultSecretInsideASectionContainerCascadesWithTheRecord(): void
+    {
+        $this->grantDeleteOperation();
+        $token = $this->seedSecret(1);
+        $other = $this->seedSecret(1);
+        $uid   = $this->seedRecordWithElements(
+            '<field index="endpoints"><el index="el"><section index="1"><itemType index="endpoint"><el index="el">'
+            . $this->element('token', $token)
+            . $this->element('url', $other)
+            . '</el></itemType></section></el></field>',
+        );
+        self::assertNull($this->runCoreDelete($uid));
+        self::assertSame(1, $this->secretDeletedFlag($token));
+        self::assertSame(
+            0,
+            $this->secretDeletedFlag($other),
+            'The ordinary element beside the section token must not cascade.',
+        );
+        self::assertSame(
+            0,
+            $this
+                ->getConnectionPool()
+                ->getConnectionForTable('tx_nrvaulttest_flex')
+                ->count('*', 'tx_nrvaulttest_flex', ['uid' => $uid]),
+        );
+    }
+
+    private function element(string $name, string $value): string
+    {
+        return '<field index="' . $name . '"><value index="vDEF">' . $value . '</value></field>';
+    }
+
+    private function seedRecordWithElements(string $elements): int
+    {
+        $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvaulttest_flex');
+        $connection->insert(
+            'tx_nrvaulttest_flex',
+            [
+                'pid'      => 0,
+                'title'    => 'Synthetic element record',
+                'settings' => '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF">' . $elements . '</language></sheet></data></T3FlexForms>',
+            ],
+        );
+
+        return (int) $connection->lastInsertId();
+    }
+
+    /**
+     * Give a seeded row the complete, intentionally undecipherable envelope a
+     * stored secret carries, so metadata resolution sees a well-formed row.
+     */
+    private function completeSyntheticEnvelope(string $identifier): void
+    {
+        $this
+            ->getConnectionPool()
+            ->getConnectionForTable('tx_nrvault_secret')
+            ->update(
+                'tx_nrvault_secret',
+                [
+                    'encrypted_value'      => 'synthetic-invalid-envelope',
+                    'encrypted_dek'        => 'synthetic-invalid-key',
+                    'dek_nonce'            => 'synthetic-invalid-nonce',
+                    'value_nonce'          => 'synthetic-invalid-nonce',
+                    'value_checksum'       => 'synthetic-checksum',
+                    'encryption_version'   => 1,
+                    'encryption_algorithm' => '',
+                ],
+                ['identifier' => $identifier],
+            );
+    }
+
     private function grantDeleteOperation(): void
     {
         $pool = $this->getConnectionPool();

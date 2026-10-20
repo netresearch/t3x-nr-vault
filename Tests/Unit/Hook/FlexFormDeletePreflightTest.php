@@ -29,6 +29,7 @@ use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Throwable;
+use TYPO3\CMS\Core\Configuration\FlexForm\Exception\InvalidIdentifierException;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -665,16 +666,178 @@ final class FlexFormDeletePreflightTest extends TestCase
         );
     }
 
+    #[Test]
+    public function identifierInAnOrdinaryElementIsNeverADeleteCandidate(): void
+    {
+        $this->vault->method('exists')->willReturn(true);
+        $this->vault->expects(self::never())->method('getMetadata');
+        $deletes = [];
+        $this->vault
+            ->method('delete')
+            ->willReturnCallback(
+                static function (string $id) use (&$deletes): void {
+                    $deletes[] = $id;
+                },
+            );
+        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF">'
+            . '<field index="note"><value index="vDEF">' . self::SECOND . '</value></field>'
+            . '<field index="secret0"><value index="vDEF">' . self::FIRST . '</value></field>'
+            . '</language></sheet></data></T3FlexForms>';
+        $cancelled = false;
+        self::assertNull($this->runDeleteRow(['flex_a' => $xml], $cancelled));
+        self::assertFalse($cancelled);
+        self::assertSame(
+            [self::FIRST],
+            $deletes,
+            'Only the configured vaultSecret position may select a secret for deletion.',
+        );
+    }
+
+    #[Test]
+    public function vaultSecretInsideASectionContainerIsADeleteCandidate(): void
+    {
+        $tools = self::createStub(FlexFormTools::class);
+        $tools->method('getDataStructureIdentifier')->willReturn('section-ds');
+        $tools->method('parseDataStructureByIdentifier')->willReturn([
+            'sheets' => [
+                'sDEF' => [
+                    'ROOT' => [
+                        'el' => [
+                            'endpoints' => [
+                                'section' => '1',
+                                'el'      => [
+                                    'endpoint' => [
+                                        'el' => [
+                                            'token' => ['config' => ['type' => 'input', 'renderType' => 'vaultSecret']],
+                                            'url'   => ['config' => ['type' => 'input']],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+        $this->subject = $this->createSubject(self::createStub(LoggerInterface::class), $tools);
+        $this->vault->method('exists')->willReturn(true);
+        $deletes = [];
+        $this->vault
+            ->method('delete')
+            ->willReturnCallback(
+                static function (string $id) use (&$deletes): void {
+                    $deletes[] = $id;
+                },
+            );
+        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF">'
+            . '<field index="endpoints"><el index="el"><section index="1"><itemType index="endpoint"><el index="el">'
+            . '<field index="token"><value index="vDEF">' . self::FIRST . '</value></field>'
+            . '<field index="url"><value index="vDEF">' . self::SECOND . '</value></field>'
+            . '</el></itemType></section></el></field>'
+            . '</language></sheet></data></T3FlexForms>';
+        $cancelled = false;
+        self::assertNull($this->runDeleteRow(['flex_a' => $xml], $cancelled));
+        self::assertFalse($cancelled);
+        self::assertSame([self::FIRST], $deletes);
+    }
+
+    #[Test]
+    #[DataProvider('unresolvablePositions')]
+    public function unresolvableVaultPositionsCancelTheDeleteBeforeAnyVaultCall(
+        string $failingStep,
+        Throwable $failure,
+    ): void {
+        $tools = self::createStub(FlexFormTools::class);
+        if ($failingStep === 'identifier') {
+            $tools->method('getDataStructureIdentifier')->willThrowException($failure);
+        } else {
+            $tools->method('getDataStructureIdentifier')->willReturn('vault-ds');
+        }
+
+        if ($failingStep === 'parse') {
+            $tools->method('parseDataStructureByIdentifier')->willThrowException($failure);
+        } else {
+            $tools->method('parseDataStructureByIdentifier')->willReturn(['sheets' => []]);
+        }
+
+        $this->subject = $this->createSubject(self::createStub(LoggerInterface::class), $tools);
+        $this->vault->expects(self::never())->method('exists');
+        $this->vault->expects(self::never())->method('getMetadata');
+        $this->vault->expects(self::never())->method('assertDeletable');
+        $this->vault->expects(self::never())->method('delete');
+        $row = $failingStep === 'xml'
+            ? ['flex_a' => '<T3FlexForms><data>' . self::FIRST . '</T3FlexForms>']
+            : ['flex_a' => $this->flexXml([self::FIRST])];
+        $cancelled = false;
+        self::assertNull($this->runDeleteRow($row, $cancelled));
+        self::assertTrue(
+            $cancelled,
+            'Unlocatable vault positions must not read as a column without vault positions.',
+        );
+    }
+
     /**
-     * @param array<string, mixed> $record
+     * @return iterable<string, array{string, Throwable}>
+     */
+    public static function unresolvablePositions(): iterable
+    {
+        yield 'identifier lookup refused' => ['identifier', new InvalidIdentifierException('synthetic', 1792483211)];
+        yield 'data structure parse refused' => ['parse', new RuntimeException('synthetic', 1792483212)];
+        yield 'data structure parse error' => ['parse', new Error('synthetic')];
+        yield 'stored XML unparseable' => ['xml', new RuntimeException('unused', 1792483213)];
+    }
+
+    #[Test]
+    public function valueWithoutIdentifiersNeedsNoDataStructure(): void
+    {
+        $tools = $this->createMock(FlexFormTools::class);
+        $tools
+            ->expects(self::never())
+            ->method('getDataStructureIdentifier')
+            ->willThrowException(new InvalidIdentifierException('synthetic', 1792483214));
+        $tools->expects(self::never())->method('parseDataStructureByIdentifier');
+        $this->subject = $this->createSubject(self::createStub(LoggerInterface::class), $tools);
+        $this->vault->expects(self::never())->method('delete');
+        $cancelled = false;
+        self::assertNull(
+            $this->runDeleteRow(
+                ['flex_a' => '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="note"><value index="vDEF">plain</value></field></language></sheet></data></T3FlexForms>'],
+                $cancelled,
+            ),
+        );
+        self::assertFalse(
+            $cancelled,
+            'A record without identifier-shaped values must stay deletable when its data structure is unresolvable.',
+        );
+    }
+
+    /**
+     * Run the hook against a record whose FlexForm columns are given as
+     * space-separated identifiers; each one is stored at its own configured
+     * vaultSecret position, in the given order.
+     *
+     * @param array<string, string> $record
      */
     private function runDelete(array $record, bool &$cancelled): ?Throwable
+    {
+        $row = [];
+        foreach ($record as $column => $identifiers) {
+            $row[$column] = $identifiers === '' ? '' : $this->flexXml(explode(' ', $identifiers));
+        }
+
+        return $this->runDeleteRow($row, $cancelled);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function runDeleteRow(array $row, bool &$cancelled): ?Throwable
     {
         try {
             $this->subject->processCmdmap_deleteAction(
                 self::TABLE,
                 42,
-                $record,
+                $row,
                 $cancelled,
                 $this->dataHandler,
             );
@@ -685,13 +848,45 @@ final class FlexFormDeletePreflightTest extends TestCase
         return null;
     }
 
-    private function createSubject(LoggerInterface $logger): FlexFormVaultHook
+    /**
+     * @param list<string> $identifiers
+     */
+    private function flexXml(array $identifiers): string
+    {
+        $fields = '';
+        foreach ($identifiers as $index => $identifier) {
+            $fields .= '<field index="secret' . $index . '"><value index="vDEF">' . $identifier . '</value></field>';
+        }
+
+        return '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF">' . $fields . '</language></sheet></data></T3FlexForms>';
+    }
+
+    /**
+     * A data structure configuring `secret0` to `secret4` as vault secrets.
+     */
+    private function vaultSecretFlexTools(): FlexFormTools
+    {
+        $elements = [];
+        foreach (range(0, 4) as $index) {
+            $elements['secret' . $index] = ['config' => ['type' => 'input', 'renderType' => 'vaultSecret']];
+        }
+
+        $tools = self::createStub(FlexFormTools::class);
+        $tools->method('getDataStructureIdentifier')->willReturn('vault-ds');
+        $tools->method('parseDataStructureByIdentifier')->willReturn(
+            ['sheets' => ['sDEF' => ['ROOT' => ['el' => $elements]]]],
+        );
+
+        return $tools;
+    }
+
+    private function createSubject(LoggerInterface $logger, ?FlexFormTools $flexFormTools = null): FlexFormVaultHook
     {
         return new FlexFormVaultHook(
             $this->connectionPool,
             $this->tcaSchemaFactory,
             $this->vault,
-            self::createStub(FlexFormTools::class),
+            $flexFormTools ?? $this->vaultSecretFlexTools(),
             self::createStub(FlashMessageService::class),
             new VaultFailureReporter($logger),
             new TranslationSharedSecretResolver(

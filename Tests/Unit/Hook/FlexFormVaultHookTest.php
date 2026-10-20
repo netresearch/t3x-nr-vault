@@ -708,6 +708,7 @@ final class FlexFormVaultHookTest extends TestCase
     #[Test]
     public function deleteActionDeletesVaultSecretsOnHardDelete(): void
     {
+        $this->stubDeleteDataStructure(['settings.apiKey']);
         $this->mockFlexFieldSchema('tx_test', ['pi_flexform']);
 
         $GLOBALS['TCA']['tx_test']['ctrl'] = [];
@@ -794,6 +795,7 @@ final class FlexFormVaultHookTest extends TestCase
     #[Test]
     public function deleteActionLogsVaultExceptionOnDelete(): void
     {
+        $this->stubDeleteDataStructure(['key']);
         $this->mockFlexFieldSchema('tx_test', ['pi_flexform']);
 
         $GLOBALS['TCA']['tx_test']['ctrl'] = [];
@@ -1284,13 +1286,14 @@ final class FlexFormVaultHookTest extends TestCase
         $this->vaultService
             ->method('getMetadata')
             ->willThrowException(SecretNotFoundException::forIdentifier(self::VAULT_UUID));
-        // The FlexFormVaultHook.extractVaultIdentifiersFromXml() uses preg_match_all
-        // on raw XML strings — it never calls simplexml_load_string(), DOMDocument,
-        // or any XML parser. This means libxml entity expansion cannot occur here.
+        // The delete path gates on a preg_match_all() scan of the raw XML; once
+        // it finds an identifier-shaped string it parses the value with
+        // GeneralUtility::xml2arrayProcess() (ext/xml xml_parse_into_struct(),
+        // as the copy path does), never with simplexml_load_string() or
+        // DOMDocument with LIBXML_NOENT.
         //
-        // This test is a REGRESSION GUARD: if a future refactor introduces XML parsing,
-        // it must ensure libxml_disable_entity_loader(true) is set (PHP 8.0+: already
-        // the default when LIBXML_NOENT is NOT passed) or entities are otherwise blocked.
+        // This test is a REGRESSION GUARD: whichever parser the hook uses, the
+        // XXE payload must not reach a vault call.
         //
         // We verify the XXE payload does NOT result in /etc/passwd content appearing
         // in any identifier extracted or vault operation triggered.
@@ -1344,9 +1347,9 @@ final class FlexFormVaultHookTest extends TestCase
             ->method('getMetadata')
             ->willThrowException(SecretNotFoundException::forIdentifier(self::VAULT_UUID));
         // Billion-laughs (XML bomb) via nested entity expansion.
-        // Same rationale as parseFlexFormRejectsXxePayload: the hook uses preg_match_all,
-        // not an XML parser, so entity expansion cannot happen.
-        // This test guards against memory exhaustion if XML parsing is ever introduced.
+        // Same rationale as parseFlexFormRejectsXxePayload: the value reaches
+        // xml2arrayProcess() only after the identifier scan. This test guards
+        // against memory exhaustion through that parse.
 
         $billionLaughsXml = <<<'XML'
             <?xml version="1.0"?>
@@ -1411,6 +1414,7 @@ final class FlexFormVaultHookTest extends TestCase
     #[Test]
     public function deleteActionLogMessageHasExactPrefix(): void
     {
+        $this->stubDeleteDataStructure(['key']);
         $this->mockFlexFieldSchema('tx_test', ['pi_flexform']);
 
         $GLOBALS['TCA']['tx_test']['ctrl'] = [];
@@ -1883,6 +1887,7 @@ final class FlexFormVaultHookTest extends TestCase
     #[Test]
     public function deleteActionWithOnlyOneFlexFieldCallsVaultDeleteOnce(): void
     {
+        $this->stubDeleteDataStructure(['k']);
         $this->mockFlexFieldSchema('tx_single', ['only_flex']);
 
         $GLOBALS['TCA']['tx_single']['ctrl'] = [];
@@ -1916,6 +1921,7 @@ final class FlexFormVaultHookTest extends TestCase
     #[Test]
     public function duplicateIdentifiersInXmlResultInSingleDeleteCall(): void
     {
+        $this->stubDeleteDataStructure(['a', 'b']);
         $this->mockFlexFieldSchema('tx_test', ['pi_flexform']);
 
         $GLOBALS['TCA']['tx_test']['ctrl'] = [];
@@ -1952,6 +1958,7 @@ final class FlexFormVaultHookTest extends TestCase
     #[Test]
     public function deleteActionSkipsNonExistentVaultIdentifiers(): void
     {
+        $this->stubDeleteDataStructure(['k']);
         $this->vaultService
             ->method('getMetadata')
             ->willThrowException(SecretNotFoundException::forIdentifier(self::VAULT_UUID));
@@ -2026,6 +2033,7 @@ final class FlexFormVaultHookTest extends TestCase
     #[Test]
     public function failedFlexSecretDeleteCancelsCoreRecordDeletion(): void
     {
+        $this->stubDeleteDataStructure(['key']);
         $this->mockFlexFieldSchema('tx_test', ['pi_flexform']);
         $GLOBALS['TCA']['tx_test']['ctrl'] = [];
         $xml                               = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . self::VAULT_UUID . '</value></field></language></sheet></data></T3FlexForms>';
@@ -2058,6 +2066,25 @@ final class FlexFormVaultHookTest extends TestCase
     }
 
     // ---- Helper methods ----
+
+    /**
+     * A data structure configuring the given flat elements as vault secrets,
+     * so stored identifiers at those positions are delete candidates.
+     *
+     * @param list<string> $vaultElements
+     */
+    private function stubDeleteDataStructure(array $vaultElements): void
+    {
+        $elements = [];
+        foreach ($vaultElements as $element) {
+            $elements[$element] = ['config' => ['type' => 'input', 'renderType' => 'vaultSecret']];
+        }
+
+        $this->flexFormTools->method('getDataStructureIdentifier')->willReturn('delete-ds');
+        $this->flexFormTools->method('parseDataStructureByIdentifier')->willReturn(
+            ['sheets' => ['sDEF' => ['ROOT' => ['el' => $elements]]]],
+        );
+    }
 
     /**
      * A `tt_content.pi_flexform` data structure with one vault secret element.
