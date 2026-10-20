@@ -1,0 +1,1 @@
+- A failed write of freshly cloned identifiers back to a copied record's regular TCA vault fields now compensates the created secrets and attempts to clear those fields. A failed clearing attempt reports the need for manual review, including when the failure is a PHP error.
