@@ -18,6 +18,7 @@ use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Configuration\SiteSecretNamespaceValidator;
 use Netresearch\NrVault\Crypto\EncryptedData;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Domain\Dto\SecretDetails;
@@ -60,6 +61,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         private VaultHttpClientFactoryInterface $httpClientFactory,
         private ?EventDispatcherInterface $eventDispatcher = null,
         private ?LoggerInterface $logger = null,
+        private ?SiteSecretNamespaceValidator $siteNamespaceValidator = null,
     ) {}
 
     /**
@@ -68,7 +70,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
     public function store(string $identifier, #[SensitiveParameter] string $secret, array $options = []): void
     {
         try {
-            IdentifierValidator::validate($identifier);
+            IdentifierValidator::validateForStorage($identifier);
             if ($secret === '') {
                 throw ValidationException::emptySecret();
             }
@@ -105,6 +107,8 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             if ($existing instanceof Secret && !$isCreation) {
                 $this->assertPolicyChangeGranted($identifier, $options, $existing);
             }
+
+            $this->validateNamespaceWrite($identifier, $existing, $isCreation);
 
             $encrypted = $this->encryptionService->encrypt($secret, $identifier);
             $secretEntity = $this->buildSecretEntity($identifier, $encrypted, $options, $existing);
@@ -293,6 +297,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         }
 
         try {
+            $this->validateNamespaceWrite($identifier, $secret, false);
             $hashBefore = $secret->getValueChecksum();
 
             // Keep the pre-rotation instance for compensating rollback.
@@ -426,7 +431,10 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
     public function list(?string $pattern = null, bool $includeDisabled = false): array
     {
         $filters = ($pattern !== null || $includeDisabled)
-            ? new SecretFilters(prefix: $pattern, includeDisabled: $includeDisabled)
+            ? new SecretFilters(
+                includeDisabled: $includeDisabled,
+                pattern: $pattern,
+            )
             : null;
 
         $allSecrets = $this->adapter->listSecrets($filters);
@@ -434,6 +442,11 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         // Build metadata array for accessible secrets
         $secrets = [];
         foreach ($allSecrets as $secret) {
+            // Older adapters may ignore the optional pattern field; enforce it here.
+            if ($pattern !== null && !$this->matchesIdentifierPattern($secret->getIdentifier(), $pattern)) {
+                continue;
+            }
+
             // Check access
             if (!$this->accessControlService->canRead($secret)) {
                 continue;
@@ -1017,5 +1030,85 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             $secretEntity->getVersion(),
             $this->accessControlService->getCurrentActorUid(),
         ));
+    }
+
+    /**
+     * Protect the authenticated name, and validate site presence only on creation.
+     */
+    private function validateNamespaceWrite(
+        string $identifier,
+        ?Secret $existing,
+        bool $isCreation,
+    ): void {
+        $siteIdentifier = IdentifierValidator::getSiteIdentifier($identifier);
+        $existingSiteIdentifier = $existing instanceof Secret ? IdentifierValidator::getSiteIdentifier($existing->getIdentifier()) : null;
+        if ($siteIdentifier === null && $existingSiteIdentifier === null) {
+            return;
+        }
+
+        if ($existing instanceof Secret && $existing->getIdentifier() !== $identifier) {
+            throw ValidationException::invalidIdentifier(
+                $identifier,
+                'a differently spelled namespace already occupies this identifier; use its unchanged canonical name',
+            );
+        }
+
+        if ($isCreation) {
+            if (!$this->siteNamespaceValidator instanceof SiteSecretNamespaceValidator) {
+                throw ValidationException::invalidIdentifier(
+                    $identifier,
+                    'site validation is unavailable',
+                );
+            }
+
+            $this->siteNamespaceValidator->validateNewIdentifier($identifier);
+        }
+    }
+
+    /**
+     * Enforce the public pattern even when an older adapter ignores the optional
+     * filter field. ASCII case folding preserves case-insensitive SQL LIKE
+     * candidates; a backend may have selected a narrower set already.
+     *
+     * Only a star is special. Byte comparison keeps percent, underscore,
+     * backslash and regex syntax literal without compiling untrusted input.
+     */
+    private function matchesIdentifierPattern(
+        string $identifier,
+        string $pattern,
+    ): bool {
+        if ($pattern === '') {
+            return false;
+        }
+
+        $identifier = strtolower($identifier);
+        $pattern = strtolower($pattern);
+        $identifierLength = \strlen($identifier);
+        $patternLength = \strlen($pattern);
+        $identifierIndex = 0;
+        $patternIndex = 0;
+        $lastStar = null;
+        $retryIndex = 0;
+
+        while ($identifierIndex < $identifierLength) {
+            if ($patternIndex < $patternLength && $pattern[$patternIndex] === '*') {
+                $lastStar = $patternIndex++;
+                $retryIndex = $identifierIndex;
+            } elseif ($patternIndex < $patternLength && $pattern[$patternIndex] === $identifier[$identifierIndex]) {
+                ++$identifierIndex;
+                ++$patternIndex;
+            } elseif ($lastStar !== null) {
+                $patternIndex = $lastStar + 1;
+                $identifierIndex = ++$retryIndex;
+            } else {
+                return false;
+            }
+        }
+
+        while ($patternIndex < $patternLength && $pattern[$patternIndex] === '*') {
+            ++$patternIndex;
+        }
+
+        return $patternIndex === $patternLength;
     }
 }

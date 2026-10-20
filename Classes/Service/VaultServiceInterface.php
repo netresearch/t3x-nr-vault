@@ -27,7 +27,11 @@ interface VaultServiceInterface
     /**
      * Store a secret.
      *
-     * @param string $identifier Unique identifier for the secret
+     * Canonical site:<siteIdentifier>:<friendlyName> namespaces require an exact
+     * configured site only for new values. Existing encrypted namespaces retain
+     * their authenticated identifier after site rename/delete.
+     *
+     * @param string $identifier Friendly name, UUIDv7 or canonical site namespace, at most 255 bytes
      * @param string $secret The secret value to store
      * @param array<string, mixed> $options Optional configuration:
      *                                      - owner: int - BE user UID who owns this secret
@@ -38,7 +42,7 @@ interface VaultServiceInterface
      *                                      - description: string - Human-readable description
      *                                      - scopePid: int - Page ID for multi-site scoping
      *
-     * @throws ValidationException If identifier is invalid
+     * @throws ValidationException If identifier is invalid or a new namespace lacks its exact configured site
      * @throws EncryptionException If encryption fails
      */
     public function store(string $identifier, #[SensitiveParameter] string $secret, array $options = []): void;
@@ -163,15 +167,22 @@ interface VaultServiceInterface
     /**
      * List all accessible secrets with metadata.
      *
-     * @param string|null $pattern Optional pattern to filter identifiers (supports * wildcard)
+     * The pattern matches the whole identifier. Only * is a wildcard (zero or
+     * more characters, at any position); without it the match is exact. SQL %
+     * and _ are literal. null omits filtering and an empty string matches none.
+     * The service compares returned identifiers with ASCII case folding; the
+     * backend's own case rules may already have selected fewer candidates.
+     * The pattern is enforced even when an older adapter ignores its DTO field.
+     *
+     * @param string|null $pattern Optional complete identifier pattern
      * @param bool $includeDisabled Also return secrets that are currently
      *                              disabled. Off by default, so a consumer
      *                              asking "which secrets are available" keeps
      *                              the answer it had; the management surfaces
-     *                              pass `true`, because a disabled secret that
+     *                              pass true, because a disabled secret that
      *                              never appears in a listing cannot be
      *                              re-enabled. Each entry reports its state in
-     *                              `SecretMetadata::$enabled`.
+     *                              SecretMetadata::$enabled.
      *
      * @return list<SecretMetadata>
      */

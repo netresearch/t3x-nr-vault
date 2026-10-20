@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Hook;
 
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Configuration\SiteSecretNamespaceValidator;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\AccessDeniedException;
@@ -264,6 +265,7 @@ final class SecretTcaHook
          * logging the inconsistency in the DataHandler log.
          */
         private readonly ?ConnectionPool $connectionPool = null,
+        private readonly ?SiteSecretNamespaceValidator $siteNamespaceValidator = null,
     ) {}
 
     /**
@@ -1370,28 +1372,36 @@ final class SecretTcaHook
     }
 
     /**
-     * Whether the identifier submitted for a new record is one the vault
-     * accepts, as `IdentifierValidator` defines it — the same rule
-     * `VaultService::store()` applies on the programmatic path.
-     *
-     * The value is judged in its trimmed form because that is what DataHandler
-     * will store (`eval => trim` on the column).
+     * The explicit Vault table creation path accepts storage identifiers.
+     * Generic TCA reference detection keeps its existing friendly/UUID rules.
+     * New namespaces must have a configured site before the blank row is inserted.
      *
      * @param array<string, mixed> $fieldArray
-     *
-     * @return bool True when the creation may proceed
      */
-    private function isIdentifierAcceptable(array $fieldArray, DataHandler $dataHandler): bool
-    {
-        $submitted = \is_string($fieldArray['identifier'] ?? null) ? trim($fieldArray['identifier']) : '';
+    private function isIdentifierAcceptable(
+        array $fieldArray,
+        DataHandler $dataHandler,
+    ): bool {
+        $submitted = \is_string($fieldArray['identifier'] ?? null) ? str_starts_with(trim($fieldArray['identifier']), 'site:') ? $fieldArray['identifier'] : trim($fieldArray['identifier']) : '';
 
-        if (IdentifierValidator::isValid($submitted)) {
+        try {
+            IdentifierValidator::validateForStorage($submitted);
+            if (IdentifierValidator::getSiteIdentifier($submitted) !== null) {
+                if (!$this->siteNamespaceValidator instanceof SiteSecretNamespaceValidator) {
+                    $this->refuseInvalidIdentifier($submitted, $dataHandler);
+
+                    return false;
+                }
+
+                $this->siteNamespaceValidator->validateNewIdentifier($submitted);
+            }
+
             return true;
+        } catch (Throwable) {
+            $this->refuseInvalidIdentifier($submitted, $dataHandler);
+
+            return false;
         }
-
-        $this->refuseInvalidIdentifier($submitted, $dataHandler);
-
-        return false;
     }
 
     /**
@@ -1436,9 +1446,7 @@ final class SecretTcaHook
             1,
             null,
             1,
-            'Vault secret identifier is invalid: it must be a UUIDv7, or start with a letter and '
-            . 'contain only letters, numbers and underscores (3-255 characters) — the record was '
-            . 'not created. Nothing was stored under a corrected identifier.',
+            'Vault secret identifier is invalid or its site is unavailable: use a UUIDv7, a 3-255 character ASCII friendly name, or an exact site:<siteIdentifier>:<friendlyName> namespace naming a configured site. The record was not created; nothing was stored under a corrected identifier.',
         );
     }
 
