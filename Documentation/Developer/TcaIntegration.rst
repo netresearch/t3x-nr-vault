@@ -437,6 +437,13 @@ columns or plain/FlexForm hooks remains separate audit work; this boundary does
 not make every record copy atomic (see
 :ref:`adr-046-flexform-copy-link-compensation`).
 
+For regular TCA vault fields, the same compensation applies if storing the fresh
+identifiers in the copied record fails after the secrets were cloned. Every
+created clone is considered for deletion, and clearing the copied record's
+vault fields is attempted. An
+exception or PHP error during that clearing attempt is reported as a failure
+requiring manual review.
+
 Both cleanup and clearing are best-effort. Successful clearing with failed
 clone deletion can leave an unreferenced clone requiring reconciliation. A
 failed clearing write leaves uncertain references: the duplicate may still
@@ -535,6 +542,15 @@ not re-check this layer. Administrators bypass the restrictions: reveal, copy
 and edit remain allowed, and ``readOnly`` is always false. Non-admin results
 are cached separately by table, field, action and user UID until
 ``VaultFieldPermissionService::clearCache()`` clears that service cache.
+
+All three public field-permission wrappers accept an optional backend-user
+object. Supplying a distinct user evaluates that user's materialized
+``page.*`` overrides and native ``backend.user`` conditions against the same
+page-0 defaults. It leaves the global backend account, other Context aspects
+and Core's ambient Page TSconfig runtime cache untouched. The ordinary widget
+and Hook calls that omit the object retain Core's ambient resolution. This
+argument selects a field policy; it does not log in as that user or grant a
+Vault operation or secret ACL. See :ref:`adr-049-selected-user-field-tsconfig`.
 
 .. _tca-security-audit:
 

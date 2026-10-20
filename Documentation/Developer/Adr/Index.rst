@@ -57,7 +57,7 @@ ADR      Title                                                    Status
 027      :ref:`adr-027-oauth-client-unification`                  Accepted
 028      :ref:`adr-028-phpat-http-client-lock`                    Accepted
 029      :ref:`adr-029-technical-actor-context`                   Accepted
-030      :ref:`adr-030-site-config-vault-read-time-resolution`    Accepted
+030      :ref:`adr-030-site-config-vault-read-time-resolution`    Amended
 031      :ref:`adr-031-shared-secret-pattern-catalogue`           Accepted
 032      :ref:`adr-032-portable-envelope-codec`                   Accepted
 033      :ref:`adr-033-foreign-envelope-rotation`                 Accepted
@@ -70,8 +70,10 @@ ADR      Title                                                    Status
 040      :ref:`adr-040-cancellable-send-bounds-silence`           Accepted
 041      :ref:`adr-041-additional-body-credentials`              Accepted
 042      :ref:`adr-042-identifier-list-patterns`                  Accepted
+043      :ref:`adr-043-site-secret-namespaces`                   Accepted
 044      :ref:`adr-044-signed-oauth-expiry-buffers`              Accepted
 046      :ref:`adr-046-flexform-copy-link-compensation`           Accepted
+049      :ref:`adr-049-selected-user-field-tsconfig`              Accepted
 =======  =======================================================  ========
 
 .. toctree::
@@ -120,5 +122,7 @@ ADR      Title                                                    Status
    ADR-040-CancellableSendBoundsSilence
    ADR-041-AdditionalBodyCredentials
    ADR-042-IdentifierListPatterns
+   ADR-043-SiteSecretNamespaces
    ADR-044-SignedOAuthExpiryBuffers
    ADR-046-FlexFormCopyLinkCompensation
+   ADR-049-SelectedUserFieldTsconfig
