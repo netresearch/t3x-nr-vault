@@ -72,6 +72,7 @@ ADR      Title                                                    Status
 042      :ref:`adr-042-identifier-list-patterns`                  Accepted
 043      :ref:`adr-043-site-secret-namespaces`                   Accepted
 046      :ref:`adr-046-flexform-copy-link-compensation`           Accepted
+047      :ref:`adr-047-hook-diagnostic-containment`               Proposed
 049      :ref:`adr-049-selected-user-field-tsconfig`              Accepted
 =======  =======================================================  ========
 
@@ -123,4 +124,5 @@ ADR      Title                                                    Status
    ADR-042-IdentifierListPatterns
    ADR-043-SiteSecretNamespaces
    ADR-046-FlexFormCopyLinkCompensation
+   ADR-047-HookDiagnosticContainment
    ADR-049-SelectedUserFieldTsconfig
