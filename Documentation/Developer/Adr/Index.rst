@@ -69,6 +69,7 @@ ADR      Title                                                    Status
 039      :ref:`adr-039-streaming-send-keeps-the-dns-pin`          Accepted
 040      :ref:`adr-040-cancellable-send-bounds-silence`           Accepted
 041      :ref:`adr-041-additional-body-credentials`               Accepted
+042      :ref:`adr-042-identifier-list-patterns`                  Accepted
 043      :ref:`adr-043-site-secret-namespaces`                   Accepted
 046      :ref:`adr-046-flexform-copy-link-compensation`           Accepted
 =======  =======================================================  ========
@@ -118,5 +119,6 @@ ADR      Title                                                    Status
    ADR-039-StreamingSendKeepsTheDnsPin
    ADR-040-CancellableSendBoundsSilence
    ADR-041-AdditionalBodyCredentials
+   ADR-042-IdentifierListPatterns
    ADR-043-SiteSecretNamespaces
    ADR-046-FlexFormCopyLinkCompensation

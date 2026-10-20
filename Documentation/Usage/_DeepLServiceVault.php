@@ -9,35 +9,33 @@ declare(strict_types=1);
 
 namespace MyVendor\MyDeeplExtension\Service;
 
-use Netresearch\NrVault\Configuration\VaultReference;
 use Netresearch\NrVault\Http\SecretPlacement;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
-use TYPO3\CMS\Core\Http\RequestFactory;
+use Psr\Http\Message\RequestFactoryInterface;
 
 final class DeepLService
 {
     private const API_URL = 'https://api-free.deepl.com/v2';
 
-    private ?VaultReference $apiKeyRef = null;
+    private string $apiKeyIdentifier;
 
     public function __construct(
         private readonly VaultServiceInterface $vault,
-        private readonly RequestFactory $requestFactory,
-        ExtensionConfiguration $extensionConfiguration,
-    ) {
+        private readonly RequestFactoryInterface $requestFactory,
+        ExtensionConfiguration $extensionConfiguration
+    )
+    {
         $config = $extensionConfiguration->get('my_deepl_extension');
-        $setting = (string) ($config['deeplApiKey'] ?? '');
-
-        // Parse vault reference (validates format, extracts identifier)
-        $this->apiKeyRef = VaultReference::tryParse($setting);
+        // The setting contains the identifier, never the credential.
+        $this->apiKeyIdentifier = (string) ($config['deeplApiKey'] ?? '');
     }
 
     public function translate(string $text, string $targetLang): string
     {
-        if ($this->apiKeyRef === null) {
+        if ($this->apiKeyIdentifier === '') {
             throw new \RuntimeException(
-                'DeepL API key not configured. Enter vault:your-secret-id in extension settings.',
+                'DeepL API key not configured. Enter your secret identifier in extension settings.',
                 1735900000
             );
         }
@@ -54,7 +52,7 @@ final class DeepLService
         // expressed via the Header placement + prefix option.
         $response = $this->vault->http()
             ->withAuthentication(
-                $this->apiKeyRef->identifier,
+                $this->apiKeyIdentifier,
                 SecretPlacement::Header,
                 ['headerName' => 'Authorization', 'prefix' => 'DeepL-Auth-Key '],
             )

@@ -1,0 +1,1 @@
+- **Technical-actor validation has a real deleted-user oracle.** A functional test checks that an enabled account can enter a scope, then soft-deletes that actual row and verifies the precise refusal before its callback runs. It detects a wrong SQL predicate column that the earlier query doubles and live-user fixtures accepted; runtime behavior is unchanged.

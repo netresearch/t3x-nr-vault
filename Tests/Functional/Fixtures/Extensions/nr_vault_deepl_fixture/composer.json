@@ -1,0 +1,9 @@
+{
+    "name": "netresearch/nr-vault-deepl-fixture",
+    "description": "Functional test fixture loading the manual's literal DeepL configuration TCA",
+    "type": "typo3-cms-extension",
+    "version": "1.0.0",
+    "license": "GPL-2.0-or-later",
+    "require": {"netresearch/nr-vault": "*"},
+    "extra": {"typo3/cms": {"extension-key": "nr_vault_deepl_fixture"}}
+}
