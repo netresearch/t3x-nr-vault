@@ -1,0 +1,1 @@
+- OAuth manager regression tests inspect real form requests, selective cache eviction and exact default token metadata. The developer manual now describes cancellation of the uncached token leg on factory-built clients.

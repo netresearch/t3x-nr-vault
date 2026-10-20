@@ -110,10 +110,17 @@ final readonly class TypoScriptVaultListener
             // so one failed resolution cannot silence the next request — or the
             // rest of a long-running CLI process.
             if ($this->placeholderPolicy->claimLogSlot($contentObjectRenderer)) {
-                $this->logger->warning('Failed to resolve vault reference in TypoScript', [
-                    'identifier' => $identifier,
-                    'error' => $e->getMessage(),
-                ]);
+                try {
+                    $this->logger->warning(
+                        'Failed to resolve vault reference in TypoScript',
+                        [
+                            'identifier' => $identifier,
+                            'error' => $e->getMessage(),
+                        ],
+                    );
+                } catch (Throwable) {
+                    // Optional PSR-3 diagnostics must not interrupt placeholder resolution.
+                }
             }
 
             return null;
@@ -138,14 +145,16 @@ final readonly class TypoScriptVaultListener
             return;
         }
 
-        $this->logger->notice(
-            'Vault placeholder not resolved: the identifier is not published for frontend resolution.'
-            . ' Publish it in TypoScript setup, in site configuration, via'
-            . ' plugin.tx_nrvault.frontendResolvableIdentifiers, or via'
-            . ' FrontendPlaceholderPolicyInterface::allowIdentifier(). Further occurrences in this'
-            . ' request are not reported.',
-            ['identifier' => IdentifierValidator::isValid($identifier) ? $identifier : '[invalid]'],
-        );
+        try {
+            $this->logger->notice(
+                'Vault placeholder not resolved: the identifier is not published for frontend resolution.' . ' Publish it in TypoScript setup, in site configuration, via' . ' plugin.tx_nrvault.frontendResolvableIdentifiers, or via' . ' FrontendPlaceholderPolicyInterface::allowIdentifier(). Further occurrences in this' . ' request are not reported.',
+                [
+                    'identifier' => IdentifierValidator::isValid($identifier) ? $identifier : '[invalid]',
+                ],
+            );
+        } catch (Throwable) {
+            // Optional PSR-3 diagnostics must not interrupt placeholder resolution.
+        }
     }
 
     /**
