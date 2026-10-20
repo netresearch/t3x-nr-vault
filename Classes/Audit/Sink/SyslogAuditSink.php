@@ -76,10 +76,9 @@ final readonly class SyslogAuditSink implements AuditSinkInterface
 
     public function isEnabled(): bool
     {
-        // No usability probe beyond the toggle: `openlog()` against a missing
-        // socket does not fail here but at `syslog()` time, which the registry
-        // already reports as a sink failure. Claiming "enabled but unusable"
-        // would need a test write on every isEnabled() call.
+        // This is only the configuration toggle. PHP syslog() returns true
+        // without acknowledging OS or collector delivery, even without a socket.
+        // Delivery must be checked in the collector using the probe's anchor.
         return $this->extensionConfiguration->isAuditSinkSyslogEnabled();
     }
 

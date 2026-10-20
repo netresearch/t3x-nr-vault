@@ -426,7 +426,10 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
     public function list(?string $pattern = null, bool $includeDisabled = false): array
     {
         $filters = ($pattern !== null || $includeDisabled)
-            ? new SecretFilters(prefix: $pattern, includeDisabled: $includeDisabled)
+            ? new SecretFilters(
+                includeDisabled: $includeDisabled,
+                pattern: $pattern,
+            )
             : null;
 
         $allSecrets = $this->adapter->listSecrets($filters);
@@ -434,6 +437,11 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         // Build metadata array for accessible secrets
         $secrets = [];
         foreach ($allSecrets as $secret) {
+            // Older adapters may ignore the optional pattern field; enforce it here.
+            if ($pattern !== null && !$this->matchesIdentifierPattern($secret->getIdentifier(), $pattern)) {
+                continue;
+            }
+
             // Check access
             if (!$this->accessControlService->canRead($secret)) {
                 continue;
@@ -1017,5 +1025,52 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             $secretEntity->getVersion(),
             $this->accessControlService->getCurrentActorUid(),
         ));
+    }
+
+    /**
+     * Enforce the public pattern even when an older adapter ignores the optional
+     * filter field. ASCII case folding preserves case-insensitive SQL LIKE
+     * candidates; a backend may have selected a narrower set already.
+     *
+     * Only a star is special. Byte comparison keeps percent, underscore,
+     * backslash and regex syntax literal without compiling untrusted input.
+     */
+    private function matchesIdentifierPattern(
+        string $identifier,
+        string $pattern,
+    ): bool {
+        if ($pattern === '') {
+            return false;
+        }
+
+        $identifier = strtolower($identifier);
+        $pattern = strtolower($pattern);
+        $identifierLength = \strlen($identifier);
+        $patternLength = \strlen($pattern);
+        $identifierIndex = 0;
+        $patternIndex = 0;
+        $lastStar = null;
+        $retryIndex = 0;
+
+        while ($identifierIndex < $identifierLength) {
+            if ($patternIndex < $patternLength && $pattern[$patternIndex] === '*') {
+                $lastStar = $patternIndex++;
+                $retryIndex = $identifierIndex;
+            } elseif ($patternIndex < $patternLength && $pattern[$patternIndex] === $identifier[$identifierIndex]) {
+                ++$identifierIndex;
+                ++$patternIndex;
+            } elseif ($lastStar !== null) {
+                $patternIndex = $lastStar + 1;
+                $identifierIndex = ++$retryIndex;
+            } else {
+                return false;
+            }
+        }
+
+        while ($patternIndex < $patternLength && $pattern[$patternIndex] === '*') {
+            ++$patternIndex;
+        }
+
+        return $patternIndex === $patternLength;
     }
 }

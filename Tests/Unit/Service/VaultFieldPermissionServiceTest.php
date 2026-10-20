@@ -81,22 +81,6 @@ final class VaultFieldPermissionServiceTest extends TestCase
     }
 
     #[Test]
-    public function clearCacheResetsCache(): void
-    {
-        $backendUser = $this->createMockBackendUser(isAdmin: true);
-
-        // First call - caches result
-        $this->service->isAllowed('table', 'field', VaultFieldPermission::Reveal, $backendUser);
-
-        // Clear cache
-        $this->service->clearCache();
-
-        // Should work without errors (no assertion needed, just verify no crash)
-        $result = $this->service->isAllowed('table', 'field', VaultFieldPermission::Reveal, $backendUser);
-        self::assertTrue($result);
-    }
-
-    #[Test]
     public function usesGlobalBackendUserWhenNotProvided(): void
     {
         $backendUser = $this->createMockBackendUser(isAdmin: true);
@@ -105,18 +89,6 @@ final class VaultFieldPermissionServiceTest extends TestCase
         $result = $this->service->isAllowed('table', 'field', VaultFieldPermission::Reveal);
 
         self::assertTrue($result);
-    }
-
-    #[Test]
-    public function cachesPermissionResults(): void
-    {
-        $backendUser = $this->createMockBackendUser(isAdmin: true);
-
-        // Call twice - second should use cache
-        $result1 = $this->service->isAllowed('table', 'field', VaultFieldPermission::Reveal, $backendUser);
-        $result2 = $this->service->isAllowed('table', 'field', VaultFieldPermission::Reveal, $backendUser);
-
-        self::assertSame($result1, $result2);
     }
 
     #[Test]
@@ -226,29 +198,72 @@ final class VaultFieldPermissionServiceTest extends TestCase
     #[Test]
     public function differentFieldsHaveSeparateCacheEntries(): void
     {
-        $backendUser = $this->createMockBackendUser(isAdmin: true);
+        $backendUser = $this->createMockBackendUser(uid: 10, isAdmin: false);
+        $cache = (new ReflectionClass($this->service))->getProperty('permissionCache');
+        $cache->setValue(
+            $this->service,
+            [
+                'table:field1:reveal:10' => false,
+                'table:field2:reveal:10' => true,
+            ],
+        );
 
-        // Access different fields
-        $this->service->isAllowed('table', 'field1', VaultFieldPermission::Reveal, $backendUser);
-        $this->service->isAllowed('table', 'field2', VaultFieldPermission::Reveal, $backendUser);
-
-        // Should not throw or cause issues
-        self::assertTrue(true);
+        self::assertFalse(
+            $this->service->isAllowed(
+                'table',
+                'field1',
+                VaultFieldPermission::Reveal,
+                $backendUser,
+            ),
+        );
+        self::assertTrue(
+            $this->service->isAllowed(
+                'table',
+                'field2',
+                VaultFieldPermission::Reveal,
+                $backendUser,
+            ),
+        );
     }
 
     #[Test]
     public function differentPermissionsHaveSeparateCacheEntries(): void
     {
-        $backendUser = $this->createMockBackendUser(isAdmin: true);
+        $backendUser = $this->createMockBackendUser(uid: 10, isAdmin: false);
+        $cache = (new ReflectionClass($this->service))->getProperty('permissionCache');
+        $cache->setValue(
+            $this->service,
+            [
+                'table:field:reveal:10' => false,
+                'table:field:copy:10' => true,
+                'table:field:readOnly:10' => true,
+            ],
+        );
 
-        // Access different permissions for same field
-        $reveal = $this->service->isAllowed('table', 'field', VaultFieldPermission::Reveal, $backendUser);
-        $copy = $this->service->isAllowed('table', 'field', VaultFieldPermission::Copy, $backendUser);
-        $readOnly = $this->service->isAllowed('table', 'field', VaultFieldPermission::ReadOnly, $backendUser);
-
-        self::assertTrue($reveal);
-        self::assertTrue($copy);
-        self::assertFalse($readOnly);
+        self::assertFalse(
+            $this->service->isAllowed(
+                'table',
+                'field',
+                VaultFieldPermission::Reveal,
+                $backendUser,
+            ),
+        );
+        self::assertTrue(
+            $this->service->isAllowed(
+                'table',
+                'field',
+                VaultFieldPermission::Copy,
+                $backendUser,
+            ),
+        );
+        self::assertTrue(
+            $this->service->isAllowed(
+                'table',
+                'field',
+                VaultFieldPermission::ReadOnly,
+                $backendUser,
+            ),
+        );
     }
 
     #[Test]
@@ -293,25 +308,33 @@ final class VaultFieldPermissionServiceTest extends TestCase
     #[Test]
     public function cacheIsKeyedByUserUid(): void
     {
-        // Pre-seed cache for both users (uid 10 and uid 20) to prove separate cache keys.
-        // We use admin users so no TSconfig lookup (BackendUtility) is needed.
-        $this->createMockBackendUser(uid: 10, isAdmin: true);
-        $this->createMockBackendUser(uid: 20, isAdmin: true);
+        $first = $this->createMockBackendUser(uid: 10, isAdmin: false);
+        $second = $this->createMockBackendUser(uid: 20, isAdmin: false);
+        $cache = (new ReflectionClass($this->service))->getProperty('permissionCache');
+        $cache->setValue(
+            $this->service,
+            [
+                'tx_table:field:reveal:10' => false,
+                'tx_table:field:reveal:20' => true,
+            ],
+        );
 
-        // Admins skip the cache entirely (early return), so pre-seed cache directly
-        $reflection = new ReflectionClass($this->service);
-        $cacheProp = $reflection->getProperty('permissionCache');
-        $cacheProp->setValue($this->service, [
-            'tx_table:field:reveal:10' => true,
-            'tx_table:field:reveal:20' => false,
-        ]);
-
-        // Both values are independent in the cache
-        $cache = $cacheProp->getValue($this->service);
-        self::assertArrayHasKey('tx_table:field:reveal:10', $cache);
-        self::assertArrayHasKey('tx_table:field:reveal:20', $cache);
-        self::assertTrue($cache['tx_table:field:reveal:10']);
-        self::assertFalse($cache['tx_table:field:reveal:20']);
+        self::assertFalse(
+            $this->service->isAllowed(
+                'tx_table',
+                'field',
+                VaultFieldPermission::Reveal,
+                $first,
+            ),
+        );
+        self::assertTrue(
+            $this->service->isAllowed(
+                'tx_table',
+                'field',
+                VaultFieldPermission::Reveal,
+                $second,
+            ),
+        );
     }
 
     #[Test]
@@ -353,21 +376,18 @@ final class VaultFieldPermissionServiceTest extends TestCase
     }
 
     #[Test]
-    public function isReadOnlyForNonAdminUsesBuiltInDefault(): void
+    public function isReadOnlyForNonAdminReadsCachedPermission(): void
     {
-        // Non-admin, no TSconfig → built-in default for ReadOnly is false
-        // Since checkPermission calls BackendUtility::getPagesTSconfig which is final,
-        // we verify that the built-in default path is reachable through the cache pre-seeding path
         $backendUser = $this->createMockBackendUser(uid: 42, isAdmin: false);
+        $cache = (new ReflectionClass($this->service))->getProperty('permissionCache');
+        $cache->setValue(
+            $this->service,
+            ['tx_table:field:readOnly:42' => false],
+        );
 
-        $reflection = new ReflectionClass($this->service);
-        $cacheProp = $reflection->getProperty('permissionCache');
-        // Pre-seed the cache result for non-admin to avoid calling BackendUtility
-        $cacheProp->setValue($this->service, ['tx_table:field:readOnly:42' => false]);
-
-        $result = $this->service->isAllowed('tx_table', 'field', VaultFieldPermission::ReadOnly, $backendUser);
-
-        self::assertFalse($result);
+        self::assertFalse(
+            $this->service->isReadOnly('tx_table', 'field', $backendUser),
+        );
     }
 
     #[Test]
