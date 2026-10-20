@@ -30,6 +30,8 @@ import {
  * - TCA-001: FormEngine can render the edit form without errors
  * - TCA-002: Group fields (owner_uid, allowed_groups, scope_pid) render correctly
  * - TCA-003: FormEngine can save changes without errors
+ * - TCA-005: Fields filled through the shared helpers reach the saved record
+ *   even when FormEngine initialises late
  */
 
 // Generate unique identifier for test isolation
@@ -321,6 +323,50 @@ test.describe('TYPO3 FormEngine/TCA Integration', () => {
       await expect(frame.locator('text=Audit logging failed')).not.toBeVisible();
       await expect(page.locator('text=Audit logging failed')).not.toBeVisible();
       await expect(frame.locator('text=Oops, an error occurred')).not.toBeVisible();
+    });
+  });
+
+  test.describe('TCA-005: Fields Filled Before FormEngine Initialises', () => {
+    test('a slow FormEngine still posts the identifier the spec typed', async ({ authenticatedPage: page }) => {
+      // Regression test for https://github.com/netresearch/t3x-nr-vault/issues/470:
+      // the identifier was filled and blurred before FormEngine had bound the
+      // listener that copies it into the hidden field, so the save posted an
+      // empty identifier and no record was created. Delaying FormEngine's
+      // validation module widens that window from a few milliseconds to
+      // seconds, so the shared helpers must wait for FormEngine's own
+      // initialised marker for this to pass at all.
+      //
+      // The form is opened from the list's "Create Secret" button rather than
+      // by `page.goto()`: a goto waits for the load event, and while the
+      // delayed module is still loading that event waits with it, which closes
+      // the window this test needs open. A navigation inside the module frame
+      // is awaited by the helpers alone -- the shape in which the race hit CI.
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      await page.route('**/JavaScript/form-engine-validation.js*', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await route.continue();
+      });
+
+      const testIdentifier = generateTestId();
+      await clickAndWaitForModule(page, () =>
+        getModuleFrame(page).getByRole('button', { name: 'Create Secret' }).click(),
+      );
+
+      const frame = getModuleFrame(page);
+      await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
+      await frame.locator('input[data-vault-is-new="1"]').first().fill('slow-formengine-secret');
+
+      const posted = page.waitForRequest(
+        (request) => request.method() === 'POST' && request.url().includes('/typo3/record/edit'),
+        { timeout: 20000 },
+      );
+      await saveRecord(page, frame);
+      const body = (await posted).postData() ?? '';
+      const field = body.match(/name="data\[tx_nrvault_secret\]\[[^\]]+\]\[identifier\]"\r\n\r\n([^\r\n]*)/);
+      expect(field?.[1], 'identifier posted by the save').toBe(testIdentifier);
+
+      await deleteSecretIfPresent(page, testIdentifier);
     });
   });
 });
