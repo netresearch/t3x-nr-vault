@@ -42,26 +42,26 @@ use Netresearch\NrVault\Controller\SecretsController;
  * granular permissions unusable for non-admins.
  */
 $indexAction = '::indexAction';
-$helpAction = '::helpAction';
+$helpAction  = '::helpAction';
 
 return [
     // Parent module - custom overview with usage information
     // dependsOnSubmodules: true enables the submodule dropdown in DocHeader
     // showSubmoduleOverview: true prevents redirect to last-used submodule
     'admin_vault' => [
-        'parent' => 'tools',
-        'position' => ['after' => 'admin_sites'],
-        'access' => 'user',
-        'workspaces' => 'live',
-        'path' => '/module/admin/vault',
-        'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/overview.xlf',
+        'parent'         => 'tools',
+        'position'       => ['after' => 'admin_sites'],
+        'access'         => 'user',
+        'workspaces'     => 'live',
+        'path'           => '/module/admin/vault',
+        'labels'         => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/overview.xlf',
         'iconIdentifier' => 'module-vault',
-        'appearance' => [
+        'appearance'     => [
             'dependsOnSubmodules' => true,
         ],
         // v14+: Show overview page for parent module
         'showSubmoduleOverview' => true,
-        'routes' => [
+        'routes'                => [
             '_default' => [
                 'target' => OverviewController::class . $indexAction,
             ],
@@ -76,14 +76,14 @@ return [
     // This ensures the overview page is shown instead of secrets.
     // In v14, showSubmoduleOverview on the parent handles this natively.
     'admin_vault_overview' => [
-        'parent' => 'admin_vault',
-        'position' => ['before' => '*'],
-        'access' => 'user',
-        'workspaces' => 'live',
-        'path' => '/module/admin/vault/overview',
-        'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/overview_submodule.xlf',
+        'parent'         => 'admin_vault',
+        'position'       => ['before' => '*'],
+        'access'         => 'user',
+        'workspaces'     => 'live',
+        'path'           => '/module/admin/vault/overview',
+        'labels'         => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/overview_submodule.xlf',
         'iconIdentifier' => 'module-vault',
-        'routes' => [
+        'routes'         => [
             '_default' => [
                 'target' => OverviewController::class . $indexAction,
             ],
@@ -95,13 +95,13 @@ return [
 
     // Secrets submodule
     'admin_vault_secrets' => [
-        'parent' => 'admin_vault',
-        'access' => 'user',
-        'workspaces' => 'live',
-        'path' => '/module/admin/vault/secrets',
-        'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/secrets.xlf',
+        'parent'         => 'admin_vault',
+        'access'         => 'user',
+        'workspaces'     => 'live',
+        'path'           => '/module/admin/vault/secrets',
+        'labels'         => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/secrets.xlf',
         'iconIdentifier' => 'module-vault-secrets',
-        'routes' => [
+        'routes'         => [
             '_default' => [
                 'target' => SecretsController::class . '::listAction',
             ],
@@ -112,11 +112,11 @@ return [
                 'target' => SecretsController::class . '::editAction',
             ],
             'toggle' => [
-                'target' => SecretsController::class . '::toggleAction',
+                'target'  => SecretsController::class . '::toggleAction',
                 'methods' => ['POST'],
             ],
             'delete' => [
-                'target' => SecretsController::class . '::deleteAction',
+                'target'  => SecretsController::class . '::deleteAction',
                 'methods' => ['POST'],
             ],
         ],
@@ -124,13 +124,13 @@ return [
 
     // Analytics submodule
     'admin_vault_analytics' => [
-        'parent' => 'admin_vault',
-        'access' => 'user',
-        'workspaces' => 'live',
-        'path' => '/module/admin/vault/analytics',
-        'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/analytics.xlf',
+        'parent'         => 'admin_vault',
+        'access'         => 'user',
+        'workspaces'     => 'live',
+        'path'           => '/module/admin/vault/analytics',
+        'labels'         => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/analytics.xlf',
         'iconIdentifier' => 'module-vault-analytics',
-        'routes' => [
+        'routes'         => [
             '_default' => [
                 'target' => AnalyticsController::class . $indexAction,
             ],
@@ -139,13 +139,13 @@ return [
 
     // Audit submodule
     'admin_vault_audit' => [
-        'parent' => 'admin_vault',
-        'access' => 'user',
-        'workspaces' => 'live',
-        'path' => '/module/admin/vault/audit',
-        'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/audit.xlf',
+        'parent'         => 'admin_vault',
+        'access'         => 'user',
+        'workspaces'     => 'live',
+        'path'           => '/module/admin/vault/audit',
+        'labels'         => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/audit.xlf',
         'iconIdentifier' => 'module-vault-audit',
-        'routes' => [
+        'routes'         => [
             '_default' => [
                 'target' => AuditController::class . '::listAction',
             ],
@@ -161,13 +161,13 @@ return [
     // Migration wizard submodule
     // Uses handleRequest pattern like TYPO3 core - dispatches based on ?action= query param
     'admin_vault_migration' => [
-        'parent' => 'admin_vault',
-        'access' => 'user',
-        'workspaces' => 'live',
-        'path' => '/module/admin/vault/migration',
-        'labels' => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/migration.xlf',
+        'parent'         => 'admin_vault',
+        'access'         => 'user',
+        'workspaces'     => 'live',
+        'path'           => '/module/admin/vault/migration',
+        'labels'         => 'LLL:EXT:nr_vault/Resources/Private/Language/Modules/migration.xlf',
         'iconIdentifier' => 'module-vault-migration',
-        'routes' => [
+        'routes'         => [
             '_default' => [
                 'target' => MigrationController::class . '::handleRequest',
             ],

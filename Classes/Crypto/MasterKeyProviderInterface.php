@@ -34,9 +34,9 @@ interface MasterKeyProviderInterface
     /**
      * Get the master key.
      *
-     * @throws MasterKeyException If key cannot be retrieved
-     *
      * @return string 32-byte master key
+     *
+     * @throws MasterKeyException If key cannot be retrieved
      */
     public function getMasterKey(): string;
 

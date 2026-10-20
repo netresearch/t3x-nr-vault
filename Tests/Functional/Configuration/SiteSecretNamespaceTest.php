@@ -1,9 +1,10 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Configuration;
@@ -47,14 +48,14 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function publicCreationResolvesDifferentValuesForTwoSitesAndPreservesReadAudit(): void
     {
-        $main = $this->configureSite('main', 1);
-        $other = $this->configureSite('other', 2);
+        $main    = $this->configureSite('main', 1);
+        $other   = $this->configureSite('other', 2);
         $service = $this->get(VaultServiceInterface::class);
         $service->store('payment_key', 'synthetic-global');
         $this->storeCanonical('site:main:payment_key', 'synthetic-main');
         $this->storeCanonical('site:other:payment_key', 'synthetic-other');
         $processor = new SiteConfigurationVaultProcessor($service, new NullLogger());
-        $config = ['key' => '%vault(payment_key)%'];
+        $config    = ['key' => '%vault(payment_key)%'];
         self::assertSame(
             ['key' => 'synthetic-main'],
             $processor->processConfiguration($config, $main),
@@ -94,7 +95,7 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
             $tester->execute(
                 [
                     'identifier' => 'site:main:cli_key',
-                    '--value' => 'synthetic-cli',
+                    '--value'    => 'synthetic-cli',
                 ],
             ),
         );
@@ -115,8 +116,8 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
             [
                 'tx_nrvault_secret' => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => 'site:main:backend_key',
+                        'pid'          => 0,
+                        'identifier'   => 'site:main:backend_key',
                         'secret_input' => 'synthetic-backend',
                     ],
                 ],
@@ -166,8 +167,8 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
             [
                 'tx_nrvault_secret' => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => 'site:missing:api_key',
+                        'pid'          => 0,
+                        'identifier'   => 'site:missing:api_key',
                         'secret_input' => 'must-not-be-stored',
                     ],
                 ],
@@ -199,7 +200,7 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
     public function presentUnusableSiteCredentialNeverFallsBackToReadableGlobal(
         string $failure,
     ): void {
-        $main = $this->configureSite('main', 1);
+        $main    = $this->configureSite('main', 1);
         $service = $this->get(VaultServiceInterface::class);
         $service->store('payment_key', 'synthetic-global', ['groups' => [10]]);
         $this->seedExistingNamespace(
@@ -229,7 +230,7 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
             'The global credential is independently readable.',
         );
         $processor = new SiteConfigurationVaultProcessor($service, new NullLogger());
-        $config = ['key' => '%vault(payment_key)%'];
+        $config    = ['key' => '%vault(payment_key)%'];
         self::assertSame(
             $config,
             $processor->processConfiguration($config, $main),
@@ -250,7 +251,7 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function actuallyMissingSiteCredentialFallsBackToGlobal(): void
     {
-        $main = $this->configureSite('main', 1);
+        $main    = $this->configureSite('main', 1);
         $service = $this->get(VaultServiceInterface::class);
         $service->store('payment_key', 'synthetic-global');
 
@@ -309,7 +310,7 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
         $service = $this->get(VaultServiceInterface::class);
         $this->storeCanonical('site:main:api_key', 'synthetic-original');
         $connection = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret');
-        $alias = $this
+        $alias      = $this
             ->get(VaultAdapterInterface::class)
             ->retrieveIncludingDisabled('site:Main:api_key');
         if (getenv('typo3DatabaseDriver') === 'mysqli') {
@@ -386,13 +387,13 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
             'Synthetic custody test',
         );
         $outputFile = $this->instancePath . '/site-credential-export.txt';
-        $tester = new CommandTester($this->get(VaultRetrieveCommand::class));
+        $tester     = new CommandTester($this->get(VaultRetrieveCommand::class));
         self::assertSame(
             0,
             $tester->execute(
                 [
                     'identifier' => 'site:main:payment_key',
-                    '--output' => $outputFile,
+                    '--output'   => $outputFile,
                 ],
             ),
         );
@@ -429,7 +430,7 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
     {
         $this->configureSite('main', 1);
         $this->storeCanonical('site:main:api_key', 'synthetic-site-body-value');
-        $resolver = new class () implements DnsResolverInterface {
+        $resolver = new class implements DnsResolverInterface {
             public function resolve(string $host): array
             {
                 return [['ip' => '203.0.113.10']];
@@ -443,7 +444,7 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
                 static function (RequestInterface $request): Response {
                     self::assertSame(
                         [
-                            'public' => 'kept',
+                            'public'        => 'kept',
                             'subject_token' => 'synthetic-site-body-value',
                         ],
                         json_decode(
@@ -508,8 +509,8 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
             [
                 'tx_nrvault_secret' => [
                     'NEW1' => [
-                        'pid' => 0,
-                        'identifier' => $identifier,
+                        'pid'          => 0,
+                        'identifier'   => $identifier,
                         'secret_input' => 'must-not-be-stored',
                     ],
                 ],
@@ -527,8 +528,8 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function accessToOneSiteCredentialDoesNotGrantTheOtherSitesSameNamedCredential(): void
     {
-        $main = $this->configureSite('main', 1);
-        $other = $this->configureSite('other', 2);
+        $main    = $this->configureSite('main', 1);
+        $other   = $this->configureSite('other', 2);
         $service = $this->get(VaultServiceInterface::class);
         $service->store('payment_key', 'synthetic-global', ['groups' => [10]]);
         $service->store(
@@ -539,7 +540,7 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
         $service->store('site:other:payment_key', 'synthetic-other');
         $this->setUpBackendUser(3);
         $processor = new SiteConfigurationVaultProcessor($service, new NullLogger());
-        $config = ['key' => '%vault(payment_key)%'];
+        $config    = ['key' => '%vault(payment_key)%'];
         self::assertSame(
             ['key' => 'synthetic-main'],
             $processor->processConfiguration($config, $main),
@@ -598,15 +599,15 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
         file_put_contents(
             $path . '/config.yaml',
             'rootPageId: ' . $rootPageId . "\n" . <<<'YAML'
-            base: /
-            languages:
-              - title: English
-                enabled: true
-                languageId: 0
                 base: /
-                locale: en_US.UTF-8
-                flag: us
-            YAML
+                languages:
+                  - title: English
+                    enabled: true
+                    languageId: 0
+                    base: /
+                    locale: en_US.UTF-8
+                    flag: us
+                YAML,
         );
         $finder = $this->get(SiteFinder::class);
         $finder->getAllSites(false);
@@ -674,8 +675,8 @@ final class SiteSecretNamespaceTest extends AbstractVaultFunctionalTestCase
                 'tx_nrvault_audit_log',
                 [
                     'secret_identifier' => $identifier,
-                    'action' => $action,
-                    'success' => (int) $success,
+                    'action'            => $action,
+                    'success'           => (int) $success,
                 ],
             );
     }

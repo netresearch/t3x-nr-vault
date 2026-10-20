@@ -16,6 +16,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+use function count;
+use function strlen;
+
 #[CoversClass(IdentifierValidator::class)]
 final class IdentifierValidatorTest extends TestCase
 {
@@ -97,12 +100,12 @@ final class IdentifierValidatorTest extends TestCase
     public static function invalidCharactersProvider(): array
     {
         return [
-            'hyphen' => ['api-key'],
-            'space' => ['api key'],
-            'dot' => ['api.key'],
+            'hyphen'        => ['api-key'],
+            'space'         => ['api key'],
+            'dot'           => ['api.key'],
             'special chars' => ['api@key'],
-            'unicode' => ['apiKeyäöü'],
-            'slash' => ['api/key'],
+            'unicode'       => ['apiKeyäöü'],
+            'slash'         => ['api/key'],
         ];
     }
 
@@ -142,9 +145,9 @@ final class IdentifierValidatorTest extends TestCase
     public function sanitizeTruncatesToMaxLength(): void
     {
         $longIdentifier = str_repeat('a', 300);
-        $result = IdentifierValidator::sanitize($longIdentifier);
+        $result         = IdentifierValidator::sanitize($longIdentifier);
 
-        self::assertEquals(255, \strlen($result));
+        self::assertEquals(255, strlen($result));
     }
 
     #[Test]
@@ -224,7 +227,7 @@ final class IdentifierValidatorTest extends TestCase
         // Collect nibble characters into a list (not array keys — numeric-string
         // keys like '8'/'9' would silently cast to int and break the compare).
         $variants = [];
-        for ($i = 0; $i < 500; $i++) {
+        for ($i = 0; $i < 500; ++$i) {
             $variants[] = IdentifierValidator::generateUuid()[19];
         }
 
@@ -351,11 +354,11 @@ final class IdentifierValidatorTest extends TestCase
     #[Test]
     public function validateMaxLengthBoundaryIsExactly255(): void
     {
-        $at = 'a' . str_repeat('b', 254); // length 255
+        $at   = 'a' . str_repeat('b', 254); // length 255
         $over = 'a' . str_repeat('b', 255); // length 256
 
-        self::assertSame(255, \strlen($at));
-        self::assertSame(256, \strlen($over));
+        self::assertSame(255, strlen($at));
+        self::assertSame(256, strlen($over));
 
         // At boundary: must pass.
         IdentifierValidator::validate($at);
@@ -382,11 +385,11 @@ final class IdentifierValidatorTest extends TestCase
     #[Test]
     public function generateUuidStructuralInvariantsOver200Samples(): void
     {
-        for ($i = 0; $i < 200; $i++) {
+        for ($i = 0; $i < 200; ++$i) {
             $uuid = IdentifierValidator::generateUuid();
 
             // Exact length is always 36 (8+4+4+4+12 + 4 hyphens).
-            self::assertSame(36, \strlen($uuid), "UUID must be exactly 36 chars, got: {$uuid}");
+            self::assertSame(36, strlen($uuid), "UUID must be exactly 36 chars, got: {$uuid}");
 
             // Hyphens are at positions 8, 13, 18, 23 — all four must be exactly '-'.
             self::assertSame('-', $uuid[8], "Hyphen at pos 8 missing in: {$uuid}");
@@ -407,7 +410,7 @@ final class IdentifierValidatorTest extends TestCase
 
             // All non-hyphen chars must be lowercase hex.
             $stripped = str_replace('-', '', $uuid);
-            self::assertSame(32, \strlen($stripped));
+            self::assertSame(32, strlen($stripped));
             self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $stripped, "Invalid hex in: {$uuid}");
         }
     }
@@ -422,7 +425,7 @@ final class IdentifierValidatorTest extends TestCase
     public function generateUuidTimestampIsMonotonicallyNonDecreasing(): void
     {
         $uuids = [];
-        for ($i = 0; $i < 50; $i++) {
+        for ($i = 0; $i < 50; ++$i) {
             $uuids[] = IdentifierValidator::generateUuid();
             // Small delay to ensure the millisecond clock can tick sometimes.
             usleep(100);
@@ -432,7 +435,7 @@ final class IdentifierValidatorTest extends TestCase
         foreach ($uuids as $uuid) {
             // Extract 48-bit timestamp from first 12 hex chars (after stripping hyphens).
             $hex = substr($uuid, 0, 8) . substr($uuid, 9, 4);
-            self::assertSame(12, \strlen($hex));
+            self::assertSame(12, strlen($hex));
             $ts = hexdec($hex);
 
             self::assertGreaterThanOrEqual(
@@ -452,11 +455,11 @@ final class IdentifierValidatorTest extends TestCase
     public function generateUuidTimestampReflectsCurrentWallClock(): void
     {
         $beforeMs = (int) (microtime(true) * 1000);
-        $uuid = IdentifierValidator::generateUuid();
-        $afterMs = (int) (microtime(true) * 1000);
+        $uuid     = IdentifierValidator::generateUuid();
+        $afterMs  = (int) (microtime(true) * 1000);
 
         // Extract the 48-bit timestamp.
-        $hex = substr($uuid, 0, 8) . substr($uuid, 9, 4);
+        $hex       = substr($uuid, 0, 8) . substr($uuid, 9, 4);
         $timestamp = (int) hexdec($hex);
 
         // The UUID timestamp must fall within [before, after] (with 5s tolerance).
@@ -475,14 +478,14 @@ final class IdentifierValidatorTest extends TestCase
     public function generateUuidIsStableAcross1000Calls(): void
     {
         $uuids = [];
-        for ($i = 0; $i < 1000; $i++) {
+        for ($i = 0; $i < 1000; ++$i) {
             $uuid = IdentifierValidator::generateUuid();
-            self::assertSame(36, \strlen($uuid));
+            self::assertSame(36, strlen($uuid));
             $uuids[] = $uuid;
         }
 
         // All 1000 UUIDs should be unique.
-        self::assertSame(1000, \count(array_unique($uuids)));
+        self::assertSame(1000, count(array_unique($uuids)));
     }
 
     #[Test]
@@ -533,7 +536,7 @@ final class IdentifierValidatorTest extends TestCase
         // When input is shorter than MIN_LENGTH, padded up. Trim happens first
         // but starts-with-number prepends 'secret_' — 'ab' is alpha so it just pads.
         // Expected: length is at least MIN_LENGTH (3).
-        self::assertGreaterThanOrEqual(3, \strlen($result));
+        self::assertGreaterThanOrEqual(3, strlen($result));
     }
 
     /**
@@ -542,16 +545,16 @@ final class IdentifierValidatorTest extends TestCase
     #[Test]
     public function sanitizeTruncatesExactlyAtMaxLength(): void
     {
-        $input = str_repeat('a', 1000);
+        $input  = str_repeat('a', 1000);
         $result = IdentifierValidator::sanitize($input);
 
-        self::assertSame(255, \strlen($result));
+        self::assertSame(255, strlen($result));
     }
 
     #[Test]
     public function sanitizeProducesLengthEqualToInputWhenMidRange(): void
     {
-        $input = 'abc_def_ghi';
+        $input  = 'abc_def_ghi';
         $result = IdentifierValidator::sanitize($input);
 
         // Kills Increment/Decrement on MIN_LENGTH / MAX_LENGTH comparisons.
@@ -657,11 +660,11 @@ final class IdentifierValidatorTest extends TestCase
         $uuid = IdentifierValidator::generateUuid();
 
         // First segment (8 hex) + second segment (4 hex) = 12 hex chars of timestamp.
-        $first = substr($uuid, 0, 8);
+        $first  = substr($uuid, 0, 8);
         $second = substr($uuid, 9, 4);
 
-        self::assertSame(8, \strlen($first));
-        self::assertSame(4, \strlen($second));
+        self::assertSame(8, strlen($first));
+        self::assertSame(4, strlen($second));
         self::assertMatchesRegularExpression('/^[0-9a-f]{8}$/', $first);
         self::assertMatchesRegularExpression('/^[0-9a-f]{4}$/', $second);
     }
@@ -708,7 +711,7 @@ final class IdentifierValidatorTest extends TestCase
         $result = IdentifierValidator::sanitize('ab');
 
         // 2-char input cannot become a 2-char output after padding.
-        self::assertGreaterThanOrEqual(3, \strlen($result));
+        self::assertGreaterThanOrEqual(3, strlen($result));
     }
 
     /**
@@ -720,7 +723,7 @@ final class IdentifierValidatorTest extends TestCase
         $result = IdentifierValidator::sanitize('abc');
 
         self::assertSame('abc', $result);
-        self::assertSame(3, \strlen($result));
+        self::assertSame(3, strlen($result));
     }
 
     /**
@@ -731,11 +734,11 @@ final class IdentifierValidatorTest extends TestCase
     public function sanitizeExactlyAtMaxLengthDoesNotTruncate(): void
     {
         $input = 'a' . str_repeat('b', 254); // length 255
-        self::assertSame(255, \strlen($input));
+        self::assertSame(255, strlen($input));
 
         $result = IdentifierValidator::sanitize($input);
 
-        self::assertSame(255, \strlen($result));
+        self::assertSame(255, strlen($result));
     }
 
     /**
@@ -745,11 +748,11 @@ final class IdentifierValidatorTest extends TestCase
     public function sanitizeTruncationStartsFromZeroOffset(): void
     {
         // Input of 300 'a' characters — no substitution needed, just length.
-        $input = str_repeat('a', 300);
+        $input  = str_repeat('a', 300);
         $result = IdentifierValidator::sanitize($input);
 
         // Exactly MAX_LENGTH=255 a's starting at offset 0.
-        self::assertSame(255, \strlen($result));
+        self::assertSame(255, strlen($result));
         self::assertSame(str_repeat('a', 255), $result);
     }
 
@@ -762,7 +765,7 @@ final class IdentifierValidatorTest extends TestCase
     public function sanitizeTruncationPreservesFirstCharacter(): void
     {
         // Craft an input where first char is unique.
-        $input = 'z' . str_repeat('a', 300);
+        $input  = 'z' . str_repeat('a', 300);
         $result = IdentifierValidator::sanitize($input);
 
         // z must remain as first char — with offset=1 it would be 'a'.

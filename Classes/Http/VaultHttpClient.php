@@ -1,12 +1,10 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Http;
@@ -32,6 +30,15 @@ use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Throwable;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+
+use function array_key_exists;
+use function assert;
+use function count;
+use function function_exists;
+use function is_array;
+use function is_string;
+use function sprintf;
+use function strlen;
 
 /**
  * PSR-18 HTTP client that injects vault secrets as authentication.
@@ -235,74 +242,74 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
     private SecureHttpClientFactory $secureHttpClientFactory;
 
     /**
-     * @param VaultServiceInterface $vaultService Vault for secret retrieval
-     * @param AuditLogServiceInterface $auditLogService Audit logging
-     * @param ClientInterface|null $innerClient Underlying PSR-18 client
-     * @param string|null $secretIdentifier Configured secret identifier
-     * @param SecretPlacement|null $placement Configured placement type
-     * @param OAuthConfig|null $oauthConfig Configured OAuth config
-     * @param string|null $headerName Custom header name for Header placement
-     * @param string|null $queryParam Custom query param for QueryParam placement
-     * @param string|null $bodyField Custom body field for BodyField placement
-     * @param string|null $usernameSecretIdentifier Username secret for BasicAuth
-     * @param string $reason Audit log reason
-     * @param OAuthTokenManager|null $oauthManager Reusable token manager
-     *                                             carrying the token cache across `with*()` clones. When null, the
-     *                                             constructor builds a fresh one bound to the inner client. The
-     *                                             `with*()` methods MUST forward the existing instance so a single
-     *                                             fluent chain (e.g. `$vault->http()->withOAuth($cfg)->sendRequest()`)
-     *                                             hits the IdP at most once per token lifetime instead of once per
-     *                                             clone. Trailing position (after `$reason`) preserves positional BC
-     *                                             for callers built against the pre-PR signature.
-     * @param SecureHttpClientFactory|null $secureHttpClientFactory Factory
-     *                                                              used for (a) building the inner client when none is injected and
-     *                                                              (b) the `isHostAllowed()` gate the OAuth manager applies to its
-     *                                                              token endpoint. When null, `GeneralUtility::makeInstance()` resolves
-     *                                                              it from the DI container. Trailing position preserves positional BC.
-     * @param string|null $authPrefix Optional scheme/prefix prepended to the secret for Header
-     *                                placement (e.g. "Key " → "Authorization: Key <secret>").
-     *                                Logically a Header-placement option, but placed last in the
-     *                                signature to preserve positional BC for pre-PR callers.
-     * @param int|null $timeoutSeconds The `withTimeout()` override, remembered so a
-     *                                 cancellable transport built later honours it.
-     *                                 `withTimeout()` bakes the override into the inner
-     *                                 client; without remembering the value, a transport
-     *                                 built on demand would silently fall back to the
-     *                                 platform timeout.
-     * @param CancellableTransport|null $cancellableTransport Explicit transport for
-     *                                                        `sendCancellable()`. Normally null:
-     *                                                        the transport is built on demand,
-     *                                                        so the common case (a client that
-     *                                                        only ever calls `sendRequest()`)
-     *                                                        pays nothing.
-     *                                                        `@internal` test seam — it is how
-     *                                                        the suite drives the tick loop
-     *                                                        deterministically, and it is only
-     *                                                        honoured when the inner client is
-     *                                                        factory-built, so it can never
-     *                                                        displace a client a caller supplied.
-     *                                                        Trailing position preserves
-     *                                                        positional BC.
-     * @param self|null $clonedFrom The instance whose inner client is being forwarded,
-     *                              passed by the `with*()` clones and by nothing else.
-     *                              It exists so `$innerClientIsFactoryBuilt` cannot be
-     *                              ASSERTED by a caller: the fact is inherited only when
-     *                              the forwarded client is the very object a factory-built
-     *                              instance holds, which requires already holding such an
-     *                              instance. A caller who passes their own client cannot
-     *                              reach that branch — see
-     *                              `VaultHttpClientCancellableTest::aCallerCannotAssertTheFactoryBuiltFactByCloningFromAnotherInstance()`
-     *                              — so "a supplied client is never replaced by a
-     *                              transport" holds by construction rather than by
-     *                              discipline, with the one documented exception of
-     *                              `withTimeout()`, which rebuilds the client outright.
-     *                              So does the equal-timeout property,
-     *                              because the only instance that can be cloned from is one
-     *                              whose client was built with its own `$timeoutSeconds`.
-     *                              Typing it as the class is what makes it unforgeable and
-     *                              also why `Services.yaml` pins it to null: autowiring
-     *                              would read it as a dependency of this service on itself.
-     * @param array<string,string> $additionalBodyFields Additional Vault body bindings.
+     * @param VaultServiceInterface        $vaultService             Vault for secret retrieval
+     * @param AuditLogServiceInterface     $auditLogService          Audit logging
+     * @param ClientInterface|null         $innerClient              Underlying PSR-18 client
+     * @param string|null                  $secretIdentifier         Configured secret identifier
+     * @param SecretPlacement|null         $placement                Configured placement type
+     * @param OAuthConfig|null             $oauthConfig              Configured OAuth config
+     * @param string|null                  $headerName               Custom header name for Header placement
+     * @param string|null                  $queryParam               Custom query param for QueryParam placement
+     * @param string|null                  $bodyField                Custom body field for BodyField placement
+     * @param string|null                  $usernameSecretIdentifier Username secret for BasicAuth
+     * @param string                       $reason                   Audit log reason
+     * @param OAuthTokenManager|null       $oauthManager             Reusable token manager
+     *                                                               carrying the token cache across `with*()` clones. When null, the
+     *                                                               constructor builds a fresh one bound to the inner client. The
+     *                                                               `with*()` methods MUST forward the existing instance so a single
+     *                                                               fluent chain (e.g. `$vault->http()->withOAuth($cfg)->sendRequest()`)
+     *                                                               hits the IdP at most once per token lifetime instead of once per
+     *                                                               clone. Trailing position (after `$reason`) preserves positional BC
+     *                                                               for callers built against the pre-PR signature.
+     * @param SecureHttpClientFactory|null $secureHttpClientFactory  Factory
+     *                                                               used for (a) building the inner client when none is injected and
+     *                                                               (b) the `isHostAllowed()` gate the OAuth manager applies to its
+     *                                                               token endpoint. When null, `GeneralUtility::makeInstance()` resolves
+     *                                                               it from the DI container. Trailing position preserves positional BC.
+     * @param string|null                  $authPrefix               Optional scheme/prefix prepended to the secret for Header
+     *                                                               placement (e.g. "Key " → "Authorization: Key <secret>").
+     *                                                               Logically a Header-placement option, but placed last in the
+     *                                                               signature to preserve positional BC for pre-PR callers.
+     * @param int|null                     $timeoutSeconds           The `withTimeout()` override, remembered so a
+     *                                                               cancellable transport built later honours it.
+     *                                                               `withTimeout()` bakes the override into the inner
+     *                                                               client; without remembering the value, a transport
+     *                                                               built on demand would silently fall back to the
+     *                                                               platform timeout.
+     * @param CancellableTransport|null    $cancellableTransport     Explicit transport for
+     *                                                               `sendCancellable()`. Normally null:
+     *                                                               the transport is built on demand,
+     *                                                               so the common case (a client that
+     *                                                               only ever calls `sendRequest()`)
+     *                                                               pays nothing.
+     *                                                               `@internal` test seam — it is how
+     *                                                               the suite drives the tick loop
+     *                                                               deterministically, and it is only
+     *                                                               honoured when the inner client is
+     *                                                               factory-built, so it can never
+     *                                                               displace a client a caller supplied.
+     *                                                               Trailing position preserves
+     *                                                               positional BC.
+     * @param self|null                    $clonedFrom               The instance whose inner client is being forwarded,
+     *                                                               passed by the `with*()` clones and by nothing else.
+     *                                                               It exists so `$innerClientIsFactoryBuilt` cannot be
+     *                                                               ASSERTED by a caller: the fact is inherited only when
+     *                                                               the forwarded client is the very object a factory-built
+     *                                                               instance holds, which requires already holding such an
+     *                                                               instance. A caller who passes their own client cannot
+     *                                                               reach that branch — see
+     *                                                               `VaultHttpClientCancellableTest::aCallerCannotAssertTheFactoryBuiltFactByCloningFromAnotherInstance()`
+     *                                                               — so "a supplied client is never replaced by a
+     *                                                               transport" holds by construction rather than by
+     *                                                               discipline, with the one documented exception of
+     *                                                               `withTimeout()`, which rebuilds the client outright.
+     *                                                               So does the equal-timeout property,
+     *                                                               because the only instance that can be cloned from is one
+     *                                                               whose client was built with its own `$timeoutSeconds`.
+     *                                                               Typing it as the class is what makes it unforgeable and
+     *                                                               also why `Services.yaml` pins it to null: autowiring
+     *                                                               would read it as a dependency of this service on itself.
+     * @param array<string,string>         $additionalBodyFields     additional Vault body bindings
      */
     public function __construct(
         private VaultServiceInterface $vaultService,
@@ -482,14 +489,14 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      * Send an HTTP request with configured authentication.
      *
      * @throws ClientExceptionInterface If request fails
-     * @throws VaultException If secret retrieval fails
+     * @throws VaultException           If secret retrieval fails
      */
     public function sendRequest(RequestInterface $request): ResponseInterface
     {
         $this->assertSchemeIsAllowed($request);
         $this->assertHostIsAllowed($request);
 
-        $secretForAudit = $this->getSecretIdentifierForAudit();
+        $secretForAudit       = $this->getSecretIdentifierForAudit();
         $authenticatedRequest = $this->injectAuthenticationAudited($request, $secretForAudit);
 
         // The send-and-audit body lives in sendBlocking() and is called from
@@ -524,7 +531,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         // `SecureHttpClientFactory::createCancellable()` can hand out together
         // with the ticker that drives it. This reports exactly what
         // `resolveCancellableTransport()` will do.
-        return $this->innerClient instanceof GuzzleClientInterface && \function_exists('curl_multi_exec');
+        return $this->innerClient instanceof GuzzleClientInterface && function_exists('curl_multi_exec');
     }
 
     /**
@@ -555,8 +562,8 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      * (`…::aPreFlightSignalIsHonouredEvenWhenCancellationIsUnsupported()`).
      *
      * @throws RequestCancelledException When the signal aborted the call
-     * @throws ClientExceptionInterface When the transfer itself failed
-     * @throws VaultException If the scheme/host is rejected or secret retrieval fails
+     * @throws ClientExceptionInterface  When the transfer itself failed
+     * @throws VaultException            If the scheme/host is rejected or secret retrieval fails
      */
     public function sendCancellable(RequestInterface $request, CancellationSignalInterface $signal): ResponseInterface
     {
@@ -629,8 +636,8 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      * it is not deferred to the end of the body.
      *
      * @throws RequestCancelledException When the signal aborted the call before it returned
-     * @throws ClientExceptionInterface When the transfer failed before it returned
-     * @throws VaultException If the scheme/host is rejected, secret retrieval fails, or a time or buffer bound is exceeded
+     * @throws ClientExceptionInterface  When the transfer failed before it returned
+     * @throws VaultException            If the scheme/host is rejected, secret retrieval fails, or a time or buffer bound is exceeded
      */
     public function sendStreaming(
         RequestInterface $request,
@@ -675,11 +682,11 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
     }
 
     /**
-     * @throws InvalidArgumentException When a binding is ambiguous or malformed.
+     * @throws InvalidArgumentException when a binding is ambiguous or malformed
      */
     public function withAdditionalBodyField(string $secretIdentifier, string $bodyField): static
     {
-        if (\array_key_exists($bodyField, $this->additionalBodyFields)) {
+        if (array_key_exists($bodyField, $this->additionalBodyFields)) {
             throw new InvalidArgumentException('An additional body field must be bound only once.', 5284686842);
         }
 
@@ -730,10 +737,10 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             return;
         }
 
-        $this->logRefusal($request, \sprintf('%s "%s"', self::SCHEME_REFUSED_MESSAGE, $scheme));
+        $this->logRefusal($request, sprintf('%s "%s"', self::SCHEME_REFUSED_MESSAGE, $scheme));
 
         throw new VaultException(
-            \sprintf('Unsupported URI scheme "%s"; only https and http are allowed', $scheme),
+            sprintf('Unsupported URI scheme "%s"; only https and http are allowed', $scheme),
             1735858523,
         );
     }
@@ -758,7 +765,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
         $this->logRefusal($request, self::HOST_REFUSED_MESSAGE);
 
-        throw new VaultException(\sprintf('Host "%s" is not in the allowed hosts list', $host), 1735858522);
+        throw new VaultException(sprintf('Host "%s" is not in the allowed hosts list', $host), 1735858522);
     }
 
     /**
@@ -920,13 +927,13 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         RequestInterface $authenticatedRequest,
         string $secretForAudit,
     ): ResponseInterface {
-        $auditStatus = 0;
+        $auditStatus  = 0;
         $auditSuccess = false;
 
         try {
             $response = $this->innerClient->sendRequest($authenticatedRequest);
 
-            $auditStatus = $response->getStatusCode();
+            $auditStatus  = $response->getStatusCode();
             $auditSuccess = true;
             $auditMessage = null;
 
@@ -995,10 +1002,10 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         // Guzzle's option handling, the caller's signal, a ticker
         // implementation. `$outcomeRecorded` says whether the ladder was
         // reached, so that message is not overwritten by a later one.
-        $auditAction = AuditAction::HttpCall;
-        $auditStatus = 0;
-        $auditSuccess = false;
-        $auditMessage = self::UNEXPECTED_OUTCOME_MESSAGE;
+        $auditAction     = AuditAction::HttpCall;
+        $auditStatus     = 0;
+        $auditSuccess    = false;
+        $auditMessage    = self::UNEXPECTED_OUTCOME_MESSAGE;
         $outcomeRecorded = false;
 
         // Declared before the try so the catch can tear down a transfer that had
@@ -1011,7 +1018,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             // curl handler opens when no sink is given; passing it ourselves
             // lets the idle bound see bytes arrive. Unbounded on purpose —
             // this send returns the whole body, as `sendRequest()` does.
-            $sink = Utils::streamFor(Utils::tryFopen('php://temp', 'w+'));
+            $sink     = Utils::streamFor(Utils::tryFopen('php://temp', 'w+'));
             $progress = new TransferProgress(static fn (): int => $sink->getSize() ?? 0);
 
             // Inside the try, deliberately. `Client::applyOptions()` raises
@@ -1037,9 +1044,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                         // answered "302 not followed" synchronously and "200 followed"
                         // asynchronously.
                         RequestOptions::ALLOW_REDIRECTS => false,
-                        RequestOptions::HTTP_ERRORS => false,
-                        RequestOptions::SINK => $sink,
-                        RequestOptions::ON_HEADERS => $progress->onHeaders(...),
+                        RequestOptions::HTTP_ERRORS     => false,
+                        RequestOptions::SINK            => $sink,
+                        RequestOptions::ON_HEADERS      => $progress->onHeaders(...),
                     ],
                 );
 
@@ -1066,8 +1073,8 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 $step = $transfer->advance();
 
                 if ($step === StreamingTransfer::CANCELLED) {
-                    $auditAction = AuditAction::HttpCallCancelled;
-                    $auditMessage = self::CANCELLED_IN_FLIGHT_MESSAGE;
+                    $auditAction     = AuditAction::HttpCallCancelled;
+                    $auditMessage    = self::CANCELLED_IN_FLIGHT_MESSAGE;
                     $outcomeRecorded = true;
 
                     throw new RequestCancelledException(self::CANCELLED_IN_FLIGHT_MESSAGE, 1786579202);
@@ -1084,7 +1091,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                     // meaning on it would make that query wrong again. The
                     // fixed literal below is what tells this failure apart from
                     // a connection refusal.
-                    $auditMessage = self::TICK_BUDGET_EXHAUSTED_MESSAGE;
+                    $auditMessage    = self::TICK_BUDGET_EXHAUSTED_MESSAGE;
                     $outcomeRecorded = true;
 
                     throw new VaultException(self::TICK_BUDGET_EXHAUSTED_MESSAGE, 1786579203);
@@ -1095,14 +1102,14 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                     // went silent, nobody cancelled. Only reachable without a
                     // total timeout, where libcurl bounds nothing after the
                     // connect.
-                    $auditMessage = self::IDLE_EXHAUSTED_MESSAGE;
+                    $auditMessage    = self::IDLE_EXHAUSTED_MESSAGE;
                     $outcomeRecorded = true;
 
                     throw new VaultException(self::IDLE_EXHAUSTED_MESSAGE, 1786579206);
                 }
             }
 
-            $rejected = $transfer->isRejected();
+            $rejected     = $transfer->isRejected();
             $settledValue = $transfer->settledValue();
 
             if ($rejected) {
@@ -1116,7 +1123,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 // logHttpCall(), which is where secret redaction happens.
                 $message = $settledValue instanceof Throwable ? $settledValue->getMessage() : 'Cancellable transfer was rejected';
 
-                $auditMessage = $message;
+                $auditMessage    = $message;
                 $outcomeRecorded = true;
 
                 if ($settledValue instanceof Throwable) {
@@ -1133,13 +1140,13 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 // failures rather than with the one thing
                 // `http_call_cancelled` means. The fixed literal below is what
                 // separates it from a connection refusal in the row.
-                $auditMessage = self::NON_RESPONSE_SETTLEMENT_MESSAGE;
+                $auditMessage    = self::NON_RESPONSE_SETTLEMENT_MESSAGE;
                 $outcomeRecorded = true;
 
                 throw new VaultException(self::NON_RESPONSE_SETTLEMENT_MESSAGE, 1786579205);
             }
 
-            $auditStatus = $settledValue->getStatusCode();
+            $auditStatus  = $settledValue->getStatusCode();
             $auditSuccess = true;
             $auditMessage = null;
 
@@ -1217,10 +1224,10 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         string $secretForAudit,
         ?CancellationSignalInterface $signal,
     ): ResponseInterface {
-        $auditAction = AuditAction::HttpCall;
-        $auditStatus = 0;
-        $auditSuccess = false;
-        $auditMessage = self::STREAMING_UNEXPECTED_OUTCOME_MESSAGE;
+        $auditAction     = AuditAction::HttpCall;
+        $auditStatus     = 0;
+        $auditSuccess    = false;
+        $auditMessage    = self::STREAMING_UNEXPECTED_OUTCOME_MESSAGE;
         $outcomeRecorded = false;
 
         $promise = null;
@@ -1255,9 +1262,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                     $authenticatedRequest,
                     [
                         RequestOptions::ALLOW_REDIRECTS => false,
-                        RequestOptions::HTTP_ERRORS => false,
-                        RequestOptions::SINK => $sink,
-                        RequestOptions::ON_HEADERS => $progress->onHeaders(...),
+                        RequestOptions::HTTP_ERRORS     => false,
+                        RequestOptions::SINK            => $sink,
+                        RequestOptions::ON_HEADERS      => $progress->onHeaders(...),
                     ],
                 );
 
@@ -1276,22 +1283,22 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 $step = $transfer->advance();
 
                 if ($step === StreamingTransfer::CANCELLED) {
-                    $auditAction = AuditAction::HttpCallCancelled;
-                    $auditMessage = self::CANCELLED_IN_FLIGHT_MESSAGE;
+                    $auditAction     = AuditAction::HttpCallCancelled;
+                    $auditMessage    = self::CANCELLED_IN_FLIGHT_MESSAGE;
                     $outcomeRecorded = true;
 
                     throw new RequestCancelledException(self::CANCELLED_IN_FLIGHT_MESSAGE, 1790475702);
                 }
 
                 if ($step === StreamingTransfer::BUDGET_EXHAUSTED) {
-                    $auditMessage = self::STREAMING_BUDGET_EXHAUSTED_MESSAGE;
+                    $auditMessage    = self::STREAMING_BUDGET_EXHAUSTED_MESSAGE;
                     $outcomeRecorded = true;
 
                     throw new VaultException(self::STREAMING_BUDGET_EXHAUSTED_MESSAGE, 1790475709);
                 }
 
                 if ($step === StreamingTransfer::IDLE_EXHAUSTED) {
-                    $auditMessage = self::STREAMING_IDLE_EXHAUSTED_MESSAGE;
+                    $auditMessage    = self::STREAMING_IDLE_EXHAUSTED_MESSAGE;
                     $outcomeRecorded = true;
 
                     throw new VaultException(self::STREAMING_IDLE_EXHAUSTED_MESSAGE, 1790487201);
@@ -1309,7 +1316,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                     // Refused by the bound, not by the network: its own literal,
                     // so an operator can tell an oversized step from a dropped
                     // connection.
-                    $auditMessage = self::STREAMING_BUFFER_LIMIT_MESSAGE;
+                    $auditMessage    = self::STREAMING_BUFFER_LIMIT_MESSAGE;
                     $outcomeRecorded = true;
 
                     // The transport's exception carries the response it had
@@ -1324,7 +1331,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                     );
                 }
 
-                $auditMessage = $reason instanceof Throwable ? $reason->getMessage() : self::STREAMING_REJECTED_MESSAGE;
+                $auditMessage    = $reason instanceof Throwable ? $reason->getMessage() : self::STREAMING_REJECTED_MESSAGE;
                 $outcomeRecorded = true;
 
                 if ($reason instanceof Throwable) {
@@ -1346,15 +1353,15 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 // holds the internal buffer.
                 $value = $transfer->settledValue();
                 if (!$value instanceof ResponseInterface) {
-                    $auditMessage = self::STREAMING_NO_RESPONSE_MESSAGE;
+                    $auditMessage    = self::STREAMING_NO_RESPONSE_MESSAGE;
                     $outcomeRecorded = true;
 
                     throw new VaultException(self::STREAMING_NO_RESPONSE_MESSAGE, 1790475711);
                 }
 
-                $auditStatus = $value->getStatusCode();
-                $auditSuccess = true;
-                $auditMessage = null;
+                $auditStatus     = $value->getStatusCode();
+                $auditSuccess    = true;
+                $auditMessage    = null;
                 $outcomeRecorded = true;
 
                 if ($value->getBody() === $sink) {
@@ -1364,9 +1371,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
                 return $value;
             }
 
-            $auditStatus = $head->getStatusCode();
-            $auditSuccess = true;
-            $auditMessage = null;
+            $auditStatus     = $head->getStatusCode();
+            $auditSuccess    = true;
+            $auditMessage    = null;
             $outcomeRecorded = true;
 
             return $head->withBody(new StreamingResponseBody($transfer, $sink));
@@ -1418,20 +1425,20 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
         return $this->injectAdditionalBodyFields(
             match ($this->placement) {
-                SecretPlacement::Bearer => $this->injectBearer($request),
-                SecretPlacement::BasicAuth => $this->injectBasicAuth($request),
-                SecretPlacement::Header => $this->injectHeader($request),
-                SecretPlacement::ApiKey => $this->injectApiKey($request),
+                SecretPlacement::Bearer     => $this->injectBearer($request),
+                SecretPlacement::BasicAuth  => $this->injectBasicAuth($request),
+                SecretPlacement::Header     => $this->injectHeader($request),
+                SecretPlacement::ApiKey     => $this->injectApiKey($request),
                 SecretPlacement::QueryParam => $this->injectQueryParam($request),
-                SecretPlacement::BodyField => $this->injectBodyField($request),
-                SecretPlacement::OAuth2 => $request,
+                SecretPlacement::BodyField  => $this->injectBodyField($request),
+                SecretPlacement::OAuth2     => $request,
             },
         );
     }
 
     private function injectBearer(RequestInterface $request): RequestInterface
     {
-        \assert($this->secretIdentifier !== null);
+        assert($this->secretIdentifier !== null);
         $secret = $this->retrieveSecret($this->secretIdentifier);
 
         try {
@@ -1443,11 +1450,11 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
     private function injectBasicAuth(RequestInterface $request): RequestInterface
     {
-        \assert($this->secretIdentifier !== null);
+        assert($this->secretIdentifier !== null);
         $password = $this->retrieveSecret($this->secretIdentifier);
 
         if ($this->usernameSecretIdentifier !== null) {
-            $username = $this->retrieveSecret($this->usernameSecretIdentifier);
+            $username    = $this->retrieveSecret($this->usernameSecretIdentifier);
             $credentials = $username . ':' . $password;
             sodium_memzero($username);
         } else {
@@ -1464,8 +1471,8 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
     private function injectHeader(RequestInterface $request): RequestInterface
     {
-        \assert($this->secretIdentifier !== null);
-        $secret = $this->retrieveSecret($this->secretIdentifier);
+        assert($this->secretIdentifier !== null);
+        $secret     = $this->retrieveSecret($this->secretIdentifier);
         $headerName = $this->headerName ?? 'X-API-Key';
         // Optional auth scheme/prefix ("Key " for FAL, "DeepL-Auth-Key " for DeepL) so
         // non-Bearer "Authorization: <scheme> <secret>" schemes use audited injection.
@@ -1487,7 +1494,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
     private function injectApiKey(RequestInterface $request): RequestInterface
     {
-        \assert($this->secretIdentifier !== null);
+        assert($this->secretIdentifier !== null);
         $secret = $this->retrieveSecret($this->secretIdentifier);
 
         try {
@@ -1499,15 +1506,15 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
     private function injectQueryParam(RequestInterface $request): RequestInterface
     {
-        \assert($this->secretIdentifier !== null);
-        $secret = $this->retrieveSecret($this->secretIdentifier);
+        assert($this->secretIdentifier !== null);
+        $secret    = $this->retrieveSecret($this->secretIdentifier);
         $paramName = $this->queryParam ?? 'api_key';
 
         try {
-            $uri = $request->getUri();
+            $uri           = $request->getUri();
             $existingQuery = $uri->getQuery();
-            $separator = $existingQuery !== '' ? '&' : '';
-            $newQuery = $existingQuery . $separator . urlencode($paramName) . '=' . urlencode($secret);
+            $separator     = $existingQuery !== '' ? '&' : '';
+            $newQuery      = $existingQuery . $separator . urlencode($paramName) . '=' . urlencode($secret);
 
             return $request->withUri($uri->withQuery($newQuery));
         } finally {
@@ -1517,7 +1524,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
     private function injectBodyField(RequestInterface $request): RequestInterface
     {
-        \assert($this->secretIdentifier !== null);
+        assert($this->secretIdentifier !== null);
 
         return $this->injectBodyFieldCredential($request, $this->secretIdentifier, $this->bodyField ?? 'api_key');
     }
@@ -1540,9 +1547,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
      * object from an empty list; the first non-whitespace character is the
      * deterministic discriminator (a JSON object always starts with `{`).
      *
-     * @throws VaultException If the body is non-empty but not a JSON object
-     *
      * @return array<string, mixed>
+     *
+     * @throws VaultException If the body is non-empty but not a JSON object
      */
     private function decodeJsonObjectBody(string $body): array
     {
@@ -1568,7 +1575,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         // Type guard for static analysis plus rejection of JSON objects whose
         // numeric string keys decode to a PHP list ({"0":"a"} → [0 => 'a']) —
         // injecting a named field there would re-encode a reshaped structure.
-        if (!\is_array($decoded) || $decoded !== [] && array_is_list($decoded)) {
+        if (!is_array($decoded) || $decoded !== [] && array_is_list($decoded)) {
             throw new VaultException('Cannot inject body-field secret: request body must be a JSON object', 1735858524);
         }
 
@@ -1580,7 +1587,7 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         RequestInterface $request,
         ?CancellationSignalInterface $signal = null,
     ): RequestInterface {
-        \assert($this->oauthConfig instanceof OAuthConfig);
+        assert($this->oauthConfig instanceof OAuthConfig);
         $accessToken = $this->oauthManager->getAccessToken($this->oauthConfig, $signal);
 
         try {
@@ -1661,12 +1668,12 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
     private function validateAdditionalBodyFields(): void
     {
-        if (\count($this->additionalBodyFields) > 8) {
+        if (count($this->additionalBodyFields) > 8) {
             throw new InvalidArgumentException('At most eight additional body credentials are permitted.', 2780984125);
         }
 
         foreach ($this->additionalBodyFields as $field => $identifier) {
-            if (!\is_string($field) || (\strlen($field) > 64 || preg_match('/\A[A-Za-z_]/D', $field) !== 1 || strspn($field, self::ADDITIONAL_BODY_FIELD_CHARACTERS) !== \strlen($field)) || !\is_string($identifier) || (!IdentifierValidator::isValidForStorage($identifier) || preg_match('/[\x00-\x1F\x7F]/', $identifier) === 1)) {
+            if (!is_string($field) || (strlen($field) > 64 || preg_match('/\A[A-Za-z_]/D', $field) !== 1 || strspn($field, self::ADDITIONAL_BODY_FIELD_CHARACTERS) !== strlen($field)) || !is_string($identifier) || (!IdentifierValidator::isValidForStorage($identifier) || preg_match('/[\x00-\x1F\x7F]/', $identifier) === 1)) {
                 throw new InvalidArgumentException(
                     'Additional body credentials require a simple field name and a Vault identifier.',
                     4345651550,
@@ -1700,16 +1707,16 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
 
         try {
             $contentType = $request->getHeaderLine('Content-Type');
-            $body = (string) $request->getBody();
+            $body        = (string) $request->getBody();
 
             if (str_contains(strtolower($contentType), 'application/json')) {
-                $data = $this->decodeJsonObjectBody($body);
+                $data             = $this->decodeJsonObjectBody($body);
                 $data[$fieldName] = $secret;
-                $newBody = json_encode($data, JSON_THROW_ON_ERROR);
+                $newBody          = json_encode($data, JSON_THROW_ON_ERROR);
             } else {
                 parse_str($body, $data);
                 $data[$fieldName] = $secret;
-                $newBody = http_build_query($data);
+                $newBody          = http_build_query($data);
             }
 
             $result = $request

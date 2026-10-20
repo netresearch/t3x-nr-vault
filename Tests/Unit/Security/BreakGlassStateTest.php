@@ -41,7 +41,7 @@ final class BreakGlassStateTest extends TestCase
         parent::setUp();
 
         $this->registry = $this->createMock(Registry::class);
-        $this->subject = new BreakGlassState($this->registry);
+        $this->subject  = new BreakGlassState($this->registry);
     }
 
     #[Test]
@@ -182,11 +182,11 @@ final class BreakGlassStateTest extends TestCase
         $now = time();
 
         return [
-            'activatedByUid' => 7,
+            'activatedByUid'      => 7,
             'activatedByUsername' => 'alice',
-            'reason' => 'INC-4711',
-            'activatedAt' => $now - 60,
-            'expiresAt' => $now + $expiresIn,
+            'reason'              => 'INC-4711',
+            'activatedAt'         => $now - 60,
+            'expiresAt'           => $now + $expiresIn,
         ];
     }
 }

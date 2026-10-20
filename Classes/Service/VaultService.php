@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -46,6 +43,11 @@ use Psr\Log\LoggerInterface;
 use SensitiveParameter;
 use Throwable;
 use TYPO3\CMS\Core\SingletonInterface;
+
+use function is_array;
+use function is_int;
+use function is_string;
+use function strlen;
 
 /**
  * Main vault service implementation.
@@ -110,7 +112,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
             $this->validateNamespaceWrite($identifier, $existing, $isCreation);
 
-            $encrypted = $this->encryptionService->encrypt($secret, $identifier);
+            $encrypted    = $this->encryptionService->encrypt($secret, $identifier);
             $secretEntity = $this->buildSecretEntity($identifier, $encrypted, $options, $existing);
 
             // Capture the stored instance so the SecretCreatedEvent below
@@ -702,14 +704,14 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
     {
         $optional = $this->collectOptionalFields($options, $existing);
 
-        $ownerChanges = $this->resolveOwnerUid($options, $existing) !== $existing->getOwnerUid();
+        $ownerChanges    = $this->resolveOwnerUid($options, $existing) !== $existing->getOwnerUid();
         $frontendChanges = $this->resolveFrontendAccessible($optional['frontendAccessible'], $existing)
             !== $existing->isFrontendAccessible();
 
         $groupsChange = false;
         if (isset($options['groups'])) {
             $submittedGroups = $optional['allowedGroups'];
-            $existingGroups = $existing->getAllowedGroups();
+            $existingGroups  = $existing->getAllowedGroups();
             sort($submittedGroups);
             sort($existingGroups);
             $groupsChange = $submittedGroups !== $existingGroups;
@@ -735,7 +737,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
      * revert failure onto the original exception as `previous`, and still
      * surface the original `AuditWriteException` as the thrown type.
      *
-     * @param callable():void $revert Reapplies the pre-mutation adapter state.
+     * @param callable():void $revert reapplies the pre-mutation adapter state
      */
     private function compensateAuditFailure(
         string $identifier,
@@ -749,8 +751,8 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
                 'Vault inconsistency: mutation persisted without an audit record; '
                 . 'the compensating rollback also failed. Manual reconciliation required.',
                 [
-                    'identifier' => $identifier,
-                    'auditError' => $auditException->getMessage(),
+                    'identifier'    => $identifier,
+                    'auditError'    => $auditException->getMessage(),
                     'rollbackError' => $revertFailure->getMessage(),
                 ],
             );
@@ -881,7 +883,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             : $this->accessControlService->getCurrentActorUid();
         $requestedOwner = $defaultOwner;
         if (isset($options['owner'])) {
-            $ownerRaw = $options['owner'];
+            $ownerRaw       = $options['owner'];
             $requestedOwner = is_numeric($ownerRaw) ? (int) $ownerRaw : 0;
         }
 
@@ -976,14 +978,14 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
      */
     private function coerceGroupList(mixed $raw): array
     {
-        if (!\is_array($raw)) {
+        if (!is_array($raw)) {
             return [];
         }
 
         /** @var list<int> $groups */
         $groups = [];
         foreach ($raw as $groupId) {
-            if (\is_int($groupId)) {
+            if (is_int($groupId)) {
                 $groups[] = $groupId;
             } elseif (is_numeric($groupId)) {
                 $groups[] = (int) $groupId;
@@ -997,7 +999,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
     private function coerceToString(mixed $raw): string
     {
-        return \is_string($raw) || is_numeric($raw) ? (string) $raw : '';
+        return is_string($raw) || is_numeric($raw) ? (string) $raw : '';
     }
 
     private function coerceTimestamp(mixed $raw): int
@@ -1040,7 +1042,7 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         ?Secret $existing,
         bool $isCreation,
     ): void {
-        $siteIdentifier = IdentifierValidator::getSiteIdentifier($identifier);
+        $siteIdentifier         = IdentifierValidator::getSiteIdentifier($identifier);
         $existingSiteIdentifier = $existing instanceof Secret ? IdentifierValidator::getSiteIdentifier($existing->getIdentifier()) : null;
         if ($siteIdentifier === null && $existingSiteIdentifier === null) {
             return;
@@ -1081,24 +1083,24 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             return false;
         }
 
-        $identifier = strtolower($identifier);
-        $pattern = strtolower($pattern);
-        $identifierLength = \strlen($identifier);
-        $patternLength = \strlen($pattern);
-        $identifierIndex = 0;
-        $patternIndex = 0;
-        $lastStar = null;
-        $retryIndex = 0;
+        $identifier       = strtolower($identifier);
+        $pattern          = strtolower($pattern);
+        $identifierLength = strlen($identifier);
+        $patternLength    = strlen($pattern);
+        $identifierIndex  = 0;
+        $patternIndex     = 0;
+        $lastStar         = null;
+        $retryIndex       = 0;
 
         while ($identifierIndex < $identifierLength) {
             if ($patternIndex < $patternLength && $pattern[$patternIndex] === '*') {
-                $lastStar = $patternIndex++;
+                $lastStar   = $patternIndex++;
                 $retryIndex = $identifierIndex;
             } elseif ($patternIndex < $patternLength && $pattern[$patternIndex] === $identifier[$identifierIndex]) {
                 ++$identifierIndex;
                 ++$patternIndex;
             } elseif ($lastStar !== null) {
-                $patternIndex = $lastStar + 1;
+                $patternIndex    = $lastStar + 1;
                 $identifierIndex = ++$retryIndex;
             } else {
                 return false;

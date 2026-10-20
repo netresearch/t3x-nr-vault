@@ -40,13 +40,13 @@ trait AuditSinkSandboxTrait
      */
     private function prepareAuditSinkSandbox(array $extensionConfiguration, bool $enableFileSink = true): array
     {
-        $this->auditSinkDirectory = sys_get_temp_dir() . '/nr-vault-sink-' . bin2hex(random_bytes(6));
+        $this->auditSinkDirectory  = sys_get_temp_dir() . '/nr-vault-sink-' . bin2hex(random_bytes(6));
         $this->auditSinkAnchorPath = $this->auditSinkDirectory . '/anchor.ndjson';
-        $this->auditSinkEntryPath = $this->auditSinkDirectory . '/entries.ndjson';
+        $this->auditSinkEntryPath  = $this->auditSinkDirectory . '/entries.ndjson';
 
         $extensionConfiguration['auditSinkFileEnabled'] = $enableFileSink ? 1 : 0;
-        $extensionConfiguration['auditSinkFilePath'] = $this->auditSinkEntryPath;
-        $extensionConfiguration['auditSinkAnchorPath'] = $this->auditSinkAnchorPath;
+        $extensionConfiguration['auditSinkFilePath']    = $this->auditSinkEntryPath;
+        $extensionConfiguration['auditSinkAnchorPath']  = $this->auditSinkAnchorPath;
 
         return $extensionConfiguration;
     }

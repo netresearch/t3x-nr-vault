@@ -27,7 +27,7 @@ final class LocalEncryptionAdapterTest extends TestCase
     public function implementsVaultAdapterInterface(): void
     {
         $repository = $this->createStub(SecretRepositoryInterface::class);
-        $adapter = new LocalEncryptionAdapter($repository);
+        $adapter    = new LocalEncryptionAdapter($repository);
 
         self::assertInstanceOf(VaultAdapterInterface::class, $adapter);
     }
@@ -36,7 +36,7 @@ final class LocalEncryptionAdapterTest extends TestCase
     public function getIdentifierReturnsLocal(): void
     {
         $repository = $this->createStub(SecretRepositoryInterface::class);
-        $adapter = new LocalEncryptionAdapter($repository);
+        $adapter    = new LocalEncryptionAdapter($repository);
 
         self::assertEquals('local', $adapter->getIdentifier());
     }
@@ -45,7 +45,7 @@ final class LocalEncryptionAdapterTest extends TestCase
     public function isAvailableAlwaysReturnsTrue(): void
     {
         $repository = $this->createStub(SecretRepositoryInterface::class);
-        $adapter = new LocalEncryptionAdapter($repository);
+        $adapter    = new LocalEncryptionAdapter($repository);
 
         self::assertTrue($adapter->isAvailable());
     }
@@ -77,7 +77,7 @@ final class LocalEncryptionAdapterTest extends TestCase
             ->willReturn($secret);
 
         $adapter = new LocalEncryptionAdapter($repository);
-        $result = $adapter->retrieve('test');
+        $result  = $adapter->retrieve('test');
 
         self::assertSame($secret, $result);
     }
@@ -177,7 +177,7 @@ final class LocalEncryptionAdapterTest extends TestCase
     public function listDelegatesToRepository(): void
     {
         $identifiers = ['secret-1', 'secret-2', 'secret-3'];
-        $filters = new SecretFilters(context: 'payment');
+        $filters     = new SecretFilters(context: 'payment');
 
         $repository = $this->createMock(SecretRepositoryInterface::class);
         $repository->expects(self::once())
@@ -219,7 +219,7 @@ final class LocalEncryptionAdapterTest extends TestCase
         $repository = $this->createStub(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')->willReturn($secret);
 
-        $adapter = new LocalEncryptionAdapter($repository);
+        $adapter  = new LocalEncryptionAdapter($repository);
         $metadata = $adapter->getMetadata('api-key');
 
         self::assertNotNull($metadata);
@@ -242,7 +242,7 @@ final class LocalEncryptionAdapterTest extends TestCase
         $repository = $this->createStub(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')->willReturn($secret);
 
-        $adapter = new LocalEncryptionAdapter($repository);
+        $adapter  = new LocalEncryptionAdapter($repository);
         $metadata = $adapter->getMetadata('test');
 
         self::assertNull($metadata['expiresAt']);
@@ -348,7 +348,7 @@ final class LocalEncryptionAdapterTest extends TestCase
             ->willReturn([$secret1, $secret2]);
 
         $adapter = new LocalEncryptionAdapter($repository);
-        $result = $adapter->listSecrets($filters);
+        $result  = $adapter->listSecrets($filters);
 
         self::assertCount(2, $result);
         self::assertSame($secret1, $result[0]);
@@ -365,7 +365,7 @@ final class LocalEncryptionAdapterTest extends TestCase
             ->willReturn([]);
 
         $adapter = new LocalEncryptionAdapter($repository);
-        $result = $adapter->listSecrets();
+        $result  = $adapter->listSecrets();
 
         self::assertSame([], $result);
     }

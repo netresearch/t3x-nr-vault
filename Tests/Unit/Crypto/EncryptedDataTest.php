@@ -169,12 +169,12 @@ final class EncryptedDataTest extends TestCase
         );
 
         self::assertSame([
-            'encrypted_value' => 'enc_val',
-            'encrypted_dek' => 'enc_dek',
-            'dek_nonce' => 'dn',
-            'value_nonce' => 'vn',
-            'value_checksum' => 'chk',
-            'encryption_version' => EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT,
+            'encrypted_value'      => 'enc_val',
+            'encrypted_dek'        => 'enc_dek',
+            'dek_nonce'            => 'dn',
+            'value_nonce'          => 'vn',
+            'value_checksum'       => 'chk',
+            'encryption_version'   => EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT,
             'encryption_algorithm' => 'xchacha20poly1305',
         ], $subject->toArray());
     }
@@ -190,14 +190,14 @@ final class EncryptedDataTest extends TestCase
     #[Test]
     public function fromRawRoundTripPreservesAllValues(): void
     {
-        $rawValue = 'ciphertext';
-        $rawDek = 'encrypted-dek';
-        $rawDekNonce = 'dek-nonce';
+        $rawValue      = 'ciphertext';
+        $rawDek        = 'encrypted-dek';
+        $rawDekNonce   = 'dek-nonce';
         $rawValueNonce = 'value-nonce';
-        $checksum = 'hexchecksum';
+        $checksum      = 'hexchecksum';
 
         $subject = EncryptedData::fromRaw($rawValue, $rawDek, $rawDekNonce, $rawValueNonce, $checksum);
-        $array = $subject->toArray();
+        $array   = $subject->toArray();
 
         self::assertSame(base64_encode($rawValue), $array['encrypted_value']);
         self::assertSame(base64_encode($rawDek), $array['encrypted_dek']);

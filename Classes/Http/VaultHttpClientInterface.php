@@ -34,8 +34,8 @@ interface VaultHttpClientInterface extends ClientInterface
      *
      * Returns a new immutable instance - the original is unchanged.
      *
-     * @param string $secretIdentifier Vault identifier for the secret
-     * @param SecretPlacement $placement How to inject the secret
+     * @param string          $secretIdentifier Vault identifier for the secret
+     * @param SecretPlacement $placement        How to inject the secret
      * @param array{
      *     headerName?: string,
      *     prefix?: string,
@@ -66,7 +66,7 @@ interface VaultHttpClientInterface extends ClientInterface
      * Returns a new immutable instance - the original is unchanged.
      *
      * @param OAuthConfig $config OAuth configuration
-     * @param string $reason Audit log reason for this client's requests
+     * @param string      $reason Audit log reason for this client's requests
      *
      * @return static New client instance with OAuth configured
      */

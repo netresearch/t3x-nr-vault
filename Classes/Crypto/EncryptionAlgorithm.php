@@ -22,7 +22,7 @@ namespace Netresearch\NrVault\Crypto;
 enum EncryptionAlgorithm: string
 {
     case XChaCha20Poly1305 = 'xchacha20poly1305';
-    case Aes256Gcm = 'aes256gcm';
+    case Aes256Gcm         = 'aes256gcm';
 
     /**
      * Default algorithm recorded for newly encrypted secrets when no explicit
@@ -45,7 +45,7 @@ enum EncryptionAlgorithm: string
     {
         return match ($this) {
             self::XChaCha20Poly1305 => true,
-            self::Aes256Gcm => sodium_crypto_aead_aes256gcm_is_available(),
+            self::Aes256Gcm         => sodium_crypto_aead_aes256gcm_is_available(),
         };
     }
 
@@ -59,7 +59,7 @@ enum EncryptionAlgorithm: string
         // Constants are always positive, but we ensure it for type safety.
         return max(1, match ($this) {
             self::XChaCha20Poly1305 => SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
-            self::Aes256Gcm => SODIUM_CRYPTO_AEAD_AES256GCM_NPUBBYTES,
+            self::Aes256Gcm         => SODIUM_CRYPTO_AEAD_AES256GCM_NPUBBYTES,
         });
     }
 
@@ -73,7 +73,7 @@ enum EncryptionAlgorithm: string
         // Constants are always positive, but we ensure it for type safety.
         return max(1, match ($this) {
             self::XChaCha20Poly1305 => SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES,
-            self::Aes256Gcm => SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES,
+            self::Aes256Gcm         => SODIUM_CRYPTO_AEAD_AES256GCM_KEYBYTES,
         });
     }
 }

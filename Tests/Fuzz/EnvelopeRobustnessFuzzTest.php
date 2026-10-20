@@ -23,6 +23,13 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Throwable;
 
+use function chr;
+use function ord;
+use function sprintf;
+use function strlen;
+
+use const PHP_INT_MAX;
+
 /**
  * Robustness properties of the sealed-envelope wire format.
  *
@@ -99,7 +106,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
         $configuration->method('getEncryptionAlgorithm')->willReturn('xchacha20poly1305');
 
         $this->subject = new EnvelopeCodec(new EncryptionService($provider, $configuration));
-        $this->sealed = $this->subject->seal(self::PLAINTEXT, self::IDENTIFIER);
+        $this->sealed  = $this->subject->seal(self::PLAINTEXT, self::IDENTIFIER);
     }
 
     /**
@@ -115,15 +122,15 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
     #[Test]
     public function everyTruncationOfASealedEnvelopeIsRejected(): void
     {
-        $length = \strlen($this->sealed);
-        self::assertGreaterThan(\strlen(EnvelopeCodecInterface::MARKER), $length);
+        $length = strlen($this->sealed);
+        self::assertGreaterThan(strlen(EnvelopeCodecInterface::MARKER), $length);
 
         $openedAt = [];
 
-        for ($cut = 0; $cut < $length; $cut++) {
+        for ($cut = 0; $cut < $length; ++$cut) {
             if ($this->assertNeverYieldsForeignPlaintext(
                 substr($this->sealed, 0, $cut),
-                \sprintf('envelope truncated to %d of %d bytes', $cut, $length),
+                sprintf('envelope truncated to %d of %d bytes', $cut, $length),
             )) {
                 $openedAt[] = $cut;
             }
@@ -136,7 +143,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
             self::assertGreaterThanOrEqual(
                 $length - 2,
                 $cut,
-                \sprintf(
+                sprintf(
                     'Truncation to %d of %d bytes opened the envelope — only base64 padding '
                     . '(the final two bytes) may be droppable without changing the decoded body',
                     $cut,
@@ -154,14 +161,14 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
     #[Test]
     public function envelopesMissingLeadingOrInteriorBytesAreRejected(): void
     {
-        $length = \strlen($this->sealed);
-        $half = (int) ($length / 2);
+        $length = strlen($this->sealed);
+        $half   = (int) ($length / 2);
 
         $mutilated = [
-            'leading byte removed' => substr($this->sealed, 1),
-            'marker removed' => substr($this->sealed, \strlen(EnvelopeCodecInterface::MARKER)),
+            'leading byte removed'  => substr($this->sealed, 1),
+            'marker removed'        => substr($this->sealed, strlen(EnvelopeCodecInterface::MARKER)),
             'interior byte excised' => substr($this->sealed, 0, $half) . substr($this->sealed, $half + 1),
-            'body halved' => substr($this->sealed, 0, $half),
+            'body halved'           => substr($this->sealed, 0, $half),
         ];
 
         foreach ($mutilated as $label => $candidate) {
@@ -183,12 +190,12 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
     #[Test]
     public function noSingleBitFlipInASealedEnvelopeYieldsAForeignPlaintext(): void
     {
-        $length = \strlen($this->sealed);
+        $length = strlen($this->sealed);
 
-        for ($offset = 0; $offset < $length; $offset++) {
+        for ($offset = 0; $offset < $length; ++$offset) {
             foreach ([0x01, 0x20, 0x80] as $mask) {
-                $flipped = $this->sealed;
-                $flipped[$offset] = \chr(\ord($flipped[$offset]) ^ $mask);
+                $flipped          = $this->sealed;
+                $flipped[$offset] = chr(ord($flipped[$offset]) ^ $mask);
 
                 if ($flipped === $this->sealed) {
                     continue;
@@ -196,7 +203,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
 
                 $this->assertNeverYieldsForeignPlaintext(
                     $flipped,
-                    \sprintf('bit flip at offset %d (mask 0x%02x)', $offset, $mask),
+                    sprintf('bit flip at offset %d (mask 0x%02x)', $offset, $mask),
                 );
             }
         }
@@ -217,7 +224,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
         foreach (self::AUTHENTICATED_FIELDS as $field) {
             foreach ([0, 1, 7, 11, 15, 23, 31, 47] as $position) {
                 foreach ([0x01, 0x80] as $mask) {
-                    yield \sprintf('%s byte %d xor 0x%02x', $field, $position, $mask) => [$field, $position, $mask];
+                    yield sprintf('%s byte %d xor 0x%02x', $field, $position, $mask) => [$field, $position, $mask];
                 }
             }
         }
@@ -235,8 +242,8 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
             self::assertIsString($raw, $field . ' must be decodable');
             self::assertNotSame('', $raw, $field . ' must not be empty');
 
-            $index = $position % \strlen($raw);
-            $raw[$index] = \chr(\ord($raw[$index]) ^ $mask);
+            $index            = $position % strlen($raw);
+            $raw[$index]      = chr(ord($raw[$index]) ^ $mask);
             $envelope[$field] = base64_encode($raw);
 
             return $envelope;
@@ -247,7 +254,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
         self::assertInstanceOf(
             EncryptionException::class,
             $thrown,
-            \sprintf(
+            sprintf(
                 'Flipping byte %d of %s must fail authentication, got %s',
                 $position,
                 $field,
@@ -280,13 +287,13 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
     {
         $observed = [];
 
-        for ($extra = 0; $extra <= 8; $extra++) {
+        for ($extra = 0; $extra <= 8; ++$extra) {
             $plaintext = self::PLAINTEXT . str_repeat('.', $extra);
-            $sealed = $this->subject->seal($plaintext, self::IDENTIFIER);
-            $unpadded = rtrim($sealed, '=');
+            $sealed    = $this->subject->seal($plaintext, self::IDENTIFIER);
+            $unpadded  = rtrim($sealed, '=');
 
             if ($unpadded === $sealed) {
-                $observed[] = \sprintf('+%d bytes -> length %d, unpadded', $extra, \strlen($sealed));
+                $observed[] = sprintf('+%d bytes -> length %d, unpadded', $extra, strlen($sealed));
                 continue;
             }
 
@@ -378,7 +385,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
         self::assertInstanceOf(
             EncryptionException::class,
             $thrown,
-            \sprintf(
+            sprintf(
                 'Swapping %s with %s must fail authentication, got %s',
                 $first,
                 $second,
@@ -417,7 +424,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
         self::assertInstanceOf(
             EncryptionException::class,
             $thrown,
-            \sprintf(
+            sprintf(
                 'Writing %s over %s must fail authentication, got %s',
                 $source,
                 $target,
@@ -450,7 +457,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
     public function anUnknownAlgorithmMarkerIsRejected(int $version, string $algorithm): void
     {
         $tampered = $this->rewriteEnvelope(static function (array $envelope) use ($version, $algorithm): array {
-            $envelope['encryption_version'] = $version;
+            $envelope['encryption_version']   = $version;
             $envelope['encryption_algorithm'] = $algorithm;
 
             return $envelope;
@@ -461,7 +468,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
         self::assertInstanceOf(
             EncryptionException::class,
             $thrown,
-            \sprintf(
+            sprintf(
                 'Envelope claiming version %d with algorithm "%s" must be refused, got %s',
                 $version,
                 $algorithm,
@@ -511,7 +518,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
     #[Test]
     public function anEnvelopeClaimingAnUnimplementedVersionIsRefused(): void
     {
-        foreach ([0, 3, 99, \PHP_INT_MAX] as $version) {
+        foreach ([0, 3, 99, PHP_INT_MAX] as $version) {
             $tampered = $this->rewriteEnvelope(static function (array $envelope) use ($version): array {
                 $envelope['encryption_version'] = $version;
 
@@ -528,7 +535,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
 
             self::assertTrue(
                 $refused,
-                \sprintf('Envelope claiming unimplemented version %d was opened.', $version),
+                sprintf('Envelope claiming unimplemented version %d was opened.', $version),
             );
         }
     }
@@ -548,7 +555,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
             self::assertSame(
                 self::PLAINTEXT,
                 $this->opened,
-                \sprintf('%s opened and returned a value other than the sealed plaintext', $label),
+                sprintf('%s opened and returned a value other than the sealed plaintext', $label),
             );
 
             return true;
@@ -560,7 +567,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
                 self::isInstanceOf(EnvelopeFormatException::class),
                 self::isInstanceOf(EncryptionException::class),
             ),
-            \sprintf('%s must raise a domain exception, got %s: %s', $label, $thrown::class, $thrown->getMessage()),
+            sprintf('%s must raise a domain exception, got %s: %s', $label, $thrown::class, $thrown->getMessage()),
         );
 
         return false;
@@ -602,7 +609,7 @@ final class EnvelopeRobustnessFuzzTest extends TestCase
      */
     private function rewriteEnvelope(callable $mutate): string
     {
-        $body = base64_decode(substr($this->sealed, \strlen(EnvelopeCodecInterface::MARKER)), true);
+        $body = base64_decode(substr($this->sealed, strlen(EnvelopeCodecInterface::MARKER)), true);
         self::assertIsString($body);
 
         $envelope = json_decode($body, true, 8, JSON_THROW_ON_ERROR);

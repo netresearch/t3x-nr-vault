@@ -76,7 +76,7 @@ final class VaultFieldHelperTest extends TestCase
     {
         $configRequired = VaultFieldHelper::getFieldConfig(['required' => true]);
         $configOptional = VaultFieldHelper::getFieldConfig(['required' => false]);
-        $configDefault = VaultFieldHelper::getFieldConfig();
+        $configDefault  = VaultFieldHelper::getFieldConfig();
 
         self::assertTrue($configRequired['config']['required']);
         self::assertArrayNotHasKey('required', $configOptional['config']);
@@ -136,7 +136,7 @@ final class VaultFieldHelperTest extends TestCase
     public function getSecureFieldConfigAllowsOverrides(): void
     {
         $config = VaultFieldHelper::getSecureFieldConfig(self::LABEL_API_KEY, [
-            'exclude' => false,
+            'exclude'  => false,
             'required' => true,
         ]);
 
@@ -162,7 +162,7 @@ final class VaultFieldHelperTest extends TestCase
         ];
 
         $result = VaultFieldHelper::addVaultFields($tca, [
-            'api_key' => ['label' => self::LABEL_API_KEY],
+            'api_key'    => ['label' => self::LABEL_API_KEY],
             'api_secret' => ['label' => 'API Secret', 'required' => true],
         ]);
 
@@ -178,7 +178,7 @@ final class VaultFieldHelperTest extends TestCase
     {
         $fieldConfig = [
             'config' => [
-                'type' => 'input',
+                'type'       => 'input',
                 'renderType' => 'vaultSecret',
             ],
         ];
@@ -189,9 +189,9 @@ final class VaultFieldHelperTest extends TestCase
     #[Test]
     public function isVaultFieldReturnsFalseForOtherFields(): void
     {
-        $inputField = ['config' => ['type' => 'input']];
-        $textField = ['config' => ['type' => 'text']];
-        $passwordField = ['config' => ['type' => 'password']];
+        $inputField      = ['config' => ['type' => 'input']];
+        $textField       = ['config' => ['type' => 'text']];
+        $passwordField   = ['config' => ['type' => 'password']];
         $otherRenderType = ['config' => ['type' => 'input', 'renderType' => 'colorpicker']];
 
         self::assertFalse(VaultFieldHelper::isVaultField($inputField));

@@ -85,9 +85,9 @@ final class MasterKeyProviderRegistry implements MasterKeyProviderRegistryInterf
      * a later call re-runs the check and fails the same way rather than serving
      * a half-built map.
      *
-     * @throws ConfigurationException
-     *
      * @return array<string, MasterKeyProviderInterface>
+     *
+     * @throws ConfigurationException
      */
     private function map(): array
     {

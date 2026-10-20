@@ -99,7 +99,7 @@ final class DatabaseSecretFindingTest extends TestCase
     public function getPatternsReturnsPatterns(): void
     {
         $patterns = ['Pattern 1', 'Pattern 2'];
-        $finding = new DatabaseSecretFinding(
+        $finding  = new DatabaseSecretFinding(
             table: 'table',
             column: 'column',
             recordCount: 0,
@@ -154,13 +154,13 @@ final class DatabaseSecretFindingTest extends TestCase
         $json = $finding->jsonSerialize();
 
         self::assertEquals([
-            'source' => 'database',
-            'table' => 'be_users',
-            'column' => 'api_key',
-            'count' => 50,
+            'source'         => 'database',
+            'table'          => 'be_users',
+            'column'         => 'api_key',
+            'count'          => 50,
             'plaintextCount' => 10,
-            'severity' => 'high',
-            'patterns' => ['API Key'],
+            'severity'       => 'high',
+            'patterns'       => ['API Key'],
         ], $json);
     }
 

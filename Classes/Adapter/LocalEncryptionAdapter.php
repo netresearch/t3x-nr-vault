@@ -93,18 +93,18 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
         }
 
         return [
-            'identifier' => $secret->getIdentifier(),
-            'description' => $secret->getDescription(),
-            'owner' => $secret->getOwnerUid(),
-            'groups' => $secret->getAllowedGroups(),
-            'context' => $secret->getContext(),
-            'version' => $secret->getVersion(),
-            'createdAt' => $secret->getCrdate(),
-            'updatedAt' => $secret->getTstamp(),
-            'expiresAt' => $secret->getExpiresAt() ?: null,
+            'identifier'    => $secret->getIdentifier(),
+            'description'   => $secret->getDescription(),
+            'owner'         => $secret->getOwnerUid(),
+            'groups'        => $secret->getAllowedGroups(),
+            'context'       => $secret->getContext(),
+            'version'       => $secret->getVersion(),
+            'createdAt'     => $secret->getCrdate(),
+            'updatedAt'     => $secret->getTstamp(),
+            'expiresAt'     => $secret->getExpiresAt() ?: null,
             'lastRotatedAt' => $secret->getLastRotatedAt() ?: null,
-            'metadata' => $secret->getMetadata(),
-            'adapter' => $secret->getAdapter(),
+            'metadata'      => $secret->getMetadata(),
+            'adapter'       => $secret->getAdapter(),
         ];
     }
 
@@ -127,7 +127,7 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
     public function updateMetadata(string $identifier, array $metadata): void
     {
         $secret = $this->secretRepository->findByIdentifier($identifier);
-        $uid = $secret?->getUid();
+        $uid    = $secret?->getUid();
         if (!$secret instanceof Secret || $uid === null) {
             return;
         }

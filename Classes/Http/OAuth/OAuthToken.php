@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -51,7 +48,7 @@ final readonly class OAuthToken
      */
     public function getExpiresIn(): int
     {
-        $now = new DateTimeImmutable();
+        $now  = new DateTimeImmutable();
         $diff = $this->expiresAt->getTimestamp() - $now->getTimestamp();
 
         return max(0, $diff);
@@ -65,7 +62,7 @@ final readonly class OAuthToken
 
         try {
             $expirySeconds = $this->expiresAt->getTimestamp();
-            $nowSeconds = $now->getTimestamp();
+            $nowSeconds    = $now->getTimestamp();
         } catch (Error $failure) {
             if (!$failure instanceof ValueError && !is_a($failure, 'DateRangeError')) {
                 throw $failure;

@@ -16,6 +16,8 @@ use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Upgrades\UpgradeWizardRegistry as CoreUpgradeWizardRegistry;
 use TYPO3\CMS\Install\Updates\UpgradeWizardRegistry as InstallUpgradeWizardRegistry;
 
+use function sprintf;
+
 /**
  * The HMAC migration must reach the Install Tool and `upgrade:run` on every
  * TYPO3 major composer.json promises — asked of the registry TYPO3 itself
@@ -61,7 +63,7 @@ final class UpgradeWizardRegistrationTest extends AbstractVaultFunctionalTestCas
     {
         self::assertTrue(
             $this->registry()->hasUpgradeWizard(self::IDENTIFIER),
-            \sprintf('TYPO3 does not offer the upgrade wizard "%s"; the Install Tool and upgrade:run cannot run it.', self::IDENTIFIER),
+            sprintf('TYPO3 does not offer the upgrade wizard "%s"; the Install Tool and upgrade:run cannot run it.', self::IDENTIFIER),
         );
     }
 

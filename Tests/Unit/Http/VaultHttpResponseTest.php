@@ -20,6 +20,8 @@ use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 
+use function sprintf;
+
 #[CoversClass(VaultHttpResponse::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class VaultHttpResponseTest extends TestCase
@@ -102,15 +104,15 @@ final class VaultHttpResponseTest extends TestCase
         $response = new VaultHttpResponse($psrResponse);
 
         $actual = match ($predicate) {
-            'isSuccessful' => $response->isSuccessful(),
+            'isSuccessful'  => $response->isSuccessful(),
             'isClientError' => $response->isClientError(),
             'isServerError' => $response->isServerError(),
-            default => $response->isRedirect(),
+            default         => $response->isRedirect(),
         };
 
         self::assertFalse(
             $actual,
-            \sprintf('%s() must not claim status %d.', $predicate, $statusCode),
+            sprintf('%s() must not claim status %d.', $predicate, $statusCode),
         );
     }
 
@@ -445,7 +447,7 @@ final class VaultHttpResponseTest extends TestCase
     #[Test]
     public function getBodyStreamReturnsStreamInterface(): void
     {
-        $stream = $this->createMock(StreamInterface::class);
+        $stream      = $this->createMock(StreamInterface::class);
         $psrResponse = $this->createMock(ResponseInterface::class);
         $psrResponse->method('getBody')->willReturn($stream);
 
@@ -459,7 +461,7 @@ final class VaultHttpResponseTest extends TestCase
     {
         $headers = [
             'Content-Type' => [self::CONTENT_TYPE_JSON],
-            'X-Custom' => ['value1', 'value2'],
+            'X-Custom'     => ['value1', 'value2'],
         ];
 
         $psrResponse = $this->createMock(ResponseInterface::class);

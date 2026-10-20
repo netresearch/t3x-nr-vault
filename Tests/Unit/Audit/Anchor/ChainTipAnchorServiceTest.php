@@ -511,7 +511,7 @@ final class ChainTipAnchorServiceTest extends TestCase
     #[Test]
     public function aThrowingListenerDoesNotCostTheRemainingFindingsOrTheReport(): void
     {
-        $seen = [];
+        $seen       = [];
         $dispatcher = self::createStub(EventDispatcherInterface::class);
         $dispatcher->method('dispatch')->willReturnCallback(
             static function (object $event) use (&$seen): object {
@@ -892,7 +892,7 @@ final class ChainTipAnchorServiceTest extends TestCase
     }
 
     /**
-     * @param mixed $maxUid Whatever `fetchOne()` returns for the highest uid
+     * @param mixed                      $maxUid      Whatever `fetchOne()` returns for the highest uid
      * @param array<string, mixed>|false $rowAtAnchor Whatever `fetchAssociative()`
      *                                                returns for the anchored row
      */

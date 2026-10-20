@@ -31,13 +31,16 @@ use RuntimeException;
 use Stringable;
 use Throwable;
 
+use function count;
+use function in_array;
+
 #[CoversClass(AuditSinkRegistry::class)]
 final class AuditSinkRegistryTest extends TestCase
 {
     #[Test]
     public function dispatchDeliversToEveryEnabledSink(): void
     {
-        $first = new SpyAuditSink('first');
+        $first  = new SpyAuditSink('first');
         $second = new SpyAuditSink('second');
 
         $accepted = $this->createSubject([$first, $second])->dispatch($this->createEntry(), 'tip');
@@ -50,7 +53,7 @@ final class AuditSinkRegistryTest extends TestCase
     #[Test]
     public function disabledSinksAreSkipped(): void
     {
-        $enabled = new SpyAuditSink('enabled');
+        $enabled  = new SpyAuditSink('enabled');
         $disabled = new SpyAuditSink('disabled', enabled: false);
 
         $accepted = $this->createSubject([$enabled, $disabled])->dispatch($this->createEntry(), 'tip');
@@ -76,7 +79,7 @@ final class AuditSinkRegistryTest extends TestCase
     #[Test]
     public function aThrowingSinkDoesNotPreventTheRemainingSinksFromReceivingTheEntry(): void
     {
-        $broken = new SpyAuditSink('broken', throwOnPublish: AuditSinkException::writeFailed('broken', 'disk full'));
+        $broken  = new SpyAuditSink('broken', throwOnPublish: AuditSinkException::writeFailed('broken', 'disk full'));
         $healthy = new SpyAuditSink('healthy');
 
         $accepted = $this->createSubject([$broken, $healthy])->dispatch($this->createEntry(), 'tip');
@@ -140,7 +143,7 @@ final class AuditSinkRegistryTest extends TestCase
     public function failureLogContextCarriesOnlyNonSensitiveRecordFacts(): void
     {
         $captured = [];
-        $logger = self::createStub(LoggerInterface::class);
+        $logger   = self::createStub(LoggerInterface::class);
         $logger->method('error')->willReturnCallback(
             static function (string|Stringable $message, array $context) use (&$captured): void {
                 $captured = $context;
@@ -203,7 +206,7 @@ final class AuditSinkRegistryTest extends TestCase
     #[Test]
     public function dispatchAnchorDeliversTheAnchorToEveryEnabledSink(): void
     {
-        $sink = new SpyAuditSink('spy');
+        $sink   = new SpyAuditSink('spy');
         $anchor = new ChainTipAnchor(42, 'tip', 1_750_000_000, 3);
 
         $accepted = $this->createSubject([$sink])->dispatchAnchor($anchor);
@@ -223,7 +226,7 @@ final class AuditSinkRegistryTest extends TestCase
     #[Test]
     public function dispatchAlertDeliversTheAlertToEveryEnabledSink(): void
     {
-        $sink = new SpyAuditSink('spy');
+        $sink  = new SpyAuditSink('spy');
         $alert = AuditIntegrityAlert::create(AuditIntegrityReason::TableReset, 'chain shrank');
 
         $accepted = $this->createSubject([$sink])->dispatchAlert($alert);
@@ -241,7 +244,7 @@ final class AuditSinkRegistryTest extends TestCase
     public function aSinkFailingDuringAlertDeliveryRaisesNoFurtherAlert(): void
     {
         $dispatcher = new RecordingEventDispatcher();
-        $registry = $this->createSubject(
+        $registry   = $this->createSubject(
             [new SpyAuditSink('broken', throwOnAlert: new RuntimeException('boom'))],
             eventDispatcher: $dispatcher,
         );
@@ -264,12 +267,12 @@ final class AuditSinkRegistryTest extends TestCase
         // The listener needs the registry that constructs the dispatcher, so the
         // cycle is closed through a mutable holder rather than a captured local
         // (which would still be null when the closure is built).
-        $holder = new RegistryHolder();
+        $holder     = new RegistryHolder();
         $dispatcher = new ForwardingEventDispatcher(static function (AuditIntegrityAlertEvent $event) use ($holder): void {
             $holder->registry?->dispatchAlert($event->getAlert());
         });
 
-        $registry = $this->createSubject([$sink], eventDispatcher: $dispatcher);
+        $registry         = $this->createSubject([$sink], eventDispatcher: $dispatcher);
         $holder->registry = $registry;
 
         $registry->dispatch($this->createEntry(), 'tip');
@@ -373,9 +376,9 @@ final class AuditSinkRegistryTest extends TestCase
     public function reEnteringAlertDispatchFromInsideASinkIsDroppedRatherThanRecursed(): void
     {
         $holder = new RegistryHolder();
-        $sink = new ReentrantAlertSink('reentrant', $holder);
+        $sink   = new ReentrantAlertSink('reentrant', $holder);
 
-        $registry = $this->createSubject([$sink]);
+        $registry         = $this->createSubject([$sink]);
         $holder->registry = $registry;
 
         $accepted = $registry->dispatchAlert(
@@ -395,9 +398,9 @@ final class AuditSinkRegistryTest extends TestCase
     public function theReentrancyGuardIsReleasedAfterTheOuterDeliveryCompletes(): void
     {
         $holder = new RegistryHolder();
-        $sink = new ReentrantAlertSink('reentrant', $holder);
+        $sink   = new ReentrantAlertSink('reentrant', $holder);
 
-        $registry = $this->createSubject([$sink]);
+        $registry         = $this->createSubject([$sink]);
         $holder->registry = $registry;
 
         $alert = AuditIntegrityAlert::create(AuditIntegrityReason::SinkFailure, 'first');
@@ -423,7 +426,7 @@ final class AuditSinkRegistryTest extends TestCase
     public function failedDeliveryIsRecordedInThePersistentState(): void
     {
         $deliveryState = new RecordingDeliveryState();
-        $broken = new SpyAuditSink('broken', throwOnPublish: new RuntimeException('collector unreachable'));
+        $broken        = new SpyAuditSink('broken', throwOnPublish: new RuntimeException('collector unreachable'));
 
         $this->createSubject([$broken], deliveryState: $deliveryState)
             ->dispatch($this->createEntry(), 'tip');
@@ -441,19 +444,19 @@ final class AuditSinkRegistryTest extends TestCase
         string $operation,
         string $loggerFailureClass,
     ): void {
-        $sinkFailure = new RuntimeException('synthetic sink unavailable');
-        $loggerFailure = new $loggerFailureClass('synthetic logger unavailable');
+        $sinkFailure     = new RuntimeException('synthetic sink unavailable');
+        $loggerFailure   = new $loggerFailureClass('synthetic logger unavailable');
         $listenerFailure = new Error('synthetic listener unavailable');
-        $broken = new SpyAuditSink(
+        $broken          = new SpyAuditSink(
             'broken',
-            throwOnPublish: \in_array($operation, ['entry', 'listener'], true) ? $sinkFailure : null,
+            throwOnPublish: in_array($operation, ['entry', 'listener'], true) ? $sinkFailure : null,
             throwOnAnchor: $operation === 'anchor' ? $sinkFailure : null,
             throwOnAlert: $operation === 'alert' ? $sinkFailure : null,
-            throwOnIsEnabled: \in_array($operation, ['enabled', 'identifiers'], true) ? $sinkFailure : null,
+            throwOnIsEnabled: in_array($operation, ['enabled', 'identifiers'], true) ? $sinkFailure : null,
         );
-        $healthy = new SpyAuditSink('healthy');
+        $healthy     = new SpyAuditSink('healthy');
         $diagnostics = [];
-        $logger = self::createStub(LoggerInterface::class);
+        $logger      = self::createStub(LoggerInterface::class);
         $logger
             ->method('error')
             ->willReturnCallback(
@@ -462,12 +465,12 @@ final class AuditSinkRegistryTest extends TestCase
                     array $context,
                 ) use (&$diagnostics, $operation, $loggerFailure): void {
                     $diagnostics[] = ['message' => (string) $message, 'context' => $context];
-                    if ($operation !== 'listener' || \count($diagnostics) % 2 === 0) {
+                    if ($operation !== 'listener' || count($diagnostics) % 2 === 0) {
                         throw $loggerFailure;
                     }
                 },
             );
-        $events = [];
+        $events     = [];
         $dispatcher = new ForwardingEventDispatcher(
             static function (
                 AuditIntegrityAlertEvent $event,
@@ -478,9 +481,9 @@ final class AuditSinkRegistryTest extends TestCase
                 }
             },
         );
-        $state = new RecordingDeliveryState();
+        $state   = new RecordingDeliveryState();
         $subject = $this->createSubject([$broken, $healthy], $logger, $dispatcher, $state);
-        $caught = null;
+        $caught  = null;
         $results = [];
 
         try {
@@ -496,9 +499,9 @@ final class AuditSinkRegistryTest extends TestCase
                             'synthetic reset',
                         ),
                     ),
-                    'enabled' => $subject->hasExternalAuditSink(),
+                    'enabled'     => $subject->hasExternalAuditSink(),
                     'identifiers' => $subject->getEnabledSinkIdentifiers(),
-                    default => $subject->dispatch($this->createEntry(), 'tip'),
+                    default       => $subject->dispatch($this->createEntry(), 'tip'),
                 };
             }
         } catch (Throwable $failure) {
@@ -511,9 +514,9 @@ final class AuditSinkRegistryTest extends TestCase
             'Diagnostics must not escape the never-throws registry contract.',
         );
         $expected = match ($operation) {
-            'enabled' => true,
+            'enabled'     => true,
             'identifiers' => ['healthy'],
-            default => 1,
+            default       => 1,
         };
         self::assertSame([$expected, $expected], $results);
         self::assertSame(2, $subject->getFailureCount());
@@ -529,16 +532,16 @@ final class AuditSinkRegistryTest extends TestCase
 
         self::assertCount($operation === 'listener' ? 4 : 2, $diagnostics);
         $record = match ($operation) {
-            'anchor' => 'anchor',
-            'alert' => 'alert',
+            'anchor'                 => 'anchor',
+            'alert'                  => 'alert',
             'enabled', 'identifiers' => 'enablement-probe',
-            default => 'entry',
+            default                  => 'entry',
         };
         $facts = match ($record) {
-            'entry' => ['uid' => 1, 'action' => 'read'],
+            'entry'  => ['uid' => 1, 'action' => 'read'],
             'anchor' => ['sequence' => 42],
-            'alert' => ['reason' => AuditIntegrityReason::TableReset->value],
-            default => [],
+            'alert'  => ['reason' => AuditIntegrityReason::TableReset->value],
+            default  => [],
         };
         foreach ($diagnostics as $index => $diagnostic) {
             if ($operation === 'listener' && $index % 2 === 1) {
@@ -548,7 +551,7 @@ final class AuditSinkRegistryTest extends TestCase
                 );
                 self::assertSame(
                     [
-                        'sink' => 'broken',
+                        'sink'  => 'broken',
                         'error' => $listenerFailure->getMessage(),
                     ],
                     $diagnostic['context'],
@@ -560,9 +563,9 @@ final class AuditSinkRegistryTest extends TestCase
                 );
                 self::assertSame(
                     [
-                        'sink' => 'broken',
-                        'record' => $record,
-                        'error' => $sinkFailure->getMessage(),
+                        'sink'      => 'broken',
+                        'record'    => $record,
+                        'error'     => $sinkFailure->getMessage(),
                         'exception' => $sinkFailure::class,
                     ] + $facts,
                     $diagnostic['context'],
@@ -577,13 +580,13 @@ final class AuditSinkRegistryTest extends TestCase
             ],
             $state->failures,
         );
-        $delivering = \in_array($operation, ['entry', 'listener', 'anchor', 'alert'], true);
+        $delivering = in_array($operation, ['entry', 'listener', 'anchor', 'alert'], true);
         self::assertSame(
             $delivering ? ['healthy', 'healthy'] : [],
             $state->successes,
         );
         self::assertSame(
-            \in_array($operation, ['entry', 'listener'], true) ? 2 : 0,
+            in_array($operation, ['entry', 'listener'], true) ? 2 : 0,
             $healthy->publishCalls,
         );
         self::assertSame($operation === 'anchor' ? 2 : 0, $healthy->anchorCalls);

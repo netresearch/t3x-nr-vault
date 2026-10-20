@@ -11,6 +11,9 @@ namespace Netresearch\NrVault\Exception;
 
 use Throwable;
 
+use function is_scalar;
+use function sprintf;
+
 /**
  * Thrown when an audit-log write cannot proceed safely.
  *
@@ -48,13 +51,13 @@ final class AuditWriteException extends VaultException
     public static function lockAcquisitionFailed(mixed $rawResult): self
     {
         $detail = match (true) {
-            $rawResult === null => 'NULL (DB error)',
-            \is_scalar($rawResult) => (string) $rawResult,
-            default => 'non-scalar',
+            $rawResult === null   => 'NULL (DB error)',
+            is_scalar($rawResult) => (string) $rawResult,
+            default               => 'non-scalar',
         };
 
         return new self(
-            \sprintf(
+            sprintf(
                 'Audit-log advisory lock could not be acquired (GET_LOCK returned %s). '
                 . 'Retry the operation; if the failure persists, check for a stuck '
                 . 'audit log writer holding the named lock "nr_vault_audit".',

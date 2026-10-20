@@ -1,9 +1,10 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Hook;
@@ -38,6 +39,9 @@ use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function define;
+use function defined;
+
 #[CoversClass(FlexFormVaultHook::class)]
 #[AllowMockObjectsWithoutExpectations]
 #[RunTestsInSeparateProcesses]
@@ -57,7 +61,7 @@ final class FlexFormCopyLinkFailureTest extends TestCase
     }
 
     /**
-     * @param class-string<Throwable> $throwableClass
+     * @param class-string<Throwable>      $throwableClass
      * @param class-string<Throwable>|null $writerFailureClass
      * @param class-string<Throwable>|null $cleanupFailureClass
      */
@@ -72,12 +76,12 @@ final class FlexFormCopyLinkFailureTest extends TestCase
         ?string $writerFailureClass = null,
         ?string $cleanupFailureClass = null,
     ): void {
-        if (!\defined('LF')) {
-            \define('LF', "\n");
+        if (!defined('LF')) {
+            define('LF', "\n");
         }
 
         $failure = new $throwableClass('synthetic private link failure');
-        $pool = $this->createMock(ConnectionPool::class);
+        $pool    = $this->createMock(ConnectionPool::class);
         $this->mockTcaSchemaForTable(
             self::TABLE,
             ['flex_a' => ['type' => 'flex']],
@@ -85,7 +89,7 @@ final class FlexFormCopyLinkFailureTest extends TestCase
         $vault = $this->createMock(VaultServiceInterface::class);
         $vault->method('exists')->willReturn(true);
         $vault->method('retrieve')->willReturn('synthetic-copy-value');
-        $created = [];
+        $created   = [];
         $abandoned = [];
         $vault
             ->method('store')
@@ -124,9 +128,9 @@ final class FlexFormCopyLinkFailureTest extends TestCase
         }
 
         /** @phpstan-ignore method.internal */
-        $copyXml = $realTools->flexArray2Xml($copyData);
+        $copyXml    = $realTools->flexArray2Xml($copyData);
         $storedCopy = $copyXml;
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result
             ->method('fetchAllAssociative')
             ->willReturn(
@@ -142,7 +146,7 @@ final class FlexFormCopyLinkFailureTest extends TestCase
 
         $query->method('executeQuery')->willReturn($result);
         $pool->method('getQueryBuilderForTable')->willReturn($query);
-        $connection = $this->createMock(Connection::class);
+        $connection     = $this->createMock(Connection::class);
         $updateAttempts = 0;
         $connection
             ->method('update')
@@ -151,7 +155,7 @@ final class FlexFormCopyLinkFailureTest extends TestCase
                     string $table,
                     array $changes,
                 ) use ($stage, $failure, $failurePersists, $recoveryFails, &$updateAttempts, &$storedCopy): int {
-                    $updateAttempts++;
+                    ++$updateAttempts;
                     if ($stage === 'database' && ($updateAttempts === 1 || $recoveryFails)) {
                         if ($failurePersists && $updateAttempts === 1) {
                             $storedCopy = $changes['flex_a'];
@@ -166,7 +170,7 @@ final class FlexFormCopyLinkFailureTest extends TestCase
                 },
             );
         $pool->method('getConnectionForTable')->willReturn($connection);
-        $tools = $this->createMock(FlexFormTools::class);
+        $tools                 = $this->createMock(FlexFormTools::class);
         $serializationAttempts = 0;
         $tools
             ->method('flexArray2Xml')
@@ -174,7 +178,7 @@ final class FlexFormCopyLinkFailureTest extends TestCase
                 static function (
                     array $flex,
                 ) use ($stage, $failure, $realTools, $recoveryFails, &$serializationAttempts): string {
-                    $serializationAttempts++;
+                    ++$serializationAttempts;
                     if ($stage === 'serialization' && ($serializationAttempts === 1 || $recoveryFails)) {
                         throw $failure;
                     }
@@ -202,7 +206,7 @@ final class FlexFormCopyLinkFailureTest extends TestCase
                     $messages[] = $message;
                 },
             );
-        $logger = $this->diagnosticLogger($writerFailureClass);
+        $logger  = $this->diagnosticLogger($writerFailureClass);
         $subject = new FlexFormVaultHook(
             $pool,
             $this->tcaSchemaFactory,

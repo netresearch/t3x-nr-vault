@@ -20,6 +20,10 @@ use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\AbstractLogger;
 use Stringable;
 
+use function is_string;
+use function sprintf;
+use function strlen;
+
 #[CoversClass(VaultFailureReporter::class)]
 final class VaultFailureReporterTest extends TestCase
 {
@@ -51,7 +55,7 @@ final class VaultFailureReporterTest extends TestCase
             public function __construct(private readonly Closure $record) {}
 
             /**
-             * @param mixed $level
+             * @param mixed        $level
              * @param array<mixed> $context
              */
             public function log($level, string|Stringable $message, array $context = []): void
@@ -156,14 +160,14 @@ final class VaultFailureReporterTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/[[:cntrl:]]/', $message);
 
         foreach ($context as $key => $value) {
-            if (!\is_string($value)) {
+            if (!is_string($value)) {
                 continue;
             }
 
             self::assertDoesNotMatchRegularExpression(
                 '/[[:cntrl:]]/',
                 $value,
-                \sprintf('Context value "%s" must not carry control bytes', $key),
+                sprintf('Context value "%s" must not carry control bytes', $key),
             );
         }
     }
@@ -179,8 +183,8 @@ final class VaultFailureReporterTest extends TestCase
 
         self::assertIsString($context['error']);
         self::assertIsString($context['identifier']);
-        self::assertLessThanOrEqual(200, \strlen($context['error']));
-        self::assertLessThanOrEqual(200, \strlen($context['identifier']));
+        self::assertLessThanOrEqual(200, strlen($context['error']));
+        self::assertLessThanOrEqual(200, strlen($context['identifier']));
     }
 
     /**

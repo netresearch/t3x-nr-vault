@@ -100,7 +100,7 @@ final class VaultHealthServiceTest extends TestCase
             ->with(
                 self::stringContains('could not be read'),
                 [
-                    'provider' => 'file',
+                    'provider'  => 'file',
                     'exception' => '/var/secrets/master.key is not readable',
                 ],
             );

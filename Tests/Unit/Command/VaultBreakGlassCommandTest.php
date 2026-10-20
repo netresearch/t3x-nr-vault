@@ -40,7 +40,7 @@ final class VaultBreakGlassCommandTest extends TestCase
         parent::setUp();
 
         $this->breakGlassService = $this->createMock(BreakGlassServiceInterface::class);
-        $this->configuration = $this->createMock(ExtensionConfigurationInterface::class);
+        $this->configuration     = $this->createMock(ExtensionConfigurationInterface::class);
         $this->configuration->method('getSecurityProfile')->willReturn(SecurityProfile::Hardened);
         $this->configuration->method('isAdminOverrideDisabled')->willReturn(true);
 
@@ -103,8 +103,8 @@ final class VaultBreakGlassCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             '--activate' => true,
-            '--reason' => 'INC-4711 rotate leaked key',
-            '--minutes' => '30',
+            '--reason'   => 'INC-4711 rotate leaked key',
+            '--minutes'  => '30',
         ]);
 
         self::assertSame(Command::SUCCESS, $exitCode);
@@ -174,7 +174,7 @@ final class VaultBreakGlassCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             '--deactivate' => true,
-            '--reason' => 'INC-4711 closed',
+            '--reason'     => 'INC-4711 closed',
         ]);
 
         self::assertSame(Command::SUCCESS, $exitCode);
@@ -211,9 +211,9 @@ final class VaultBreakGlassCommandTest extends TestCase
         $this->breakGlassService->expects(self::never())->method('deactivate');
 
         $exitCode = $this->commandTester->execute([
-            '--activate' => true,
+            '--activate'   => true,
             '--deactivate' => true,
-            '--reason' => 'incident',
+            '--reason'     => 'incident',
         ]);
 
         self::assertSame(Command::INVALID, $exitCode);

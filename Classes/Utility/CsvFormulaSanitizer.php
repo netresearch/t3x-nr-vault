@@ -9,6 +9,9 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Utility;
 
+use function in_array;
+use function is_string;
+
 /**
  * Neutralizes spreadsheet-formula leaders in CSV cells (CWE-1236).
  *
@@ -42,7 +45,7 @@ final class CsvFormulaSanitizer
             return $value;
         }
 
-        if (\in_array($value[0], self::FORMULA_LEADERS, true)) {
+        if (in_array($value[0], self::FORMULA_LEADERS, true)) {
             return "'" . $value;
         }
 
@@ -62,8 +65,7 @@ final class CsvFormulaSanitizer
     public static function neutralizeRow(array $row): array
     {
         return array_map(
-            static fn (bool|float|int|string|null $cell): bool|float|int|string|null
-                => \is_string($cell) ? self::neutralizeCell($cell) : $cell,
+            static fn (bool|float|int|string|null $cell): bool|float|int|string|null => is_string($cell) ? self::neutralizeCell($cell) : $cell,
             $row,
         );
     }

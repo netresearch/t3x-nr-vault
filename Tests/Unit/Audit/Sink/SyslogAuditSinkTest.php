@@ -127,8 +127,8 @@ final class SyslogAuditSinkTest extends TestCase
             ->expects(self::exactly(2))
             ->method('getAuditSinkSyslogIdent')
             ->willReturnOnConsecutiveCalls('first-instance', 'second-instance');
-        $sink = new SyslogAuditSink($configuration, new Rfc5424Formatter());
-        $entry = $this->createEntry();
+        $sink   = new SyslogAuditSink($configuration, new Rfc5424Formatter());
+        $entry  = $this->createEntry();
         $anchor = new ChainTipAnchor(1, 'tip', 1, 3);
         $sink->publish($entry, 'tip');
         $sink->publishAnchor($anchor);

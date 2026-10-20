@@ -30,6 +30,10 @@ use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function is_resource;
+use function is_scalar;
+use function is_string;
+
 /**
  * Finding F2 — the hash chain walk only ever inspects rows that are still
  * present, so removing the tail (or the whole table) leaves a self-consistent
@@ -281,7 +285,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         self::assertFalse($auditLogService->verifyHashChain()->isValid(), 'precondition: violated');
 
         $commandTester = new CommandTester($this->get(VaultAuditCommand::class));
-        $exitCode = $commandTester->execute(['--reset-anchor' => true, '--force' => true]);
+        $exitCode      = $commandTester->execute(['--reset-anchor' => true, '--force' => true]);
 
         self::assertSame(0, $exitCode, $commandTester->getDisplay());
 
@@ -304,7 +308,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
     public function resetAnchorCommandReArmsWithAnchorRequiredEnabled(): void
     {
         $configuration = $this->configurationStub(3, true);
-        $store = new AuditChainAnchorStore(
+        $store         = new AuditChainAnchorStore(
             $this->get(ConnectionPool::class),
             $this->get(MasterKeyProviderInterface::class),
             $configuration,
@@ -458,13 +462,13 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         $this->get(AuditChainSeeder::class)->seed([
             [
                 'secret_identifier' => 'seeded-secret',
-                'action' => 'read',
-                'success' => true,
-                'actor_uid' => 1,
-                'actor_type' => 'cli',
-                'actor_username' => '_cli_',
-                'crdate' => time() - 3600,
-                'context' => [],
+                'action'            => 'read',
+                'success'           => true,
+                'actor_uid'         => 1,
+                'actor_type'        => 'cli',
+                'actor_username'    => '_cli_',
+                'crdate'            => time() - 3600,
+                'context'           => [],
             ],
         ]);
 
@@ -538,7 +542,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         $this->downgradeStoredEpochs();
 
         $commandTester = new CommandTester($this->get(VaultAuditMigrateCommand::class));
-        $exitCode = $commandTester->execute([]);
+        $exitCode      = $commandTester->execute([]);
 
         self::assertSame(
             Command::FAILURE,
@@ -659,7 +663,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         int $count,
         string $prefix = 'anchor-test',
     ): void {
-        for ($i = 0; $i < $count; $i++) {
+        for ($i = 0; $i < $count; ++$i) {
             $auditLogService->log($prefix . '-' . $i, 'read', true, null, 'anchor test');
         }
     }
@@ -671,7 +675,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
 
     private function deleteEntriesAbove(int $uid): void
     {
-        $connection = $this->auditConnection();
+        $connection   = $this->auditConnection();
         $queryBuilder = $connection->createQueryBuilder();
         $queryBuilder
             ->delete(self::AUDIT_TABLE)
@@ -720,7 +724,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
      */
     private function downgradeStoredEpochs(): void
     {
-        $connection = $this->auditConnection();
+        $connection   = $this->auditConnection();
         $queryBuilder = $connection->createQueryBuilder();
         $queryBuilder
             ->update(self::AUDIT_TABLE)
@@ -730,23 +734,23 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
 
     private function entryHashOf(int $uid): ?string
     {
-        $connection = $this->auditConnection();
+        $connection   = $this->auditConnection();
         $queryBuilder = $connection->createQueryBuilder();
-        $hash = $queryBuilder
+        $hash         = $queryBuilder
             ->select('entry_hash')
             ->from(self::AUDIT_TABLE)
             ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
             ->executeQuery()
             ->fetchOne();
 
-        return \is_string($hash) ? $hash : null;
+        return is_string($hash) ? $hash : null;
     }
 
     private function rawAnchorValue(): ?string
     {
-        $connection = $this->get(ConnectionPool::class)->getConnectionForTable(self::REGISTRY_TABLE);
+        $connection   = $this->get(ConnectionPool::class)->getConnectionForTable(self::REGISTRY_TABLE);
         $queryBuilder = $connection->createQueryBuilder();
-        $value = $queryBuilder
+        $value        = $queryBuilder
             ->select('entry_value')
             ->from(self::REGISTRY_TABLE)
             ->where(
@@ -756,13 +760,13 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
             ->executeQuery()
             ->fetchOne();
 
-        if (\is_resource($value)) {
+        if (is_resource($value)) {
             $contents = stream_get_contents($value);
 
-            return \is_string($contents) ? $contents : null;
+            return is_string($contents) ? $contents : null;
         }
 
-        return \is_string($value) ? $value : null;
+        return is_string($value) ? $value : null;
     }
 
     private function currentAnchorUid(): int
@@ -793,7 +797,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
      */
     private function nullifyAnchorValue(): void
     {
-        $connection = $this->get(ConnectionPool::class)->getConnectionForTable(self::REGISTRY_TABLE);
+        $connection   = $this->get(ConnectionPool::class)->getConnectionForTable(self::REGISTRY_TABLE);
         $queryBuilder = $connection->createQueryBuilder();
         $queryBuilder
             ->update(self::REGISTRY_TABLE)
@@ -821,11 +825,11 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
      */
     private function storedActions(): array
     {
-        $connection = $this->auditConnection();
+        $connection   = $this->auditConnection();
         $queryBuilder = $connection->createQueryBuilder();
 
         return array_map(
-            static fn (mixed $value): string => \is_scalar($value) ? (string) $value : '',
+            static fn (mixed $value): string => is_scalar($value) ? (string) $value : '',
             $queryBuilder
                 ->select('action')
                 ->from(self::AUDIT_TABLE)

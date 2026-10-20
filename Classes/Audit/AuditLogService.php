@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -28,6 +25,12 @@ use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
+
+use function count;
+use function is_bool;
+use function is_int;
+use function is_string;
+use function sprintf;
 
 /**
  * Audit log service with tamper-evident hash chain.
@@ -75,20 +78,20 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     private const ANCHOR_WARNING_IN_FLIGHT = -3;
 
     /**
-     * @param AuditChainAnchorStoreInterface|null $anchorStore In-database
-     *                                                         (sys_registry) MAC-signed tip anchor. Optional for the same
-     *                                                         reason as the sinks below: existing four-argument
-     *                                                         constructions keep working, DI autowires it in production.
-     *                                                         Null means the tip is not pinned — `verifyHashChain()`
-     *                                                         reports the unanchored state per `auditAnchorRequired`.
-     * @param AuditSinkRegistryInterface|null $sinkRegistry External audit sinks.
-     *                                                      Optional so the many existing callers that construct this
-     *                                                      service with four arguments (tests, migration tooling) keep
-     *                                                      working; DI autowires it in production. Null simply means no
-     *                                                      fan-out — the database chain is unaffected either way.
-     * @param LoggerInterface|null $logger Used only to report a failure of the
-     *                                     sink fan-out plumbing itself. Chain writes report failures by
-     *                                     throwing, so this service needs no logger for its primary job.
+     * @param AuditChainAnchorStoreInterface|null $anchorStore  In-database
+     *                                                          (sys_registry) MAC-signed tip anchor. Optional for the same
+     *                                                          reason as the sinks below: existing four-argument
+     *                                                          constructions keep working, DI autowires it in production.
+     *                                                          Null means the tip is not pinned — `verifyHashChain()`
+     *                                                          reports the unanchored state per `auditAnchorRequired`.
+     * @param AuditSinkRegistryInterface|null     $sinkRegistry External audit sinks.
+     *                                                          Optional so the many existing callers that construct this
+     *                                                          service with four arguments (tests, migration tooling) keep
+     *                                                          working; DI autowires it in production. Null simply means no
+     *                                                          fan-out — the database chain is unaffected either way.
+     * @param LoggerInterface|null                $logger       Used only to report a failure of the
+     *                                                          sink fan-out plumbing itself. Chain writes report failures by
+     *                                                          throwing, so this service needs no logger for its primary job.
      */
     public function __construct(
         private ConnectionPool $connectionPool,
@@ -119,18 +122,18 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // (which the VaultService atomicity path compensates) — it must surface.
         if (AuditAction::tryFrom($action) === null) {
             throw new InvalidArgumentException(
-                \sprintf('Unknown audit action "%s"; must be one of AuditAction::cases().', $action),
+                sprintf('Unknown audit action "%s"; must be one of AuditAction::cases().', $action),
                 1717100000,
             );
         }
 
         $connection = $this->getConnection();
-        $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
+        $isSQLite   = $connection->getDatabasePlatform() instanceof SQLitePlatform;
         $this->acquireAuditLock($connection, $isSQLite);
 
         try {
             $previousHash = $this->fetchPreviousHash($connection);
-            $data = $this->buildEntryData(
+            $data         = $this->buildEntryData(
                 new AuditLogInputs(
                     $secretIdentifier,
                     $action,
@@ -251,7 +254,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     public function exportIterable(?AuditLogFilter $filter = null, int $chunkSize = 1000): Generator
     {
         $chunkSize = max(1, $chunkSize);
-        $offset = 0;
+        $offset    = 0;
 
         do {
             $chunk = $this->query($filter, $chunkSize, $offset);
@@ -260,7 +263,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             }
 
             $offset += $chunkSize;
-        } while (\count($chunk) === $chunkSize);
+        } while (count($chunk) === $chunkSize);
     }
 
     public function verifyHashChain(?int $fromUid = null, ?int $toUid = null, ?int $minEpoch = null): HashChainVerificationResult
@@ -273,7 +276,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // epochs (the HMAC migration) pass 0 to disable the configured floor.
         $epochFloor = $minEpoch ?? $this->getCurrentEpoch();
 
-        $connection = $this->getConnection();
+        $connection   = $this->getConnection();
         $queryBuilder = $connection->createQueryBuilder();
         $queryBuilder
             ->select('*')
@@ -295,14 +298,14 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // Stream the rows (single forward pass, read-only): the audit log can
         // be arbitrarily large, and master-key rotation verifies the full chain
         // up front — materialising it wholesale would OOM the rotation command.
-        $rows = $queryBuilder->executeQuery()->iterateAssociative();
-        $errors = [];
+        $rows     = $queryBuilder->executeQuery()->iterateAssociative();
+        $errors   = [];
         $warnings = [];
         /** @var list<int> $missingUids */
-        $missingUids = [];
+        $missingUids     = [];
         $missingUidCount = 0;
-        $previousHash = '';
-        $previousEpoch = -1;
+        $previousHash    = '';
+        $previousEpoch   = -1;
         // Highest epoch observed across the chain (the "high-water mark"). Stays
         // -1 for an empty chain so the epoch-floor check below is skipped.
         $maxEpoch = -1;
@@ -327,13 +330,13 @@ final readonly class AuditLogService implements AuditLogServiceInterface
 
         try {
             foreach ($rows as $row) {
-                $entry = self::extractHashRow($row);
-                $uid = $entry['uid'];
-                $secretId = $entry['secretId'];
+                $entry     = self::extractHashRow($row);
+                $uid       = $entry['uid'];
+                $secretId  = $entry['secretId'];
                 $actionStr = $entry['action'];
-                $actorUid = $entry['actorUid'];
-                $crdate = $entry['crdate'];
-                $epoch = $entry['epoch'];
+                $actorUid  = $entry['actorUid'];
+                $crdate    = $entry['crdate'];
+                $epoch     = $entry['epoch'];
 
                 // BUG FIX: Detect UID gaps.
                 //
@@ -353,19 +356,19 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 // verifier can still detect the gap scale.
                 if ($previousUid !== -1 && $uid - $previousUid > 1) {
                     $gapStart = $previousUid + 1;
-                    $gapEnd = $uid - 1;
-                    $gapSize = $gapEnd - $gapStart + 1;
+                    $gapEnd   = $uid - 1;
+                    $gapSize  = $gapEnd - $gapStart + 1;
                     $missingUidCount += $gapSize;
 
-                    $remaining = $missingUidCap - \count($missingUids);
+                    $remaining = $missingUidCap - count($missingUids);
                     if ($remaining > 0) {
                         $enumerateEnd = min($gapEnd, $gapStart + $remaining - 1);
-                        for ($missing = $gapStart; $missing <= $enumerateEnd; $missing++) {
+                        for ($missing = $gapStart; $missing <= $enumerateEnd; ++$missing) {
                             $missingUids[] = $missing;
                         }
                     }
 
-                    $errors[$uid] = \sprintf(
+                    $errors[$uid] = sprintf(
                         'Audit log uid gap detected: missing uids %d..%d (chain could have been tampered by deletion + previous_hash patch)',
                         $gapStart,
                         $gapEnd,
@@ -388,13 +391,13 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 // non-fatal warning, preserving backward compatibility for
                 // mid-migration chains.
                 if ($previousEpoch >= 0 && $epoch < $previousEpoch) {
-                    $errors[$uid] = \sprintf(
+                    $errors[$uid] = sprintf(
                         'HMAC key epoch downgrade detected: %d -> %d (possible algorithm-downgrade forgery)',
                         $previousEpoch,
                         $epoch,
                     );
                 } elseif ($previousEpoch >= 0 && $epoch !== $previousEpoch) {
-                    $warnings[$uid] = \sprintf(
+                    $warnings[$uid] = sprintf(
                         'HMAC key epoch boundary: %d -> %d',
                         $previousEpoch,
                         $epoch,
@@ -418,19 +421,19 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                     $epoch === 0 => self::calculateHash($uid, $secretId, $actionStr, $actorUid, $crdate, $previousHash),
                     $epoch === 1 => self::calculateHash($uid, $secretId, $actionStr, $actorUid, $crdate, $previousHash, $hmacKey),
                     $epoch === 2 => self::calculateHashV2(self::extractV2HashRow($row), $previousHash, $hmacKey),
-                    default => self::calculateHashV3(self::extractV3HashRow($row), $previousHash, $hmacKey),
+                    default      => self::calculateHashV3(self::extractV3HashRow($row), $previousHash, $hmacKey),
                 };
 
                 // Verify previous_hash matches. Use hash_equals() for the
                 // constant-time comparison the project mandates for integrity
                 // tags (AGENTS.md Security Requirement #2).
-                $rowPrevHash = \is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '';
+                $rowPrevHash = is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '';
                 if (!hash_equals($previousHash, $rowPrevHash)) {
                     $errors[$uid] = 'Previous hash mismatch - chain broken';
                 }
 
                 // Verify entry_hash is correct (constant-time).
-                $rowEntryHash = \is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '';
+                $rowEntryHash = is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '';
                 if (!hash_equals($expectedHash, $rowEntryHash)) {
                     $errors[$uid] = 'Entry hash mismatch - possible tampering';
                 }
@@ -455,7 +458,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // legitimately exclude the higher-epoch rows. $maxEpoch === -1 means an
         // empty chain, which has nothing to downgrade.
         if ($fromUid === null && $toUid === null && $maxEpoch !== -1 && $maxEpoch < $epochFloor) {
-            $errors[0] = \sprintf(
+            $errors[0] = sprintf(
                 'HMAC key epoch downgrade detected: chain high-water epoch %d is below the configured floor %d (possible algorithm-downgrade forgery)',
                 $maxEpoch,
                 $epochFloor,
@@ -517,7 +520,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     public function getLatestHash(): ?string
     {
         $queryBuilder = $this->getConnection()->createQueryBuilder();
-        $hash = $queryBuilder
+        $hash         = $queryBuilder
             ->select('entry_hash')
             ->from(self::TABLE_NAME)
             ->orderBy('uid', 'DESC')
@@ -525,7 +528,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             ->executeQuery()
             ->fetchOne();
 
-        return $hash !== false && \is_string($hash) ? $hash : null;
+        return $hash !== false && is_string($hash) ? $hash : null;
     }
 
     /**
@@ -554,12 +557,12 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         ?string $hmacKey = null,
     ): string {
         $payload = json_encode([
-            'uid' => $uid,
+            'uid'               => $uid,
             'secret_identifier' => $secretIdentifier,
-            'action' => $action,
-            'actor_uid' => $actorUid,
-            'crdate' => $crdate,
-            'previous_hash' => $previousHash,
+            'action'            => $action,
+            'actor_uid'         => $actorUid,
+            'crdate'            => $crdate,
+            'previous_hash'     => $previousHash,
         ], JSON_THROW_ON_ERROR);
 
         if ($hmacKey === null) {
@@ -666,10 +669,10 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 // v3 additions — authenticate the algorithm selector and the
                 // human-facing attribution surface.
                 'hmac_key_epoch' => (int) $row['hmac_key_epoch'],
-                'actor_type' => (string) $row['actor_type'],
+                'actor_type'     => (string) $row['actor_type'],
                 'actor_username' => (string) $row['actor_username'],
-                'actor_role' => (string) $row['actor_role'],
-                'request_id' => (string) $row['request_id'],
+                'actor_role'     => (string) $row['actor_role'],
+                'request_id'     => (string) $row['request_id'],
             ],
             JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
         );
@@ -689,12 +692,12 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     public static function extractHashRow(array $row): array
     {
         return [
-            'uid' => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
-            'secretId' => \is_string($row['secret_identifier'] ?? null) ? $row['secret_identifier'] : '',
-            'action' => \is_string($row['action'] ?? null) ? $row['action'] : '',
+            'uid'      => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
+            'secretId' => is_string($row['secret_identifier'] ?? null) ? $row['secret_identifier'] : '',
+            'action'   => is_string($row['action'] ?? null) ? $row['action'] : '',
             'actorUid' => is_numeric($row['actor_uid'] ?? null) ? (int) $row['actor_uid'] : 0,
-            'crdate' => is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : 0,
-            'epoch' => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
+            'crdate'   => is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : 0,
+            'epoch'    => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
         ];
     }
 
@@ -727,23 +730,23 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         $rawSuccess = $row['success'] ?? null;
 
         return [
-            'uid' => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
-            'secret_identifier' => \is_string($row['secret_identifier'] ?? null) ? $row['secret_identifier'] : '',
-            'action' => \is_string($row['action'] ?? null) ? $row['action'] : '',
+            'uid'               => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
+            'secret_identifier' => is_string($row['secret_identifier'] ?? null) ? $row['secret_identifier'] : '',
+            'action'            => is_string($row['action'] ?? null) ? $row['action'] : '',
             // Doctrine returns `success` as int on MySQL/SQLite, bool on
             // PostgreSQL, and string on some drivers with emulated prepares.
             // `is_numeric()` rejects native booleans — keep them in the chain
             // by accepting bool|int|numeric-string and coercing through bool.
-            'success' => (\is_bool($rawSuccess) || is_numeric($rawSuccess)) ? (int) (bool) $rawSuccess : 0,
-            'actor_uid' => is_numeric($row['actor_uid'] ?? null) ? (int) $row['actor_uid'] : 0,
-            'crdate' => is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : 0,
-            'error_message' => \is_string($row['error_message'] ?? null) ? $row['error_message'] : '',
-            'reason' => \is_string($row['reason'] ?? null) ? $row['reason'] : '',
-            'ip_address' => \is_string($row['ip_address'] ?? null) ? $row['ip_address'] : '',
-            'user_agent' => \is_string($row['user_agent'] ?? null) ? $row['user_agent'] : '',
-            'hash_before' => \is_string($row['hash_before'] ?? null) ? $row['hash_before'] : '',
-            'hash_after' => \is_string($row['hash_after'] ?? null) ? $row['hash_after'] : '',
-            'context' => \is_string($row['context'] ?? null) ? $row['context'] : '',
+            'success'       => (is_bool($rawSuccess) || is_numeric($rawSuccess)) ? (int) (bool) $rawSuccess : 0,
+            'actor_uid'     => is_numeric($row['actor_uid'] ?? null) ? (int) $row['actor_uid'] : 0,
+            'crdate'        => is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : 0,
+            'error_message' => is_string($row['error_message'] ?? null) ? $row['error_message'] : '',
+            'reason'        => is_string($row['reason'] ?? null) ? $row['reason'] : '',
+            'ip_address'    => is_string($row['ip_address'] ?? null) ? $row['ip_address'] : '',
+            'user_agent'    => is_string($row['user_agent'] ?? null) ? $row['user_agent'] : '',
+            'hash_before'   => is_string($row['hash_before'] ?? null) ? $row['hash_before'] : '',
+            'hash_after'    => is_string($row['hash_after'] ?? null) ? $row['hash_after'] : '',
+            'context'       => is_string($row['context'] ?? null) ? $row['context'] : '',
         ];
     }
 
@@ -781,10 +784,10 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     {
         return self::extractV2HashRow($row) + [
             'hmac_key_epoch' => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
-            'actor_type' => \is_string($row['actor_type'] ?? null) ? $row['actor_type'] : '',
-            'actor_username' => \is_string($row['actor_username'] ?? null) ? $row['actor_username'] : '',
-            'actor_role' => \is_string($row['actor_role'] ?? null) ? $row['actor_role'] : '',
-            'request_id' => \is_string($row['request_id'] ?? null) ? $row['request_id'] : '',
+            'actor_type'     => is_string($row['actor_type'] ?? null) ? $row['actor_type'] : '',
+            'actor_username' => is_string($row['actor_username'] ?? null) ? $row['actor_username'] : '',
+            'actor_role'     => is_string($row['actor_role'] ?? null) ? $row['actor_role'] : '',
+            'request_id'     => is_string($row['request_id'] ?? null) ? $row['request_id'] : '',
         ];
     }
 
@@ -830,9 +833,9 @@ final readonly class AuditLogService implements AuditLogServiceInterface
      */
     private function verifyAnchorForReseal(): ?HashChainVerificationResult
     {
-        $errors = [];
+        $errors   = [];
         $warnings = [];
-        $status = $this->verifyAnchor($this->getConnection(), $errors, $warnings);
+        $status   = $this->verifyAnchor($this->getConnection(), $errors, $warnings);
 
         return $errors === []
             ? null
@@ -847,7 +850,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     private function chainHasHmacRows(): bool
     {
         $queryBuilder = $this->getConnection()->createQueryBuilder();
-        $count = $queryBuilder
+        $count        = $queryBuilder
             ->count('uid')
             ->from(self::TABLE_NAME)
             ->where(
@@ -889,20 +892,20 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     private static function forensicPayloadV2(array $row, string $previousHash): array
     {
         return [
-            'uid' => (int) $row['uid'],
+            'uid'               => (int) $row['uid'],
             'secret_identifier' => (string) $row['secret_identifier'],
-            'action' => (string) $row['action'],
-            'success' => (int) (bool) $row['success'],
-            'actor_uid' => (int) $row['actor_uid'],
-            'crdate' => (int) $row['crdate'],
-            'previous_hash' => $previousHash,
-            'error_message' => (string) $row['error_message'],
-            'reason' => (string) $row['reason'],
-            'ip_address' => (string) $row['ip_address'],
-            'user_agent' => (string) $row['user_agent'],
-            'hash_before' => (string) $row['hash_before'],
-            'hash_after' => (string) $row['hash_after'],
-            'context' => (string) $row['context'],
+            'action'            => (string) $row['action'],
+            'success'           => (int) (bool) $row['success'],
+            'actor_uid'         => (int) $row['actor_uid'],
+            'crdate'            => (int) $row['crdate'],
+            'previous_hash'     => $previousHash,
+            'error_message'     => (string) $row['error_message'],
+            'reason'            => (string) $row['reason'],
+            'ip_address'        => (string) $row['ip_address'],
+            'user_agent'        => (string) $row['user_agent'],
+            'hash_before'       => (string) $row['hash_before'],
+            'hash_after'        => (string) $row['hash_after'],
+            'context'           => (string) $row['context'],
         ];
     }
 
@@ -941,7 +944,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             return $this->reportUnanchored($connection, $errors, $warnings);
         }
 
-        for ($attempt = 1; $attempt <= 2; $attempt++) {
+        for ($attempt = 1; $attempt <= 2; ++$attempt) {
             $load = $this->anchorStore->load($connection);
 
             if ($load->status === AuditChainAnchorStatus::Disabled) {
@@ -960,13 +963,13 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 return AuditChainAnchorStatus::Unreadable;
             }
 
-            $anchor = $load->anchor;
+            $anchor     = $load->anchor;
             $storedHash = $this->fetchEntryHashForUid($connection, $anchor->uid);
 
             if ($storedHash === null) {
                 // No legitimate path deletes audit rows, so this needs no
                 // stability check: the anchored row is simply gone.
-                $errors[self::ANCHOR_ERROR_ROW_MISSING] = \sprintf(
+                $errors[self::ANCHOR_ERROR_ROW_MISSING] = sprintf(
                     'Audit chain tip anchor points at uid %d, which no longer exists - the log was '
                     . 'truncated or wiped',
                     $anchor->uid,
@@ -981,7 +984,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
 
             // Mismatch: decide whether a re-seal committed under us.
             if ($this->anchorStore->load($connection)->raw === $load->raw) {
-                $errors[self::ANCHOR_ERROR_HASH_MISMATCH] = \sprintf(
+                $errors[self::ANCHOR_ERROR_HASH_MISMATCH] = sprintf(
                     'Audit chain tip anchor for uid %d does not match the stored entry hash - the '
                     . 'anchored row was replaced (e.g. truncation followed by re-inserted entries)',
                     $anchor->uid,
@@ -1043,7 +1046,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     private function fetchEntryHashForUid(Connection $connection, int $uid): ?string
     {
         $queryBuilder = $connection->createQueryBuilder();
-        $hash = $queryBuilder
+        $hash         = $queryBuilder
             ->select('entry_hash')
             ->from(self::TABLE_NAME)
             ->where(
@@ -1056,7 +1059,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             ->executeQuery()
             ->fetchOne();
 
-        return \is_string($hash) ? $hash : null;
+        return is_string($hash) ? $hash : null;
     }
 
     /**
@@ -1075,7 +1078,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             ->executeQuery()
             ->fetchOne();
 
-        return \is_string($result) ? $result : '';
+        return is_string($result) ? $result : '';
     }
 
     /**
@@ -1093,29 +1096,29 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         string $previousHash,
     ): array {
         return [
-            'pid' => 0,
+            'pid'               => 0,
             'secret_identifier' => $inputs->secretIdentifier,
-            'action' => $inputs->action,
-            'success' => $inputs->success ? 1 : 0,
-            'error_message' => $this->sanitizeErrorMessage($inputs->errorMessage),
-            'reason' => $inputs->reason ?? '',
-            'actor_uid' => $this->accessControlService->getCurrentActorUid(),
-            'actor_type' => $this->accessControlService->getCurrentActorType(),
-            'actor_username' => $this->accessControlService->getCurrentActorUsername(),
-            'actor_role' => $this->getCurrentUserRole(),
-            'ip_address' => $this->getClientIp(),
+            'action'            => $inputs->action,
+            'success'           => $inputs->success ? 1 : 0,
+            'error_message'     => $this->sanitizeErrorMessage($inputs->errorMessage),
+            'reason'            => $inputs->reason ?? '',
+            'actor_uid'         => $this->accessControlService->getCurrentActorUid(),
+            'actor_type'        => $this->accessControlService->getCurrentActorType(),
+            'actor_username'    => $this->accessControlService->getCurrentActorUsername(),
+            'actor_role'        => $this->getCurrentUserRole(),
+            'ip_address'        => $this->getClientIp(),
             // Both come straight from a request header the client controls, and
             // both land in a fixed-width column. Clip HERE, on the single array
             // that feeds both the INSERT and the entry hash, so the bytes that
             // are stored are exactly the bytes that are hashed (F8 / CWE-20).
-            'user_agent' => $this->clipToColumnWidth($this->getUserAgent(), self::MAX_USER_AGENT_LENGTH),
-            'request_id' => $this->clipToColumnWidth($this->getRequestId(), self::MAX_REQUEST_ID_LENGTH),
-            'previous_hash' => $previousHash,
-            'hash_before' => $inputs->hashBefore ?? '',
-            'hash_after' => $inputs->hashAfter ?? '',
-            'crdate' => time(),
+            'user_agent'     => $this->clipToColumnWidth($this->getUserAgent(), self::MAX_USER_AGENT_LENGTH),
+            'request_id'     => $this->clipToColumnWidth($this->getRequestId(), self::MAX_REQUEST_ID_LENGTH),
+            'previous_hash'  => $previousHash,
+            'hash_before'    => $inputs->hashBefore ?? '',
+            'hash_after'     => $inputs->hashAfter ?? '',
+            'crdate'         => time(),
             'hmac_key_epoch' => $this->getCurrentEpoch(),
-            'context' => $inputs->context instanceof AuditContextInterface ? json_encode($inputs->context->toArray()) : '{}',
+            'context'        => $inputs->context instanceof AuditContextInterface ? json_encode($inputs->context->toArray()) : '{}',
         ];
     }
 
@@ -1149,7 +1152,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
 
         if (!mb_check_encoding($value, 'UTF-8')) {
             $scrubbed = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
-            $value = \is_string($scrubbed) ? $scrubbed : '';
+            $value    = is_string($scrubbed) ? $scrubbed : '';
         }
 
         if (mb_strlen($value, 'UTF-8') <= $maxLength) {
@@ -1228,7 +1231,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         string $previousHash,
     ): array {
         $connection->insert(self::TABLE_NAME, $data);
-        $uid = (int) $connection->lastInsertId();
+        $uid         = (int) $connection->lastInsertId();
         $data['uid'] = $uid;
 
         $entryHash = $this->calculateEntryHashFromRow($data, $previousHash);
@@ -1253,7 +1256,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     {
         return new AuditChainAnchor(
             is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
-            \is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '',
+            is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '',
             is_numeric($row['crdate'] ?? null) ? (int) $row['crdate'] : time(),
         );
     }
@@ -1288,8 +1291,8 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             $this->logger?->error(
                 'nr-vault audit sink fan-out failed; the database audit entry is committed and intact.',
                 [
-                    'uid' => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
-                    'error' => $e->getMessage(),
+                    'uid'       => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
+                    'error'     => $e->getMessage(),
                     'exception' => $e::class,
                 ],
             );
@@ -1309,15 +1312,15 @@ final readonly class AuditLogService implements AuditLogServiceInterface
      *               selector (hmac_key_epoch) and the attribution fields
      *               (actor_type, actor_username, actor_role, request_id)
      *
-     * @param array<string, mixed> $row Must contain `hmac_key_epoch`; epoch
+     * @param array<string, mixed> $row must contain `hmac_key_epoch`; epoch
      *                                  2 also requires the forensic fields
      *                                  (see `extractV2HashRow()`), epoch 3 the
-     *                                  attribution fields (see `extractV3HashRow()`).
+     *                                  attribution fields (see `extractV3HashRow()`)
      */
     private function calculateEntryHashFromRow(array $row, string $previousHash): string
     {
-        $epoch = \is_int($row['hmac_key_epoch'] ?? null) ? $row['hmac_key_epoch'] : 0;
-        $v1 = self::extractHashRow($row);
+        $epoch = is_int($row['hmac_key_epoch'] ?? null) ? $row['hmac_key_epoch'] : 0;
+        $v1    = self::extractHashRow($row);
 
         if ($epoch === 0) {
             return self::calculateHash(
@@ -1448,9 +1451,9 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         }
 
         $serverParams = $request->getServerParams();
-        $remoteAddr = $serverParams['REMOTE_ADDR'] ?? '';
+        $remoteAddr   = $serverParams['REMOTE_ADDR'] ?? '';
 
-        return \is_string($remoteAddr) ? $remoteAddr : '';
+        return is_string($remoteAddr) ? $remoteAddr : '';
     }
 
     private function getUserAgent(): string

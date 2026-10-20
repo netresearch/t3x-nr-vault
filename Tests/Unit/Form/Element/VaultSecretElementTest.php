@@ -31,6 +31,8 @@ use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function strlen;
+
 #[CoversClass(VaultSecretElement::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class VaultSecretElementTest extends TestCase
@@ -69,7 +71,7 @@ final class VaultSecretElementTest extends TestCase
         // Make the user an admin so VaultFieldPermissionService returns predictable values
         $this->backendUser->method('isAdmin')->willReturn(true);
 
-        $GLOBALS['LANG'] = $this->languageService;
+        $GLOBALS['LANG']    = $this->languageService;
         $GLOBALS['BE_USER'] = $this->backendUser;
 
         // VaultFieldPermissionService is final, so we use a real instance
@@ -94,14 +96,14 @@ final class VaultSecretElementTest extends TestCase
 
         // Set up NodeFactory mock for renderFieldInformation/renderFieldWizard
         $nodeFactory = $this->createMock(NodeFactory::class);
-        $emptyNode = $this->createMock(NodeInterface::class);
+        $emptyNode   = $this->createMock(NodeInterface::class);
         $emptyNode->method('render')->willReturn([
-            'additionalHiddenFields' => [],
+            'additionalHiddenFields'             => [],
             'additionalInlineLanguageLabelFiles' => [],
-            'stylesheetFiles' => [],
-            'javaScriptModules' => [],
-            'inlineData' => [],
-            'html' => '',
+            'stylesheetFiles'                    => [],
+            'javaScriptModules'                  => [],
+            'inlineData'                         => [],
+            'html'                               => '',
         ]);
         $nodeFactory->method('create')->willReturn($emptyNode);
         $this->subject->injectNodeFactory($nodeFactory);
@@ -166,12 +168,12 @@ final class VaultSecretElementTest extends TestCase
 
         $this->setUpData([
             'fieldConf' => [
-                'label' => self::FIELD_LABEL,
+                'label'       => self::FIELD_LABEL,
                 'description' => self::FIELD_DESCRIPTION,
-                'config' => [
-                    'type' => 'input',
+                'config'      => [
+                    'type'       => 'input',
                     'renderType' => 'vaultSecret',
-                    'size' => 30,
+                    'size'       => 30,
                 ],
             ],
         ]);
@@ -292,10 +294,10 @@ final class VaultSecretElementTest extends TestCase
     #[Test]
     public function actionButtonsAreNamedInTheBackendLanguage(): void
     {
-        $prefix = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_js.xlf:';
+        $prefix      = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_js.xlf:';
         $langService = $this->createMock(LanguageService::class);
         $langService->method('sL')->willReturnCallback(
-            static fn (string $key): string => str_starts_with($key, $prefix) ? '[' . substr($key, \strlen($prefix)) . ']' : '',
+            static fn (string $key): string => str_starts_with($key, $prefix) ? '[' . substr($key, strlen($prefix)) . ']' : '',
         );
         $GLOBALS['LANG'] = $langService;
         $this->setUpExistingSecretData();
@@ -305,8 +307,8 @@ final class VaultSecretElementTest extends TestCase
         self::assertIsString($result['html']);
         foreach ([
             't3js-vault-toggle-visibility' => '[nrvault.toggle.visibility]',
-            't3js-vault-copy' => '[nrvault.copy.clipboard]',
-            't3js-vault-clear' => '[nrvault.clear.button]',
+            't3js-vault-copy'              => '[nrvault.copy.clipboard]',
+            't3js-vault-clear'             => '[nrvault.clear.button]',
         ] as $hook => $name) {
             self::assertStringContainsString(
                 'class="btn btn-default ' . $hook . '" title="' . $name . '" aria-label="' . $name . '"',
@@ -352,12 +354,12 @@ final class VaultSecretElementTest extends TestCase
     {
         $this->setUpData([
             'fieldConf' => [
-                'label' => self::FIELD_LABEL,
+                'label'  => self::FIELD_LABEL,
                 'config' => [
-                    'type' => 'input',
+                    'type'       => 'input',
                     'renderType' => 'vaultSecret',
-                    'size' => 30,
-                    'max' => 128,
+                    'size'       => 30,
+                    'max'        => 128,
                 ],
             ],
         ]);
@@ -373,12 +375,12 @@ final class VaultSecretElementTest extends TestCase
     {
         $this->setUpData([
             'fieldConf' => [
-                'label' => self::FIELD_LABEL,
+                'label'  => self::FIELD_LABEL,
                 'config' => [
-                    'type' => 'input',
+                    'type'       => 'input',
                     'renderType' => 'vaultSecret',
-                    'size' => 30,
-                    'required' => true,
+                    'size'       => 30,
+                    'required'   => true,
                 ],
             ],
         ]);
@@ -438,17 +440,17 @@ final class VaultSecretElementTest extends TestCase
         GeneralUtility::addInstance(VaultServiceInterface::class, $this->vaultService);
 
         $this->subject->setData([
-            'tableName' => 'tx_test',
-            'fieldName' => 'api_key',
+            'tableName'      => 'tx_test',
+            'fieldName'      => 'api_key',
             'parameterArray' => [
-                'itemFormElName' => self::ITEM_FORM_EL_NAME,
+                'itemFormElName'  => self::ITEM_FORM_EL_NAME,
                 'itemFormElValue' => $vaultIdentifier,
-                'fieldConf' => [
-                    'label' => self::FIELD_LABEL,
+                'fieldConf'       => [
+                    'label'  => self::FIELD_LABEL,
                     'config' => [
-                        'type' => 'input',
+                        'type'       => 'input',
                         'renderType' => 'vaultSecret',
-                        'size' => 30,
+                        'size'       => 30,
                     ],
                 ],
             ],
@@ -468,12 +470,12 @@ final class VaultSecretElementTest extends TestCase
     {
         $this->setUpData([
             'fieldConf' => [
-                'label' => self::FIELD_LABEL,
+                'label'  => self::FIELD_LABEL,
                 'config' => [
-                    'type' => 'input',
+                    'type'       => 'input',
                     'renderType' => 'vaultSecret',
-                    'size' => 30,
-                    'readOnly' => true,
+                    'size'       => 30,
+                    'readOnly'   => true,
                 ],
             ],
         ]);
@@ -490,14 +492,14 @@ final class VaultSecretElementTest extends TestCase
     private function setUpData(array $parameterArrayOverrides = []): void
     {
         $defaultParameterArray = [
-            'itemFormElName' => self::ITEM_FORM_EL_NAME,
+            'itemFormElName'  => self::ITEM_FORM_EL_NAME,
             'itemFormElValue' => '',
-            'fieldConf' => [
-                'label' => self::FIELD_LABEL,
+            'fieldConf'       => [
+                'label'  => self::FIELD_LABEL,
                 'config' => [
-                    'type' => 'input',
+                    'type'       => 'input',
                     'renderType' => 'vaultSecret',
-                    'size' => 30,
+                    'size'       => 30,
                 ],
             ],
         ];
@@ -505,8 +507,8 @@ final class VaultSecretElementTest extends TestCase
         $parameterArray = array_replace_recursive($defaultParameterArray, $parameterArrayOverrides);
 
         $this->subject->setData([
-            'tableName' => 'tx_test',
-            'fieldName' => 'api_key',
+            'tableName'      => 'tx_test',
+            'fieldName'      => 'api_key',
             'parameterArray' => $parameterArray,
         ]);
     }
@@ -526,17 +528,17 @@ final class VaultSecretElementTest extends TestCase
         GeneralUtility::addInstance(VaultServiceInterface::class, $this->vaultService);
 
         $this->subject->setData([
-            'tableName' => 'tx_test',
-            'fieldName' => 'api_key',
+            'tableName'      => 'tx_test',
+            'fieldName'      => 'api_key',
             'parameterArray' => [
-                'itemFormElName' => self::ITEM_FORM_EL_NAME,
+                'itemFormElName'  => self::ITEM_FORM_EL_NAME,
                 'itemFormElValue' => $vaultIdentifier,
-                'fieldConf' => [
-                    'label' => self::FIELD_LABEL,
+                'fieldConf'       => [
+                    'label'  => self::FIELD_LABEL,
                     'config' => [
-                        'type' => 'input',
+                        'type'       => 'input',
                         'renderType' => 'vaultSecret',
-                        'size' => 30,
+                        'size'       => 30,
                     ],
                 ],
             ],

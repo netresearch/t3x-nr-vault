@@ -45,7 +45,7 @@ final class TranslationSharedSecretResolverTest extends TestCase
     {
         parent::setUp();
 
-        $this->connectionPool = $this->createMock(ConnectionPool::class);
+        $this->connectionPool   = $this->createMock(ConnectionPool::class);
         $this->tcaSchemaFactory = $this->createMock(TcaSchemaFactory::class);
 
         $this->subject = new TranslationSharedSecretResolver(
@@ -63,18 +63,18 @@ final class TranslationSharedSecretResolverTest extends TestCase
     {
         $this->mockTcaSchemaForTable(self::TABLE, [
             'api_token' => ['type' => 'input', 'renderType' => 'vaultSecret', 'l10n_mode' => 'exclude'],
-            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'api_key'   => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
         self::assertSame(
             [
-                'excluded' => true,
-                'translatable' => false,
+                'excluded'      => true,
+                'translatable'  => false,
                 'unknownColumn' => false,
             ],
             [
-                'excluded' => $this->subject->isSharedColumn(self::TABLE, 'api_token'),
-                'translatable' => $this->subject->isSharedColumn(self::TABLE, 'api_key'),
+                'excluded'      => $this->subject->isSharedColumn(self::TABLE, 'api_token'),
+                'translatable'  => $this->subject->isSharedColumn(self::TABLE, 'api_key'),
                 'unknownColumn' => $this->subject->isSharedColumn(self::TABLE, 'nope'),
             ],
         );

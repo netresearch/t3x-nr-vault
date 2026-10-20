@@ -14,6 +14,8 @@ use Netresearch\NrVault\Service\Doctor\DoctorContext;
 use Netresearch\NrVault\Service\Doctor\Finding;
 use Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface;
 
+use function sprintf;
+
 /**
  * A `vault:doctor` control contributed by a consuming extension. It names the
  * profile it was evaluated against, so the test can tell a real run through
@@ -41,7 +43,7 @@ final class ConsumerReadinessCheck implements ReadinessCheckInterface
         return [
             Finding::pass(
                 self::FINDING_ID,
-                \sprintf('The consumer fixture integration is wired (profile: %s).', $context->profile->value),
+                sprintf('The consumer fixture integration is wired (profile: %s).', $context->profile->value),
             ),
         ];
     }

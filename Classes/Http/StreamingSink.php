@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -14,6 +11,8 @@ namespace Netresearch\NrVault\Http;
 
 use Netresearch\NrVault\Exception\VaultException;
 use Psr\Http\Message\StreamInterface;
+
+use function strlen;
 
 /**
  * The bounded buffer the curl handler writes a streaming response body into.
@@ -30,8 +29,8 @@ use Psr\Http\Message\StreamInterface;
  * and the consumed prefix is dropped once it is at least half the buffer, so
  * draining a full buffer in small reads costs linear time, not quadratic.
  *
- * @internal Created by `VaultHttpClient::sendStreamingly()`, written by the
- *           curl handler, read by `StreamingResponseBody`.
+ * @internal created by `VaultHttpClient::sendStreamingly()`, written by the
+ *           curl handler, read by `StreamingResponseBody`
  */
 final class StreamingSink implements StreamInterface
 {
@@ -105,7 +104,7 @@ final class StreamingSink implements StreamInterface
      */
     public function getSize(): int
     {
-        return \strlen($this->buffer) - $this->offset;
+        return strlen($this->buffer) - $this->offset;
     }
 
     /**
@@ -149,16 +148,16 @@ final class StreamingSink implements StreamInterface
      */
     public function write(string $string): int
     {
-        if ($this->getSize() + \strlen($string) > $this->limitBytes) {
+        if ($this->getSize() + strlen($string) > $this->limitBytes) {
             $this->overflowed = true;
 
             return 0;
         }
 
         $this->buffer .= $string;
-        $this->accepted += \strlen($string);
+        $this->accepted += strlen($string);
 
-        return \strlen($string);
+        return strlen($string);
     }
 
     public function isReadable(): bool
@@ -175,13 +174,13 @@ final class StreamingSink implements StreamInterface
         }
 
         $chunk = substr($this->buffer, $this->offset, $length);
-        $this->offset += \strlen($chunk);
-        $this->consumed += \strlen($chunk);
+        $this->offset += strlen($chunk);
+        $this->consumed += strlen($chunk);
 
-        if ($this->offset >= \strlen($this->buffer)) {
+        if ($this->offset >= strlen($this->buffer)) {
             $this->buffer = '';
             $this->offset = 0;
-        } elseif ($this->offset * 2 >= \strlen($this->buffer)) {
+        } elseif ($this->offset * 2 >= strlen($this->buffer)) {
             $this->buffer = substr($this->buffer, $this->offset);
             $this->offset = 0;
         }

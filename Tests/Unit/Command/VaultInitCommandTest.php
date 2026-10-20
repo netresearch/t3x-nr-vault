@@ -21,6 +21,8 @@ use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function strlen;
+
 #[CoversClass(VaultInitCommand::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class VaultInitCommandTest extends TestCase
@@ -121,7 +123,7 @@ final class VaultInitCommandTest extends TestCase
         self::assertSame(0, $exitCode);
         self::assertFileExists($outputFile);
         // Key should be 32 bytes (SODIUM_CRYPTO_SECRETBOX_KEYBYTES)
-        self::assertSame(32, \strlen(file_get_contents($outputFile)));
+        self::assertSame(32, strlen(file_get_contents($outputFile)));
         self::assertStringContainsString('generated and saved', $this->commandTester->getDisplay());
     }
 
@@ -165,7 +167,7 @@ final class VaultInitCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             '--output' => $outputFile,
-            '--force' => true,
+            '--force'  => true,
         ]);
 
         self::assertSame(0, $exitCode);
@@ -263,7 +265,7 @@ final class VaultInitCommandTest extends TestCase
 
         $exitCode = $this->commandTester->execute([
             '--output' => $outputFile,
-            '--force' => true,
+            '--force'  => true,
         ]);
 
         self::assertSame(0, $exitCode);

@@ -18,6 +18,8 @@ use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 
+use function strlen;
+
 #[CoversClass(EnvironmentMasterKeyProvider::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class EnvironmentMasterKeyProviderTest extends TestCase
@@ -41,7 +43,7 @@ final class EnvironmentMasterKeyProviderTest extends TestCase
     #[Test]
     public function getIdentifierReturnsEnv(): void
     {
-        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config   = $this->createMock(ExtensionConfigurationInterface::class);
         $provider = new EnvironmentMasterKeyProvider($config);
 
         self::assertEquals('env', $provider->getIdentifier());
@@ -138,7 +140,7 @@ final class EnvironmentMasterKeyProviderTest extends TestCase
     #[Test]
     public function storeMasterKeyThrowsException(): void
     {
-        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config   = $this->createMock(ExtensionConfigurationInterface::class);
         $provider = new EnvironmentMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
@@ -150,12 +152,12 @@ final class EnvironmentMasterKeyProviderTest extends TestCase
     #[Test]
     public function generateMasterKeyReturns32Bytes(): void
     {
-        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config   = $this->createMock(ExtensionConfigurationInterface::class);
         $provider = new EnvironmentMasterKeyProvider($config);
 
         $key = $provider->generateMasterKey();
 
-        self::assertEquals(32, \strlen($key));
+        self::assertEquals(32, strlen($key));
     }
 
     #[Test]

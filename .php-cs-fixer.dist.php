@@ -7,212 +7,103 @@
 
 declare(strict_types=1);
 
-use PhpCsFixer\Config;
-use PhpCsFixer\Finder;
 use PhpCsFixer\Runner\Parallel\ParallelConfigFactory;
 
-$finder = Finder::create()
-    ->in(__DIR__ . '/Classes')
-    ->in(__DIR__ . '/Configuration')
-    ->in(__DIR__ . '/Tests')
-    // Build-time tooling, appended file-by-file for the same reason PHPStan
-    // lists it explicitly: Build/ is not wholesale in scope.
-    ->append([
-        __DIR__ . '/Build/Scripts/collect-evidence.php',
-        __DIR__ . '/Build/Scripts/collect-evidence-selftest.php',
-        __DIR__ . '/Build/Scripts/merge-coverage.php',
-    ])
-    ->ignoreDotFiles(false)
-    ->ignoreVCSIgnored(true);
+$createConfig = require __DIR__ . '/.Build/vendor/netresearch/typo3-ci-workflows/config/php-cs-fixer/config.php';
 
-return (new Config())
-    ->setParallelConfig(ParallelConfigFactory::detect())
-    ->setRiskyAllowed(true)
-    ->setRules([
-        '@PER-CS' => true,
-        '@PHP82Migration' => true,
+// The shared rule set plus the rules of this repository that are stricter
+// than it: rules the shared set leaves off, and configurations that check
+// more than the shared one.
+$extraRules = [
+    'strict_comparison' => true,
+    'strict_param'      => true,
 
-        // Strict rules
-        'declare_strict_types' => true,
-        'strict_comparison' => true,
-        'strict_param' => true,
+    // The shared set switches these two off; this repository keeps them on.
+    'self_accessor'              => true,
+    'no_superfluous_phpdoc_tags' => [
+        'allow_mixed'       => true,
+        'remove_inheritdoc' => true,
+    ],
 
-        // Array notation
-        'array_syntax' => ['syntax' => 'short'],
-        'no_whitespace_before_comma_in_array' => true,
-        'whitespace_after_comma_in_array' => true,
-        'trim_array_spaces' => true,
-        'normalize_index_brace' => true,
-
-        // Casing
-        'constant_case' => true,
-        'lowercase_keywords' => true,
-        'native_function_casing' => true,
-
-        // Class notation
-        'class_attributes_separation' => [
-            'elements' => [
-                'const' => 'one',
-                'method' => 'one',
-                'property' => 'one',
-            ],
+    'class_attributes_separation' => [
+        'elements' => [
+            'const'    => 'one',
+            'method'   => 'one',
+            'property' => 'one',
         ],
-        'final_class' => false, // We use final explicitly
-        'no_blank_lines_after_class_opening' => true,
-        'ordered_class_elements' => [
-            'order' => [
-                'case', // Enum cases must come first
-                'use_trait',
-                'constant_public',
-                'constant_protected',
-                'constant_private',
-                'property_public',
-                'property_protected',
-                'property_private',
-                'construct',
-                'destruct',
-                'magic',
-                'phpunit',
-                'method_public',
-                'method_protected',
-                'method_private',
-            ],
+    ],
+    'ordered_class_elements' => [
+        'order' => [
+            'case', // Enum cases must come first
+            'use_trait',
+            'constant_public',
+            'constant_protected',
+            'constant_private',
+            'property_public',
+            'property_protected',
+            'property_private',
+            'construct',
+            'destruct',
+            'magic',
+            'phpunit',
+            'method_public',
+            'method_protected',
+            'method_private',
         ],
-        'self_accessor' => true,
-        'single_class_element_per_statement' => true,
-        'modifier_keywords' => [
-            'elements' => ['property', 'method', 'const'],
-        ],
+    ],
 
-        // Control structure
-        'no_alternative_syntax' => true,
-        'no_superfluous_elseif' => true,
-        'no_useless_else' => true,
-        'simplified_if_return' => true,
-        'trailing_comma_in_multiline' => [
-            'elements' => ['arguments', 'arrays', 'match', 'parameters'],
-        ],
+    'no_superfluous_elseif'     => true,
+    'simplified_if_return'      => true,
+    'void_return'               => true,
+    'combine_consecutive_issets' => true,
+    'combine_consecutive_unsets' => true,
+    'return_assignment'         => true,
+    'phpdoc_no_empty_return'    => true,
+    'method_chaining_indentation' => true,
+    'multiline_whitespace_before_semicolons' => ['strategy' => 'no_multi_line'],
+    'phpdoc_line_span' => [
+        'const'    => 'single',
+        'method'   => 'multi',
+        'property' => 'single',
+    ],
+    'unary_operator_spaces'       => ['only_dec_inc' => false],
+    'blank_line_before_statement' => [
+        'statements' => ['return', 'throw', 'try'],
+    ],
 
-        // Function notation
-        'function_declaration' => ['closure_function_spacing' => 'one'],
-        'method_argument_space' => [
-            'on_multiline' => 'ensure_fully_multiline',
-        ],
-        'native_function_invocation' => [
-            'include' => ['@compiler_optimized'],
-            'scope' => 'namespaced',
-            'strict' => true,
-        ],
-        'nullable_type_declaration_for_default_null_value' => true,
-        'return_type_declaration' => ['space_before' => 'none'],
-        'single_line_throw' => false,
-        'void_return' => true,
+    // The fixer's default list after constructs, plus the shared set's
+    // "else"/"elseif" before them.
+    'single_space_around_construct' => [
+        'constructs_preceded_by_a_single_space' => ['as', 'else', 'elseif', 'use_lambda'],
+    ],
 
-        // Import
-        'fully_qualified_strict_types' => true,
-        'global_namespace_import' => [
-            'import_classes' => true,
-            'import_constants' => false,
-            'import_functions' => false,
+    // The shared @Symfony token list plus "break" and "return".
+    'no_extra_blank_lines' => [
+        'tokens' => [
+            'attribute', 'break', 'case', 'continue', 'curly_brace_block', 'default', 'extra',
+            'parenthesis_brace_block', 'return', 'square_brace_block', 'switch', 'throw', 'use',
         ],
-        'no_unused_imports' => true,
-        'ordered_imports' => [
-            'imports_order' => ['class', 'function', 'const'],
-            'sort_algorithm' => 'alpha',
-        ],
+    ],
+];
 
-        // Language construct
-        'combine_consecutive_issets' => true,
-        'combine_consecutive_unsets' => true,
-        'declare_parentheses' => true,
-        'single_space_around_construct' => true,
+$config = $createConfig(
+    "Copyright (c) 2025-2026 Netresearch DTT GmbH\nSPDX-License-Identifier: GPL-2.0-or-later",
+    __DIR__,
+    $extraRules,
+    [
+        // Stand-ins for TYPO3's own upgrade API, not code of this extension.
+        'Build/phpstan/stubs',
+    ],
+);
 
-        // Namespace
-        'blank_line_after_namespace' => true,
-        'clean_namespace' => true,
-        'no_leading_namespace_whitespace' => true,
+// The manual includes the PHP files under Documentation/ with :lines:
+// ranges, and two of them run in functional tests; a header would shift
+// every range. A plain 'Documentation' exclude would match at any depth and
+// also drop Tests/Functional/Documentation/, so only the top-level
+// directory is left out.
+$finder = $config->getFinder();
+if ($finder instanceof PhpCsFixer\Finder) {
+    $finder->notPath('#^Documentation/#');
+}
 
-        // Operator
-        'binary_operator_spaces' => [
-            'default' => 'single_space',
-        ],
-        'concat_space' => ['spacing' => 'one'],
-        'new_with_parentheses' => true,
-        'not_operator_with_successor_space' => false,
-        'object_operator_without_whitespace' => true,
-        'operator_linebreak' => ['only_booleans' => true],
-        'standardize_not_equals' => true,
-        'ternary_operator_spaces' => true,
-        'unary_operator_spaces' => ['only_dec_inc' => false],
-
-        // PHPDoc
-        'align_multiline_comment' => ['comment_type' => 'phpdocs_only'],
-        'no_blank_lines_after_phpdoc' => true,
-        'no_empty_phpdoc' => true,
-        'no_superfluous_phpdoc_tags' => [
-            'allow_mixed' => true,
-            'remove_inheritdoc' => true,
-        ],
-        'phpdoc_align' => ['align' => 'left'],
-        'phpdoc_indent' => true,
-        'phpdoc_line_span' => [
-            'const' => 'single',
-            'method' => 'multi',
-            'property' => 'single',
-        ],
-        'phpdoc_no_empty_return' => true,
-        'phpdoc_order' => true,
-        'phpdoc_scalar' => true,
-        'phpdoc_separation' => true,
-        'phpdoc_single_line_var_spacing' => true,
-        'phpdoc_trim' => true,
-        'phpdoc_trim_consecutive_blank_line_separation' => true,
-        'phpdoc_types' => true,
-        'phpdoc_types_order' => [
-            'null_adjustment' => 'always_last',
-            'sort_algorithm' => 'none',
-        ],
-        'phpdoc_var_without_name' => true,
-
-        // Return notation
-        'no_useless_return' => true,
-        'return_assignment' => true,
-
-        // Semicolon
-        'multiline_whitespace_before_semicolons' => ['strategy' => 'no_multi_line'],
-        'no_empty_statement' => true,
-        'no_singleline_whitespace_before_semicolons' => true,
-        'semicolon_after_instruction' => true,
-
-        // String notation
-        'single_quote' => true,
-
-        // Whitespace
-        'array_indentation' => true,
-        'blank_line_before_statement' => [
-            'statements' => ['return', 'throw', 'try'],
-        ],
-        'compact_nullable_type_declaration' => true,
-        'heredoc_indentation' => ['indentation' => 'same_as_start'],
-        'method_chaining_indentation' => true,
-        'no_extra_blank_lines' => [
-            'tokens' => [
-                'break',
-                'case',
-                'continue',
-                'curly_brace_block',
-                'default',
-                'extra',
-                'parenthesis_brace_block',
-                'return',
-                'square_brace_block',
-                'switch',
-                'throw',
-                'use',
-            ],
-        ],
-        'no_spaces_around_offset' => true,
-        'no_whitespace_in_blank_line' => true,
-        'types_spaces' => ['space' => 'none'],
-    ])
-    ->setFinder($finder);
+return $config->setParallelConfig(ParallelConfigFactory::detect());

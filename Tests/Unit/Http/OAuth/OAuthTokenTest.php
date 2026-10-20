@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -268,7 +265,7 @@ final class OAuthTokenTest extends TestCase
 
             public function getTimestamp(): int
             {
-                $this->conversionAttempts++;
+                ++$this->conversionAttempts;
 
                 throw $this->rangeFailure;
             }
@@ -314,7 +311,7 @@ final class OAuthTokenTest extends TestCase
     public function unexpectedConversionErrorsReachTheCallerUnchanged(): void
     {
         $failure = new Error('unrelated conversion failure');
-        $expiry = new class ($failure) extends DateTimeImmutable {
+        $expiry  = new class ($failure) extends DateTimeImmutable {
             public function __construct(private readonly Error $failure)
             {
                 parent::__construct('-30 seconds');
@@ -343,8 +340,8 @@ final class OAuthTokenTest extends TestCase
         int $buffer,
         bool $expected,
     ): void {
-        $now = new DateTimeImmutable('2026-10-10T12:00:00.500000+00:00');
-        $token = new OAuthToken('synthetic', 'Bearer', new DateTimeImmutable($expiry));
+        $now       = new DateTimeImmutable('2026-10-10T12:00:00.500000+00:00');
+        $token     = new OAuthToken('synthetic', 'Bearer', new DateTimeImmutable($expiry));
         $predicate = (new ReflectionClass($token))->getMethod('isExpiredAt');
         self::assertSame($expected, $predicate->invoke($token, $now, $buffer));
     }

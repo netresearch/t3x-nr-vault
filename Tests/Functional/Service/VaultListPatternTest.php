@@ -4,6 +4,7 @@
  * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Service;
@@ -38,12 +39,12 @@ final class VaultListPatternTest extends AbstractVaultFunctionalTestCase
         array $expected,
     ): void {
         $service = $this->seedSecrets();
-        $actual = array_column($service->list($pattern), 'identifier');
+        $actual  = array_column($service->list($pattern), 'identifier');
         sort($actual, SORT_STRING);
         self::assertSame($expected, $actual);
         $repository = $this->get(SecretRepositoryInterface::class);
-        $filters = new SecretFilters(pattern: $pattern);
-        $actual = $repository->findIdentifiers($filters);
+        $filters    = new SecretFilters(pattern: $pattern);
+        $actual     = $repository->findIdentifiers($filters);
         sort($actual, SORT_STRING);
         self::assertSame($expected, $actual);
         $actual = array_map(
@@ -98,7 +99,7 @@ final class VaultListPatternTest extends AbstractVaultFunctionalTestCase
     public function cliPatternUsesTheSameRealDatabaseContract(): void
     {
         $service = $this->seedSecrets();
-        $tester = new CommandTester(new VaultListCommand($service));
+        $tester  = new CommandTester(new VaultListCommand($service));
         self::assertSame(
             0,
             $tester->execute(['--pattern' => 'app_*', '--format' => 'json']),
@@ -182,7 +183,7 @@ final class VaultListPatternTest extends AbstractVaultFunctionalTestCase
         $service->store('App_Key', 'synthetic-mixed-case');
 
         $repository = $this->get(SecretRepositoryInterface::class);
-        $expected = $repository->findIdentifiers(new SecretFilters(pattern: 'app_*'));
+        $expected   = $repository->findIdentifiers(new SecretFilters(pattern: 'app_*'));
         self::assertSame(
             ['App_Key'],
             $expected,

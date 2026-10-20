@@ -30,6 +30,9 @@ use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use RuntimeException;
 
+use function sprintf;
+use function strlen;
+
 #[CoversClass(TransitMasterKeyProvider::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class TransitMasterKeyProviderTest extends TestCase
@@ -55,8 +58,8 @@ final class TransitMasterKeyProviderTest extends TestCase
         parent::setUp();
 
         TransitMasterKeyProvider::clearCachedKey();
-        $this->root = vfsStream::setup('transit');
-        $this->lastRequest = null;
+        $this->root         = vfsStream::setup('transit');
+        $this->lastRequest  = null;
         $this->requestCount = 0;
         putenv(self::TOKEN_ENV_VAR . '=' . self::TOKEN);
     }
@@ -394,7 +397,7 @@ final class TransitMasterKeyProviderTest extends TestCase
         FailingStreamWrapper::register(FailingStreamWrapper::MODE_RENAME_REFUSED);
 
         try {
-            $client = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
+            $client   = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
             $provider = $this->createProvider(
                 $client,
                 $this->transitConfig(wrappedKeyPath: FailingStreamWrapper::path('vault-master.key.transit')),
@@ -445,7 +448,7 @@ final class TransitMasterKeyProviderTest extends TestCase
     {
         $provider = $this->createProvider($this->createMock(ClientInterface::class));
 
-        self::assertSame(32, \strlen($provider->generateMasterKey()));
+        self::assertSame(32, strlen($provider->generateMasterKey()));
     }
 
     #[Test]
@@ -475,9 +478,9 @@ final class TransitMasterKeyProviderTest extends TestCase
         putenv(self::TOKEN_ENV_VAR);
 
         $config = $this->transitConfig(token: self::TOKEN);
-        $key = random_bytes(32);
+        $key    = random_bytes(32);
 
-        $client = $this->clientReturning($this->transitResponse(['plaintext' => base64_encode($key)]));
+        $client   = $this->clientReturning($this->transitResponse(['plaintext' => base64_encode($key)]));
         $provider = $this->createProvider($client, $config);
 
         // isAvailable() also resolves the token; the configuration DTO shares its
@@ -585,7 +588,7 @@ final class TransitMasterKeyProviderTest extends TestCase
         $provider = $this->createProvider(
             $this->clientReturning($this->transitResponse([
                 'key_version' => '1',
-                'plaintext' => base64_encode($key),
+                'plaintext'   => base64_encode($key),
             ])),
         );
 
@@ -613,7 +616,7 @@ final class TransitMasterKeyProviderTest extends TestCase
         $key = sodium_crypto_secretbox_keygen();
         file_put_contents($this->wrappedKeyPath(), " \n" . self::WRAPPED_CIPHERTEXT . "\n");
 
-        $client = $this->clientReturning($this->transitResponse(['plaintext' => base64_encode($key)]));
+        $client   = $this->clientReturning($this->transitResponse(['plaintext' => base64_encode($key)]));
         $provider = $this->createProvider($client);
 
         self::assertSame($key, $provider->getMasterKey());
@@ -642,7 +645,7 @@ final class TransitMasterKeyProviderTest extends TestCase
                 $e->getMessage(),
             );
             self::assertStringEndsWith(
-                \sprintf(' (caused by %s)', $transportError::class),
+                sprintf(' (caused by %s)', $transportError::class),
                 $e->getMessage(),
             );
         }
@@ -655,7 +658,7 @@ final class TransitMasterKeyProviderTest extends TestCase
 
         // Clearly synthetic, generated at runtime: the legacy `s.` service-token
         // shape the third redaction pattern targets.
-        $bareToken = 's.' . bin2hex(random_bytes(12));
+        $bareToken   = 's.' . bin2hex(random_bytes(12));
         $headerToken = 'unit-test-header-token-' . bin2hex(random_bytes(4));
 
         $client = $this->createMock(ClientInterface::class);
@@ -700,7 +703,7 @@ final class TransitMasterKeyProviderTest extends TestCase
     {
         mkdir(vfsStream::url('transit/readonly'), 0o500);
 
-        $client = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
+        $client   = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
         $provider = $this->createProvider($client, $this->transitConfig(
             wrappedKeyPath: vfsStream::url('transit/readonly/nested/wrapped.key'),
         ));
@@ -721,7 +724,7 @@ final class TransitMasterKeyProviderTest extends TestCase
     #[Test]
     public function storeMasterKeyRestoresThePreviousUmask(): void
     {
-        $client = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
+        $client   = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
         $provider = $this->createProvider($client);
 
         $outerUmask = umask(0o022);
@@ -742,7 +745,7 @@ final class TransitMasterKeyProviderTest extends TestCase
         // the tightened value into the rest of the request.
         mkdir(vfsStream::url('transit/readonly'), 0o500);
 
-        $client = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
+        $client   = $this->clientReturning($this->transitResponse(['ciphertext' => self::WRAPPED_CIPHERTEXT]));
         $provider = $this->createProvider($client, $this->transitConfig(
             wrappedKeyPath: vfsStream::url('transit/readonly/wrapped.key'),
         ));
@@ -767,14 +770,14 @@ final class TransitMasterKeyProviderTest extends TestCase
     {
         $this->writeWrappedKeyFile();
 
-        $first = sodium_crypto_secretbox_keygen();
+        $first    = sodium_crypto_secretbox_keygen();
         $provider = $this->createProvider(
             $this->clientReturning($this->transitResponse(['plaintext' => base64_encode($first)])),
         );
         self::assertSame($first, $provider->getMasterKey());
         unset($provider);
 
-        $second = sodium_crypto_secretbox_keygen();
+        $second    = sodium_crypto_secretbox_keygen();
         $successor = $this->createProvider(
             $this->clientReturning($this->transitResponse(['plaintext' => base64_encode($second)])),
         );

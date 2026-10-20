@@ -19,6 +19,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+use function strlen;
+
 #[CoversClass(Rfc5424Formatter::class)]
 final class Rfc5424FormatterTest extends TestCase
 {
@@ -212,7 +214,7 @@ final class Rfc5424FormatterTest extends TestCase
             str_repeat('c', 5000),
         );
 
-        self::assertLessThanOrEqual(2048, \strlen($message));
+        self::assertLessThanOrEqual(2048, strlen($message));
     }
 
     #[Test]

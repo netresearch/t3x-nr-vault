@@ -35,6 +35,9 @@ use TYPO3\CMS\Core\Schema\Field\FieldTypeInterface;
 use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
+use function is_string;
+use function sprintf;
+
 #[CoversClass(FlexFormVaultHook::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class FlexFormVaultHookTest extends TestCase
@@ -69,12 +72,12 @@ final class FlexFormVaultHookTest extends TestCase
     {
         parent::setUp();
 
-        $this->connectionPool = $this->createMock(ConnectionPool::class);
+        $this->connectionPool   = $this->createMock(ConnectionPool::class);
         $this->tcaSchemaFactory = $this->createMock(TcaSchemaFactory::class);
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
-        $this->flexFormTools = $this->createMock(FlexFormTools::class);
-        $this->dataHandler = $this->createMock(DataHandler::class);
-        $flashMessageService = $this->createStub(FlashMessageService::class);
+        $this->vaultService     = $this->createMock(VaultServiceInterface::class);
+        $this->flexFormTools    = $this->createMock(FlexFormTools::class);
+        $this->dataHandler      = $this->createMock(DataHandler::class);
+        $flashMessageService    = $this->createStub(FlashMessageService::class);
 
         $this->subject = new FlexFormVaultHook(
             $this->connectionPool,
@@ -105,7 +108,7 @@ final class FlexFormVaultHookTest extends TestCase
             ->with('unknown_table')
             ->willReturn(false);
 
-        $fieldArray = ['field' => 'value'];
+        $fieldArray         = ['field' => 'value'];
         $originalFieldArray = $fieldArray;
 
         $this->subject->processDatamap_preProcessFieldArray(
@@ -130,7 +133,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->tcaSchemaFactory->method('has')->willReturn(true);
         $this->tcaSchemaFactory->method('get')->willReturn($schema);
 
-        $fieldArray = ['title' => 'Test'];
+        $fieldArray         = ['title' => 'Test'];
         $originalFieldArray = $fieldArray;
 
         $this->subject->processDatamap_preProcessFieldArray(
@@ -180,7 +183,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->tcaSchemaFactory->method('get')->willReturn($schema);
 
         $fieldArray = [
-            'title' => 'Test',
+            'title'       => 'Test',
             'pi_flexform' => 'not-an-array',
         ];
 
@@ -275,7 +278,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(['uid' => 42, 'CType' => 'my_plugin']);
         $connection->method('select')->willReturn($result);
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
@@ -347,7 +350,7 @@ final class FlexFormVaultHookTest extends TestCase
                         'lDEF' => [
                             'apiKey' => [
                                 'vDEF' => [
-                                    'value' => 'smuggled-plaintext',
+                                    'value'             => 'smuggled-plaintext',
                                     '_vault_identifier' => '',
                                 ],
                             ],
@@ -386,7 +389,7 @@ final class FlexFormVaultHookTest extends TestCase
                         'lDEF' => [
                             'apiKey' => [
                                 'vDEF' => [
-                                    'value' => '',
+                                    'value'             => '',
                                     '_vault_identifier' => '',
                                 ],
                             ],
@@ -420,7 +423,7 @@ final class FlexFormVaultHookTest extends TestCase
                             'el' => [
                                 'myField' => [
                                     'config' => [
-                                        'type' => 'input',
+                                        'type'       => 'input',
                                         'renderType' => 'inputDateTime',
                                     ],
                                 ],
@@ -469,7 +472,7 @@ final class FlexFormVaultHookTest extends TestCase
                             'el' => [
                                 'settings.apiKey' => [
                                     'config' => [
-                                        'type' => 'input',
+                                        'type'       => 'input',
                                         'renderType' => 'vaultSecret',
                                     ],
                                 ],
@@ -486,9 +489,9 @@ final class FlexFormVaultHookTest extends TestCase
                         'lDEF' => [
                             'settings.apiKey' => [
                                 'vDEF' => [
-                                    'value' => 'my-secret-api-key',
+                                    'value'             => 'my-secret-api-key',
                                     '_vault_identifier' => '',
-                                    '_vault_checksum' => '',
+                                    '_vault_checksum'   => '',
                                 ],
                             ],
                         ],
@@ -526,7 +529,7 @@ final class FlexFormVaultHookTest extends TestCase
                             'el' => [
                                 'settings.password' => [
                                     'config' => [
-                                        'type' => 'input',
+                                        'type'       => 'input',
                                         'renderType' => 'vaultSecret',
                                     ],
                                 ],
@@ -537,16 +540,16 @@ final class FlexFormVaultHookTest extends TestCase
             ]);
 
         $existingUuid = self::EXISTING_UUID;
-        $fieldArray = [
+        $fieldArray   = [
             'pi_flexform' => [
                 'data' => [
                     'sDEF' => [
                         'lDEF' => [
                             'settings.password' => [
                                 'vDEF' => [
-                                    'value' => 'new-password',
+                                    'value'             => 'new-password',
                                     '_vault_identifier' => $existingUuid,
-                                    '_vault_checksum' => 'abc123',
+                                    '_vault_checksum'   => 'abc123',
                                 ],
                             ],
                         ],
@@ -623,7 +626,7 @@ final class FlexFormVaultHookTest extends TestCase
                         'el' => [
                             'credentials' => [
                                 'section' => 1,
-                                'el' => [
+                                'el'      => [
                                     'credential' => [
                                         'el' => [
                                             'apiKey' => [
@@ -708,7 +711,7 @@ final class FlexFormVaultHookTest extends TestCase
         $GLOBALS['TCA']['tx_test']['ctrl'] = [];
 
         $uuid = self::VAULT_UUID;
-        $xml = '<?xml version="1.0" encoding="utf-8" standalone="yes" ?><T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="settings.apiKey"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml  = '<?xml version="1.0" encoding="utf-8" standalone="yes" ?><T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="settings.apiKey"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $this->vaultService
             ->expects(self::atLeastOnce())
@@ -794,7 +797,7 @@ final class FlexFormVaultHookTest extends TestCase
         $GLOBALS['TCA']['tx_test']['ctrl'] = [];
 
         $uuid = self::VAULT_UUID;
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml  = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $this->vaultService->method('exists')->willReturn(true);
         $this->vaultService->method('delete')->willThrowException(new VaultException('Delete failed'));
@@ -892,7 +895,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(false);
         $connection->method('select')->willReturn($result);
 
@@ -911,7 +914,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $sourceUuid = self::VAULT_UUID;
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $connection = $this->stubFlexRowQuery($xml);
 
@@ -952,7 +955,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $sourceUuid = self::VAULT_UUID;
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $connection = $this->stubFlexRowQuery($xml);
 
@@ -970,7 +973,7 @@ final class FlexFormVaultHookTest extends TestCase
                 self::callback(static function (array $updates): bool {
                     $xml = $updates['pi_flexform'] ?? null;
 
-                    return \is_string($xml) && !str_contains($xml, self::VAULT_UUID);
+                    return is_string($xml) && !str_contains($xml, self::VAULT_UUID);
                 }),
                 ['uid' => 100],
             );
@@ -986,7 +989,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $sourceUuid = self::VAULT_UUID;
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $this->stubFlexRowQuery($xml);
 
@@ -1012,7 +1015,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $connection = $this->createMock(Connection::class);
-        $result = $this->createMock(Result::class);
+        $result     = $this->createMock(Result::class);
         $result->method('fetchAssociative')->willReturn(['pi_flexform' => '']);
         $connection->method('select')->willReturn($result);
 
@@ -1288,20 +1291,20 @@ final class FlexFormVaultHookTest extends TestCase
         // in any identifier extracted or vault operation triggered.
 
         $xxeXml = <<<'XML'
-        <?xml version="1.0" encoding="utf-8"?>
-        <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
-        <T3FlexForms>
-          <data>
-            <sheet index="sDEF">
-              <language index="lDEF">
-                <field index="settings.apiKey">
-                  <value index="vDEF">&xxe;01937b6e-4b6c-7abc-8def-0123456789ab</value>
-                </field>
-              </language>
-            </sheet>
-          </data>
-        </T3FlexForms>
-        XML;
+            <?xml version="1.0" encoding="utf-8"?>
+            <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+            <T3FlexForms>
+              <data>
+                <sheet index="sDEF">
+                  <language index="lDEF">
+                    <field index="settings.apiKey">
+                      <value index="vDEF">&xxe;01937b6e-4b6c-7abc-8def-0123456789ab</value>
+                    </field>
+                  </language>
+                </sheet>
+              </data>
+            </T3FlexForms>
+            XML;
 
         // The hook must NOT call vaultService->delete() for any identifier
         // that contains /etc/passwd content. It should only match the UUID.
@@ -1338,24 +1341,24 @@ final class FlexFormVaultHookTest extends TestCase
         // This test guards against memory exhaustion if XML parsing is ever introduced.
 
         $billionLaughsXml = <<<'XML'
-        <?xml version="1.0"?>
-        <!DOCTYPE lolz [
-          <!ENTITY lol "lol">
-          <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
-          <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
-        ]>
-        <T3FlexForms>
-          <data>
-            <sheet index="sDEF">
-              <language index="lDEF">
-                <field index="settings.token">
-                  <value index="vDEF">&lol3;01937b6e-4b6c-7abc-8def-0123456789ab</value>
-                </field>
-              </language>
-            </sheet>
-          </data>
-        </T3FlexForms>
-        XML;
+            <?xml version="1.0"?>
+            <!DOCTYPE lolz [
+              <!ENTITY lol "lol">
+              <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+              <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
+            ]>
+            <T3FlexForms>
+              <data>
+                <sheet index="sDEF">
+                  <language index="lDEF">
+                    <field index="settings.token">
+                      <value index="vDEF">&lol3;01937b6e-4b6c-7abc-8def-0123456789ab</value>
+                    </field>
+                  </language>
+                </sheet>
+              </data>
+            </T3FlexForms>
+            XML;
 
         $memBefore = memory_get_peak_usage();
 
@@ -1383,7 +1386,7 @@ final class FlexFormVaultHookTest extends TestCase
         self::assertLessThan(
             10.0,
             $memDeltaMb,
-            \sprintf('Memory delta %.2f MB exceeds 10 MB — possible entity expansion', $memDeltaMb),
+            sprintf('Memory delta %.2f MB exceeds 10 MB — possible entity expansion', $memDeltaMb),
         );
     }
 
@@ -1405,7 +1408,7 @@ final class FlexFormVaultHookTest extends TestCase
         $GLOBALS['TCA']['tx_test']['ctrl'] = [];
 
         $uuid = self::VAULT_UUID;
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml  = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $this->vaultService->method('exists')->willReturn(true);
         $this->vaultService->method('delete')->willThrowException(new VaultException('Boom'));
@@ -1451,7 +1454,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $sourceUuid = self::VAULT_UUID;
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $this->stubFlexRowQuery($xml);
 
@@ -1629,7 +1632,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $sourceUuid = self::VAULT_UUID;
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $this->stubFlexRowQuery($xml);
 
@@ -1845,7 +1848,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $sourceUuid = self::VAULT_UUID;
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $connection = $this->stubFlexRowQuery($xml);
 
@@ -1877,7 +1880,7 @@ final class FlexFormVaultHookTest extends TestCase
         $GLOBALS['TCA']['tx_single']['ctrl'] = [];
 
         $uuid = self::VAULT_UUID;
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml  = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $this->vaultService->method('exists')->willReturn(true);
         $this->vaultService
@@ -1946,7 +1949,7 @@ final class FlexFormVaultHookTest extends TestCase
         $GLOBALS['TCA']['tx_test']['ctrl'] = [];
 
         $uuid = self::VAULT_UUID;
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml  = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $uuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         // Secret does NOT exist — delete must NOT be called.
         $this->vaultService->expects(self::atLeastOnce())->method('exists')->with($uuid)->willReturn(false);
@@ -1977,7 +1980,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $sourceUuid = self::VAULT_UUID;
-        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $this->stubFlexRowQuery($xml);
 

@@ -88,7 +88,7 @@ final class PendingSecretTest extends TestCase
     public function hasChangedReturnsFalseWhenChecksumMatches(): void
     {
         $checksum = 'sha256:abc123def456';
-        $subject = PendingSecret::createUpdate('val', 'id', $checksum);
+        $subject  = PendingSecret::createUpdate('val', 'id', $checksum);
 
         self::assertFalse($subject->hasChanged($checksum));
     }
@@ -123,10 +123,10 @@ final class PendingSecretTest extends TestCase
         // toArray() redacts the secret value: the plaintext must never leak
         // into a logged/serialised array (SEC / VO-DTO hardening).
         self::assertSame([
-            'value' => '[REDACTED]',
-            'identifier' => 'my/identifier',
+            'value'            => '[REDACTED]',
+            'identifier'       => 'my/identifier',
             'originalChecksum' => 'oldchecksum',
-            'isNew' => false,
+            'isNew'            => false,
         ], $subject->toArray());
     }
 

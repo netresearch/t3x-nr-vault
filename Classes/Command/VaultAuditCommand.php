@@ -31,6 +31,15 @@ use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function assert;
+use function count;
+use function is_array;
+use function is_int;
+use function is_resource;
+use function is_scalar;
+use function is_string;
+use function sprintf;
+
 /**
  * CLI command to query and export audit logs.
  *
@@ -157,8 +166,8 @@ final class VaultAuditCommand extends Command
         $io = new SymfonyStyle($input, $output);
 
         $resetAnchor = (bool) $input->getOption('reset-anchor');
-        $verify = (bool) $input->getOption('verify');
-        $exportFile = $this->exportTarget($input);
+        $verify      = (bool) $input->getOption('verify');
+        $exportFile  = $this->exportTarget($input);
 
         // One gate for the whole command, resolved from the mode the
         // invocation selects — the same mode the dispatch below uses, so no
@@ -169,7 +178,7 @@ final class VaultAuditCommand extends Command
         // nothing at all.
         [$required, $operation] = $this->gate($resetAnchor, $verify, $exportFile);
         if (!$this->accessControlService->isGranted($required)) {
-            $io->error(\sprintf(
+            $io->error(sprintf(
                 'Access denied: the "%s" permission is required to %s.',
                 $required->value,
                 $operation,
@@ -189,11 +198,11 @@ final class VaultAuditCommand extends Command
 
         // Build filters
         $filters = $this->buildFilters($input);
-        $format = $input->getOption('format');
-        $limit = $input->getOption('limit');
+        $format  = $input->getOption('format');
+        $limit   = $input->getOption('limit');
 
-        \assert(\is_string($format));
-        \assert(\is_string($limit) || \is_int($limit));
+        assert(is_string($format));
+        assert(is_string($limit) || is_int($limit));
         $limit = (int) $limit;
 
         try {
@@ -212,8 +221,8 @@ final class VaultAuditCommand extends Command
 
             // Output to console
             match ($format) {
-                'json' => $output->writeln(json_encode($entries, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)),
-                'csv' => $this->outputCsv($output, $entries),
+                'json'  => $output->writeln(json_encode($entries, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)),
+                'csv'   => $this->outputCsv($output, $entries),
                 default => $this->outputTable($io, $entries),
             };
 
@@ -236,7 +245,7 @@ final class VaultAuditCommand extends Command
     {
         $exportFile = $input->getOption('export');
 
-        return \is_string($exportFile) && $exportFile !== '' ? $exportFile : null;
+        return is_string($exportFile) && $exportFile !== '' ? $exportFile : null;
     }
 
     /**
@@ -259,24 +268,24 @@ final class VaultAuditCommand extends Command
     private function gate(bool $resetAnchor, bool $verify, ?string $exportFile): array
     {
         return match (true) {
-            $resetAnchor => [VaultPermission::VaultConfigure, 'reset the audit chain tip anchor'],
-            $verify => [VaultPermission::AuditView, 'verify the audit hash chain'],
+            $resetAnchor         => [VaultPermission::VaultConfigure, 'reset the audit chain tip anchor'],
+            $verify              => [VaultPermission::AuditView, 'verify the audit hash chain'],
             $exportFile !== null => [VaultPermission::AuditExport, 'export audit entries to a file'],
-            default => [VaultPermission::AuditView, 'read the audit log'],
+            default              => [VaultPermission::AuditView, 'read the audit log'],
         };
     }
 
     private function buildFilters(InputInterface $input): ?AuditLogFilter
     {
         $secretIdentifier = $input->getOption('identifier');
-        $action = $input->getOption('action');
-        $actor = $input->getOption('actor');
-        $successOption = $input->getOption('success');
-        $sinceOption = $input->getOption('since');
-        $untilOption = $input->getOption('until');
+        $action           = $input->getOption('action');
+        $actor            = $input->getOption('actor');
+        $successOption    = $input->getOption('success');
+        $sinceOption      = $input->getOption('since');
+        $untilOption      = $input->getOption('until');
 
         $since = null;
-        if (\is_string($sinceOption) && $sinceOption !== '') {
+        if (is_string($sinceOption) && $sinceOption !== '') {
             try {
                 $since = new DateTimeImmutable($sinceOption);
             } catch (Exception) {
@@ -285,7 +294,7 @@ final class VaultAuditCommand extends Command
         }
 
         $until = null;
-        if (\is_string($untilOption) && $untilOption !== '') {
+        if (is_string($untilOption) && $untilOption !== '') {
             try {
                 $until = new DateTimeImmutable($untilOption);
             } catch (Exception) {
@@ -293,18 +302,18 @@ final class VaultAuditCommand extends Command
             }
         }
 
-        $success = \is_string($successOption)
+        $success = is_string($successOption)
             ? filter_var($successOption, FILTER_VALIDATE_BOOLEAN)
             : null;
 
         $actorUid = null;
-        if (\is_string($actor) || \is_int($actor)) {
+        if (is_string($actor) || is_int($actor)) {
             $actorUid = (int) $actor;
         }
 
         $filter = new AuditLogFilter(
-            secretIdentifier: \is_string($secretIdentifier) ? $secretIdentifier : null,
-            action: \is_string($action) ? $action : null,
+            secretIdentifier: is_string($secretIdentifier) ? $secretIdentifier : null,
+            action: is_string($action) ? $action : null,
             actorUid: $actorUid,
             success: $success,
             since: $since,
@@ -320,10 +329,10 @@ final class VaultAuditCommand extends Command
 
         $result = $this->auditLogService->verifyHashChain();
 
-        $io->writeln(\sprintf('Tip anchor: %s', $this->describeAnchorStatus($result->anchorStatus)));
+        $io->writeln(sprintf('Tip anchor: %s', $this->describeAnchorStatus($result->anchorStatus)));
 
         if ($result->getWarningCount() > 0) {
-            $io->warning(\sprintf('%d warning(s) detected:', $result->getWarningCount()));
+            $io->warning(sprintf('%d warning(s) detected:', $result->getWarningCount()));
             $io->table(
                 ['Entry UID', 'Warning'],
                 array_map(
@@ -365,12 +374,12 @@ final class VaultAuditCommand extends Command
     {
         return match ($status) {
             AuditChainAnchorStatus::NotChecked => 'not checked (bounded range)',
-            AuditChainAnchorStatus::Disabled => 'disabled (audit HMAC epoch 0)',
+            AuditChainAnchorStatus::Disabled   => 'disabled (audit HMAC epoch 0)',
             AuditChainAnchorStatus::Unanchored => 'NOT ARMED - truncation of the log is not detectable yet',
             AuditChainAnchorStatus::Unreadable => 'UNREADABLE - malformed value or invalid MAC',
-            AuditChainAnchorStatus::InFlight => 'inconclusive - a re-seal committed during verification',
-            AuditChainAnchorStatus::Ok => 'ok',
-            AuditChainAnchorStatus::Violated => 'VIOLATED - the anchored entry is gone or was replaced',
+            AuditChainAnchorStatus::InFlight   => 'inconclusive - a re-seal committed during verification',
+            AuditChainAnchorStatus::Ok         => 'ok',
+            AuditChainAnchorStatus::Violated   => 'VIOLATED - the anchored entry is gone or was replaced',
         };
     }
 
@@ -469,7 +478,7 @@ final class VaultAuditCommand extends Command
             $rows,
         );
 
-        $io->writeln(\sprintf('<info>Total: %d entries</info>', \count($entries)));
+        $io->writeln(sprintf('<info>Total: %d entries</info>', count($entries)));
     }
 
     /**
@@ -482,7 +491,7 @@ final class VaultAuditCommand extends Command
 
         // Rows
         foreach ($entries as $entry) {
-            $output->writeln(\sprintf(
+            $output->writeln(sprintf(
                 '%s,%s,%s,%d,%s,%s,%s,%s',
                 date('Y-m-d H:i:s', $entry->crdate),
                 CsvFormulaSanitizer::escapeField($entry->secretIdentifier),
@@ -504,18 +513,18 @@ final class VaultAuditCommand extends Command
         $data = array_map(static fn (AuditLogEntry $e): array => $e->jsonSerialize(), $entries);
 
         $content = match ($format) {
-            'csv' => $this->formatCsv($data),
+            'csv'   => $this->formatCsv($data),
             default => json_encode($data, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR),
         };
 
         $result = file_put_contents($file, $content);
         if ($result === false) {
-            $io->error(\sprintf('Failed to write to file: %s', $file));
+            $io->error(sprintf('Failed to write to file: %s', $file));
 
             return Command::FAILURE;
         }
 
-        $io->success(\sprintf('Exported %d entries to: %s', \count($entries), $file));
+        $io->success(sprintf('Exported %d entries to: %s', count($entries), $file));
 
         return Command::SUCCESS;
     }
@@ -530,7 +539,7 @@ final class VaultAuditCommand extends Command
         }
 
         $output = fopen('php://temp', 'r+');
-        \assert(\is_resource($output));
+        assert(is_resource($output));
         // escape: '' disables PHP's proprietary backslash escaping so that only
         // RFC-4180 quote doubling is emitted; with the default '\\' a value
         // containing \" closes the quoted cell and turns the remaining bytes
@@ -539,14 +548,14 @@ final class VaultAuditCommand extends Command
 
         foreach ($data as $row) {
             // Convert context array to JSON string for CSV
-            if (isset($row['context']) && \is_array($row['context'])) {
+            if (isset($row['context']) && is_array($row['context'])) {
                 $row['context'] = json_encode($row['context']);
             }
 
             // Filter to only scalar/null values for fputcsv
             /** @var array<string, bool|float|int|string|null> $csvRow */
             $csvRow = array_map(
-                static fn (mixed $v): bool|float|int|string|null => \is_scalar($v) || $v === null ? $v : json_encode($v),
+                static fn (mixed $v): bool|float|int|string|null => is_scalar($v) || $v === null ? $v : json_encode($v),
                 $row,
             );
             fputcsv($output, CsvFormulaSanitizer::neutralizeRow($csvRow), escape: '');

@@ -14,6 +14,11 @@ use Netresearch\NrVault\Crypto\EncryptionAlgorithm;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Exception\ValidationException;
 
+use function count;
+use function intval;
+use function is_array;
+use function is_string;
+
 /**
  * Secret entity representing an encrypted secret.
  *
@@ -28,8 +33,8 @@ final readonly class Secret
     private const CRYPTO_FIELDS_LABEL = 'cryptographic fields';
 
     /**
-     * @param int[] $allowedGroups Backend group UIDs with READ access (read-only tier)
-     * @param int[] $writeGroups Backend group UIDs with WRITE access (read + write tier)
+     * @param int[]                $allowedGroups Backend group UIDs with READ access (read-only tier)
+     * @param int[]                $writeGroups   Backend group UIDs with WRITE access (read + write tier)
      * @param array<string, mixed> $metadata
      *
      * @throws ValidationException If cryptographic fields are inconsistent
@@ -136,15 +141,15 @@ final readonly class Secret
     public function withValueRotation(EncryptedData $encrypted, int $rotatedAt): self
     {
         return $this->cloneWith([
-            'encryptedValue' => $encrypted->encryptedValue,
-            'encryptedDek' => $encrypted->encryptedDek,
-            'dekNonce' => $encrypted->dekNonce,
-            'valueNonce' => $encrypted->valueNonce,
-            'valueChecksum' => $encrypted->valueChecksum,
-            'encryptionVersion' => $encrypted->encryptionVersion,
+            'encryptedValue'      => $encrypted->encryptedValue,
+            'encryptedDek'        => $encrypted->encryptedDek,
+            'dekNonce'            => $encrypted->dekNonce,
+            'valueNonce'          => $encrypted->valueNonce,
+            'valueChecksum'       => $encrypted->valueChecksum,
+            'encryptionVersion'   => $encrypted->encryptionVersion,
             'encryptionAlgorithm' => $encrypted->encryptionAlgorithm->value,
-            'version' => $this->version + 1,
-            'lastRotatedAt' => $rotatedAt,
+            'version'             => $this->version + 1,
+            'lastRotatedAt'       => $rotatedAt,
         ]);
     }
 
@@ -158,7 +163,7 @@ final readonly class Secret
     {
         return $this->cloneWith([
             'encryptedDek' => $encryptedDek,
-            'dekNonce' => $dekNonce,
+            'dekNonce'     => $dekNonce,
         ]);
     }
 
@@ -185,7 +190,7 @@ final readonly class Secret
      */
     public function cloneWithGroups(array $allowedGroups): self
     {
-        return $this->cloneWith(['allowedGroups' => array_map(\intval(...), $allowedGroups)]);
+        return $this->cloneWith(['allowedGroups' => array_map(intval(...), $allowedGroups)]);
     }
 
     /**
@@ -196,7 +201,7 @@ final readonly class Secret
      */
     public function cloneWithWriteGroups(array $writeGroups): self
     {
-        return $this->cloneWith(['writeGroups' => array_map(\intval(...), $writeGroups)]);
+        return $this->cloneWith(['writeGroups' => array_map(intval(...), $writeGroups)]);
     }
 
     // ------------------------------------------------------------------
@@ -391,15 +396,15 @@ final readonly class Secret
      * the single source of truth for both tiers.
      *
      * @param array<string, mixed> $row
-     * @param int[] $allowedGroups Read-tier group UIDs (from MM table)
-     * @param int[] $writeGroups Write-tier group UIDs (from MM table)
+     * @param int[]                $allowedGroups Read-tier group UIDs (from MM table)
+     * @param int[]                $writeGroups   Write-tier group UIDs (from MM table)
      */
     public static function fromDatabaseRow(array $row, array $allowedGroups = [], array $writeGroups = []): self
     {
         $metadata = [];
         if (!empty($row['metadata'])) {
-            $decoded = json_decode((string) $row['metadata'], true);
-            $metadata = \is_array($decoded) ? $decoded : [];
+            $decoded  = json_decode((string) $row['metadata'], true);
+            $metadata = is_array($decoded) ? $decoded : [];
         }
 
         $encryptedValue = $row['encrypted_value'] ?? null;
@@ -409,7 +414,7 @@ final readonly class Secret
             uid: isset($row['uid']) ? (int) $row['uid'] : null,
             scopePid: (int) ($row['scope_pid'] ?? 0),
             description: (string) ($row['description'] ?? ''),
-            encryptedValue: \is_string($encryptedValue) ? $encryptedValue : null,
+            encryptedValue: is_string($encryptedValue) ? $encryptedValue : null,
             encryptedDek: (string) ($row['encrypted_dek'] ?? ''),
             dekNonce: (string) ($row['dek_nonce'] ?? ''),
             valueNonce: (string) ($row['value_nonce'] ?? ''),
@@ -417,8 +422,8 @@ final readonly class Secret
             encryptionAlgorithm: (string) ($row['encryption_algorithm'] ?? ''),
             valueChecksum: (string) ($row['value_checksum'] ?? ''),
             ownerUid: (int) ($row['owner_uid'] ?? 0),
-            allowedGroups: array_map(\intval(...), $allowedGroups),
-            writeGroups: array_map(\intval(...), $writeGroups),
+            allowedGroups: array_map(intval(...), $allowedGroups),
+            writeGroups: array_map(intval(...), $writeGroups),
             context: (string) ($row['context'] ?? ''),
             frontendAccessible: (bool) ($row['frontend_accessible'] ?? false),
             version: (int) ($row['version'] ?? 1),
@@ -460,33 +465,33 @@ final readonly class Secret
     public function toDatabaseRow(): array
     {
         return [
-            'scope_pid' => $this->scopePid,
-            'identifier' => $this->identifier,
-            'description' => $this->description,
-            'encrypted_value' => $this->encryptedValue,
-            'encrypted_dek' => $this->encryptedDek,
-            'dek_nonce' => $this->dekNonce,
-            'value_nonce' => $this->valueNonce,
-            'encryption_version' => $this->encryptionVersion,
+            'scope_pid'            => $this->scopePid,
+            'identifier'           => $this->identifier,
+            'description'          => $this->description,
+            'encrypted_value'      => $this->encryptedValue,
+            'encrypted_dek'        => $this->encryptedDek,
+            'dek_nonce'            => $this->dekNonce,
+            'value_nonce'          => $this->valueNonce,
+            'encryption_version'   => $this->encryptionVersion,
             'encryption_algorithm' => $this->encryptionAlgorithm,
-            'value_checksum' => $this->valueChecksum,
-            'owner_uid' => $this->ownerUid,
-            'allowed_groups' => \count($this->allowedGroups),
-            'write_groups' => \count($this->writeGroups),
-            'context' => $this->context,
-            'frontend_accessible' => $this->frontendAccessible ? 1 : 0,
-            'version' => $this->version,
-            'expires_at' => $this->expiresAt,
-            'last_rotated_at' => $this->lastRotatedAt,
-            'metadata' => json_encode($this->metadata),
-            'adapter' => $this->adapter,
-            'external_reference' => $this->externalReference,
-            'tstamp' => time(),
-            'cruser_id' => $this->cruserId,
-            'deleted' => $this->deleted ? 1 : 0,
-            'hidden' => $this->hidden ? 1 : 0,
-            'read_count' => $this->readCount,
-            'last_read_at' => $this->lastReadAt,
+            'value_checksum'       => $this->valueChecksum,
+            'owner_uid'            => $this->ownerUid,
+            'allowed_groups'       => count($this->allowedGroups),
+            'write_groups'         => count($this->writeGroups),
+            'context'              => $this->context,
+            'frontend_accessible'  => $this->frontendAccessible ? 1 : 0,
+            'version'              => $this->version,
+            'expires_at'           => $this->expiresAt,
+            'last_rotated_at'      => $this->lastRotatedAt,
+            'metadata'             => json_encode($this->metadata),
+            'adapter'              => $this->adapter,
+            'external_reference'   => $this->externalReference,
+            'tstamp'               => time(),
+            'cruser_id'            => $this->cruserId,
+            'deleted'              => $this->deleted ? 1 : 0,
+            'hidden'               => $this->hidden ? 1 : 0,
+            'read_count'           => $this->readCount,
+            'last_read_at'         => $this->lastReadAt,
         ];
     }
 

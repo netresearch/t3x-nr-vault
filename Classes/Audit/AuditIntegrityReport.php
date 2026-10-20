@@ -11,6 +11,8 @@ namespace Netresearch\NrVault\Audit;
 
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 
+use function in_array;
+
 /**
  * Combined result of an audit-integrity verification run.
  *
@@ -30,19 +32,19 @@ use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 final readonly class AuditIntegrityReport
 {
     /**
-     * @param list<AuditIntegrityAlert> $findings Empty = fully verified
-     * @param bool $chainValid Result of the internal hash-chain pass alone
-     * @param int $currentSequence Highest audit uid at verification time
-     * @param ChainTipAnchor|null $anchor Anchor compared against (null = none available)
-     * @param array<int, string> $warnings Non-fatal chain notes, keyed by uid
-     * @param array<int, int> $epochCounts Rows per `hmac_key_epoch` across the full
-     *                                     chain, keyed by epoch. Carried through from
-     *                                     the chain pass, which counts them for free
-     *                                     while walking. A valid chain whose lowest
-     *                                     epoch is below the configured one is not a
-     *                                     finding — nothing was tampered with — but it
-     *                                     is the state a stalled HMAC migration leaves
-     *                                     behind, so the verifier reports it.
+     * @param list<AuditIntegrityAlert> $findings        Empty = fully verified
+     * @param bool                      $chainValid      Result of the internal hash-chain pass alone
+     * @param int                       $currentSequence Highest audit uid at verification time
+     * @param ChainTipAnchor|null       $anchor          Anchor compared against (null = none available)
+     * @param array<int, string>        $warnings        Non-fatal chain notes, keyed by uid
+     * @param array<int, int>           $epochCounts     Rows per `hmac_key_epoch` across the full
+     *                                                   chain, keyed by epoch. Carried through from
+     *                                                   the chain pass, which counts them for free
+     *                                                   while walking. A valid chain whose lowest
+     *                                                   epoch is below the configured one is not a
+     *                                                   finding — nothing was tampered with — but it
+     *                                                   is the state a stalled HMAC migration leaves
+     *                                                   behind, so the verifier reports it.
      */
     public function __construct(
         public array $findings,
@@ -101,7 +103,7 @@ final readonly class AuditIntegrityReport
         $codes = [];
         foreach ($this->findings as $finding) {
             $code = $finding->reason->value;
-            if (!\in_array($code, $codes, true)) {
+            if (!in_array($code, $codes, true)) {
                 $codes[] = $code;
             }
         }
@@ -127,20 +129,20 @@ final readonly class AuditIntegrityReport
     public function toArray(): array
     {
         return [
-            'valid' => $this->isValid(),
-            'tamperEvidence' => $this->hasTamperEvidence(),
-            'chainValid' => $this->chainValid,
+            'valid'           => $this->isValid(),
+            'tamperEvidence'  => $this->hasTamperEvidence(),
+            'chainValid'      => $this->chainValid,
             'currentSequence' => $this->currentSequence,
-            'anchor' => $this->anchor?->toArray(),
-            'reasonCodes' => $this->getReasonCodes(),
-            'findings' => array_map(
+            'anchor'          => $this->anchor?->toArray(),
+            'reasonCodes'     => $this->getReasonCodes(),
+            'findings'        => array_map(
                 static fn (AuditIntegrityAlert $finding): array => $finding->toArray(),
                 $this->findings,
             ),
-            'warnings' => $this->warnings,
+            'warnings'    => $this->warnings,
             'epochCounts' => $this->epochCounts,
-            'minEpoch' => $this->getMinEpoch(),
-            'maxEpoch' => $this->getMaxEpoch(),
+            'minEpoch'    => $this->getMinEpoch(),
+            'maxEpoch'    => $this->getMaxEpoch(),
         ];
     }
 

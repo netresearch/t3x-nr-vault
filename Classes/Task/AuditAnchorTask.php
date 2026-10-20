@@ -19,6 +19,8 @@ use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Scheduler\Task\AbstractTask;
 
+use function sprintf;
+
 /**
  * Scheduler counterpart of `vault:audit-anchor`.
  *
@@ -75,8 +77,8 @@ final class AuditAnchorTask extends AbstractTask
 
         try {
             $anchorService = $this->getAnchorService();
-            $anchor = $anchorService->capture();
-            $published = $anchorService->publish($anchor);
+            $anchor        = $anchorService->capture();
+            $published     = $anchorService->publish($anchor);
         } catch (Throwable $e) {
             $logger->error('Vault audit anchoring failed', ['error' => $e->getMessage()]);
 
@@ -93,7 +95,7 @@ final class AuditAnchorTask extends AbstractTask
 
         $logger->info('Vault audit chain anchored', [
             'sequence' => $anchor->sequence,
-            'sinks' => $published,
+            'sinks'    => $published,
         ]);
 
         return true;
@@ -120,7 +122,7 @@ final class AuditAnchorTask extends AbstractTask
             return 'Publishes the audit chain tip to the external audit sinks';
         }
 
-        return \sprintf(
+        return sprintf(
             'Publishes the audit chain tip to the external audit sinks (current sequence: %d)',
             $anchor->sequence,
         );

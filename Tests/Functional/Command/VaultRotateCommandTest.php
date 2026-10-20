@@ -37,17 +37,17 @@ final class VaultRotateCommandTest extends AbstractVaultFunctionalTestCase
     public function rotateCommandUpdatesSecretValue(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = 'cmd_rotate_update_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_rotate_update_' . bin2hex(random_bytes(4));
         $vaultService->store($identifier, 'original-value');
 
         try {
             $command = $this->get(VaultRotateCommand::class);
-            $tester = new CommandTester($command);
+            $tester  = new CommandTester($command);
 
             $exitCode = $tester->execute([
                 'identifier' => $identifier,
-                '--value' => 'rotated-value',
-                '--reason' => 'Test rotation',
+                '--value'    => 'rotated-value',
+                '--reason'   => 'Test rotation',
             ]);
 
             self::assertSame(0, $exitCode, $tester->getDisplay());
@@ -64,16 +64,16 @@ final class VaultRotateCommandTest extends AbstractVaultFunctionalTestCase
     public function rotateCommandOutputsSuccessMessage(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = 'cmd_rotate_sucmsg_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_rotate_sucmsg_' . bin2hex(random_bytes(4));
         $vaultService->store($identifier, 'original');
 
         try {
             $command = $this->get(VaultRotateCommand::class);
-            $tester = new CommandTester($command);
+            $tester  = new CommandTester($command);
 
             $tester->execute([
                 'identifier' => $identifier,
-                '--value' => 'new-value',
+                '--value'    => 'new-value',
             ]);
 
             self::assertStringContainsString('rotated successfully', $tester->getDisplay());
@@ -86,11 +86,11 @@ final class VaultRotateCommandTest extends AbstractVaultFunctionalTestCase
     public function rotateCommandFailsForNonExistentSecret(): void
     {
         $command = $this->get(VaultRotateCommand::class);
-        $tester = new CommandTester($command);
+        $tester  = new CommandTester($command);
 
         $exitCode = $tester->execute([
             'identifier' => 'nonexistent_' . bin2hex(random_bytes(4)),
-            '--value' => 'some-value',
+            '--value'    => 'some-value',
         ]);
 
         self::assertSame(1, $exitCode, 'Rotate must fail for non-existent secret');
@@ -101,12 +101,12 @@ final class VaultRotateCommandTest extends AbstractVaultFunctionalTestCase
     public function rotateCommandFailsWhenNoValueProvided(): void
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $identifier = 'cmd_rotate_noval_' . bin2hex(random_bytes(4));
+        $identifier   = 'cmd_rotate_noval_' . bin2hex(random_bytes(4));
         $vaultService->store($identifier, 'original');
 
         try {
             $command = $this->get(VaultRotateCommand::class);
-            $tester = new CommandTester($command);
+            $tester  = new CommandTester($command);
 
             $exitCode = $tester->execute(
                 ['identifier' => $identifier],

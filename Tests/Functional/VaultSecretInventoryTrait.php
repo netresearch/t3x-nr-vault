@@ -13,6 +13,8 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use TYPO3\CMS\Core\Database\Connection;
 
+use function is_string;
+
 /**
  * Counts what a DataHandler operation left in the vault.
  *
@@ -73,11 +75,11 @@ trait VaultSecretInventoryTrait
     protected function countSecretsHoldingAVaultIdentifier(): int
     {
         $vaultService = $this->get(VaultServiceInterface::class);
-        $count = 0;
+        $count        = 0;
 
         foreach ($this->activeSecretIdentifiers() as $identifier) {
             $value = $vaultService->retrieve($identifier);
-            if (\is_string($value) && IdentifierValidator::looksLikeVaultIdentifier($value)) {
+            if (is_string($value) && IdentifierValidator::looksLikeVaultIdentifier($value)) {
                 ++$count;
             }
         }

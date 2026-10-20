@@ -43,11 +43,11 @@ final readonly class PendingSecretPersister
      * error flash message built by $failureMessage from the caught throwable,
      * and returns that throwable so the caller can perform hook-specific logging.
      *
-     * @param array<string, mixed> $storeOptions Metadata passed to store() for new secrets
-     * @param string $deleteReason Audit reason for the delete branch
-     * @param string $rotateReason Audit reason for the rotate branch
+     * @param array<string, mixed>       $storeOptions   Metadata passed to store() for new secrets
+     * @param string                     $deleteReason   Audit reason for the delete branch
+     * @param string                     $rotateReason   Audit reason for the rotate branch
      * @param callable(Throwable):string $failureMessage Builds the flash message body from the error
-     * @param (callable():void)|null $onFailure Optional rollback hook run before the flash message
+     * @param (callable():void)|null     $onFailure      Optional rollback hook run before the flash message
      */
     public function persist(
         PendingSecret $pending,

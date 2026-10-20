@@ -377,10 +377,10 @@ final class AnchorFileReaderTest extends TestCase
     private function anchorLine(int $sequence, string $chainTip, int $timestamp, int $epoch): string
     {
         return json_encode([
-            'type' => 'anchor',
+            'type'   => 'anchor',
             'anchor' => [
-                'sequence' => $sequence,
-                'chainTip' => $chainTip,
+                'sequence'  => $sequence,
+                'chainTip'  => $chainTip,
                 'timestamp' => $timestamp,
                 'hmacEpoch' => $epoch,
             ],

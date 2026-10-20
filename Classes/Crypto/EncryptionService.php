@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -16,6 +13,8 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\EncryptionException;
 use SensitiveParameter;
 use SodiumException;
+
+use function sprintf;
 
 /**
  * Envelope encryption service using AES-256-GCM or XChaCha20-Poly1305.
@@ -51,8 +50,8 @@ final readonly class EncryptionService implements EncryptionServiceInterface
 
             // Generate nonces with algorithm-appropriate length
             $nonceLength = $algorithm->nonceLength();
-            $dekNonce = random_bytes($nonceLength);
-            $valueNonce = random_bytes($nonceLength);
+            $dekNonce    = random_bytes($nonceLength);
+            $valueNonce  = random_bytes($nonceLength);
 
             // Encrypt the DEK with master key
             $encryptedDek = $this->encryptWithKey($dek, $masterKey, $dekNonce, $identifier, $algorithm);
@@ -67,7 +66,7 @@ final readonly class EncryptionService implements EncryptionServiceInterface
             // different secrets yield different checksums (no equality leakage).
             // Integrity itself comes from the AEAD tag; this is solely a change
             // detector / audit before-after token. See SEC-CRYPTO-1 / ADR-002.
-            $macKey = hash_hkdf('sha256', $dek, self::CHECKSUM_MAC_KEY_LENGTH, self::CHECKSUM_HKDF_INFO);
+            $macKey   = hash_hkdf('sha256', $dek, self::CHECKSUM_MAC_KEY_LENGTH, self::CHECKSUM_HKDF_INFO);
             $checksum = hash_hmac('sha256', $encryptedValue, $macKey);
 
             // Securely wipe sensitive data. The master key is deliberately NOT
@@ -136,9 +135,9 @@ final readonly class EncryptionService implements EncryptionServiceInterface
         try {
             // Decode base64
             $encryptedValueBytes = base64_decode($encryptedValue, true);
-            $encryptedDekBytes = base64_decode($encryptedDek, true);
-            $dekNonceBytes = base64_decode($dekNonce, true);
-            $valueNonceBytes = base64_decode($valueNonce, true);
+            $encryptedDekBytes   = base64_decode($encryptedDek, true);
+            $dekNonceBytes       = base64_decode($dekNonce, true);
+            $valueNonceBytes     = base64_decode($valueNonce, true);
 
             if ($encryptedValueBytes === false || $encryptedDekBytes === false
                 || $dekNonceBytes === false || $valueNonceBytes === false) {
@@ -203,7 +202,7 @@ final readonly class EncryptionService implements EncryptionServiceInterface
         try {
             // Decode
             $encryptedDekBytes = base64_decode($encryptedDek, true);
-            $dekNonceBytes = base64_decode($dekNonce, true);
+            $dekNonceBytes     = base64_decode($dekNonce, true);
 
             if ($encryptedDekBytes === false || $dekNonceBytes === false) {
                 throw EncryptionException::decryptionFailed('Invalid base64 encoding');
@@ -241,7 +240,7 @@ final readonly class EncryptionService implements EncryptionServiceInterface
     private function encryptWithKey(#[SensitiveParameter] string $plaintext, #[SensitiveParameter] string $key, string $nonce, string $aad, EncryptionAlgorithm $algorithm): string
     {
         return match ($algorithm) {
-            EncryptionAlgorithm::Aes256Gcm => sodium_crypto_aead_aes256gcm_encrypt($plaintext, $aad, $nonce, $key),
+            EncryptionAlgorithm::Aes256Gcm         => sodium_crypto_aead_aes256gcm_encrypt($plaintext, $aad, $nonce, $key),
             EncryptionAlgorithm::XChaCha20Poly1305 => sodium_crypto_aead_xchacha20poly1305_ietf_encrypt($plaintext, $aad, $nonce, $key),
         };
     }
@@ -252,7 +251,7 @@ final readonly class EncryptionService implements EncryptionServiceInterface
     private function decryptWithKey(#[SensitiveParameter] string $ciphertext, #[SensitiveParameter] string $key, string $nonce, string $aad, EncryptionAlgorithm $algorithm): string
     {
         $result = match ($algorithm) {
-            EncryptionAlgorithm::Aes256Gcm => sodium_crypto_aead_aes256gcm_decrypt($ciphertext, $aad, $nonce, $key),
+            EncryptionAlgorithm::Aes256Gcm         => sodium_crypto_aead_aes256gcm_decrypt($ciphertext, $aad, $nonce, $key),
             EncryptionAlgorithm::XChaCha20Poly1305 => sodium_crypto_aead_xchacha20poly1305_ietf_decrypt($ciphertext, $aad, $nonce, $key),
         };
 
@@ -287,7 +286,7 @@ final readonly class EncryptionService implements EncryptionServiceInterface
             $encryptionVersion < EncryptionServiceInterface::ENCRYPTION_VERSION_LEGACY
             || $encryptionVersion > EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT
         ) {
-            throw EncryptionException::decryptionFailed(\sprintf(
+            throw EncryptionException::decryptionFailed(sprintf(
                 'Unsupported encryption version %d (this reader implements %d..%d)',
                 $encryptionVersion,
                 EncryptionServiceInterface::ENCRYPTION_VERSION_LEGACY,
@@ -298,14 +297,14 @@ final readonly class EncryptionService implements EncryptionServiceInterface
         if ($encryptionVersion >= EncryptionServiceInterface::ENCRYPTION_VERSION_CURRENT) {
             $algorithm = EncryptionAlgorithm::tryFrom($encryptionAlgorithm);
             if (!$algorithm instanceof EncryptionAlgorithm) {
-                throw EncryptionException::decryptionFailed(\sprintf(
+                throw EncryptionException::decryptionFailed(sprintf(
                     'Unknown encryption algorithm marker for encryption version %d',
                     $encryptionVersion,
                 ));
             }
 
             if (!$algorithm->isAvailable()) {
-                throw EncryptionException::decryptionFailed(\sprintf(
+                throw EncryptionException::decryptionFailed(sprintf(
                     'Encryption algorithm "%s" is not available on this host',
                     $algorithm->value,
                 ));
@@ -338,14 +337,14 @@ final readonly class EncryptionService implements EncryptionServiceInterface
 
         $algorithm = EncryptionAlgorithm::tryFrom($configured);
         if (!$algorithm instanceof EncryptionAlgorithm) {
-            throw EncryptionException::encryptionFailed(\sprintf(
+            throw EncryptionException::encryptionFailed(sprintf(
                 'Unknown encryptionAlgorithm "%s" configured for the nr_vault extension',
                 $configured,
             ));
         }
 
         if (!$algorithm->isAvailable()) {
-            throw EncryptionException::encryptionFailed(\sprintf(
+            throw EncryptionException::encryptionFailed(sprintf(
                 'Configured encryption algorithm "%s" is not available on this host',
                 $algorithm->value,
             ));

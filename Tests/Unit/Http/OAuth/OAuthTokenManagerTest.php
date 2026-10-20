@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -73,11 +70,11 @@ final class OAuthTokenManagerTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
-        $this->httpClient = $this->createMock(ClientInterface::class);
+        $this->vaultService   = $this->createMock(VaultServiceInterface::class);
+        $this->httpClient     = $this->createMock(ClientInterface::class);
         $this->requestFactory = $this->createMock(RequestFactoryInterface::class);
-        $this->streamFactory = $this->createMock(StreamFactoryInterface::class);
-        $this->logger = $this->createMock(LoggerInterface::class);
+        $this->streamFactory  = $this->createMock(StreamFactoryInterface::class);
+        $this->logger         = $this->createMock(LoggerInterface::class);
 
         // Configure request factory to return a mock request
         $this->setupRequestFactory();
@@ -104,15 +101,15 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         $response = $this->createSuccessfulTokenResponse([
             'access_token' => 'new-access-token',
-            'token_type' => 'Bearer',
-            'expires_in' => 3600,
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
         ]);
 
         $this->httpClient
@@ -137,15 +134,15 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         $response = $this->createSuccessfulTokenResponse([
             'access_token' => 'cached-token',
-            'token_type' => 'Bearer',
-            'expires_in' => 3600,
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
         ]);
 
         $this->httpClient
@@ -186,10 +183,10 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'same-client-id',
+                self::CLIENT_ID_SECRET   => 'same-client-id',
                 'oauth/client-secret-v1' => 'old-secret',
                 'oauth/client-secret-v2' => 'rotated-secret',
-                default => null,
+                default                  => null,
             });
 
         $this->httpClient
@@ -198,13 +195,13 @@ final class OAuthTokenManagerTest extends TestCase
             ->willReturnOnConsecutiveCalls(
                 $this->createSuccessfulTokenResponse([
                     'access_token' => 'token-from-v1',
-                    'token_type' => 'Bearer',
-                    'expires_in' => 3600,
+                    'token_type'   => 'Bearer',
+                    'expires_in'   => 3600,
                 ]),
                 $this->createSuccessfulTokenResponse([
                     'access_token' => 'token-from-v2',
-                    'token_type' => 'Bearer',
-                    'expires_in' => 3600,
+                    'token_type'   => 'Bearer',
+                    'expires_in'   => 3600,
                 ]),
             );
 
@@ -295,23 +292,23 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         // First response: token expires in 60 seconds (within 120 second buffer)
         $response1 = $this->createSuccessfulTokenResponse([
             'access_token' => 'expiring-token',
-            'token_type' => 'Bearer',
-            'expires_in' => 60,
+            'token_type'   => 'Bearer',
+            'expires_in'   => 60,
         ]);
 
         // Second response: new token
         $response2 = $this->createSuccessfulTokenResponse([
             'access_token' => 'refreshed-token',
-            'token_type' => 'Bearer',
-            'expires_in' => 3600,
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
         ]);
 
         $this->httpClient
@@ -361,7 +358,7 @@ final class OAuthTokenManagerTest extends TestCase
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
                 self::CLIENT_ID_SECRET => 'my-client-id',
-                default => null,
+                default                => null,
             });
 
         $this->expectException(SecretNotFoundException::class);
@@ -381,9 +378,9 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         $response = $this->createMock(ResponseInterface::class);
@@ -411,9 +408,9 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         $response = $this->createSuccessfulTokenResponse([
@@ -443,9 +440,9 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         $exception = new class ('Connection timeout') extends RuntimeException implements ClientExceptionInterface {};
@@ -483,9 +480,9 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         // Guzzle-like exception whose message would leak a credential if a
@@ -535,7 +532,7 @@ final class OAuthTokenManagerTest extends TestCase
         );
         $this->programCredentialReads();
         $this->subject = $this->managerUsingRealFactories();
-        $sent = null;
+        $sent          = null;
         $this->httpClient
             ->expects(self::once())
             ->method('sendRequest')
@@ -558,10 +555,10 @@ final class OAuthTokenManagerTest extends TestCase
         $this->assertTokenRequestForm(
             $sent,
             [
-                'grant_type' => 'client_credentials',
-                'client_id' => 'my-client-id',
+                'grant_type'    => 'client_credentials',
+                'client_id'     => 'my-client-id',
                 'client_secret' => 'my-client-secret',
-                'scope' => 'read write',
+                'scope'         => 'read write',
             ],
         );
     }
@@ -583,11 +580,11 @@ final class OAuthTokenManagerTest extends TestCase
             ->method('retrieve')
             ->willReturnCallback(
                 static fn (string $id): ?string => match ($id) {
-                    'oauth1/client-id' => 'client-1',
+                    'oauth1/client-id'     => 'client-1',
                     'oauth1/client-secret' => 'secret-1',
-                    'oauth2/client-id' => 'client-2',
+                    'oauth2/client-id'     => 'client-2',
                     'oauth2/client-secret' => 'secret-2',
-                    default => null,
+                    default                => null,
                 },
             );
         $calls = 0;
@@ -595,7 +592,7 @@ final class OAuthTokenManagerTest extends TestCase
             ->method('sendRequest')
             ->willReturnCallback(
                 static function () use (&$calls): ResponseInterface {
-                    $calls++;
+                    ++$calls;
 
                     return new Response(
                         200,
@@ -604,10 +601,10 @@ final class OAuthTokenManagerTest extends TestCase
                     );
                 },
             );
-        $initialFirst = $this->subject->getAccessToken($first);
+        $initialFirst  = $this->subject->getAccessToken($first);
         $initialSecond = $this->subject->getAccessToken($second);
         $this->subject->clearCache($first);
-        $newFirst = $this->subject->getAccessToken($first);
+        $newFirst          = $this->subject->getAccessToken($first);
         $stillCachedSecond = $this->subject->getAccessToken($second);
         self::assertSame('token-1', $initialFirst);
         self::assertSame('token-2', $initialSecond);
@@ -632,9 +629,9 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         $this->httpClient
@@ -642,8 +639,8 @@ final class OAuthTokenManagerTest extends TestCase
             ->method('sendRequest')
             ->willReturn($this->createSuccessfulTokenResponse([
                 'access_token' => 'token',
-                'token_type' => 'Bearer',
-                'expires_in' => 3600,
+                'token_type'   => 'Bearer',
+                'expires_in'   => 3600,
             ]));
 
         // First call: fetch
@@ -668,9 +665,9 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         // Create response with invalid JSON
@@ -704,14 +701,14 @@ final class OAuthTokenManagerTest extends TestCase
             ->method('retrieve')
             ->willReturnCallback(
                 static fn (string $id): ?string => match ($id) {
-                    self::CLIENT_ID_SECRET => 'my-client-id',
+                    self::CLIENT_ID_SECRET     => 'my-client-id',
                     self::CLIENT_SECRET_SECRET => 'my-client-secret',
                     self::REFRESH_TOKEN_SECRET => 'my-refresh-token',
-                    default => null,
+                    default                    => null,
                 },
             );
         $this->subject = $this->managerUsingRealFactories();
-        $sent = null;
+        $sent          = null;
         $this->httpClient
             ->expects(self::once())
             ->method('sendRequest')
@@ -734,8 +731,8 @@ final class OAuthTokenManagerTest extends TestCase
         $this->assertTokenRequestForm(
             $sent,
             [
-                'grant_type' => 'refresh_token',
-                'client_id' => 'my-client-id',
+                'grant_type'    => 'refresh_token',
+                'client_id'     => 'my-client-id',
                 'client_secret' => 'my-client-secret',
                 'refresh_token' => 'my-refresh-token',
             ],
@@ -756,7 +753,7 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 // refresh token returns null
                 default => null,
@@ -780,9 +777,9 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         // Expect store to be called with new refresh token
@@ -796,9 +793,9 @@ final class OAuthTokenManagerTest extends TestCase
             );
 
         $response = $this->createSuccessfulTokenResponse([
-            'access_token' => 'new-access-token',
-            'token_type' => 'Bearer',
-            'expires_in' => 3600,
+            'access_token'  => 'new-access-token',
+            'token_type'    => 'Bearer',
+            'expires_in'    => 3600,
             'refresh_token' => 'new-refresh-token',
         ]);
 
@@ -825,7 +822,7 @@ final class OAuthTokenManagerTest extends TestCase
             ->method('sendRequest')
             ->willReturnCallback(
                 static function () use (&$calls): ResponseInterface {
-                    $calls++;
+                    ++$calls;
 
                     return new Response(
                         200,
@@ -835,8 +832,8 @@ final class OAuthTokenManagerTest extends TestCase
                 },
             );
         $before = time();
-        $first = $this->subject->getAccessToken($config);
-        $after = time();
+        $first  = $this->subject->getAccessToken($config);
+        $after  = time();
         $cached = $this->cachedTokenFor($config);
         $second = $this->subject->getAccessToken($config);
         self::assertSame('token-without-expiry', $first);
@@ -896,7 +893,7 @@ final class OAuthTokenManagerTest extends TestCase
         );
         $this->programCredentialReads();
         $this->subject = $this->managerUsingRealFactories();
-        $sent = null;
+        $sent          = null;
         $this->httpClient
             ->expects(self::once())
             ->method('sendRequest')
@@ -919,10 +916,10 @@ final class OAuthTokenManagerTest extends TestCase
         $this->assertTokenRequestForm(
             $sent,
             [
-                'grant_type' => 'client_credentials',
-                'client_id' => 'my-client-id',
+                'grant_type'    => 'client_credentials',
+                'client_id'     => 'my-client-id',
                 'client_secret' => 'my-client-secret',
-                'audience' => self::AUDIENCE,
+                'audience'      => self::AUDIENCE,
             ],
         );
     }
@@ -941,22 +938,22 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         // First response: token expires in 0 seconds (already expired)
         $response1 = $this->createSuccessfulTokenResponse([
             'access_token' => 'first-token',
-            'token_type' => 'Bearer',
-            'expires_in' => 0,
+            'token_type'   => 'Bearer',
+            'expires_in'   => 0,
         ]);
         // Second response: fresh token
         $response2 = $this->createSuccessfulTokenResponse([
             'access_token' => 'second-token',
-            'token_type' => 'Bearer',
-            'expires_in' => 3600,
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
         ]);
 
         $this->httpClient
@@ -983,9 +980,9 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         $this->httpClient
@@ -993,8 +990,8 @@ final class OAuthTokenManagerTest extends TestCase
             ->method('sendRequest')
             ->willReturn($this->createSuccessfulTokenResponse([
                 'access_token' => 'some-token',
-                'token_type' => 'Bearer',
-                'expires_in' => 3600,
+                'token_type'   => 'Bearer',
+                'expires_in'   => 3600,
             ]));
 
         // Populate cache
@@ -1020,10 +1017,10 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 self::REFRESH_TOKEN_SECRET => 'old-refresh-token',
-                default => null,
+                default                    => null,
             });
 
         $this->vaultService
@@ -1036,9 +1033,9 @@ final class OAuthTokenManagerTest extends TestCase
             );
 
         $response = $this->createSuccessfulTokenResponse([
-            'access_token' => 'new-access-token',
-            'token_type' => 'Bearer',
-            'expires_in' => 3600,
+            'access_token'  => 'new-access-token',
+            'token_type'    => 'Bearer',
+            'expires_in'    => 3600,
             'refresh_token' => 'new-refresh-token',
         ]);
 
@@ -1072,10 +1069,10 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 self::REFRESH_TOKEN_SECRET => 'old-refresh-token',
-                default => null,
+                default                    => null,
             });
 
         $this->vaultService
@@ -1084,9 +1081,9 @@ final class OAuthTokenManagerTest extends TestCase
             ->willThrowException(new RuntimeException('vault write failed mid-OAuth-refresh'));
 
         $response = $this->createSuccessfulTokenResponse([
-            'access_token' => 'new-access-token',
-            'token_type' => 'Bearer',
-            'expires_in' => 3600,
+            'access_token'  => 'new-access-token',
+            'token_type'    => 'Bearer',
+            'expires_in'    => 3600,
             'refresh_token' => 'new-refresh-token',
         ]);
 
@@ -1144,10 +1141,10 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
                 self::REFRESH_TOKEN_SECRET => 'old-refresh-token',
-                default => null,
+                default                    => null,
             });
         $this->vaultService
             ->expects(self::once())
@@ -1158,9 +1155,9 @@ final class OAuthTokenManagerTest extends TestCase
             ->expects(self::once())
             ->method('sendRequest')
             ->willReturn($this->createSuccessfulTokenResponse([
-                'access_token' => 'new-access-token',
-                'token_type' => 'Bearer',
-                'expires_in' => 3600,
+                'access_token'  => 'new-access-token',
+                'token_type'    => 'Bearer',
+                'expires_in'    => 3600,
                 'refresh_token' => 'new-refresh-token',
             ]));
 
@@ -1177,7 +1174,7 @@ final class OAuthTokenManagerTest extends TestCase
     #[Test]
     public function aSuccessfulTokenRoundTripLeavesAnAuditRow(): void
     {
-        $rows = [];
+        $rows    = [];
         $subject = $this->managerAuditingInto($rows);
 
         $config = OAuthConfig::clientCredentials(
@@ -1192,8 +1189,8 @@ final class OAuthTokenManagerTest extends TestCase
             ->method('sendRequest')
             ->willReturn($this->createSuccessfulTokenResponse([
                 'access_token' => 'new-access-token',
-                'token_type' => 'Bearer',
-                'expires_in' => 3600,
+                'token_type'   => 'Bearer',
+                'expires_in'   => 3600,
             ]));
 
         $subject->getAccessToken($config);
@@ -1214,7 +1211,7 @@ final class OAuthTokenManagerTest extends TestCase
     #[Test]
     public function aNon200AnswerLeavesAFailureRowCarryingTheRealStatus(): void
     {
-        $rows = [];
+        $rows    = [];
         $subject = $this->managerAuditingInto($rows);
 
         $config = OAuthConfig::clientCredentials(
@@ -1255,7 +1252,7 @@ final class OAuthTokenManagerTest extends TestCase
         // endpoint echoing a credential there must not reach the
         // tamper-evident audit chain, where a row can never be deleted —
         // only RFC 6749/6750 error codes pass the whitelist.
-        $rows = [];
+        $rows    = [];
         $subject = $this->managerAuditingInto($rows);
 
         $config = OAuthConfig::clientCredentials(
@@ -1289,7 +1286,7 @@ final class OAuthTokenManagerTest extends TestCase
     #[Test]
     public function aTransportFailureLeavesAFailureRowWithStatusZero(): void
     {
-        $rows = [];
+        $rows    = [];
         $subject = $this->managerAuditingInto($rows);
 
         $config = OAuthConfig::clientCredentials(
@@ -1325,11 +1322,11 @@ final class OAuthTokenManagerTest extends TestCase
     #[Test]
     public function aRejectedTokenEndpointHostLeavesARowBeforeAnythingEgressed(): void
     {
-        $originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $originalGlobals            = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['HTTP' => ['allowed_hosts' => ['api.partner.example']]];
 
         try {
-            $rows = [];
+            $rows    = [];
             $subject = $this->managerAuditingInto($rows);
 
             $config = OAuthConfig::clientCredentials(
@@ -1402,10 +1399,10 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
-                self::CLIENT_SECRET_SECRET => 'my-client-secret',
+                self::CLIENT_ID_SECRET               => 'my-client-id',
+                self::CLIENT_SECRET_SECRET           => 'my-client-secret',
                 'oauth/refresh-token-sensitive-path' => 'old-refresh-token',
-                default => null,
+                default                              => null,
             });
         $this->vaultService
             ->expects(self::once())
@@ -1415,9 +1412,9 @@ final class OAuthTokenManagerTest extends TestCase
         $this->httpClient
             ->method('sendRequest')
             ->willReturn($this->createSuccessfulTokenResponse([
-                'access_token' => 'new-access-token',
-                'token_type' => 'Bearer',
-                'expires_in' => 3600,
+                'access_token'  => 'new-access-token',
+                'token_type'    => 'Bearer',
+                'expires_in'    => 3600,
                 'refresh_token' => 'new-refresh-token',
             ]));
 
@@ -1454,17 +1451,17 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
 
         $this->vaultService->expects(self::never())->method('store');
 
         $response = $this->createSuccessfulTokenResponse([
-            'access_token' => 'new-access-token',
-            'token_type' => 'Bearer',
-            'expires_in' => 3600,
+            'access_token'  => 'new-access-token',
+            'token_type'    => 'Bearer',
+            'expires_in'    => 3600,
             'refresh_token' => 'should-not-be-stored',
         ]);
 
@@ -1517,7 +1514,7 @@ final class OAuthTokenManagerTest extends TestCase
     #[Test]
     public function dispatchTokenRequestRejectsHostNotInAllowedHostsList(): void
     {
-        $originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $originalGlobals            = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = [
             'HTTP' => ['allowed_hosts' => ['only.this.example.com']],
         ];
@@ -1532,9 +1529,9 @@ final class OAuthTokenManagerTest extends TestCase
             $this->vaultService
                 ->method('retrieve')
                 ->willReturnCallback(fn (string $id): string => match ($id) {
-                    self::CLIENT_ID_SECRET => 'cid',
+                    self::CLIENT_ID_SECRET     => 'cid',
                     self::CLIENT_SECRET_SECRET => 'csec',
-                    default => '',
+                    default                    => '',
                 });
 
             // The middleware on $httpClient would also block — but the gate
@@ -1651,7 +1648,7 @@ final class OAuthTokenManagerTest extends TestCase
      */
     private function managerAuditingInto(array &$rows): OAuthTokenManager
     {
-        $rows = [];
+        $rows            = [];
         $auditLogService = $this->createMock(AuditLogServiceInterface::class);
         $auditLogService
             ->method('log')
@@ -1691,9 +1688,9 @@ final class OAuthTokenManagerTest extends TestCase
         $this->vaultService
             ->method('retrieve')
             ->willReturnCallback(fn (string $id): ?string => match ($id) {
-                self::CLIENT_ID_SECRET => 'my-client-id',
+                self::CLIENT_ID_SECRET     => 'my-client-id',
                 self::CLIENT_SECRET_SECRET => 'my-client-secret',
-                default => null,
+                default                    => null,
             });
     }
 

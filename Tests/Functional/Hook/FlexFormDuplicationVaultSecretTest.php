@@ -23,6 +23,8 @@ use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function count;
+
 /**
  * A FlexForm vault field driven through a real DataHandler `copy` command.
  *
@@ -91,29 +93,29 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
     {
         $plaintext = 'flexform-copy-' . bin2hex(random_bytes(8));
 
-        $uid = $this->createContentElement($plaintext);
+        $uid              = $this->createContentElement($plaintext);
         $sourceIdentifier = $this->fetchFlexIdentifier('tt_content', 'pi_flexform', $uid);
         self::assertTrue(IdentifierValidator::looksLikeVaultIdentifier($sourceIdentifier));
 
         $this->runDataHandler([], ['tt_content' => [$uid => ['copy' => 1]]]);
 
-        $copyUid = $this->findCopyUid($uid);
+        $copyUid        = $this->findCopyUid($uid);
         $copyIdentifier = $this->fetchFlexIdentifier('tt_content', 'pi_flexform', $copyUid);
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService   = $this->get(VaultServiceInterface::class);
 
         self::assertSame(
             [
-                'copyHasOwnIdentifier' => true,
-                'copyPlaintext' => $plaintext,
-                'activeSecrets' => 2,
-                'createAudits' => 2,
+                'copyHasOwnIdentifier'       => true,
+                'copyPlaintext'              => $plaintext,
+                'activeSecrets'              => 2,
+                'createAudits'               => 2,
                 'secretsHoldingAnIdentifier' => 0,
             ],
             [
-                'copyHasOwnIdentifier' => $copyIdentifier !== '' && $copyIdentifier !== $sourceIdentifier,
-                'copyPlaintext' => $copyIdentifier === '' ? null : $vaultService->retrieve($copyIdentifier),
-                'activeSecrets' => \count($this->activeSecretIdentifiers()),
-                'createAudits' => $this->countAuditRows('create'),
+                'copyHasOwnIdentifier'       => $copyIdentifier !== '' && $copyIdentifier !== $sourceIdentifier,
+                'copyPlaintext'              => $copyIdentifier === '' ? null : $vaultService->retrieve($copyIdentifier),
+                'activeSecrets'              => count($this->activeSecretIdentifiers()),
+                'createAudits'               => $this->countAuditRows('create'),
                 'secretsHoldingAnIdentifier' => $this->countSecretsHoldingAVaultIdentifier(),
             ],
         );
@@ -136,7 +138,7 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
     {
         $plaintext = 'flexform-localize-' . bin2hex(random_bytes(8));
 
-        $uid = $this->createContentElement($plaintext);
+        $uid              = $this->createContentElement($plaintext);
         $sourceIdentifier = $this->fetchFlexIdentifier('tt_content', 'pi_flexform', $uid);
         self::assertTrue(IdentifierValidator::looksLikeVaultIdentifier($sourceIdentifier));
 
@@ -191,14 +193,14 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
 
         self::assertSame(
             [
-                'defaultPlaintext' => $plaintext,
+                'defaultPlaintext'  => $plaintext,
                 'secretStillExists' => true,
-                'activeSecrets' => 1,
+                'activeSecrets'     => 1,
             ],
             [
-                'defaultPlaintext' => $vaultService->retrieve($identifier),
+                'defaultPlaintext'  => $vaultService->retrieve($identifier),
                 'secretStillExists' => $vaultService->exists($identifier),
-                'activeSecrets' => \count($this->activeSecretIdentifiers()),
+                'activeSecrets'     => count($this->activeSecretIdentifiers()),
             ],
         );
 
@@ -218,15 +220,15 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
         $this->runDataHandler([
             self::HARD_DELETE_TABLE => [
                 'NEW1' => [
-                    'pid' => 1,
-                    'title' => 'FlexForm vault source',
+                    'pid'                    => 1,
+                    'title'                  => 'FlexForm vault source',
                     self::HARD_DELETE_COLUMN => [
                         'data' => [
                             'sDEF' => [
                                 'lDEF' => [
                                     'apiKey' => [
                                         'vDEF' => [
-                                            'value' => $plaintext,
+                                            'value'             => $plaintext,
                                             '_vault_identifier' => '',
                                         ],
                                     ],
@@ -261,12 +263,12 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
     private function expectedSharedState(string $plaintext): array
     {
         return [
-            'defaultPlaintext' => $plaintext,
-            'translationPlaintext' => $plaintext,
+            'defaultPlaintext'                      => $plaintext,
+            'translationPlaintext'                  => $plaintext,
             'translationSharesTheDefaultIdentifier' => true,
-            'activeSecrets' => 1,
-            'createAudits' => 1,
-            'secretsHoldingAnIdentifier' => 0,
+            'activeSecrets'                         => 1,
+            'createAudits'                          => 1,
+            'secretsHoldingAnIdentifier'            => 0,
         ];
     }
 
@@ -275,24 +277,24 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
      */
     private function sharedStateOf(int $uid, int $translationUid): array
     {
-        $defaultIdentifier = $this->fetchFlexIdentifier('tt_content', 'pi_flexform', $uid);
+        $defaultIdentifier     = $this->fetchFlexIdentifier('tt_content', 'pi_flexform', $uid);
         $translationIdentifier = $this->fetchFlexIdentifier('tt_content', 'pi_flexform', $translationUid);
-        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService          = $this->get(VaultServiceInterface::class);
 
         return [
-            'defaultPlaintext' => $defaultIdentifier === '' ? null : $vaultService->retrieve($defaultIdentifier),
-            'translationPlaintext' => $translationIdentifier === '' ? null : $vaultService->retrieve($translationIdentifier),
+            'defaultPlaintext'                      => $defaultIdentifier === '' ? null : $vaultService->retrieve($defaultIdentifier),
+            'translationPlaintext'                  => $translationIdentifier === '' ? null : $vaultService->retrieve($translationIdentifier),
             'translationSharesTheDefaultIdentifier' => $translationIdentifier === $defaultIdentifier,
-            'activeSecrets' => \count($this->activeSecretIdentifiers()),
-            'createAudits' => $this->countAuditRows('create'),
-            'secretsHoldingAnIdentifier' => $this->countSecretsHoldingAVaultIdentifier(),
+            'activeSecrets'                         => count($this->activeSecretIdentifiers()),
+            'createAudits'                          => $this->countAuditRows('create'),
+            'secretsHoldingAnIdentifier'            => $this->countSecretsHoldingAVaultIdentifier(),
         ];
     }
 
     private function findTranslationUid(string $table, int $sourceUid): int
     {
         /** @var array<string, array{ctrl?: array{transOrigPointerField?: string}}> $tca */
-        $tca = $GLOBALS['TCA'] ?? [];
+        $tca         = $GLOBALS['TCA'] ?? [];
         $parentField = $tca[$table]['ctrl']['transOrigPointerField'] ?? '';
         self::assertIsString($parentField);
         self::assertNotSame('', $parentField);
@@ -320,22 +322,22 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
         $path = $this->instancePath . '/typo3conf/sites/testsite';
         GeneralUtility::mkdir_deep($path);
         file_put_contents($path . '/config.yaml', <<<'YAML'
-        rootPageId: 1
-        base: /
-        languages:
-          - title: English
-            enabled: true
-            languageId: 0
+            rootPageId: 1
             base: /
-            locale: en_US.UTF-8
-            flag: us
-          - title: German
-            enabled: true
-            languageId: 1
-            base: /de/
-            locale: de_DE.UTF-8
-            flag: de
-        YAML);
+            languages:
+              - title: English
+                enabled: true
+                languageId: 0
+                base: /
+                locale: en_US.UTF-8
+                flag: us
+              - title: German
+                enabled: true
+                languageId: 1
+                base: /de/
+                locale: de_DE.UTF-8
+                flag: de
+            YAML);
     }
 
     private function createContentElement(string $plaintext): int
@@ -343,16 +345,16 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
         $this->runDataHandler([
             'tt_content' => [
                 'NEW1' => [
-                    'pid' => 1,
-                    'header' => 'FlexForm vault source',
-                    'CType' => 'text',
+                    'pid'         => 1,
+                    'header'      => 'FlexForm vault source',
+                    'CType'       => 'text',
                     'pi_flexform' => [
                         'data' => [
                             'sDEF' => [
                                 'lDEF' => [
                                     'apiKey' => [
                                         'vDEF' => [
-                                            'value' => $plaintext,
+                                            'value'             => $plaintext,
                                             '_vault_identifier' => '',
                                         ],
                                     ],
@@ -378,7 +380,7 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
 
     /**
      * @param array<string, array<int|string, array<string, mixed>>> $data
-     * @param array<string, array<int, array<string, mixed>>> $commands
+     * @param array<string, array<int, array<string, mixed>>>        $commands
      */
     private function runDataHandler(array $data, array $commands = []): void
     {
@@ -388,7 +390,7 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
         $dataHandler->process_cmdmap();
 
         $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('sys_log');
-        $errors = $queryBuilder
+        $errors       = $queryBuilder
             ->select('details', 'log_data')
             ->from('sys_log')
             ->where($queryBuilder->expr()->gt('error', $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)))
@@ -424,7 +426,7 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
      * The string value a parsed FlexForm holds at the given path of keys.
      *
      * @param array<array-key, mixed> $node
-     * @param list<string> $path
+     * @param list<string>            $path
      */
     private function flexValueAtPath(array $node, array $path): string
     {
@@ -486,10 +488,10 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
         // then also proves that the translation exclusion does not swallow an
         // ordinary copy.
         $piFlexform['l10n_mode'] = 'exclude';
-        $columns['pi_flexform'] = $piFlexform;
-        $ttContent['columns'] = $columns;
-        $tca['tt_content'] = $ttContent;
-        $GLOBALS['TCA'] = $tca;
+        $columns['pi_flexform']  = $piFlexform;
+        $ttContent['columns']    = $columns;
+        $tca['tt_content']       = $ttContent;
+        $GLOBALS['TCA']          = $tca;
 
         /** @phpstan-ignore method.internal */
         $this->get(TcaSchemaFactory::class)->rebuild($tca);

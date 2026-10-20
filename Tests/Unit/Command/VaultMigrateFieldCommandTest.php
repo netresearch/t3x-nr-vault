@@ -31,6 +31,9 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
+use function is_int;
+use function sprintf;
+
 /**
  * Unit tests for {@see VaultMigrateFieldCommand}.
  *
@@ -53,7 +56,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createStub(VaultServiceInterface::class);
+        $this->vaultService   = $this->createStub(VaultServiceInterface::class);
         $this->connectionPool = $this->createStub(ConnectionPool::class);
 
         $this->rebuildCommandTester();
@@ -141,8 +144,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $vaultService->expects(self::never())->method('store');
 
         $exitCode = $this->commandTester->execute([
-            'table' => 'tx_myext_settings',
-            'field' => 'api_key',
+            'table'     => 'tx_myext_settings',
+            'field'     => 'api_key',
             '--dry-run' => true,
         ]);
 
@@ -191,7 +194,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         self::assertIsString($capturedIdentifier);
         self::assertTrue(
             IdentifierValidator::looksLikeVaultIdentifier($capturedIdentifier),
-            \sprintf('Generated identifier "%s" must be a valid vault identifier', $capturedIdentifier),
+            sprintf('Generated identifier "%s" must be a valid vault identifier', $capturedIdentifier),
         );
     }
 
@@ -249,15 +252,15 @@ final class VaultMigrateFieldCommandTest extends TestCase
     {
         $this->mockTableAndFieldExist('api_key');
         $records = [];
-        for ($i = 1; $i <= 25; $i++) {
+        for ($i = 1; $i <= 25; ++$i) {
             $records[] = ['uid' => $i, 'api_key' => 'secret' . $i];
         }
 
         $this->mockQueryReturnsRecords($records);
 
         $exitCode = $this->commandTester->execute([
-            'table' => 'tx_myext_settings',
-            'field' => 'api_key',
+            'table'     => 'tx_myext_settings',
+            'field'     => 'api_key',
             '--dry-run' => true,
         ]);
 
@@ -281,8 +284,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
-            'table' => 'tx_myext_settings',
-            'field' => 'api_key',
+            'table'        => 'tx_myext_settings',
+            'field'        => 'api_key',
             '--batch-size' => 1,
         ]);
 
@@ -381,8 +384,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
-            'table' => 'tx_myext_settings',
-            'field' => 'api_key',
+            'table'          => 'tx_myext_settings',
+            'field'          => 'api_key',
             '--clear-source' => true,
         ]);
 
@@ -407,8 +410,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
-            'table' => 'tx_myext_settings',
-            'field' => 'api_key',
+            'table'   => 'tx_myext_settings',
+            'field'   => 'api_key',
             '--force' => true,
         ]);
 
@@ -429,8 +432,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
-            'table' => 'tx_myext_settings',
-            'field' => 'api_key',
+            'table'   => 'tx_myext_settings',
+            'field'   => 'api_key',
             '--where' => 'pid=1',
         ]);
 
@@ -443,7 +446,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
     {
         $this->mockTableAndFieldExist('api_key');
         $records = [];
-        for ($i = 1; $i <= 15; $i++) {
+        for ($i = 1; $i <= 15; ++$i) {
             $records[] = ['uid' => $i, 'api_key' => 'secret' . $i];
         }
 
@@ -473,8 +476,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
         ]);
 
         $exitCode = $this->commandTester->execute([
-            'table' => 'tx_myext_settings',
-            'field' => 'api_key',
+            'table'     => 'tx_myext_settings',
+            'field'     => 'api_key',
             '--dry-run' => true,
         ]);
 
@@ -503,8 +506,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $this->commandTester->execute([
-            'table' => 'tx_myext_settings',
-            'field' => 'api_key',
+            'table'        => 'tx_myext_settings',
+            'field'        => 'api_key',
             '--batch-size' => 0,
         ]);
     }
@@ -518,8 +521,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
     public function failsWithEmptyUidField(): void
     {
         $exitCode = $this->commandTester->execute([
-            'table' => 'tx_myext_settings',
-            'field' => 'api_key',
+            'table'       => 'tx_myext_settings',
+            'field'       => 'api_key',
             '--uid-field' => '',
         ]);
 
@@ -583,7 +586,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
                 self::isString(),
                 'secret-str-uid',
                 self::callback(static fn (array $metadata): bool => $metadata['uid'] === 42
-                    && \is_int($metadata['uid'])),
+                    && is_int($metadata['uid'])),
             );
 
         $this->commandTester->setInputs(['yes']);
@@ -616,7 +619,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
     private function useStrictVaultServiceMock(): VaultServiceInterface&MockObject
     {
-        $mock = $this->createMock(VaultServiceInterface::class);
+        $mock               = $this->createMock(VaultServiceInterface::class);
         $this->vaultService = $mock;
         $this->rebuildCommandTester();
 

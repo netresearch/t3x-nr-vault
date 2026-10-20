@@ -1,9 +1,10 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Hook;
@@ -17,6 +18,8 @@ use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\AbstractLogger;
 use RuntimeException;
 use Stringable;
+
+use function strlen;
 
 #[CoversClass(VaultFailureReporter::class)]
 final class VaultFailureReporterContextTest extends TestCase
@@ -61,7 +64,7 @@ final class VaultFailureReporterContextTest extends TestCase
         string $expected,
     ): void {
         $previous = mb_substitute_character();
-        mb_substitute_character(0xfffd);
+        mb_substitute_character(0xFFFD);
 
         try {
             $this->subject->report(
@@ -84,7 +87,7 @@ final class VaultFailureReporterContextTest extends TestCase
             );
             self::assertLessThanOrEqual(
                 200,
-                \strlen($logged),
+                strlen($logged),
                 'The final written value must meet the documented byte cap, including configured UTF-8 replacement.',
             );
         }
@@ -111,9 +114,9 @@ final class VaultFailureReporterContextTest extends TestCase
             new RuntimeException('synthetic failure', 972712909),
             [
                 'reference' => 'caller-provided-reference',
-                'table' => 'tx_context',
-                'uid' => 42,
-                'nullable' => null,
+                'table'     => 'tx_context',
+                'uid'       => 42,
+                'nullable'  => null,
             ],
         );
         self::assertCount(1, $this->records);
@@ -144,7 +147,7 @@ final class VaultFailureReporterContextTest extends TestCase
         $class = $this->records[0][1]['exceptionClass'];
         self::assertIsString($class);
         self::assertDoesNotMatchRegularExpression('/[[:cntrl:]]/', $class);
-        self::assertLessThanOrEqual(200, \strlen($class));
+        self::assertLessThanOrEqual(200, strlen($class));
         self::assertTrue(mb_check_encoding($class, 'UTF-8'));
         self::assertStringContainsString('RuntimeException', $class);
     }
@@ -153,7 +156,7 @@ final class VaultFailureReporterContextTest extends TestCase
     public function configuredUtf8ReplacementCannotIntroduceLogControlBytes(): void
     {
         $previous = mb_substitute_character();
-        $applied = mb_substitute_character(0xa);
+        $applied  = mb_substitute_character(0xA);
 
         try {
             $this->subject->report(
@@ -170,7 +173,7 @@ final class VaultFailureReporterContextTest extends TestCase
             $logged = $this->records[0][1][$key];
             self::assertIsString($logged);
             self::assertDoesNotMatchRegularExpression('/[[:cntrl:]]/', $logged);
-            self::assertLessThanOrEqual(200, \strlen($logged));
+            self::assertLessThanOrEqual(200, strlen($logged));
             self::assertTrue(mb_check_encoding($logged, 'UTF-8'));
         }
     }

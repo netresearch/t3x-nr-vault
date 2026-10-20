@@ -24,6 +24,8 @@ use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Throwable;
 
+use function sprintf;
+
 /**
  * Secret-leakage regression tests.
  *
@@ -193,7 +195,7 @@ final class SecretLeakageTest extends TestCase
         self::assertStringNotContainsString(
             self::SIGIL,
             $outerMessage,
-            \sprintf(
+            sprintf(
                 '%s copied the previous exception\'s message into its own — this leaks '
                 . 'any secret material the previous layer happened to carry. Factory '
                 . 'methods that accept a Throwable MUST produce an outer message that '
@@ -278,7 +280,7 @@ final class SecretLeakageTest extends TestCase
         self::assertNotSame(
             0,
             $exception->getCode(),
-            \sprintf(
+            sprintf(
                 'Factory %s produced a zero code — indicates a leaky hand-rolled ctor',
                 $exception::class,
             ),

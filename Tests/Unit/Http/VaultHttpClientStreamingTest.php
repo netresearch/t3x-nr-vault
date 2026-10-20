@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -57,7 +57,12 @@ use ReflectionMethod;
 use RuntimeException;
 use Throwable;
 
+use function assert;
+use function is_callable;
 use function Netresearch\NrVault\Http\microtime;
+use function strlen;
+
+use const CURLOPT_RESOLVE;
 
 /**
  * The streaming send, driven without a socket.
@@ -138,11 +143,11 @@ final class VaultHttpClientStreamingTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
+        $this->vaultService    = $this->createMock(VaultServiceInterface::class);
         $this->auditLogService = self::createStub(AuditLogServiceInterface::class);
-        $this->clientFactory = new SecureHttpClientFactory(new StreamOnePublicAddressResolver(self::PUBLIC_IP));
+        $this->clientFactory   = new SecureHttpClientFactory(new StreamOnePublicAddressResolver(self::PUBLIC_IP));
 
-        $this->originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $this->originalGlobals      = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['HTTP' => []];
 
         $this->auditRows = [];
@@ -158,10 +163,10 @@ final class VaultHttpClientStreamingTest extends TestCase
                 ?AuditContextInterface $context = null,
             ): void {
                 $this->auditRows[] = [
-                    'action' => $action,
+                    'action'  => $action,
                     'success' => $success,
-                    'error' => $error,
-                    'status' => $context?->toArray()['status_code'] ?? null,
+                    'error'   => $error,
+                    'status'  => $context?->toArray()['status_code'] ?? null,
                 ];
             },
         );
@@ -188,7 +193,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200, ['Content-Type' => 'text/event-stream']),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes("data: one\n"),
             3 => static fn (StreamStubTransfer $t) => $t->deliverBytes("data: two\n"),
@@ -244,7 +249,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allow_redirects'] = true;
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('x'),
         ]);
@@ -272,7 +277,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $curl = $options['curl'] ?? null;
         self::assertIsArray($curl);
         self::assertSame(
-            [\CURLOPT_RESOLVE => [self::API_HOST . ':443:' . self::PUBLIC_IP]],
+            [CURLOPT_RESOLVE => [self::API_HOST . ':443:' . self::PUBLIC_IP]],
             $curl,
             'The pin is the only raw cURL option: the vetted array carries nothing this send added.',
         );
@@ -284,7 +289,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->with('api_key')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('x'),
         ]);
@@ -302,7 +307,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(100),
             2 => static fn (StreamStubTransfer $t) => $t->deliverHead(201),
             3 => static fn (StreamStubTransfer $t) => $t->deliverBytes('created'),
@@ -325,7 +330,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         // Guzzle 7 hands a tunnelling proxy's CONNECT reply to on_headers
         // before the origin's own head; the origin answers 401 here.
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200, ['X-Proxy' => 'yes'], 'Connection established'),
             2 => static fn (StreamStubTransfer $t) => $t->deliverHead(401, ['X-Origin' => 'target']),
             3 => static fn (StreamStubTransfer $t) => $t->deliverBytes('denied'),
@@ -349,7 +354,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             4 => static fn (StreamStubTransfer $t) => $t->deliverBytes('late'),
         ]);
@@ -368,7 +373,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(204),
             2 => static fn (StreamStubTransfer $t) => $t->complete(),
         ]);
@@ -390,8 +395,8 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $failure = new RequestException('cURL error 23: Failure writing output to destination', new Request('GET', self::API_URL));
-        $ticker = new StreamStepTicker($transfer, [
+        $failure  = new RequestException('cURL error 23: Failure writing output to destination', new Request('GET', self::API_URL));
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static function (StreamStubTransfer $t) use ($failure): void {
                 // One step decodes more than the sink holds: it fills almost
@@ -435,8 +440,8 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $failure = new RequestException('cURL error 23: Failure writing output to destination', new Request('GET', self::API_URL));
-        $ticker = new StreamStepTicker($transfer, [
+        $failure  = new RequestException('cURL error 23: Failure writing output to destination', new Request('GET', self::API_URL));
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('x'),
             3 => static function (StreamStubTransfer $t) use ($failure): void {
@@ -475,10 +480,10 @@ final class VaultHttpClientStreamingTest extends TestCase
         // past the 50 ms idle bound, and past the zero wall-clock budget that
         // would end the call at once if it were applied.
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker(
+        $ticker   = new StreamStepTicker(
             $transfer,
             [
-                1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
+                1  => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
                 13 => static fn (StreamStubTransfer $t) => $t->complete(),
             ],
             20_000,
@@ -500,7 +505,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
         ], 20_000);
@@ -531,7 +536,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [], 20_000);
+        $ticker   = new StreamStepTicker($transfer, [], 20_000);
 
         try {
             $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.05))
@@ -557,9 +562,9 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::never())->method('retrieve');
 
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout'] = 0;
-        $withoutTimeout = $this->clientFactory->createCancellable();
+        $withoutTimeout                                = $this->clientFactory->createCancellable();
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout'] = 30;
-        $withTimeout = $this->clientFactory->createCancellable();
+        $withTimeout                                   = $this->clientFactory->createCancellable();
 
         self::assertInstanceOf(CancellableTransport::class, $withoutTimeout);
         self::assertInstanceOf(CancellableTransport::class, $withTimeout);
@@ -574,7 +579,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static function (StreamStubTransfer $t): void {
                 $t->deliverBytes("data: last\n");
@@ -598,7 +603,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [], 30_000);
+        $ticker   = new StreamStepTicker($transfer, [], 30_000);
 
         try {
             $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.05))
@@ -650,7 +655,7 @@ final class VaultHttpClientStreamingTest extends TestCase
 
         $readers = [
             'getContents' => static fn (StreamInterface $body): string => $body->getContents(),
-            '__toString' => static fn (StreamInterface $body): string => (string) $body,
+            '__toString'  => static fn (StreamInterface $body): string => (string) $body,
         ];
 
         foreach ($readers as $method => $readAll) {
@@ -658,7 +663,7 @@ final class VaultHttpClientStreamingTest extends TestCase
             // The stream ends after 28 MiB, so a missing limit shows as a
             // returned string rather than as a memory fatal.
             $transfer = new StreamStubTransfer();
-            $ticker = new StreamStepTicker(
+            $ticker   = new StreamStepTicker(
                 $transfer,
                 [
                     1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
@@ -697,7 +702,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
         ]);
@@ -735,7 +740,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         // The server keeps sending while the consumer is away: whatever the
         // next tick collects arrived during the pause.
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
             3 => static fn (StreamStubTransfer $t) => $t->deliverBytes('second'),
@@ -765,7 +770,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         // happened meanwhile is the end of the transfer — no new bytes. That
         // is a completed body, not a silent server.
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('all'),
             3 => static fn (StreamStubTransfer $t) => $t->complete(),
@@ -790,11 +795,11 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::never())->method('retrieve');
 
         $transfer = new StreamStubTransfer();
-        $promise = $transfer->handler()(new Request('GET', self::API_URL), []);
-        $ticker = new StreamStepTicker($transfer, [], 20_000);
+        $promise  = $transfer->handler()(new Request('GET', self::API_URL), []);
+        $ticker   = new StreamStepTicker($transfer, [], 20_000);
 
         // 1, 0, 1, 0, …: never more than 1, so only the first step is progress.
-        $calls = 0;
+        $calls             = 0;
         $streamingTransfer = new StreamingTransfer(
             $promise,
             $ticker,
@@ -832,7 +837,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         // the 200 ms idle bound, but their sum is above it. Real usleep only
         // guarantees a minimum delay and cannot establish this schedule.
         $transfer = new StreamStubTransfer();
-        $ticker = new TransferClockTicker(
+        $ticker   = new TransferClockTicker(
             static function (int $tick) use ($transfer): void {
                 if ($tick === 3) {
                     $transfer->deliverHead(200);
@@ -845,7 +850,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         );
         $caught = null;
         $status = null;
-        $bytes = null;
+        $bytes  = null;
 
         try {
             $response = $this
@@ -853,7 +858,7 @@ final class VaultHttpClientStreamingTest extends TestCase
                 ->withAuthentication('api_key', SecretPlacement::Bearer)
                 ->sendStreaming(new Request('GET', self::API_URL));
             $status = $response->getStatusCode();
-            $bytes = $response->getBody()->read(8192);
+            $bytes  = $response->getBody()->read(8192);
         } catch (Throwable $failure) {
             $caught = $failure;
         }
@@ -884,7 +889,7 @@ final class VaultHttpClientStreamingTest extends TestCase
             ->willReturn('s3cret');
         // Interim heads on every tick must still end at the 200 ms idle bound.
         $transfer = new StreamStubTransfer();
-        $ticker = new TransferClockTicker(
+        $ticker   = new TransferClockTicker(
             static function () use ($transfer): void {
                 $transfer->deliverHead(100);
             },
@@ -915,10 +920,10 @@ final class VaultHttpClientStreamingTest extends TestCase
         self::assertSame(
             [
                 [
-                    'action' => 'http_call',
+                    'action'  => 'http_call',
                     'success' => false,
-                    'error' => self::IDLE_EXHAUSTED_MESSAGE,
-                    'status' => 0,
+                    'error'   => self::IDLE_EXHAUSTED_MESSAGE,
+                    'status'  => 0,
                 ],
             ],
             $this->auditRows,
@@ -933,7 +938,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         // After a `101`, curl hands the raw connection bytes to the sink. They
         // are no body of a final head and must not count as progress.
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker(
+        $ticker   = new StreamStepTicker(
             $transfer,
             [1 => static fn (StreamStubTransfer $t) => $t->deliverHead(101)],
             20_000,
@@ -952,7 +957,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         // on_headers can tell. The `101` that follows replaces it, and from
         // then on the raw bytes count as nothing.
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker(
+        $ticker   = new StreamStepTicker(
             $transfer,
             [
                 1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200, ['X-Proxy' => 'yes'], 'Connection established'),
@@ -980,14 +985,14 @@ final class VaultHttpClientStreamingTest extends TestCase
         // Each gap is 150 ms or less; the complete transfer lasts 600 ms,
         // exceeding the 200 ms idle bound without depending on scheduling.
         $transfer = new StreamStubTransfer();
-        $ticker = new TransferClockTicker(
+        $ticker   = new TransferClockTicker(
             static function (int $tick) use ($transfer): void {
                 match ($tick) {
-                    1 => $transfer->deliverHead(100),
-                    3 => $transfer->deliverHead(200),
-                    6 => $transfer->deliverBytes('a'),
-                    9 => $transfer->deliverBytes('b'),
-                    12 => $transfer->complete(),
+                    1       => $transfer->deliverHead(100),
+                    3       => $transfer->deliverHead(200),
+                    6       => $transfer->deliverBytes('a'),
+                    9       => $transfer->deliverBytes('b'),
+                    12      => $transfer->complete(),
                     default => null,
                 };
             },
@@ -997,12 +1002,12 @@ final class VaultHttpClientStreamingTest extends TestCase
             ->clientWithTransport($this->transportWith($transfer, $ticker, 0.0, 0.2))
             ->withAuthentication('api_key', SecretPlacement::Bearer);
         $response = null;
-        $body = null;
-        $caught = null;
+        $body     = null;
+        $caught   = null;
 
         try {
             $response = $client->sendStreaming(new Request('GET', self::API_URL));
-            $body = $response->getBody()->getContents();
+            $body     = $response->getBody()->getContents();
         } catch (Throwable $failure) {
             $caught = $failure;
         }
@@ -1033,12 +1038,12 @@ final class VaultHttpClientStreamingTest extends TestCase
         // the 101 (no final head), the raw bytes land in the sink, the server
         // closes, and the transfer settles with the 101 whose body is the sink.
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(101, ['Upgrade' => 'websocket'], 'Switching Protocols'),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('RAWBYTES'),
             3 => static function (StreamStubTransfer $t): void {
                 $sink = $t->options()['sink'] ?? null;
-                \assert($sink instanceof StreamInterface);
+                assert($sink instanceof StreamInterface);
                 $t->settleWithValue(new Response(101, ['Upgrade' => 'websocket'], $sink, '1.1', 'Switching Protocols'));
             },
         ]);
@@ -1094,7 +1099,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('partial'),
             3 => $reject,
@@ -1129,9 +1134,9 @@ final class VaultHttpClientStreamingTest extends TestCase
         $limit = StreamingSink::DEFAULT_LIMIT_BYTES;
 
         foreach ([$limit => true, $limit + 1 => false] as $size => $returned) {
-            $half = intdiv($size, 2);
+            $half     = intdiv($size, 2);
             $transfer = new StreamStubTransfer();
-            $ticker = new StreamStepTicker($transfer, [
+            $ticker   = new StreamStepTicker($transfer, [
                 1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
                 2 => static fn (StreamStubTransfer $t) => $t->deliverBytes(str_repeat('x', $half)),
                 3 => static fn (StreamStubTransfer $t) => $t->deliverBytes(str_repeat('y', $size - $half)),
@@ -1144,7 +1149,7 @@ final class VaultHttpClientStreamingTest extends TestCase
                 ->getBody();
 
             if ($returned) {
-                self::assertSame($limit, \strlen($body->getContents()), 'Exactly the limit is returned.');
+                self::assertSame($limit, strlen($body->getContents()), 'Exactly the limit is returned.');
 
                 continue;
             }
@@ -1172,7 +1177,7 @@ final class VaultHttpClientStreamingTest extends TestCase
 
     /**
      * @param Closure(self): array{0: StreamInterface, 1: StreamStubTransfer} $build
-     * @param class-string<Throwable> $expected
+     * @param class-string<Throwable>                                         $expected
      */
     #[Test]
     #[DataProvider('failurePaths')]
@@ -1196,8 +1201,8 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $settled = new Response(203, [], 'complete');
-        $ticker = new StreamStepTicker($transfer, [
+        $settled  = new Response(203, [], 'complete');
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->settleWithValue($settled),
         ]);
 
@@ -1220,7 +1225,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::never())->method('retrieve');
 
         $transfer = new StreamStubTransfer();
-        $client = $this->clientWithTransport($this->transportWith($transfer, new StreamStepTicker($transfer, [])))
+        $client   = $this->clientWithTransport($this->transportWith($transfer, new StreamStepTicker($transfer, [])))
             ->withAuthentication('api_key', SecretPlacement::Bearer);
 
         try {
@@ -1244,7 +1249,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::never())->method('retrieve');
 
         $transfer = new StreamStubTransfer();
-        $client = $this->clientWithTransport($this->transportWith($transfer, new StreamStepTicker($transfer, [])))
+        $client   = $this->clientWithTransport($this->transportWith($transfer, new StreamStepTicker($transfer, [])))
             ->withAuthentication('api_key', SecretPlacement::Bearer);
 
         try {
@@ -1257,10 +1262,10 @@ final class VaultHttpClientStreamingTest extends TestCase
         self::assertFalse($transfer->wasReached());
         self::assertSame(
             [[
-                'action' => 'http_call',
+                'action'  => 'http_call',
                 'success' => false,
-                'error' => 'Request refused before any secret was read: unsupported URI scheme "file"',
-                'status' => 0,
+                'error'   => 'Request refused before any secret was read: unsupported URI scheme "file"',
+                'status'  => 0,
             ]],
             $this->auditRows,
         );
@@ -1273,7 +1278,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['other.example.com'];
 
         $transfer = new StreamStubTransfer();
-        $client = $this->clientWithTransport($this->transportWith($transfer, new StreamStepTicker($transfer, [])))
+        $client   = $this->clientWithTransport($this->transportWith($transfer, new StreamStepTicker($transfer, [])))
             ->withAuthentication('api_key', SecretPlacement::Bearer);
 
         try {
@@ -1286,10 +1291,10 @@ final class VaultHttpClientStreamingTest extends TestCase
         self::assertFalse($transfer->wasReached());
         self::assertSame(
             [[
-                'action' => 'http_call',
+                'action'  => 'http_call',
                 'success' => false,
-                'error' => 'Request refused before any secret was read: host is not in the allowed hosts list',
-                'status' => 0,
+                'error'   => 'Request refused before any secret was read: host is not in the allowed hosts list',
+                'status'  => 0,
             ]],
             $this->auditRows,
         );
@@ -1301,7 +1306,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, []);
+        $ticker   = new StreamStepTicker($transfer, []);
 
         // Pre-flight, then two steps, then cancelled.
         $signal = new StreamCountdownSignal(3);
@@ -1331,7 +1336,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, []);
+        $ticker   = new StreamStepTicker($transfer, []);
 
         try {
             $this->clientWithTransport($this->transportWith($transfer, $ticker, 0.0))
@@ -1358,8 +1363,8 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $failure = new RequestException('cURL error 7: connection refused', new Request('GET', self::API_URL));
-        $ticker = new StreamStepTicker($transfer, [
+        $failure  = new RequestException('cURL error 7: connection refused', new Request('GET', self::API_URL));
+        $ticker   = new StreamStepTicker($transfer, [
             2 => static fn (StreamStubTransfer $t) => $t->fail($failure),
         ]);
 
@@ -1384,8 +1389,8 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $failure = new RequestException('cURL error 18: transfer closed', new Request('GET', self::API_URL));
-        $ticker = new StreamStepTicker($transfer, [
+        $failure  = new RequestException('cURL error 18: transfer closed', new Request('GET', self::API_URL));
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static function (StreamStubTransfer $t) use ($failure): void {
                 $t->deliverHead(200);
                 $t->deliverBytes('partial');
@@ -1411,7 +1416,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->rejectWithValue('not a throwable'),
         ]);
 
@@ -1434,7 +1439,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->settleWithValue('not a response'),
         ]);
 
@@ -1476,10 +1481,10 @@ final class VaultHttpClientStreamingTest extends TestCase
 
         self::assertSame(
             [[
-                'action' => 'http_call',
+                'action'  => 'http_call',
                 'success' => false,
-                'error' => self::UNEXPECTED_OUTCOME_MESSAGE . ': sendAsync refused the option set',
-                'status' => 0,
+                'error'   => self::UNEXPECTED_OUTCOME_MESSAGE . ': sendAsync refused the option set',
+                'status'  => 0,
             ]],
             $this->auditRows,
         );
@@ -1504,10 +1509,10 @@ final class VaultHttpClientStreamingTest extends TestCase
         self::assertSame(1, $transfer->cancelCalls());
         self::assertSame(
             [[
-                'action' => 'http_call',
+                'action'  => 'http_call',
                 'success' => false,
-                'error' => self::UNEXPECTED_OUTCOME_MESSAGE . ": the caller's signal blew up",
-                'status' => 0,
+                'error'   => self::UNEXPECTED_OUTCOME_MESSAGE . ": the caller's signal blew up",
+                'status'  => 0,
             ]],
             $this->auditRows,
         );
@@ -1523,8 +1528,8 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $failure = new RequestException('cURL error 18: transfer closed', new Request('GET', self::API_URL));
-        $ticker = new StreamStepTicker($transfer, [
+        $failure  = new RequestException('cURL error 18: transfer closed', new Request('GET', self::API_URL));
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('partial'),
             3 => static fn (StreamStubTransfer $t) => $t->fail($failure),
@@ -1559,12 +1564,12 @@ final class VaultHttpClientStreamingTest extends TestCase
 
         $readers = [
             'getContents' => static fn (StreamInterface $body): string => $body->getContents(),
-            '__toString' => static fn (StreamInterface $body): string => (string) $body,
+            '__toString'  => static fn (StreamInterface $body): string => (string) $body,
         ];
 
         foreach ($readers as $method => $readAll) {
             $transfer = new StreamStubTransfer();
-            $ticker = new StreamStepTicker($transfer, [
+            $ticker   = new StreamStepTicker($transfer, [
                 1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
                 2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('half'),
                 3 => static fn (StreamStubTransfer $t) => $t->rejectWithValue('gone'),
@@ -1591,7 +1596,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('one,'),
             3 => static fn (StreamStubTransfer $t) => $t->deliverBytes(str_repeat('x', 9000)),
@@ -1613,7 +1618,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
         ]);
@@ -1722,8 +1727,8 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::never())->method('retrieve');
 
         $transfer = new StreamStubTransfer();
-        $promise = $transfer->handler()(new Request('GET', self::API_URL), []);
-        $ticker = new StreamStepTicker($transfer, []);
+        $promise  = $transfer->handler()(new Request('GET', self::API_URL), []);
+        $ticker   = new StreamStepTicker($transfer, []);
 
         $body = new StreamingResponseBody(
             new StreamingTransfer($promise, $ticker, 0.0, null),
@@ -1750,7 +1755,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::never())->method('retrieve');
 
         $failure = new RequestException('refused before the socket', new Request('GET', self::API_URL));
-        $ticker = new StreamStepTicker(new StreamStubTransfer(), []);
+        $ticker  = new StreamStepTicker(new StreamStubTransfer(), []);
 
         $transfer = new StreamingTransfer(
             Create::rejectionFor($failure),
@@ -1792,7 +1797,7 @@ final class VaultHttpClientStreamingTest extends TestCase
     {
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
-        $inner = new StreamRecordingPsr18Client(new Response(200, [], 'whole body'));
+        $inner  = new StreamRecordingPsr18Client(new Response(200, [], 'whole body'));
         $client = (new VaultHttpClient(
             vaultService: $this->vaultService,
             auditLogService: $this->auditLogService,
@@ -1833,15 +1838,15 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $script = [
+        $script   = [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
         ];
-        $budget = null;
-        $idle = null;
-        $sleep = 0;
+        $budget    = null;
+        $idle      = null;
+        $sleep     = 0;
         $otherwise = null;
-        $signal = null;
+        $signal    = null;
 
         switch ($path) {
             case 'cancel':
@@ -1851,10 +1856,10 @@ final class VaultHttpClientStreamingTest extends TestCase
                 // The wall-clock budget: enough to return after two 50 ms
                 // steps, spent a few steps later.
                 $budget = 0.3;
-                $sleep = 50_000;
+                $sleep  = 50_000;
                 break;
             case 'idle':
-                $idle = 0.05;
+                $idle  = 0.05;
                 $sleep = 20_000;
                 break;
             case 'throw':
@@ -1866,7 +1871,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         }
 
         $ticker = new StreamStepTicker($transfer, $script, $sleep, $otherwise);
-        $body = $this->clientWithTransport($this->transportWith($transfer, $ticker, $budget, $idle))
+        $body   = $this->clientWithTransport($this->transportWith($transfer, $ticker, $budget, $idle))
             ->withAuthentication('api_key', SecretPlacement::Bearer)
             ->sendStreaming(new Request('GET', self::API_URL), $signal)
             ->getBody();
@@ -1934,7 +1939,7 @@ final class VaultHttpClientStreamingTest extends TestCase
         $this->vaultService->expects(self::once())->method('retrieve')->willReturn('s3cret');
 
         $transfer = new StreamStubTransfer();
-        $ticker = new StreamStepTicker($transfer, [
+        $ticker   = new StreamStepTicker($transfer, [
             1 => static fn (StreamStubTransfer $t) => $t->deliverHead(200),
             2 => static fn (StreamStubTransfer $t) => $t->deliverBytes('first'),
         ]);
@@ -2049,8 +2054,8 @@ final class StreamStubTransfer
     public function deliverHead(int $status, array $headers = [], ?string $reason = null): void
     {
         $onHeaders = $this->options['on_headers'] ?? null;
-        $sink = $this->options['sink'] ?? null;
-        \assert(\is_callable($onHeaders) && $sink instanceof StreamInterface);
+        $sink      = $this->options['sink'] ?? null;
+        assert(is_callable($onHeaders) && $sink instanceof StreamInterface);
 
         $onHeaders(new Response($status, $headers, $sink, '1.1', $reason));
     }
@@ -2061,7 +2066,7 @@ final class StreamStubTransfer
     public function deliverRefused(string $bytes): void
     {
         $sink = $this->options['sink'] ?? null;
-        \assert($sink instanceof StreamInterface);
+        assert($sink instanceof StreamInterface);
 
         if ($sink->write($bytes) !== 0) {
             throw new RuntimeException('The sink accepted a write past its limit.', 1790487105);
@@ -2071,9 +2076,9 @@ final class StreamStubTransfer
     public function deliverBytes(string $bytes): void
     {
         $sink = $this->options['sink'] ?? null;
-        \assert($sink instanceof StreamInterface);
+        assert($sink instanceof StreamInterface);
 
-        if ($sink->write($bytes) !== \strlen($bytes)) {
+        if ($sink->write($bytes) !== strlen($bytes)) {
             throw new RuntimeException('The sink must accept every byte, or curl aborts the transfer.', 1790487104);
         }
     }
@@ -2081,7 +2086,7 @@ final class StreamStubTransfer
     public function complete(): void
     {
         $sink = $this->options['sink'] ?? null;
-        \assert($sink instanceof StreamInterface);
+        assert($sink instanceof StreamInterface);
 
         $this->settleWithValue(new Response(200, [], $sink));
     }
@@ -2141,8 +2146,8 @@ final class StreamStepTicker implements TransportTickerInterface
 
     /**
      * @param array<int, Closure(StreamStubTransfer): void> $script
-     * @param int $sleepMicroseconds How long each tick takes, as a curl_multi_select would
-     * @param (Closure(StreamStubTransfer, int): void)|null $otherwise Runs on ticks the script does not name
+     * @param int                                           $sleepMicroseconds How long each tick takes, as a curl_multi_select would
+     * @param (Closure(StreamStubTransfer, int): void)|null $otherwise         Runs on ticks the script does not name
      */
     public function __construct(
         private readonly StreamStubTransfer $transfer,
@@ -2241,7 +2246,7 @@ final class StreamThrowingOnSendClient implements GuzzleClientInterface
     }
 
     /**
-     * @param string|UriInterface $uri
+     * @param string|UriInterface     $uri
      * @param array<array-key, mixed> $options
      */
     public function request(string $method, $uri, array $options = []): ResponseInterface
@@ -2250,7 +2255,7 @@ final class StreamThrowingOnSendClient implements GuzzleClientInterface
     }
 
     /**
-     * @param string|UriInterface $uri
+     * @param string|UriInterface     $uri
      * @param array<array-key, mixed> $options
      */
     public function requestAsync(string $method, $uri, array $options = []): PromiseInterface

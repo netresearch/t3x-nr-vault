@@ -25,6 +25,11 @@ use Psr\Http\Message\RequestInterface;
 use ReflectionClass;
 use TypeError;
 
+use function count;
+use function sprintf;
+
+use const CURLOPT_RESOLVE;
+
 /**
  * DNS-rebinding defence tests.
  *
@@ -78,9 +83,9 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->dnsResolver = new InMemoryDnsResolver();
-        $this->subject = new SecureHttpClientFactory($this->dnsResolver);
-        $this->originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $this->dnsResolver          = new InMemoryDnsResolver();
+        $this->subject              = new SecureHttpClientFactory($this->dnsResolver);
+        $this->originalGlobals      = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['HTTP' => []];
     }
 
@@ -279,7 +284,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // No exception; the resolved private IP is pinned for the trusted host.
         $curlOpts = $capturedOptions['curl'] ?? null;
         self::assertIsArray($curlOpts);
-        self::assertSame(['ollama:11434:172.18.0.5'], $curlOpts[\CURLOPT_RESOLVE]);
+        self::assertSame(['ollama:11434:172.18.0.5'], $curlOpts[CURLOPT_RESOLVE]);
     }
 
     #[Test]
@@ -423,7 +428,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     #[Test]
     public function middlewareIsRegisteredInTheHandlerStack(): void
     {
-        $client = $this->subject->create();
+        $client  = $this->subject->create();
         $handler = $client->getConfig('handler');
 
         self::assertInstanceOf(HandlerStack::class, $handler);
@@ -500,8 +505,8 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
 
         $curlOpts = $capturedOptions['curl'] ?? null;
         self::assertIsArray($curlOpts);
-        self::assertArrayHasKey(\CURLOPT_RESOLVE, $curlOpts);
-        self::assertSame(['safe.example:443:93.184.216.34'], $curlOpts[\CURLOPT_RESOLVE]);
+        self::assertArrayHasKey(CURLOPT_RESOLVE, $curlOpts);
+        self::assertSame(['safe.example:443:93.184.216.34'], $curlOpts[CURLOPT_RESOLVE]);
     }
 
     #[Test]
@@ -521,19 +526,19 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
 
         $curlOpts = $capturedOptions['curl'] ?? null;
         self::assertIsArray($curlOpts);
-        self::assertArrayHasKey(\CURLOPT_RESOLVE, $curlOpts);
+        self::assertArrayHasKey(CURLOPT_RESOLVE, $curlOpts);
         self::assertSame(
             ['dualstack.example:443:93.184.216.34,[2001:db8::1]'],
-            $curlOpts[\CURLOPT_RESOLVE],
+            $curlOpts[CURLOPT_RESOLVE],
         );
     }
 
     #[Test]
     public function middlewareNormalisesBracketedIpv6Host(): void
     {
-        $client = $this->buildCapturingClient($capturedOptions, $transportCalls);
+        $client   = $this->buildCapturingClient($capturedOptions, $transportCalls);
         $response = null;
-        $failure = null;
+        $failure  = null;
 
         try {
             $response = $client->get('https://[' . self::PUBLIC_IPV6 . ']/api');
@@ -557,7 +562,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     {
         // A missing normalization must not turn this IP literal into a DNS name.
         $this->dnsResolver->program('[::1]', [['ip' => self::PUBLIC_IP]]);
-        $client = $this->buildCapturingClient($capturedOptions, $transportCalls);
+        $client  = $this->buildCapturingClient($capturedOptions, $transportCalls);
         $failure = null;
 
         try {
@@ -628,7 +633,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
         // literal in `allowed_hosts` keeps that internal target reachable,
         // redirect hop included.
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allow_redirects'] = true;
-        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = [self::DOCKER_IP];
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts']   = [self::DOCKER_IP];
         $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
         $client = $this->buildRedirectingClient(self::HTTP_SCHEME . self::DOCKER_IP . '/api/tags', $reachedHosts);
 
@@ -650,7 +655,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     {
         $reachedHosts = [];
 
-        $client = $this->subject->create();
+        $client  = $this->subject->create();
         $handler = $client->getConfig('handler');
         if (!$handler instanceof HandlerStack) {
             throw new TypeError('Factory must build a HandlerStack-backed client.', 3059133054);
@@ -661,7 +666,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
                 $reachedHosts[] = $request->getUri()->getHost();
 
                 return Create::promiseFor(
-                    \count($reachedHosts) === 1
+                    count($reachedHosts) === 1
                         ? new Response(302, ['Location' => $location], '')
                         : new Response(200, [], 'body-of-the-redirect-target'),
                 );
@@ -683,9 +688,9 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
     private function buildCapturingClient(?array &$capturedOptions, ?int &$transportCalls = null): Client
     {
         $capturedOptions = null;
-        $transportCalls = 0;
+        $transportCalls  = 0;
 
-        $client = $this->subject->create();
+        $client  = $this->subject->create();
         $handler = $client->getConfig('handler');
         if (!$handler instanceof HandlerStack) {
             throw new TypeError('Factory must build a HandlerStack-backed client.', 8206566209);
@@ -750,7 +755,7 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
             return;
         }
 
-        self::fail(\sprintf('Expected host "%s" to be rejected, but it was accepted.', $host));
+        self::fail(sprintf('Expected host "%s" to be rejected, but it was accepted.', $host));
     }
 }
 

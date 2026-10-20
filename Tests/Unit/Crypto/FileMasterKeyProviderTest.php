@@ -21,6 +21,8 @@ use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 
+use function strlen;
+
 #[CoversClass(FileMasterKeyProvider::class)]
 #[AllowMockObjectsWithoutExpectations]
 final class FileMasterKeyProviderTest extends TestCase
@@ -55,7 +57,7 @@ final class FileMasterKeyProviderTest extends TestCase
     #[Test]
     public function getIdentifierReturnsFile(): void
     {
-        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config   = $this->createMock(ExtensionConfigurationInterface::class);
         $provider = new FileMasterKeyProvider($config);
 
         self::assertEquals('file', $provider->getIdentifier());
@@ -102,7 +104,7 @@ final class FileMasterKeyProviderTest extends TestCase
     public function getMasterKeyReadsAndDecodesBase64Key(): void
     {
         // Use a fixed 32-byte key without NUL bytes or whitespace to avoid trim issues
-        $key = 'XXXXYYYYZZZZAAAABBBBCCCCDDDDEEEE';
+        $key     = 'XXXXYYYYZZZZAAAABBBBCCCCDDDDEEEE';
         $keyPath = vfsStream::url(self::MASTER_KEY_PATH);
         file_put_contents($keyPath, base64_encode($key));
 
@@ -118,7 +120,7 @@ final class FileMasterKeyProviderTest extends TestCase
     public function getMasterKeyReadsRaw32ByteKey(): void
     {
         // Use a fixed 32-byte key without NUL bytes or whitespace to avoid trim issues
-        $key = '12345678901234567890123456789012';
+        $key     = '12345678901234567890123456789012';
         $keyPath = vfsStream::url(self::MASTER_KEY_PATH);
         file_put_contents($keyPath, $key);
 
@@ -149,7 +151,7 @@ final class FileMasterKeyProviderTest extends TestCase
     public function getMasterKeyFallsBackToAutoKeyPath(): void
     {
         // Use a fixed 32-byte key without NUL bytes or whitespace to avoid trim issues
-        $key = 'AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH';
+        $key         = 'AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH';
         $autoKeyPath = vfsStream::url(self::AUTO_KEY_PATH);
         file_put_contents($autoKeyPath, base64_encode($key));
 
@@ -182,7 +184,7 @@ final class FileMasterKeyProviderTest extends TestCase
     #[Test]
     public function storeMasterKeyCreatesFileWithCorrectPermissions(): void
     {
-        $key = random_bytes(32);
+        $key     = random_bytes(32);
         $keyPath = vfsStream::url('vault/new.key');
 
         $config = $this->createMock(ExtensionConfigurationInterface::class);
@@ -198,7 +200,7 @@ final class FileMasterKeyProviderTest extends TestCase
     #[Test]
     public function storeMasterKeyUsesAutoKeyPathWhenSourceEmpty(): void
     {
-        $key = random_bytes(32);
+        $key         = random_bytes(32);
         $autoKeyPath = vfsStream::url(self::AUTO_KEY_PATH);
 
         $config = $this->createMock(ExtensionConfigurationInterface::class);
@@ -214,7 +216,7 @@ final class FileMasterKeyProviderTest extends TestCase
     #[Test]
     public function storeMasterKeyThrowsWhenKeyLengthInvalid(): void
     {
-        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config   = $this->createMock(ExtensionConfigurationInterface::class);
         $provider = new FileMasterKeyProvider($config);
 
         $this->expectException(MasterKeyException::class);
@@ -226,7 +228,7 @@ final class FileMasterKeyProviderTest extends TestCase
     #[Test]
     public function storeMasterKeyCreatesDirectory(): void
     {
-        $key = random_bytes(32);
+        $key     = random_bytes(32);
         $keyPath = vfsStream::url('vault/subdir/deep/master.key');
 
         $config = $this->createMock(ExtensionConfigurationInterface::class);
@@ -278,7 +280,7 @@ final class FileMasterKeyProviderTest extends TestCase
     {
         // When getMasterKeySource returns the sentinel value DEFAULT_MASTER_KEY_SOURCE,
         // getKeyPath() returns '' and storeMasterKey falls back to getAutoKeyPath()
-        $key = random_bytes(32);
+        $key         = random_bytes(32);
         $autoKeyPath = vfsStream::url('vault/sentinel-auto.key');
 
         $config = $this->createMock(ExtensionConfigurationInterface::class);
@@ -296,7 +298,7 @@ final class FileMasterKeyProviderTest extends TestCase
     public function getMasterKeyReadsBinaryKeyExactly32Bytes(): void
     {
         // Raw binary 32 bytes read directly without any trimming
-        $key = random_bytes(32);
+        $key     = random_bytes(32);
         $keyPath = vfsStream::url('vault/binary.key');
         file_put_contents($keyPath, $key);
 
@@ -312,7 +314,7 @@ final class FileMasterKeyProviderTest extends TestCase
     public function getMasterKeyHandlesBase64WithWhitespace(): void
     {
         // Base64 key with trailing newline (common when piped to file)
-        $key = random_bytes(32);
+        $key     = random_bytes(32);
         $keyPath = vfsStream::url('vault/base64-newline.key');
         file_put_contents($keyPath, base64_encode($key) . "\n");
 
@@ -327,12 +329,12 @@ final class FileMasterKeyProviderTest extends TestCase
     #[Test]
     public function generateMasterKeyReturns32Bytes(): void
     {
-        $config = $this->createMock(ExtensionConfigurationInterface::class);
+        $config   = $this->createMock(ExtensionConfigurationInterface::class);
         $provider = new FileMasterKeyProvider($config);
 
         $key = $provider->generateMasterKey();
 
-        self::assertEquals(32, \strlen($key));
+        self::assertEquals(32, strlen($key));
     }
 
     #[Test]
@@ -484,7 +486,7 @@ final class FileMasterKeyProviderTest extends TestCase
         // A 32-byte raw key written by `printf ... > file` picks up a newline.
         // Only the trimmed value has the key length; the untrimmed bytes are
         // neither 32 bytes nor decodable base64.
-        $key = '12345678901234567890123456789012';
+        $key     = '12345678901234567890123456789012';
         $keyPath = vfsStream::url('vault/raw-newline.key');
         file_put_contents($keyPath, $key . "\n");
 

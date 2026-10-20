@@ -19,6 +19,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+use function is_scalar;
+
 /**
  * Identifiers the vault cannot represent are REFUSED, not rewritten.
  *
@@ -81,8 +83,8 @@ final class SecretTcaHookIdentifierValidationTest extends AbstractVaultFunctiona
         $this->setUpBackendUser(1);
 
         $dataHandler = $this->processCreate([
-            'pid' => self::STORAGE_PID,
-            'identifier' => $submitted,
+            'pid'          => self::STORAGE_PID,
+            'identifier'   => $submitted,
             'secret_input' => 'must-not-be-stored',
         ]);
 
@@ -119,7 +121,7 @@ final class SecretTcaHookIdentifierValidationTest extends AbstractVaultFunctiona
         $payload = '<script>alert(1)</script>';
 
         $this->processCreate([
-            'pid' => self::STORAGE_PID,
+            'pid'        => self::STORAGE_PID,
             'identifier' => $payload,
         ]);
 
@@ -145,8 +147,8 @@ final class SecretTcaHookIdentifierValidationTest extends AbstractVaultFunctiona
         $identifier = 'valid_identifier_' . bin2hex(random_bytes(4));
 
         $dataHandler = $this->processCreate([
-            'pid' => self::STORAGE_PID,
-            'identifier' => $identifier,
+            'pid'          => self::STORAGE_PID,
+            'identifier'   => $identifier,
             'secret_input' => 'a-real-value',
         ]);
 
@@ -167,8 +169,8 @@ final class SecretTcaHookIdentifierValidationTest extends AbstractVaultFunctiona
         $identifier = 'padded_identifier_' . bin2hex(random_bytes(4));
 
         $this->processCreate([
-            'pid' => self::STORAGE_PID,
-            'identifier' => '  ' . $identifier . '  ',
+            'pid'          => self::STORAGE_PID,
+            'identifier'   => '  ' . $identifier . '  ',
             'secret_input' => 'a-real-value',
         ]);
 
@@ -185,7 +187,7 @@ final class SecretTcaHookIdentifierValidationTest extends AbstractVaultFunctiona
     {
         $this->setUpBackendUser(1);
         $legacy = 'legacy-invalid-identifier';
-        $uid = $this->insertLegacyRecord($legacy);
+        $uid    = $this->insertLegacyRecord($legacy);
 
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->start(
@@ -207,7 +209,7 @@ final class SecretTcaHookIdentifierValidationTest extends AbstractVaultFunctiona
     {
         $this->setUpBackendUser(1);
         $legacy = 'legacy-deletable-identifier';
-        $uid = $this->insertLegacyRecord($legacy);
+        $uid    = $this->insertLegacyRecord($legacy);
 
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->start([], [self::SECRET_TABLE => [$uid => ['delete' => 1]]]);
@@ -241,12 +243,12 @@ final class SecretTcaHookIdentifierValidationTest extends AbstractVaultFunctiona
     {
         $connection = $this->getConnectionPool()->getConnectionForTable(self::SECRET_TABLE);
         $connection->insert(self::SECRET_TABLE, [
-            'pid' => self::STORAGE_PID,
-            'identifier' => $identifier,
+            'pid'         => self::STORAGE_PID,
+            'identifier'  => $identifier,
             'description' => 'Stored before the identifier rule was enforced',
-            'owner_uid' => 1,
-            'crdate' => time(),
-            'tstamp' => time(),
+            'owner_uid'   => 1,
+            'crdate'      => time(),
+            'tstamp'      => time(),
         ]);
 
         return (int) $connection->lastInsertId();
@@ -316,7 +318,7 @@ final class SecretTcaHookIdentifierValidationTest extends AbstractVaultFunctiona
 
         $lines = [];
         foreach ($errorLog as $line) {
-            if (\is_scalar($line)) {
+            if (is_scalar($line)) {
                 $lines[] = (string) $line;
             }
         }

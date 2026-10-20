@@ -38,7 +38,7 @@ final class VaultAnalyticsServiceTest extends FunctionalTestCase
         $this->seedSecret(4, 'manual_only', 'mail', 'local', crdate: self::NOW - 320 * self::DAY, readCount: 9, lastReadAt: self::NOW - 41 * self::DAY, lastRotatedAt: 0, expiresAt: 0, hidden: 0, frontend: 0);
         $this->seedSecret(5, 'disabled_key', 'payment', 'local', crdate: self::NOW - 5 * self::DAY, readCount: 1, lastReadAt: self::NOW - self::DAY, lastRotatedAt: self::NOW - self::DAY, expiresAt: 0, hidden: 1, frontend: 0);
 
-        for ($i = 0; $i < 9; $i++) {
+        for ($i = 0; $i < 9; ++$i) {
             $this->seedReadEvent('manual_only', 'backend', self::NOW - (40 + $i) * self::DAY);
         }
 
@@ -46,7 +46,7 @@ final class VaultAnalyticsServiceTest extends FunctionalTestCase
         $this->seedReadEvent('healthy_key', 'cli', self::NOW - 3 * self::DAY);
 
         $service = $this->get(VaultAnalyticsServiceInterface::class);
-        $stats = $service->getUsageStats(90);
+        $stats   = $service->getUsageStats(90);
 
         self::assertSame(5, $stats->total);
         self::assertSame(4, $stats->active);
@@ -77,7 +77,7 @@ final class VaultAnalyticsServiceTest extends FunctionalTestCase
         self::assertSame(50, $contextPercent['integration']);
 
         $candidates = $service->getRedactionCandidates(90);
-        $byId = [];
+        $byId       = [];
         foreach ($candidates as $c) {
             $byId[$c->identifier] = $c->rules;
         }
@@ -97,7 +97,7 @@ final class VaultAnalyticsServiceTest extends FunctionalTestCase
     public function emptyVaultProducesZeroStatsAndNoCandidates(): void
     {
         $service = $this->get(VaultAnalyticsServiceInterface::class);
-        $stats = $service->getUsageStats(90);
+        $stats   = $service->getUsageStats(90);
 
         self::assertSame(0, $stats->total);
         self::assertSame([], $service->getRedactionCandidates(90));
@@ -122,21 +122,21 @@ final class VaultAnalyticsServiceTest extends FunctionalTestCase
         // The service uses time(); fixtures are written NOW-relative and shifted
         // to real now so ages line up.
         $shift = time() - self::NOW;
-        $conn = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_secret');
+        $conn  = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_secret');
         $conn->insert('tx_nrvault_secret', [
-            'uid' => $uid,
-            'pid' => 0,
-            'identifier' => $identifier,
-            'context' => $context,
-            'adapter' => $adapter,
-            'crdate' => $crdate + $shift,
-            'tstamp' => $crdate + $shift,
-            'read_count' => $readCount,
-            'last_read_at' => $lastReadAt === 0 ? 0 : $lastReadAt + $shift,
-            'last_rotated_at' => $lastRotatedAt === 0 ? 0 : $lastRotatedAt + $shift,
-            'expires_at' => $expiresAt === 0 ? 0 : $expiresAt + $shift,
-            'hidden' => $hidden,
-            'deleted' => 0,
+            'uid'                 => $uid,
+            'pid'                 => 0,
+            'identifier'          => $identifier,
+            'context'             => $context,
+            'adapter'             => $adapter,
+            'crdate'              => $crdate + $shift,
+            'tstamp'              => $crdate + $shift,
+            'read_count'          => $readCount,
+            'last_read_at'        => $lastReadAt === 0 ? 0 : $lastReadAt + $shift,
+            'last_rotated_at'     => $lastRotatedAt === 0 ? 0 : $lastRotatedAt + $shift,
+            'expires_at'          => $expiresAt === 0 ? 0 : $expiresAt + $shift,
+            'hidden'              => $hidden,
+            'deleted'             => 0,
             'frontend_accessible' => $frontend,
         ]);
     }
@@ -144,14 +144,14 @@ final class VaultAnalyticsServiceTest extends FunctionalTestCase
     private function seedReadEvent(string $identifier, string $actorType, int $crdate): void
     {
         $shift = time() - self::NOW;
-        $conn = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_audit_log');
+        $conn  = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_audit_log');
         $conn->insert('tx_nrvault_audit_log', [
-            'pid' => 0,
+            'pid'               => 0,
             'secret_identifier' => $identifier,
-            'action' => 'read',
-            'success' => 1,
-            'actor_type' => $actorType,
-            'crdate' => $crdate + $shift,
+            'action'            => 'read',
+            'success'           => 1,
+            'actor_type'        => $actorType,
+            'crdate'            => $crdate + $shift,
         ]);
     }
 }

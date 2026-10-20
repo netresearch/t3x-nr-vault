@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (c) 2026 Netresearch DTT GmbH
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -23,6 +23,11 @@ use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\RequestInterface;
 use ReflectionClass;
 use TypeError;
+
+use function count;
+use function sprintf;
+
+use const CURLOPT_RESOLVE;
 
 /**
  * The short-lived DNS memo that collapses the double resolve per outbound
@@ -62,9 +67,9 @@ final class SecureHttpClientFactoryDnsMemoTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->dnsResolver = new SequencedDnsResolver();
-        $this->subject = new SecureHttpClientFactory($this->dnsResolver);
-        $this->originalGlobals = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
+        $this->dnsResolver          = new SequencedDnsResolver();
+        $this->subject              = new SecureHttpClientFactory($this->dnsResolver);
+        $this->originalGlobals      = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
         $GLOBALS['TYPO3_CONF_VARS'] = ['HTTP' => []];
     }
 
@@ -94,7 +99,7 @@ final class SecureHttpClientFactoryDnsMemoTest extends TestCase
         self::assertIsArray($capturedOptions);
         self::assertSame(
             [self::HOST . ':443:' . self::PUBLIC_IP],
-            $capturedOptions['curl'][\CURLOPT_RESOLVE] ?? null,
+            $capturedOptions['curl'][CURLOPT_RESOLVE] ?? null,
             'The reused answer must still be pinned — sharing the lookup must not drop the pin.',
         );
     }
@@ -152,7 +157,7 @@ final class SecureHttpClientFactoryDnsMemoTest extends TestCase
         self::assertIsArray($capturedOptions);
         self::assertSame(
             [self::HOST . ':443:' . self::PUBLIC_IP],
-            $capturedOptions['curl'][\CURLOPT_RESOLVE] ?? null,
+            $capturedOptions['curl'][CURLOPT_RESOLVE] ?? null,
             'The pin must carry the vetted address, not the rebound one.',
         );
     }
@@ -181,7 +186,7 @@ final class SecureHttpClientFactoryDnsMemoTest extends TestCase
     public function theOldestEntryIsEvictedWhenTheMemoIsFull(): void
     {
         for ($i = 0; $i < 33; ++$i) {
-            $host = \sprintf('host-%02d.example', $i);
+            $host = sprintf('host-%02d.example', $i);
             $this->dnsResolver->answer($host, [['ip' => self::PUBLIC_IP]]);
             self::assertTrue($this->subject->isHostAllowed($host));
         }
@@ -249,9 +254,9 @@ final class SecureHttpClientFactoryDnsMemoTest extends TestCase
     public function realMemoDeadlineIsFiveSecondsAfterTheFreshLookup(): void
     {
         $this->dnsResolver->answer(self::HOST, [['ip' => self::PUBLIC_IP]]);
-        $before = microtime(true);
+        $before  = microtime(true);
         $allowed = $this->subject->isHostAllowed(self::HOST);
-        $after = microtime(true);
+        $after   = microtime(true);
         self::assertTrue($allowed);
         $property = (new ReflectionClass(SecureHttpClientFactory::class))->getProperty(
             'dnsMemo',
@@ -349,7 +354,7 @@ final class SequencedDnsResolver implements DnsResolverInterface
 
     public function resolve(string $host): array
     {
-        $index = $this->queries[$host] ?? 0;
+        $index                = $this->queries[$host] ?? 0;
         $this->queries[$host] = $index + 1;
 
         $sequence = $this->sequences[$host] ?? [];
@@ -357,7 +362,7 @@ final class SequencedDnsResolver implements DnsResolverInterface
             return [];
         }
 
-        return $sequence[min($index, \count($sequence) - 1)];
+        return $sequence[min($index, count($sequence) - 1)];
     }
 
     public function queryCount(string $host): int

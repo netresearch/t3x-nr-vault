@@ -27,6 +27,8 @@ use PHPUnit\Framework\TestCase;
 use Psr\Http\Client\ClientInterface;
 use Psr\Log\NullLogger;
 
+use function chr;
+
 /**
  * Adversarial OAuth token response and value-object regression cases.
  *
@@ -75,46 +77,46 @@ final class OAuthFuzzTest extends TestCase
 
         $cases = [
             // Missing access_token — must throw missingAccessToken
-            'empty object' => ['{}', true],
-            'null access_token' => ['{"access_token":null}', true],
-            'array access_token accepted as empty' => ['{"access_token":["foo"]}', false],
+            'empty object'                                 => ['{}', true],
+            'null access_token'                            => ['{"access_token":null}', true],
+            'array access_token accepted as empty'         => ['{"access_token":["foo"]}', false],
             'nested object access_token accepted as empty' => ['{"access_token":{"nested":"token"}}', false],
-            'bool access_token accepted as empty' => ['{"access_token":true}', false],
-            'only token_type' => ['{"token_type":"Bearer"}', true],
+            'bool access_token accepted as empty'          => ['{"access_token":true}', false],
+            'only token_type'                              => ['{"token_type":"Bearer"}', true],
 
             // Invalid JSON — JsonException wrapped as OAuthException
-            'truncated json' => ['{"access_token":"abc"', true],
-            'single quote json' => ["{'access_token':'abc'}", true],
-            'json with bom' => ["\xEF\xBB\xBF{\"access_token\":\"abc\"}", true],
-            'empty body' => ['', true],
-            'not json' => ['not a json at all', true],
+            'truncated json'        => ['{"access_token":"abc"', true],
+            'single quote json'     => ["{'access_token':'abc'}", true],
+            'json with bom'         => ["\xEF\xBB\xBF{\"access_token\":\"abc\"}", true],
+            'empty body'            => ['', true],
+            'not json'              => ['not a json at all', true],
             'deeply nested garbage' => [str_repeat('[', 50) . str_repeat(']', 50), true],
 
             // Valid minimum — access_token present, everything else default
-            'minimal valid' => ['{"access_token":"abc"}', false],
+            'minimal valid'         => ['{"access_token":"abc"}', false],
             'valid with token_type' => ['{"access_token":"abc","token_type":"Bearer"}', false],
 
             // Wrong-type expires_in (coerced to default 3600)
             'expires_in string' => ['{"access_token":"abc","expires_in":"3600"}', false],
-            'expires_in float' => ['{"access_token":"abc","expires_in":3600.5}', false],
-            'expires_in bool' => ['{"access_token":"abc","expires_in":true}', false],
-            'expires_in null' => ['{"access_token":"abc","expires_in":null}', false],
-            'expires_in array' => ['{"access_token":"abc","expires_in":[3600]}', false],
+            'expires_in float'  => ['{"access_token":"abc","expires_in":3600.5}', false],
+            'expires_in bool'   => ['{"access_token":"abc","expires_in":true}', false],
+            'expires_in null'   => ['{"access_token":"abc","expires_in":null}', false],
+            'expires_in array'  => ['{"access_token":"abc","expires_in":[3600]}', false],
 
             // Numeric edge cases for expires_in (int accepted, so no exception)
             'expires_in negative' => ['{"access_token":"abc","expires_in":-3600}', false],
-            'expires_in zero' => ['{"access_token":"abc","expires_in":0}', false],
-            'expires_in huge' => ['{"access_token":"abc","expires_in":2147483647}', false],
+            'expires_in zero'     => ['{"access_token":"abc","expires_in":0}', false],
+            'expires_in huge'     => ['{"access_token":"abc","expires_in":2147483647}', false],
 
             // Wrong-type token_type (coerced to default "Bearer")
-            'token_type int' => ['{"access_token":"abc","token_type":42}', false],
+            'token_type int'   => ['{"access_token":"abc","token_type":42}', false],
             'token_type array' => ['{"access_token":"abc","token_type":["Bearer"]}', false],
 
             // JWT-shaped access tokens — must not crash parsing
-            'jwt alg none' => ['{"access_token":"eyJhbGciOiJub25lIn0.eyJzdWIiOiJhZG1pbiJ9."}', false],
-            'jwt missing segment' => ['{"access_token":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhIn0"}', false],
+            'jwt alg none'         => ['{"access_token":"eyJhbGciOiJub25lIn0.eyJzdWIiOiJhZG1pbiJ9."}', false],
+            'jwt missing segment'  => ['{"access_token":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhIn0"}', false],
             'jwt oversized header' => ['{"access_token":"' . base64_encode(str_repeat('X', 2048)) . '.a.b"}', false],
-            'jwt non-base64' => ['{"access_token":"!!!.***.$$$"}', false],
+            'jwt non-base64'       => ['{"access_token":"!!!.***.$$$"}', false],
 
             // Extra unexpected fields — must be ignored, not crash
             'extra fields' => ['{"access_token":"abc","unknown":"value","nested":{"a":1}}', false],
@@ -128,11 +130,11 @@ final class OAuthFuzzTest extends TestCase
         ];
 
         // Add 6 random garbage payloads
-        for ($i = 0; $i < 6; $i++) {
-            $len = mt_rand(10, 200);
+        for ($i = 0; $i < 6; ++$i) {
+            $len    = mt_rand(10, 200);
             $random = '';
-            for ($j = 0; $j < $len; $j++) {
-                $random .= \chr(mt_rand(32, 126));
+            for ($j = 0; $j < $len; ++$j) {
+                $random .= chr(mt_rand(32, 126));
             }
 
             $cases["random_garbage_{$i}"] = [$random, true];
@@ -187,15 +189,15 @@ final class OAuthFuzzTest extends TestCase
     public static function errorStatusCodeProvider(): array
     {
         return [
-            '400' => [400],
-            '401' => [401],
-            '403' => [403],
-            '404' => [404],
-            '500' => [500],
-            '502' => [502],
-            '503' => [503],
-            '504' => [504],
-            '418' => [418],
+            '400'         => [400],
+            '401'         => [401],
+            '403'         => [403],
+            '404'         => [404],
+            '500'         => [500],
+            '502'         => [502],
+            '503'         => [503],
+            '504'         => [504],
+            '418'         => [418],
             '299 unknown' => [299],
         ];
     }
@@ -234,16 +236,16 @@ final class OAuthFuzzTest extends TestCase
     public static function tokenExpiryProvider(): array
     {
         return [
-            'far past no buffer' => [new DateTimeImmutable('-1 year'), 0, true],
-            'far past large buffer' => [new DateTimeImmutable('-1 year'), 86400, true],
-            'just expired' => [new DateTimeImmutable('-1 second'), 0, true],
-            'now' => [new DateTimeImmutable('now'), 0, true],
-            'just in future no buffer' => [new DateTimeImmutable('+60 seconds'), 0, false],
-            'far future no buffer' => [new DateTimeImmutable('+1 year'), 0, false],
-            'far future large buffer' => [new DateTimeImmutable('+1 year'), 86400, false],
+            'far past no buffer'             => [new DateTimeImmutable('-1 year'), 0, true],
+            'far past large buffer'          => [new DateTimeImmutable('-1 year'), 86400, true],
+            'just expired'                   => [new DateTimeImmutable('-1 second'), 0, true],
+            'now'                            => [new DateTimeImmutable('now'), 0, true],
+            'just in future no buffer'       => [new DateTimeImmutable('+60 seconds'), 0, false],
+            'far future no buffer'           => [new DateTimeImmutable('+1 year'), 0, false],
+            'far future large buffer'        => [new DateTimeImmutable('+1 year'), 86400, false],
             'in future but buffer covers it' => [new DateTimeImmutable('+10 seconds'), 60, true],
-            'negative buffer future token' => [new DateTimeImmutable('+10 seconds'), -60, false],
-            'php int max buffer' => [new DateTimeImmutable('+1 year'), PHP_INT_MAX, true],
+            'negative buffer future token'   => [new DateTimeImmutable('+10 seconds'), -60, false],
+            'php int max buffer'             => [new DateTimeImmutable('+1 year'), PHP_INT_MAX, true],
         ];
     }
 
@@ -273,11 +275,11 @@ final class OAuthFuzzTest extends TestCase
     {
         return [
             'bearer simple' => ['Bearer', 'abc123'],
-            'dpop' => ['DPoP', 'eyJhbGciOi'],
-            'mac' => ['MAC', 'id="abc"'],
-            'empty type' => ['', 'just-token'],
-            'empty token' => ['Bearer', ''],
-            'unicode type' => ['Bearer', '🔐secret'],
+            'dpop'          => ['DPoP', 'eyJhbGciOi'],
+            'mac'           => ['MAC', 'id="abc"'],
+            'empty type'    => ['', 'just-token'],
+            'empty token'   => ['Bearer', ''],
+            'unicode type'  => ['Bearer', '🔐secret'],
             'unicode token' => ['Bearer', 'tökén'],
         ];
     }
@@ -302,7 +304,7 @@ final class OAuthFuzzTest extends TestCase
     public function authorizationHeaderContainsCrlfVerbatim(): void
     {
         $crlfToken = "value\r\nX-Injected: evil";
-        $token = new OAuthToken(
+        $token     = new OAuthToken(
             accessToken: $crlfToken,
             tokenType: 'Bearer',
             expiresAt: new DateTimeImmutable('+1 hour'),

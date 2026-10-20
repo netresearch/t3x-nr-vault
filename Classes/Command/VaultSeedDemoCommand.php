@@ -24,6 +24,10 @@ use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function count;
+use function is_string;
+use function sprintf;
+
 /**
  * Dev-only: seed the vault with realistic, historic demo secrets + audit log.
  *
@@ -64,11 +68,11 @@ final class VaultSeedDemoCommand extends Command
             return Command::FAILURE;
         }
 
-        $force = (bool) $input->getOption('force');
+        $force    = (bool) $input->getOption('force');
         $existing = $this->demoIdentifiers();
 
         if ($existing !== [] && !$force) {
-            $io->note(\sprintf('%d demo secrets already present. Use --force to reseed.', \count($existing)));
+            $io->note(sprintf('%d demo secrets already present. Use --force to reseed.', count($existing)));
 
             return Command::SUCCESS;
         }
@@ -80,10 +84,10 @@ final class VaultSeedDemoCommand extends Command
                 $this->vaultService->delete($identifier, 'demo reseed');
             }
 
-            $io->writeln(\sprintf('Removed %d existing demo secrets.', \count($existing)));
+            $io->writeln(sprintf('Removed %d existing demo secrets.', count($existing)));
         }
 
-        $now = time();
+        $now    = time();
         $events = [];
 
         $specs = $this->demoDataProvider->specs();
@@ -115,7 +119,7 @@ final class VaultSeedDemoCommand extends Command
         usort($events, static fn (array $a, array $b): int => $a['crdate'] <=> $b['crdate']);
         $this->auditChainSeeder->seed($events);
 
-        $io->success(\sprintf('Seeded %d demo secrets and %d historic audit events.', \count($specs), \count($events)));
+        $io->success(sprintf('Seeded %d demo secrets and %d historic audit events.', count($specs), count($events)));
 
         return Command::SUCCESS;
     }
@@ -138,13 +142,13 @@ final class VaultSeedDemoCommand extends Command
             ->executeQuery()
             ->fetchFirstColumn();
 
-        return array_values(array_filter($rows, \is_string(...)));
+        return array_values(array_filter($rows, is_string(...)));
     }
 
     private function backdateSecret(DemoSecretSpec $spec, int $now): void
     {
         $crdate = $now - ($spec->createdDaysAgo * 86400);
-        $qb = $this->connectionPool->getQueryBuilderForTable(self::SECRET_TABLE);
+        $qb     = $this->connectionPool->getQueryBuilderForTable(self::SECRET_TABLE);
         $qb->update(self::SECRET_TABLE)
             ->set('crdate', $crdate)
             ->set('tstamp', $crdate)
@@ -227,7 +231,7 @@ final class VaultSeedDemoCommand extends Command
 
     /**
      * @param list<DemoSecretSpec> $specs
-     * @param list<int<1, max>> $owners
+     * @param list<int<1, max>>    $owners
      *
      * @return list<DemoAuditEvent>
      */
@@ -237,15 +241,15 @@ final class VaultSeedDemoCommand extends Command
 
         foreach ($specs as $index => $spec) {
             $options = [
-                'description' => $spec->description,
-                'context' => $spec->context,
+                'description'        => $spec->description,
+                'context'            => $spec->context,
                 'frontendAccessible' => $spec->frontendAccessible,
-                'expiresAt' => $spec->expiresInDays !== null ? $now + ($spec->expiresInDays * 86400) : 0,
-                'metadata' => ['source' => self::DEMO_SOURCE],
+                'expiresAt'          => $spec->expiresInDays !== null ? $now + ($spec->expiresInDays * 86400) : 0,
+                'metadata'           => ['source' => self::DEMO_SOURCE],
             ];
 
             if ($owners !== []) {
-                $options['owner'] = $owners[$index % \count($owners)];
+                $options['owner'] = $owners[$index % count($owners)];
             }
 
             $this->vaultService->store($spec->identifier, $spec->value, $options);
@@ -268,13 +272,13 @@ final class VaultSeedDemoCommand extends Command
         foreach ($spec->events as $e) {
             $events[] = [
                 'secret_identifier' => $spec->identifier,
-                'action' => $e->action,
-                'success' => $e->success,
-                'actor_uid' => $e->actorUid,
-                'actor_type' => $e->actorType,
-                'actor_username' => $e->actorUsername,
-                'crdate' => $now - ($e->daysAgo * 86400),
-                'context' => ['source' => self::DEMO_SOURCE],
+                'action'            => $e->action,
+                'success'           => $e->success,
+                'actor_uid'         => $e->actorUid,
+                'actor_type'        => $e->actorType,
+                'actor_username'    => $e->actorUsername,
+                'crdate'            => $now - ($e->daysAgo * 86400),
+                'context'           => ['source' => self::DEMO_SOURCE],
             ];
         }
 

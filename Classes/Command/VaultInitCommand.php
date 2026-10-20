@@ -18,6 +18,11 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Core\Environment;
 
+use function dirname;
+use function is_string;
+use function sprintf;
+use function strlen;
+
 /**
  * CLI command to initialize the vault (generate master key).
  */
@@ -71,8 +76,8 @@ final class VaultInitCommand extends Command
 
         // Determine output location
         $outputFileOption = $input->getOption('output');
-        $outputFile = \is_string($outputFileOption) ? $outputFileOption : null;
-        $outputEnv = $input->getOption('env');
+        $outputFile       = is_string($outputFileOption) ? $outputFileOption : null;
+        $outputEnv        = $input->getOption('env');
 
         if ($outputFile === null && $outputEnv === false) {
             $outputFile = $this->resolveDefaultOutputFile();
@@ -80,9 +85,9 @@ final class VaultInitCommand extends Command
 
         // Check if key already exists
         if ($outputFile !== null && $outputFile !== '' && file_exists($outputFile) && !$input->getOption('force')) {
-            $io->error(\sprintf(
-                'Master key already exists at: %s' . PHP_EOL .
-                'Use --force to overwrite (WARNING: existing secrets will become unrecoverable)',
+            $io->error(sprintf(
+                'Master key already exists at: %s' . PHP_EOL
+                . 'Use --force to overwrite (WARNING: existing secrets will become unrecoverable)',
                 $outputFile,
             ));
 
@@ -97,7 +102,7 @@ final class VaultInitCommand extends Command
             $encoded = sodium_bin2base64($masterKey, SODIUM_BASE64_VARIANT_ORIGINAL);
             $io->writeln('Add the following to your environment:');
             $io->newLine();
-            $io->writeln(\sprintf('export TYPO3_VAULT_MASTER_KEY="%s"', $encoded));
+            $io->writeln(sprintf('export TYPO3_VAULT_MASTER_KEY="%s"', $encoded));
             $io->newLine();
             $io->warning('Store this key securely! It cannot be recovered if lost.');
         } else {
@@ -137,9 +142,9 @@ final class VaultInitCommand extends Command
     private function writeMasterKeyToFile(SymfonyStyle $io, string $outputFilePath, string $masterKey): int
     {
         // Ensure directory exists
-        $dir = \dirname($outputFilePath);
+        $dir = dirname($outputFilePath);
         if (!is_dir($dir) && !mkdir($dir, 0o700, true)) {
-            $io->error(\sprintf('Failed to create directory: %s', $dir));
+            $io->error(sprintf('Failed to create directory: %s', $dir));
 
             return Command::FAILURE;
         }
@@ -160,7 +165,7 @@ final class VaultInitCommand extends Command
         }
 
         if ($result === false) {
-            $io->error(\sprintf('Failed to write master key to: %s', $outputFilePath));
+            $io->error(sprintf('Failed to write master key to: %s', $outputFilePath));
 
             return Command::FAILURE;
         }
@@ -168,19 +173,19 @@ final class VaultInitCommand extends Command
         // Enforce restrictive permissions (owner read/write only), also on a
         // pre-existing file, and fail loudly if it cannot be secured
         if (!chmod($outputFilePath, 0o600)) {
-            $io->error(\sprintf('Failed to set permissions on master key file: %s', $outputFilePath));
+            $io->error(sprintf('Failed to set permissions on master key file: %s', $outputFilePath));
 
             return Command::FAILURE;
         }
 
-        $io->success(\sprintf('Master key generated and saved to: %s', $outputFilePath));
+        $io->success(sprintf('Master key generated and saved to: %s', $outputFilePath));
         $io->table(
             ['Property', 'Value'],
             [
                 ['Key file', $outputFilePath],
                 ['Permissions', '0600 (owner read/write only)'],
                 ['Algorithm', 'XSalsa20-Poly1305 (sodium_crypto_secretbox)'],
-                ['Key length', \strlen($masterKey) . ' bytes'],
+                ['Key length', strlen($masterKey) . ' bytes'],
             ],
         );
 

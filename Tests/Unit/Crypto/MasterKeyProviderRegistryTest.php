@@ -24,7 +24,7 @@ final class MasterKeyProviderRegistryTest extends TestCase
     #[Test]
     public function getReturnsTheProviderRegisteredUnderTheIdentifier(): void
     {
-        $file = $this->providerNamed('file');
+        $file   = $this->providerNamed('file');
         $custom = $this->providerNamed('acme_kms');
 
         $subject = new MasterKeyProviderRegistry([$file, $custom]);
@@ -81,7 +81,7 @@ final class MasterKeyProviderRegistryTest extends TestCase
     #[Test]
     public function theExceptionNamesBothCollidingProviderClasses(): void
     {
-        $registered = $this->providerNamed('file');
+        $registered  = $this->providerNamed('file');
         $conflicting = $this->conflictingProviderNamed('file');
 
         // Precondition, not decoration: with one class on both sides the two
@@ -101,7 +101,7 @@ final class MasterKeyProviderRegistryTest extends TestCase
     }
 
     #[Test]
-    public function aCollisionRefusesEveryLookup_notOnlyTheCollidingIdentifier(): void
+    public function aCollisionRefusesEveryLookupNotOnlyTheCollidingIdentifier(): void
     {
         // Fail closed on the whole registry: while two providers disagree about
         // who owns an identifier, "which key source is in use?" has no answer,

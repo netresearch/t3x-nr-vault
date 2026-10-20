@@ -19,6 +19,8 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
+use function sprintf;
+
 /**
  * Default {@see AuditSinkRegistryInterface} implementation.
  *
@@ -144,7 +146,7 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
      * Run $publish against every enabled sink, containing failures per sink.
      *
      * @param callable(AuditSinkInterface): void $publish
-     * @param array<string, bool|int|string> $logContext Non-sensitive record facts
+     * @param array<string, bool|int|string>     $logContext Non-sensitive record facts
      *
      * @return int Number of sinks that physically accepted the record
      */
@@ -211,9 +213,9 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
                 $e->getMessage(),
             );
             $context = [
-                'sink' => $sinkIdentifier,
-                'record' => $recordKind,
-                'error' => $e->getMessage(),
+                'sink'      => $sinkIdentifier,
+                'record'    => $recordKind,
+                'error'     => $e->getMessage(),
                 'exception' => $e::class,
             ] + $logContext;
         } else {
@@ -241,11 +243,11 @@ final class AuditSinkRegistry implements AuditSinkRegistryInterface
         string $recordKind,
         array $logContext,
     ): void {
-        $detail = $sinkIdentifier !== null ? \sprintf(
+        $detail = $sinkIdentifier !== null ? sprintf(
             'External audit sink "%s" failed to accept a %s record.',
             $sinkIdentifier,
             $recordKind,
-        ) : \sprintf(
+        ) : sprintf(
             'External audit evidence failed during a %s operation.',
             $recordKind,
         );

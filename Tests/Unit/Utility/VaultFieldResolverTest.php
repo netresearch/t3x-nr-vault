@@ -40,9 +40,9 @@ final class VaultFieldResolverTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
+        $this->vaultService     = $this->createMock(VaultServiceInterface::class);
         $this->tcaSchemaFactory = $this->createMock(TcaSchemaFactory::class);
-        $this->logger = $this->createMock(LoggerInterface::class);
+        $this->logger           = $this->createMock(LoggerInterface::class);
 
         $this->subject = new VaultFieldResolver(
             $this->vaultService,
@@ -100,9 +100,9 @@ final class VaultFieldResolverTest extends TestCase
     public function resolveFieldsPreservesNonVaultFields(): void
     {
         $data = [
-            'title' => 'Test Title',
+            'title'       => 'Test Title',
             'description' => 'Some description',
-            'count' => 42,
+            'count'       => 42,
         ];
 
         // None of these are vault identifiers, so they should be unchanged
@@ -137,20 +137,20 @@ final class VaultFieldResolverTest extends TestCase
     public static function identifierProvider(): array
     {
         return [
-            'valid uuid v7 lowercase' => [self::UUID_V7, true],
-            'valid uuid v7 uppercase' => ['01937B6E-4B6C-7ABC-8DEF-0123456789AB', true],
-            'valid uuid v7 mixed case' => ['01937b6e-4B6C-7abc-8DEF-0123456789ab', true],
-            'empty string' => ['', false],
-            'null' => [null, false],
-            'integer' => [42, false],
-            'array' => [['test'], false],
+            'valid uuid v7 lowercase'      => [self::UUID_V7, true],
+            'valid uuid v7 uppercase'      => ['01937B6E-4B6C-7ABC-8DEF-0123456789AB', true],
+            'valid uuid v7 mixed case'     => ['01937b6e-4B6C-7abc-8DEF-0123456789ab', true],
+            'empty string'                 => ['', false],
+            'null'                         => [null, false],
+            'integer'                      => [42, false],
+            'array'                        => [['test'], false],
             'old format table__field__uid' => ['tx_ext__field__1', false],
-            'uuid v1' => ['01937b6e-4b6c-1abc-8def-0123456789ab', false],
-            'uuid v4' => ['01937b6e-4b6c-4abc-8def-0123456789ab', false],
-            'uuid with wrong variant' => ['01937b6e-4b6c-7abc-cdef-0123456789ab', false],
-            'too short' => ['01937b6e-4b6c-7abc-8def', false],
-            'too long' => ['01937b6e-4b6c-7abc-8def-0123456789ab1', false],
-            'missing hyphens' => ['01937b6e4b6c7abc8def0123456789ab', false],
+            'uuid v1'                      => ['01937b6e-4b6c-1abc-8def-0123456789ab', false],
+            'uuid v4'                      => ['01937b6e-4b6c-4abc-8def-0123456789ab', false],
+            'uuid with wrong variant'      => ['01937b6e-4b6c-7abc-cdef-0123456789ab', false],
+            'too short'                    => ['01937b6e-4b6c-7abc-8def', false],
+            'too long'                     => ['01937b6e-4b6c-7abc-8def-0123456789ab1', false],
+            'missing hyphens'              => ['01937b6e4b6c7abc8def0123456789ab', false],
         ];
     }
 
@@ -158,8 +158,8 @@ final class VaultFieldResolverTest extends TestCase
     public function getVaultFieldsForTableReturnsVaultSecretFields(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
-            'title' => ['type' => 'input'],
-            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'title'      => ['type' => 'input'],
+            'api_key'    => ['type' => 'input', 'renderType' => 'vaultSecret'],
             'api_secret' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
@@ -177,8 +177,8 @@ final class VaultFieldResolverTest extends TestCase
     public function getTranslationSharedVaultFieldsReturnsTheColumnsExcludedFromTranslation(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
-            'title' => ['type' => 'input', 'l10n_mode' => 'exclude'],
-            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+            'title'     => ['type' => 'input', 'l10n_mode' => 'exclude'],
+            'api_key'   => ['type' => 'input', 'renderType' => 'vaultSecret'],
             'api_token' => ['type' => 'input', 'renderType' => 'vaultSecret', 'l10n_mode' => 'exclude'],
         ]);
 
@@ -199,19 +199,19 @@ final class VaultFieldResolverTest extends TestCase
     public function isTranslationSharedColumnReadsL10nModeOfAnyColumn(): void
     {
         $this->mockTcaSchemaForTable('tx_test', [
-            'settings' => ['type' => 'flex', 'l10n_mode' => 'exclude'],
+            'settings'       => ['type' => 'flex', 'l10n_mode' => 'exclude'],
             'other_settings' => ['type' => 'flex'],
         ]);
 
         self::assertSame(
             [
-                'excluded' => true,
-                'translatable' => false,
+                'excluded'      => true,
+                'translatable'  => false,
                 'unknownColumn' => false,
             ],
             [
-                'excluded' => $this->subject->isTranslationSharedColumn('tx_test', 'settings'),
-                'translatable' => $this->subject->isTranslationSharedColumn('tx_test', 'other_settings'),
+                'excluded'      => $this->subject->isTranslationSharedColumn('tx_test', 'settings'),
+                'translatable'  => $this->subject->isTranslationSharedColumn('tx_test', 'other_settings'),
                 'unknownColumn' => $this->subject->isTranslationSharedColumn('tx_test', 'nope'),
             ],
         );
@@ -231,12 +231,12 @@ final class VaultFieldResolverTest extends TestCase
     public function getTranslationParentFieldReadsTheControlSection(): void
     {
         $GLOBALS['TCA']['tx_test']['ctrl']['transOrigPointerField'] = 'l10n_parent';
-        $GLOBALS['TCA']['tx_plain']['ctrl'] = [];
+        $GLOBALS['TCA']['tx_plain']['ctrl']                         = [];
 
         self::assertSame(
             ['aware' => 'l10n_parent', 'notAware' => null],
             [
-                'aware' => $this->subject->getTranslationParentField('tx_test'),
+                'aware'    => $this->subject->getTranslationParentField('tx_test'),
                 'notAware' => $this->subject->getTranslationParentField('tx_plain'),
             ],
         );
@@ -271,7 +271,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveSingleReturnsSecretValue(): void
     {
-        $identifier = self::UUID_V7;
+        $identifier  = self::UUID_V7;
         $secretValue = 'my-secret-value';
 
         $this->vaultService
@@ -302,7 +302,7 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveFieldsResolvesVaultIdentifiers(): void
     {
-        $identifier = self::UUID_V7;
+        $identifier  = self::UUID_V7;
         $secretValue = 'my-api-key';
 
         $this->vaultService
@@ -312,7 +312,7 @@ final class VaultFieldResolverTest extends TestCase
             ->willReturn($secretValue);
 
         $data = [
-            'title' => 'Test',
+            'title'   => 'Test',
             'api_key' => $identifier,
         ];
 
@@ -385,11 +385,11 @@ final class VaultFieldResolverTest extends TestCase
     #[Test]
     public function resolveRecordResolvesVaultFields(): void
     {
-        $identifier = self::UUID_V7;
+        $identifier  = self::UUID_V7;
         $secretValue = 'resolved-secret';
 
         $this->mockTcaSchemaForTable('tx_test', [
-            'title' => ['type' => 'input'],
+            'title'   => ['type' => 'input'],
             'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
         ]);
 
@@ -400,7 +400,7 @@ final class VaultFieldResolverTest extends TestCase
             ->willReturn($secretValue);
 
         $record = [
-            'title' => 'Test Record',
+            'title'   => 'Test Record',
             'api_key' => $identifier,
         ];
 
@@ -432,7 +432,7 @@ final class VaultFieldResolverTest extends TestCase
     public function resolveFieldsContinuesToLaterFieldsWhenEarlierOnesAreMissing(): void
     {
         $identifier = self::UUID_V7;
-        $resolved = 'resolved-value';
+        $resolved   = 'resolved-value';
 
         $this->vaultService
             ->expects(self::once())
@@ -460,7 +460,7 @@ final class VaultFieldResolverTest extends TestCase
     public function resolveFieldsContinuesToLaterFieldsWhenEarlierOnesAreNotVaultIdentifiers(): void
     {
         $identifier = self::UUID_V7;
-        $resolved = 'real-secret';
+        $resolved   = 'real-secret';
 
         $this->vaultService
             ->expects(self::once())
@@ -470,7 +470,7 @@ final class VaultFieldResolverTest extends TestCase
 
         // Earlier field is a plain string → `continue` skips it, later field is a UUID.
         $data = [
-            'title' => 'plain-string-not-a-uuid',
+            'title'   => 'plain-string-not-a-uuid',
             'api_key' => $identifier,
         ];
 
@@ -507,9 +507,9 @@ final class VaultFieldResolverTest extends TestCase
         $this->tcaSchemaFactory->expects(self::atLeastOnce())->method('has')->with('tx_nonexistent')->willReturn(false);
 
         $record = [
-            'title' => 'Test',
+            'title'       => 'Test',
             'description' => 'description with multiple items',
-            'count' => 42,
+            'count'       => 42,
         ];
 
         $result = $this->subject->resolveRecord('tx_nonexistent', $record);

@@ -13,6 +13,8 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 use TYPO3\CMS\Core\Registry;
 
+use function is_array;
+
 /**
  * sys_registry-backed {@see SinkDeliveryStateRepositoryInterface}.
  *
@@ -48,7 +50,7 @@ final class SinkDeliveryStateRepository implements SinkDeliveryStateRepositoryIn
 
     public function recordSuccess(string $sinkIdentifier): void
     {
-        $now = time();
+        $now           = time();
         $lastPersisted = $this->lastPersistedSuccess[$sinkIdentifier] ?? 0;
 
         try {
@@ -103,7 +105,7 @@ final class SinkDeliveryStateRepository implements SinkDeliveryStateRepositoryIn
             $row = null;
         }
 
-        if (!\is_array($row)) {
+        if (!is_array($row)) {
             return new SinkDeliveryState(sinkIdentifier: $sinkIdentifier);
         }
 

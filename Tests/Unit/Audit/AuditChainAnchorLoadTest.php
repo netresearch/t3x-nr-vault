@@ -18,6 +18,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionClass;
 
+use function sprintf;
+
 /**
  * The double-read stability rule in `AuditLogService::verifyAnchor()` compares
  * two loads by their `$raw` bytes, not by their parsed anchors: only the raw
@@ -32,7 +34,7 @@ final class AuditChainAnchorLoadTest extends TestCase
     public function carriesStatusAnchorAndRawBytes(): void
     {
         $anchor = new AuditChainAnchor(9, str_repeat('a', 64), 1_750_000_000);
-        $raw = '{"uid":9,"entryHash":"' . str_repeat('a', 64) . '","tstamp":1750000000}';
+        $raw    = '{"uid":9,"entryHash":"' . str_repeat('a', 64) . '","tstamp":1750000000}';
 
         $load = new AuditChainAnchorLoad(AuditChainAnchorStatus::Ok, $anchor, $raw);
 
@@ -126,7 +128,7 @@ final class AuditChainAnchorLoadTest extends TestCase
         foreach (['status', 'anchor', 'raw'] as $property) {
             self::assertTrue(
                 $reflection->getProperty($property)->isReadOnly(),
-                \sprintf('%s must be readonly', $property),
+                sprintf('%s must be readonly', $property),
             );
         }
     }

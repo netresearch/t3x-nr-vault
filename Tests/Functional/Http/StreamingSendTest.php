@@ -1,10 +1,7 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -41,6 +38,11 @@ use ReflectionProperty;
 use RuntimeException;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
+
+use function count;
+use function is_resource;
+use function sprintf;
+use function strlen;
 
 /**
  * `VaultHttpClient::sendStreaming()` against a real HTTP server, and
@@ -141,8 +143,8 @@ final class StreamingSendTest extends FunctionalTestCase
         // The SSRF guard refuses loopback unless the name is listed literally
         // in `allowed_hosts` — the documented opt-in for self-hosted endpoints.
         $this->setHttpConfiguration([
-            'allowed_hosts' => [self::PINNED_NAME],
-            'timeout' => 10,
+            'allowed_hosts'   => [self::PINNED_NAME],
+            'timeout'         => 10,
             'connect_timeout' => 2,
         ]);
     }
@@ -169,12 +171,12 @@ final class StreamingSendTest extends FunctionalTestCase
         $client = $this->client();
         self::assertTrue($client->supportsStreaming(), 'A degraded blocking send would pass every content assertion below.');
 
-        $response = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=3&delay_ms=600')));
+        $response   = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=3&delay_ms=600')));
         $returnedAt = $this->nowMicroseconds();
 
-        $body = $response->getBody();
+        $body    = $response->getBody();
         $pending = '';
-        $lines = $this->readCompleteLines($body, 3, $pending);
+        $lines   = $this->readCompleteLines($body, 3, $pending);
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame(['chunk 1', 'chunk 2', 'chunk 3'], array_column($lines, 'text'));
@@ -275,9 +277,9 @@ final class StreamingSendTest extends FunctionalTestCase
     public function aStalledStreamEndsAtTheTransferTimeout(): void
     {
         $response = $this->client()->withTimeout(2)->sendStreaming(new Request('GET', $this->url('/stall')));
-        $body = $response->getBody();
+        $body     = $response->getBody();
 
-        $pending = '';
+        $pending   = '';
         $firstLine = $this->readCompleteLines($body, 1, $pending);
         self::assertSame('before stall', $firstLine[0]['text'] ?? null);
 
@@ -303,7 +305,7 @@ final class StreamingSendTest extends FunctionalTestCase
     {
         [$client, $multi] = $this->clientWithObservableTransport();
 
-        $body = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=50&delay_ms=100')))->getBody();
+        $body    = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=50&delay_ms=100')))->getBody();
         $pending = '';
         $this->readCompleteLines($body, 1, $pending);
         self::assertSame(1, $this->activeTransfers($multi), 'The transfer is on the multi handle while it is read.');
@@ -319,7 +321,7 @@ final class StreamingSendTest extends FunctionalTestCase
         [$client, $multi] = $this->clientWithObservableTransport();
 
         $response = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=50&delay_ms=100')));
-        $pending = '';
+        $pending  = '';
         $this->readCompleteLines($response->getBody(), 1, $pending);
         self::assertSame(1, $this->activeTransfers($multi));
 
@@ -332,9 +334,9 @@ final class StreamingSendTest extends FunctionalTestCase
     public function aSignalFiredWhileReadingAbortsTheTransfer(): void
     {
         [$client, $multi] = $this->clientWithObservableTransport();
-        $signal = new SwitchableSignal();
+        $signal           = new SwitchableSignal();
 
-        $body = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=50&delay_ms=100')), $signal)->getBody();
+        $body    = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=50&delay_ms=100')), $signal)->getBody();
         $pending = '';
         $this->readCompleteLines($body, 1, $pending);
 
@@ -368,10 +370,10 @@ final class StreamingSendTest extends FunctionalTestCase
         // delivering, so only an idle bound lets it finish.
         $this->setHttpConfiguration(['timeout' => 0, 'connect_timeout' => 1]);
 
-        $start = microtime(true);
-        $body = $this->client()->sendStreaming(new Request('GET', $this->url('/chunks?count=12&delay_ms=700')))->getBody();
+        $start   = microtime(true);
+        $body    = $this->client()->sendStreaming(new Request('GET', $this->url('/chunks?count=12&delay_ms=700')))->getBody();
         $pending = '';
-        $lines = $this->readCompleteLines($body, 12, $pending);
+        $lines   = $this->readCompleteLines($body, 12, $pending);
 
         self::assertCount(12, $lines);
         self::assertGreaterThan(6.0, microtime(true) - $start, 'Control: the stream ran longer than the old budget.');
@@ -388,7 +390,7 @@ final class StreamingSendTest extends FunctionalTestCase
         // to one so the test does not wait a minute; the route then stays
         // silent for 30 seconds.
         $factory = new SecureHttpClientFactory(new PinnedDnsResolver(self::LOOPBACK_HOST));
-        $real = $factory->createCancellable();
+        $real    = $factory->createCancellable();
         self::assertInstanceOf(CancellableTransport::class, $real);
         self::assertSame(SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS, $real->idleBudgetSeconds());
         $client = new VaultHttpClient(
@@ -398,11 +400,11 @@ final class StreamingSendTest extends FunctionalTestCase
             cancellableTransport: new CancellableTransport($real->client(), $real->ticker(), $real->wallClockBudgetSeconds(), 1.0),
         );
 
-        $body = $client->sendStreaming(new Request('GET', $this->url('/stall')))->getBody();
+        $body    = $client->sendStreaming(new Request('GET', $this->url('/stall')))->getBody();
         $pending = '';
         self::assertSame('before stall', $this->readCompleteLines($body, 1, $pending)[0]['text']);
 
-        $start = microtime(true);
+        $start  = microtime(true);
         $caught = null;
 
         try {
@@ -425,7 +427,7 @@ final class StreamingSendTest extends FunctionalTestCase
         // stops reading for two seconds after the first line: the server never
         // went quiet, so the stream must not be cut.
         $factory = new SecureHttpClientFactory(new PinnedDnsResolver(self::LOOPBACK_HOST));
-        $real = $factory->createCancellable();
+        $real    = $factory->createCancellable();
         self::assertInstanceOf(CancellableTransport::class, $real);
         $client = new VaultHttpClient(
             vaultService: $this->vaultService(),
@@ -434,9 +436,9 @@ final class StreamingSendTest extends FunctionalTestCase
             cancellableTransport: new CancellableTransport($real->client(), $real->ticker(), $real->wallClockBudgetSeconds(), 1.0),
         );
 
-        $body = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=10&delay_ms=200')))->getBody();
+        $body    = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=10&delay_ms=200')))->getBody();
         $pending = '';
-        $lines = $this->readCompleteLines($body, 1, $pending);
+        $lines   = $this->readCompleteLines($body, 1, $pending);
 
         usleep(2_000_000);
 
@@ -449,9 +451,9 @@ final class StreamingSendTest extends FunctionalTestCase
     public function aSignalThatThrowsWhileReadingReleasesTheTransferAtOnce(): void
     {
         [$client, $multi] = $this->clientWithObservableTransport();
-        $signal = new ArmableThrowingSignal();
+        $signal           = new ArmableThrowingSignal();
 
-        $body = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=50&delay_ms=100')), $signal)->getBody();
+        $body    = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=50&delay_ms=100')), $signal)->getBody();
         $pending = '';
         $this->readCompleteLines($body, 1, $pending);
         self::assertSame(1, $this->activeTransfers($multi));
@@ -478,12 +480,12 @@ final class StreamingSendTest extends FunctionalTestCase
     public function aTransferThatFailsMidStreamThrowsFromReadAfterTheBytesThatArrived(): void
     {
         $response = $this->client()->sendStreaming(new Request('GET', $this->url('/truncated')));
-        $body = $response->getBody();
+        $body     = $response->getBody();
 
         self::assertSame(200, $response->getStatusCode());
 
         $received = '';
-        $caught = null;
+        $caught   = null;
 
         try {
             // An empty read would be an end of stream the server never sent;
@@ -507,10 +509,10 @@ final class StreamingSendTest extends FunctionalTestCase
     public function throughATunnellingProxyTheOriginHeadIsReturnedNotTheProxyReply(): void
     {
         $origin = $this->startTunnelServer('origin');
-        $proxy = $this->startTunnelServer('proxy', (string) $origin);
+        $proxy  = $this->startTunnelServer('proxy', (string) $origin);
         $this->setHttpConfiguration([
             'allowed_hosts' => [self::TLS_ORIGIN_NAME],
-            'proxy' => 'http://' . self::LOOPBACK_HOST . ':' . $proxy, // NOSONAR — test-only loopback proxy
+            'proxy'         => 'http://' . self::LOOPBACK_HOST . ':' . $proxy, // NOSONAR — test-only loopback proxy
             // The origin's certificate is a throwaway; this test is about which
             // head is returned, not about TLS.
             'verify' => false,
@@ -538,12 +540,12 @@ final class StreamingSendTest extends FunctionalTestCase
     {
         $body = $this->client()->sendStreaming(new Request('GET', $this->url('/large?mb=64')))->getBody();
 
-        $total = 0;
+        $total       = 0;
         $largestStep = 0;
         // Each read drains the whole buffer, so a chunk is what one step delivered.
         while (($chunk = $body->read(64 * 1024 * 1024)) !== '') {
-            $total += \strlen($chunk);
-            $largestStep = max($largestStep, \strlen($chunk));
+            $total += strlen($chunk);
+            $largestStep = max($largestStep, strlen($chunk));
         }
 
         self::assertSame(64 * 1024 * 1024, $total, 'A legitimate large body must not trip the limit.');
@@ -561,7 +563,7 @@ final class StreamingSendTest extends FunctionalTestCase
 
         try {
             $response = $this->client()->sendStreaming(new Request('GET', $this->url('/bomb?mb=128')));
-            $body = $response->getBody();
+            $body     = $response->getBody();
             for ($read = 0; $read < 100_000; ++$read) {
                 if ($body->read(1024 * 1024) === '') {
                     break;
@@ -618,7 +620,7 @@ final class StreamingSendTest extends FunctionalTestCase
         $client = $this->client();
         self::assertTrue($client->supportsCancellation(), 'A degraded blocking send would complete as well and prove nothing.');
 
-        $start = microtime(true);
+        $start    = microtime(true);
         $response = $client->sendCancellable(
             new Request('GET', $this->url('/chunks?count=12&delay_ms=700')),
             new SwitchableSignal(),
@@ -627,7 +629,7 @@ final class StreamingSendTest extends FunctionalTestCase
 
         self::assertSame(200, $response->getStatusCode());
         $pending = '';
-        $lines = $this->readCompleteLines($response->getBody(), 12, $pending);
+        $lines   = $this->readCompleteLines($response->getBody(), 12, $pending);
         self::assertSame('chunk 12', $lines[11]['text']);
         self::assertSame('', $pending);
         self::assertGreaterThan(6.0, $elapsed, 'Control: the call ran longer than the old budget.');
@@ -645,7 +647,7 @@ final class StreamingSendTest extends FunctionalTestCase
         // The factory's own transport, with the 60-second idle bound shortened
         // to one; the route sends nothing, not even a head, for 10 seconds.
         $factory = new SecureHttpClientFactory(new PinnedDnsResolver(self::LOOPBACK_HOST));
-        $real = $factory->createCancellable();
+        $real    = $factory->createCancellable();
         self::assertInstanceOf(CancellableTransport::class, $real);
         self::assertSame(SecureHttpClientFactory::STREAMING_IDLE_BUDGET_SECONDS, $real->idleBudgetSeconds());
         $client = new VaultHttpClient(
@@ -655,7 +657,7 @@ final class StreamingSendTest extends FunctionalTestCase
             cancellableTransport: new CancellableTransport($real->client(), $real->ticker(), $real->wallClockBudgetSeconds(), 1.0),
         );
 
-        $start = microtime(true);
+        $start  = microtime(true);
         $caught = null;
 
         try {
@@ -693,20 +695,20 @@ final class StreamingSendTest extends FunctionalTestCase
                     ->withReason('body-exchange');
                 self::assertTrue($client->supportsCancellation());
                 self::assertTrue($client->supportsStreaming());
-                $body = str_contains(strtolower($contentType), self::JSON_CONTENT_TYPE) ? '{"grant_type":"exchange"}' : 'grant_type=exchange';
+                $body    = str_contains(strtolower($contentType), self::JSON_CONTENT_TYPE) ? '{"grant_type":"exchange"}' : 'grant_type=exchange';
                 $request = new Request(
                     'POST',
                     $this->url('/echo-auth?body=1'),
                     [
-                        'Content-Type' => $contentType,
-                        'Content-Length' => (string) \strlen($body),
+                        'Content-Type'   => $contentType,
+                        'Content-Length' => (string) strlen($body),
                     ],
                     $body,
                 );
                 $response = match ($mode) {
-                    'blocking' => $client->sendRequest($request),
+                    'blocking'    => $client->sendRequest($request),
                     'cancellable' => $client->sendCancellable($request, new SwitchableSignal()),
-                    default => $client->sendStreaming($request),
+                    default       => $client->sendStreaming($request),
                 };
                 $received = json_decode(
                     (string) $response->getBody(),
@@ -733,7 +735,7 @@ final class StreamingSendTest extends FunctionalTestCase
 
                 self::assertSame(
                     [
-                        'grant_type' => 'exchange',
+                        'grant_type'    => 'exchange',
                         'subject_token' => self::SECRET,
                     ],
                     $fields,
@@ -776,7 +778,7 @@ final class StreamingSendTest extends FunctionalTestCase
      */
     private function clientWithObservableTransport(): array
     {
-        $factory = new SecureHttpClientFactory(new PinnedDnsResolver(self::LOOPBACK_HOST));
+        $factory   = new SecureHttpClientFactory(new PinnedDnsResolver(self::LOOPBACK_HOST));
         $transport = $factory->createCancellable();
         self::assertInstanceOf(CancellableTransport::class, $transport);
 
@@ -804,7 +806,7 @@ final class StreamingSendTest extends FunctionalTestCase
         $handles = (new ReflectionProperty(CurlMultiHandler::class, 'handles'))->getValue($multi);
         self::assertIsArray($handles);
 
-        return \count($handles);
+        return count($handles);
     }
 
     private function vaultService(): VaultServiceInterface
@@ -831,10 +833,10 @@ final class StreamingSendTest extends FunctionalTestCase
             ): void {
                 $this->auditRows[] = [
                     'identifier' => $identifier,
-                    'action' => $action,
-                    'success' => $success,
-                    'status' => $context?->toArray()['status_code'] ?? null,
-                    'error' => $error,
+                    'action'     => $action,
+                    'success'    => $success,
+                    'status'     => $context?->toArray()['status_code'] ?? null,
+                    'error'      => $error,
                 ];
             },
         );
@@ -865,21 +867,21 @@ final class StreamingSendTest extends FunctionalTestCase
      */
     private function readCompleteLines(StreamInterface $body, int $wanted, string &$pending): array
     {
-        $lines = [];
+        $lines    = [];
         $deadline = microtime(true) + self::LINE_READ_TIMEOUT_SECONDS;
 
-        while (\count($lines) < $wanted) {
-            self::assertLessThan($deadline, microtime(true), \sprintf('Only %d of %d lines arrived in time.', \count($lines), $wanted));
+        while (count($lines) < $wanted) {
+            self::assertLessThan($deadline, microtime(true), sprintf('Only %d of %d lines arrived in time.', count($lines), $wanted));
 
-            $chunk = $body->read(8192);
+            $chunk  = $body->read(8192);
             $readAt = $this->nowMicroseconds();
             if ($chunk === '') {
-                self::fail(\sprintf('The stream ended after %d of %d lines; left over: %s', \count($lines), $wanted, var_export($pending, true)));
+                self::fail(sprintf('The stream ended after %d of %d lines; left over: %s', count($lines), $wanted, var_export($pending, true)));
             }
 
             $pending .= $chunk;
             while (($end = strpos($pending, "\n")) !== false) {
-                $raw = substr($pending, 0, $end);
+                $raw     = substr($pending, 0, $end);
                 $pending = substr($pending, $end + 1);
                 self::assertSame(1, preg_match('/^(.*) sent_us=(\d+)$/', $raw, $matches), 'Not a router line: ' . var_export($raw, true));
                 $lines[] = ['text' => $matches[1], 'sentAt' => (int) $matches[2], 'readAt' => $readAt];
@@ -911,7 +913,7 @@ final class StreamingSendTest extends FunctionalTestCase
         self::$serverLogFile = $logFile;
         self::$hitsDirectory = $hitsDirectory;
 
-        $environment = getenv();
+        $environment                         = getenv();
         $environment['NR_VAULT_STREAM_HITS'] = $hitsDirectory;
         // Several workers: an abandoned stream keeps its worker busy until the
         // route's own loop ends, and must not block the next test's request.
@@ -931,12 +933,12 @@ final class StreamingSendTest extends FunctionalTestCase
                 null,
                 $environment,
             );
-            if (!\is_resource($process)) {
+            if (!is_resource($process)) {
                 continue;
             }
 
             self::$serverProcess = $process;
-            $deadline = microtime(true) + self::SERVER_READY_TIMEOUT_SECONDS;
+            $deadline            = microtime(true) + self::SERVER_READY_TIMEOUT_SECONDS;
             while (microtime(true) < $deadline && proc_get_status($process)['running']) {
                 if (self::isServing($port)) {
                     self::$serverPort = $port;
@@ -959,13 +961,13 @@ final class StreamingSendTest extends FunctionalTestCase
 
     private static function stopServer(bool $keepFiles = false): void
     {
-        if (\is_resource(self::$serverProcess)) {
+        if (is_resource(self::$serverProcess)) {
             proc_terminate(self::$serverProcess);
             proc_close(self::$serverProcess);
         }
 
         self::$serverProcess = null;
-        self::$serverPort = 0;
+        self::$serverPort    = 0;
 
         if ($keepFiles) {
             return;
@@ -992,8 +994,8 @@ final class StreamingSendTest extends FunctionalTestCase
         }
 
         $portFile = self::$tunnelDirectory . '/' . $mode . '.port';
-        $logFile = self::$tunnelDirectory . '/' . $mode . '.out';
-        $command = array_merge([PHP_BINARY, '-d', 'xdebug.mode=off', self::TUNNEL_SCRIPT, $portFile, $mode], array_values($arguments));
+        $logFile  = self::$tunnelDirectory . '/' . $mode . '.out';
+        $command  = array_merge([PHP_BINARY, '-d', 'xdebug.mode=off', self::TUNNEL_SCRIPT, $portFile, $mode], array_values($arguments));
         // nosemgrep: php.lang.security.exec-use.exec-use - fixed argv (PHP_BINARY + test fixture), no shell
         $process = proc_open(
             $command,
@@ -1022,9 +1024,9 @@ final class StreamingSendTest extends FunctionalTestCase
         try {
             // Plain HTTP on loopback, readiness probe only. NOSONAR — test-only.
             $response = (new GuzzleClient([
-                'timeout' => 2,
+                'timeout'         => 2,
                 'connect_timeout' => 1,
-                'http_errors' => false,
+                'http_errors'     => false,
                 'allow_redirects' => false,
             ]))->request('GET', 'http://' . self::LOOPBACK_HOST . ':' . $port . '/ready'); // NOSONAR
         } catch (GuzzleException) {
@@ -1047,7 +1049,7 @@ final class StreamingSendTest extends FunctionalTestCase
         $httpConfig = $confVars['HTTP'] ?? [];
         self::assertIsArray($httpConfig);
 
-        $confVars['HTTP'] = array_replace($httpConfig, $values);
+        $confVars['HTTP']           = array_replace($httpConfig, $values);
         $GLOBALS['TYPO3_CONF_VARS'] = $confVars;
     }
 

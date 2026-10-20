@@ -89,18 +89,18 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->method('save')
             ->willReturnArgument(0);
 
-        $this->encryptionService = $this->createMock(EncryptionServiceInterface::class);
+        $this->encryptionService        = $this->createMock(EncryptionServiceInterface::class);
         $this->masterKeyProviderFactory = $this->createMock(MasterKeyProviderFactoryInterface::class);
-        $this->connectionPool = $this->createMock(ConnectionPool::class);
-        $this->auditLogService = $this->createMock(AuditLogServiceInterface::class);
+        $this->connectionPool           = $this->createMock(ConnectionPool::class);
+        $this->auditLogService          = $this->createMock(AuditLogServiceInterface::class);
         // `HashChainVerificationResult` is final and cannot be auto-mocked;
         // default to a valid chain so the pre-rotation verification passes.
         $this->auditLogService
             ->method('verifyHashChain')
             ->willReturn(HashChainVerificationResult::valid());
         $this->auditChainRekeyService = $this->createMock(AuditChainRekeyServiceInterface::class);
-        $this->envelopeCodec = $this->createMock(EnvelopeCodecInterface::class);
-        $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $this->envelopeCodec          = $this->createMock(EnvelopeCodecInterface::class);
+        $this->accessControlService   = $this->createMock(AccessControlServiceInterface::class);
         // The command asserts `master_key.rotate` before doing anything. Grant
         // it by default so the rotation-mechanics tests reach their subject;
         // `refusesRotationWithoutMasterKeyRotatePermission()` withholds it.
@@ -256,7 +256,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function handlesBase64EncodedKeys(): void
     {
-        $rawKey = str_repeat('k', 32);
+        $rawKey    = str_repeat('k', 32);
         $base64Key = base64_encode($rawKey);
 
         $secret = $this->createTestSecret('b64-secret');
@@ -560,7 +560,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function handlesKeyWithTrailingNewline(): void
     {
-        $rawKey = str_repeat('t', 32);
+        $rawKey         = str_repeat('t', 32);
         $keyWithNewline = $rawKey . "\n";
 
         $secret = $this->createTestSecret('test-secret');
@@ -651,7 +651,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             self::isInstanceOf(EnvelopeRotationContext::class),
         )->willReturn(7);
 
-        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $tester   = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
         $exitCode = $tester->execute($this->rotationInput());
 
         self::assertSame(0, $exitCode);
@@ -676,7 +676,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $this->auditChainRekeyService->expects(self::never())->method('rekeyChain');
         $this->eventDispatcher->expects(self::never())->method('dispatch');
 
-        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $tester   = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
         $exitCode = $tester->execute($this->rotationInput());
 
         self::assertSame(1, $exitCode);
@@ -703,7 +703,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $rotator = $this->createRotator(envelopes: 4);
         $rotator->expects(self::once())->method('rewrapAll')->willReturn(4);
 
-        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $tester   = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
         $exitCode = $tester->execute($this->rotationInput());
 
         self::assertSame(0, $exitCode);
@@ -798,7 +798,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $rotator = $this->createRotator(envelopes: 12);
         $rotator->expects(self::never())->method('rewrapAll');
 
-        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $tester   = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
         $exitCode = $tester->execute([
             '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
             '--new-key' => $this->createKeyFile('new', str_repeat('b', 32)),
@@ -834,7 +834,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $rotator = $this->createRotator(envelopes: 1);
         $rotator->expects(self::never())->method('rewrapAll');
 
-        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $tester   = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
         $exitCode = $tester->execute($this->rotationInput());
 
         self::assertSame(1, $exitCode);
@@ -854,7 +854,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $rotator->method('countEnvelopes')->willThrowException(new RuntimeException('table missing'));
         $rotator->expects(self::never())->method('rewrapAll');
 
-        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $tester   = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
         $exitCode = $tester->execute($this->rotationInput());
 
         self::assertSame(1, $exitCode);
@@ -920,7 +920,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $auditRows = [];
         $this->recordAuditRows($auditRows);
 
-        $tester = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
+        $tester   = new CommandTester($this->createCommand(foreignRotators: [$rotator]));
         $exitCode = $tester->execute($this->rotationInput());
 
         self::assertSame(1, $exitCode);

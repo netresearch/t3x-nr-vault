@@ -66,10 +66,10 @@ readonly class VaultServerConfig
     public function toArray(): array
     {
         return [
-            'address' => $this->address,
-            'path' => $this->path,
+            'address'    => $this->address,
+            'path'       => $this->path,
             'authMethod' => $this->authMethod,
-            'token' => $this->token,
+            'token'      => $this->token,
         ];
     }
 }

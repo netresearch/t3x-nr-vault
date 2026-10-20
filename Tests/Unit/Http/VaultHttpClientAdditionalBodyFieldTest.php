@@ -1,7 +1,10 @@
 <?php
 
-/* Copyright (c) 2025-2026 Netresearch DTT GmbH
- * SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Http;
@@ -33,6 +36,8 @@ use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use ReflectionProperty;
+
+use function strlen;
 
 #[CoversClass(VaultHttpClient::class)]
 final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
@@ -100,7 +105,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
     {
         $vault = $this->createMock(VaultServiceInterface::class);
         $vault->expects(self::once())->method('retrieve')->with('subject')->willReturn('subject-value');
-        $requests = [];
+        $requests  = [];
         $transport = $this->createMock(ClientInterface::class);
         $transport
             ->expects(self::exactly(2))
@@ -119,7 +124,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             secureHttpClientFactory: new SecureHttpClientFactory(new AlwaysPublicDnsResolver()),
         );
         $configured = $client->withAdditionalBodyField('subject', 'subject_token')->withReason('kept');
-        $request = new Request('POST', self::TOKEN_ENDPOINT, ['Content-Type' => self::FORM_CONTENT_TYPE], 'client_id=public');
+        $request    = new Request('POST', self::TOKEN_ENDPOINT, ['Content-Type' => self::FORM_CONTENT_TYPE], 'client_id=public');
         $configured->sendRequest($request);
         $client->sendRequest($request);
         self::assertSame(['client_id=public&subject_token=subject-value', 'client_id=public'], $requests);
@@ -233,9 +238,9 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             ->method('retrieve')
             ->willReturnCallback(
                 static fn (string $id): string => match ($id) {
-                    'oauth-id' => 'client-id',
+                    'oauth-id'       => 'client-id',
                     'oauth-password' => 'client-password',
-                    default => 'subject-value',
+                    default          => 'subject-value',
                 },
             );
         $tokenClient = $this->createMock(ClientInterface::class);
@@ -265,7 +270,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
                 },
             );
         $factory = new SecureHttpClientFactory(new AlwaysPublicDnsResolver());
-        $client = new VaultHttpClient(
+        $client  = new VaultHttpClient(
             $vault,
             self::createStub(AuditLogServiceInterface::class),
             $resourceClient,
@@ -322,7 +327,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
                         self::assertSame(204, $context->toArray()['status_code']);
                     },
                 );
-            $factory = new SecureHttpClientFactory(new AlwaysPublicDnsResolver());
+            $factory   = new SecureHttpClientFactory(new AlwaysPublicDnsResolver());
             $transport = $factory->createCancellable();
             self::assertNotNull($transport);
             $inner = $transport->client();
@@ -378,7 +383,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
     #[Test]
     public function preCancelledAsyncCallsReadNeitherPrimaryNorAdditionalSecrets(): void
     {
-        $signal = new class () implements CancellationSignalInterface {
+        $signal = new class implements CancellationSignalInterface {
             public function isCancelled(): bool
             {
                 return true;
@@ -469,9 +474,9 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
             try {
                 $request = new Request('POST', self::TOKEN_ENDPOINT);
                 match ($method) {
-                    'sendRequest' => $client->sendRequest($request),
+                    'sendRequest'     => $client->sendRequest($request),
                     'sendCancellable' => $client->sendCancellable($request, self::createStub(CancellationSignalInterface::class)),
-                    default => $client->sendStreaming($request),
+                    default           => $client->sendStreaming($request),
                 };
                 self::fail('A denied secret was sent.');
             } catch (AccessDeniedException $exception) {
@@ -521,7 +526,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
                     return 'oauth-value';
                 },
             );
-        $contacts = [];
+        $contacts    = [];
         $tokenClient = self::createStub(ClientInterface::class);
         $tokenClient
             ->method('sendRequest')
@@ -541,7 +546,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
         $resourceClient = $this->createMock(ClientInterface::class);
         $resourceClient->expects(self::never())->method('sendRequest');
         $factory = new SecureHttpClientFactory(new AlwaysPublicDnsResolver());
-        $client = (new VaultHttpClient(
+        $client  = (new VaultHttpClient(
             $vault,
             self::createStub(AuditLogServiceInterface::class),
             $resourceClient,
@@ -582,7 +587,7 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
         $vault = self::createStub(VaultServiceInterface::class);
         $vault->method('retrieve')->willReturn('subject-value');
         $outgoing = null;
-        $wire = self::createStub(ClientInterface::class);
+        $wire     = self::createStub(ClientInterface::class);
         $wire
             ->method('sendRequest')
             ->willReturnCallback(
@@ -605,15 +610,15 @@ final class VaultHttpClientAdditionalBodyFieldTest extends TestCase
                 'POST',
                 self::TOKEN_ENDPOINT,
                 [
-                    'Content-Type' => self::JSON_CONTENT_TYPE,
-                    'Content-Length' => (string) \strlen(self::PUBLIC_JSON_BODY),
+                    'Content-Type'   => self::JSON_CONTENT_TYPE,
+                    'Content-Length' => (string) strlen(self::PUBLIC_JSON_BODY),
                 ],
                 self::PUBLIC_JSON_BODY,
             ),
         );
         self::assertInstanceOf(RequestInterface::class, $outgoing);
         self::assertTrue(
-            !$outgoing->hasHeader('Content-Length') || (int) $outgoing->getHeaderLine('Content-Length') === \strlen((string) $outgoing->getBody()),
+            !$outgoing->hasHeader('Content-Length') || (int) $outgoing->getHeaderLine('Content-Length') === strlen((string) $outgoing->getBody()),
             'Injected request must not retain a stale Content-Length.',
         );
     }

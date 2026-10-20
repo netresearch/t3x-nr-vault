@@ -1,16 +1,15 @@
 <?php
 
 /*
- * This file is part of the nr-vault TYPO3 extension.
- *
- * (c) Netresearch DTT GmbH
- *
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 declare(strict_types=1);
 
 namespace Netresearch\NrVault\Audit;
+
+use function count;
 
 /**
  * Value object representing the result of hash chain verification.
@@ -20,32 +19,32 @@ namespace Netresearch\NrVault\Audit;
 final readonly class HashChainVerificationResult
 {
     /**
-     * @param bool $valid Whether the hash chain is valid
-     * @param array<int, string> $errors Map of UID => error message for invalid entries
-     * @param array<int, string> $warnings Map of UID => warning message (e.g., epoch boundaries)
-     * @param list<int> $missingUids UID values missing from the stored chain
-     *                               (detected via non-contiguous UID sequence). May be
-     *                               legitimate (purged rows) or malicious deletions —
-     *                               the verifier reports them so callers can decide.
-     *                               Capped at 1000 entries (see `missingUidCount` for
-     *                               the true total when the cap is exceeded).
-     * @param int $missingUidCount Total number of missing UIDs detected, before the
-     *                             per-call cap applied to `$missingUids`. Equals
-     *                             count($missingUids) when below the cap.
-     * @param AuditChainAnchorStatus $anchorStatus Outcome of the tip-anchor check, which
-     *                                             detects tail truncation and full wipes
-     *                                             that the walk alone cannot see. Only
-     *                                             evaluated on a full-chain pass.
-     * @param array<int, int> $epochCounts How many rows in the verified range carry each
-     *                                     `hmac_key_epoch`, keyed by epoch and sorted
-     *                                     ascending. Free: the walk already visits every
-     *                                     row and already reads the epoch to pick the hash
-     *                                     algorithm. Empty for an empty range. Reported by
-     *                                     `vault:audit-verify`, where "the chain is valid"
-     *                                     and "every row is signed at the configured epoch"
-     *                                     are separate questions — a chain of epoch-1 rows
-     *                                     verifies perfectly and is still missing the MAC
-     *                                     over `success` and the attribution fields.
+     * @param bool                   $valid           Whether the hash chain is valid
+     * @param array<int, string>     $errors          Map of UID => error message for invalid entries
+     * @param array<int, string>     $warnings        Map of UID => warning message (e.g., epoch boundaries)
+     * @param list<int>              $missingUids     UID values missing from the stored chain
+     *                                                (detected via non-contiguous UID sequence). May be
+     *                                                legitimate (purged rows) or malicious deletions —
+     *                                                the verifier reports them so callers can decide.
+     *                                                Capped at 1000 entries (see `missingUidCount` for
+     *                                                the true total when the cap is exceeded).
+     * @param int                    $missingUidCount Total number of missing UIDs detected, before the
+     *                                                per-call cap applied to `$missingUids`. Equals
+     *                                                count($missingUids) when below the cap.
+     * @param AuditChainAnchorStatus $anchorStatus    Outcome of the tip-anchor check, which
+     *                                                detects tail truncation and full wipes
+     *                                                that the walk alone cannot see. Only
+     *                                                evaluated on a full-chain pass.
+     * @param array<int, int>        $epochCounts     How many rows in the verified range carry each
+     *                                                `hmac_key_epoch`, keyed by epoch and sorted
+     *                                                ascending. Free: the walk already visits every
+     *                                                row and already reads the epoch to pick the hash
+     *                                                algorithm. Empty for an empty range. Reported by
+     *                                                `vault:audit-verify`, where "the chain is valid"
+     *                                                and "every row is signed at the configured epoch"
+     *                                                are separate questions — a chain of epoch-1 rows
+     *                                                verifies perfectly and is still missing the MAC
+     *                                                over `success` and the attribution fields.
      */
     public function __construct(
         public bool $valid,
@@ -60,11 +59,11 @@ final readonly class HashChainVerificationResult
     /**
      * Create a successful verification result.
      *
-     * @param array<int, string> $warnings Map of UID => warning message
-     * @param list<int> $missingUids UID values missing from the chain (may be empty)
-     * @param int $missingUidCount Total number of missing UIDs detected
-     * @param AuditChainAnchorStatus $anchorStatus Outcome of the tip-anchor check
-     * @param array<int, int> $epochCounts Row count per `hmac_key_epoch` in the range
+     * @param array<int, string>     $warnings        Map of UID => warning message
+     * @param list<int>              $missingUids     UID values missing from the chain (may be empty)
+     * @param int                    $missingUidCount Total number of missing UIDs detected
+     * @param AuditChainAnchorStatus $anchorStatus    Outcome of the tip-anchor check
+     * @param array<int, int>        $epochCounts     Row count per `hmac_key_epoch` in the range
      */
     public static function valid(
         array $warnings = [],
@@ -78,7 +77,7 @@ final readonly class HashChainVerificationResult
             errors: [],
             warnings: $warnings,
             missingUids: $missingUids,
-            missingUidCount: $missingUidCount > 0 ? $missingUidCount : \count($missingUids),
+            missingUidCount: $missingUidCount > 0 ? $missingUidCount : count($missingUids),
             anchorStatus: $anchorStatus,
             epochCounts: $epochCounts,
         );
@@ -87,12 +86,12 @@ final readonly class HashChainVerificationResult
     /**
      * Create a failed verification result.
      *
-     * @param array<int, string> $errors Map of UID => error message
-     * @param array<int, string> $warnings Map of UID => warning message
-     * @param list<int> $missingUids UID values missing from the chain
-     * @param int $missingUidCount Total number of missing UIDs detected
-     * @param AuditChainAnchorStatus $anchorStatus Outcome of the tip-anchor check
-     * @param array<int, int> $epochCounts Row count per `hmac_key_epoch` in the range
+     * @param array<int, string>     $errors          Map of UID => error message
+     * @param array<int, string>     $warnings        Map of UID => warning message
+     * @param list<int>              $missingUids     UID values missing from the chain
+     * @param int                    $missingUidCount Total number of missing UIDs detected
+     * @param AuditChainAnchorStatus $anchorStatus    Outcome of the tip-anchor check
+     * @param array<int, int>        $epochCounts     Row count per `hmac_key_epoch` in the range
      */
     public static function invalid(
         array $errors,
@@ -107,7 +106,7 @@ final readonly class HashChainVerificationResult
             errors: $errors,
             warnings: $warnings,
             missingUids: $missingUids,
-            missingUidCount: $missingUidCount > 0 ? $missingUidCount : \count($missingUids),
+            missingUidCount: $missingUidCount > 0 ? $missingUidCount : count($missingUids),
             anchorStatus: $anchorStatus,
             epochCounts: $epochCounts,
         );
@@ -126,7 +125,7 @@ final readonly class HashChainVerificationResult
      */
     public function getErrorCount(): int
     {
-        return \count($this->errors);
+        return count($this->errors);
     }
 
     /**
@@ -134,7 +133,7 @@ final readonly class HashChainVerificationResult
      */
     public function getWarningCount(): int
     {
-        return \count($this->warnings);
+        return count($this->warnings);
     }
 
     /**
@@ -179,7 +178,7 @@ final readonly class HashChainVerificationResult
      */
     public function hasMixedEpochs(): bool
     {
-        return \count($this->epochCounts) > 1;
+        return count($this->epochCounts) > 1;
     }
 
     /**
@@ -190,15 +189,15 @@ final readonly class HashChainVerificationResult
     public function toArray(): array
     {
         return [
-            'valid' => $this->valid,
-            'errors' => $this->errors,
-            'warnings' => $this->warnings,
-            'missingUids' => $this->missingUids,
+            'valid'           => $this->valid,
+            'errors'          => $this->errors,
+            'warnings'        => $this->warnings,
+            'missingUids'     => $this->missingUids,
             'missingUidCount' => $this->missingUidCount,
-            'anchorStatus' => $this->anchorStatus->value,
-            'epochCounts' => $this->epochCounts,
-            'minEpoch' => $this->getMinEpoch(),
-            'maxEpoch' => $this->getMaxEpoch(),
+            'anchorStatus'    => $this->anchorStatus->value,
+            'epochCounts'     => $this->epochCounts,
+            'minEpoch'        => $this->getMinEpoch(),
+            'maxEpoch'        => $this->getMaxEpoch(),
         ];
     }
 }

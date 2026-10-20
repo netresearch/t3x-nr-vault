@@ -40,8 +40,8 @@ final class FlexFormVaultResolverTest extends TestCase
     {
         parent::setUp();
 
-        $this->vaultService = $this->createMock(VaultServiceInterface::class);
-        $this->logger = $this->createMock(LoggerInterface::class);
+        $this->vaultService     = $this->createMock(VaultServiceInterface::class);
+        $this->logger           = $this->createMock(LoggerInterface::class);
         $this->tcaSchemaFactory = $this->createMock(TcaSchemaFactory::class);
 
         $this->subject = new FlexFormVaultResolver(
@@ -91,8 +91,8 @@ final class FlexFormVaultResolverTest extends TestCase
     public function resolveSettingsPreservesNonVaultFields(): void
     {
         $settings = [
-            'title' => 'Test Title',
-            'limit' => 10,
+            'title'     => 'Test Title',
+            'limit'     => 10,
             'showTitle' => true,
         ];
 
@@ -116,7 +116,7 @@ final class FlexFormVaultResolverTest extends TestCase
     #[Test]
     public function resolveSettingsResolvesVaultIdentifiers(): void
     {
-        $identifier = self::TEST_UUID;
+        $identifier  = self::TEST_UUID;
         $secretValue = 'my-secret-api-key';
 
         $this->vaultService
@@ -126,7 +126,7 @@ final class FlexFormVaultResolverTest extends TestCase
             ->willReturn($secretValue);
 
         $settings = [
-            'title' => 'Test',
+            'title'  => 'Test',
             'apiKey' => $identifier,
         ];
 
@@ -146,19 +146,19 @@ final class FlexFormVaultResolverTest extends TestCase
     public static function uuidIdentifierProvider(): array
     {
         return [
-            'valid uuid v7 lowercase' => [self::TEST_UUID, true],
-            'valid uuid v7 uppercase' => ['01937B6E-4B6C-7ABC-8DEF-0123456789AB', true],
-            'valid uuid v7 mixed case' => ['01937b6e-4B6C-7abc-8DEF-0123456789ab', true],
-            'empty string' => ['', false],
-            'null' => [null, false],
-            'integer' => [42, false],
-            'array' => [['test'], false],
-            'old TCA format (3 parts)' => ['tx_ext__field__1', false],
+            'valid uuid v7 lowercase'       => [self::TEST_UUID, true],
+            'valid uuid v7 uppercase'       => ['01937B6E-4B6C-7ABC-8DEF-0123456789AB', true],
+            'valid uuid v7 mixed case'      => ['01937b6e-4B6C-7abc-8DEF-0123456789ab', true],
+            'empty string'                  => ['', false],
+            'null'                          => [null, false],
+            'integer'                       => [42, false],
+            'array'                         => [['test'], false],
+            'old TCA format (3 parts)'      => ['tx_ext__field__1', false],
             'old FlexForm format (5 parts)' => ['tt_content__pi_flexform__settings__apiKey__123', false],
-            'uuid v1' => ['01937b6e-4b6c-1abc-8def-0123456789ab', false],
-            'uuid v4' => ['01937b6e-4b6c-4abc-8def-0123456789ab', false],
-            'uuid with wrong variant' => ['01937b6e-4b6c-7abc-cdef-0123456789ab', false],
-            'too short' => ['01937b6e-4b6c-7abc-8def', false],
+            'uuid v1'                       => ['01937b6e-4b6c-1abc-8def-0123456789ab', false],
+            'uuid v4'                       => ['01937b6e-4b6c-4abc-8def-0123456789ab', false],
+            'uuid with wrong variant'       => ['01937b6e-4b6c-7abc-cdef-0123456789ab', false],
+            'too short'                     => ['01937b6e-4b6c-7abc-8def', false],
         ];
     }
 
@@ -177,7 +177,7 @@ final class FlexFormVaultResolverTest extends TestCase
             ]);
 
         $settings = [
-            'title' => 'Test',
+            'title'  => 'Test',
             'nested' => [
                 'apiKey' => $identifier1,
                 'deeper' => [

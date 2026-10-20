@@ -24,6 +24,9 @@ includes:
     #   .Build/bin/phpstan analyse --configuration=Build/phpstan.no-plugins.neon
 
 parameters:
+    # The shared config sets level 10 as well. The copy stays because
+    # Build/Scripts/collect-evidence.php reads the level from this file for
+    # the release evidence bundle and fails when it finds none.
     level: 10
     scanFiles:
         - Documentation/Usage/_DeepLServiceVault.php
@@ -187,12 +190,9 @@ parameters:
     # PHP version targeting
     phpVersion: 80200
 
-    # Strict rules
+    # Strict rules beyond the shared config, which already sets level 10,
+    # treatPhpDocTypesAsCertain: false and checkUninitializedProperties
     checkTooWideReturnTypesInProtectedAndPublicMethods: true
-    checkUninitializedProperties: true
-
-    # TYPO3-specific settings
-    treatPhpDocTypesAsCertain: false
 
     typo3:
         # `route` is set by core's backend-routing middleware and read by every

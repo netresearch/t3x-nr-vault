@@ -11,6 +11,9 @@ namespace Netresearch\NrVault\Tests\Unit\Fixtures;
 
 use RuntimeException;
 
+use function in_array;
+use function strlen;
+
 /**
  * A stream wrapper that reports a perfectly healthy, writable regular file and
  * then fails at a chosen point of the write.
@@ -93,13 +96,13 @@ final class FailingStreamWrapper
 
     public static function register(string $mode): void
     {
-        self::$mode = $mode;
+        self::$mode    = $mode;
         self::$written = '';
-        self::$opens = [];
+        self::$opens   = [];
         self::$renames = [];
         self::$unlinks = [];
 
-        if (\in_array(self::SCHEME, stream_get_wrappers(), true)) {
+        if (in_array(self::SCHEME, stream_get_wrappers(), true)) {
             stream_wrapper_unregister(self::SCHEME);
         }
 
@@ -109,7 +112,7 @@ final class FailingStreamWrapper
 
     public static function unregister(): void
     {
-        if (\in_array(self::SCHEME, stream_get_wrappers(), true)) {
+        if (in_array(self::SCHEME, stream_get_wrappers(), true)) {
             stream_wrapper_unregister(self::SCHEME);
         }
 
@@ -204,10 +207,10 @@ final class FailingStreamWrapper
 
         if (self::$mode === self::MODE_SHORT_WRITE) {
             // One byte short of the line: enough to break the NDJSON contract.
-            return max(0, \strlen($data) - 1);
+            return max(0, strlen($data) - 1);
         }
 
-        return \strlen($data);
+        return strlen($data);
     }
 
     public function rename(string $pathFrom, string $pathTo): bool
@@ -274,12 +277,12 @@ final class FailingStreamWrapper
     private function statFor(string $path): array
     {
         $isDirectory = !str_contains(basename($path), '.');
-        $mode = $isDirectory ? 0o040777 : 0o100666;
+        $mode        = $isDirectory ? 0o040777 : 0o100666;
 
         return [
-            'dev' => 0, 'ino' => 0, 'mode' => $mode, 'nlink' => 1,
-            'uid' => 0, 'gid' => 0, 'rdev' => 0, 'size' => 0,
-            'atime' => 0, 'mtime' => 0, 'ctime' => 0,
+            'dev'     => 0, 'ino' => 0, 'mode' => $mode, 'nlink' => 1,
+            'uid'     => 0, 'gid' => 0, 'rdev' => 0, 'size' => 0,
+            'atime'   => 0, 'mtime' => 0, 'ctime' => 0,
             'blksize' => -1, 'blocks' => -1,
         ];
     }
