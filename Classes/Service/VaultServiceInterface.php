@@ -27,7 +27,11 @@ interface VaultServiceInterface
     /**
      * Store a secret.
      *
-     * @param string $identifier Unique identifier for the secret
+     * Canonical site:<siteIdentifier>:<friendlyName> namespaces require an exact
+     * configured site only for new values. Existing encrypted namespaces retain
+     * their authenticated identifier after site rename/delete.
+     *
+     * @param string $identifier Friendly name, UUIDv7 or canonical site namespace, at most 255 bytes
      * @param string $secret The secret value to store
      * @param array<string, mixed> $options Optional configuration:
      *                                      - owner: int - BE user UID who owns this secret
@@ -38,7 +42,7 @@ interface VaultServiceInterface
      *                                      - description: string - Human-readable description
      *                                      - scopePid: int - Page ID for multi-site scoping
      *
-     * @throws ValidationException If identifier is invalid
+     * @throws ValidationException If identifier is invalid or a new namespace lacks its exact configured site
      * @throws EncryptionException If encryption fails
      */
     public function store(string $identifier, #[SensitiveParameter] string $secret, array $options = []): void;

@@ -452,8 +452,13 @@ effect. Its editor error therefore states that clearing failed and the record
 needs manual review, rather than claiming a successful rollback. The clearing
 update is attempted even if its XML matches the original copy snapshot,
 because a failing link write may already have changed the stored record.
-Diagnostic-provider failures and stores that throw after persistence remain
-separate audit work.
+The secondary PSR-3 diagnostic writer is attempted once. If it throws, its
+failure is contained so that refusal and compensation can continue; the
+correlation reference identifies the attempt, not successful log delivery
+(see :ref:`adr-047-hook-diagnostic-containment`). Failures in other diagnostic
+collaborators and stores that throw after persistence remain separate audit
+work. Mandatory mutation-audit failures keep their existing refusal and
+rollback behavior.
 
 A **delete** checks the delete permission of every vault field *before*
 removing the first secret, because the vault will not give a deleted secret
@@ -509,7 +514,10 @@ table and field. The service resolves a field setting before the table default,
 then the global default; missing settings allow reveal, copy and edit, and
 leave the field writable. It does not read the edited record's page TSconfig.
 The same rules can be supplied as ``page.vault.permissions`` overrides in
-backend user TSconfig. For example:
+backend user TSconfig. The ordinary widget and Hook calls pass no user and
+read these overrides from the logged-in backend user. A caller that passes a
+different user gets that user's overrides and backend-user conditions; see
+:ref:`adr-049-selected-user-field-tsconfig`. For example:
 
 .. code-block:: typoscript
    :caption: Page TSconfig
