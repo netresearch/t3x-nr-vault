@@ -378,9 +378,13 @@ test.describe('Secrets Module User Pathways', () => {
       // Counted from before the click: the old assertion -- "an error is shown
       // OR the identifier input is visible" -- was satisfied by the form the
       // click was issued from, and by the edit form a successful save renders,
-      // so it passed for a save that went through. FormEngine refuses an
-      // invalid form in the browser and marks the field; that marker is the
-      // moment the refusal is complete, and no POST may have left by then.
+      // so it passed for a save that went through. FormEngine marks an empty
+      // required field with `.has-error` as soon as it initialises, so that
+      // marker is there before the click and says nothing about it. The
+      // refusal of the click is the error dialog FormEngine's submit
+      // interceptor opens instead of sending the form; once it is open, no
+      // POST may have left. TYPO3 renders the dialog in the shell or in the
+      // module frame, so both documents are checked.
       const savePosts: string[] = [];
       page.on('request', (request) => {
         if (request.method() === 'POST' && request.url().includes('/typo3/record/edit')) {
@@ -389,9 +393,15 @@ test.describe('Secrets Module User Pathways', () => {
       });
       await frame.locator('button[name="_savedok"]').click();
 
-      await expect(frame.locator('form[name="editform"] .has-error').first()).toBeVisible({
-        timeout: 10000,
-      });
+      const refusalButtons = [page, frame].map((scope) =>
+        scope.getByRole('dialog').getByRole('button', { name: 'OK', exact: true }),
+      );
+      await expect
+        .poll(
+          async () => (await refusalButtons[0].count()) + (await refusalButtons[1].count()),
+          { timeout: 10000, message: 'FormEngine opened no error dialog for the invalid form' },
+        )
+        .toBeGreaterThan(0);
       expect(savePosts, 'the invalid form was sent to the server').toEqual([]);
     });
 
@@ -498,6 +508,10 @@ test.describe('Secrets Module User Pathways', () => {
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
+      // `isVisible()` does not wait, and `boundList()` matches nothing until
+      // SecretsList.js has run: without this wait the check below reads false
+      // in that window and the test passes without opening the modal.
+      await waitForSecretsListReady(frame);
       const rotateButton = boundList(frame).getByTestId('vault-rotate-btn').first();
 
       if (await rotateButton.isVisible()) {
