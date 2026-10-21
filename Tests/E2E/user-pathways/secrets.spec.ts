@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // SPDX-FileCopyrightText: Netresearch DTT GmbH
 
-import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, saveRecord, submitIdentifierFilter, waitForModuleContent } from '../fixtures/auth';
+import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, saveRecord, submitIdentifierFilter, waitForModuleContent, waitForSecretsListReady } from '../fixtures/auth';
 import type { Page, FrameLocator, Locator } from '@playwright/test';
 
 /**
@@ -721,6 +721,64 @@ test.describe('Secrets Module User Pathways', () => {
         await expect(auditRow).toBeVisible({ timeout: 10000 });
         await expect(auditRow).toContainText(/delete/i);
       }
+    });
+
+    test('a delete click before the list script has loaded deletes nothing', async ({ authenticatedPage: page }) => {
+      // Regression test for the delete-dialog flake found with
+      // https://github.com/netresearch/t3x-nr-vault/issues/470: the row's delete
+      // button was a plain submit button, and the confirmation existed only as
+      // a click handler SecretsList.js attaches. A click before that module
+      // had run submitted the delete form natively -- no dialog, and the
+      // secret was gone. SecretsList.js is delayed here so the click lands in
+      // that window every time.
+      const testIdentifier = generateTestId();
+
+      await page.goto('/typo3/module/admin/vault/secrets/create');
+      await waitForModuleContent(page);
+      let frame = getModuleFrame(page);
+      await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
+      await frame.locator('input[data-vault-is-new="1"]').first().fill('early-click-test');
+      await saveFormEngine(page, frame);
+
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      frame = getModuleFrame(page);
+
+      const deleteRequests: string[] = [];
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().includes('/vault/secrets/delete')) {
+          deleteRequests.push(request.url());
+        }
+      });
+      await page.route('**/JavaScript/SecretsList.js*', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        await route.continue();
+      });
+
+      // A navigation inside the module frame, which nothing but the helpers
+      // waits for, so the row is on screen while the delayed module is not.
+      await clickAndWaitForModule(page, () =>
+        frame.locator('html').evaluate(() => {
+          window.location.assign(`${window.location.href}&e2e_early_click=1`);
+        }),
+      );
+      frame = getModuleFrame(page);
+      const deleteButton = frame
+        .locator(`[data-testid="secret-row-${testIdentifier}"]`)
+        .getByTestId('vault-delete-btn');
+      await expect(frame.locator('html[data-vault-secrets-list="ready"]')).toHaveCount(0);
+      await deleteButton.click();
+
+      // Once the module has run, a native submit would long have left the
+      // page; the flag on this document says the click had its chance.
+      await waitForSecretsListReady(frame);
+      expect(deleteRequests, 'a delete was sent without a confirmation').toEqual([]);
+      await page.unroute('**/JavaScript/SecretsList.js*');
+
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      const afterFrame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
+      await expect(afterFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`)).toHaveCount(1);
     });
   });
 
