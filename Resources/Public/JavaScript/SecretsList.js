@@ -61,12 +61,11 @@ class SecretsList {
             button.addEventListener('click', this.handleToggle.bind(this));
         });
 
-        // Delete confirmation with TYPO3 Modal
-        document.querySelectorAll('.btn-danger[type="submit"]').forEach(button => {
-            const form = button.closest('form');
-            if (form?.action.includes('delete')) {
-                button.addEventListener('click', this.handleDelete.bind(this));
-            }
+        // Delete confirmation with TYPO3 Modal. The button is type="button",
+        // so the form is submitted by the confirmation alone: a click before
+        // this line has run does nothing rather than deleting unasked.
+        document.querySelectorAll('[data-vault-delete]').forEach(button => {
+            button.addEventListener('click', this.handleDelete.bind(this));
         });
 
         // Reveal modal triggers
@@ -82,10 +81,11 @@ class SecretsList {
         // The row actions are inert until the lines above have run, and the
         // table is in the document well before this module is imported: a
         // click that lands in between focuses the button and does nothing at
-        // all. Nothing in the markup says when that window closes, so this
-        // flag says it -- for the E2E specs, which otherwise race the import
-        // on a slow runner, and for anyone debugging a button that "did
-        // nothing".
+        // all (the status toggle is a submit button and posts its form
+        // without AJAX instead). Nothing in the markup says when that window
+        // closes, so this flag says it -- for the E2E specs, which otherwise
+        // race the import on a slow runner, and for anyone debugging a button
+        // that "did nothing".
         document.documentElement.dataset.vaultSecretsList = 'ready';
     }
 

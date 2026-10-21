@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // SPDX-FileCopyrightText: Netresearch DTT GmbH
 
-import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, saveRecord, submitIdentifierFilter, waitForModuleContent } from '../fixtures/auth';
+import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, saveRecord, submitIdentifierFilter, waitForModuleContent, waitForSecretsListReady, secretRow, boundList } from '../fixtures/auth';
 import type { Page, FrameLocator, Locator } from '@playwright/test';
 
 /**
@@ -115,8 +115,7 @@ async function createSecretAndReveal(page: Page, plaintext: string): Promise<str
     (resp) => resp.url().includes('/vault/reveal') && resp.request().method() === 'POST',
     { timeout: 10000 },
   );
-  await frame
-    .locator(`[data-testid="secret-row-${testIdentifier}"]`)
+  await secretRow(frame, testIdentifier)
     .getByTestId('vault-reveal-btn')
     .first()
     .click();
@@ -290,7 +289,7 @@ test.describe('Secrets Module User Pathways', () => {
         testIdentifier,
       );
       await expect(
-        listFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`),
+        secretRow(listFrame, testIdentifier),
       ).toBeVisible({ timeout: 5000 });
     });
 
@@ -333,7 +332,7 @@ test.describe('Secrets Module User Pathways', () => {
         testIdentifier,
       );
       await expect(
-        listFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`),
+        secretRow(listFrame, testIdentifier),
       ).toBeVisible({ timeout: 5000 });
     });
 
@@ -360,7 +359,7 @@ test.describe('Secrets Module User Pathways', () => {
       await expect(listFrame.locator('h1:has-text("Secrets")')).toBeVisible();
       listFrame = await applyIdentifierFilter(page, listFrame, testIdentifier);
       await expect(
-        listFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`),
+        secretRow(listFrame, testIdentifier),
       ).toBeVisible({ timeout: 5000 });
     });
   });
@@ -376,59 +375,65 @@ test.describe('Secrets Module User Pathways', () => {
       const secretInput = frame.locator('input[data-vault-is-new="1"]').first();
       await secretInput.fill('test-value');
 
-      // Try to save - FormEngine validation should show error
+      // Counted from before the click: the old assertion -- "an error is shown
+      // OR the identifier input is visible" -- was satisfied by the form the
+      // click was issued from, and by the edit form a successful save renders,
+      // so it passed for a save that went through. FormEngine marks an empty
+      // required field with `.has-error` as soon as it initialises, so that
+      // marker is there before the click and says nothing about it. The
+      // refusal of the click is the error dialog FormEngine's submit
+      // interceptor opens instead of sending the form; once it is open, no
+      // POST may have left. TYPO3 renders the dialog in the shell or in the
+      // module frame, so both documents are checked.
+      const savePosts: string[] = [];
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().includes('/typo3/record/edit')) {
+          savePosts.push(request.url());
+        }
+      });
       await frame.locator('button[name="_savedok"]').click();
 
-      // FormEngine shows validation errors or keeps us on the form — wait for
-      // EITHER condition to become true (no arbitrary sleep).
-      const newFrame = getModuleFrame(page);
-      const identifierInput = newFrame.locator(
-        'input[data-formengine-input-name*="identifier"]',
+      const refusalButtons = [page, frame].map((scope) =>
+        scope.getByRole('dialog').getByRole('button', { name: 'OK', exact: true }),
       );
-      const validationError = newFrame
-        .locator('.has-error, .is-invalid, .alert-danger')
-        .first();
-
-      await Promise.race([
-        identifierInput.waitFor({ state: 'visible', timeout: 5000 }),
-        validationError.waitFor({ state: 'visible', timeout: 5000 }),
-      ]).catch(() => undefined);
-
-      const hasValidationError = await validationError.isVisible();
-      const stayedOnForm = await identifierInput.isVisible();
-
-      expect(hasValidationError || stayedOnForm).toBe(true);
+      await expect
+        .poll(
+          async () => (await refusalButtons[0].count()) + (await refusalButtons[1].count()),
+          { timeout: 10000, message: 'FormEngine opened no error dialog for the invalid form' },
+        )
+        .toBeGreaterThan(0);
+      expect(savePosts, 'the invalid form was sent to the server').toEqual([]);
     });
 
-    test('shows error for empty secret value', async ({ authenticatedPage: page }) => {
+    test('refuses an identifier that breaks the identifier rules', async ({ authenticatedPage: page }) => {
+      // This test was "shows error for empty secret value" and filled only the
+      // identifier `test-identifier`. Measured on 13.4: with a valid identifier
+      // and no value the record IS created -- secret_input is optional by
+      // design (SecretTcaHook) -- and the old test passed only because the
+      // hyphen made the server refuse the identifier, under an assertion that
+      // also passed for a save that went through. What it exercised is the
+      // server-side identifier check, so that is what it asserts now.
       await page.goto('/typo3/module/admin/vault/secrets/create');
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
-
-      // Fill only the identifier
       await frame.locator('input[data-formengine-input-name*="identifier"]').fill('test-identifier');
+      await frame.locator('input[data-vault-is-new="1"]').first().fill('refused-identifier-value');
 
-      // Try to save without secret value
-      await frame.locator('button[name="_savedok"]').click();
-
-      const newFrame = getModuleFrame(page);
-      const identifierInput = newFrame.locator(
-        'input[data-formengine-input-name*="identifier"]',
+      // FormEngine accepts the form in the browser; the server refuses it and
+      // answers the POST with a redirect back to an empty new-record form.
+      const saved = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' && response.url().includes('/typo3/record/edit'),
+        { timeout: 20000 },
       );
-      const validationError = newFrame
-        .locator('.has-error, .is-invalid, .alert-danger')
-        .first();
-
-      await Promise.race([
-        identifierInput.waitFor({ state: 'visible', timeout: 5000 }),
-        validationError.waitFor({ state: 'visible', timeout: 5000 }),
-      ]).catch(() => undefined);
-
-      const hasValidationError = await validationError.isVisible();
-      const stayedOnForm = await identifierInput.isVisible();
-
-      expect(hasValidationError || stayedOnForm).toBe(true);
+      await frame.locator('button[name="_savedok"]').click();
+      const redirect = (await saved).headers()['location'] ?? '';
+      expect(decodeURIComponent(redirect), 'the refused save redirected to a saved record').toContain(
+        'edit[tx_nrvault_secret][0]=new',
+      );
+      await waitForModuleContent(page);
+      await expect(getModuleFrame(page).locator('.alert-danger', { hasText: 'identifier is invalid' })).toBeVisible();
     });
 
     test('handles duplicate identifier appropriately', async ({ authenticatedPage: page }) => {
@@ -503,7 +508,11 @@ test.describe('Secrets Module User Pathways', () => {
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
-      const rotateButton = frame.getByTestId('vault-rotate-btn').first();
+      // `isVisible()` does not wait, and `boundList()` matches nothing until
+      // SecretsList.js has run: without this wait the check below reads false
+      // in that window and the test passes without opening the modal.
+      await waitForSecretsListReady(frame);
+      const rotateButton = boundList(frame).getByTestId('vault-rotate-btn').first();
 
       if (await rotateButton.isVisible()) {
         await rotateButton.click();
@@ -540,7 +549,7 @@ test.describe('Secrets Module User Pathways', () => {
         (resp) => resp.url().includes('/vault/reveal') && resp.request().method() === 'POST',
         { timeout: 10000 },
       );
-      const preRevealBtn = frame.getByTestId('vault-reveal-btn').first();
+      const preRevealBtn = boundList(frame).getByTestId('vault-reveal-btn').first();
       if (await preRevealBtn.isVisible().catch(() => false)) {
         await preRevealBtn.click();
         const preRotateResp = await preRotateRevealPromise.catch(() => null);
@@ -564,7 +573,7 @@ test.describe('Secrets Module User Pathways', () => {
       }
 
       // Click rotate button (opens modal)
-      const rotateButton = frame.getByTestId('vault-rotate-btn').first();
+      const rotateButton = boundList(frame).getByTestId('vault-rotate-btn').first();
       if (await rotateButton.isVisible()) {
         await rotateButton.click();
 
@@ -597,7 +606,7 @@ test.describe('Secrets Module User Pathways', () => {
           (resp) => resp.url().includes('/vault/reveal') && resp.request().method() === 'POST',
           { timeout: 10000 },
         );
-        const postRevealBtn = frame.getByTestId('vault-reveal-btn').first();
+        const postRevealBtn = boundList(frame).getByTestId('vault-reveal-btn').first();
         await postRevealBtn.click();
         const postResp = await postRevealPromise;
         const postJson = (await postResp.json().catch(() => null)) as
@@ -630,7 +639,7 @@ test.describe('Secrets Module User Pathways', () => {
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
 
       // Find and click toggle button (scoped to our row)
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       await expect(row).toBeVisible({ timeout: 5000 });
       const toggleButton = row.getByTestId('vault-toggle-btn').first();
 
@@ -646,7 +655,7 @@ test.describe('Secrets Module User Pathways', () => {
         const newFrame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
         await expect(newFrame.locator('text=Oops, an error occurred')).not.toBeVisible();
 
-        const newRow = newFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+        const newRow = secretRow(newFrame, testIdentifier);
         await expect(newRow).toBeVisible({ timeout: 5000 });
         const badge = newRow.locator('.badge-default');
         await expect(badge).toBeVisible({ timeout: 5000 });
@@ -674,7 +683,7 @@ test.describe('Secrets Module User Pathways', () => {
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
 
       // Confirm row exists pre-delete.
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       await expect(row).toBeVisible({ timeout: 5000 });
 
       // Click delete button
@@ -721,6 +730,108 @@ test.describe('Secrets Module User Pathways', () => {
         await expect(auditRow).toBeVisible({ timeout: 10000 });
         await expect(auditRow).toContainText(/delete/i);
       }
+    });
+
+    test('a delete click before the list script has loaded deletes nothing', async ({ authenticatedPage: page }) => {
+      // Regression test for the delete-dialog flake found with
+      // https://github.com/netresearch/t3x-nr-vault/issues/470: the row's delete
+      // button was a plain submit button, and the confirmation existed only as
+      // a click handler SecretsList.js attaches. A click before that module
+      // had run submitted the delete form natively -- no dialog, and the
+      // secret was gone. SecretsList.js is delayed here so the click lands in
+      // that window every time.
+      const testIdentifier = generateTestId();
+
+      await page.goto('/typo3/module/admin/vault/secrets/create');
+      await waitForModuleContent(page);
+      let frame = getModuleFrame(page);
+      await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
+      await frame.locator('input[data-vault-is-new="1"]').first().fill('early-click-test');
+      await saveFormEngine(page, frame);
+
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      frame = getModuleFrame(page);
+
+      const deleteRequests: string[] = [];
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().includes('/vault/secrets/delete')) {
+          deleteRequests.push(request.url());
+        }
+      });
+      await page.route('**/JavaScript/SecretsList.js*', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        await route.continue();
+      });
+
+      // A navigation inside the module frame, which nothing but the helpers
+      // waits for, so the row is on screen while the delayed module is not.
+      await clickAndWaitForModule(page, () =>
+        frame.locator('html').evaluate(() => {
+          window.location.assign(`${window.location.href}&e2e_early_click=1`);
+        }),
+      );
+      frame = getModuleFrame(page);
+      const deleteButton = frame
+        .locator(`[data-testid="secret-row-${testIdentifier}"]`)
+        .getByTestId('vault-delete-btn');
+      await expect(frame.locator('html[data-vault-secrets-list="ready"]')).toHaveCount(0);
+      await deleteButton.click();
+
+      // Once the module has run, a native submit would long have left the
+      // page; the flag on this document says the click had its chance.
+      await waitForSecretsListReady(frame);
+      expect(deleteRequests, 'a delete was sent without a confirmation').toEqual([]);
+      await page.unroute('**/JavaScript/SecretsList.js*');
+
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      const afterFrame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
+      await expect(afterFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`)).toHaveCount(1);
+    });
+
+    test('the shared row helper waits for the list script before clicking', async ({ authenticatedPage: page }) => {
+      // The other half of the same flake: with the button no longer able to
+      // submit on its own, a click that lands before SecretsList.js has run
+      // does nothing, and a spec waiting for the dialog times out. A wait for
+      // the ready flag earlier in the spec does not prevent it, because the
+      // click resolves its locator again in whatever document is there then.
+      // `secretRow()` only resolves inside a bound document.
+      const testIdentifier = generateTestId();
+
+      await page.goto('/typo3/module/admin/vault/secrets/create');
+      await waitForModuleContent(page);
+      let frame = getModuleFrame(page);
+      await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
+      await frame.locator('input[data-vault-is-new="1"]').first().fill('bound-row-test');
+      await saveFormEngine(page, frame);
+
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      frame = getModuleFrame(page);
+      await page.route('**/JavaScript/SecretsList.js*', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        await route.continue();
+      });
+      await clickAndWaitForModule(page, () =>
+        frame.locator('html').evaluate(() => {
+          window.location.assign(`${window.location.href}&e2e_bound_row=1`);
+        }),
+      );
+      frame = getModuleFrame(page);
+      await expect(frame.locator('html[data-vault-secrets-list="ready"]')).toHaveCount(0);
+
+      await secretRow(frame, testIdentifier).getByTestId('vault-delete-btn').click();
+      const cancelButton = page.getByRole('button', { name: 'Cancel', exact: true });
+      await cancelButton.waitFor({ state: 'visible', timeout: 10000 });
+      await cancelButton.click();
+      await cancelButton.waitFor({ state: 'hidden', timeout: 10000 });
+      await page.unroute('**/JavaScript/SecretsList.js*');
+
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      const afterFrame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
+      await expect(secretRow(afterFrame, testIdentifier)).toBeVisible();
     });
   });
 
@@ -772,7 +883,7 @@ test.describe('Secrets Module User Pathways', () => {
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
 
       // Click reveal button with strong AJAX assertion.
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       const revealButton = row.getByTestId('vault-reveal-btn').first();
 
       if (await revealButton.isVisible()) {
@@ -824,7 +935,7 @@ test.describe('Secrets Module User Pathways', () => {
       await page.goto('/typo3/module/admin/vault/secrets');
       await waitForModuleContent(page);
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       const revealButton = row.getByTestId('vault-reveal-btn').first();
 
       // First reveal — must hit /vault/reveal.
@@ -990,7 +1101,7 @@ test.describe('Secrets Module User Pathways', () => {
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
 
       // Click edit button scoped to our row
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       await expect(row).toBeVisible({ timeout: 5000 });
       const editButton = row.getByTestId('vault-edit-btn').first();
 
@@ -1045,7 +1156,7 @@ test.describe('Secrets Module User Pathways', () => {
       await waitForModuleContent(page);
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
 
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       const deleteButton = row.getByTestId('vault-delete-btn').first();
 
       if (await deleteButton.isVisible()) {
@@ -1068,7 +1179,7 @@ test.describe('Secrets Module User Pathways', () => {
 
         await expect(afterFrame.locator('text=Oops, an error occurred')).not.toBeVisible();
         await expect(
-          afterFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`),
+          secretRow(afterFrame, testIdentifier),
         ).toBeVisible({ timeout: 5000 });
       }
     });

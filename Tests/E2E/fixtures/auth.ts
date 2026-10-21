@@ -149,24 +149,63 @@ export async function saveRecord(page: Page, frame: FrameLocator): Promise<void>
  */
 export async function waitForModuleContent(page: Page): Promise<void> {
   const frame = getModuleFrame(page);
+  let moduleTemplate = true;
   try {
     await frame.locator('h1, .module-body, .module-docheader').first().waitFor({ timeout: 10000 });
-
-    return;
   } catch {
     // Not every page the suite visits is a module template -- FormEngine and
     // the install tool render none of those three -- so a miss is not yet a
     // failure.
+    moduleTemplate = false;
   }
 
-  // It is a failure when the iframe holds nothing at all: the helper used to
-  // return here regardless, and the caller then acted on an empty document,
-  // which surfaces much later as a timeout in an unrelated locator and reads
-  // as a defect in whatever that locator was looking for.
-  await frame
-    .locator('body :not(script):not(style)')
-    .first()
-    .waitFor({ state: 'attached', timeout: 10000 });
+  if (!moduleTemplate) {
+    // It is a failure when the iframe holds nothing at all: the helper used to
+    // return here regardless, and the caller then acted on an empty document,
+    // which surfaces much later as a timeout in an unrelated locator and reads
+    // as a defect in whatever that locator was looking for.
+    await frame
+      .locator('body :not(script):not(style)')
+      .first()
+      .waitFor({ state: 'attached', timeout: 10000 });
+  }
+
+  await waitForFormEngineFields(frame);
+}
+
+/**
+ * Wait until FormEngine has bound the fields of the record form, if the frame
+ * shows one.
+ *
+ * FormEngine renders a field such as `identifier` twice: a visible input
+ * carrying `data-formengine-input-params`, and a hidden input with the real
+ * `name` that is posted. Only FormEngine's JavaScript copies the visible value
+ * into the hidden one, on the visible input's `change` event, and it binds that
+ * listener when it initialises the field -- after the document is ready and
+ * its modules are imported. A fill that blurs before then fires `change` into
+ * nothing: the hidden input stays empty, the server rejects the record ("Vault
+ * secret identifier is invalid") and redirects back to an empty new form, and
+ * the spec later finds no row for the identifier (#470). The Save button is
+ * disabled until FormEngine has run, so the click waits; the fills did not.
+ *
+ * TYPO3 sets `data-formengine-input-initialized` on each field once its
+ * listener is bound, and its source says the attribute exists so that
+ * acceptance tests can tell when initialisation has completed
+ * (`form-engine-validation.ts`, 13.4 and 14.3). Pages without a record form
+ * have no such field and pass at once; the ready-state wait first makes sure
+ * the fields have been parsed, so "none pending" is not read off a document
+ * that is still arriving.
+ */
+export async function waitForFormEngineFields(frame: FrameLocator): Promise<void> {
+  await expect
+    .poll(() => frame.locator('html').evaluate(() => document.readyState), { timeout: 15000 })
+    .not.toBe('loading');
+  await expect(
+    frame.locator(
+      'form[name="editform"] [data-formengine-input-params]:not([data-formengine-input-initialized])',
+    ),
+    'FormEngine did not initialise every field of the record form',
+  ).toHaveCount(0, { timeout: 15000 });
 }
 
 /**
@@ -243,7 +282,33 @@ export async function filterByIdentifier(
  * Row actions must be taken from this row rather than the table's first one:
  * the list is not always narrowed to a single row, and acting on the first
  * one then touches an unrelated secret.
+ *
+ * Rows are resolved only inside a document whose row actions are bound
+ * (`waitForSecretsListReady`). Playwright resolves a locator again at the
+ * moment of the click, so a wait for that flag earlier in a spec says nothing
+ * about the document the click lands in. A row button clicked before
+ * SecretsList.js has run does nothing (the delete button posted its form
+ * without the confirmation until #470; LC-EXT-003 failed in CI with exactly
+ * that result). Use these helpers for rows a spec acts on or expects to see.
+ * An assertion that a row is absent must not be scoped, because an unbound
+ * document would satisfy it trivially.
  */
 export function rowFor(frame: FrameLocator, identifier: string): Locator {
-  return frame.locator('table tbody tr').filter({ hasText: identifier }).first();
+  return boundList(frame).locator('table tbody tr').filter({ hasText: identifier }).first();
+}
+
+/**
+ * The secrets list, but only in a document whose row actions are bound. See
+ * `rowFor()`.
+ */
+export function boundList(frame: FrameLocator): Locator {
+  return frame.locator('html[data-vault-secrets-list="ready"]');
+}
+
+/**
+ * The row of this identifier by its test id, in a document whose row actions
+ * are bound. See `rowFor()`.
+ */
+export function secretRow(frame: FrameLocator, identifier: string): Locator {
+  return boundList(frame).locator(`[data-testid="secret-row-${identifier}"]`);
 }

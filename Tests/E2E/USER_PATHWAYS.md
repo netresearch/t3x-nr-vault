@@ -77,7 +77,7 @@ for the nr-vault TYPO3 extension backend modules.
 **Steps:**
 1. Navigate to Create Secret form
 2. Leave identifier empty → Submit → See validation error
-3. Leave value empty → Submit → See validation error
+3. Leave value empty → Submit → the record is created without a value (`secret_input` is optional, see SecretTcaHook); not a validation error
 4. Enter duplicate identifier → Submit → See error
 5. Enter invalid identifier format → Submit → See error
 
