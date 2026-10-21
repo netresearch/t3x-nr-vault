@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // SPDX-FileCopyrightText: Netresearch DTT GmbH
 
-import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, saveRecord, submitIdentifierFilter, waitForModuleContent, waitForSecretsListReady } from '../fixtures/auth';
+import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, saveRecord, submitIdentifierFilter, waitForModuleContent, waitForSecretsListReady, secretRow, boundList } from '../fixtures/auth';
 import type { Page, FrameLocator, Locator } from '@playwright/test';
 
 /**
@@ -115,8 +115,7 @@ async function createSecretAndReveal(page: Page, plaintext: string): Promise<str
     (resp) => resp.url().includes('/vault/reveal') && resp.request().method() === 'POST',
     { timeout: 10000 },
   );
-  await frame
-    .locator(`[data-testid="secret-row-${testIdentifier}"]`)
+  await secretRow(frame, testIdentifier)
     .getByTestId('vault-reveal-btn')
     .first()
     .click();
@@ -290,7 +289,7 @@ test.describe('Secrets Module User Pathways', () => {
         testIdentifier,
       );
       await expect(
-        listFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`),
+        secretRow(listFrame, testIdentifier),
       ).toBeVisible({ timeout: 5000 });
     });
 
@@ -333,7 +332,7 @@ test.describe('Secrets Module User Pathways', () => {
         testIdentifier,
       );
       await expect(
-        listFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`),
+        secretRow(listFrame, testIdentifier),
       ).toBeVisible({ timeout: 5000 });
     });
 
@@ -360,7 +359,7 @@ test.describe('Secrets Module User Pathways', () => {
       await expect(listFrame.locator('h1:has-text("Secrets")')).toBeVisible();
       listFrame = await applyIdentifierFilter(page, listFrame, testIdentifier);
       await expect(
-        listFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`),
+        secretRow(listFrame, testIdentifier),
       ).toBeVisible({ timeout: 5000 });
     });
   });
@@ -503,7 +502,7 @@ test.describe('Secrets Module User Pathways', () => {
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
-      const rotateButton = frame.getByTestId('vault-rotate-btn').first();
+      const rotateButton = boundList(frame).getByTestId('vault-rotate-btn').first();
 
       if (await rotateButton.isVisible()) {
         await rotateButton.click();
@@ -540,7 +539,7 @@ test.describe('Secrets Module User Pathways', () => {
         (resp) => resp.url().includes('/vault/reveal') && resp.request().method() === 'POST',
         { timeout: 10000 },
       );
-      const preRevealBtn = frame.getByTestId('vault-reveal-btn').first();
+      const preRevealBtn = boundList(frame).getByTestId('vault-reveal-btn').first();
       if (await preRevealBtn.isVisible().catch(() => false)) {
         await preRevealBtn.click();
         const preRotateResp = await preRotateRevealPromise.catch(() => null);
@@ -564,7 +563,7 @@ test.describe('Secrets Module User Pathways', () => {
       }
 
       // Click rotate button (opens modal)
-      const rotateButton = frame.getByTestId('vault-rotate-btn').first();
+      const rotateButton = boundList(frame).getByTestId('vault-rotate-btn').first();
       if (await rotateButton.isVisible()) {
         await rotateButton.click();
 
@@ -597,7 +596,7 @@ test.describe('Secrets Module User Pathways', () => {
           (resp) => resp.url().includes('/vault/reveal') && resp.request().method() === 'POST',
           { timeout: 10000 },
         );
-        const postRevealBtn = frame.getByTestId('vault-reveal-btn').first();
+        const postRevealBtn = boundList(frame).getByTestId('vault-reveal-btn').first();
         await postRevealBtn.click();
         const postResp = await postRevealPromise;
         const postJson = (await postResp.json().catch(() => null)) as
@@ -630,7 +629,7 @@ test.describe('Secrets Module User Pathways', () => {
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
 
       // Find and click toggle button (scoped to our row)
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       await expect(row).toBeVisible({ timeout: 5000 });
       const toggleButton = row.getByTestId('vault-toggle-btn').first();
 
@@ -646,7 +645,7 @@ test.describe('Secrets Module User Pathways', () => {
         const newFrame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
         await expect(newFrame.locator('text=Oops, an error occurred')).not.toBeVisible();
 
-        const newRow = newFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+        const newRow = secretRow(newFrame, testIdentifier);
         await expect(newRow).toBeVisible({ timeout: 5000 });
         const badge = newRow.locator('.badge-default');
         await expect(badge).toBeVisible({ timeout: 5000 });
@@ -674,7 +673,7 @@ test.describe('Secrets Module User Pathways', () => {
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
 
       // Confirm row exists pre-delete.
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       await expect(row).toBeVisible({ timeout: 5000 });
 
       // Click delete button
@@ -780,6 +779,50 @@ test.describe('Secrets Module User Pathways', () => {
       const afterFrame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
       await expect(afterFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`)).toHaveCount(1);
     });
+
+    test('the shared row helper waits for the list script before clicking', async ({ authenticatedPage: page }) => {
+      // The other half of the same flake: with the button no longer able to
+      // submit on its own, a click that lands before SecretsList.js has run
+      // does nothing, and a spec waiting for the dialog times out. A wait for
+      // the ready flag earlier in the spec does not prevent it, because the
+      // click resolves its locator again in whatever document is there then.
+      // `secretRow()` only resolves inside a bound document.
+      const testIdentifier = generateTestId();
+
+      await page.goto('/typo3/module/admin/vault/secrets/create');
+      await waitForModuleContent(page);
+      let frame = getModuleFrame(page);
+      await frame.locator('input[data-formengine-input-name*="identifier"]').fill(testIdentifier);
+      await frame.locator('input[data-vault-is-new="1"]').first().fill('bound-row-test');
+      await saveFormEngine(page, frame);
+
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      frame = getModuleFrame(page);
+      await page.route('**/JavaScript/SecretsList.js*', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        await route.continue();
+      });
+      await clickAndWaitForModule(page, () =>
+        frame.locator('html').evaluate(() => {
+          window.location.assign(`${window.location.href}&e2e_bound_row=1`);
+        }),
+      );
+      frame = getModuleFrame(page);
+      await expect(frame.locator('html[data-vault-secrets-list="ready"]')).toHaveCount(0);
+
+      await secretRow(frame, testIdentifier).getByTestId('vault-delete-btn').click();
+      const cancelButton = page.getByRole('button', { name: 'Cancel', exact: true });
+      await cancelButton.waitFor({ state: 'visible', timeout: 10000 });
+      await cancelButton.click();
+      await cancelButton.waitFor({ state: 'hidden', timeout: 10000 });
+      await page.unroute('**/JavaScript/SecretsList.js*');
+
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      const afterFrame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
+      await expect(secretRow(afterFrame, testIdentifier)).toBeVisible();
+    });
   });
 
   test.describe('UP-SEC-012: Secrets List - Empty State', () => {
@@ -830,7 +873,7 @@ test.describe('Secrets Module User Pathways', () => {
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
 
       // Click reveal button with strong AJAX assertion.
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       const revealButton = row.getByTestId('vault-reveal-btn').first();
 
       if (await revealButton.isVisible()) {
@@ -882,7 +925,7 @@ test.describe('Secrets Module User Pathways', () => {
       await page.goto('/typo3/module/admin/vault/secrets');
       await waitForModuleContent(page);
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       const revealButton = row.getByTestId('vault-reveal-btn').first();
 
       // First reveal — must hit /vault/reveal.
@@ -1048,7 +1091,7 @@ test.describe('Secrets Module User Pathways', () => {
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
 
       // Click edit button scoped to our row
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       await expect(row).toBeVisible({ timeout: 5000 });
       const editButton = row.getByTestId('vault-edit-btn').first();
 
@@ -1103,7 +1146,7 @@ test.describe('Secrets Module User Pathways', () => {
       await waitForModuleContent(page);
       frame = await applyIdentifierFilter(page, getModuleFrame(page), testIdentifier);
 
-      const row = frame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
+      const row = secretRow(frame, testIdentifier);
       const deleteButton = row.getByTestId('vault-delete-btn').first();
 
       if (await deleteButton.isVisible()) {
@@ -1126,7 +1169,7 @@ test.describe('Secrets Module User Pathways', () => {
 
         await expect(afterFrame.locator('text=Oops, an error occurred')).not.toBeVisible();
         await expect(
-          afterFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`),
+          secretRow(afterFrame, testIdentifier),
         ).toBeVisible({ timeout: 5000 });
       }
     });

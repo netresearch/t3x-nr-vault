@@ -9,6 +9,7 @@ import {
   getModuleFrame,
   waitForModuleContent,
   waitForSecretsListReady,
+  boundList,
 } from '../fixtures/auth';
 
 /**
@@ -372,7 +373,7 @@ test.describe('Vault Module Accessibility', () => {
       // click in that window only moves focus — which is precisely what this
       // file measures, so the race would read as a focus defect.
       await waitForSecretsListReady(frame);
-      const rotateButton = frame.getByTestId('vault-rotate-btn').first();
+      const rotateButton = boundList(frame).getByTestId('vault-rotate-btn').first();
 
       if (!(await rotateButton.isVisible().catch(() => false))) {
         test.skip(
@@ -448,7 +449,7 @@ test.describe('Vault Module Accessibility', () => {
       // click in that window only moves focus — which is precisely what this
       // file measures, so the race would read as a focus defect.
       await waitForSecretsListReady(frame);
-      const revealButton = frame.getByTestId('vault-reveal-btn').first();
+      const revealButton = boundList(frame).getByTestId('vault-reveal-btn').first();
 
       if (!(await revealButton.isVisible().catch(() => false))) {
         test.skip(true, 'No readable secret present in this environment — cannot exercise the reveal dialog');
@@ -561,7 +562,7 @@ test.describe('Vault Module Accessibility', () => {
       // click in that window only moves focus — which is precisely what this
       // file measures, so the race would read as a focus defect.
       await waitForSecretsListReady(frame);
-      const deleteButton = frame.getByTestId('vault-delete-btn').first();
+      const deleteButton = boundList(frame).getByTestId('vault-delete-btn').first();
 
       if (!(await deleteButton.isVisible().catch(() => false))) {
         test.skip(true, 'No deletable secret present in this environment');

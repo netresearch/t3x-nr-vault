@@ -282,7 +282,33 @@ export async function filterByIdentifier(
  * Row actions must be taken from this row rather than the table's first one:
  * the list is not always narrowed to a single row, and acting on the first
  * one then touches an unrelated secret.
+ *
+ * Rows are resolved only inside a document whose row actions are bound
+ * (`waitForSecretsListReady`). Playwright resolves a locator again at the
+ * moment of the click, so a wait for that flag earlier in a spec says nothing
+ * about the document the click lands in. A row button clicked before
+ * SecretsList.js has run does nothing (the delete button posted its form
+ * without the confirmation until #470; LC-EXT-003 failed in CI with exactly
+ * that result). Use these helpers for rows a spec acts on or expects to see.
+ * An assertion that a row is absent must not be scoped, because an unbound
+ * document would satisfy it trivially.
  */
 export function rowFor(frame: FrameLocator, identifier: string): Locator {
-  return frame.locator('table tbody tr').filter({ hasText: identifier }).first();
+  return boundList(frame).locator('table tbody tr').filter({ hasText: identifier }).first();
+}
+
+/**
+ * The secrets list, but only in a document whose row actions are bound. See
+ * `rowFor()`.
+ */
+export function boundList(frame: FrameLocator): Locator {
+  return frame.locator('html[data-vault-secrets-list="ready"]');
+}
+
+/**
+ * The row of this identifier by its test id, in a document whose row actions
+ * are bound. See `rowFor()`.
+ */
+export function secretRow(frame: FrameLocator, identifier: string): Locator {
+  return boundList(frame).locator(`[data-testid="secret-row-${identifier}"]`);
 }

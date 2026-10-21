@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // SPDX-FileCopyrightText: Netresearch DTT GmbH
 
-import { expect, test, filterByIdentifier, getModuleFrame, saveRecord, waitForModuleContent } from '../fixtures/auth';
+import { expect, test, filterByIdentifier, getModuleFrame, saveRecord, waitForModuleContent, secretRow } from '../fixtures/auth';
 
 /**
  * E2E tests for Cross-Module User Pathways.
@@ -72,11 +72,11 @@ test.describe.serial('Cross-Module User Pathways', () => {
       await filterByIdentifier(listFrame, testIdentifier);
 
       const filteredFrame = getModuleFrame(page);
-      const secretRow = filteredFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`);
-      await expect(secretRow).toBeVisible({ timeout: 5000 });
+      const row = secretRow(filteredFrame, testIdentifier);
+      await expect(row).toBeVisible({ timeout: 5000 });
 
       // Step 4: Delete the secret (cleanup)
-      const deleteButton = secretRow.getByTestId('vault-delete-btn').first();
+      const deleteButton = row.getByTestId('vault-delete-btn').first();
       if (await deleteButton.isVisible()) {
         await deleteButton.click();
         const confirm = page.getByRole('button', { name: 'Delete', exact: true });
@@ -241,12 +241,11 @@ test.describe.serial('Cross-Module User Pathways', () => {
 
       const filteredFrame = getModuleFrame(page);
       await expect(
-        filteredFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`),
+        secretRow(filteredFrame, testIdentifier),
       ).toBeVisible({ timeout: 5000 });
 
       // Cleanup
-      const deleteButton = filteredFrame
-        .locator(`[data-testid="secret-row-${testIdentifier}"]`)
+      const deleteButton = secretRow(filteredFrame, testIdentifier)
         .getByTestId('vault-delete-btn')
         .first();
       if (await deleteButton.isVisible()) {
@@ -292,12 +291,11 @@ test.describe.serial('Cross-Module User Pathways', () => {
 
       const filteredFrame = getModuleFrame(page);
       await expect(
-        filteredFrame.locator(`[data-testid="secret-row-${testIdentifier}"]`),
+        secretRow(filteredFrame, testIdentifier),
       ).toBeVisible({ timeout: 5000 });
 
       // Cleanup
-      const deleteButton = filteredFrame
-        .locator(`[data-testid="secret-row-${testIdentifier}"]`)
+      const deleteButton = secretRow(filteredFrame, testIdentifier)
         .getByTestId('vault-delete-btn')
         .first();
       if (await deleteButton.isVisible()) {
