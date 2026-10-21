@@ -82,10 +82,10 @@ class SecretsList {
         // table is in the document well before this module is imported: a
         // click that lands in between focuses the button and does nothing at
         // all (the status toggle is a submit button and posts its form
-        // without AJAX instead). Nothing in the markup says when that window closes, so this
-        // flag says it -- for the E2E specs, which otherwise race the import
-        // on a slow runner, and for anyone debugging a button that "did
-        // nothing".
+        // without AJAX instead). Nothing in the markup says when that window
+        // closes, so this flag says it -- for the E2E specs, which otherwise
+        // race the import on a slow runner, and for anyone debugging a button
+        // that "did nothing".
         document.documentElement.dataset.vaultSecretsList = 'ready';
     }
 
