@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // SPDX-FileCopyrightText: Netresearch DTT GmbH
 
-import { expect, test, filterByIdentifier, getModuleFrame, rowFor, saveRecord, waitForModuleContent } from '../fixtures/auth';
+import { expect, test, filterByIdentifier, getModuleFrame, rowFor, saveRecord, waitForModuleContent, openDialogScope } from '../fixtures/auth';
 import type { Page } from '@playwright/test';
 
 /**
@@ -58,8 +58,7 @@ async function readOverviewCount(page: Page, label: RegExp): Promise<number> {
  * broken and the caller must hear about it.
  */
 async function confirmDeleteModal(page: Page): Promise<void> {
-  const confirm = page.getByRole('button', { name: 'Delete', exact: true });
-  await confirm.waitFor({ state: 'visible', timeout: 10000 });
+  const confirm = (await openDialogScope(page)).getByRole('button', { name: 'Delete', exact: true });
   await confirm.click();
   // The modal closes when the delete has gone through. `networkidle` stood
   // here and reports on the browser's request queue, not on this dialog.
@@ -189,7 +188,8 @@ test.describe.serial('LC-EXT-002: Rotate produces an audit entry with success=tr
     if (await rotateButton.isVisible().catch(() => false)) {
       await rotateButton.click();
 
-      const newValueInput = page.locator('#rotate-modal-secret').first();
+      const rotateDialog = await openDialogScope(page);
+      const newValueInput = rotateDialog.locator('#rotate-modal-secret').first();
       await newValueInput.waitFor({ state: 'visible' });
       await newValueInput.fill('rotated-value');
 
@@ -197,7 +197,7 @@ test.describe.serial('LC-EXT-002: Rotate produces an audit entry with success=tr
         (resp) => resp.url().includes('/vault/rotate') && resp.request().method() === 'POST',
         { timeout: 10000 },
       );
-      await page.getByRole('button', { name: 'Rotate Secret', exact: true }).click();
+      await rotateDialog.getByRole('button', { name: 'Rotate Secret', exact: true }).click();
 
       const rotateResponse = await rotateResponsePromise.catch(() => null);
       if (rotateResponse !== null) {

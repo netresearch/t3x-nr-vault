@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Netresearch DTT GmbH
 
 import type { Page } from '@playwright/test';
-import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, rowFor, saveRecord, waitForModuleContent } from '../fixtures/auth';
+import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, rowFor, saveRecord, waitForModuleContent, openDialogScope } from '../fixtures/auth';
 
 /**
  * Extended audit-module tests that fill gaps in UP-AUD-006 / UP-AUD-007 /
@@ -76,11 +76,9 @@ test.describe('AUD-EXT-001: JSON export returns a well-formed array', () => {
     const del = rowFor(cleanupFrame, identifier).locator('button[title*="Delete"]').first();
     if (await del.isVisible().catch(() => false)) {
       await del.click();
-      const confirm = page.getByRole('button', { name: 'Delete', exact: true });
-      if (await confirm.isVisible().catch(() => false)) {
-        await confirm.click();
-        await confirm.waitFor({ state: 'hidden', timeout: 15000 });
-      }
+      const confirm = (await openDialogScope(page)).getByRole('button', { name: 'Delete', exact: true });
+      await confirm.click();
+      await confirm.waitFor({ state: 'hidden', timeout: 15000 });
     }
   });
 });

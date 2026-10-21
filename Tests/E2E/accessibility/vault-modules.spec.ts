@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: Netresearch DTT GmbH
 
 import AxeBuilder from '@axe-core/playwright';
-import type { Page } from '@playwright/test';
+import type { Frame, Page } from '@playwright/test';
 import {
   test,
   expect,
   getModuleFrame,
+  openDialogScope,
   waitForModuleContent,
   waitForSecretsListReady,
   boundList,
@@ -42,9 +43,10 @@ function filterFailingViolations<T extends { impact?: string | null | undefined 
 }
 
 /**
- * One keyboard step: which element holds focus in the TOP document (where
- * TYPO3 renders its dialogs), and whether that counts as having left the
- * dialog.
+ * One keyboard step: which element holds focus in the document that holds
+ * the dialog -- usually the top document, the module iframe when TYPO3
+ * rendered the dialog there (see openDialogScope) -- and whether that counts as
+ * having left the dialog.
  *
  * A native <dialog> cycles through the document itself, so `<body>` while the
  * dialog is still open is the browser's wrap point, not an escape. Anything
@@ -54,6 +56,7 @@ type FocusStep = { element: string; escaped: boolean };
 
 async function walkFocus(
   page: Page,
+  dialogDocument: Frame,
   key: string,
   steps: number,
   container = 'typo3-backend-modal',
@@ -67,7 +70,7 @@ async function walkFocus(
   for (let i = 0; i < steps + 1; i++) {
     await page.keyboard.press(key);
     raw.push(
-      await page.evaluate((selector) => {
+      await dialogDocument.evaluate((selector) => {
         const el = document.activeElement;
         const modal = document.querySelector(selector);
         const dialog = modal?.querySelector('dialog');
@@ -386,8 +389,9 @@ test.describe('Vault Module Accessibility', () => {
       await rotateButton.focus();
       await rotateButton.click();
 
-      // Modal opens outside the iframe — focus should move into the modal.
-      const modalInput = page.locator('#rotate-modal-secret');
+      // Focus should move into the modal, in whichever document holds it.
+      const dialog = await openDialogScope(page);
+      const modalInput = dialog.locator('#rotate-modal-secret');
       await modalInput.waitFor({ state: 'visible', timeout: 5000 });
 
       // Focus must be INSIDE the modal, not on the original trigger.
@@ -405,7 +409,7 @@ test.describe('Vault Module Accessibility', () => {
       await expect
         .poll(
           () =>
-            page.evaluate(() => {
+            dialog.evaluate(() => {
               const el = document.activeElement;
               if (el === null) return false;
               return el.closest('typo3-backend-modal, dialog.modal, .modal, [role="dialog"]') !== null;
@@ -425,10 +429,11 @@ test.describe('Vault Module Accessibility', () => {
       await expect(modalInput).toBeHidden({ timeout: 5000 });
 
       // After close, focus returns to the trigger (WCAG 2.4.3 focus order).
-      // Asserted, not annotated: TYPO3 renders the dialog into the TOP document
-      // while the list runs in the module iframe, so the browser's own
+      // Asserted, not annotated: TYPO3 usually renders the dialog into the TOP
+      // document while the list runs in the module iframe, so the browser's own
       // restoration cannot reach the trigger and the extension has to give
-      // focus back itself (vault-modal-focus.js). Without that, focus lands on
+      // focus back itself (vault-modal-focus.js). When the dialog was rendered
+      // in the iframe, focus must come back just the same. Without that, focus lands on
       // <body> and a keyboard user loses their place in the table.
       await expect
         .poll(() => triggerTestId(page), {
@@ -462,7 +467,8 @@ test.describe('Vault Module Accessibility', () => {
       // Generous: the reveal is an AJAX round trip behind a loading dialog, and
       // on TYPO3 13 that dialog can linger (see the note below), which makes the
       // handover slower than any other dialog in this file.
-      const secretInput = page.locator('#reveal-modal-secret');
+      const dialog = await openDialogScope(page, 30000);
+      const secretInput = dialog.locator('#reveal-modal-secret');
       await secretInput.waitFor({ state: 'visible', timeout: 30000 });
 
       // Everything below is scoped to the dialog holding the secret, never to
@@ -472,20 +478,20 @@ test.describe('Vault Module Accessibility', () => {
       // response leaves it behind (measured on 13.4, reported separately — it
       // is a defect of its own and not what this spec is about).
       const revealDialog = 'typo3-backend-modal:has(#reveal-modal-secret)';
-      await expect.poll(() => page.locator(revealDialog).count(), { timeout: 10000 }).toBe(1);
+      await expect.poll(() => dialog.locator(revealDialog).count(), { timeout: 10000 }).toBe(1);
 
       // Focus moves into the dialog, onto the first of its controls.
       await expect
-        .poll(() => page.evaluate(() => document.activeElement?.id ?? ''), { timeout: 10000 })
+        .poll(() => dialog.evaluate(() => document.activeElement?.id ?? ''), { timeout: 10000 })
         .toBe('reveal-modal-secret');
 
       // Tab must never reach a control outside the dialog. A native <dialog>
       // wraps through the document itself — activeElement is then <body> while
       // the dialog is still open, which is the browser's wrap point and not an
       // escape; the delete dialog, pure TYPO3 core, behaves identically.
-      const forward = await walkFocus(page, 'Tab', 8, revealDialog);
+      const forward = await walkFocus(page, dialog, 'Tab', 8, revealDialog);
       await secretInput.focus();
-      const backward = await walkFocus(page, 'Shift+Tab', 6, revealDialog);
+      const backward = await walkFocus(page, dialog, 'Shift+Tab', 6, revealDialog);
 
       for (const step of forward) {
         expect(
@@ -503,7 +509,7 @@ test.describe('Vault Module Accessibility', () => {
       // identically (measured on 13.4). Asserting it here would fail CI for a
       // defect this change does not fix and must not paper over with a second,
       // hand-rolled trap on top of the core one.
-      const nativeDialog = await page.evaluate(
+      const nativeDialog = await dialog.evaluate(
         (selector) => document.querySelector(selector)?.querySelector('dialog') !== null,
         revealDialog,
       );
@@ -526,7 +532,7 @@ test.describe('Vault Module Accessibility', () => {
       // The copy button is absent in the hardened security profile, where the
       // reveal response reports `copyAllowed: false` — requiring it there would
       // fail on a correctly configured instance rather than on a focus defect.
-      if ((await page.locator('#reveal-modal-copy').count()) > 0) {
+      if ((await dialog.locator('#reveal-modal-copy').count()) > 0) {
         expect(forwardIds, `Tab did not reach the copy button: ${forwardIds.join(',')}`)
           .toContain('button#reveal-modal-copy');
       }
@@ -543,7 +549,7 @@ test.describe('Vault Module Accessibility', () => {
       // Escape closes the dialog from a known position inside it.
       await secretInput.focus();
       await page.keyboard.press('Escape');
-      await expect.poll(() => page.locator(revealDialog).count(), { timeout: 10000 }).toBe(0);
+      await expect.poll(() => dialog.locator(revealDialog).count(), { timeout: 10000 }).toBe(0);
 
       await expect
         .poll(() => triggerTestId(page), {
@@ -574,16 +580,17 @@ test.describe('Vault Module Accessibility', () => {
 
       // `typo3-backend-modal` is a zero-size wrapper around the <dialog>, so it
       // never satisfies Playwright's visibility check — count it instead.
-      await expect.poll(() => page.locator('typo3-backend-modal').count(), { timeout: 15000 }).toBe(1);
+      const dialog = await openDialogScope(page, 15000);
+      await expect.poll(() => dialog.locator('typo3-backend-modal').count(), { timeout: 15000 }).toBe(1);
       await expect
-        .poll(() => page.evaluate(() => document.activeElement?.closest('typo3-backend-modal') !== null), {
+        .poll(() => dialog.evaluate(() => document.activeElement?.closest('typo3-backend-modal') !== null), {
           timeout: 10000,
         })
         .toBe(true);
 
       // Escape only — the secret must survive this test.
       await page.keyboard.press('Escape');
-      await expect.poll(() => page.locator('typo3-backend-modal').count(), { timeout: 10000 }).toBe(0);
+      await expect.poll(() => dialog.locator('typo3-backend-modal').count(), { timeout: 10000 }).toBe(0);
 
       await expect
         .poll(() => triggerTestId(page), {

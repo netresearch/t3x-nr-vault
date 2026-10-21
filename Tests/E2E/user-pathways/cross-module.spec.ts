@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // SPDX-FileCopyrightText: Netresearch DTT GmbH
 
-import { expect, test, filterByIdentifier, getModuleFrame, saveRecord, waitForModuleContent, secretRow } from '../fixtures/auth';
+import { expect, test, filterByIdentifier, getModuleFrame, saveRecord, waitForModuleContent, secretRow, openDialogScope } from '../fixtures/auth';
 
 /**
  * E2E tests for Cross-Module User Pathways.
@@ -79,11 +79,9 @@ test.describe.serial('Cross-Module User Pathways', () => {
       const deleteButton = row.getByTestId('vault-delete-btn').first();
       if (await deleteButton.isVisible()) {
         await deleteButton.click();
-        const confirm = page.getByRole('button', { name: 'Delete', exact: true });
-        if (await confirm.isVisible().catch(() => false)) {
-          await confirm.click();
-          await confirm.waitFor({ state: 'hidden', timeout: 15000 });
-        }
+        const confirm = (await openDialogScope(page)).getByRole('button', { name: 'Delete', exact: true });
+        await confirm.click();
+        await confirm.waitFor({ state: 'hidden', timeout: 15000 });
       }
     });
   });
@@ -250,11 +248,9 @@ test.describe.serial('Cross-Module User Pathways', () => {
         .first();
       if (await deleteButton.isVisible()) {
         await deleteButton.click();
-        const confirmButton = page.getByRole('button', { name: 'Delete', exact: true });
-        if (await confirmButton.isVisible().catch(() => false)) {
-          await confirmButton.click();
-          await confirmButton.waitFor({ state: 'hidden', timeout: 15000 });
-        }
+        const confirmButton = (await openDialogScope(page)).getByRole('button', { name: 'Delete', exact: true });
+        await confirmButton.click();
+        await confirmButton.waitFor({ state: 'hidden', timeout: 15000 });
       }
     });
   });
@@ -300,11 +296,9 @@ test.describe.serial('Cross-Module User Pathways', () => {
         .first();
       if (await deleteButton.isVisible()) {
         await deleteButton.click();
-        const confirmButton = page.getByRole('button', { name: 'Delete', exact: true });
-        if (await confirmButton.isVisible().catch(() => false)) {
-          await confirmButton.click();
-          await confirmButton.waitFor({ state: 'hidden', timeout: 15000 });
-        }
+        const confirmButton = (await openDialogScope(page)).getByRole('button', { name: 'Delete', exact: true });
+        await confirmButton.click();
+        await confirmButton.waitFor({ state: 'hidden', timeout: 15000 });
       }
     });
 
