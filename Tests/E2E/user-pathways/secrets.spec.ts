@@ -375,59 +375,55 @@ test.describe('Secrets Module User Pathways', () => {
       const secretInput = frame.locator('input[data-vault-is-new="1"]').first();
       await secretInput.fill('test-value');
 
-      // Try to save - FormEngine validation should show error
+      // Counted from before the click: the old assertion -- "an error is shown
+      // OR the identifier input is visible" -- was satisfied by the form the
+      // click was issued from, and by the edit form a successful save renders,
+      // so it passed for a save that went through. FormEngine refuses an
+      // invalid form in the browser and marks the field; that marker is the
+      // moment the refusal is complete, and no POST may have left by then.
+      const savePosts: string[] = [];
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().includes('/typo3/record/edit')) {
+          savePosts.push(request.url());
+        }
+      });
       await frame.locator('button[name="_savedok"]').click();
 
-      // FormEngine shows validation errors or keeps us on the form — wait for
-      // EITHER condition to become true (no arbitrary sleep).
-      const newFrame = getModuleFrame(page);
-      const identifierInput = newFrame.locator(
-        'input[data-formengine-input-name*="identifier"]',
-      );
-      const validationError = newFrame
-        .locator('.has-error, .is-invalid, .alert-danger')
-        .first();
-
-      await Promise.race([
-        identifierInput.waitFor({ state: 'visible', timeout: 5000 }),
-        validationError.waitFor({ state: 'visible', timeout: 5000 }),
-      ]).catch(() => undefined);
-
-      const hasValidationError = await validationError.isVisible();
-      const stayedOnForm = await identifierInput.isVisible();
-
-      expect(hasValidationError || stayedOnForm).toBe(true);
+      await expect(frame.locator('form[name="editform"] .has-error').first()).toBeVisible({
+        timeout: 10000,
+      });
+      expect(savePosts, 'the invalid form was sent to the server').toEqual([]);
     });
 
-    test('shows error for empty secret value', async ({ authenticatedPage: page }) => {
+    test('refuses an identifier that breaks the identifier rules', async ({ authenticatedPage: page }) => {
+      // This test was "shows error for empty secret value" and filled only the
+      // identifier `test-identifier`. Measured on 13.4: with a valid identifier
+      // and no value the record IS created -- secret_input is optional by
+      // design (SecretTcaHook) -- and the old test passed only because the
+      // hyphen made the server refuse the identifier, under an assertion that
+      // also passed for a save that went through. What it exercised is the
+      // server-side identifier check, so that is what it asserts now.
       await page.goto('/typo3/module/admin/vault/secrets/create');
       await waitForModuleContent(page);
 
       const frame = getModuleFrame(page);
-
-      // Fill only the identifier
       await frame.locator('input[data-formengine-input-name*="identifier"]').fill('test-identifier');
+      await frame.locator('input[data-vault-is-new="1"]').first().fill('refused-identifier-value');
 
-      // Try to save without secret value
-      await frame.locator('button[name="_savedok"]').click();
-
-      const newFrame = getModuleFrame(page);
-      const identifierInput = newFrame.locator(
-        'input[data-formengine-input-name*="identifier"]',
+      // FormEngine accepts the form in the browser; the server refuses it and
+      // answers the POST with a redirect back to an empty new-record form.
+      const saved = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' && response.url().includes('/typo3/record/edit'),
+        { timeout: 20000 },
       );
-      const validationError = newFrame
-        .locator('.has-error, .is-invalid, .alert-danger')
-        .first();
-
-      await Promise.race([
-        identifierInput.waitFor({ state: 'visible', timeout: 5000 }),
-        validationError.waitFor({ state: 'visible', timeout: 5000 }),
-      ]).catch(() => undefined);
-
-      const hasValidationError = await validationError.isVisible();
-      const stayedOnForm = await identifierInput.isVisible();
-
-      expect(hasValidationError || stayedOnForm).toBe(true);
+      await frame.locator('button[name="_savedok"]').click();
+      const redirect = (await saved).headers()['location'] ?? '';
+      expect(decodeURIComponent(redirect), 'the refused save redirected to a saved record').toContain(
+        'edit[tx_nrvault_secret][0]=new',
+      );
+      await waitForModuleContent(page);
+      await expect(getModuleFrame(page).locator('.alert-danger', { hasText: 'identifier is invalid' })).toBeVisible();
     });
 
     test('handles duplicate identifier appropriately', async ({ authenticatedPage: page }) => {
