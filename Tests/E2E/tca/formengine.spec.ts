@@ -13,6 +13,7 @@ import {
   submitIdentifierFilter,
   waitForModuleContent,
   waitForSecretInputReady,
+  openDialogScope,
 } from '../fixtures/auth';
 
 /**
@@ -53,7 +54,7 @@ async function deleteSecretIfPresent(page: Page, identifier: string): Promise<vo
   }
 
   await rowFor(frame, identifier).getByTestId('vault-delete-btn').click();
-  const confirmButton = page.getByRole('button', { name: 'Delete', exact: true });
+  const confirmButton = (await openDialogScope(page)).getByRole('button', { name: 'Delete', exact: true });
   await confirmButton.click();
   await confirmButton.waitFor({ state: 'hidden', timeout: 15000 });
 

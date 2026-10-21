@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Netresearch DTT GmbH
 
 import { test as base, expect, Page, FrameLocator, APIResponse } from '@playwright/test';
-import type { Locator } from '@playwright/test';
+import type { Frame, Locator } from '@playwright/test';
 
 /**
  * Whether a backend response is TYPO3's redirect to the login form.
@@ -311,4 +311,57 @@ export function boundList(frame: FrameLocator): Locator {
  */
 export function secretRow(frame: FrameLocator, identifier: string): Locator {
   return boundList(frame).locator(`[data-testid="secret-row-${identifier}"]`);
+}
+
+/**
+ * The document that holds the backend dialog which has just been opened.
+ *
+ * The module's dialogs (delete confirmation, rotate, reveal) are opened with
+ * TYPO3's `Modal`, and which document renders them is decided when
+ * `@typo3/backend/modal.js` is evaluated inside the module iframe: it reuses
+ * the backend shell's `TYPO3.Modal` if the shell has already defined it, and
+ * otherwise creates its own and renders into the iframe (`modal.ts`, 13.4.36
+ * lines 656-683). A spec that looks for the dialog in the top document only
+ * times out whenever the iframe won, although the dialog is on screen (#475).
+ * `SecretsList.js` probes both documents for its own modal fields for the same
+ * reason.
+ *
+ * Resolves once a dialog is visible in the top document or in the module
+ * iframe and returns that document's frame, so callers locate the dialog's
+ * controls and evaluate focus in the document that actually holds it.
+ */
+export async function openDialogScope(page: Page, timeout = 10000): Promise<Frame> {
+  let found: Frame | undefined;
+  await expect
+    .poll(
+      async () => {
+        for (const frame of [page.mainFrame(), await moduleFrame(page)]) {
+          if (frame === null) {
+            continue;
+          }
+          const dialog = frame.getByRole('dialog');
+          if ((await dialog.count()) > 0 && (await dialog.first().isVisible())) {
+            found = frame;
+
+            return true;
+          }
+        }
+
+        return false;
+      },
+      { timeout, message: 'no backend dialog became visible in the shell or the module iframe' },
+    )
+    .toBe(true);
+
+  return found as Frame;
+}
+
+/**
+ * The module iframe as a `Frame`, which, unlike a `FrameLocator`, can evaluate
+ * script -- the focus checks need `document.activeElement` of that document.
+ */
+export async function moduleFrame(page: Page): Promise<Frame | null> {
+  const handle = await page.locator('iframe').first().elementHandle();
+
+  return handle === null ? null : handle.contentFrame();
 }

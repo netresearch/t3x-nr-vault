@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // SPDX-FileCopyrightText: Netresearch DTT GmbH
 
-import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, saveRecord, submitIdentifierFilter, waitForModuleContent, waitForSecretsListReady, secretRow, boundList } from '../fixtures/auth';
+import { expect, test, clickAndWaitForModule, filterByIdentifier, getModuleFrame, openDialogScope, saveRecord, submitIdentifierFilter, waitForModuleContent, waitForSecretsListReady, secretRow, boundList } from '../fixtures/auth';
 import type { Page, FrameLocator, Locator } from '@playwright/test';
 
 /**
@@ -384,7 +384,7 @@ test.describe('Secrets Module User Pathways', () => {
       // refusal of the click is the error dialog FormEngine's submit
       // interceptor opens instead of sending the form; once it is open, no
       // POST may have left. TYPO3 renders the dialog in the shell or in the
-      // module frame, so both documents are checked.
+      // module frame; openDialogScope() finds it in either.
       const savePosts: string[] = [];
       page.on('request', (request) => {
         if (request.method() === 'POST' && request.url().includes('/typo3/record/edit')) {
@@ -393,15 +393,11 @@ test.describe('Secrets Module User Pathways', () => {
       });
       await frame.locator('button[name="_savedok"]').click();
 
-      const refusalButtons = [page, frame].map((scope) =>
-        scope.getByRole('dialog').getByRole('button', { name: 'OK', exact: true }),
-      );
-      await expect
-        .poll(
-          async () => (await refusalButtons[0].count()) + (await refusalButtons[1].count()),
-          { timeout: 10000, message: 'FormEngine opened no error dialog for the invalid form' },
-        )
-        .toBeGreaterThan(0);
+      const refusal = await openDialogScope(page);
+      await expect(
+        refusal.getByRole('dialog').getByRole('button', { name: 'OK', exact: true }),
+        'FormEngine opened no error dialog for the invalid form',
+      ).toBeVisible();
       expect(savePosts, 'the invalid form was sent to the server').toEqual([]);
     });
 
@@ -518,11 +514,12 @@ test.describe('Secrets Module User Pathways', () => {
         await rotateButton.click();
 
         // Verify modal is displayed - look for the rotate modal by its input field
-        const newValueInput = page.locator('#rotate-modal-secret');
+        const rotateDialog = await openDialogScope(page);
+        const newValueInput = rotateDialog.locator('#rotate-modal-secret');
         await expect(newValueInput).toBeVisible({ timeout: 5000 });
 
         // Close modal using Cancel button
-        await page.getByRole('button', { name: 'Cancel' }).click();
+        await rotateDialog.getByRole('button', { name: 'Cancel' }).click();
       }
     });
 
@@ -565,9 +562,10 @@ test.describe('Secrets Module User Pathways', () => {
         // backdrop covers the module iframe underneath — so the rotate button
         // below it is genuinely unclickable until then, for a user as much as
         // for this spec.
-        const revealInput = page.locator('#reveal-modal-secret');
+        const revealDialog = await openDialogScope(page);
+        const revealInput = revealDialog.locator('#reveal-modal-secret');
         if (await revealInput.isVisible().catch(() => false)) {
-          await page.getByRole('button', { name: 'Close', exact: true }).click();
+          await revealDialog.getByRole('button', { name: 'Close', exact: true }).click();
           await revealInput.waitFor({ state: 'hidden', timeout: 5000 });
         }
       }
@@ -577,8 +575,9 @@ test.describe('Secrets Module User Pathways', () => {
       if (await rotateButton.isVisible()) {
         await rotateButton.click();
 
-        // Fill new value in modal (modal is in main page context)
-        const newValueInput = page.locator('#rotate-modal-secret').first();
+        // Fill new value in the modal, in whichever document holds it.
+        const rotateDialog = await openDialogScope(page);
+        const newValueInput = rotateDialog.locator('#rotate-modal-secret').first();
         await newValueInput.waitFor({ state: 'visible', timeout: 5000 });
         const rotatedValue = 'rotated-secret-value-NEW';
         await newValueInput.fill(rotatedValue);
@@ -589,7 +588,7 @@ test.describe('Secrets Module User Pathways', () => {
           (resp) => resp.url().includes('/vault/rotate') && resp.request().method() === 'POST',
           { timeout: 10000 },
         );
-        await page.getByRole('button', { name: 'Rotate Secret', exact: true }).click();
+        await rotateDialog.getByRole('button', { name: 'Rotate Secret', exact: true }).click();
         const rotateResp = await rotateResponsePromise;
         expect(rotateResp.status()).toBe(200);
         const rotateJson = (await rotateResp.json().catch(() => null)) as
@@ -693,8 +692,7 @@ test.describe('Secrets Module User Pathways', () => {
         await deleteButton.click();
 
         // Handle TYPO3 Modal confirmation (appears in main page context)
-        const confirmButton = page.getByRole('button', { name: 'Delete', exact: true });
-        await confirmButton.waitFor({ state: 'visible', timeout: 5000 });
+        const confirmButton = (await openDialogScope(page, 5000)).getByRole('button', { name: 'Delete', exact: true });
 
         const deleteResp = page.waitForResponse(
           (resp) => resp.url().includes('admin_vault_secrets') && resp.status() < 400,
@@ -822,8 +820,7 @@ test.describe('Secrets Module User Pathways', () => {
       await expect(frame.locator('html[data-vault-secrets-list="ready"]')).toHaveCount(0);
 
       await secretRow(frame, testIdentifier).getByTestId('vault-delete-btn').click();
-      const cancelButton = page.getByRole('button', { name: 'Cancel', exact: true });
-      await cancelButton.waitFor({ state: 'visible', timeout: 10000 });
+      const cancelButton = (await openDialogScope(page)).getByRole('button', { name: 'Cancel', exact: true });
       await cancelButton.click();
       await cancelButton.waitFor({ state: 'hidden', timeout: 10000 });
       await page.unroute('**/JavaScript/SecretsList.js*');
@@ -953,7 +950,7 @@ test.describe('Secrets Module User Pathways', () => {
       expect(firstJson?.secret).toBe(plaintext);
 
       // Close the reveal modal so the next click re-enters handleReveal.
-      const closeBtn = page.getByRole('button', { name: 'Close' }).first();
+      const closeBtn = (await openDialogScope(page, 5000)).getByRole('button', { name: 'Close' }).first();
       await closeBtn.waitFor({ state: 'visible', timeout: 5000 });
       await closeBtn.click();
 
@@ -1163,8 +1160,7 @@ test.describe('Secrets Module User Pathways', () => {
         await deleteButton.click();
 
         // Dismiss confirmation dialog - click Cancel instead of Delete
-        const cancelButton = page.getByRole('button', { name: 'Cancel', exact: true });
-        await cancelButton.waitFor({ state: 'visible', timeout: 5000 });
+        const cancelButton = (await openDialogScope(page, 5000)).getByRole('button', { name: 'Cancel', exact: true });
         await cancelButton.click();
         // Modal close is synchronous; no sleep needed.
 
@@ -1182,6 +1178,41 @@ test.describe('Secrets Module User Pathways', () => {
           secretRow(afterFrame, testIdentifier),
         ).toBeVisible({ timeout: 5000 });
       }
+    });
+
+    test('the delete dialog is found when it renders inside the module frame', async ({ authenticatedPage: page }) => {
+      // Regression test for https://github.com/netresearch/t3x-nr-vault/issues/475:
+      // TYPO3's modal.js in the module iframe reuses the shell's TYPO3.Modal
+      // only if the shell has defined it by then, and otherwise renders the
+      // dialog into the iframe. Delaying the shell's own copy of modal.js makes
+      // the iframe win every time. The row is taken from the list as loaded,
+      // without the filter: the filter's POST loads a new iframe document,
+      // which would evaluate modal.js again after the shell has. Cancel only,
+      // so the seeded secret survives.
+      await page.route('**/JavaScript/modal.js*', async (route) => {
+        if (route.request().frame() === page.mainFrame()) {
+          await new Promise((resolve) => setTimeout(resolve, 10000));
+        }
+        await route.continue();
+      });
+      await page.goto('/typo3/module/admin/vault/secrets');
+      await waitForModuleContent(page);
+      const frame = getModuleFrame(page);
+      await waitForSecretsListReady(frame);
+
+      const deleteButton = boundList(frame).getByTestId('vault-delete-btn').first();
+      const identifier = await deleteButton.getAttribute('data-vault-delete');
+      await deleteButton.click();
+
+      const dialog = await openDialogScope(page);
+      expect(dialog === page.mainFrame(), 'the dialog was expected inside the module frame').toBe(false);
+      const cancelButton = dialog.getByRole('button', { name: 'Cancel', exact: true });
+      await cancelButton.click();
+      await expect(cancelButton).toBeHidden({ timeout: 10000 });
+      await expect(
+        frame.locator(`[data-testid="secret-row-${identifier}"]`),
+        'cancelling must keep the secret',
+      ).toHaveCount(1);
     });
   });
 

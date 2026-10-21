@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Netresearch DTT GmbH
 
 import { test as base, expect, Page } from '@playwright/test';
-import { test, ADMIN_PASSWORD, ADMIN_USERNAME, filterByIdentifier, getModuleFrame, isLoginRedirect, rowFor, saveRecord, submitIdentifierFilter, waitForModuleContent } from '../fixtures/auth';
+import { test, ADMIN_PASSWORD, ADMIN_USERNAME, filterByIdentifier, getModuleFrame, isLoginRedirect, rowFor, saveRecord, submitIdentifierFilter, waitForModuleContent, openDialogScope } from '../fixtures/auth';
 
 /**
  * Security and resilience E2E tests for nr-vault.
@@ -59,11 +59,9 @@ async function deleteSecretByIdentifier(page: Page, identifier: string): Promise
   const deleteButton = rowFor(frame, identifier).locator('button[title*="Delete"]').first();
   if (await deleteButton.isVisible().catch(() => false)) {
     await deleteButton.click();
-    const confirmButton = page.getByRole('button', { name: 'Delete', exact: true });
-    if (await confirmButton.isVisible().catch(() => false)) {
-      await confirmButton.click();
-      await confirmButton.waitFor({ state: 'hidden', timeout: 15000 });
-    }
+    const confirmButton = (await openDialogScope(page)).getByRole('button', { name: 'Delete', exact: true });
+    await confirmButton.click();
+    await confirmButton.waitFor({ state: 'hidden', timeout: 15000 });
   }
 }
 
