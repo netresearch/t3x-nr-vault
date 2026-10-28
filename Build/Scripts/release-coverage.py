@@ -11,11 +11,45 @@ import re
 import signal
 import subprocess
 import sys
+import time
 
 # Scheduling hints from evidence run 36628230721, in seconds, including setup.
 # They affect placement only. New directories are discovered and get 60 seconds.
 WEIGHTS = {"Audit": 1030, "Service": 671, "Security": 459, "Hook": 347,
            "Http": 346, "Command": 346, "Domain": 175}
+CLEANUP_SECONDS = 5
+
+
+def group_is_running(group):
+    # A reaped PHPUnit parent says nothing about its orphaned test children.
+    # Linux /proc exposes group membership and distinguishes dead zombies from
+    # children that can still execute or resume after a stop.
+    for directory in Path("/proc").iterdir():
+        if not directory.name.isdecimal():
+            continue
+        try:
+            fields = (directory / "stat").read_text(errors="surrogateescape").rsplit(") ", 1)[1].split()
+            if int(fields[2]) == group and fields[0] not in ("Z", "X", "x"):
+                return True
+        except (FileNotFoundError, ProcessLookupError):
+            continue  # The process exited between enumeration and inspection.
+        except (IndexError, ValueError) as error:
+            raise OSError("Cannot confirm process-group membership: " + str(directory)) from error
+    return False
+
+
+def cleanup_group(process):
+    deadline = time.monotonic() + CLEANUP_SECONDS
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass  # The group already exited; membership is still checked below.
+    returncode = process.wait(timeout=max(0, deadline - time.monotonic()))
+    while group_is_running(process.pid):
+        if time.monotonic() >= deadline:
+            raise OSError("Process group still has a live member after cleanup deadline")
+        time.sleep(0.01)
+    return returncode
 
 
 def discover(root):
@@ -79,39 +113,45 @@ def worker(root, shards, phpunit, timeout=1800):
         print("Coverage shard: " + shard, flush=True)
         returncode = None
         timed_out = False
-        timeout_cleanup_confirmed = None
+        cleanup_confirmed = None
         launcher_error = None
+        process = None
         try:
-            # A separate group includes PHPUnit's per-test PHP children. Killing
-            # only the parent on timeout would leave them running into later shards.
+            # A separate group includes PHPUnit's per-test PHP children on every
+            # exit, including a crash or a successful parent leaving a child alive.
             process = subprocess.Popen(command, cwd=root, start_new_session=True)
             try:
                 returncode = process.wait(timeout=timeout)
             except subprocess.TimeoutExpired as error:
                 timed_out = True
-                timeout_cleanup_confirmed = False
                 print(str(error), file=sys.stderr)
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass  # The group already exited at the deadline.
-                returncode = process.wait(timeout=5)
-                timeout_cleanup_confirmed = True
         except (OSError, subprocess.TimeoutExpired) as error:
             launcher_error = str(error)
             print(launcher_error, file=sys.stderr)
+        finally:
+            if process is not None:
+                cleanup_confirmed = False
+                try:
+                    cleaned_returncode = cleanup_group(process)
+                    if returncode is None:
+                        returncode = cleaned_returncode
+                    cleanup_confirmed = True
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    launcher_error = "Process-group cleanup failed: " + str(error)
+                    print(launcher_error, file=sys.stderr)
         signal_name = signal.Signals(-returncode).name if returncode is not None and returncode < 0 else None
         nonempty = part.is_file() and part.stat().st_size > 0
         print("Coverage shard result: " + json.dumps({
             "shard": shard, "returncode": returncode, "signal": signal_name,
             "timed_out": timed_out, "launcher_error": launcher_error,
-            "timeout_cleanup_confirmed": timeout_cleanup_confirmed,
+            "timeout_cleanup_confirmed": cleanup_confirmed if timed_out else None,
+            "process_group_cleanup_confirmed": cleanup_confirmed,
             "coverage_part_nonempty": nonempty}, sort_keys=True), flush=True)
-        passed = returncode == 0 and not timed_out and launcher_error is None and nonempty
+        passed = returncode == 0 and not timed_out and launcher_error is None and cleanup_confirmed and nonempty
         if not passed:
             failed.append(shard)
-        if timed_out and not timeout_cleanup_confirmed:
-            print("Timeout cleanup unconfirmed; remaining coverage shards not started: " +
+        if process is not None and not cleanup_confirmed:
+            print("Process-group cleanup unconfirmed; remaining coverage shards not started: " +
                   ", ".join(shards[index + 1:]), file=sys.stderr)
             break
     if failed:

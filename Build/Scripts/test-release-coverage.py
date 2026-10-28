@@ -270,6 +270,87 @@ class CoverageTest(unittest.TestCase):
     def test_unreaped_timeout_stops_worker_before_later_shard(self):
         self.assert_cleanup_failure_stops_later_shards(wait_error=subprocess.TimeoutExpired("phpunit", 5))
 
+    def assert_parent_exit_contains_real_child(self, crashed=False, kill_succeeds=True):
+        self.shard("Parent")
+        self.shard("Later")
+        marker = "coverage-exit-child-" + self.root.name
+        child = ("import os,pathlib,signal,time\n"
+                 "signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
+                 "pathlib.Path('child.pid').write_text(str(os.getpid()))\n"
+                 "pathlib.Path('child.ready').write_text('ready')\n"
+                 "while True:\n"
+                 " pathlib.Path('heartbeat').write_text(str(time.monotonic_ns()))\n"
+                 " time.sleep(0.02)\n")
+        fake = self.root / "phpunit"
+        fake.write_text("#!/usr/bin/env python3\nimport os,pathlib,resource,signal,subprocess,sys,time\n"
+                        "resource.setrlimit(resource.RLIMIT_CORE,(0,0))\n"
+                        "out=next(a.split('=',1)[1] for a in sys.argv if a.startswith('--coverage-php='))\n"
+                        "pathlib.Path(out).write_text('nonempty partial coverage')\n"
+                        "if 'Parent' in sys.argv[-1]:\n"
+                        " subprocess.Popen([sys.executable,'-c'," + repr(child) + "," + repr(marker) + "],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+                        " while not pathlib.Path('child.ready').exists(): time.sleep(0.005)\n"
+                        + (" os.kill(os.getpid(),signal.SIGSEGV)\n" if crashed else " sys.exit(0)\n") +
+                        "status=pathlib.Path('/proc/'+pathlib.Path('child.pid').read_text()+'/stat')\n"
+                        "if status.exists() and status.read_text().split(') ',1)[1].split()[0] not in ('Z','X'): pathlib.Path('child-overlapped-later').write_text('alive')\n",
+                        encoding="utf-8")
+        fake.chmod(0o755)
+
+        def stop_owned_child():
+            pidfile = self.root / "child.pid"
+            if pidfile.exists():
+                pid = int(pidfile.read_text())
+                command = Path("/proc/%d/cmdline" % pid)
+                if command.exists() and marker.encode() in command.read_bytes():
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass  # The owned child may exit before the fixture cleanup signal.
+
+        self.addCleanup(stop_owned_child)
+        if kill_succeeds:
+            result = self.call("worker", "--shards", '["Parent","Later"]', "--phpunit", str(fake))
+        else:
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with patch.object(MODULE.os, "killpg"), \
+                    patch.object(MODULE, "CLEANUP_SECONDS", 0.2, create=True), \
+                    redirect_stdout(stdout), redirect_stderr(stderr):
+                code = MODULE.worker(self.root, ["Parent", "Later"], str(fake))
+            result = subprocess.CompletedProcess([], code, stdout.getvalue(), stderr.getvalue())
+        self.assertTrue((self.root / "child.ready").is_file(), "A real descendant must exist before parent exit")
+        self.assertEqual(result.returncode, 1 if crashed or not kill_succeeds else 0, result.stderr)
+        self.assertFalse((self.root / "child-overlapped-later").exists(), "Live descendant overlaps the next shard")
+        outcomes = [json.loads(line.removeprefix("Coverage shard result: "))
+                    for line in result.stdout.splitlines() if line.startswith("Coverage shard result: ")]
+        self.assertTrue(outcomes[0]["coverage_part_nonempty"])
+        self.assertEqual((self.root / ".Build/coverage/unit-Parent.cov").read_text(),
+                         "nonempty partial coverage", "Failed partial coverage remains diagnostic")
+        self.assertEqual(outcomes[0]["returncode"], -signal.SIGSEGV if crashed else 0)
+        self.assertFalse(outcomes[0]["timed_out"])
+        self.assertEqual(outcomes[0]["process_group_cleanup_confirmed"], kill_succeeds)
+        self.assertEqual(len(outcomes), 2 if kill_succeeds else 1)
+        if kill_succeeds:
+            status = Path("/proc/%s/stat" % (self.root / "child.pid").read_text())
+            if status.exists():
+                self.assertIn(status.read_text().split(") ", 1)[1].split()[0], ("Z", "X"))
+            heartbeat = (self.root / "heartbeat").read_text()
+            time.sleep(0.1)
+            self.assertEqual((self.root / "heartbeat").read_text(), heartbeat)
+            self.assertTrue((self.root / ".Build/coverage/unit-Later.cov").is_file())
+        else:
+            self.assertIsNotNone(outcomes[0]["launcher_error"])
+            self.assertFalse((self.root / ".Build/coverage/unit-Later.cov").exists())
+            self.assertIn("remaining coverage shards not started: Later", result.stderr)
+
+    def test_crashed_parent_cleans_real_child_before_later_shard(self):
+        self.assert_parent_exit_contains_real_child(crashed=True)
+
+    def test_successful_parent_cleans_real_child_before_later_shard(self):
+        self.assert_parent_exit_contains_real_child()
+
+    def test_unconfirmed_live_child_stops_worker_even_after_parent_wait_succeeded(self):
+        self.assert_parent_exit_contains_real_child(kill_succeeds=False)
+
 
 if __name__ == "__main__":
     unittest.main()
