@@ -1,0 +1,1 @@
+- Release evidence runs unit path coverage on four workers while retaining every original coverage part and rejecting incomplete results.
