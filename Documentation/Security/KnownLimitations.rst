@@ -21,6 +21,37 @@ Nothing on this page is hedging. A control whose boundary is undocumented
 gets trusted past its boundary, and that is how a hardening feature turns
 into a liability.
 
+.. _security-known-limitations-mutation-transactions:
+
+Mutation atomicity has an explicit integration boundary
+=======================================================
+
+The coordinated stock local ``VaultService`` mutation paths commit secret,
+applicable ACL relations and audit together on one actual database connection.
+Split table mappings and an already active caller transaction are rejected.
+Only SQLite and MySQL/MariaDB are supported; any other platform is rejected
+before a write (PostgreSQL could not write audit entries before either).
+Database atomic commit, transactional tables and no dirty reads are assumed.
+
+On MySQL/MariaDB, an audit insert that rolls back consumes its auto-increment
+value. While the in-database anchor matches the current tip, the next entry
+takes the following UID explicitly, so a rollback or a killed process leaves
+no false gap. Because this trusts the in-database anchor, a replayed older
+anchor combined with deleted tail rows leaves no gap either. Tail deletion
+behind a replayed anchor is detected only by evidence outside the database:
+schedule :ref:`command-audit-anchor`.
+
+Custom adapters, legacy direct constructions without the coordinator,
+DataHandler/TCA writes outside the service, master-key rotation and read
+counters have separate boundaries. Compensation alone cannot provide crash
+atomicity. See :ref:`adr-050-local-mutation-transactions`.
+
+The finite TLA+ model and database/process tests check this defined boundary.
+They do not prove all PHP executions or the whole extension correct. External
+logs and success events are published after commit; loss of that process can
+prevent publication, and an event listener can throw after the database change
+has already committed. An exception after commit is not evidence of rollback.
+
 .. _security-known-limitations-process:
 
 A compromised PHP process can request every secret

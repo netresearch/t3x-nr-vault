@@ -585,6 +585,14 @@ final readonly class SecretRepository implements SecretRepositoryInterface
     }
 
     /**
+     * Verify scalar and both ACL-tier writes participate in one transaction.
+     */
+    public function sharesConnection(Connection $connection): bool
+    {
+        return $this->getConnection() === $connection && $this->getMmConnection(self::MM_TABLE_NAME) === $connection && $this->getMmConnection(self::MM_WRITE_TABLE_NAME) === $connection;
+    }
+
+    /**
      * Hydrate secret rows into Secret objects, batch-loading both group
      * tiers (read + write) in a constant number of MM queries regardless
      * of the number of rows. Preserves the input row order and duplicates,

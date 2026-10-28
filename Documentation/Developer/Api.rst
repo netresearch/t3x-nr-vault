@@ -202,8 +202,9 @@ The main service for interacting with the vault.
       already has is a no-op and writes no audit entry. A change is audited as
       ``metadata_update``, the same action the FormEngine path writes for the
       same column, and is all-or-nothing with that entry
-      (:ref:`adr-036-mutation-audit-atomicity`): if the audit write fails the
-      previous availability is restored and the failure surfaces.
+      (:ref:`adr-050-local-mutation-transactions`): the coordinated stock local
+      path rolls back the database transaction if the audit write fails.
+      Custom integrations retain their existing compensation behavior.
 
       :param string $identifier: The secret identifier.
       :param bool $enabled: The availability the secret should have afterwards.

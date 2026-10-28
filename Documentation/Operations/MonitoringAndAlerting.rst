@@ -420,7 +420,7 @@ An unavailable read yields a pristine delivery state, so persisted health
 may be missing or stale until storage recovers.
 This optional health bookkeeping is separate from the authoritative audit
 chain write, whose failure follows the atomic audit contract in
-:ref:`adr-036-mutation-audit-atomicity`.
+:ref:`adr-050-local-mutation-transactions`.
 
 ``vault:doctor`` surfaces it as one ``audit.sink_state.<sink>`` finding per
 enabled sink, warning under the standard profile and critical under hardened.

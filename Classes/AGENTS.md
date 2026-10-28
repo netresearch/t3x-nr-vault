@@ -121,7 +121,7 @@ This directory contains the crypto + audit core. Review bar is high:
 - **Audit every access** — `AuditLogServiceInterface::log()` before returning plaintext
 - **Identifier validation** — use `IdentifierValidator` (no path traversal, no control chars)
 - **Access control** — per-secret tiers via `AccessControlServiceInterface::canRead/canWrite/canDelete/canCreate`; privileged *operations* (create, rotate, delete, manage_policy) additionally go through `isGranted(VaultPermission::…)`. Both before the mutation, never after
-- **Mutation and audit are atomic** — if the audit write fails, compensate the mutation (`VaultService::compensateAuditFailure()`, `SecretTcaHook`'s MM-relation restore). A change that persists unaudited is a control failure, not a degraded success
+- **Local service mutation and audit share a transaction** — `VaultMutationTransaction` owns the stock local `store/rotate/delete/setEnabled` boundary from lookup through commit, including both MM tiers and audit/registry on the same actual connection. Hold the chain lock until commit and publish sinks/events afterwards. Compensation on custom-adapter and DataHandler/TCA paths does not guarantee crash atomicity (ADR-050). A change that persists unaudited is a control failure, not a degraded success
 
 ### Audit log invariants
 - `crdate` is bound into the entry hash and `log()` hardcodes `time()` — you cannot `log()` then `UPDATE crdate` without breaking `verifyHashChain()`. Backdated/historic rows require chain reconstruction in time order via the public static hashing API (`calculateHash()`/`calculateHashV2()`/`extractHashRow()`/`deriveHmacKey()`), mirroring `insertAndUpdateHash`; never delete rows (uid gaps are detected).

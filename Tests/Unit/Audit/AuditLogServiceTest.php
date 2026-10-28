@@ -10,7 +10,9 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Audit;
 
 use ArrayIterator;
+use ArrayObject;
 use DateTimeImmutable;
+use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Result;
 use InvalidArgumentException;
 use Iterator;
@@ -26,6 +28,7 @@ use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
+use Netresearch\NrVault\Audit\VaultMutationTransaction;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Exception\AuditWriteException;
@@ -33,6 +36,7 @@ use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Message\ServerRequestInterface;
@@ -3984,6 +3988,370 @@ final class AuditLogServiceTest extends TestCase
         self::assertSame(AuditChainAnchorStatus::NotChecked, $verification->anchorStatus);
     }
 
+    #[Test]
+    public function mysqlAssignsTheNextCommittedChainUidInsteadOfAnAutoIncrementReservation(): void
+    {
+        $hash = str_repeat('a', 64);
+        $this->setupDatabaseMocks($hash, 41);
+        $this
+            ->connectionMock()
+            ->method('getDatabasePlatform')
+            ->willReturn(new MySQLPlatform());
+        $this->connectionMock()->expects(self::never())->method('lastInsertId');
+        $this
+            ->connectionMock()
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                AuditLogService::TABLE_NAME,
+                self::callback(
+                    static fn (array $row): bool => ($row['uid'] ?? null) === 42,
+                ),
+            );
+        $this
+            ->connectionMock()
+            ->expects(self::once())
+            ->method('update')
+            ->with(
+                AuditLogService::TABLE_NAME,
+                self::callback(
+                    static fn (array $row): bool => isset($row['entry_hash']),
+                ),
+                ['uid' => 42],
+            );
+        $subject = $this->mysqlWriterWithAnchor(
+            new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(41, $hash, 100),
+            ),
+        );
+
+        $subject->log('uid_recovery', AuditAction::Create->value, true);
+    }
+
+    #[Test]
+    #[DataProvider('unsafeMysqlAnchorProvider')]
+    public function mysqlPreservesAutoIncrementWithoutMatchingAuthenticatedTip(
+        AuditChainAnchorLoad $load,
+        bool $enabled,
+        bool $sharesConnection = true,
+    ): void {
+        $this->setupDatabaseMocks(str_repeat('a', 64), 41);
+        $this
+            ->connectionMock()
+            ->method('getDatabasePlatform')
+            ->willReturn(new MySQLPlatform());
+        $this
+            ->connectionMock()
+            ->expects(self::once())
+            ->method('lastInsertId')
+            ->willReturn('99');
+        $this
+            ->connectionMock()
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                AuditLogService::TABLE_NAME,
+                self::callback(
+                    static fn (array $row): bool => !isset($row['uid']),
+                ),
+            );
+        $subject = $this->mysqlWriterWithAnchor($load, $enabled, $sharesConnection);
+
+        $subject->log(
+            'preserve_uid_gap_signal',
+            AuditAction::Create->value,
+            true,
+        );
+    }
+
+    /**
+     * @return iterable<string, array{0: AuditChainAnchorLoad, 1: bool, 2?: bool}>
+     */
+    public static function unsafeMysqlAnchorProvider(): iterable
+    {
+        yield 'disabled' => [new AuditChainAnchorLoad(AuditChainAnchorStatus::Disabled), false];
+        yield 'unanchored' => [new AuditChainAnchorLoad(AuditChainAnchorStatus::Unanchored), true];
+        yield 'unreadable' => [new AuditChainAnchorLoad(AuditChainAnchorStatus::Unreadable), true];
+        yield 'tail deleted' => [
+            new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(43, str_repeat('a', 64), 100),
+            ),
+            true,
+        ];
+        yield 'anchor lags' => [
+            new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(40, str_repeat('a', 64), 100),
+            ),
+            true,
+        ];
+        yield 'hash replaced' => [
+            new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(41, str_repeat('b', 64), 100),
+            ),
+            true,
+        ];
+        yield 'matching anchor on another connection' => [
+            new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(41, str_repeat('a', 64), 100),
+            ),
+            true,
+            false,
+        ];
+    }
+
+    /**
+     * @return iterable<string, array{AuditAction, bool}>
+     */
+    public static function coordinatedAuditProvider(): iterable
+    {
+        yield 'successful creation' => [AuditAction::Create, true];
+        yield 'failed read remains in the enclosing transaction' => [AuditAction::Read, false];
+    }
+
+    #[Test]
+    #[DataProvider('coordinatedAuditProvider')]
+    public function coordinatedAuditPublicationWaitsForTheOuterCommit(
+        AuditAction $action,
+        bool $success,
+    ): void {
+        $transaction = $this->mutationTransaction();
+        $connection  = $this->connectionMock();
+        $deliveries  = 0;
+        $registry    = $this->createMock(AuditSinkRegistryInterface::class);
+        $registry
+            ->expects(self::once())
+            ->method('dispatch')
+            ->willReturnCallback(
+                static function (
+                    AuditLogEntry $entry,
+                    string $tip,
+                ) use ($transaction, $connection, &$deliveries, $action, $success): int {
+                    self::assertFalse($transaction->isActive());
+                    self::assertFalse($connection->isTransactionActive());
+                    self::assertSame($action->value, $entry->action);
+                    self::assertSame($success, $entry->success);
+                    self::assertSame($entry->entryHash, $tip);
+                    ++$deliveries;
+
+                    return 1;
+                },
+            );
+        $writer = $this->coordinatedWriter($transaction, $registry);
+        $connection->expects(self::once())->method('insert');
+
+        $transaction->run(
+            static function () use ($transaction, $writer, &$deliveries, $action, $success): void {
+                $writer->log('coordinated_entry', $action->value, $success);
+                self::assertTrue($transaction->isActive());
+                self::assertSame(0, $deliveries);
+            },
+        );
+
+        self::assertSame(1, $deliveries);
+    }
+
+    #[Test]
+    public function aRolledBackCoordinatedAuditNeverReachesItsSink(): void
+    {
+        $transaction = $this->mutationTransaction();
+        $registry    = $this->createMock(AuditSinkRegistryInterface::class);
+        $registry->expects(self::never())->method('dispatch');
+        $writer = $this->coordinatedWriter($transaction, $registry);
+        $this->connectionMock()->expects(self::once())->method('insert');
+        $original = new AuditWriteException('Synthetic mutation failure', 1793180201);
+        $caught   = null;
+
+        try {
+            $transaction->run(
+                static function () use ($writer, $original): never {
+                    $writer->log(
+                        'rolled_back_entry',
+                        AuditAction::Create->value,
+                        true,
+                    );
+
+                    throw $original;
+                },
+            );
+        } catch (RuntimeException $failure) {
+            $caught = $failure;
+        }
+
+        self::assertSame($original, $caught);
+        self::assertFalse($transaction->isActive());
+        self::assertFalse($this->connectionMock()->isTransactionActive());
+    }
+
+    /**
+     * @return iterable<string, array{bool}>
+     */
+    public static function deniedAuditCompletionProvider(): iterable
+    {
+        yield 'enclosing commit' => [false];
+        yield 'enclosing rollback' => [true];
+    }
+
+    #[Test]
+    #[DataProvider('deniedAuditCompletionProvider')]
+    public function aCoordinatedDenialIsRecordedExactlyOnceAfterTheTransactionEnds(
+        bool $rollback,
+    ): void {
+        $transaction = $this->mutationTransaction();
+        $connection  = $this->connectionMock();
+        $rows        = [];
+        $deliveries  = 0;
+        $connection
+            ->expects(self::once())
+            ->method('insert')
+            ->willReturnCallback(
+                static function (
+                    string $table,
+                    array $row,
+                ) use ($transaction, &$rows): int {
+                    self::assertFalse($transaction->isActive());
+                    self::assertSame(AuditLogService::TABLE_NAME, $table);
+                    $rows[] = $row;
+
+                    return 1;
+                },
+            );
+        $registry = $this->createMock(AuditSinkRegistryInterface::class);
+        $registry
+            ->expects(self::once())
+            ->method('dispatch')
+            ->willReturnCallback(
+                static function (
+                    AuditLogEntry $entry,
+                ) use ($transaction, $connection, &$deliveries): int {
+                    self::assertFalse($transaction->isActive());
+                    self::assertFalse($connection->isTransactionActive());
+                    self::assertSame(
+                        'coordinated_denial',
+                        $entry->secretIdentifier,
+                    );
+                    self::assertSame(
+                        AuditAction::AccessDenied->value,
+                        $entry->action,
+                    );
+                    self::assertFalse($entry->success);
+                    self::assertSame(
+                        'Synthetic denied operation',
+                        $entry->errorMessage,
+                    );
+                    self::assertSame(
+                        'Synthetic operator reason',
+                        $entry->reason,
+                    );
+                    self::assertSame('prior-checksum', $entry->hashBefore);
+                    self::assertSame('requested-checksum', $entry->hashAfter);
+                    self::assertSame(['operation' => 'rotate'], $entry->context);
+                    ++$deliveries;
+
+                    return 1;
+                },
+            );
+        $writer   = $this->coordinatedWriter($transaction, $registry);
+        $original = new AuditWriteException('Synthetic access denial', 1793180202);
+        $caught   = null;
+
+        try {
+            $transaction->run(
+                static function () use ($writer, $rollback, $original, &$rows, &$deliveries): void {
+                    $writer->log(
+                        'coordinated_denial',
+                        AuditAction::AccessDenied->value,
+                        false,
+                        'Synthetic denied operation',
+                        'Synthetic operator reason',
+                        'prior-checksum',
+                        'requested-checksum',
+                        new GenericContext(['operation' => 'rotate']),
+                    );
+                    self::assertSame([], $rows);
+                    self::assertSame(0, $deliveries);
+                    if ($rollback) {
+                        throw $original;
+                    }
+                },
+            );
+        } catch (RuntimeException $failure) {
+            $caught = $failure;
+        }
+
+        self::assertSame($rollback ? $original : null, $caught);
+        self::assertCount(1, $rows);
+        self::assertSame(1, $deliveries);
+        self::assertFalse($transaction->isActive());
+        self::assertFalse($connection->isTransactionActive());
+    }
+
+    #[Test]
+    public function coordinatorParticipationRequiresTheIdenticalCoordinatorInstance(): void
+    {
+        $transaction = $this->mutationTransaction();
+        $writer      = $this->coordinatedWriter(
+            $transaction,
+            self::createStub(AuditSinkRegistryInterface::class),
+        );
+        $other = new VaultMutationTransaction($this->connectionPoolMock());
+
+        self::assertTrue($writer->usesMutationTransaction($transaction));
+        self::assertFalse($writer->usesMutationTransaction($other));
+        self::assertFalse(
+            $this->getSubject()->usesMutationTransaction($transaction),
+        );
+    }
+
+    #[Test]
+    public function sharedConnectionMeansTheWritersActualConnectionObject(): void
+    {
+        $this->setupDatabaseMocks();
+
+        self::assertTrue(
+            $this->getSubject()->sharesConnection($this->connectionMock()),
+        );
+        self::assertFalse(
+            $this
+                ->getSubject()
+                ->sharesConnection(self::createStub(Connection::class)),
+        );
+    }
+
+    #[Test]
+    public function aBrokenDiagnosticLoggerCannotInvalidateTheCommittedAudit(): void
+    {
+        $this->setupDatabaseMocks();
+        $registry = self::createStub(AuditSinkRegistryInterface::class);
+        $registry
+            ->method('dispatch')
+            ->willThrowException(new AuditWriteException('Synthetic sink failure', 1793180203));
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger
+            ->expects(self::once())
+            ->method('error')
+            ->willThrowException(new AuditWriteException('Synthetic logger failure', 1793180204));
+        $writer = new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            sinkRegistry: $registry,
+            logger: $logger,
+        );
+        $this->connectionMock()->expects(self::once())->method('insert');
+
+        $writer->log(
+            'committed_despite_diagnostics',
+            AuditAction::Create->value,
+            true,
+        );
+    }
+
     /**
      * Run one `log()` at the given epoch and return the inserted row plus the
      * `entry_hash` the second-step UPDATE stored.
@@ -4337,13 +4705,22 @@ final class AuditLogServiceTest extends TestCase
         return $columns;
     }
 
-    private function setupDatabaseMocks(mixed $previousHashFetchOne = false): void
-    {
+    private function setupDatabaseMocks(
+        mixed $previousHashFetchOne = false,
+        ?int $previousUid = null,
+    ): void {
         $expressionBuilder = $this->createMock(ExpressionBuilder::class);
         $result            = $this->createMock(Result::class);
         // getLatestHash() uses fetchOne(); default `false` means "no prior entry".
         // Tests that exercise chaining override this to return the previous_hash value.
-        $result->method('fetchOne')->willReturn($previousHashFetchOne);
+        $selectedColumn = new ArrayObject(['name' => '']);
+        $result
+            ->method('fetchOne')
+            ->willReturnCallback(
+                static function () use ($previousHashFetchOne, $previousUid, &$selectedColumn): mixed {
+                    return $selectedColumn['name'] === 'uid' ? $previousUid : $previousHashFetchOne;
+                },
+            );
 
         // GET_LOCK on MySQL/MariaDB returns 1 on success. Mock the runtime lock
         // acquisition path so tests that don't explicitly stub it don't fail
@@ -4362,33 +4739,29 @@ final class AuditLogServiceTest extends TestCase
 
         // $connection->executeQuery('SELECT GET_LOCK(...)') is called directly
         // (not via QueryBuilder) for the audit advisory lock.
-        $this->connection
-            ->method('executeQuery')
-            ->willReturn($lockResult);
+        $this->connection->method('executeQuery')->willReturn($lockResult);
 
-        $this->queryBuilder
-            ->method('expr')
-            ->willReturn($expressionBuilder);
+        $this->queryBuilder->method('expr')->willReturn($expressionBuilder);
 
         $this->queryBuilder
             ->method('select')
-            ->willReturnSelf();
+            ->willReturnCallback(
+                function (
+                    string ...$columns,
+                ) use (&$selectedColumn): QueryBuilder {
+                    $selectedColumn['name'] = $columns[0] ?? '';
 
-        $this->queryBuilder
-            ->method('from')
-            ->willReturnSelf();
+                    return $this->queryBuilderMock();
+                },
+            );
 
-        $this->queryBuilder
-            ->method('orderBy')
-            ->willReturnSelf();
+        $this->queryBuilder->method('from')->willReturnSelf();
 
-        $this->queryBuilder
-            ->method('setMaxResults')
-            ->willReturnSelf();
+        $this->queryBuilder->method('orderBy')->willReturnSelf();
 
-        $this->queryBuilder
-            ->method('executeQuery')
-            ->willReturn($result);
+        $this->queryBuilder->method('setMaxResults')->willReturnSelf();
+
+        $this->queryBuilder->method('executeQuery')->willReturn($result);
     }
 
     /**
@@ -4661,5 +5034,80 @@ final class AuditLogServiceTest extends TestCase
         $this->queryBuilder
             ->method('executeQuery')
             ->willReturn($result);
+    }
+
+    private function mysqlWriterWithAnchor(
+        AuditChainAnchorLoad $load,
+        bool $enabled = true,
+        bool $sharesConnection = true,
+    ): AuditLogService {
+        $anchor = self::createStub(AuditChainAnchorStoreInterface::class);
+        $anchor->method('isEnabled')->willReturn($enabled);
+        $anchor->method('sharesConnection')->willReturn($sharesConnection);
+        $anchor->method('load')->willReturn($load);
+
+        return new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            $anchor,
+        );
+    }
+
+    private function mutationTransaction(): VaultMutationTransaction
+    {
+        $this->setupDatabaseMocks();
+        $connection = $this->connectionMock();
+        $connection
+            ->method('getDatabasePlatform')
+            ->willReturn(new MySQLPlatform());
+        $connection->method('lastInsertId')->willReturn('42');
+        $state = new class {
+            public int $depth = 0;
+        };
+        $connection
+            ->method('isTransactionActive')
+            ->willReturnCallback(static fn (): bool => $state->depth > 0);
+        $connection
+            ->method('beginTransaction')
+            ->willReturnCallback(
+                static function () use ($state): void {
+                    ++$state->depth;
+                },
+            );
+        $connection
+            ->method('commit')
+            ->willReturnCallback(
+                static function () use ($state): void {
+                    self::assertGreaterThan(0, $state->depth);
+                    --$state->depth;
+                },
+            );
+        $connection
+            ->method('rollBack')
+            ->willReturnCallback(
+                static function () use ($state): void {
+                    self::assertGreaterThan(0, $state->depth);
+                    --$state->depth;
+                },
+            );
+
+        return new VaultMutationTransaction($this->connectionPoolMock());
+    }
+
+    private function coordinatedWriter(
+        VaultMutationTransaction $transaction,
+        AuditSinkRegistryInterface $registry,
+    ): AuditLogService {
+        return new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            $this->anchorStore,
+            $registry,
+            mutationTransaction: $transaction,
+        );
     }
 }

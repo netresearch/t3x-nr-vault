@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Audit;
 
 use DateTimeInterface;
+use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Generator;
 use InvalidArgumentException;
@@ -101,6 +102,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         private ?AuditChainAnchorStoreInterface $anchorStore = null,
         private ?AuditSinkRegistryInterface $sinkRegistry = null,
         private ?LoggerInterface $logger = null,
+        private ?VaultMutationTransaction $mutationTransaction = null,
     ) {}
 
     public function log(
@@ -122,9 +124,34 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // (which the VaultService atomicity path compensates) — it must surface.
         if (AuditAction::tryFrom($action) === null) {
             throw new InvalidArgumentException(
-                sprintf('Unknown audit action "%s"; must be one of AuditAction::cases().', $action),
+                sprintf(
+                    'Unknown audit action "%s"; must be one of AuditAction::cases().',
+                    $action,
+                ),
                 1717100000,
             );
+        }
+
+        // Denials belong to an independent audit transaction after the
+        // mutation decision. Inserting first and replaying after rollback
+        // would consume MySQL AUTO_INCREMENT UIDs and manufacture chain gaps.
+        if ($this->mutationTransaction?->isActive() === true && !$success && $action === AuditAction::AccessDenied->value) {
+            $recordDenial = function () use ($secretIdentifier, $action, $success, $errorMessage, $reason, $hashBefore, $hashAfter, $context): void {
+                $this->log(
+                    $secretIdentifier,
+                    $action,
+                    $success,
+                    $errorMessage,
+                    $reason,
+                    $hashBefore,
+                    $hashAfter,
+                    $context,
+                );
+            };
+            $this->mutationTransaction->afterCommit($recordDenial);
+            $this->mutationTransaction->afterRollback($recordDenial);
+
+            return;
         }
 
         $connection = $this->getConnection();
@@ -156,7 +183,10 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             // closed, not half-commit it.
             if ($this->anchorStore instanceof AuditChainAnchorStoreInterface) {
                 try {
-                    $this->anchorStore->advance($connection, $this->anchorFromRow($persistedRow));
+                    $this->anchorStore->advance(
+                        $connection,
+                        $this->anchorFromRow($persistedRow),
+                    );
                 } catch (Throwable $e) {
                     throw new AuditWriteException(
                         'Audit chain tip anchor could not be recorded',
@@ -184,13 +214,16 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             $this->releaseAuditLock($connection, $isSQLite);
         }
 
-        // Fan out to external sinks only here: the transaction has committed and
-        // the advisory lock is released, so a slow or hanging sink cannot
-        // serialise every other vault operation behind the audit lock. The
-        // database row is already durable, so a sink failure is a delivery
-        // problem, never a reason to fail (or roll back) the audited operation —
-        // the registry contains every error and counts it.
-        $this->publishToSinks($persistedRow);
+        // A coordinated local mutation still owns an outer transaction and
+        // chain lock. Defer external effects until that final commit/release.
+        $publish = function () use ($persistedRow): void {
+            $this->publishToSinks($persistedRow);
+        };
+        if ($this->mutationTransaction?->isActive() === true) {
+            $this->mutationTransaction->afterCommit($publish);
+        } else {
+            $publish();
+        }
     }
 
     public function query(?AuditLogFilter $filter = null, int $limit = 100, int $offset = 0): array
@@ -826,6 +859,20 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
+     * Only the identical shared coordinator can defer this writer's effects.
+     */
+    public function usesMutationTransaction(
+        VaultMutationTransaction $transaction,
+    ): bool {
+        return $this->mutationTransaction === $transaction;
+    }
+
+    public function sharesConnection(Connection $connection): bool
+    {
+        return $this->getConnection() === $connection;
+    }
+
+    /**
      * The anchor half of the re-seal gate, for chains whose rows carry no HMAC
      * evidence of their own. Returns null when the anchor raises no error —
      * `Unanchored` (or `Disabled`) is a warning, so a pre-anchor install still
@@ -1211,9 +1258,11 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
-     * Two-step write: INSERT reserves a UID, then UPDATE writes the entry hash
-     * derived from that UID. The reserve-then-hash pattern lets the hash bind
-     * its own row (otherwise the hash would need a placeholder UID).
+     * Two-step write: INSERT assigns a UID, then UPDATE writes the entry hash
+     * derived from that UID, so the hash binds its own row. MySQL can reuse a
+     * rolled-back UID only when an authenticated anchor matches the current tip;
+     * otherwise its AUTO_INCREMENT gaps retain their integrity signal. SQLite
+     * rolls its sequence back with the transaction and uses lastInsertId.
      *
      * Returns the row it just wrote as the chain's new tip, so the caller can
      * anchor it without a second read.
@@ -1230,8 +1279,27 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         array $data,
         string $previousHash,
     ): array {
+        if ($connection->getDatabasePlatform() instanceof AbstractMySQLPlatform && $this->anchorStore instanceof AuditChainAnchorStoreInterface && $this->anchorStore->isEnabled() && $this->anchorStore->sharesConnection($connection)) {
+            // Reusing a rolled-back UID is safe only when an authenticated
+            // anchor matches the CURRENT tip. Otherwise AUTO_INCREMENT gaps
+            // remain necessary evidence of tail deletion in unanchored modes.
+            $previousUid = $connection
+                ->createQueryBuilder()
+                ->select('uid')
+                ->from(self::TABLE_NAME)
+                ->orderBy('uid', 'DESC')
+                ->setMaxResults(1)
+                ->executeQuery()
+                ->fetchOne();
+            $load = $this->anchorStore->load($connection);
+            if ($load->status === AuditChainAnchorStatus::Ok && $load->anchor instanceof AuditChainAnchor && is_numeric($previousUid) && $load->anchor->uid === (int) $previousUid && hash_equals($load->anchor->entryHash, $previousHash)) {
+                $explicitUid = (int) $previousUid + 1;
+                $data['uid'] = $explicitUid;
+            }
+        }
+
         $connection->insert(self::TABLE_NAME, $data);
-        $uid         = (int) $connection->lastInsertId();
+        $uid         = $explicitUid ?? (int) $connection->lastInsertId();
         $data['uid'] = $uid;
 
         $entryHash = $this->calculateEntryHashFromRow($data, $previousHash);
@@ -1262,14 +1330,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
-     * Hand the committed row to the external audit sinks.
-     *
-     * The registry never throws (see {@see AuditSinkRegistryInterface}), so the
-     * only failure mode left is a registry that is itself broken — caught here so
-     * that even a misconfigured DI graph cannot turn audit fan-out into a failed
-     * vault operation.
-     *
-     * @param array<string, mixed> $row Persisted audit row (DB column names)
+     * @param array<string, mixed> $row
      */
     private function publishToSinks(array $row): void
     {
@@ -1288,14 +1349,18 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             // the registry contains per-sink failures itself. Report it and let
             // the audited operation complete: the chain-authoritative row is
             // already committed.
-            $this->logger?->error(
-                'nr-vault audit sink fan-out failed; the database audit entry is committed and intact.',
-                [
-                    'uid'       => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
-                    'error'     => $e->getMessage(),
-                    'exception' => $e::class,
-                ],
-            );
+            try {
+                $this->logger?->error(
+                    'nr-vault audit sink fan-out failed; the database audit entry is committed and intact.',
+                    [
+                        'uid'       => is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0,
+                        'error'     => $e->getMessage(),
+                        'exception' => $e::class,
+                    ],
+                );
+            } catch (Throwable) {
+                // Delivery diagnostics cannot invalidate the committed audit.
+            }
         }
     }
 

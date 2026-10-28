@@ -10,10 +10,13 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Service;
 
 use DateTimeInterface;
+use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditAction;
+use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\GenericContext;
+use Netresearch\NrVault\Audit\VaultMutationTransaction;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Configuration\SiteSecretNamespaceValidator;
 use Netresearch\NrVault\Crypto\EncryptedData;
@@ -64,114 +67,25 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         private ?EventDispatcherInterface $eventDispatcher = null,
         private ?LoggerInterface $logger = null,
         private ?SiteSecretNamespaceValidator $siteNamespaceValidator = null,
+        private ?VaultMutationTransaction $mutationTransaction = null,
     ) {}
 
     /**
      * @param array<string, mixed> $options
      */
-    public function store(string $identifier, #[SensitiveParameter] string $secret, array $options = []): void
-    {
+    public function store(
+        string $identifier,
+        #[SensitiveParameter]
+        string $secret,
+        array $options = [],
+    ): void {
         try {
-            IdentifierValidator::validateForStorage($identifier);
-            if ($secret === '') {
-                throw ValidationException::emptySecret();
-            }
-
-            // Administrative lookup: a disabled secret still occupies its
-            // identifier (UNIQUE KEY identifier/deleted), so classifying this
-            // write against the restricted read would call it a creation and
-            // fail on the constraint instead of updating the record.
-            $existing = $this->adapter->retrieveIncludingDisabled($identifier);
-
-            $this->assertWritePermission($identifier, $existing);
-
-            // A record that exists but carries no encrypted value is a
-            // creation in progress, not a rotation target: the FormEngine
-            // path inserts the tx_nrvault_secret row first (DataHandler) and
-            // hands the value to store() afterwards. Classify by the VALUE,
-            // so that path faces secret.create — like the module controller —
-            // and is audited as the creation it is.
-            $isCreation = !$existing instanceof Secret
-                || ($existing->getEncryptedValue() ?? '') === '';
-
-            // Separation of duties: the per-secret ACL above answers "may this
-            // actor touch THIS secret", the operation permission answers "may
-            // this actor perform this KIND of operation at all". Both gates
-            // must pass at this business boundary — controller checks are UX,
-            // not the security boundary (a DataHandler request or programmatic
-            // caller never passes through them).
-            if ($isCreation) {
-                $this->assertOperationGranted(VaultPermission::SecretCreate, $identifier, 'Create');
-            } else {
-                $this->assertOperationGranted(VaultPermission::SecretRotate, $identifier, 'Update');
-            }
-
-            if ($existing instanceof Secret && !$isCreation) {
-                $this->assertPolicyChangeGranted($identifier, $options, $existing);
-            }
-
-            $this->validateNamespaceWrite($identifier, $existing, $isCreation);
-
-            $encrypted    = $this->encryptionService->encrypt($secret, $identifier);
-            $secretEntity = $this->buildSecretEntity($identifier, $encrypted, $options, $existing);
-
-            // Capture the stored instance so the SecretCreatedEvent below
-            // sees the freshly-assigned UID — the readonly entity passed in
-            // has uid=null on create, the adapter returns the uid-bearing
-            // instance from the repository's INSERT.
-            //
-            // The group tiers of $secretEntity are authoritative for this
-            // write EXCEPT on the FormEngine completion path — a record that
-            // already exists but holds no value. There DataHandler has
-            // inserted the row and defers its MM writes until after the hook
-            // that calls us has returned, so the read behind $existing saw no
-            // relations for a record that is about to have several. Writing
-            // that back zeroes the count columns while the relation rows land
-            // moments later, leaving a row that claims no groups and grants
-            // some. A caller that submitted `groups` states the tiers itself
-            // and keeps ownership of them.
-            $secretEntity = $this->adapter->store(
-                $secretEntity,
-                !$isCreation || !$existing instanceof Secret || isset($options['groups']),
+            $this->mutate(
+                function () use ($identifier, $secret, $options): void {
+                    $this->doStore($identifier, $secret, $options);
+                },
             );
-
-            // SEC-3 atomicity: the mutation and its tamper-evident audit
-            // entry MUST be all-or-nothing. A single shared DB transaction is
-            // NOT usable here — AuditLogService manages its own transaction
-            // lifecycle (SQLite `BEGIN EXCLUSIVE`/`COMMIT`, MySQL advisory
-            // GET_LOCK), so nesting log() inside an outer transaction would
-            // either error or prematurely commit the mutation. We therefore
-            // compensate: if the audit write throws, revert the adapter change
-            // so a secret never persists without an audit record.
-            try {
-                $this->auditLogService->log(
-                    $identifier,
-                    $isCreation ? AuditAction::Create->value : AuditAction::Update->value,
-                    true,
-                    null,
-                    null,
-                    $existing?->getValueChecksum(),
-                    $encrypted->valueChecksum,
-                );
-            } catch (AuditWriteException $auditException) {
-                $this->compensateAuditFailure(
-                    $identifier,
-                    function () use ($existing, $identifier): void {
-                        if ($existing instanceof Secret) {
-                            // Update: restore the prior encrypted envelope/version.
-                            $this->adapter->store($existing);
-                        } else {
-                            // Create: remove the just-inserted record.
-                            $this->adapter->delete($identifier);
-                        }
-                    },
-                    $auditException,
-                );
-            }
-
-            $this->dispatchStoreEvent($identifier, $secretEntity, $isCreation);
         } finally {
-            // Securely wipe the plaintext even if an exception occurred
             sodium_memzero($secret);
         }
     }
@@ -219,47 +133,11 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
 
     public function delete(string $identifier, string $reason = ''): void
     {
-        // Administrative lookup — a disabled secret must still be removable.
-        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
-        if (!$secret instanceof Secret) {
-            throw SecretNotFoundException::forIdentifier($identifier);
-        }
-
-        $this->assertDeletePermitted($identifier, $secret);
-
-        $hashBefore = $secret->getValueChecksum();
-
-        // Delete
-        $this->adapter->delete($identifier);
-
-        // SEC-3 atomicity (compensating rollback — see store() for rationale):
-        // if the audit write fails, re-insert the just-deleted record so a
-        // delete never persists without a tamper-evident audit entry.
-        try {
-            $this->auditLogService->log(
-                $identifier,
-                AuditAction::Delete->value,
-                true,
-                null,
-                $reason,
-                $hashBefore,
-            );
-        } catch (AuditWriteException $auditException) {
-            $this->compensateAuditFailure(
-                $identifier,
-                function () use ($secret): void {
-                    $this->adapter->store($secret);
-                },
-                $auditException,
-            );
-        }
-
-        // Dispatch PSR-14 event
-        $this->eventDispatcher?->dispatch(new SecretDeletedEvent(
-            $identifier,
-            $this->accessControlService->getCurrentActorUid(),
-            $reason,
-        ));
+        $this->mutate(
+            function () use ($identifier, $reason): void {
+                $this->doDelete($identifier, $reason);
+            },
+        );
     }
 
     public function assertDeletable(string $identifier): void
@@ -275,159 +153,33 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         $this->assertDeletePermitted($identifier, $secret);
     }
 
-    public function rotate(string $identifier, #[SensitiveParameter] string $newSecret, string $reason = ''): void
-    {
-        // Administrative lookup — a disabled secret must still be rotatable,
-        // and a credential taken out of service is a likely rotation target.
-        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
-        if (!$secret instanceof Secret) {
-            throw SecretNotFoundException::forIdentifier($identifier);
-        }
-
-        // Check access
-        if (!$this->accessControlService->canWrite($secret)) {
-            $this->auditLogService->log($identifier, AuditAction::AccessDenied->value, false, 'Rotate access denied');
-
-            throw AccessDeniedException::forIdentifier($identifier, 'rotate permission denied');
-        }
-
-        // Separation of duties: per-secret ACL AND operation permission.
-        $this->assertOperationGranted(VaultPermission::SecretRotate, $identifier, 'Rotate');
-
-        if ($newSecret === '') {
-            throw ValidationException::emptySecret();
-        }
-
+    public function rotate(
+        string $identifier,
+        #[SensitiveParameter]
+        string $newSecret,
+        string $reason = '',
+    ): void {
         try {
-            $this->validateNamespaceWrite($identifier, $secret, false);
-            $hashBefore = $secret->getValueChecksum();
-
-            // Keep the pre-rotation instance for compensating rollback.
-            $previousSecret = $secret;
-
-            // Encrypt the new secret
-            $encrypted = $this->encryptionService->encrypt($newSecret, $identifier);
-
-            // Rotate value envelope, bump version, stamp rotation time
-            $secret = $secret->withValueRotation($encrypted, time());
-
-            // Store; capture the returned instance for the rotated event
-            // (UPDATE returns the same instance unchanged, but use the
-            // result to stay consistent with the create path).
-            $secret = $this->adapter->store($secret);
-
-            // SEC-3 atomicity (compensating rollback — see store() for
-            // rationale): if the audit write fails, restore the previous
-            // envelope/version so a rotation never persists without a
-            // tamper-evident audit entry.
-            try {
-                $this->auditLogService->log(
-                    $identifier,
-                    AuditAction::Rotate->value,
-                    true,
-                    null,
-                    $reason,
-                    $hashBefore,
-                    $encrypted->valueChecksum,
-                );
-            } catch (AuditWriteException $auditException) {
-                $this->compensateAuditFailure(
-                    $identifier,
-                    function () use ($previousSecret): void {
-                        $this->adapter->store($previousSecret);
-                    },
-                    $auditException,
-                );
-            }
-
-            // Dispatch PSR-14 event
-            $this->eventDispatcher?->dispatch(new SecretRotatedEvent(
-                $identifier,
-                $secret->getVersion(),
-                $this->accessControlService->getCurrentActorUid(),
-                $reason,
-            ));
+            $this->mutate(
+                function () use ($identifier, $newSecret, $reason): void {
+                    $this->doRotate($identifier, $newSecret, $reason);
+                },
+            );
         } finally {
-            // Securely wipe the plaintext even if an exception occurred
             sodium_memzero($newSecret);
         }
     }
 
-    public function setEnabled(string $identifier, bool $enabled, string $reason = ''): void
-    {
-        // The disabled-visible lookup: a secret that is already disabled must
-        // remain reachable, or disabling would be a one-way door — the record
-        // would vanish from every query that could re-enable it.
-        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
-        if (!$secret instanceof Secret) {
-            throw SecretNotFoundException::forIdentifier($identifier);
-        }
-
-        // Both gates, in the order the rest of the service uses them: the
-        // per-secret tier answers "may this actor touch THIS secret", the
-        // operation permission "may this actor change availability at all".
-        if (!$this->accessControlService->canWrite($secret)) {
-            $this->auditLogService->log(
-                $identifier,
-                AuditAction::AccessDenied->value,
-                false,
-                'Availability change access denied',
-            );
-
-            throw AccessDeniedException::forIdentifier($identifier, 'availability change permission denied');
-        }
-
-        $this->assertOperationGranted(VaultPermission::SecretManagePolicy, $identifier, 'Availability change');
-
-        // Asked for the state it already has: nothing mutates, so there is
-        // nothing to audit. The gates above still ran, so an unauthorized
-        // attempt is recorded whether or not it would have changed anything.
-        if ($secret->isHidden() === !$enabled) {
-            return;
-        }
-
-        $uid = $secret->getUid();
-        if ($uid === null) {
-            // A record resolved from storage always carries its UID. Without
-            // one there is no row to address, and the write below would hit
-            // nothing while the audit entry claimed a change.
-            throw SecretNotFoundException::forIdentifier($identifier);
-        }
-
-        // A targeted write of the availability column — NOT `store()` of the
-        // entity read above with its flag flipped. That would UPDATE every
-        // scalar column from a snapshot taken moments earlier, so a
-        // `retrieve()` that incremented `read_count` or a `rotate()` that
-        // replaced the envelope in the meantime would be silently rolled back
-        // by a call that only changes whether the secret is in service.
-        $this->adapter->setHidden($uid, !$enabled);
-
-        // SEC-3 atomicity (compensating rollback — see store() for rationale):
-        // if the audit write fails, restore the previous availability so a
-        // silent revocation of access never persists unaudited.
-        try {
-            $this->auditLogService->log(
-                $identifier,
-                AuditAction::MetadataUpdate->value,
-                true,
-                null,
-                $this->availabilityChangeReason($enabled, $reason),
-                null,
-                null,
-                new GenericContext(['column' => 'hidden', 'enabled' => $enabled]),
-            );
-        } catch (AuditWriteException $auditException) {
-            $this->compensateAuditFailure(
-                $identifier,
-                function () use ($uid, $secret): void {
-                    // The captured prior state, through the same targeted
-                    // write: a revert that restored the whole entity would
-                    // undo everything else that landed in the window too.
-                    $this->adapter->setHidden($uid, $secret->isHidden());
-                },
-                $auditException,
-            );
-        }
+    public function setEnabled(
+        string $identifier,
+        bool $enabled,
+        string $reason = '',
+    ): void {
+        $this->mutate(
+            function () use ($identifier, $enabled, $reason): void {
+                $this->doSetEnabled($identifier, $enabled, $reason);
+            },
+        );
     }
 
     public function list(?string $pattern = null, bool $includeDisabled = false): array
@@ -744,6 +496,12 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         callable $revert,
         AuditWriteException $auditException,
     ): never {
+        if ($this->mutationTransaction?->isActive() === true) {
+            // The owner rolls back scalar fields, both ACL tiers and the audit
+            // together; a compensating write would overwrite concurrent state.
+            throw $auditException;
+        }
+
         try {
             $revert();
         } catch (Throwable $revertFailure) {
@@ -1011,27 +769,34 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         return is_numeric($raw) ? (int) $raw : 0;
     }
 
-    private function dispatchStoreEvent(string $identifier, Secret $secretEntity, bool $isNew): void
-    {
+    private function dispatchStoreEvent(
+        string $identifier,
+        Secret $secretEntity,
+        bool $isNew,
+    ): void {
         if (!$this->eventDispatcher instanceof EventDispatcherInterface) {
             return;
         }
 
         if ($isNew) {
-            $this->eventDispatcher->dispatch(new SecretCreatedEvent(
-                $identifier,
-                $secretEntity,
-                $this->accessControlService->getCurrentActorUid(),
-            ));
+            $this->dispatchMutationEvent(
+                new SecretCreatedEvent(
+                    $identifier,
+                    $secretEntity,
+                    $this->accessControlService->getCurrentActorUid(),
+                ),
+            );
 
             return;
         }
 
-        $this->eventDispatcher->dispatch(new SecretUpdatedEvent(
-            $identifier,
-            $secretEntity->getVersion(),
-            $this->accessControlService->getCurrentActorUid(),
-        ));
+        $this->dispatchMutationEvent(
+            new SecretUpdatedEvent(
+                $identifier,
+                $secretEntity->getVersion(),
+                $this->accessControlService->getCurrentActorUid(),
+            ),
+        );
     }
 
     /**
@@ -1112,5 +877,403 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         }
 
         return $patternIndex === $patternLength;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    private function doStore(
+        string $identifier,
+        #[SensitiveParameter]
+        string $secret,
+        array $options = [],
+    ): void {
+        try {
+            IdentifierValidator::validateForStorage($identifier);
+            if ($secret === '') {
+                throw ValidationException::emptySecret();
+            }
+
+            // Administrative lookup: a disabled secret still occupies its
+            // identifier (UNIQUE KEY identifier/deleted), so classifying this
+            // write against the restricted read would call it a creation and
+            // fail on the constraint instead of updating the record.
+            $existing = $this->adapter->retrieveIncludingDisabled($identifier);
+
+            $this->assertWritePermission($identifier, $existing);
+
+            // A record that exists but carries no encrypted value is a
+            // creation in progress, not a rotation target: the FormEngine
+            // path inserts the tx_nrvault_secret row first (DataHandler) and
+            // hands the value to store() afterwards. Classify by the VALUE,
+            // so that path faces secret.create — like the module controller —
+            // and is audited as the creation it is.
+            $isCreation = !$existing instanceof Secret || ($existing->getEncryptedValue() ?? '') === '';
+
+            // Separation of duties: the per-secret ACL above answers "may this
+            // actor touch THIS secret", the operation permission answers "may
+            // this actor perform this KIND of operation at all". Both gates
+            // must pass at this business boundary — controller checks are UX,
+            // not the security boundary (a DataHandler request or programmatic
+            // caller never passes through them).
+            if ($isCreation) {
+                $this->assertOperationGranted(
+                    VaultPermission::SecretCreate,
+                    $identifier,
+                    'Create',
+                );
+            } else {
+                $this->assertOperationGranted(
+                    VaultPermission::SecretRotate,
+                    $identifier,
+                    'Update',
+                );
+            }
+
+            if ($existing instanceof Secret && !$isCreation) {
+                $this->assertPolicyChangeGranted(
+                    $identifier,
+                    $options,
+                    $existing,
+                );
+            }
+
+            $this->validateNamespaceWrite($identifier, $existing, $isCreation);
+
+            $encrypted    = $this->encryptionService->encrypt($secret, $identifier);
+            $secretEntity = $this->buildSecretEntity(
+                $identifier,
+                $encrypted,
+                $options,
+                $existing,
+            );
+
+            // Capture the stored instance so the SecretCreatedEvent below
+            // sees the freshly-assigned UID — the readonly entity passed in
+            // has uid=null on create, the adapter returns the uid-bearing
+            // instance from the repository's INSERT.
+            //
+            // The group tiers of $secretEntity are authoritative for this
+            // write EXCEPT on the FormEngine completion path — a record that
+            // already exists but holds no value. There DataHandler has
+            // inserted the row and defers its MM writes until after the hook
+            // that calls us has returned, so the read behind $existing saw no
+            // relations for a record that is about to have several. Writing
+            // that back zeroes the count columns while the relation rows land
+            // moments later, leaving a row that claims no groups and grants
+            // some. A caller that submitted `groups` states the tiers itself
+            // and keeps ownership of them.
+            $secretEntity = $this->adapter->store(
+                $secretEntity,
+                !$isCreation || !$existing instanceof Secret || isset($options['groups']),
+            );
+
+            // The stock local path is transactional. Compensation below is
+            // retained only for legacy constructions and custom backends.
+            try {
+                $this->auditLogService->log(
+                    $identifier,
+                    $isCreation ? AuditAction::Create->value : AuditAction::Update->value,
+                    true,
+                    null,
+                    null,
+                    $existing?->getValueChecksum(),
+                    $encrypted->valueChecksum,
+                );
+            } catch (AuditWriteException $auditException) {
+                $this->compensateAuditFailure(
+                    $identifier,
+                    function () use ($existing, $identifier): void {
+                        if ($existing instanceof Secret) {
+                            // Update: restore the prior encrypted envelope/version.
+                            $this->adapter->store($existing);
+                        } else {
+                            // Create: remove the just-inserted record.
+                            $this->adapter->delete($identifier);
+                        }
+                    },
+                    $auditException,
+                );
+            }
+
+            $this->dispatchStoreEvent($identifier, $secretEntity, $isCreation);
+        } finally {
+            // Securely wipe the plaintext even if an exception occurred
+            sodium_memzero($secret);
+        }
+    }
+
+    private function doDelete(string $identifier, string $reason = ''): void
+    {
+        // Administrative lookup — a disabled secret must still be removable.
+        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
+        if (!$secret instanceof Secret) {
+            throw SecretNotFoundException::forIdentifier($identifier);
+        }
+
+        $this->assertDeletePermitted($identifier, $secret);
+
+        $hashBefore = $secret->getValueChecksum();
+
+        // Delete
+        $this->adapter->delete($identifier);
+
+        // The coordinated stock path rolls back its transaction on failure.
+        // Legacy/custom constructions retain their compensating recovery.
+        try {
+            $this->auditLogService->log(
+                $identifier,
+                AuditAction::Delete->value,
+                true,
+                null,
+                $reason,
+                $hashBefore,
+            );
+        } catch (AuditWriteException $auditException) {
+            $this->compensateAuditFailure(
+                $identifier,
+                function () use ($secret): void {
+                    $this->adapter->store($secret);
+                },
+                $auditException,
+            );
+        }
+
+        // Dispatch PSR-14 event
+        $this->dispatchMutationEvent(
+            new SecretDeletedEvent(
+                $identifier,
+                $this->accessControlService->getCurrentActorUid(),
+                $reason,
+            ),
+        );
+    }
+
+    private function doRotate(
+        string $identifier,
+        #[SensitiveParameter]
+        string $newSecret,
+        string $reason = '',
+    ): void {
+        // Administrative lookup — a disabled secret must still be rotatable,
+        // and a credential taken out of service is a likely rotation target.
+        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
+        if (!$secret instanceof Secret) {
+            throw SecretNotFoundException::forIdentifier($identifier);
+        }
+
+        // Check access
+        if (!$this->accessControlService->canWrite($secret)) {
+            $this->auditLogService->log(
+                $identifier,
+                AuditAction::AccessDenied->value,
+                false,
+                'Rotate access denied',
+            );
+
+            throw AccessDeniedException::forIdentifier(
+                $identifier,
+                'rotate permission denied',
+            );
+        }
+
+        // Separation of duties: per-secret ACL AND operation permission.
+        $this->assertOperationGranted(
+            VaultPermission::SecretRotate,
+            $identifier,
+            'Rotate',
+        );
+
+        if ($newSecret === '') {
+            throw ValidationException::emptySecret();
+        }
+
+        try {
+            $this->validateNamespaceWrite($identifier, $secret, false);
+            $hashBefore = $secret->getValueChecksum();
+
+            // Keep the pre-rotation instance for compensating rollback.
+            $previousSecret = $secret;
+
+            // Encrypt the new secret
+            $encrypted = $this->encryptionService->encrypt($newSecret, $identifier);
+
+            // Rotate value envelope, bump version, stamp rotation time
+            $secret = $secret->withValueRotation($encrypted, time());
+
+            // Store; capture the returned instance for the rotated event
+            // (UPDATE returns the same instance unchanged, but use the
+            // result to stay consistent with the create path).
+            $secret = $this->adapter->store($secret);
+
+            // The coordinated stock path rolls back its transaction on failure.
+            // Legacy/custom constructions retain their compensating recovery.
+            try {
+                $this->auditLogService->log(
+                    $identifier,
+                    AuditAction::Rotate->value,
+                    true,
+                    null,
+                    $reason,
+                    $hashBefore,
+                    $encrypted->valueChecksum,
+                );
+            } catch (AuditWriteException $auditException) {
+                $this->compensateAuditFailure(
+                    $identifier,
+                    function () use ($previousSecret): void {
+                        $this->adapter->store($previousSecret);
+                    },
+                    $auditException,
+                );
+            }
+
+            // Dispatch PSR-14 event
+            $this->dispatchMutationEvent(
+                new SecretRotatedEvent(
+                    $identifier,
+                    $secret->getVersion(),
+                    $this->accessControlService->getCurrentActorUid(),
+                    $reason,
+                ),
+            );
+        } finally {
+            // Securely wipe the plaintext even if an exception occurred
+            sodium_memzero($newSecret);
+        }
+    }
+
+    private function doSetEnabled(
+        string $identifier,
+        bool $enabled,
+        string $reason = '',
+    ): void {
+        // The disabled-visible lookup: a secret that is already disabled must
+        // remain reachable, or disabling would be a one-way door — the record
+        // would vanish from every query that could re-enable it.
+        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
+        if (!$secret instanceof Secret) {
+            throw SecretNotFoundException::forIdentifier($identifier);
+        }
+
+        // Both gates, in the order the rest of the service uses them: the
+        // per-secret tier answers "may this actor touch THIS secret", the
+        // operation permission "may this actor change availability at all".
+        if (!$this->accessControlService->canWrite($secret)) {
+            $this->auditLogService->log(
+                $identifier,
+                AuditAction::AccessDenied->value,
+                false,
+                'Availability change access denied',
+            );
+
+            throw AccessDeniedException::forIdentifier(
+                $identifier,
+                'availability change permission denied',
+            );
+        }
+
+        $this->assertOperationGranted(
+            VaultPermission::SecretManagePolicy,
+            $identifier,
+            'Availability change',
+        );
+
+        // Asked for the state it already has: nothing mutates, so there is
+        // nothing to audit. The gates above still ran, so an unauthorized
+        // attempt is recorded whether or not it would have changed anything.
+        if ($secret->isHidden() === !$enabled) {
+            return;
+        }
+
+        $uid = $secret->getUid();
+        if ($uid === null) {
+            // A record resolved from storage always carries its UID. Without
+            // one there is no row to address, and the write below would hit
+            // nothing while the audit entry claimed a change.
+            throw SecretNotFoundException::forIdentifier($identifier);
+        }
+
+        // A targeted write of the availability column — NOT `store()` of the
+        // entity read above with its flag flipped. That would UPDATE every
+        // scalar column from a snapshot taken moments earlier, so a
+        // `retrieve()` that incremented `read_count` or a `rotate()` that
+        // replaced the envelope in the meantime would be silently rolled back
+        // by a call that only changes whether the secret is in service.
+        $this->adapter->setHidden($uid, !$enabled);
+
+        // The coordinated stock path rolls back its transaction on failure.
+        // Legacy/custom constructions retain their compensating recovery.
+        try {
+            $this->auditLogService->log(
+                $identifier,
+                AuditAction::MetadataUpdate->value,
+                true,
+                null,
+                $this->availabilityChangeReason($enabled, $reason),
+                null,
+                null,
+                new GenericContext(
+                    ['column' => 'hidden', 'enabled' => $enabled],
+                ),
+            );
+        } catch (AuditWriteException $auditException) {
+            $this->compensateAuditFailure(
+                $identifier,
+                function () use ($uid, $secret): void {
+                    // The captured prior state, through the same targeted
+                    // write: a revert that restored the whole entity would
+                    // undo everything else that landed in the window too.
+                    $this->adapter->setHidden($uid, $secret->isHidden());
+                },
+                $auditException,
+            );
+        }
+    }
+
+    /**
+     * @param callable():void $mutation
+     *
+     * Stock DI wiring participates; custom implementations and old direct
+     * constructions keep their existing compensating behavior
+     */
+    private function mutate(callable $mutation): void
+    {
+        if ($this->mutationTransaction instanceof VaultMutationTransaction && $this->adapter instanceof LocalEncryptionAdapter && $this->adapter->usesLocalRepository() && $this->auditLogService instanceof AuditLogService) {
+            if (!$this->auditLogService->usesMutationTransaction(
+                $this->mutationTransaction,
+            )) {
+                throw new AuditWriteException(
+                    'The local vault and audit writer must share the same mutation coordinator.',
+                    1793180006,
+                );
+            }
+
+            $connection = $this->mutationTransaction->sharedConnection();
+            if (!$this->adapter->sharesConnection($connection) || !$this->auditLogService->sharesConnection($connection)) {
+                throw new AuditWriteException(
+                    'The local repository and audit writer must share the mutation transaction connection.',
+                    1793180005,
+                );
+            }
+
+            $this->mutationTransaction->run($mutation);
+
+            return;
+        }
+
+        $mutation();
+    }
+
+    private function dispatchMutationEvent(object $event): void
+    {
+        $dispatch = function () use ($event): void {
+            $this->eventDispatcher?->dispatch($event);
+        };
+        if ($this->mutationTransaction?->isActive() === true) {
+            $this->mutationTransaction->afterCommit($dispatch);
+        } else {
+            $dispatch();
+        }
     }
 }

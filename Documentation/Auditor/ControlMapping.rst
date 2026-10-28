@@ -244,8 +244,11 @@ and Logging).*
             :ref:`adr-006-audit-logging`
 
     *   -   Log entry precedes the effect where order matters
-        -   Break-glass audits **before** granting; delete/store compensate a
-            failed audit write by rolling the data change back. The
+        -   Break-glass audits **before** granting. The stock local
+            :php:`VaultService` store, rotate, delete and availability paths
+            commit the change and its audit entry in one database transaction
+            (:ref:`adr-050-local-mutation-transactions`); custom adapters
+            compensate a failed audit write by rolling the data change back. The
             FormEngine/DataHandler paths share this contract: the
             ``tx_nrvault_secret`` delete command runs through
             :php:`VaultService::delete()`, and a metadata change (or
