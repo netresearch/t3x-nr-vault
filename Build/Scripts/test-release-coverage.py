@@ -124,6 +124,36 @@ class CoverageTest(unittest.TestCase):
                            "--phpunit", str(fake), "--timeout-seconds", "0.2")
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue((self.root / ".Build/coverage/unit-Later.cov").is_file())
+        outcomes = [json.loads(line.removeprefix("Coverage shard result: "))
+                    for line in result.stdout.splitlines() if line.startswith("Coverage shard result: ")]
+        self.assertEqual([item["shard"] for item in outcomes], ["Slow", "Later"])
+        self.assertTrue(outcomes[0]["timed_out"])
+        self.assertIsNone(outcomes[0]["returncode"])
+        self.assertIsNone(outcomes[0]["signal"])
+        self.assertEqual(outcomes[1]["returncode"], 0)
+
+    def test_worker_reports_actual_exit_code_and_signal_then_keeps_later_parts(self):
+        for name in ("Signal", "Exit", "Later"):
+            self.shard(name)
+        fake = self.root / "phpunit"
+        fake.write_text("#!/usr/bin/env python3\nimport os,pathlib,resource,signal,sys\n"
+                        "resource.setrlimit(resource.RLIMIT_CORE,(0,0))\n"
+                        "if 'Signal' in sys.argv[-1]: os.kill(os.getpid(),signal.SIGSEGV)\n"
+                        "if 'Exit' in sys.argv[-1]: sys.exit(7)\n"
+                        "out=next(a.split('=',1)[1] for a in sys.argv if a.startswith('--coverage-php='))\n"
+                        "pathlib.Path(out).write_text('coverage')\n", encoding="utf-8")
+        fake.chmod(0o755)
+        result = self.call("worker", "--shards", '["Signal","Exit","Later"]',
+                           "--phpunit", str(fake))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        outcomes = [json.loads(line.removeprefix("Coverage shard result: "))
+                    for line in result.stdout.splitlines() if line.startswith("Coverage shard result: ")]
+        self.assertEqual([item["shard"] for item in outcomes], ["Signal", "Exit", "Later"])
+        self.assertEqual([item["returncode"] for item in outcomes], [-11, 7, 0])
+        self.assertEqual([item["signal"] for item in outcomes], ["SIGSEGV", None, None])
+        self.assertEqual([item["coverage_part_nonempty"] for item in outcomes], [False, False, True])
+        self.assertTrue(all(not item["timed_out"] and item["launcher_error"] is None for item in outcomes))
+        self.assertTrue((self.root / ".Build/coverage/unit-Later.cov").is_file())
 
 
 if __name__ == "__main__":

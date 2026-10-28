@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 
@@ -71,12 +72,25 @@ def worker(root, shards, phpunit, timeout=1800):
         command = [phpunit, "-c", "Build/phpunit.xml", "--path-coverage",
                    "--coverage-php=" + str(part), *targets]
         print("Coverage shard: " + shard, flush=True)
+        returncode = None
+        timed_out = False
+        launcher_error = None
         try:
             result = subprocess.run(command, cwd=root, check=False, timeout=timeout)
-            passed = result.returncode == 0 and part.is_file() and part.stat().st_size > 0
-        except (OSError, subprocess.TimeoutExpired) as error:
+            returncode = result.returncode
+        except subprocess.TimeoutExpired as error:
+            timed_out = True
             print(str(error), file=sys.stderr)
-            passed = False
+        except OSError as error:
+            launcher_error = str(error)
+            print(launcher_error, file=sys.stderr)
+        signal_name = signal.Signals(-returncode).name if returncode is not None and returncode < 0 else None
+        nonempty = part.is_file() and part.stat().st_size > 0
+        print("Coverage shard result: " + json.dumps({
+            "shard": shard, "returncode": returncode, "signal": signal_name,
+            "timed_out": timed_out, "launcher_error": launcher_error,
+            "coverage_part_nonempty": nonempty}, sort_keys=True), flush=True)
+        passed = returncode == 0 and not timed_out and launcher_error is None and nonempty
         if not passed:
             failed.append(shard)
     if failed:
