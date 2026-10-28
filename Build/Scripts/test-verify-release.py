@@ -45,7 +45,9 @@ class ReleaseTest(unittest.TestCase):
             self.run_keys.append(key)
             self.api_data[key] = [{"total_count": 1, "workflow_runs": [{
                 "id": index + 100, "workflow_id": index + 1,
-                "path": ".github/workflows/" + workflow,
+                # The REST workflow-run example includes its definition ref;
+                # workflow metadata itself still uses the canonical file path.
+                "path": ".github/workflows/" + workflow + "@main",
                 "head_sha": COMMIT, "head_branch": "main", "event": "push",
                 "repository": identity, "head_repository": identity,
                 "created_at": "2026-10-28T00:00:00Z", "run_started_at": "2026-10-28T00:00:00Z",
@@ -85,6 +87,23 @@ class ReleaseTest(unittest.TestCase):
 
     def test_matching_bundle_signed_main_commit_and_complete_policy_pass(self):
         self.verify()
+
+    def test_run_paths_with_and_without_definition_refs_pass(self):
+        for suffix in ("", "@main", "@refs/heads/main", "@" + COMMIT):
+            with self.subTest(suffix=suffix):
+                for workflow, key in zip(MODULE.REQUIRED_WORKFLOWS, self.run_keys):
+                    self.api_data[key][0]["workflow_runs"][0]["path"] = ".github/workflows/" + workflow + suffix
+                self.verify()
+
+    def test_other_or_malformed_run_paths_block(self):
+        path = ".github/workflows/ci.yml"
+        for value in (None, 3, ".github/workflows/other.yml@main", "/" + path + "@main",
+                      path + "/extra@main", path + "@", path + "@ main", path + "@main\n",
+                      path + "@main\x00", path + "@main\x7f"):
+            with self.subTest(path=value):
+                self.api_data[self.run_keys[0]][0]["workflow_runs"][0]["path"] = value
+                with self.assertRaises(ValueError):
+                    self.verify()
 
     def test_actual_evidence_identity_and_digest_must_match(self):
         for change in ({"evidence_commit": "c" * 40}, {"evidence_tag": "v1.2.2"},
