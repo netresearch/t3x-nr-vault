@@ -302,7 +302,7 @@ jobs:
             {
               echo "supported=false"
               echo 'shards=["Audit"]'
-              echo 'workers=[{"id":1,"shards":["Audit"]}]'
+              echo 'workers=[{"id":1,"shards":["Audit"],"timeout":40}]'
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -319,7 +319,7 @@ jobs:
     needs: coverage-plan
     if: needs.coverage-plan.outputs.supported == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.worker.timeout }}
     permissions:
       contents: read
     strategy:

@@ -45,10 +45,16 @@ def plan(root):
     assigned = [name for group in groups for name in group["shards"]]
     if sorted(assigned) != shards or len(assigned) != len(set(assigned)):
         raise ValueError("Coverage worker assignment differs from complete shard manifest")
+    for group in groups:
+        group["timeout"] = len(group["shards"]) * 30 + 10
+        if group["timeout"] > 360:
+            raise ValueError("Coverage group exceeds GitHub's 360-minute job limit; revise the worker plan")
     return {"shards": shards, "workers": groups}
 
 
-def worker(root, shards, phpunit):
+def worker(root, shards, phpunit, timeout=1800):
+    if not 0 < timeout <= 1800:
+        raise ValueError("Shard timeout must be positive and at most 1800 seconds")
     if (not isinstance(shards, list) or not shards or
             any(not isinstance(name, str) for name in shards) or
             len(shards) != len(set(shards)) or not set(shards).issubset(discover(root))):
@@ -57,7 +63,8 @@ def worker(root, shards, phpunit):
     output.mkdir(parents=True, exist_ok=True)
     failed = []
     for shard in shards:
-        targets = (sorted(str(path.relative_to(root)) for path in (root / "Tests/Unit").glob("*Test.php"))
+        targets = (sorted(str(path.relative_to(root)) for path in (root / "Tests/Unit").glob("*Test.php")
+                          if path.is_file() and not path.is_symlink())
                    if shard == "__root" else ["Tests/Unit/" + shard])
         part = output / ("unit-" + shard + ".cov")
         part.unlink(missing_ok=True)  # An old part cannot turn a failed invocation green.
@@ -65,9 +72,9 @@ def worker(root, shards, phpunit):
                    "--coverage-php=" + str(part), *targets]
         print("Coverage shard: " + shard, flush=True)
         try:
-            result = subprocess.run(command, cwd=root, check=False)
+            result = subprocess.run(command, cwd=root, check=False, timeout=timeout)
             passed = result.returncode == 0 and part.is_file() and part.stat().st_size > 0
-        except OSError as error:
+        except (OSError, subprocess.TimeoutExpired) as error:
             print(str(error), file=sys.stderr)
             passed = False
         if not passed:
@@ -83,12 +90,13 @@ def main():
     parser.add_argument("mode", choices=("plan", "worker"))
     parser.add_argument("--shards", default="[]")
     parser.add_argument("--phpunit", default=".Build/bin/phpunit")
+    parser.add_argument("--timeout-seconds", type=float, default=1800)
     args = parser.parse_args()
     try:
         if args.mode == "plan":
             print(json.dumps(plan(Path.cwd()), separators=(",", ":")))
             return 0
-        return worker(Path.cwd(), json.loads(args.shards), args.phpunit)
+        return worker(Path.cwd(), json.loads(args.shards), args.phpunit, args.timeout_seconds)
     except (ValueError, OSError) as error:
         print("Coverage: " + str(error), file=sys.stderr)
         return 1
