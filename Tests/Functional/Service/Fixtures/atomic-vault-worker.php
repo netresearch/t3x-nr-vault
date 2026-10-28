@@ -27,6 +27,11 @@ use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\TestingFramework\Core\Testbase;
 
+/**
+ * Infrastructure failure in the isolated crash-test worker.
+ */
+final class AtomicVaultWorkerFailure extends RuntimeException {}
+
 $arguments = $_SERVER['argv'] ?? null;
 if (!is_array($arguments) || !is_string($arguments[1] ?? null)) {
     throw new InvalidArgumentException(
@@ -42,7 +47,7 @@ $settings = json_decode(
     512,
     JSON_THROW_ON_ERROR,
 );
-require $settings['autoload'];
+require_once $settings['autoload'];
 
 try {
     $testbase = new Testbase();
@@ -57,7 +62,7 @@ try {
     $testbase->setUpBasicTypo3Bootstrap($settings['environment']['project']);
     $configurationValues = $GLOBALS['TYPO3_CONF_VARS'] ?? null;
     if (!is_array($configurationValues)) {
-        throw new RuntimeException(
+        throw new AtomicVaultWorkerFailure(
             'The isolated TYPO3 configuration was not initialized.',
             8330214822,
         );
@@ -130,7 +135,10 @@ try {
                     $deadline = microtime(true) + 10;
                     while (!is_file($this->settings['release'])) {
                         if (microtime(true) >= $deadline) {
-                            throw new RuntimeException('Test barrier timed out.', 4873682939);
+                            throw new AtomicVaultWorkerFailure(
+                                'Test barrier timed out.',
+                                4873682939,
+                            );
                         }
 
                         clearstatcache(true, $this->settings['release']);
@@ -140,12 +148,18 @@ try {
 
                 $pid = getmypid();
                 if ($pid === false) {
-                    throw new RuntimeException('Worker process id is unavailable.', 5129470785);
+                    throw new AtomicVaultWorkerFailure(
+                        'Worker process id is unavailable.',
+                        5129470785,
+                    );
                 }
 
                 posix_kill($pid, 9);
 
-                throw new RuntimeException('SIGKILL did not terminate the worker.', 3877558119);
+                throw new AtomicVaultWorkerFailure(
+                    'SIGKILL did not terminate the worker.',
+                    3877558119,
+                );
             }
 
             return $this->inner->getMasterKey();

@@ -28,6 +28,7 @@ use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
+use Netresearch\NrVault\Audit\VaultMutationTransaction;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Exception\AuditWriteException;
@@ -4095,6 +4096,254 @@ final class AuditLogServiceTest extends TestCase
     }
 
     /**
+     * @return iterable<string, array{AuditAction, bool}>
+     */
+    public static function coordinatedAuditProvider(): iterable
+    {
+        yield 'successful creation' => [AuditAction::Create, true];
+        yield 'failed read remains in the enclosing transaction' => [AuditAction::Read, false];
+    }
+
+    #[Test]
+    #[DataProvider('coordinatedAuditProvider')]
+    public function coordinatedAuditPublicationWaitsForTheOuterCommit(
+        AuditAction $action,
+        bool $success,
+    ): void {
+        $transaction = $this->mutationTransaction();
+        $connection  = $this->connectionMock();
+        $deliveries  = 0;
+        $registry    = $this->createMock(AuditSinkRegistryInterface::class);
+        $registry
+            ->expects(self::once())
+            ->method('dispatch')
+            ->willReturnCallback(
+                static function (
+                    AuditLogEntry $entry,
+                    string $tip,
+                ) use ($transaction, $connection, &$deliveries, $action, $success): int {
+                    self::assertFalse($transaction->isActive());
+                    self::assertFalse($connection->isTransactionActive());
+                    self::assertSame($action->value, $entry->action);
+                    self::assertSame($success, $entry->success);
+                    self::assertSame($entry->entryHash, $tip);
+                    ++$deliveries;
+
+                    return 1;
+                },
+            );
+        $writer = $this->coordinatedWriter($transaction, $registry);
+        $connection->expects(self::once())->method('insert');
+
+        $transaction->run(
+            static function () use ($transaction, $writer, &$deliveries, $action, $success): void {
+                $writer->log('coordinated_entry', $action->value, $success);
+                self::assertTrue($transaction->isActive());
+                self::assertSame(0, $deliveries);
+            },
+        );
+
+        self::assertSame(1, $deliveries);
+    }
+
+    #[Test]
+    public function aRolledBackCoordinatedAuditNeverReachesItsSink(): void
+    {
+        $transaction = $this->mutationTransaction();
+        $registry    = $this->createMock(AuditSinkRegistryInterface::class);
+        $registry->expects(self::never())->method('dispatch');
+        $writer = $this->coordinatedWriter($transaction, $registry);
+        $this->connectionMock()->expects(self::once())->method('insert');
+        $original = new AuditWriteException('Synthetic mutation failure', 1793180201);
+        $caught   = null;
+
+        try {
+            $transaction->run(
+                static function () use ($writer, $original): never {
+                    $writer->log(
+                        'rolled_back_entry',
+                        AuditAction::Create->value,
+                        true,
+                    );
+
+                    throw $original;
+                },
+            );
+        } catch (RuntimeException $failure) {
+            $caught = $failure;
+        }
+
+        self::assertSame($original, $caught);
+        self::assertFalse($transaction->isActive());
+        self::assertFalse($this->connectionMock()->isTransactionActive());
+    }
+
+    /**
+     * @return iterable<string, array{bool}>
+     */
+    public static function deniedAuditCompletionProvider(): iterable
+    {
+        yield 'enclosing commit' => [false];
+        yield 'enclosing rollback' => [true];
+    }
+
+    #[Test]
+    #[DataProvider('deniedAuditCompletionProvider')]
+    public function aCoordinatedDenialIsRecordedExactlyOnceAfterTheTransactionEnds(
+        bool $rollback,
+    ): void {
+        $transaction = $this->mutationTransaction();
+        $connection  = $this->connectionMock();
+        $rows        = [];
+        $deliveries  = 0;
+        $connection
+            ->expects(self::once())
+            ->method('insert')
+            ->willReturnCallback(
+                static function (
+                    string $table,
+                    array $row,
+                ) use ($transaction, &$rows): int {
+                    self::assertFalse($transaction->isActive());
+                    self::assertSame(AuditLogService::TABLE_NAME, $table);
+                    $rows[] = $row;
+
+                    return 1;
+                },
+            );
+        $registry = $this->createMock(AuditSinkRegistryInterface::class);
+        $registry
+            ->expects(self::once())
+            ->method('dispatch')
+            ->willReturnCallback(
+                static function (
+                    AuditLogEntry $entry,
+                ) use ($transaction, $connection, &$deliveries): int {
+                    self::assertFalse($transaction->isActive());
+                    self::assertFalse($connection->isTransactionActive());
+                    self::assertSame(
+                        'coordinated_denial',
+                        $entry->secretIdentifier,
+                    );
+                    self::assertSame(
+                        AuditAction::AccessDenied->value,
+                        $entry->action,
+                    );
+                    self::assertFalse($entry->success);
+                    self::assertSame(
+                        'Synthetic denied operation',
+                        $entry->errorMessage,
+                    );
+                    self::assertSame(
+                        'Synthetic operator reason',
+                        $entry->reason,
+                    );
+                    self::assertSame('prior-checksum', $entry->hashBefore);
+                    self::assertSame('requested-checksum', $entry->hashAfter);
+                    self::assertSame(['operation' => 'rotate'], $entry->context);
+                    ++$deliveries;
+
+                    return 1;
+                },
+            );
+        $writer   = $this->coordinatedWriter($transaction, $registry);
+        $original = new AuditWriteException('Synthetic access denial', 1793180202);
+        $caught   = null;
+
+        try {
+            $transaction->run(
+                static function () use ($writer, $rollback, $original, &$rows, &$deliveries): void {
+                    $writer->log(
+                        'coordinated_denial',
+                        AuditAction::AccessDenied->value,
+                        false,
+                        'Synthetic denied operation',
+                        'Synthetic operator reason',
+                        'prior-checksum',
+                        'requested-checksum',
+                        new GenericContext(['operation' => 'rotate']),
+                    );
+                    self::assertSame([], $rows);
+                    self::assertSame(0, $deliveries);
+                    if ($rollback) {
+                        throw $original;
+                    }
+                },
+            );
+        } catch (RuntimeException $failure) {
+            $caught = $failure;
+        }
+
+        self::assertSame($rollback ? $original : null, $caught);
+        self::assertCount(1, $rows);
+        self::assertSame(1, $deliveries);
+        self::assertFalse($transaction->isActive());
+        self::assertFalse($connection->isTransactionActive());
+    }
+
+    #[Test]
+    public function coordinatorParticipationRequiresTheIdenticalCoordinatorInstance(): void
+    {
+        $transaction = $this->mutationTransaction();
+        $writer      = $this->coordinatedWriter(
+            $transaction,
+            self::createStub(AuditSinkRegistryInterface::class),
+        );
+        $other = new VaultMutationTransaction($this->connectionPoolMock());
+
+        self::assertTrue($writer->usesMutationTransaction($transaction));
+        self::assertFalse($writer->usesMutationTransaction($other));
+        self::assertFalse(
+            $this->getSubject()->usesMutationTransaction($transaction),
+        );
+    }
+
+    #[Test]
+    public function sharedConnectionMeansTheWritersActualConnectionObject(): void
+    {
+        $this->setupDatabaseMocks();
+
+        self::assertTrue(
+            $this->getSubject()->sharesConnection($this->connectionMock()),
+        );
+        self::assertFalse(
+            $this
+                ->getSubject()
+                ->sharesConnection(self::createStub(Connection::class)),
+        );
+    }
+
+    #[Test]
+    public function aBrokenDiagnosticLoggerCannotInvalidateTheCommittedAudit(): void
+    {
+        $this->setupDatabaseMocks();
+        $registry = self::createStub(AuditSinkRegistryInterface::class);
+        $registry
+            ->method('dispatch')
+            ->willThrowException(new AuditWriteException('Synthetic sink failure', 1793180203));
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger
+            ->expects(self::once())
+            ->method('error')
+            ->willThrowException(new AuditWriteException('Synthetic logger failure', 1793180204));
+        $writer = new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            sinkRegistry: $registry,
+            logger: $logger,
+        );
+        $this->connectionMock()->expects(self::once())->method('insert');
+
+        $writer->log(
+            'committed_despite_diagnostics',
+            AuditAction::Create->value,
+            true,
+        );
+    }
+
+    /**
      * Run one `log()` at the given epoch and return the inserted row plus the
      * `entry_hash` the second-step UPDATE stored.
      *
@@ -4793,6 +5042,62 @@ final class AuditLogServiceTest extends TestCase
             $this->masterKeyProviderMock(),
             $this->extensionConfigurationMock(),
             $anchor,
+        );
+    }
+
+    private function mutationTransaction(): VaultMutationTransaction
+    {
+        $this->setupDatabaseMocks();
+        $connection = $this->connectionMock();
+        $connection
+            ->method('getDatabasePlatform')
+            ->willReturn(new MySQLPlatform());
+        $connection->method('lastInsertId')->willReturn('42');
+        $state = new class {
+            public int $depth = 0;
+        };
+        $connection
+            ->method('isTransactionActive')
+            ->willReturnCallback(static fn (): bool => $state->depth > 0);
+        $connection
+            ->method('beginTransaction')
+            ->willReturnCallback(
+                static function () use ($state): void {
+                    ++$state->depth;
+                },
+            );
+        $connection
+            ->method('commit')
+            ->willReturnCallback(
+                static function () use ($state): void {
+                    self::assertGreaterThan(0, $state->depth);
+                    --$state->depth;
+                },
+            );
+        $connection
+            ->method('rollBack')
+            ->willReturnCallback(
+                static function () use ($state): void {
+                    self::assertGreaterThan(0, $state->depth);
+                    --$state->depth;
+                },
+            );
+
+        return new VaultMutationTransaction($this->connectionPoolMock());
+    }
+
+    private function coordinatedWriter(
+        VaultMutationTransaction $transaction,
+        AuditSinkRegistryInterface $registry,
+    ): AuditLogService {
+        return new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            $this->anchorStore,
+            $registry,
+            mutationTransaction: $transaction,
         );
     }
 }

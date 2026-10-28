@@ -111,14 +111,7 @@ final class VaultMutationTransaction
         } catch (Throwable $e) {
             $failure = $e;
 
-            try {
-                if ($connection->isTransactionActive()) {
-                    $this->rollbackAuditLock($connection, $isSQLite);
-                }
-            } catch (Throwable $rollbackFailure) {
-                $connection->close();
-                $this->reportCleanupFailure($rollbackFailure);
-            }
+            $this->rollbackPendingTransaction($connection, $isSQLite);
         }
 
         $committedActions        = $this->committedActions;
@@ -187,6 +180,20 @@ final class VaultMutationTransaction
             );
         } catch (Throwable) {
             // Cleanup must preserve the original operation outcome.
+        }
+    }
+
+    private function rollbackPendingTransaction(
+        Connection $connection,
+        bool $isSQLite,
+    ): void {
+        try {
+            if ($connection->isTransactionActive()) {
+                $this->rollbackAuditLock($connection, $isSQLite);
+            }
+        } catch (Throwable $rollbackFailure) {
+            $connection->close();
+            $this->reportCleanupFailure($rollbackFailure);
         }
     }
 }

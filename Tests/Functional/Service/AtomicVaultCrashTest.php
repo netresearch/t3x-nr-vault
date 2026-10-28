@@ -241,6 +241,7 @@ final class AtomicVaultCrashTest extends AbstractVaultFunctionalTestCase
             json_encode($configuration, JSON_THROW_ON_ERROR),
         );
         chmod($configurationFile, 0o600);
+        // nosemgrep: netresearch.php.lang.security.exec-use.exec-use - argv array, no shell; fixed PHP_BINARY and worker path, test-generated isolated configuration path
         $process = proc_open(
             [
                 PHP_BINARY,
