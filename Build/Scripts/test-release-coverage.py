@@ -217,7 +217,7 @@ class CoverageTest(unittest.TestCase):
                     try:
                         os.kill(pid, signal.SIGKILL)
                     except ProcessLookupError:
-                        pass
+                        pass  # The owned child exited between the marker check and kill.
 
         self.addCleanup(stop_owned_child)
         result = self.call("worker", "--shards", '["Slow","Later"]', "--phpunit", str(fake),
