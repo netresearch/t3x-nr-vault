@@ -65,6 +65,10 @@ class CoverageTest(unittest.TestCase):
     def test_empty_selection_fails(self):
         self.assertNotEqual(self.call("plan").returncode, 0)
 
+    def test_fixture_directory_with_real_tests_is_not_excluded_by_name(self):
+        self.shard("Fixtures")
+        self.assertEqual(self.plan()["shards"], ["Fixtures"])
+
     def test_worker_keeps_later_diagnostics_after_middle_shard_failure(self):
         for name in ("First", "Broken", "__root"):
             self.shard(name)
