@@ -130,15 +130,10 @@ final class VaultMutationTransactionTest extends TestCase
                         },
                     );
                     $subject->afterRollback(
-                        static function () use ($subject, &$replayed, &$active): never {
+                        static function () use ($subject, &$replayed, &$active): void {
                             self::assertFalse($active);
                             self::assertFalse($subject->isActive());
                             $replayed = true;
-
-                            throw new AuditWriteException(
-                                'denial replay failed',
-                                1793180102,
-                            );
                         },
                     );
 
@@ -203,6 +198,7 @@ final class VaultMutationTransactionTest extends TestCase
     public function aSplitTableMappingIsRejectedBeforeAnyMutation(): void
     {
         $connection = $this->createMock(Connection::class);
+        $connection->method('getDatabasePlatform')->willReturn(new SQLitePlatform());
         $connection->expects(self::never())->method('beginTransaction');
         $other = self::createStub(Connection::class);
         $pool  = self::createStub(ConnectionPool::class);
@@ -216,6 +212,7 @@ final class VaultMutationTransactionTest extends TestCase
         $subject = new VaultMutationTransaction($pool);
 
         $this->expectException(AuditWriteException::class);
+        $this->expectExceptionCode(1793180004);
         $subject->run(
             static function (): never {
                 self::fail(
@@ -230,12 +227,14 @@ final class VaultMutationTransactionTest extends TestCase
     {
         $connection = $this->createMock(Connection::class);
         $connection->method('isTransactionActive')->willReturn(true);
+        $connection->method('getDatabasePlatform')->willReturn(new SQLitePlatform());
         $connection->expects(self::never())->method('beginTransaction');
         $connection->expects(self::never())->method('commit');
         $connection->expects(self::never())->method('rollBack');
         $subject = $this->subject($connection);
 
         $this->expectException(AuditWriteException::class);
+        $this->expectExceptionCode(1793180002);
         $subject->run(
             static function (): never {
                 self::fail(
@@ -513,7 +512,7 @@ final class VaultMutationTransactionTest extends TestCase
     }
 
     #[Test]
-    public function aBrokenDiagnosticLoggerCannotReplaceTheOriginalMutationFailure(): void
+    public function anUnrecordedDenialSurfacesEvenWhenTheDiagnosticLoggerIsBroken(): void
     {
         $logger = $this->createMock(LoggerInterface::class);
         $logger
@@ -544,12 +543,97 @@ final class VaultMutationTransactionTest extends TestCase
                     throw $original;
                 },
             );
-            self::fail('The original failure must propagate.');
+            self::fail('The unrecorded denial must surface.');
         } catch (AuditWriteException $failure) {
-            self::assertSame($original, $failure);
+            self::assertSame($replayFailure, $failure);
         }
 
         self::assertFalse($subject->isActive());
+    }
+
+    #[Test]
+    public function aDenialReplayFailureOtherThanAnAuditWriteFailureIsWrapped(): void
+    {
+        $subject       = $this->subject($this->sqliteConnectionForAttempts());
+        $replayFailure = new RuntimeException('connection lost', 1793180210);
+
+        try {
+            $subject->run(
+                static function () use ($subject, $replayFailure): never {
+                    $subject->afterRollback(
+                        static function () use ($replayFailure): never {
+                            throw $replayFailure;
+                        },
+                    );
+
+                    throw new AuditWriteException('The mutation failed first.', 1793180211);
+                },
+            );
+            self::fail('The unrecorded denial must surface.');
+        } catch (AuditWriteException $failure) {
+            self::assertSame(1754038801, $failure->getCode());
+            self::assertSame($replayFailure, $failure->getPrevious());
+        }
+    }
+
+    #[Test]
+    public function everyDenialIsReplayedEvenAfterAnEarlierReplayFailed(): void
+    {
+        $subject       = $this->subject($this->sqliteConnectionForAttempts());
+        $actions       = new ArrayObject();
+        $replayFailure = new AuditWriteException('First denial unavailable.', 1793180212);
+
+        try {
+            $subject->run(
+                static function () use ($subject, $actions, $replayFailure): never {
+                    $subject->afterRollback(
+                        static function () use ($replayFailure): never {
+                            throw $replayFailure;
+                        },
+                    );
+                    $subject->afterRollback(
+                        static function () use ($actions): void {
+                            $actions->append('second denial recorded');
+                        },
+                    );
+
+                    throw new AuditWriteException('The mutation failed first.', 1793180213);
+                },
+            );
+            self::fail('The unrecorded denial must surface.');
+        } catch (AuditWriteException $failure) {
+            self::assertSame($replayFailure, $failure);
+        }
+
+        self::assertSame(['second denial recorded'], $actions->getArrayCopy());
+    }
+
+    #[Test]
+    public function sqliteTakesItsWriteLockBeforeTheMutationReads(): void
+    {
+        $connection = $this->sqliteConnectionForAttempts();
+        $locked     = false;
+        $connection
+            ->expects(self::once())
+            ->method('executeStatement')
+            ->with('UPDATE tx_nrvault_audit_log SET uid = uid WHERE 1 = 0')
+            ->willReturnCallback(
+                static function () use ($connection, &$locked): int {
+                    self::assertTrue($connection->isTransactionActive());
+                    $locked = true;
+
+                    return 0;
+                },
+            );
+
+        $this->subject($connection)->run(
+            static function () use (&$locked): void {
+                self::assertTrue(
+                    $locked,
+                    'A deferred transaction must not reach the lookup without the RESERVED lock',
+                );
+            },
+        );
     }
 
     #[Test]
@@ -599,7 +683,13 @@ final class VaultMutationTransactionTest extends TestCase
 
         try {
             $subject->run(
-                static function () use ($thirdFailure): never {
+                static function () use ($subject, $actions, $thirdFailure): never {
+                    $subject->afterCommit(
+                        static function () use ($actions): void {
+                            $actions->append('third attempt publication');
+                        },
+                    );
+
                     throw $thirdFailure;
                 },
             );
@@ -608,12 +698,20 @@ final class VaultMutationTransactionTest extends TestCase
             self::assertSame($thirdFailure, $failure);
         }
 
+        // A failed attempt's commit actions are dropped even when the next
+        // successful attempt commits right after it.
         $subject->run(
-            static function (): void {},
+            static function () use ($subject, $actions): void {
+                $subject->afterCommit(
+                    static function () use ($actions): void {
+                        $actions->append('fourth committed');
+                    },
+                );
+            },
         );
 
         self::assertSame(
-            ['first rollback', 'second committed'],
+            ['first rollback', 'second committed', 'fourth committed'],
             $actions->getArrayCopy(),
         );
         self::assertFalse($subject->isActive());

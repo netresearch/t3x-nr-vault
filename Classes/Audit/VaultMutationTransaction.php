@@ -129,14 +129,26 @@ final class VaultMutationTransaction
         }
 
         if ($failure instanceof Throwable) {
+            $unrecordedDenial = null;
             foreach ($rolledBackActions as $action) {
                 try {
                     $action();
                 } catch (Throwable $replayFailure) {
-                    // A failed denial-log replay must not replace the original
-                    // operation failure or accidentally replay a success entry.
+                    // Keep replaying the remaining denials; never replay a
+                    // success entry, which was rolled back with the mutation.
                     $this->reportCleanupFailure($replayFailure);
+                    $unrecordedDenial ??= $replayFailure;
                 }
+            }
+
+            // A denial that could not be audited must stay visible to the
+            // caller, as it was when the denial was written inline.
+            if ($unrecordedDenial instanceof AuditWriteException) {
+                throw $unrecordedDenial;
+            }
+
+            if ($unrecordedDenial instanceof Throwable) {
+                throw AuditWriteException::writeFailed($unrecordedDenial);
             }
 
             throw $failure;

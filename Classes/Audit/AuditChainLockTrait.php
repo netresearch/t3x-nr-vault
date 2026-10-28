@@ -25,6 +25,9 @@ use TYPO3\CMS\Core\Database\Connection;
  *
  * Lock behaviour:
  *  - SQLite: `BEGIN EXCLUSIVE` — serialises all writers for the transaction.
+ *    A transaction owner that needs a Doctrine-managed transaction
+ *    (`$managedSQLite`, {@see VaultMutationTransaction}) begins through
+ *    Doctrine and takes the RESERVED lock with a write that matches no row.
  *  - MySQL/MariaDB: named `GET_LOCK("nr_vault_audit", 5)` + transaction.
  *    `GET_LOCK` returns 1 on success, 0 on timeout, NULL on error — we
  *    abort on anything other than 1 so we never silently write unprotected
@@ -56,7 +59,29 @@ trait AuditChainLockTrait
         bool $managedSQLite = false,
     ): void {
         if ($isSQLite) {
-            if ($managedSQLite || $connection->isTransactionActive()) {
+            if ($managedSQLite) {
+                // Doctrine opens a DEFERRED transaction. The owner reads before
+                // it writes, so two concurrent owners would each hold a SHARED
+                // lock and SQLite would fail the second upgrade at once,
+                // without its busy timeout. A write that matches no row takes
+                // the RESERVED lock now, so the second writer waits as it does
+                // behind BEGIN EXCLUSIVE.
+                $connection->beginTransaction();
+
+                try {
+                    $connection->executeStatement(
+                        'UPDATE ' . AuditLogService::TABLE_NAME . ' SET uid = uid WHERE 1 = 0',
+                    );
+                } catch (Throwable $e) {
+                    $connection->rollBack();
+
+                    throw $e;
+                }
+
+                return;
+            }
+
+            if ($connection->isTransactionActive()) {
                 // Nested mode: savepoint via Doctrine (see trait docblock).
                 $connection->beginTransaction();
 
