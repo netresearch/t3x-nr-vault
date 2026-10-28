@@ -196,7 +196,7 @@ final class SecretLeakageTest extends TestCase
             self::SIGIL,
             $outerMessage,
             sprintf(
-                '%s copied the previous exception\'s message into its own — this leaks '
+                "%s copied the previous exception's message into its own — this leaks "
                 . 'any secret material the previous layer happened to carry. Factory '
                 . 'methods that accept a Throwable MUST produce an outer message that '
                 . 'is independent of the previous message content. Outer message: %s',

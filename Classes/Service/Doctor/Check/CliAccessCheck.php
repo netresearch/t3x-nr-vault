@@ -126,7 +126,7 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
                 . 'admin bypass grants the read whatever the per-secret tiers say, and a scheduled '
                 . 'newsletter or export job that renders editor-authored tt_content through stdWrap() '
                 . 'then substitutes any frontend-accessible secret an editor can name. Where that '
-                . 'output goes — a subscriber mail, a file, an HTTP callback — is outside the vault\'s '
+                . "output goes — a subscriber mail, a file, an HTTP callback — is outside the vault's "
                 . 'knowledge, so the setting has to be read as re-opening the path, not as narrowing '
                 . 'it to a safe one.',
             remediation: 'Publish the identifiers the render jobs legitimately need — one '
@@ -175,7 +175,7 @@ final readonly class CliAccessCheck implements ReadinessCheckInterface
             summary: 'Unattributed CLI access to secrets is enabled under the hardened profile.',
             risk: 'Anyone with a shell on the host can use secrets without authenticating as a backend '
                 . 'user. The audit trail records the operation but attributes it to the anonymous CLI '
-                . 'actor, so it cannot name the human responsible — the hardened profile\'s '
+                . "actor, so it cannot name the human responsible — the hardened profile's "
                 . 'attributability promise does not hold while this switch is on.',
             remediation: 'Use the technical-actor API (TechnicalActorContext::runAs()) so headless '
                 . 'operations are attributed to a named backend user, then disable "allowCliAccess". '

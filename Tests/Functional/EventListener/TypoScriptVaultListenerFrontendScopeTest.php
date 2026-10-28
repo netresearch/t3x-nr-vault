@@ -213,7 +213,7 @@ final class TypoScriptVaultListenerFrontendScopeTest extends AbstractVaultFuncti
 
         self::assertFalse(
             $slotAfterFirstRequest,
-            'Exactly one record for any number of rejections — this request\'s latch is already claimed',
+            "Exactly one record for any number of rejections — this request's latch is already claimed",
         );
 
         $secondRequest       = $this->frontendRequest();
