@@ -4,10 +4,13 @@
 """Offline contracts for release coverage scheduling and failure containment."""
 
 import json
+import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 SCRIPT = Path(__file__).with_name("release-coverage.py")
@@ -128,8 +131,8 @@ class CoverageTest(unittest.TestCase):
                     for line in result.stdout.splitlines() if line.startswith("Coverage shard result: ")]
         self.assertEqual([item["shard"] for item in outcomes], ["Slow", "Later"])
         self.assertTrue(outcomes[0]["timed_out"])
-        self.assertIsNone(outcomes[0]["returncode"])
-        self.assertIsNone(outcomes[0]["signal"])
+        self.assertEqual(outcomes[0]["returncode"], -signal.SIGKILL)
+        self.assertEqual(outcomes[0]["signal"], "SIGKILL")
         self.assertEqual(outcomes[1]["returncode"], 0)
 
     def test_worker_reports_actual_exit_code_and_signal_then_keeps_later_parts(self):
@@ -154,6 +157,80 @@ class CoverageTest(unittest.TestCase):
         self.assertEqual([item["coverage_part_nonempty"] for item in outcomes], [False, False, True])
         self.assertTrue(all(not item["timed_out"] and item["launcher_error"] is None for item in outcomes))
         self.assertTrue((self.root / ".Build/coverage/unit-Later.cov").is_file())
+
+    def test_only_audit_adds_per_test_isolation_and_retains_all_original_targets(self):
+        for name in ("Audit", "Other", "__root"):
+            self.shard(name)
+        fake = self.root / "phpunit"
+        fake.write_text("#!/usr/bin/env python3\nimport json,pathlib,sys\n"
+                        "with open('arguments','a') as stream: stream.write(json.dumps(sys.argv[1:])+'\\n')\n"
+                        "out=next(a.split('=',1)[1] for a in sys.argv if a.startswith('--coverage-php='))\n"
+                        "pathlib.Path(out).write_text('coverage')\n", encoding="utf-8")
+        fake.chmod(0o755)
+        result = self.call("worker", "--shards", '["Audit","Other","__root"]', "--phpunit", str(fake))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = [json.loads(line) for line in (self.root / "arguments").read_text().splitlines()]
+        for index, target in enumerate(("Tests/Unit/Audit", "Tests/Unit/Other", "Tests/Unit/RootTest.php")):
+            expected = ["-c", "Build/phpunit.xml", "--path-coverage",
+                        "--coverage-php=" + str(self.root / ".Build/coverage" / ("unit-" + ("Audit", "Other", "__root")[index] + ".cov"))]
+            if index == 0:
+                expected.append("--process-isolation")
+            self.assertEqual(arguments[index], expected + [target])
+
+    def test_timeout_kills_real_ignoring_child_before_later_shard_runs(self):
+        self.shard("Slow")
+        self.shard("Later")
+        marker = "coverage-timeout-child-" + self.root.name
+        child = ("import os,pathlib,signal,time\n"
+                 "signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
+                 "pathlib.Path('child.pid').write_text(str(os.getpid()))\n"
+                 "pathlib.Path('child.ready').write_text('ready')\n"
+                 "while True:\n"
+                 " pathlib.Path('heartbeat').write_text(str(time.monotonic_ns()))\n"
+                 " time.sleep(0.02)\n")
+        fake = self.root / "phpunit"
+        fake.write_text("#!/usr/bin/env python3\nimport pathlib,subprocess,sys,time\n"
+                        "if 'Slow' in sys.argv[-1]:\n"
+                        " subprocess.Popen([sys.executable,'-c'," + repr(child) + "," + repr(marker) + "],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+                        " while not pathlib.Path('child.ready').exists(): time.sleep(0.005)\n"
+                        " while True: time.sleep(1)\n"
+                        "status=pathlib.Path('/proc/'+pathlib.Path('child.pid').read_text()+'/stat')\n"
+                        "if status.exists() and status.read_text().split(') ',1)[1].split()[0] not in ('Z','X'): pathlib.Path('child-overlapped-later').write_text('alive')\n"
+                        "out=next(a.split('=',1)[1] for a in sys.argv if a.startswith('--coverage-php='))\n"
+                        "pathlib.Path(out).write_text('coverage')\n", encoding="utf-8")
+        fake.chmod(0o755)
+
+        def stop_owned_child():
+            pidfile = self.root / "child.pid"
+            if pidfile.exists():
+                pid = int(pidfile.read_text())
+                command = Path("/proc/%d/cmdline" % pid)
+                if command.exists() and marker.encode() in command.read_bytes():
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
+        self.addCleanup(stop_owned_child)
+        result = self.call("worker", "--shards", '["Slow","Later"]', "--phpunit", str(fake),
+                           "--timeout-seconds", "0.5")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertTrue((self.root / "child.ready").is_file(), "Real descendant must start before timeout")
+        pid = int((self.root / "child.pid").read_text())
+        status = Path("/proc/%d/stat" % pid)
+        if status.exists():
+            self.assertIn(status.read_text().split(") ", 1)[1].split()[0], ("Z", "X"), "Descendant remains runnable after timeout")
+        before = (self.root / "heartbeat").read_text()
+        time.sleep(0.1)
+        self.assertEqual((self.root / "heartbeat").read_text(), before, "Timed-out descendant keeps executing")
+        self.assertFalse((self.root / "child-overlapped-later").exists(), "Descendant overlaps the next shard")
+        self.assertTrue((self.root / ".Build/coverage/unit-Later.cov").is_file())
+        outcomes = [json.loads(line.removeprefix("Coverage shard result: "))
+                    for line in result.stdout.splitlines() if line.startswith("Coverage shard result: ")]
+        self.assertTrue(outcomes[0]["timed_out"])
+        self.assertEqual(outcomes[0]["returncode"], -signal.SIGKILL)
+        self.assertEqual(outcomes[0]["signal"], "SIGKILL")
+        self.assertEqual(outcomes[1]["returncode"], 0)
 
 
 if __name__ == "__main__":

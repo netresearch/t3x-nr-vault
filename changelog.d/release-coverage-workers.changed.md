@@ -1,1 +1,1 @@
-- Release evidence runs unit path coverage on four workers while retaining every original coverage part and rejecting incomplete results.
+- Release evidence runs unit path coverage on four workers while retaining every original coverage part and rejecting incomplete results. Audit tests use separate processes to avoid Xdebug path-coverage crashes; shard timeouts stop their test descendants before continuing diagnostics.

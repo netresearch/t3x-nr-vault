@@ -5,6 +5,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import signal
@@ -70,18 +71,30 @@ def worker(root, shards, phpunit, timeout=1800):
         part = output / ("unit-" + shard + ".cov")
         part.unlink(missing_ok=True)  # An old part cannot turn a failed invocation green.
         command = [phpunit, "-c", "Build/phpunit.xml", "--path-coverage",
-                   "--coverage-php=" + str(part), *targets]
+                   "--coverage-php=" + str(part)]
+        if shard == "Audit":
+            # Bound Xdebug instrumentation state without dropping any Audit case.
+            command.append("--process-isolation")
+        command += targets
         print("Coverage shard: " + shard, flush=True)
         returncode = None
         timed_out = False
         launcher_error = None
         try:
-            result = subprocess.run(command, cwd=root, check=False, timeout=timeout)
-            returncode = result.returncode
-        except subprocess.TimeoutExpired as error:
-            timed_out = True
-            print(str(error), file=sys.stderr)
-        except OSError as error:
+            # A separate group includes PHPUnit's per-test PHP children. Killing
+            # only the parent on timeout would leave them running into later shards.
+            process = subprocess.Popen(command, cwd=root, start_new_session=True)
+            try:
+                returncode = process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired as error:
+                timed_out = True
+                print(str(error), file=sys.stderr)
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass  # The group already exited at the deadline.
+                returncode = process.wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired) as error:
             launcher_error = str(error)
             print(launcher_error, file=sys.stderr)
         signal_name = signal.Signals(-returncode).name if returncode is not None and returncode < 0 else None
