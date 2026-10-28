@@ -96,14 +96,18 @@ def verify_workflow(api, base, filename, repository, commit):
                 paginate=True)
     require(isinstance(pages, list) and pages, "Missing workflow run pages: " + filename)
     runs = []
-    total = 0
+    total = None
     for page in pages:
         require(isinstance(page, dict) and isinstance(page.get("workflow_runs"), list) and
-                type(page.get("total_count")) is int and page["total_count"] >= 0,
-                "Malformed workflow run page: " + filename)
-        total = max(total, page["total_count"])
+                type(page.get("total_count")) is int and 0 <= page["total_count"] < 1000,
+                "Malformed or capped workflow run page: " + filename)
+        require(total is None or total == page["total_count"], "Changing workflow run total: " + filename)
+        total = page["total_count"]
         runs.extend(page["workflow_runs"])
-    require(len(runs) >= total, "Incomplete workflow run pagination: " + filename)
+    require(len(runs) == total, "Incomplete or overfilled workflow run pagination: " + filename)
+    require(all(isinstance(run, dict) and type(run.get("id")) is int and run["id"] > 0 for run in runs),
+            "Invalid workflow run inventory identity: " + filename)
+    require(len({run["id"] for run in runs}) == len(runs), "Duplicate workflow run inventory: " + filename)
     qualifying = []
     for run in runs:
         require(isinstance(run, dict), "Malformed workflow run: " + filename)
@@ -127,14 +131,24 @@ def verify_workflow(api, base, filename, repository, commit):
                     identity.get("full_name") == repository["full_name"], "Foreign or missing run repository: " + filename)
         require(type(run.get("id")) is int and type(run.get("run_attempt")) is int and run["run_attempt"] > 0,
                 "Missing workflow attempt identity: " + filename)
-        # Re-running an old run updates run_started_at; its newer failed attempt
-        # must not be hidden behind another run's older green execution.
+        # Positive recency follows execution/attempt identity, never a cosmetic
+        # update of an old success. Queued retries may still have a stale start.
         started = datetime.fromisoformat(run.get("run_started_at") or run["created_at"])
         created = datetime.fromisoformat(run["created_at"])
-        require(started.tzinfo is not None and created.tzinfo is not None, "Workflow timestamp lacks timezone")
-        qualifying.append(((started, created, run["id"], run["run_attempt"]), run))
+        require(isinstance(run.get("updated_at"), str) and run["updated_at"],
+                "Missing workflow update identity: " + filename)
+        updated = datetime.fromisoformat(run["updated_at"])
+        require(all(value.tzinfo is not None for value in (started, created, updated)),
+                "Workflow timestamp lacks timezone: " + filename)
+        qualifying.append(((started, created, run["id"], run["run_attempt"]), updated, run))
     require(qualifying, "No qualifying exact-SHA push/main or merge-group run: " + filename)
-    run = max(qualifying, key=lambda item: item[0])[1]
+    latest = max(qualifying, key=lambda item: item[0])
+    negative_update = next((item[2] for item in qualifying
+                            if (item[2].get("status") != "completed" or item[2].get("conclusion") != "success")
+                            and item[1] >= latest[0][0]), None)
+    require(negative_update is None,
+            filename + " has newer or ambiguous non-success activity; publication blocked.")
+    run = latest[2]
     require(run.get("status") == "completed" and run.get("conclusion") == "success",
             filename + " run " + str(run["id"]) + " is " + str(run.get("conclusion") or run.get("status")) +
             "; publication blocked. After completion retry only the failed verifier/publisher jobs.")
