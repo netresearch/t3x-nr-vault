@@ -25,11 +25,11 @@ name: Release Evidence
 #
 # WHY THE BUNDLE IS NOT A RELEASE ASSET
 # =====================================
-# `release-typo3-extension.yml` creates the GitHub release LAST, in one atomic
-# call, explicitly so it stays compatible with GitHub "Immutable Releases":
+# `release-typo3-extension.yml` assembles its complete asset set before
+# publishing, keeping compatibility with GitHub "Immutable Releases":
 # nothing is added, removed or edited after publication. Attaching the bundle
 # afterwards would either fail on an immutable release or break that guarantee.
-# So this workflow runs alongside the release and publishes the bundle as
+# So this producer runs inside the release and publishes the bundle as
 #
 #   1. a workflow-run artifact (the downloadable bundle),
 #   2. a build-provenance attestation over the bundle tarball, which is
@@ -43,9 +43,8 @@ name: Release Evidence
 #
 # THE RELEASE WAITS FOR THIS WORKFLOW
 # ===================================
-# release.yml starts with the fleet `release-gate.yml`, which waits for this
-# workflow (and for ci.yml) to succeed at the tagged commit before anything is
-# built, signed or published. A FAIL verdict below therefore stops the release;
+# release.yml calls this producer with `needs` before a short identity/policy
+# verifier. No runner waits for the evidence jobs. A FAIL verdict stops release;
 # DEGRADED does not, and is read in the bundle.
 #
 # PRE-RELEASE CHECK
@@ -67,9 +66,30 @@ name: Release Evidence
 # is loud rather than silently unreported.
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Immutable commit SHA to verify'
+        required: true
+        type: string
+      release-tag:
+        description: 'Signed release tag; empty for a nonpublishing precheck'
+        required: false
+        type: string
+        default: ''
+    outputs:
+      actual-commit:
+        description: 'Actual checkout commit used to assemble evidence'
+        value: ${{ jobs.bundle.outputs.actual-commit }}
+      release-tag:
+        description: 'Release identity supplied to the collector'
+        value: ${{ jobs.bundle.outputs.release-tag }}
+      artifact-name:
+        description: 'Same-run evidence bundle artifact name'
+        value: ${{ jobs.bundle.outputs.artifact-name }}
+      bundle-sha256:
+        description: 'SHA-256 of the assembled and attested bundle'
+        value: ${{ jobs.bundle.outputs.bundle-sha256 }}
   workflow_dispatch:
     inputs:
       ref:
@@ -86,7 +106,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EVIDENCE_TAG: ${{ inputs.ref || github.ref_name }}
+  EVIDENCE_REF: ${{ inputs.ref }}
+  EVIDENCE_TAG: ${{ inputs.release-tag || inputs.ref }}
   PHP_VERSION: '8.5'
 
 jobs:
@@ -105,7 +126,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.EVIDENCE_TAG }}
+          ref: ${{ env.EVIDENCE_REF }}
           persist-credentials: false
 
       - name: Setup PHP
@@ -277,7 +298,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.EVIDENCE_TAG }}
+          ref: ${{ env.EVIDENCE_REF }}
           persist-credentials: false
 
       # Helpers come from the workflow revision, including when a manual precheck
@@ -336,7 +357,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.EVIDENCE_TAG }}
+          ref: ${{ env.EVIDENCE_REF }}
           persist-credentials: false
 
       - name: Setup PHP
@@ -400,7 +421,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.EVIDENCE_TAG }}
+          ref: ${{ env.EVIDENCE_REF }}
           persist-credentials: false
 
       - name: Setup PHP
@@ -456,7 +477,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.EVIDENCE_TAG }}
+          ref: ${{ env.EVIDENCE_REF }}
           persist-credentials: false
 
       - name: Setup PHP
@@ -622,7 +643,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.EVIDENCE_TAG }}
+          ref: ${{ env.EVIDENCE_REF }}
           persist-credentials: false
 
       - name: Setup PHP
@@ -751,7 +772,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.EVIDENCE_TAG }}
+          ref: ${{ env.EVIDENCE_REF }}
           persist-credentials: false
 
       - name: Setup PHP
@@ -935,6 +956,11 @@ jobs:
   bundle:
     name: Publish evidence bundle
     needs: [checks, coverage-merge, mutation, doctor]
+    outputs:
+      actual-commit: ${{ steps.assemble.outputs.commit }}
+      release-tag: ${{ steps.assemble.outputs.tag }}
+      artifact-name: ${{ steps.assemble.outputs.artifact }}
+      bundle-sha256: ${{ steps.assemble.outputs.digest }}
     # always(): the bundle must exist precisely when something went wrong.
     if: always()
     runs-on: ubuntu-latest
@@ -952,7 +978,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.EVIDENCE_TAG }}
+          ref: ${{ env.EVIDENCE_REF }}
           # The collector falls back to the HEAD committer date for `builtAt`
           # rather than the wall clock, so it needs real git history.
           fetch-depth: 0
@@ -1014,6 +1040,13 @@ jobs:
           TARBALL="release-evidence-${LABEL}.tar.gz"
           tar -czf "$TARBALL" -C .Build/evidence .
           {
+            echo "commit=$COMMIT"
+            echo "tag=$EVIDENCE_TAG"
+            if [[ "$LABEL" == precheck-* ]]; then
+              echo "artifact=release-evidence-${LABEL}"
+            else
+              echo "artifact=release-evidence-${EVIDENCE_TAG}"
+            fi
             echo "label=$LABEL"
             echo "tarball=$TARBALL"
             echo "digest=$(sha256sum "$TARBALL" | cut -d' ' -f1)"
@@ -1033,7 +1066,7 @@ jobs:
           # A tagged run keeps the name SECURITY.md documents
           # (release-evidence-v1.2.3); a pre-release check is named after its
           # commit, since a branch name may not be a valid artifact name.
-          name: release-evidence-${{ startsWith(steps.assemble.outputs.label, 'precheck-') && steps.assemble.outputs.label || env.EVIDENCE_TAG }}
+          name: ${{ steps.assemble.outputs.artifact }}
           overwrite: true
           path: ${{ steps.assemble.outputs.tarball }}
           # 90 days is the ceiling for a public repository. The attestation and

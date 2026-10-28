@@ -235,9 +235,11 @@ Every entry in the bundle carries a status of `pass`, `warn`, `fail` or
 `absent`. `absent` means the producing step did not run in that build; it is
 recorded rather than omitted, precisely so a gap cannot be mistaken for a pass.
 
-The release workflow enforces the first half itself: it waits for the evidence
-run and for `ci.yml` at the tagged commit and publishes nothing unless both
-succeeded. Vet a candidate before tagging with
+The release workflow calls the evidence producer as a dependency, then checks
+the actual evidence identity/digests and the latest qualifying exact-SHA runs of
+CI, Checks, E2E, Security Gates, Template Drift and Harness Verification. Pending
+or failed prerequisites block publishing without occupying a polling runner;
+retry only failed Release jobs once the prerequisite is resolved. Vet a candidate before tagging with
 `gh workflow run release-evidence.yml -f ref=<commit-sha>`.
 
 Two rules follow from that:

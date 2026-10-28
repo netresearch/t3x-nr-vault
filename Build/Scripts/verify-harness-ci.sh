@@ -11,3 +11,4 @@ if [[ "$harness_status" -ne 0 && "$harness_status" -ne 2 ]]; then
     exit "$harness_status"
 fi
 PYTHONDONTWRITEBYTECODE=1 python3 Build/Scripts/test-release-coverage.py
+PYTHONDONTWRITEBYTECODE=1 python3 Build/Scripts/test-verify-release.py

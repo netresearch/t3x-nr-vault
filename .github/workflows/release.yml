@@ -8,21 +8,63 @@ on:
 permissions: {}
 
 jobs:
-  # Nothing is built, signed or published until the test matrix and the
-  # security evidence have succeeded for exactly the tagged commit. Both run
-  # for that commit anyway — ci.yml on the push to main, release-evidence.yml on
-  # this tag push — so the gate waits for them instead of the release racing
-  # them. A failure stops the release; re-run the failed workflow, then this one.
+  evidence:
+    uses: ./.github/workflows/release-evidence.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    with:
+      ref: ${{ github.sha }}
+      release-tag: ${{ github.ref_name }}
+
+  # `needs` allocates no waiting runner. This final snapshot never polls: pending
+  # or failed prerequisites block publishing; retry only failed jobs afterwards.
   gate:
-    uses: netresearch/typo3-ci-workflows/.github/workflows/release-gate.yml@main
+    name: Release identity and policy
+    needs: evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       actions: read
       contents: read
-    with:
-      required-workflows: 'ci.yml release-evidence.yml'
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download same-run evidence bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.evidence.outputs.artifact-name }}
+          path: evidence
+
+      - name: Verify release identity and latest required workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
+          EVIDENCE_COMMIT: ${{ needs.evidence.outputs.actual-commit }}
+          EVIDENCE_TAG: ${{ needs.evidence.outputs.release-tag }}
+          EVIDENCE_DIGEST: ${{ needs.evidence.outputs.bundle-sha256 }}
+          EVIDENCE_ARTIFACT: ${{ needs.evidence.outputs.artifact-name }}
+        run: |
+          python3 Build/Scripts/verify-release.py \
+            --repository "$REPOSITORY" --commit "$COMMIT" --tag "$TAG" \
+            --evidence-commit "$EVIDENCE_COMMIT" --evidence-tag "$EVIDENCE_TAG" \
+            --artifact-name "$EVIDENCE_ARTIFACT" \
+            --digest "$EVIDENCE_DIGEST" --bundle "evidence/release-evidence-${TAG#v}.tar.gz"
 
   release:
-    needs: gate
+    needs: [evidence, gate]
     uses: netresearch/typo3-ci-workflows/.github/workflows/release-typo3-extension.yml@main
     permissions:
       contents: write
