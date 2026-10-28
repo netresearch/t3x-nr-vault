@@ -139,7 +139,12 @@ def worker(root, shards, phpunit, timeout=1800):
                 except (OSError, subprocess.TimeoutExpired) as error:
                     launcher_error = "Process-group cleanup failed: " + str(error)
                     print(launcher_error, file=sys.stderr)
-        signal_name = signal.Signals(-returncode).name if returncode is not None and returncode < 0 else None
+        signal_name = None
+        if returncode is not None and returncode < 0:
+            try:
+                signal_name = signal.Signals(-returncode).name
+            except ValueError:
+                signal_name = "signal " + str(-returncode)
         nonempty = part.is_file() and part.stat().st_size > 0
         print("Coverage shard result: " + json.dumps({
             "shard": shard, "returncode": returncode, "signal": signal_name,
