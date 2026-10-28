@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
+
+name: Audit Paired Diagnostic
+
+on:
+  push:
+    branches: ['ci/audit-paired-diagnostic-20261028']
+
+permissions:
+  contents: read
+
+jobs:
+  audit-paired:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout identical tested application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: '1bf5c2075a2ba8ed1eff91ce82e87718c448771c'
+          persist-credentials: false
+
+      - name: Setup fixed PHP and coverage driver
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.5.12'
+          extensions: intl, mbstring, xml, sodium, json, xdebug-3.5.3
+          coverage: xdebug
+          tools: composer:v2
+
+      - name: Install dependencies once for both phases
+        env:
+          CAPTAINHOOK_DISABLE: 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/audit-paired
+          php -v | tee .Build/audit-paired/php-version.txt
+          composer install --prefer-dist --no-progress
+          composer show --format=json > .Build/audit-paired/dependencies.json
+
+      - name: Checkout immutable paired diagnostic helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            Build/Scripts/diagnose-audit-coverage.py
+            Build/Scripts/verify-audit-isolation.py
+            Build/Scripts/test-audit-isolation.py
+            Build/Scripts/audit-paired.py
+            Build/Scripts/test-audit-paired.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Verify paired and original oracle negative controls
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 .workflow-tools/Build/Scripts/test-audit-isolation.py
+          PYTHONDONTWRITEBYTECODE=1 python3 .workflow-tools/Build/Scripts/test-audit-paired.py
+
+      - name: Freeze and verify runtime source packages lock and complete inventory
+        run: python3 .workflow-tools/Build/Scripts/audit-paired.py prepare
+
+      - name: Run complete unisolated Audit baseline with original crash seed
+        # This failure is expected only when measured as -11/SIGSEGV without OOM.
+        # The next step validates that result before any isolation can start.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/audit-paired/baseline
+          python3 .workflow-tools/Build/Scripts/audit-paired.py baseline 2>&1 | tee .Build/audit-paired/baseline/stdout.log
+
+      - name: Require actual baseline Xdebug crash and unchanged inputs
+        if: always()
+        run: python3 .workflow-tools/Build/Scripts/audit-paired.py accept-baseline
+
+      - name: Run complete isolated Audit against the same frozen installation
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/audit-paired/isolation
+          python3 .workflow-tools/Build/Scripts/audit-paired.py isolation 2>&1 | tee .Build/audit-paired/isolation/stdout.log
+
+      - name: Require paired crash isolation all 626 cases and full path evidence
+        if: always()
+        run: python3 .workflow-tools/Build/Scripts/audit-paired.py final
+
+      - name: Upload complete paired diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: audit-paired-diagnostic
+          overwrite: true
+          path: .Build/audit-paired/
+          if-no-files-found: error
+          retention-days: 7
