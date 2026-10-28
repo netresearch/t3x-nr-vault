@@ -1,0 +1,1 @@
+- Observe dependency merge readiness with verifiable current-commit evidence while retaining the existing merge process during validation.

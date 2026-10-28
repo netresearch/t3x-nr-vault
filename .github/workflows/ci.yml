@@ -33,6 +33,8 @@ jobs:
       php-versions: '["8.2","8.3","8.4","8.5"]'
       typo3-versions: '["^13.4","^14.3"]'
       run-functional-tests: true
+      compact-jobs: true
+      upload-docs-artifact: true
       # Repo-specific checks (composer ci:test:repo: arch + doc-cli + its
       # self-test + the evidence-collector self-test). All four are static
       # file scans needing no dependency tree, which is the shared job's

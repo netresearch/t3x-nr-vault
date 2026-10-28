@@ -1,0 +1,25 @@
+# Observer caller; the shared phase interface is deployed on @main.
+# Keep the existing legacy merger unchanged; no App secrets are passed.
+name: Dependency merge intent (observe)
+'on':
+  pull_request_target: # zizmor: ignore[dangerous-triggers] Trusted bot metadata only; no PR checkout; observation mode blocks approval and queue mutations.
+    types:
+      - opened
+      - synchronize
+      - reopened
+permissions: {}
+jobs:
+  intent:
+    uses: netresearch/.github/.github/workflows/dependency-merge-controller.yml@main
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+      checks: read
+      statuses: read
+    with:
+      phase: prepare
+      observe-only: true
+      caller-workflow: .github/workflows/dependency-controller-observe-intent.yml
+      intent-workflow: .github/workflows/dependency-controller-observe-intent.yml
+      policy: '{"version":1,"minimum_approvals":2,"safe_updates_only":false,"required_checks":[{"name":"ci / All CI checks","app_id":15368,"workflow":"ci.yml","events":["pull_request"]},{"name":"All security checks","app_id":15368,"workflow":"checks.yml","events":["pull_request"]},{"name":"Detect security-critical changes","app_id":15368,"workflow":"security-gates.yml","events":["pull_request"]},{"name":"Security gates","app_id":15368,"workflow":"security-gates.yml","events":["pull_request"]},{"name":"dco / DCO","app_id":15368,"workflow":"dco.yml","events":["pull_request"]},{"name":"security / Composer Audit","app_id":15368,"workflow":"checks.yml","events":["pull_request"]},{"name":"security / SAST (Opengrep)","app_id":15368,"workflow":"checks.yml","events":["pull_request"]},{"name":"All E2E checks","app_id":15368,"workflow":"e2e.yml","events":["pull_request"]},{"name":"drift / Template drift","app_id":15368,"workflow":"check-template-drift.yml","events":["pull_request"]},{"name":"harness-verify / check","app_id":15368,"workflow":"harness-verify.yml","events":["pull_request"]},{"name":"Audit mutation model and negative controls","app_id":15368,"workflow":"formal.yml","events":["pull_request"]}]}'
