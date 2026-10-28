@@ -1,0 +1,1 @@
+- The E2E workflow reports one stable aggregate check that rejects failed, cancelled, skipped or missing matrix results across both supported TYPO3 environments.

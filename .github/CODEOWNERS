@@ -4,13 +4,13 @@
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # Default owner for all files
-*                       @CybotTM
+*                       @netresearch/typo3
 
 # Security-sensitive code (explicit for visibility). These paths also require
 # two approvals and a threat-model delta — see CONTRIBUTING.md.
-/Classes/Crypto/        @CybotTM
-/Classes/Security/      @CybotTM
-/Classes/Audit/         @CybotTM
-/Classes/Http/          @CybotTM
-/SECURITY.md            @CybotTM
-/.github/workflows/     @CybotTM
+/Classes/Crypto/        @netresearch/typo3
+/Classes/Security/      @netresearch/typo3
+/Classes/Audit/         @netresearch/typo3
+/Classes/Http/          @netresearch/typo3
+/SECURITY.md            @netresearch/typo3
+/.github/workflows/     @netresearch/typo3

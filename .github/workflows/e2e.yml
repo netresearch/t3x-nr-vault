@@ -186,3 +186,27 @@ jobs:
             .Build/e2e-logs/
           retention-days: 14
           if-no-files-found: warn
+
+  gate:
+    name: All E2E checks
+    needs: playwright
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Require both supported TYPO3 environments
+        env:
+          MATRIX_RESULT: ${{ needs.playwright.result }}
+        run: |
+          set -euo pipefail
+          if [ "$MATRIX_RESULT" != success ]; then
+            echo "::error::The E2E matrix must succeed; received '${MATRIX_RESULT:-missing}'."
+            exit 1
+          fi
+          echo "Both supported TYPO3 environments passed their E2E checks."
