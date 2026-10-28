@@ -43,6 +43,9 @@ jobs:
           php -v | tee .Build/audit-diagnostic/php-version.txt
           php -r 'exit(PHP_VERSION === "8.5.12" && phpversion("xdebug") === "3.5.3" ? 0 : 1);'
           composer install --prefer-dist --no-progress
+          # Match the crash control through the generated lock; source requirements stay unchanged.
+          composer update symfony/polyfill-mbstring:1.43.0 --prefer-dist --no-progress
+          git diff --exit-code -- composer.json
           composer show --format=json > .Build/audit-diagnostic/dependencies.json
           .Build/bin/phpunit --version | tee .Build/audit-diagnostic/phpunit-version.txt
           grep -q '^PHPUnit 13\.4\.5 ' .Build/audit-diagnostic/phpunit-version.txt
