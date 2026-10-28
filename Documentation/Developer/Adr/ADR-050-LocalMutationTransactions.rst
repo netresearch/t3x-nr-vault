@@ -71,9 +71,9 @@ with reused numbers.
 This allocation trusts the in-database anchor. A replayed older anchor value
 whose MAC still verifies (:ref:`adr-034-audit-chain-tip-anchor`, R2), combined
 with deleting the rows above it, therefore leaves no UID gap either. ADR-034
-does not rely on gaps for tail deletion: SQLite reuses the rowid at once, and
-MySQL/MariaDB re-derives the counter on server start. The control for R2 is
-evidence outside the database, :ref:`command-audit-anchor`.
+does not rely on gaps for tail deletion; on SQLite, for example, the rowid is
+reused at once. The control for R2 is evidence outside the database,
+:ref:`command-audit-anchor`.
 
 Queue external sink publication and successful mutation events until commit
 and lock release. A listener or external sink cannot roll back a completed

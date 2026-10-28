@@ -637,6 +637,34 @@ final class VaultMutationTransactionTest extends TestCase
     }
 
     #[Test]
+    public function aSqliteWriteLockTimeoutRollsBackAndNeverRunsTheMutation(): void
+    {
+        $connection = $this->sqliteConnectionForAttempts();
+        $busy       = new RuntimeException('database is locked', 1793180214);
+        $connection
+            ->expects(self::once())
+            ->method('executeStatement')
+            ->willThrowException($busy);
+        $connection->expects(self::once())->method('rollBack');
+        $subject = $this->subject($connection);
+
+        try {
+            $subject->run(
+                static function (): never {
+                    self::fail('The mutation must not run without the write lock.');
+                },
+            );
+            self::fail('The lock timeout must surface.');
+        } catch (AuditWriteException $failure) {
+            self::assertSame(1754038801, $failure->getCode());
+            self::assertSame($busy, $failure->getPrevious());
+        }
+
+        self::assertFalse($connection->isTransactionActive());
+        self::assertFalse($subject->isActive());
+    }
+
+    #[Test]
     public function callbacksBelongOnlyToTheAttemptThatRegisteredThem(): void
     {
         $subject      = $this->subject($this->sqliteConnectionForAttempts());

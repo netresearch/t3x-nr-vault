@@ -75,7 +75,7 @@ trait AuditChainLockTrait
                 } catch (Throwable $e) {
                     $connection->rollBack();
 
-                    throw $e;
+                    throw AuditWriteException::writeFailed($e);
                 }
 
                 return;

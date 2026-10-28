@@ -40,6 +40,7 @@ no false gap. Because this trusts the in-database anchor, a replayed older
 anchor combined with deleted tail rows leaves no gap either. Tail deletion
 behind a replayed anchor is detected only by evidence outside the database:
 schedule :ref:`command-audit-anchor`.
+
 Custom adapters, legacy direct constructions without the coordinator,
 DataHandler/TCA writes outside the service, master-key rotation and read
 counters have separate boundaries. Compensation alone cannot provide crash
