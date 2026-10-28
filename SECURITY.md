@@ -290,6 +290,11 @@ or published before this verifier succeeds. The existing degraded doctor
 posture remains reported; required raw test, coverage, mutation and audit
 reports must be present.
 
+Run histories must be complete, uncapped, stable and free of duplicate run IDs.
+A newer or simultaneous non-success update blocks even when a queued retry's
+start timestamp is still old; updating an old success cannot mask a known newer
+failure. Ambiguous histories stop publication without polling.
+
 The verifier does not poll. If another required run is still pending, finish
 that run and use **Re-run failed jobs** on the Release run. This reuses successful
 evidence and retries the short verifier and publisher; it is an explicit

@@ -237,7 +237,8 @@ recorded rather than omitted, precisely so a gap cannot be mistaken for a pass.
 
 The release workflow calls the evidence producer as a dependency, then checks
 the actual evidence identity/digests and the latest qualifying exact-SHA runs of
-CI, Checks, E2E, Security Gates, Template Drift and Harness Verification. Pending
+CI, Checks, E2E, Security Gates, Template Drift, Harness Verification and Formal
+Model. Pending
 or failed prerequisites block publishing without occupying a polling runner;
 retry only failed Release jobs once the prerequisite is resolved. Vet a candidate before tagging with
 `gh workflow run release-evidence.yml -f ref=<commit-sha>`.

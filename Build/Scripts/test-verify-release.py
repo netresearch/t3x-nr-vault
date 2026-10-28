@@ -51,6 +51,7 @@ class ReleaseTest(unittest.TestCase):
                 "head_sha": COMMIT, "head_branch": "main", "event": "push",
                 "repository": identity, "head_repository": identity,
                 "created_at": "2026-10-28T00:00:00Z", "run_started_at": "2026-10-28T00:00:00Z",
+                "updated_at": "2026-10-28T00:00:00Z",
                 "run_attempt": 1, "status": "completed", "conclusion": "success"}]}]
         self.manifest = {"schemaVersion": 1, "extension": "nr_vault", "version": "1.2.3",
                          "commit": COMMIT, "checks": [{"id": name, "status": "pass"}
@@ -158,6 +159,67 @@ class ReleaseTest(unittest.TestCase):
         page["total_count"] = 2
         with self.assertRaises(ValueError):
             self.verify()
+
+    def test_old_run_retry_with_stale_start_and_new_negative_update_blocks(self):
+        page = self.api_data[self.run_keys[0]][0]
+        original = page["workflow_runs"][0]
+        green = dict(original, id=200, created_at="2026-10-28T01:00:00Z",
+                     run_started_at="2026-10-28T01:00:00Z", updated_at="2026-10-28T01:30:00Z")
+        for status, conclusion in (("queued", None), ("in_progress", None),
+                                   ("completed", "failure"), ("completed", "cancelled")):
+            with self.subTest(status=status):
+                retry = dict(original, id=100, run_attempt=2, status=status, conclusion=conclusion,
+                             updated_at="2026-10-28T02:00:00Z")
+                page.update(total_count=2, workflow_runs=[retry, green])
+                with self.assertRaisesRegex(ValueError, r"ci\.yml"):
+                    self.verify()
+        retry["updated_at"] = green["run_started_at"]
+        page.update(total_count=2, workflow_runs=[retry, green])
+        with self.assertRaisesRegex(ValueError, r"ci\.yml"):
+            self.verify()
+
+    def test_cosmetic_update_of_old_success_cannot_hide_a_newer_failure(self):
+        page = self.api_data[self.run_keys[0]][0]
+        old = dict(page["workflow_runs"][0], id=100, updated_at="2026-10-28T03:00:00Z")
+        failure = dict(old, id=200, conclusion="failure", created_at="2026-10-28T01:00:00Z",
+                       run_started_at="2026-10-28T01:00:00Z", updated_at="2026-10-28T02:00:00Z")
+        page.update(total_count=2, workflow_runs=[old, failure])
+        with self.assertRaisesRegex(ValueError, r"ci\.yml"):
+            self.verify()
+
+    def test_genuinely_older_failure_can_be_superseded_by_new_success(self):
+        page = self.api_data[self.run_keys[0]][0]
+        old = dict(page["workflow_runs"][0], id=100, conclusion="failure",
+                   updated_at="2026-10-28T01:00:00Z")
+        green = dict(old, id=200, conclusion="success", created_at="2026-10-28T02:00:00Z",
+                     run_started_at="2026-10-28T02:00:00Z", updated_at="2026-10-28T03:00:00Z")
+        page.update(total_count=2, workflow_runs=[old, green])
+        self.verify()
+
+    def test_duplicate_changing_capped_and_invalid_run_inventories_block(self):
+        original = copy.deepcopy(self.api_data[self.run_keys[0]][0]["workflow_runs"][0])
+        cases = [
+            [{"total_count": 2, "workflow_runs": [original, copy.deepcopy(original)]}],
+            [{"total_count": 1, "workflow_runs": [original]},
+             {"total_count": 2, "workflow_runs": [dict(original, id=999)]}],
+            [{"total_count": 1, "workflow_runs": [original, dict(original, id=999)]}],
+            [{"total_count": 1000, "workflow_runs": [dict(original, id=index + 1) for index in range(1000)]}],
+        ]
+        for invalid in (0, -1, True, "999"):
+            cases.append([{"total_count": 2, "workflow_runs": [original, dict(original, id=invalid, event="pull_request")]}])
+        for pages in cases:
+            with self.subTest(pages=len(pages), total=pages[0]["total_count"]):
+                self.api_data[self.run_keys[0]] = pages
+                with self.assertRaisesRegex(ValueError, r"ci\.yml"):
+                    self.verify()
+
+    def test_missing_or_ambiguous_update_timestamp_blocks(self):
+        run = self.api_data[self.run_keys[0]][0]["workflow_runs"][0]
+        for updated in (None, "", "invalid", "2026-10-28T00:00:00"):
+            with self.subTest(updated=updated):
+                run["updated_at"] = updated
+                with self.assertRaises(ValueError):
+                    self.verify()
 
     def test_formal_model_is_required_and_its_latest_unsuccessful_run_blocks(self):
         self.assertIn("formal.yml", MODULE.REQUIRED_WORKFLOWS)
