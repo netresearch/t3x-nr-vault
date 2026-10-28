@@ -45,7 +45,7 @@ jobs:
         (github.event.action == 'edited' && github.event.changes.base.ref['from'] != '' &&
          github.event.changes.base.ref['from'] != github.event.pull_request.base.ref) ||
         (github.event.action == 'auto_merge_enabled' && github.event.sender.type == 'User' &&
-         github.event.sender.login != '')))
+         github.event.sender.id > 0)))
     uses: netresearch/.github/.github/workflows/dependency-merge-controller.yml@main
     permissions:
       contents: write
