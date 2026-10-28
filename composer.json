@@ -110,7 +110,8 @@
             "@ci:test:php:doc-cli",
             "@ci:test:php:doc-cli:self-test",
             "@ci:test:evidence",
-            "@ci:test:changelog"
+            "@ci:test:changelog",
+            "@ci:test:release-coverage"
         ],
         "ci:test:changelog": "@php Build/Scripts/changelog-fragments.php check",
         "changelog:collect": "@php Build/Scripts/changelog-fragments.php collect",
@@ -137,6 +138,7 @@
         ],
         "test:functional": "Build/Scripts/runTests.sh -s functional",
         "test:mutation": "Build/Scripts/runTests.sh -s mutation",
-        "test:unit": "Build/Scripts/runTests.sh -s unit"
+        "test:unit": "Build/Scripts/runTests.sh -s unit",
+        "ci:test:release-coverage": "python3 Build/Scripts/test-release-coverage.py"
     }
 }

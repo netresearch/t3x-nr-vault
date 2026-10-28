@@ -245,16 +245,13 @@ jobs:
             exit 1
           fi
 
-  # WHY COVERAGE IS FOUR JOBS
-  # =========================
+  # Four unit workers retain one coverage part per dynamically discovered shard.
   # Branch and path metrics exist only under Xdebug with `--path-coverage`, and
   # that is not "a bit slower": the whole unit suite under it did not finish
   # inside 40 minutes (run 34848362108), while the same suite takes 12 seconds
-  # with pcov and no branch data at all. So the unit suite is sharded over one
-  # runner per Tests/Unit subdirectory, each writing PHPUnit's serialized
-  # coverage, and one job merges the shards with the functional run into the two
-  # reports the collector reads. Wall time is then the slowest single directory,
-  # not the sum.
+  # with pcov and no branch data at all. Each worker runs several directories in
+  # separate PHPUnit processes, retaining all original serialized coverage files.
+  # This bounds runner demand without changing the test or coverage selection.
   #
   # The shard list is read from the checkout rather than written out here: a
   # hardcoded list silently stops measuring a directory somebody adds later, and
@@ -268,6 +265,7 @@ jobs:
       contents: read
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
+      workers: ${{ steps.plan.outputs.workers }}
       supported: ${{ steps.plan.outputs.supported }}
     steps:
       - name: Harden runner
@@ -279,6 +277,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.EVIDENCE_TAG }}
+          persist-credentials: false
+
+      # Helpers come from the workflow revision, including when a manual precheck
+      # checks out an older release that does not contain these helpers yet.
+      - name: Checkout coverage helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: Build/Scripts/release-coverage.py
+          sparse-checkout-cone-mode: false
           persist-credentials: false
 
       # A release that predates Build/Scripts/merge-coverage.php cannot have its
@@ -293,41 +302,20 @@ jobs:
             {
               echo "supported=false"
               echo 'shards=["Audit"]'
+              echo 'workers=[{"id":1,"shards":["Audit"]}]'
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Tests live in subdirectories by convention, and every subdirectory
-          # that holds at least one test becomes a shard. A test file placed
-          # directly in Tests/Unit/ would belong to no shard and would therefore
-          # go unmeasured without anything saying so, so it gets a shard of its
-          # own (`__root`) instead.
-          #
-          # The "at least one test" part is load-bearing: Tests/Unit also holds
-          # directories of helpers with no test class in them (Fixtures), and a
-          # shard over one of those runs PHPUnit against an empty selection.
-          # Since `failOnEmptyTestSuite` is on, that is a failed job — the whole
-          # evidence bundle red because of a directory with nothing to measure.
-          # Directories are still discovered rather than listed, so a new one
-          # with tests in it is sharded the day it appears.
-          SHARDS="$(
-            {
-              find Tests/Unit -mindepth 1 -maxdepth 1 -type d -printf '%p\n' \
-                | while IFS= read -r dir; do
-                    if [ -n "$(find "$dir" -type f -name '*Test.php' -print -quit)" ]; then
-                      basename "$dir"
-                    fi
-                  done
-              find Tests/Unit -maxdepth 1 -type f -name '*Test.php' -printf '__root\n' | sort -u
-            } | sort | jq -R . | jq -sc .
-          )"
-          echo "Unit shards: $SHARDS"
+          python3 .workflow-tools/Build/Scripts/release-coverage.py plan > coverage-plan.json
+          jq . coverage-plan.json
           {
             echo "supported=true"
-            echo "shards=$SHARDS"
+            echo "shards=$(jq -c '.shards' coverage-plan.json)"
+            echo "workers=$(jq -c '.workers' coverage-plan.json)"
           } >> "$GITHUB_OUTPUT"
 
   coverage-unit:
-    name: Coverage (unit ${{ matrix.shard }})
+    name: Coverage (unit worker ${{ matrix.worker.id }})
     needs: coverage-plan
     if: needs.coverage-plan.outputs.supported == 'true'
     runs-on: ubuntu-latest
@@ -337,7 +325,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJson(needs.coverage-plan.outputs.shards) }}
+        worker: ${{ fromJson(needs.coverage-plan.outputs.workers) }}
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
@@ -365,28 +353,27 @@ jobs:
           CAPTAINHOOK_DISABLE: 'true'
         run: composer install --prefer-dist --no-progress
 
+      - name: Checkout coverage helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: Build/Scripts/release-coverage.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Unit coverage
         env:
-          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ toJson(matrix.worker.shards) }}
         run: |
           set -euo pipefail
-          mkdir -p .Build/coverage
-          # `__root` is the shard for test files directly in Tests/Unit/; every
-          # other shard is one subdirectory. PHPUnit takes several paths.
-          if [ "$SHARD" = '__root' ]; then
-            targets=(Tests/Unit/*Test.php)
-          else
-            targets=("Tests/Unit/${SHARD}")
-          fi
-          .Build/bin/phpunit -c Build/phpunit.xml \
-            --path-coverage \
-            --coverage-php=".Build/coverage/unit-${SHARD}.cov" \
-            "${targets[@]}"
+          python3 .workflow-tools/Build/Scripts/release-coverage.py worker --shards "$SHARDS"
 
       - name: Upload shard coverage
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: coverage-shard-unit-${{ matrix.shard }}
+          name: coverage-shard-worker-${{ matrix.worker.id }}
           path: .Build/coverage/*.cov
           retention-days: 1
           if-no-files-found: error
