@@ -15,7 +15,7 @@ import tarfile
 from urllib.parse import quote
 
 REQUIRED_WORKFLOWS = ("ci.yml", "checks.yml", "e2e.yml", "security-gates.yml",
-                      "check-template-drift.yml", "harness-verify.yml")
+                      "check-template-drift.yml", "harness-verify.yml", "formal.yml")
 REQUIRED_CHECKS = ("release-identity", "tests", "coverage-line", "coverage-security-dirs",
                   "coverage-branch", "mutation-msi", "mutation-msi-security",
                   "static-analysis", "dependency-audit", "vault-doctor")

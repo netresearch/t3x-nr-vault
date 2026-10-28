@@ -159,6 +159,24 @@ class ReleaseTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()
 
+    def test_formal_model_is_required_and_its_latest_unsuccessful_run_blocks(self):
+        self.assertIn("formal.yml", MODULE.REQUIRED_WORKFLOWS)
+        page = self.api_data[self.run_keys[MODULE.REQUIRED_WORKFLOWS.index("formal.yml")]][0]
+        green = copy.deepcopy(page["workflow_runs"][0])
+        for status, conclusion in (("queued", None), ("in_progress", None),
+                                   ("completed", "failure"), ("completed", "cancelled"),
+                                   ("completed", "skipped")):
+            with self.subTest(status=status, conclusion=conclusion):
+                page["workflow_runs"] = [green, dict(green, id=999, status=status, conclusion=conclusion,
+                    created_at="2026-10-28T01:00:00Z", run_started_at="2026-10-28T01:00:00Z")]
+                page["total_count"] = 2
+                with self.assertRaisesRegex(ValueError, r"formal\.yml"):
+                    self.verify()
+        page["workflow_runs"] = []
+        page["total_count"] = 0
+        with self.assertRaisesRegex(ValueError, r"formal\.yml"):
+            self.verify()
+
     def test_pr_manual_fork_wrong_identity_and_missing_workflow_do_not_qualify(self):
         for changes in ({"event": "pull_request"}, {"event": "workflow_dispatch"},
                         {"repository": {"id": 999, "full_name": "fork/vault"}},
