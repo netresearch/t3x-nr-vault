@@ -2,6 +2,12 @@
 # Keep the existing legacy merger unchanged; no App secrets are passed.
 name: Dependency merge evaluation (observe)
 'on':
+  pull_request_target: # zizmor: ignore[dangerous-triggers] Metadata only; shared controller re-reads policy and never executes PR code.
+    types:
+      - unlabeled
+      - ready_for_review
+      - edited
+      - auto_merge_enabled
   pull_request_review:
     types:
       - submitted
@@ -25,6 +31,21 @@ name: Dependency merge evaluation (observe)
 permissions: {}
 jobs:
   evaluate:
+    if: >- # zizmor: ignore[bot-conditions] Scheduling filter only; shared controller re-reads author, source and full current-head policy.
+      github.event_name != 'pull_request_target' ||
+      (github.event.repository.full_name == github.repository &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.base.repo.full_name == github.repository &&
+       (github.event.pull_request.user.login == 'dependabot[bot]' || github.event.pull_request.user.login == 'renovate[bot]') &&
+       (startsWith(github.event.pull_request.head.ref, 'renovate/') ||
+        startsWith(github.event.pull_request.head.ref, 'dependabot/')) &&
+       ((github.event.action == 'unlabeled' &&
+         (github.event.label.name == 'deps-no-automerge' || github.event.label.name == 'deps-major')) ||
+        (github.event.action == 'ready_for_review' && github.event.pull_request.draft == false) ||
+        (github.event.action == 'edited' && github.event.changes.base.ref['from'] != '' &&
+         github.event.changes.base.ref['from'] != github.event.pull_request.base.ref) ||
+        (github.event.action == 'auto_merge_enabled' && github.event.sender.type == 'User' &&
+         github.event.sender.login != '')))
     uses: netresearch/.github/.github/workflows/dependency-merge-controller.yml@main
     permissions:
       contents: write
