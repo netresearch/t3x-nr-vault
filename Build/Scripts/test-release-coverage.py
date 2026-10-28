@@ -166,6 +166,27 @@ class CoverageTest(unittest.TestCase):
         self.assertTrue(all(not item["timed_out"] and item["launcher_error"] is None for item in outcomes))
         self.assertTrue((self.root / ".Build/coverage/unit-Later.cov").is_file())
 
+    def test_named_and_unnamed_real_time_signals_keep_later_diagnostics(self):
+        for name in ("NamedRealtime", "UnnamedRealtime", "Later"):
+            self.shard(name)
+        fake = self.root / "phpunit"
+        fake.write_text("#!/usr/bin/env python3\nimport os,pathlib,signal,sys\n"
+                        "if sys.argv[-1] == 'Tests/Unit/NamedRealtime': os.kill(os.getpid(),signal.SIGRTMIN)\n"
+                        "if sys.argv[-1] == 'Tests/Unit/UnnamedRealtime': os.kill(os.getpid(),signal.SIGRTMIN+1)\n"
+                        "out=next(a.split('=',1)[1] for a in sys.argv if a.startswith('--coverage-php='))\n"
+                        "pathlib.Path(out).write_text('coverage')\n", encoding="utf-8")
+        fake.chmod(0o755)
+        result = self.call("worker", "--shards", '["NamedRealtime","UnnamedRealtime","Later"]',
+                           "--phpunit", str(fake))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        outcomes = [json.loads(line.removeprefix("Coverage shard result: "))
+                    for line in result.stdout.splitlines() if line.startswith("Coverage shard result: ")]
+        self.assertEqual([item["shard"] for item in outcomes], ["NamedRealtime", "UnnamedRealtime", "Later"])
+        self.assertEqual([item["returncode"] for item in outcomes], [-signal.SIGRTMIN, -(signal.SIGRTMIN + 1), 0])
+        self.assertEqual([item["signal"] for item in outcomes], ["SIGRTMIN", "signal " + str(signal.SIGRTMIN + 1), None])
+        self.assertTrue(all(item["process_group_cleanup_confirmed"] for item in outcomes))
+        self.assertTrue((self.root / ".Build/coverage/unit-Later.cov").is_file())
+
     def test_only_audit_adds_per_test_isolation_and_retains_all_original_targets(self):
         for name in ("Audit", "Other", "__root"):
             self.shard(name)
@@ -213,7 +234,11 @@ class CoverageTest(unittest.TestCase):
             if pidfile.exists():
                 pid = int(pidfile.read_text())
                 command = Path("/proc/%d/cmdline" % pid)
-                if command.exists() and marker.encode() in command.read_bytes():
+                try:
+                    cmdline = command.read_bytes()
+                except FileNotFoundError:
+                    return  # The owned child was reaped before its marker could be read.
+                if marker.encode() in cmdline:
                     try:
                         os.kill(pid, signal.SIGKILL)
                     except ProcessLookupError:
@@ -300,7 +325,11 @@ class CoverageTest(unittest.TestCase):
             if pidfile.exists():
                 pid = int(pidfile.read_text())
                 command = Path("/proc/%d/cmdline" % pid)
-                if command.exists() and marker.encode() in command.read_bytes():
+                try:
+                    cmdline = command.read_bytes()
+                except FileNotFoundError:
+                    return  # The owned child was reaped before its marker could be read.
+                if marker.encode() in cmdline:
                     try:
                         os.kill(pid, signal.SIGKILL)
                     except ProcessLookupError:
@@ -350,6 +379,28 @@ class CoverageTest(unittest.TestCase):
 
     def test_unconfirmed_live_child_stops_worker_even_after_parent_wait_succeeded(self):
         self.assert_parent_exit_contains_real_child(kill_succeeds=False)
+
+    def assert_fixture_cleanup_tolerates_reaped_child(self, fixture):
+        with patch.object(self, "addCleanup", wraps=self.addCleanup) as register:
+            fixture()
+        cleanup = register.call_args.args[0]
+        command = Path("/proc/%s/cmdline" % (self.root / "child.pid").read_text())
+        original_exists = Path.exists
+
+        def exists(path):
+            return path == command or original_exists(path)
+
+        with patch.object(Path, "exists", exists), \
+                patch.object(Path, "read_bytes", side_effect=FileNotFoundError("Owned child was reaped")), \
+                patch.object(os, "kill") as kill:
+            cleanup()
+            kill.assert_not_called()
+
+    def test_timeout_fixture_cleanup_tolerates_reaped_child(self):
+        self.assert_fixture_cleanup_tolerates_reaped_child(self.test_timeout_kills_real_ignoring_child_before_later_shard_runs)
+
+    def test_parent_exit_fixture_cleanup_tolerates_reaped_child(self):
+        self.assert_fixture_cleanup_tolerates_reaped_child(self.assert_parent_exit_contains_real_child)
 
 
 if __name__ == "__main__":
