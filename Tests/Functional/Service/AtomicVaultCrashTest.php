@@ -200,6 +200,10 @@ final class AtomicVaultCrashTest extends AbstractVaultFunctionalTestCase
     }
 
     /**
+     * Rows come from Connection::select(), which applies TYPO3's default
+     * restrictions: a soft-deleted secret reads as absent, so a deletion shows
+     * up as `exists` turning false. The worker reads its evidence the same way.
+     *
      * @param array<string, mixed>|false $row
      *
      * @return array{exists: bool, version: int|null}
