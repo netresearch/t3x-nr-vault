@@ -50,22 +50,37 @@ cannot correctly publish events or release its lock at the durable boundary.
 Manually constructed services must share the coordinator and actual database
 connection; an unsupported construction must not be described as atomic.
 
+Support SQLite and MySQL/MariaDB. Any other platform is rejected with code
+``1793180003`` before a write. PostgreSQL could not write audit entries before
+this decision either: the audit lock uses ``GET_LOCK()``.
+
 Hold MySQL/MariaDB's counted audit advisory lock through the outer commit.
 SQLite uses a Doctrine-managed transaction, so the audit writer nests through
-a savepoint. An overlapping stale SQLite reader may fail with ``SQLITE_BUSY``;
-the guarantee is rollback of that attempt, not automatic eventual completion.
+a savepoint. That transaction starts DEFERRED, so the coordinator issues a
+write that matches no row before the lookup. It takes the RESERVED lock at
+once, and a concurrent mutation waits for the busy timeout like it did behind
+``BEGIN EXCLUSIVE``, instead of failing at its first write.
 
 MySQL auto-increment reservations survive rollback. When a verified enabled
 anchor matches the current tip, allocate the next UID from that tip under the
-same lock. This prevents an aborted audit insert from creating a false gap
-alarm. Without a healthy matching anchor, retain the previous auto-increment
-behavior so a missing tail is not silently replaced with reused numbers.
+same lock. This prevents an aborted audit insert, or a process killed after
+it, from creating a false gap alarm. Without a healthy matching anchor, retain
+the previous auto-increment behavior so a missing tail is not silently replaced
+with reused numbers.
+
+This allocation trusts the in-database anchor. A replayed older anchor value
+whose MAC still verifies (:ref:`adr-034-audit-chain-tip-anchor`, R2), combined
+with deleting the rows above it, therefore leaves no UID gap either. ADR-034
+does not rely on gaps for tail deletion: SQLite reuses the rowid at once, and
+MySQL/MariaDB re-derives the counter on server start. The control for R2 is
+evidence outside the database, :ref:`command-audit-anchor`.
 
 Queue external sink publication and successful mutation events until commit
 and lock release. A listener or external sink cannot roll back a completed
 database commit. Failed access-denied audit entries are replayed after a
 rollback, outside the aborted transaction. No successful mutation entry is
-replayed after rollback.
+replayed after rollback. If a denial cannot be written, the caller receives
+the ``AuditWriteException``, as it did when denials were written inline.
 
 Consequences and limits
 =======================

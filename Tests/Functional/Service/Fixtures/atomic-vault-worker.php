@@ -49,6 +49,15 @@ $settings = json_decode(
 );
 require_once $settings['autoload'];
 
+/**
+ * Publish a barrier file atomically, so the parent never reads it half-written.
+ */
+function atomicVaultSignal(string $path, string $content): void
+{
+    file_put_contents($path . '.tmp', $content);
+    rename($path . '.tmp', $path);
+}
+
 try {
     $testbase = new Testbase();
     $testbase->setTypo3TestingContext();
@@ -85,15 +94,16 @@ try {
 
     $keyProvider      = new FileMasterKeyProvider($configuration);
     $access           = new AccessControlService($configuration, $pool);
-    $auditKeyProvider = new class ($keyProvider, $settings) implements MasterKeyProviderInterface {
+    $auditKeyProvider = new class ($keyProvider, $settings, $pool) implements MasterKeyProviderInterface {
         private bool $reached = false;
 
         /**
-         * @param array{mode: string, signal: string, release: string, operation: string} $settings
+         * @param array{mode: string, signal: string, release: string, operation: string, identifier: string} $settings
          */
         public function __construct(
             private readonly MasterKeyProviderInterface $inner,
             private readonly array $settings,
+            private readonly ConnectionPool $pool,
         ) {}
 
         public function getIdentifier(): string
@@ -127,7 +137,23 @@ try {
         {
             if (!$this->reached && $this->settings['mode'] !== 'success') {
                 $this->reached = true;
-                file_put_contents(
+                // What this process's open transaction sees right before the
+                // kill: the parent proves the mutation had been written.
+                $row = $this->pool
+                    ->getConnectionForTable('tx_nrvault_secret')
+                    ->select(['version'], 'tx_nrvault_secret', ['identifier' => $this->settings['identifier']])
+                    ->fetchAssociative();
+                atomicVaultSignal(
+                    $this->settings['signal'] . '.evidence',
+                    json_encode(
+                        [
+                            'exists'  => $row !== false,
+                            'version' => $row !== false && is_numeric($row['version'] ?? null) ? (int) $row['version'] : null,
+                        ],
+                        JSON_THROW_ON_ERROR,
+                    ),
+                );
+                atomicVaultSignal(
                     $this->settings['signal'] . '.audit',
                     $this->settings['operation'],
                 );
@@ -205,7 +231,7 @@ try {
         $configuration,
         $httpFactory,
     );
-    file_put_contents($settings['signal'] . '.started', $settings['operation']);
+    atomicVaultSignal($settings['signal'] . '.started', $settings['operation']);
     $deadline = microtime(true) + 8;
     while (true) {
         try {
@@ -221,7 +247,7 @@ try {
                 'delete' => $vault->delete($settings['identifier']),
                 default  => throw new LogicException('Unknown test mutation.', 1595025539),
             };
-            file_put_contents(
+            atomicVaultSignal(
                 $settings['signal'] . '.completed',
                 $settings['operation'],
             );
@@ -243,7 +269,7 @@ try {
                 throw $exception;
             }
 
-            file_put_contents(
+            atomicVaultSignal(
                 $settings['signal'] . '.busy',
                 $settings['operation'],
             );

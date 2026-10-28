@@ -63,7 +63,7 @@ ADR      Title                                                    Status
 033      :ref:`adr-033-foreign-envelope-rotation`                 Accepted
 034      :ref:`adr-034-audit-chain-tip-anchor`                    Accepted
 035      :ref:`adr-035-frontend-placeholder-allow-set`            Amended
-036      :ref:`adr-036-mutation-audit-atomicity`                  Accepted
+036      :ref:`adr-036-mutation-audit-atomicity`                  Partly superseded
 037      :ref:`adr-037-cancellable-outbound-send`                 Amended
 038      :ref:`adr-038-unresolvable-host-is-refused`              Accepted
 039      :ref:`adr-039-streaming-send-keeps-the-dns-pin`          Accepted

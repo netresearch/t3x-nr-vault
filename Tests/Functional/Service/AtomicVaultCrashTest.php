@@ -98,6 +98,16 @@ final class AtomicVaultCrashTest extends AbstractVaultFunctionalTestCase
 
         $worker = $this->startWorker($identifier, $operation, 'crash');
         $this->waitForSignal($worker, '.audit', $operation);
+        self::assertNotSame(
+            $this->secretState($before),
+            json_decode(
+                (string) file_get_contents($worker['signal'] . '.evidence'),
+                true,
+                512,
+                JSON_THROW_ON_ERROR,
+            ),
+            'The kill must land after the mutation was written inside the open transaction',
+        );
         $status = $this->waitForExit($worker);
         self::assertTrue(
             $status['signaled'],
@@ -187,6 +197,19 @@ final class AtomicVaultCrashTest extends AbstractVaultFunctionalTestCase
             ->getConnectionForTable('tx_nrvault_secret')
             ->select(['*'], 'tx_nrvault_secret', ['identifier' => $identifier])
             ->fetchAssociative();
+    }
+
+    /**
+     * @param array<string, mixed>|false $row
+     *
+     * @return array{exists: bool, version: int|null}
+     */
+    private function secretState(array|false $row): array
+    {
+        return [
+            'exists'  => $row !== false,
+            'version' => $row !== false && is_numeric($row['version'] ?? null) ? (int) $row['version'] : null,
+        ];
     }
 
     private function successfulAuditCount(string $identifier): int

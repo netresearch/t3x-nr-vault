@@ -4034,6 +4034,7 @@ final class AuditLogServiceTest extends TestCase
     public function mysqlPreservesAutoIncrementWithoutMatchingAuthenticatedTip(
         AuditChainAnchorLoad $load,
         bool $enabled,
+        bool $sharesConnection = true,
     ): void {
         $this->setupDatabaseMocks(str_repeat('a', 64), 41);
         $this
@@ -4055,7 +4056,7 @@ final class AuditLogServiceTest extends TestCase
                     static fn (array $row): bool => !isset($row['uid']),
                 ),
             );
-        $subject = $this->mysqlWriterWithAnchor($load, $enabled);
+        $subject = $this->mysqlWriterWithAnchor($load, $enabled, $sharesConnection);
 
         $subject->log(
             'preserve_uid_gap_signal',
@@ -4065,7 +4066,7 @@ final class AuditLogServiceTest extends TestCase
     }
 
     /**
-     * @return iterable<string, array{AuditChainAnchorLoad, bool}>
+     * @return iterable<string, array{0: AuditChainAnchorLoad, 1: bool, 2?: bool}>
      */
     public static function unsafeMysqlAnchorProvider(): iterable
     {
@@ -4092,6 +4093,14 @@ final class AuditLogServiceTest extends TestCase
                 new AuditChainAnchor(41, str_repeat('b', 64), 100),
             ),
             true,
+        ];
+        yield 'matching anchor on another connection' => [
+            new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(41, str_repeat('a', 64), 100),
+            ),
+            true,
+            false,
         ];
     }
 
@@ -5030,10 +5039,11 @@ final class AuditLogServiceTest extends TestCase
     private function mysqlWriterWithAnchor(
         AuditChainAnchorLoad $load,
         bool $enabled = true,
+        bool $sharesConnection = true,
     ): AuditLogService {
         $anchor = self::createStub(AuditChainAnchorStoreInterface::class);
         $anchor->method('isEnabled')->willReturn($enabled);
-        $anchor->method('sharesConnection')->willReturn(true);
+        $anchor->method('sharesConnection')->willReturn($sharesConnection);
         $anchor->method('load')->willReturn($load);
 
         return new AuditLogService(

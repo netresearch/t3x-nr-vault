@@ -10,6 +10,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Functional\Service;
 
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
+use Netresearch\NrVault\Audit\AuditChainAnchor;
+use Netresearch\NrVault\Audit\AuditChainAnchorLoad;
 use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -28,7 +30,10 @@ use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use RuntimeException;
+use SensitiveParameter;
 use Throwable;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 /**
@@ -234,50 +239,146 @@ final class AtomicVaultMutationTest extends AbstractVaultFunctionalTestCase
         );
     }
 
+    /**
+     * The anchor write runs AFTER the audit INSERT, so this failure rolls back
+     * a reserved audit UID. SQLite rolls its sequence back with the
+     * transaction. MySQL/MariaDB keeps the AUTO_INCREMENT value consumed; the
+     * next entry takes the following UID from the matching anchor instead, so
+     * no false gap alarm follows on either platform.
+     */
     #[Test]
     public function failedAnchorWriteAfterAuditInsertDoesNotLeaveAGapInTheNextCommittedChain(): void
     {
-        $service = $this->get(VaultServiceInterface::class);
-        $audit   = $this->get(AuditLogServiceInterface::class);
+        $anchor = new class ($this->get(AuditChainAnchorStoreInterface::class)) implements AuditChainAnchorStoreInterface {
+            public int $advanceCalls = 0;
+
+            public bool $failNextAdvance = false;
+
+            public function __construct(
+                private readonly AuditChainAnchorStoreInterface $inner,
+            ) {}
+
+            public function isEnabled(): bool
+            {
+                return $this->inner->isEnabled();
+            }
+
+            public function sharesConnection(Connection $auditConnection): bool
+            {
+                return $this->inner->sharesConnection($auditConnection);
+            }
+
+            public function advance(
+                Connection $connection,
+                AuditChainAnchor $tip,
+                #[SensitiveParameter]
+                ?string $masterKey = null,
+            ): void {
+                ++$this->advanceCalls;
+                if ($this->failNextAdvance) {
+                    $this->failNextAdvance = false;
+
+                    throw new RuntimeException('Injected anchor failure after the audit INSERT', 1793180301);
+                }
+
+                $this->inner->advance($connection, $tip, $masterKey);
+            }
+
+            public function reseal(
+                Connection $connection,
+                #[SensitiveParameter]
+                ?string $masterKey = null,
+            ): void {
+                $this->inner->reseal($connection, $masterKey);
+            }
+
+            public function arm(
+                Connection $connection,
+                #[SensitiveParameter]
+                ?string $masterKey = null,
+            ): bool {
+                return $this->inner->arm($connection, $masterKey);
+            }
+
+            public function reset(Connection $connection): void
+            {
+                $this->inner->reset($connection);
+            }
+
+            public function load(Connection $auditConnection): AuditChainAnchorLoad
+            {
+                return $this->inner->load($auditConnection);
+            }
+        };
+        $service = $this->buildObservedService(
+            self::createStub(AuditSinkRegistryInterface::class),
+            self::createStub(EventDispatcherInterface::class),
+            $anchor,
+        );
+        $connection = $this
+            ->get(ConnectionPool::class)
+            ->getConnectionForTable('tx_nrvault_audit_log');
         $service->store('atomic_anchor_failure', 'original-synthetic-value');
-        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('sys_registry');
-        $schema     = $connection->createSchemaManager();
-        $table      = $schema->introspectSchema()->getTable('sys_registry');
-        $rows       = $connection->select(['*'], 'sys_registry', [])->fetchAllAssociative();
-        $schema->dropTable('sys_registry');
-        $failure = null;
+        $secretBefore = $connection
+            ->select(['*'], 'tx_nrvault_secret', [])
+            ->fetchAllAssociative();
+        $anchor->failNextAdvance = true;
+        $callsBefore             = $anchor->advanceCalls;
+        $failure                 = null;
 
         try {
             $service->rotate('atomic_anchor_failure', 'aborted-synthetic-value');
         } catch (Throwable $exception) {
             $failure = $exception;
-        } finally {
-            $schema->createTable($table);
-            foreach ($rows as $row) {
-                $connection->insert('sys_registry', $row);
-            }
         }
 
-        self::assertInstanceOf(
-            AuditWriteException::class,
-            $failure,
+        self::assertInstanceOf(AuditWriteException::class, $failure);
+        self::assertSame(
+            $callsBefore + 1,
+            $anchor->advanceCalls,
+            'The failure must be injected after the audit INSERT, in the anchor write',
         );
-        self::assertSame(1, $audit->count());
+        self::assertSame(
+            $secretBefore,
+            $connection
+                ->select(['*'], 'tx_nrvault_secret', [])
+                ->fetchAllAssociative(),
+            'The rotation must roll back with its audit entry',
+        );
+        self::assertFalse($connection->isTransactionActive());
+
         $service->rotate('atomic_anchor_failure', 'committed-synthetic-value');
-        self::assertSame(2, $audit->count());
-        self::assertTrue(
-            $audit->verifyHashChain()->isValid(),
-            'A rolled-back audit INSERT must not create a false tamper alarm on the next append',
+
+        $uids = array_map(
+            static fn (mixed $uid): int => is_numeric($uid) ? (int) $uid : 0,
+            $connection
+                ->select(['uid'], 'tx_nrvault_audit_log', [], [], ['uid' => 'ASC'])
+                ->fetchFirstColumn(),
         );
+        $verification = $this
+            ->get(AuditLogServiceInterface::class)
+            ->verifyHashChain();
+        // Read last: retrieve() appends its own read entry to the chain.
         self::assertSame(
             'committed-synthetic-value',
             $service->retrieve('atomic_anchor_failure'),
+        );
+
+        self::assertSame(
+            [1, 2],
+            $uids,
+            'A rolled-back audit INSERT must not leave a UID gap',
+        );
+        self::assertTrue(
+            $verification->isValid(),
+            'A rolled-back audit INSERT must not create a false tamper alarm on the next append',
         );
     }
 
     private function buildObservedService(
         AuditSinkRegistryInterface $sinks,
         EventDispatcherInterface $events,
+        ?AuditChainAnchorStoreInterface $anchor = null,
     ): VaultService {
         $pool        = $this->get(ConnectionPool::class);
         $transaction = new VaultMutationTransaction($pool);
@@ -294,7 +395,7 @@ final class AtomicVaultMutationTest extends AbstractVaultFunctionalTestCase
                 MasterKeyProviderInterface::class,
             ),
             $config,
-            $this->get(
+            $anchor ?? $this->get(
                 AuditChainAnchorStoreInterface::class,
             ),
             $sinks,
