@@ -54,6 +54,8 @@ class CoverageTest(unittest.TestCase):
         self.assertTrue(all(group["shards"] for group in plan["workers"]))
         self.assertEqual(plan, self.plan())
         self.assertEqual(sum(len(group["shards"]) for group in plan["workers"]), 27)
+        self.assertTrue(all(group["timeout"] == len(group["shards"]) * 30 + 10
+                            and group["timeout"] <= 360 for group in plan["workers"]))
 
     def test_fewer_shards_never_create_empty_workers(self):
         for count in range(1, 4):
@@ -87,6 +89,37 @@ class CoverageTest(unittest.TestCase):
         for names in ('["Good","Good"]', '["Missing"]', '["../outside"]', '[]'):
             with self.subTest(names=names):
                 self.assertNotEqual(self.call("worker", "--shards", names).returncode, 0)
+
+    def test_root_targets_exclude_symlinks_and_directories_named_like_tests(self):
+        self.shard("__root")
+        (self.unit / "LinkedTest.php").symlink_to(self.unit / "RootTest.php")
+        (self.unit / "DirectoryTest.php").mkdir()
+        fake = self.root / "phpunit"
+        fake.write_text("#!/usr/bin/env python3\nimport pathlib,sys\n"
+                        "pathlib.Path('targets').write_text('\\n'.join(sys.argv[1:]))\n"
+                        "out=next(a.split('=',1)[1] for a in sys.argv if a.startswith('--coverage-php='))\n"
+                        "pathlib.Path(out).write_text('coverage')\n", encoding="utf-8")
+        fake.chmod(0o755)
+        result = self.call("worker", "--shards", '["__root"]', "--phpunit", str(fake))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        targets = (self.root / "targets").read_text()
+        self.assertIn("Tests/Unit/RootTest.php", targets)
+        self.assertNotIn("LinkedTest.php", targets)
+        self.assertNotIn("DirectoryTest.php", targets)
+
+    def test_timed_out_shard_does_not_stop_later_parts(self):
+        self.shard("Slow")
+        self.shard("Later")
+        fake = self.root / "phpunit"
+        fake.write_text("#!/usr/bin/env python3\nimport pathlib,sys,time\n"
+                        "if 'Slow' in sys.argv[-1]: time.sleep(2)\n"
+                        "out=next(a.split('=',1)[1] for a in sys.argv if a.startswith('--coverage-php='))\n"
+                        "pathlib.Path(out).write_text('coverage')\n", encoding="utf-8")
+        fake.chmod(0o755)
+        result = self.call("worker", "--shards", '["Slow","Later"]',
+                           "--phpunit", str(fake), "--timeout-seconds", "0.2")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((self.root / ".Build/coverage/unit-Later.cov").is_file())
 
 
 if __name__ == "__main__":

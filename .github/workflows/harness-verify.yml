@@ -23,4 +23,4 @@ jobs:
     permissions:
       contents: read
     with:
-      check-cmd: bash Build/Scripts/verify-harness.sh || [ $? -eq 2 ]
+      check-cmd: bash Build/Scripts/verify-harness-ci.sh
