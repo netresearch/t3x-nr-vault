@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
+name: Checks Transition Precheck
+on:
+  push:
+    branches: ['ci/template-transition-pilot-20261028']
+permissions: {}
+jobs:
+  transition:
+    uses: netresearch/.github/.github/workflows/check-template-drift.yml@main
+    permissions:
+      contents: read
+    with:
+      template: typo3-extension
