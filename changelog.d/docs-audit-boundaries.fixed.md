@@ -1,0 +1,1 @@
+- Qualify the FormEngine audit guarantee when compensation fails and align the formal model's SQLite mapping with write locking before the secret lookup.
