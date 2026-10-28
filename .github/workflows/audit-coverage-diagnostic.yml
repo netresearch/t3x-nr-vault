@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
+
+name: Audit Coverage Diagnostic
+
+# One isolated Audit process. This branch never invokes the 11-job producer.
+on:
+  push:
+    branches: ['ci/audit-coverage-diagnostic-20261028']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout identical tested source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: '1bf5c2075a2ba8ed1eff91ce82e87718c448771c'
+          persist-credentials: false
+
+      - name: Setup identical PHP and coverage driver
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.5.12'
+          extensions: intl, mbstring, xml, sodium, json, xdebug-3.5.3
+          coverage: xdebug
+          tools: composer:v2
+
+      - name: Assert observed runtime and install identical source dependencies
+        env:
+          CAPTAINHOOK_DISABLE: 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/audit-diagnostic
+          php -v | tee .Build/audit-diagnostic/php-version.txt
+          php -r 'exit(PHP_VERSION === "8.5.12" && phpversion("xdebug") === "3.5.3" ? 0 : 1);'
+          composer install --prefer-dist --no-progress
+          composer show --format=json > .Build/audit-diagnostic/dependencies.json
+          .Build/bin/phpunit --version | tee .Build/audit-diagnostic/phpunit-version.txt
+          grep -q '^PHPUnit 13\.4\.5 ' .Build/audit-diagnostic/phpunit-version.txt
+
+      - name: Checkout diagnostic launcher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: .workflow-tools
+          sparse-checkout: Build/Scripts/diagnose-audit-coverage.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Run unchanged Audit path coverage and record process signal
+        run: python3 .workflow-tools/Build/Scripts/diagnose-audit-coverage.py
+
+      - name: Capture available kernel crash evidence
+        if: always()
+        run: |
+          mkdir -p .Build/audit-diagnostic
+          sudo dmesg 2>&1 | tee .Build/audit-diagnostic/dmesg.txt > /dev/null || true
+
+      - name: Upload diagnostic and any Audit coverage part
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: audit-coverage-diagnostic
+          path: |
+            .Build/audit-diagnostic/
+            .Build/coverage/unit-Audit.cov
+          if-no-files-found: error
+          retention-days: 7
