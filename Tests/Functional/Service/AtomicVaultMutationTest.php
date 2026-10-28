@@ -30,7 +30,6 @@ use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\EventDispatcher\EventDispatcherInterface;
-use RuntimeException;
 use SensitiveParameter;
 use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
@@ -278,7 +277,7 @@ final class AtomicVaultMutationTest extends AbstractVaultFunctionalTestCase
                 if ($this->failNextAdvance) {
                     $this->failNextAdvance = false;
 
-                    throw new RuntimeException('Injected anchor failure after the audit INSERT', 1793180301);
+                    throw new AuditWriteException('Injected anchor failure after the audit INSERT', 1793180301);
                 }
 
                 $this->inner->advance($connection, $tip, $masterKey);

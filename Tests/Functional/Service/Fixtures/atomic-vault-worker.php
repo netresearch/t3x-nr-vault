@@ -137,22 +137,7 @@ try {
         {
             if (!$this->reached && $this->settings['mode'] !== 'success') {
                 $this->reached = true;
-                // What this process's open transaction sees right before the
-                // kill: the parent proves the mutation had been written.
-                $row = $this->pool
-                    ->getConnectionForTable('tx_nrvault_secret')
-                    ->select(['version'], 'tx_nrvault_secret', ['identifier' => $this->settings['identifier']])
-                    ->fetchAssociative();
-                atomicVaultSignal(
-                    $this->settings['signal'] . '.evidence',
-                    json_encode(
-                        [
-                            'exists'  => $row !== false,
-                            'version' => $row !== false && is_numeric($row['version'] ?? null) ? (int) $row['version'] : null,
-                        ],
-                        JSON_THROW_ON_ERROR,
-                    ),
-                );
+                $this->recordMutationEvidence();
                 atomicVaultSignal(
                     $this->settings['signal'] . '.audit',
                     $this->settings['operation'],
@@ -189,6 +174,28 @@ try {
             }
 
             return $this->inner->getMasterKey();
+        }
+
+        /**
+         * What this process's open transaction sees right before the kill:
+         * the parent proves the mutation had been written.
+         */
+        private function recordMutationEvidence(): void
+        {
+            $row = $this->pool
+                ->getConnectionForTable('tx_nrvault_secret')
+                ->select(['version'], 'tx_nrvault_secret', ['identifier' => $this->settings['identifier']])
+                ->fetchAssociative();
+            atomicVaultSignal(
+                $this->settings['signal'] . '.evidence',
+                json_encode(
+                    [
+                        'exists'  => $row !== false,
+                        'version' => $row !== false && is_numeric($row['version'] ?? null) ? (int) $row['version'] : null,
+                    ],
+                    JSON_THROW_ON_ERROR,
+                ),
+            );
         }
     };
     $httpFactory = new class implements VaultHttpClientFactoryInterface {

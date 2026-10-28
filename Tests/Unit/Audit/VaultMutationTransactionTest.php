@@ -29,6 +29,10 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 #[CoversClass(VaultMutationTransaction::class)]
 final class VaultMutationTransactionTest extends TestCase
 {
+    private const FIRST_FAILURE = 'The mutation failed first.';
+
+    private const DENIAL_MUST_SURFACE = 'The unrecorded denial must surface.';
+
     #[Test]
     public function commitEffectsRunOnlyAfterTheOwnedTransactionHasCommitted(): void
     {
@@ -438,7 +442,7 @@ final class VaultMutationTransactionTest extends TestCase
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects(self::once())->method('error');
         $subject  = $this->subject($connection, $logger);
-        $original = new AuditWriteException('The mutation failed first.', 1793180203);
+        $original = new AuditWriteException(self::FIRST_FAILURE, 1793180203);
 
         try {
             $subject->run(
@@ -525,7 +529,7 @@ final class VaultMutationTransactionTest extends TestCase
                 ),
             );
         $subject       = $this->subject($this->sqliteConnectionForAttempts(), $logger);
-        $original      = new AuditWriteException('The mutation failed first.', 1793180206);
+        $original      = new AuditWriteException(self::FIRST_FAILURE, 1793180206);
         $replayFailure = new AuditWriteException(
             'Denied-audit replay was unavailable.',
             1793180207,
@@ -543,7 +547,7 @@ final class VaultMutationTransactionTest extends TestCase
                     throw $original;
                 },
             );
-            self::fail('The unrecorded denial must surface.');
+            self::fail(self::DENIAL_MUST_SURFACE);
         } catch (AuditWriteException $failure) {
             self::assertSame($replayFailure, $failure);
         }
@@ -566,10 +570,10 @@ final class VaultMutationTransactionTest extends TestCase
                         },
                     );
 
-                    throw new AuditWriteException('The mutation failed first.', 1793180211);
+                    throw new AuditWriteException(self::FIRST_FAILURE, 1793180211);
                 },
             );
-            self::fail('The unrecorded denial must surface.');
+            self::fail(self::DENIAL_MUST_SURFACE);
         } catch (AuditWriteException $failure) {
             self::assertSame(1754038801, $failure->getCode());
             self::assertSame($replayFailure, $failure->getPrevious());
@@ -597,10 +601,10 @@ final class VaultMutationTransactionTest extends TestCase
                         },
                     );
 
-                    throw new AuditWriteException('The mutation failed first.', 1793180213);
+                    throw new AuditWriteException(self::FIRST_FAILURE, 1793180213);
                 },
             );
-            self::fail('The unrecorded denial must surface.');
+            self::fail(self::DENIAL_MUST_SURFACE);
         } catch (AuditWriteException $failure) {
             self::assertSame($replayFailure, $failure);
         }

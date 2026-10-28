@@ -129,27 +129,7 @@ final class VaultMutationTransaction
         }
 
         if ($failure instanceof Throwable) {
-            $unrecordedDenial = null;
-            foreach ($rolledBackActions as $action) {
-                try {
-                    $action();
-                } catch (Throwable $replayFailure) {
-                    // Keep replaying the remaining denials; never replay a
-                    // success entry, which was rolled back with the mutation.
-                    $this->reportCleanupFailure($replayFailure);
-                    $unrecordedDenial ??= $replayFailure;
-                }
-            }
-
-            // A denial that could not be audited must stay visible to the
-            // caller, as it was when the denial was written inline.
-            if ($unrecordedDenial instanceof AuditWriteException) {
-                throw $unrecordedDenial;
-            }
-
-            if ($unrecordedDenial instanceof Throwable) {
-                throw AuditWriteException::writeFailed($unrecordedDenial);
-            }
+            $this->replayAfterRollback($rolledBackActions);
 
             throw $failure;
         }
@@ -181,6 +161,36 @@ final class VaultMutationTransaction
         }
 
         return $connection;
+    }
+
+    /**
+     * Replay every queued denial; never a success entry, which was rolled
+     * back with the mutation. A denial that could not be audited must stay
+     * visible to the caller, as it was when the denial was written inline.
+     *
+     * @param list<callable():void> $actions
+     *
+     * @throws AuditWriteException For the first denial that could not be written
+     */
+    private function replayAfterRollback(array $actions): void
+    {
+        $unrecordedDenial = null;
+        foreach ($actions as $action) {
+            try {
+                $action();
+            } catch (Throwable $replayFailure) {
+                $this->reportCleanupFailure($replayFailure);
+                $unrecordedDenial ??= $replayFailure;
+            }
+        }
+
+        if ($unrecordedDenial instanceof AuditWriteException) {
+            throw $unrecordedDenial;
+        }
+
+        if ($unrecordedDenial instanceof Throwable) {
+            throw AuditWriteException::writeFailed($unrecordedDenial);
+        }
     }
 
     private function reportCleanupFailure(Throwable $failure): void
