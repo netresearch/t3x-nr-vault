@@ -316,7 +316,7 @@ final readonly class MasterKeyProviderCheck implements ReadinessCheckInterface
             return Finding::critical(
                 id: $id,
                 summary: sprintf('The master-key file is accessible beyond its owner (mode %s).', $octal),
-                risk: 'Any local account in the file\'s group — on shared hosting, every other site on '
+                risk: "Any local account in the file's group — on shared hosting, every other site on "
                     . 'the box — can read the key and decrypt every secret in the vault. Envelope '
                     . 'encryption provides no protection once the master key is readable.',
                 remediation: 'chmod 0400 the key file and chown it to the user the web server and CLI '

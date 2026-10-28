@@ -212,7 +212,7 @@ final class OAuthTokenManagerTest extends TestCase
         self::assertSame(
             'token-from-v2',
             $tokenB,
-            'configB must NOT reuse configA\'s cached token — cache key collision means a '
+            "configB must NOT reuse configA's cached token — cache key collision means a "
             . 'credential rotation never takes effect at runtime',
         );
     }
