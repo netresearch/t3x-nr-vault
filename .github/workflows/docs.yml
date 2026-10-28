@@ -3,18 +3,9 @@
 
 name: Documentation
 
+# Automatic rendering and the PR preview artifact come from CI. Keep this
+# entry point for an explicit documentation-only rerender.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'Documentation/**'
-      - '.github/workflows/docs.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'Documentation/**'
-      - '.github/workflows/docs.yml'
-  merge_group:
   workflow_dispatch:
 
 permissions: {}

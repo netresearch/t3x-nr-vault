@@ -1,0 +1,1 @@
+- Run the complete PHP/TYPO3 test matrix with fewer runner allocations and produce the documentation preview once per pull request.
