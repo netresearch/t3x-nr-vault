@@ -10,7 +10,9 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Audit;
 
 use ArrayIterator;
+use ArrayObject;
 use DateTimeImmutable;
+use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Result;
 use InvalidArgumentException;
 use Iterator;
@@ -33,6 +35,7 @@ use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Message\ServerRequestInterface;
@@ -3984,6 +3987,113 @@ final class AuditLogServiceTest extends TestCase
         self::assertSame(AuditChainAnchorStatus::NotChecked, $verification->anchorStatus);
     }
 
+    #[Test]
+    public function mysqlAssignsTheNextCommittedChainUidInsteadOfAnAutoIncrementReservation(): void
+    {
+        $hash = str_repeat('a', 64);
+        $this->setupDatabaseMocks($hash, 41);
+        $this
+            ->connectionMock()
+            ->method('getDatabasePlatform')
+            ->willReturn(new MySQLPlatform());
+        $this->connectionMock()->expects(self::never())->method('lastInsertId');
+        $this
+            ->connectionMock()
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                AuditLogService::TABLE_NAME,
+                self::callback(
+                    static fn (array $row): bool => ($row['uid'] ?? null) === 42,
+                ),
+            );
+        $this
+            ->connectionMock()
+            ->expects(self::once())
+            ->method('update')
+            ->with(
+                AuditLogService::TABLE_NAME,
+                self::callback(
+                    static fn (array $row): bool => isset($row['entry_hash']),
+                ),
+                ['uid' => 42],
+            );
+        $subject = $this->mysqlWriterWithAnchor(
+            new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(41, $hash, 100),
+            ),
+        );
+
+        $subject->log('uid_recovery', AuditAction::Create->value, true);
+    }
+
+    #[Test]
+    #[DataProvider('unsafeMysqlAnchorProvider')]
+    public function mysqlPreservesAutoIncrementWithoutMatchingAuthenticatedTip(
+        AuditChainAnchorLoad $load,
+        bool $enabled,
+    ): void {
+        $this->setupDatabaseMocks(str_repeat('a', 64), 41);
+        $this
+            ->connectionMock()
+            ->method('getDatabasePlatform')
+            ->willReturn(new MySQLPlatform());
+        $this
+            ->connectionMock()
+            ->expects(self::once())
+            ->method('lastInsertId')
+            ->willReturn('99');
+        $this
+            ->connectionMock()
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                AuditLogService::TABLE_NAME,
+                self::callback(
+                    static fn (array $row): bool => !isset($row['uid']),
+                ),
+            );
+        $subject = $this->mysqlWriterWithAnchor($load, $enabled);
+
+        $subject->log(
+            'preserve_uid_gap_signal',
+            AuditAction::Create->value,
+            true,
+        );
+    }
+
+    /**
+     * @return iterable<string, array{AuditChainAnchorLoad, bool}>
+     */
+    public static function unsafeMysqlAnchorProvider(): iterable
+    {
+        yield 'disabled' => [new AuditChainAnchorLoad(AuditChainAnchorStatus::Disabled), false];
+        yield 'unanchored' => [new AuditChainAnchorLoad(AuditChainAnchorStatus::Unanchored), true];
+        yield 'unreadable' => [new AuditChainAnchorLoad(AuditChainAnchorStatus::Unreadable), true];
+        yield 'tail deleted' => [
+            new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(43, str_repeat('a', 64), 100),
+            ),
+            true,
+        ];
+        yield 'anchor lags' => [
+            new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(40, str_repeat('a', 64), 100),
+            ),
+            true,
+        ];
+        yield 'hash replaced' => [
+            new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(41, str_repeat('b', 64), 100),
+            ),
+            true,
+        ];
+    }
+
     /**
      * Run one `log()` at the given epoch and return the inserted row plus the
      * `entry_hash` the second-step UPDATE stored.
@@ -4337,13 +4447,22 @@ final class AuditLogServiceTest extends TestCase
         return $columns;
     }
 
-    private function setupDatabaseMocks(mixed $previousHashFetchOne = false): void
-    {
+    private function setupDatabaseMocks(
+        mixed $previousHashFetchOne = false,
+        ?int $previousUid = null,
+    ): void {
         $expressionBuilder = $this->createMock(ExpressionBuilder::class);
         $result            = $this->createMock(Result::class);
         // getLatestHash() uses fetchOne(); default `false` means "no prior entry".
         // Tests that exercise chaining override this to return the previous_hash value.
-        $result->method('fetchOne')->willReturn($previousHashFetchOne);
+        $selectedColumn = new ArrayObject(['name' => '']);
+        $result
+            ->method('fetchOne')
+            ->willReturnCallback(
+                static function () use ($previousHashFetchOne, $previousUid, &$selectedColumn): mixed {
+                    return $selectedColumn['name'] === 'uid' ? $previousUid : $previousHashFetchOne;
+                },
+            );
 
         // GET_LOCK on MySQL/MariaDB returns 1 on success. Mock the runtime lock
         // acquisition path so tests that don't explicitly stub it don't fail
@@ -4362,33 +4481,29 @@ final class AuditLogServiceTest extends TestCase
 
         // $connection->executeQuery('SELECT GET_LOCK(...)') is called directly
         // (not via QueryBuilder) for the audit advisory lock.
-        $this->connection
-            ->method('executeQuery')
-            ->willReturn($lockResult);
+        $this->connection->method('executeQuery')->willReturn($lockResult);
 
-        $this->queryBuilder
-            ->method('expr')
-            ->willReturn($expressionBuilder);
+        $this->queryBuilder->method('expr')->willReturn($expressionBuilder);
 
         $this->queryBuilder
             ->method('select')
-            ->willReturnSelf();
+            ->willReturnCallback(
+                function (
+                    string ...$columns,
+                ) use (&$selectedColumn): QueryBuilder {
+                    $selectedColumn['name'] = $columns[0] ?? '';
 
-        $this->queryBuilder
-            ->method('from')
-            ->willReturnSelf();
+                    return $this->queryBuilderMock();
+                },
+            );
 
-        $this->queryBuilder
-            ->method('orderBy')
-            ->willReturnSelf();
+        $this->queryBuilder->method('from')->willReturnSelf();
 
-        $this->queryBuilder
-            ->method('setMaxResults')
-            ->willReturnSelf();
+        $this->queryBuilder->method('orderBy')->willReturnSelf();
 
-        $this->queryBuilder
-            ->method('executeQuery')
-            ->willReturn($result);
+        $this->queryBuilder->method('setMaxResults')->willReturnSelf();
+
+        $this->queryBuilder->method('executeQuery')->willReturn($result);
     }
 
     /**
@@ -4661,5 +4776,23 @@ final class AuditLogServiceTest extends TestCase
         $this->queryBuilder
             ->method('executeQuery')
             ->willReturn($result);
+    }
+
+    private function mysqlWriterWithAnchor(
+        AuditChainAnchorLoad $load,
+        bool $enabled = true,
+    ): AuditLogService {
+        $anchor = self::createStub(AuditChainAnchorStoreInterface::class);
+        $anchor->method('isEnabled')->willReturn($enabled);
+        $anchor->method('sharesConnection')->willReturn(true);
+        $anchor->method('load')->willReturn($load);
+
+        return new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            $anchor,
+        );
     }
 }

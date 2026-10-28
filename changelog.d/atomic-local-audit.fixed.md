@@ -1,0 +1,1 @@
+- Atomically commit stock local VaultService mutations, ACL relations and their audit entries; reject split connections and unsupported outer transactions before writing. Publish external audit evidence and success events after the final commit. Add finite TLA+ model checks and database/process regression tests.

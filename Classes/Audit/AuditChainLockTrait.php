@@ -50,10 +50,13 @@ trait AuditChainLockTrait
     /**
      * @throws AuditWriteException If the named lock cannot be acquired
      */
-    private function acquireAuditLock(Connection $connection, bool $isSQLite): void
-    {
+    private function acquireAuditLock(
+        Connection $connection,
+        bool $isSQLite,
+        bool $managedSQLite = false,
+    ): void {
         if ($isSQLite) {
-            if ($connection->isTransactionActive()) {
+            if ($managedSQLite || $connection->isTransactionActive()) {
                 // Nested mode: savepoint via Doctrine (see trait docblock).
                 $connection->beginTransaction();
 
@@ -65,7 +68,9 @@ trait AuditChainLockTrait
             return;
         }
 
-        $lockResult = $connection->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')->fetchOne();
+        $lockResult = $connection
+            ->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')
+            ->fetchOne();
         if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
             throw AuditWriteException::lockAcquisitionFailed($lockResult);
         }
@@ -78,7 +83,9 @@ trait AuditChainLockTrait
             $connection->beginTransaction();
         } catch (Throwable $e) {
             try {
-                $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
+                $connection->executeStatement(
+                    'SELECT RELEASE_LOCK("nr_vault_audit")',
+                );
             } catch (Throwable) {
                 // Best-effort: connection close will release.
             }
