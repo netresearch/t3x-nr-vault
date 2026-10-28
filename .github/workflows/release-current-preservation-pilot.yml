@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
+
+name: Current Release Preservation Precheck
+
+# One nonpublishing qualification graph for the exact c705-based application.
+# This does not qualify a later main commit or release tag.
+on:
+  push:
+    branches: ['ci/release-current-preservation-20261028']
+
+permissions: {}
+
+concurrency:
+  group: release-current-preservation-pilot-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TESTED_COMMIT: '2d32892a409733e1facaee00237b9a6b730ecf5a'
+  AUDIT_CASES: '660'
+  AUDIT_INVENTORY_SHA256: 'df2eda2a9f40c2e262c7eec15d631429fb03ef620a60ea72d96be9fd692c1ab0'
+
+jobs:
+  evidence:
+    # GitHub resolves this workflow at the caller commit; current actionlint rejects $/.
+    uses: ./.github/workflows/release-evidence.yml # zizmor: ignore[self-repository]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    with:
+      # Kept identical to TESTED_COMMIT. No release-tag input: actual precheck.
+      ref: '2d32892a409733e1facaee00237b9a6b730ecf5a'
+
+  preservation-gate:
+    name: Verify evidence preservation across failed-job retry
+    needs: evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ACTUAL_COMMIT: ${{ needs.evidence.outputs.actual-commit }}
+      PRODUCER_IDENTITY: ${{ needs.evidence.outputs.release-tag }}
+      ARTIFACT_NAME: ${{ needs.evidence.outputs.artifact-name }}
+      BUNDLE_DIGEST: ${{ needs.evidence.outputs.bundle-sha256 }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout pilot verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Check fail-closed pilot fixtures
+        run: PYTHONDONTWRITEBYTECODE=1 python3 Build/Scripts/test-release-preservation-pilot.py
+
+      - name: Reject missing preserved outputs before downloading
+        run: |
+          python3 Build/Scripts/verify-release-preservation-pilot.py \
+            --expected "$TESTED_COMMIT" --actual "$ACTUAL_COMMIT" \
+            --identity "$PRODUCER_IDENTITY" --artifact "$ARTIFACT_NAME" \
+            --digest "$BUNDLE_DIGEST" --directory evidence \
+            --attempt "$GITHUB_RUN_ATTEMPT" --run-id "$GITHUB_RUN_ID" \
+            --audit-count "$AUDIT_CASES" --audit-digest "$AUDIT_INVENTORY_SHA256" --outputs-only
+
+      - name: Download original same-run evidence
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.evidence.outputs.artifact-name }}
+          path: evidence
+
+      - name: Verify outputs and artifact, then fail only on attempt one
+        run: |
+          python3 Build/Scripts/verify-release-preservation-pilot.py \
+            --expected "$TESTED_COMMIT" --actual "$ACTUAL_COMMIT" \
+            --identity "$PRODUCER_IDENTITY" --artifact "$ARTIFACT_NAME" \
+            --digest "$BUNDLE_DIGEST" --directory evidence \
+            --attempt "$GITHUB_RUN_ATTEMPT" --run-id "$GITHUB_RUN_ID" \
+            --audit-count "$AUDIT_CASES" --audit-digest "$AUDIT_INVENTORY_SHA256"
