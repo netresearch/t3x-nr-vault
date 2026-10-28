@@ -559,18 +559,24 @@ jobs:
           php Build/Scripts/merge-coverage.php merge .Build/coverage $(find .Build/coverage -name '*.cov' | sort)
 
       # Flattened into the `--parts` drop-zone layout (see the `checks` job).
-      # Staging is gated on the part check above: an incomplete set publishes
-      # nothing, so the bundle records "absent" instead of presenting a partial
-      # measurement as the whole.
+      # A failed producer can leave nonempty partial parts that still merge.
+      # Stage only a complete set from successful producers and a successful
+      # merge, so the bundle records "absent" for failed coverage production.
       - name: Stage coverage artifacts
         if: always()
         env:
+          PLAN: ${{ needs.coverage-plan.result }}
+          UNIT: ${{ needs.coverage-unit.result }}
+          FUNCTIONAL: ${{ needs.coverage-functional.result }}
           COMPLETE: ${{ steps.parts.outputs.complete }}
+          MERGE: ${{ steps.merge.outcome }}
         run: |
           set -euo pipefail
           mkdir -p stage
-          if [ "${COMPLETE:-}" != 'true' ]; then
-            echo "::notice::No complete set of coverage parts — publishing no coverage input; the bundle records the coverage checks as absent."
+          if [ "${PLAN:-}" != 'success' ] || [ "${UNIT:-}" != 'success' ] \
+            || [ "${FUNCTIONAL:-}" != 'success' ] || [ "${COMPLETE:-}" != 'true' ] \
+            || [ "${MERGE:-}" != 'success' ]; then
+            echo "::notice::Coverage production incomplete or unsuccessful — publishing no coverage input; the bundle records the coverage checks as absent."
             exit 0
           fi
           stage_if_present() { [ -s "$1" ] && cp "$1" "stage/$2" || true; }
