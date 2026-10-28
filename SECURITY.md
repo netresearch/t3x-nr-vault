@@ -282,9 +282,9 @@ A `FAIL` also stops the release. The tag workflow calls the evidence producer
 through a dependency, which reserves no runner while its jobs finish. A short
 verifier then checks the signed tag's target and main-branch ancestry, the
 actual tested commit, the bundle and raw-report digests, and the latest
-qualifying run of each required workflow: CI, Checks, E2E, Security Gates,
-Template Drift and Harness Verification. Only exact-SHA pushes to the default
-branch or merge-group runs qualify; PR and manual runs do not. A newer pending,
+qualifying run of each of seven required workflows: CI, Checks, E2E, Security
+Gates, Template Drift, Harness Verification and Formal Model. Only exact-SHA
+pushes to the default branch or merge-group runs qualify; PR and manual runs do not. A newer pending,
 failed or cancelled attempt blocks an older success. Nothing is built, signed
 or published before this verifier succeeds. The existing degraded doctor
 posture remains reported; required raw test, coverage, mutation and audit
