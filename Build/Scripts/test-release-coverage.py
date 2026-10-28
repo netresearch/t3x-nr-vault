@@ -3,6 +3,9 @@
 # SPDX-FileCopyrightText: Netresearch DTT GmbH
 """Offline contracts for release coverage scheduling and failure containment."""
 
+from contextlib import redirect_stderr, redirect_stdout
+import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -12,8 +15,12 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock, patch
 
 SCRIPT = Path(__file__).with_name("release-coverage.py")
+SPEC = importlib.util.spec_from_file_location("release_coverage", SCRIPT)
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
 
 
 class CoverageTest(unittest.TestCase):
@@ -131,6 +138,7 @@ class CoverageTest(unittest.TestCase):
                     for line in result.stdout.splitlines() if line.startswith("Coverage shard result: ")]
         self.assertEqual([item["shard"] for item in outcomes], ["Slow", "Later"])
         self.assertTrue(outcomes[0]["timed_out"])
+        self.assertTrue(outcomes[0]["timeout_cleanup_confirmed"])
         self.assertEqual(outcomes[0]["returncode"], -signal.SIGKILL)
         self.assertEqual(outcomes[0]["signal"], "SIGKILL")
         self.assertEqual(outcomes[1]["returncode"], 0)
@@ -228,9 +236,39 @@ class CoverageTest(unittest.TestCase):
         outcomes = [json.loads(line.removeprefix("Coverage shard result: "))
                     for line in result.stdout.splitlines() if line.startswith("Coverage shard result: ")]
         self.assertTrue(outcomes[0]["timed_out"])
+        self.assertTrue(outcomes[0]["timeout_cleanup_confirmed"])
         self.assertEqual(outcomes[0]["returncode"], -signal.SIGKILL)
         self.assertEqual(outcomes[0]["signal"], "SIGKILL")
         self.assertEqual(outcomes[1]["returncode"], 0)
+
+    def assert_cleanup_failure_stops_later_shards(self, kill_error=None, wait_error=None):
+        self.shard("Slow")
+        self.shard("Later")
+        process = Mock(pid=12345)
+        process.wait.side_effect = [subprocess.TimeoutExpired("phpunit", 0.1),
+                                    wait_error if wait_error is not None else 0, 0]
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with patch.object(MODULE.subprocess, "Popen", return_value=process) as launch, \
+                patch.object(MODULE.os, "killpg", side_effect=kill_error), \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            result = MODULE.worker(self.root, ["Slow", "Later"], "phpunit", timeout=0.1)
+        self.assertEqual(result, 1)
+        self.assertEqual(launch.call_count, 1, "Unconfirmed cleanup must not overlap later PHPUnit invocations")
+        outcomes = [json.loads(line.removeprefix("Coverage shard result: "))
+                    for line in stdout.getvalue().splitlines() if line.startswith("Coverage shard result: ")]
+        self.assertEqual(len(outcomes), 1)
+        self.assertTrue(outcomes[0]["timed_out"])
+        self.assertFalse(outcomes[0]["timeout_cleanup_confirmed"])
+        self.assertIsNotNone(outcomes[0]["launcher_error"])
+        self.assertIn("remaining coverage shards not started: Later", stderr.getvalue())
+        self.assertFalse((self.root / ".Build/coverage/unit-Later.cov").exists())
+
+    def test_failed_group_kill_stops_worker_before_later_shard(self):
+        self.assert_cleanup_failure_stops_later_shards(kill_error=PermissionError("kill denied"))
+
+    def test_unreaped_timeout_stops_worker_before_later_shard(self):
+        self.assert_cleanup_failure_stops_later_shards(wait_error=subprocess.TimeoutExpired("phpunit", 5))
 
 
 if __name__ == "__main__":

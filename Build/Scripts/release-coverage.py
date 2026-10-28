@@ -64,7 +64,7 @@ def worker(root, shards, phpunit, timeout=1800):
     output = root / ".Build/coverage"
     output.mkdir(parents=True, exist_ok=True)
     failed = []
-    for shard in shards:
+    for index, shard in enumerate(shards):
         targets = (sorted(str(path.relative_to(root)) for path in (root / "Tests/Unit").glob("*Test.php")
                           if path.is_file() and not path.is_symlink())
                    if shard == "__root" else ["Tests/Unit/" + shard])
@@ -79,6 +79,7 @@ def worker(root, shards, phpunit, timeout=1800):
         print("Coverage shard: " + shard, flush=True)
         returncode = None
         timed_out = False
+        timeout_cleanup_confirmed = None
         launcher_error = None
         try:
             # A separate group includes PHPUnit's per-test PHP children. Killing
@@ -88,12 +89,14 @@ def worker(root, shards, phpunit, timeout=1800):
                 returncode = process.wait(timeout=timeout)
             except subprocess.TimeoutExpired as error:
                 timed_out = True
+                timeout_cleanup_confirmed = False
                 print(str(error), file=sys.stderr)
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass  # The group already exited at the deadline.
                 returncode = process.wait(timeout=5)
+                timeout_cleanup_confirmed = True
         except (OSError, subprocess.TimeoutExpired) as error:
             launcher_error = str(error)
             print(launcher_error, file=sys.stderr)
@@ -102,10 +105,15 @@ def worker(root, shards, phpunit, timeout=1800):
         print("Coverage shard result: " + json.dumps({
             "shard": shard, "returncode": returncode, "signal": signal_name,
             "timed_out": timed_out, "launcher_error": launcher_error,
+            "timeout_cleanup_confirmed": timeout_cleanup_confirmed,
             "coverage_part_nonempty": nonempty}, sort_keys=True), flush=True)
         passed = returncode == 0 and not timed_out and launcher_error is None and nonempty
         if not passed:
             failed.append(shard)
+        if timed_out and not timeout_cleanup_confirmed:
+            print("Timeout cleanup unconfirmed; remaining coverage shards not started: " +
+                  ", ".join(shards[index + 1:]), file=sys.stderr)
+            break
     if failed:
         print("Failed coverage shards: " + ", ".join(failed), file=sys.stderr)
         return 1
