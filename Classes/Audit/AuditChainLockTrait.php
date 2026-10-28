@@ -25,6 +25,9 @@ use TYPO3\CMS\Core\Database\Connection;
  *
  * Lock behaviour:
  *  - SQLite: `BEGIN EXCLUSIVE` — serialises all writers for the transaction.
+ *    A transaction owner that needs a Doctrine-managed transaction
+ *    (`$managedSQLite`, {@see VaultMutationTransaction}) begins through
+ *    Doctrine and takes the RESERVED lock with a write that matches no row.
  *  - MySQL/MariaDB: named `GET_LOCK("nr_vault_audit", 5)` + transaction.
  *    `GET_LOCK` returns 1 on success, 0 on timeout, NULL on error — we
  *    abort on anything other than 1 so we never silently write unprotected
@@ -50,9 +53,34 @@ trait AuditChainLockTrait
     /**
      * @throws AuditWriteException If the named lock cannot be acquired
      */
-    private function acquireAuditLock(Connection $connection, bool $isSQLite): void
-    {
+    private function acquireAuditLock(
+        Connection $connection,
+        bool $isSQLite,
+        bool $managedSQLite = false,
+    ): void {
         if ($isSQLite) {
+            if ($managedSQLite) {
+                // Doctrine opens a DEFERRED transaction. The owner reads before
+                // it writes, so two concurrent owners would each hold a SHARED
+                // lock and SQLite would fail the second upgrade at once,
+                // without its busy timeout. A write that matches no row takes
+                // the RESERVED lock now, so the second writer waits as it does
+                // behind BEGIN EXCLUSIVE.
+                $connection->beginTransaction();
+
+                try {
+                    $connection->executeStatement(
+                        'UPDATE ' . AuditLogService::TABLE_NAME . ' SET uid = uid WHERE 1 = 0',
+                    );
+                } catch (Throwable $e) {
+                    $connection->rollBack();
+
+                    throw AuditWriteException::writeFailed($e);
+                }
+
+                return;
+            }
+
             if ($connection->isTransactionActive()) {
                 // Nested mode: savepoint via Doctrine (see trait docblock).
                 $connection->beginTransaction();
@@ -65,7 +93,9 @@ trait AuditChainLockTrait
             return;
         }
 
-        $lockResult = $connection->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')->fetchOne();
+        $lockResult = $connection
+            ->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')
+            ->fetchOne();
         if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
             throw AuditWriteException::lockAcquisitionFailed($lockResult);
         }
@@ -78,7 +108,9 @@ trait AuditChainLockTrait
             $connection->beginTransaction();
         } catch (Throwable $e) {
             try {
-                $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
+                $connection->executeStatement(
+                    'SELECT RELEASE_LOCK("nr_vault_audit")',
+                );
             } catch (Throwable) {
                 // Best-effort: connection close will release.
             }

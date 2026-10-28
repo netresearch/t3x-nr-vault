@@ -16,7 +16,14 @@ ADR-036: Mutation and audit are all-or-nothing
 Status
 ======
 
-Accepted
+Partly superseded by :ref:`adr-050-local-mutation-transactions`.
+
+The compensation design below records the earlier implementation. It does
+not guarantee atomicity under process loss or overlapping writes. The stock
+local programmatic paths now use a shared database transaction. The
+DataHandler/TCA and custom-adapter paths retain separate, weaker boundaries.
+The historical statement below that nested audit transactions are impossible
+is obsolete; ``AuditChainLockTrait`` supports Doctrine savepoints.
 
 Date
 ====

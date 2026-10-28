@@ -225,6 +225,13 @@ database. Fan-out happens after the transaction commits and after the advisory
 audit lock is released, so a slow collector cannot serialise vault operations,
 and a delivery failure never fails the audited operation.
 
+For coordinated stock local ``VaultService`` mutations, this means the final
+outer database commit, including the secret and its applicable ACL relations,
+not merely the audit writer's savepoint release. See
+:ref:`adr-050-local-mutation-transactions`. Delivery is best effort: a process
+can disappear after commit before publication. There is no durable outbox or
+eventual-delivery guarantee.
+
 ..  list-table::
     :header-rows: 1
     :widths: 14 20 66

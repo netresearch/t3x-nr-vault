@@ -11,7 +11,9 @@ namespace Netresearch\NrVault\Adapter;
 
 use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Domain\Repository\SecretRepository;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
+use TYPO3\CMS\Core\Database\Connection;
 
 /**
  * Local database adapter with envelope encryption.
@@ -133,5 +135,21 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
         }
 
         $this->secretRepository->setMetadata($uid, array_merge($secret->getMetadata(), $metadata));
+    }
+
+    /**
+     * Whether this adapter uses the stock transactional database repository.
+     */
+    public function usesLocalRepository(): bool
+    {
+        return $this->secretRepository instanceof SecretRepository;
+    }
+
+    /**
+     * The stock repository must write on the transaction owner's connection.
+     */
+    public function sharesConnection(Connection $connection): bool
+    {
+        return $this->secretRepository instanceof SecretRepository && $this->secretRepository->sharesConnection($connection);
     }
 }
