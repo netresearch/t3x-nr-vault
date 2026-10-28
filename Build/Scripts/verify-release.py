@@ -113,8 +113,14 @@ def verify_workflow(api, base, filename, repository, commit):
                 (event == "merge_group" and isinstance(branch, str) and
                  branch.startswith("gh-readonly-queue/" + repository["default_branch"] + "/"))):
             continue
+        # REST run.path may append the workflow definition ref, e.g. ci.yml@main.
+        # Only normalize that suffix; the exact canonical producer stays required.
+        run_path = run.get("path")
+        path, separator, ref = run_path.partition("@") if isinstance(run_path, str) else (None, "", "")
+        valid_ref = not separator or (ref and not any(char.isspace() or ord(char) < 32 or ord(char) == 127
+                                                     for char in ref))
         require(run.get("head_sha") == commit and run.get("workflow_id") == workflow["id"] and
-                run.get("path") == workflow["path"], "Workflow run revision/producer mismatch: " + filename)
+                path == workflow["path"] and valid_ref, "Workflow run revision/producer mismatch: " + filename)
         for key in ("repository", "head_repository"):
             identity = run.get(key)
             require(isinstance(identity, dict) and identity.get("id") == repository["id"] and
