@@ -51,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The E2E workflow reports one stable aggregate check that rejects failed, cancelled, skipped or missing matrix results across both supported TYPO3 environments.
 
 - **Changelog entries are written as fragments in `changelog.d/`.** A pull request adds `changelog.d/<branch-slug>.<section>.md` instead of editing `## [Unreleased]`; the release commit folds them into `CHANGELOG.md` with `composer changelog:collect`. `composer ci:test:changelog` refuses a malformed fragment and a release commit that leaves fragments behind. See `changelog.d/README.md`.
+- Release evidence runs unit path coverage on four workers while retaining every original coverage part and rejecting incomplete results. Audit tests use separate processes to avoid Xdebug path-coverage crashes. Every shard exit cleans and checks its process group before later diagnostics; unconfirmed cleanup stops the affected worker and fails the evidence run. Merged coverage is staged only after successful producers, complete parts and a successful merge, so failed partial output remains diagnostic.
+- Security-critical pull requests need one approval, like every other pull request, so a single maintainer can merge them once all CI gates, including the mutation ratchet, are green. CONTRIBUTING.md asks for a second review from a code owner where a reviewer is available; a merge without one is no longer a process incident. The dependency merge controller policy requires one current-head approval instead of two.
 
 ### Fixed
 
