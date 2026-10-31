@@ -1,3 +1,0 @@
-- A throwing secondary PSR-3 hook diagnostic writer no longer interrupts refusal or copy compensation. The existing single sanitized logging attempt and correlation message are retained; a reference does not confirm log delivery. Mandatory mutation-audit and storage failures keep their existing contracts. Real writer `RuntimeException`/`Error` oracles also exercise final-link clearing after a clone-deletion failure. See ADR-047.
-
-- Compensate successfully stored FlexForm clones when final XML serialization or record linking fails; attempt clearing even after a write has taken effect, and report uncertain references if recovery also fails.

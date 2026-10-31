@@ -1,3 +1,0 @@
-- PHPStan on PHP 8.2 understands the guarded PHP 8.3+ date-range error and its inherited constructor through analysis-only declarations. The OAuth runtime and test code are unchanged; these declarations are not runtime polyfills.
-
-- **Signed OAuth expiry buffers no longer wrap or create an unparseable relative date.** Positive buffers advance expiry and negative buffers give grace, including native integer limits and representable expiry extremes. Zero-buffer DateTime comparison and the legacy conversion-range path remain available. The existing Fuzz oracle now enforces its expected result rather than accepting a caught assertion failure. See ADR-044.

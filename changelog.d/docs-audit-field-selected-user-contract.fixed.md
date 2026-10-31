@@ -1,1 +1,0 @@
-- **The TCA integration manual says whose TSconfig overrides apply.** The ordinary widget and Hook calls read `page.vault.permissions` from the logged-in backend user; a caller that passes a different user gets that user's overrides. ADR-049 spells the TYPO3 versions as "TYPO3 13.4.36" and "TYPO3 14.3.8".
