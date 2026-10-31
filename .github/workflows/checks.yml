@@ -138,6 +138,11 @@ jobs:
   # app against the pull request, not by these jobs, so they are not requirable
   # for a queue either. Require `All security checks` instead — it depends on
   # every job here and its name does not change with the event.
+  #
+  # The gate does not block a zizmor finding: zizmor is report-only and its
+  # job succeeds whatever it finds (zizmor.yml). A finding blocks a pull
+  # request only through a ruleset `code_scanning` rule, which this gate does
+  # not replace.
   gate:
     name: All security checks
     needs:
@@ -156,7 +161,7 @@ jobs:
     permissions: {}
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
         with:
           egress-policy: audit
 
