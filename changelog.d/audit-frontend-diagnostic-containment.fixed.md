@@ -1,1 +1,0 @@
-- **Optional frontend placeholder diagnostics cannot interrupt rendering.** A failing PSR-3 logger is contained after the per-request slot is claimed, preserving unresolved literals and continuing later permitted resolutions. Development notices and warning attempts retain their existing context and volume rules; this does not suppress failures from mandatory Vault audit writes.

@@ -1,1 +1,0 @@
-- Re-evaluate dependency merge observations after blocking labels are removed, a draft becomes ready, the base branch changes or a person enables auto-merge; preserve the separate trusted intent and observation-only rollout.

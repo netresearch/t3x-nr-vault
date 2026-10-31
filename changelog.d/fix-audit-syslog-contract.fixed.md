@@ -1,1 +1,0 @@
-- **Syslog probes describe publication rather than acknowledged delivery.** The operator manual explains that PHP cannot confirm receipt by the logging service or collector. Isolated tests verify all five severity mappings, configured identity, facility and the open/write/close sequence; a missing write is now detected.
