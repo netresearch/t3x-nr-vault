@@ -23,7 +23,7 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 | `republish.yml` | Manual re-run of a publish target (ter / docs / packagist) for an existing tag |
 | `auto-merge-deps.yml` | Auto-merge dependency PRs when CI green (Renovate/Dependabot) |
 | `dependency-controller-observe-intent.yml` | Prepare head-bound observation intent on trusted bot PR events; no PR approval or queue mutation |
-| `dependency-controller-observe.yml` | Observe readiness on permitted completions/reviews; requires successful separate producer; legacy merger remains active pending native proof |
+| `dependency-controller-observe.yml` | Observe readiness on selected metadata, review and completion events; requires successful separate producer; legacy merger remains active pending native proof |
 | `formal.yml` | Audit transaction model and negative controls; superseded PRs cancel, non-PR runs keep unique groups |
 | `dco.yml` | DCO sign-off check (`dco / DCO`) via the shared `dco.yml` reusable. Runs on `merge_group` too, which the probot DCO app cannot |
 | `community.yml` | Community health: stale bot, lock of closed threads, welcome |

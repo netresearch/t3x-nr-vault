@@ -75,9 +75,10 @@ the same failures against the actual database in functional tests.
 | `Finish` | Release the coordinator lock; external sink delivery and success events may run after durability has been established |
 
 The model serializes successful mutation transactions. MySQL achieves this with
-the common advisory lock held through the outer commit. SQLite may allow
-overlapping read transactions and abort a stale reader with `SQLITE_BUSY`; such
-an aborted operation corresponds to `Fail`, not a successful stale commit.
+the common advisory lock held through the outer commit. On SQLite, the
+coordinator takes the RESERVED write lock before the secret lookup. A concurrent
+mutation waits up to the busy timeout; an expired wait corresponds to `Fail`,
+not a successful stale commit.
 This is an abstraction argument to validate against the database, not an SQL
 isolation proof.
 

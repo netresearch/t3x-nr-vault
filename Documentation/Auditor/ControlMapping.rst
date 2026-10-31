@@ -247,14 +247,16 @@ and Logging).*
         -   Break-glass audits **before** granting. The stock local
             :php:`VaultService` store, rotate, delete and availability paths
             commit the change and its audit entry in one database transaction
-            (:ref:`adr-050-local-mutation-transactions`); custom adapters
-            compensate a failed audit write by rolling the data change back. The
-            FormEngine/DataHandler paths share this contract: the
+            (:ref:`adr-050-local-mutation-transactions`).
+            Custom adapters use compensating rollback.
+            On the FormEngine/DataHandler paths, the
             ``tx_nrvault_secret`` delete command runs through
             :php:`VaultService::delete()`, and a metadata change (or
             value-less record creation) whose audit write fails is reverted
-            by :php:`SecretTcaHook` — no mutation persists without its audit
-            entry.
+            by :php:`SecretTcaHook`.
+            If that revert also fails, the change remains persisted without an
+            audit entry and the DataHandler log reports it for manual
+            reconciliation (:ref:`adr-036-guarantee-limits`).
         -   :php:`BreakGlassService::activate()`,
             :php:`VaultService::delete()`,
             :php:`SecretTcaHook`
