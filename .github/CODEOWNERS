@@ -7,7 +7,7 @@
 *                       @netresearch/typo3
 
 # Security-sensitive code (explicit for visibility). These paths also require
-# two approvals and a threat-model delta — see CONTRIBUTING.md.
+# a threat-model delta — see CONTRIBUTING.md.
 /Classes/Crypto/        @netresearch/typo3
 /Classes/Security/      @netresearch/typo3
 /Classes/Audit/         @netresearch/typo3

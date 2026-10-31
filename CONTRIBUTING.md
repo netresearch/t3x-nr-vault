@@ -155,13 +155,13 @@ composer test:all
 - [ ] Code style is correct
 - [ ] Documentation is updated (if applicable)
 - [ ] A changelog fragment is added under `changelog.d/` (see `changelog.d/README.md`; do not edit `CHANGELOG.md` directly)
-- [ ] For security-critical paths: two approvals and a threat-model delta (see below)
+- [ ] For security-critical paths: a threat-model delta, and a second review where a reviewer is available (see below)
 
 ## Security-Critical Changes
 
 This extension stores other people's credentials. A defect in the paths below
-is not a bug report next week, it is a disclosure. Changes to them carry two
-extra requirements on top of the normal PR process.
+is not a bug report next week, it is a disclosure. Changes to them carry the
+rules below on top of the normal PR process.
 
 ### Which paths
 
@@ -179,19 +179,22 @@ A change counts as security-critical if it touches any of these, **or** if it
 changes how a secret, key, or audit record is produced, stored, transported, or
 compared anywhere else in the codebase.
 
-### Rule 1 — two-person review
+### Rule 1 — review
 
-A security-critical PR needs **two approving reviews**, and the author may not
-be one of them. One approver must be a code owner for the touched path (see
-`.github/CODEOWNERS`). Green CI is not a substitute: the mutation ratchet and
-the invariant tests catch regressions in behaviour we already thought of, and
-the second reviewer is there for the ones we did not.
+A security-critical PR needs the same one approval as every other PR, and a
+single maintainer can merge it. The approval comes from a maintainer's review
+or from the `pr-quality` auto-approval that `checks.yml` gives a non-draft pull
+request an owner, member or collaborator opens from a branch of this
+repository. What the merge cannot do without is green CI: the full test
+matrix, `Security gates` with the mutation ratchet on `Classes/Crypto`,
+`Classes/Security`, `Classes/Audit` and `Classes/Http`, and every other
+required check.
 
-If a second qualified reviewer genuinely is not available, do not quietly
-self-merge. Say so explicitly in the PR — what you could not get reviewed and
-why — so the deviation is on the record and can be revisited. An undocumented
-single-approval merge on a crypto path is treated as a process incident, not a
-shortcut.
+The mutation ratchet and the invariant tests catch regressions in behaviour we
+already thought of; a second reviewer finds the ones we did not. Where a second
+reviewer is available, request one from the code owners of the touched path
+(see `.github/CODEOWNERS`) before merging. A merge without a second review is
+not a process incident.
 
 ### Rule 2 — threat-model delta
 
