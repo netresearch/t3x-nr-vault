@@ -80,13 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - FlexForm hard deletion preflights every unique, unshared secret before the first delete. Refused discovery, authorization or deletion retains the owning record and stops further deletes. The failure diagnostic discloses that secrets may already have been deleted, including a current delete whose post-persistence observer throws. Soft-delete/recycle still retains FlexForm secrets for restoration. See ADR-045.
 
-- Compensate successfully stored FlexForm clones when final XML serialization or record linking fails; attempt clearing even after a write has taken effect, and report uncertain references if recovery also fails.
-
 - FlexForm hard deletion now distinguishes disabled stored secrets from absent references after complete sharing exclusions. Administrative lookup failures cancel the cascade before any preflight or deletion; existing availability behavior and plaintext read paths remain unchanged.
 
 - FlexForm hard deletion selects only values at elements the data structure configures with renderType `vaultSecret`, including section containers. A secret whose identifier merely appears in an ordinary FlexForm element is no longer deleted with the record. A record whose FlexForm value holds an identifier-shaped string but whose data structure cannot be resolved is kept, and the delete is cancelled.
-
-- FlexForm hard deletion preflights every unique, unshared secret before the first delete. Refused discovery, authorization or deletion retains the owning record and stops further deletes. The failure diagnostic discloses that secrets may already have been deleted, including a current delete whose post-persistence observer throws. Soft-delete/recycle still retains FlexForm secrets for restoration. See ADR-045.
 
 - **Optional frontend placeholder diagnostics cannot interrupt rendering.** A failing PSR-3 logger is contained after the per-request slot is claimed, preserving unresolved literals and continuing later permitted resolutions. Development notices and warning attempts retain their existing context and volume rules; this does not suppress failures from mandatory Vault audit writes.
 
@@ -125,15 +121,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The TCA integration manual says whose TSconfig overrides apply.** The ordinary widget and Hook calls read `page.vault.permissions` from the logged-in backend user; a caller that passes a different user gets that user's overrides. ADR-049 spells the TYPO3 versions as "TYPO3 13.4.36" and "TYPO3 14.3.8".
 
-- FlexForm hard deletion preflights every unique, unshared secret before the first delete. Refused discovery, authorization or deletion retains the owning record and stops further deletes. The failure diagnostic discloses that secrets may already have been deleted, including a current delete whose post-persistence observer throws. Soft-delete/recycle still retains FlexForm secrets for restoration. See ADR-045.
-
-- Compensate successfully stored FlexForm clones when final XML serialization or record linking fails; attempt clearing even after a write has taken effect, and report uncertain references if recovery also fails.
-
 - **Explicit field-policy users now supply their own TSconfig and conditions.** All three `VaultFieldPermissionService` wrappers honor a distinct supplied user's materialized `page.*` settings and native backend-user conditions on TYPO3 13 and 14. The ambient account, Context and Core runtime cache remain unchanged; the ordinary field UI and Hook path, admin bypass, precedence and UID permission cache retain their behavior. See ADR-049.
 
 - External audit sink identity and iterator failures cannot abort registry calls. Accepted records survive metadata and later enumeration failures; unattributed failures are counted without inventing persisted destinations or exposing discovery exception text.
-
-- **A failing diagnostic logger cannot stop external audit delivery.** Sink-delivery and alert-listener diagnostics now contain logger exceptions and errors. Delivery-state storage diagnostics do the same, preserving healthy destinations, failure counters, alert attempts and the existing fail-safe bookkeeping contract. The authoritative audit-chain write retains its failure contract.
 
 - **A failing diagnostic logger cannot stop external audit delivery.** Sink-delivery and alert-listener diagnostics now contain logger exceptions and errors. Delivery-state storage diagnostics do the same, preserving healthy destinations, failure counters, alert attempts and the existing fail-safe bookkeeping contract. The authoritative audit-chain write retains its failure contract.
 
