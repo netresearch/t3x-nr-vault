@@ -186,8 +186,9 @@ single maintainer can merge it. The approval comes from a maintainer's review
 or from the `pr-quality` auto-approval that `checks.yml` gives a non-draft pull
 request an owner, member or collaborator opens from a branch of this
 repository. What the merge cannot do without is green CI: the full test
-matrix, `Security gates` with the mutation ratchet on the paths above, and
-every other required check.
+matrix, `Security gates` with the mutation ratchet on `Classes/Crypto`,
+`Classes/Security`, `Classes/Audit` and `Classes/Http`, and every other
+required check.
 
 The mutation ratchet and the invariant tests catch regressions in behaviour we
 already thought of; a second reviewer finds the ones we did not. Where a second
