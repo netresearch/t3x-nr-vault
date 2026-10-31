@@ -1,1 +1,0 @@
-- Operational guidance states the implemented key-rotation/install sequence, file-provider fallback and advisory audit retention. Configuration documents the existing provisioning actor, and troubleshooting uses the actual operation and per-secret permissions.

@@ -1,1 +1,0 @@
-- AES nonce regression tests explicitly select AES-256-GCM and verify its algorithm marker and nonce widths before checking uniqueness.

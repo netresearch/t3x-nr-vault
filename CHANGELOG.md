@@ -9,9 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-31
+
+### Upgrading from 1.1
+
+- `VaultService::store()`, `rotate()`, `delete()` and `setEnabled()` on the stock local adapter now own their database transaction. A call made while the caller already holds an open transaction on the same connection fails with `AuditWriteException` code `1793180002` before anything is written; commit or roll back first. The secret, both ACL MM tables, the audit log and `sys_registry` must resolve to one database connection (code `1793180004`), and the database must be SQLite or MySQL/MariaDB (code `1793180003`).
+
 ### Added
 
 - **Combine primary HTTP authentication with separately stored body credentials.** The optional `AdditionalSecretHttpClientInterface::withAdditionalBodyField()` capability adds a Vault identifier to a simple form or JSON-object field inside the existing secured send boundary. Authentication, OAuth, reason and timeout clones preserve up to eight bindings; duplicate names, primary BodyField collisions and malformed bindings are refused. Blocking, cancellable and streaming sends share injection, cancellation and audit behavior. A denied additional read prevents transport contact, and existing `VaultHttpClientInterface` signatures remain unchanged. See ADR-041.
+
+- Observe dependency merge readiness with verifiable current-commit evidence while retaining the existing merge process during validation.
 
 ### Changed
 
@@ -25,6 +33,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Project-authored source files state their licence and copyright holder.** The documentation, templates, XLIFF, JavaScript, CSS, configuration and scripts written for this extension now carry `SPDX-License-Identifier: GPL-2.0-or-later` and `SPDX-FileCopyrightText: Netresearch DTT GmbH`, as the PHP files already did; the files synced from the organisation template carry its MIT notice. Copied files (`CODE_OF_CONDUCT.md`, `Build/Scripts/runTests.sh`, `Build/Scripts/verify-harness.sh`), generated files (`Build/phpstan-baseline.neon`, `Tests/Unit/Api/api-surface.txt`), the issue and pull-request templates, `.github/template.yaml`, the workflows `ci.yml` and `release.yml`, `LICENSE`, the JSON files, the CSV fixtures, the images and the empty `.gitkeep` carry none. `CONTRIBUTING.md` links the organisation's governance, roadmap, access roster, secret management and findings policies and lists the checks its workflows run on pull requests; `SECURITY.md` points to the findings policy.
 
+- AES nonce regression tests explicitly select AES-256-GCM and verify its algorithm marker and nonce widths before checking uniqueness.
+
+- The included extension-settings example uses a stored identifier with the supported HTTP API. Tests execute the literal example and compile its service registration in the real TYPO3 container. ADR-009 identifies its unimplemented optional parsing helper and describes the actual configuration-file storage.
+
+- Functional controller tests exercise real backend users and group grants across Vault module actions, including a non-admin creation grant.
+
+- OAuth manager regression tests inspect real form requests, selective cache eviction and exact default token metadata. The developer manual now describes cancellation of the uncached token leg on factory-built clients.
+
+- Operational guidance states the implemented key-rotation/install sequence, file-provider fallback and advisory audit retention. Configuration documents the existing provisioning actor, and troubleshooting uses the actual operation and per-secret permissions.
+
+- Run the complete PHP/TYPO3 test matrix with fewer runner allocations and produce the documentation preview once per pull request.
+- Stop superseded pull-request quality and formal-model runs while preserving active merge-group, main and scheduled validations.
+
+- Re-evaluate dependency merge observations after blocking labels are removed, a draft becomes ready, the base branch changes or a person enables auto-merge; preserve the separate trusted intent and observation-only rollout.
+
+- The E2E workflow reports one stable aggregate check that rejects failed, cancelled, skipped or missing matrix results across both supported TYPO3 environments.
+
+- **Changelog entries are written as fragments in `changelog.d/`.** A pull request adds `changelog.d/<branch-slug>.<section>.md` instead of editing `## [Unreleased]`; the release commit folds them into `CHANGELOG.md` with `composer changelog:collect`. `composer ci:test:changelog` refuses a malformed fragment and a release commit that leaves fragments behind. See `changelog.d/README.md`.
+
 ### Fixed
 
 - Secret-input reveal failures wipe partial values and cancel an active exposure lifecycle before diagnostics, restore the original reveal control and catch unexpected Promise rejections. Browser regressions exercise spinner preparation, error notification, interrupted countdown setup and failure after lifecycle registration.
@@ -36,6 +63,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Make quality targets use the shared container test runner.** `make ci` runs Code style, PHPStan, Unit and Fuzz in the shared runtime. `make cgl` now performs its documented dry-run; `make fix` applies code style and `make rector` checks refactorings in the same runtime. The four CI checks and their failure behavior remain the same.
 
 - **The overview checks the configured master-key provider.** A missing file or an invalid provider no longer reports healthy through an unrelated TYPO3 encryption-key fallback. The health probe selects the same provider as the encryption dependency; functional tests exercise the real provider factory, including a readable configured-file counterpart.
+
+- Atomically commit stock local VaultService mutations, ACL relations and their audit entries; reject split connections and unsupported outer transactions before writing. Publish external audit evidence and success events after the final commit. An access-denied entry that cannot be written still fails the call with `AuditWriteException`. Add finite TLA+ model checks and database/process regression tests.
+
+- **Access-control interface comments match the implemented actor policy.** Technical actors may hold explicit group operation grants in addition to implicit `secret.use`, an admin technical actor can hold the configured bypass, and trusted CLI operations require the explicit operation allowlist. The write/delete tier comments distinguish the CLI policy, and attribution names the actual technical/CLI/backend/API outcomes. Real Core/SQL tests now verify subgroup operation grants and refusal of unrelated groups; the previous suites stayed green with a nonexistent grant column. Runtime behavior and public signatures are unchanged.
+
+- **Technical actor scopes cannot change a break-glass window through ambient administrator credentials.** Activation and deactivation refuse the technical identity before considering CLI or backend authorization, including an admin-flag technical account. Real Core and SQL tests verify unchanged session bytes, audit rows and events on refusal, and ordinary administrator and CLI operation after scope exit. The security manual also states that reasons are trimmed before storage.
+
+- A throwing secondary PSR-3 hook diagnostic writer no longer interrupts refusal or copy compensation. The existing single sanitized logging attempt and correlation message are retained; a reference does not confirm log delivery. Mandatory mutation-audit and storage failures keep their existing contracts. Real writer `RuntimeException`/`Error` oracles also exercise final-link clearing after a clone-deletion failure. See ADR-047.
+
+- Compensate successfully stored FlexForm clones when final XML serialization or record linking fails; attempt clearing even after a write has taken effect, and report uncertain references if recovery also fails.
+
+- A failed write of freshly cloned identifiers back to a copied record's regular TCA vault fields now compensates the created secrets and attempts to clear those fields. A failed clearing attempt reports the need for manual review, including when the failure is a PHP error.
+
+- **Field-permission tests now execute the configured restrictions.** Real backend-user TSconfig tests cover field/table/global precedence, restrictive settings, administrators and separate cached users, tables, fields and actions. Earlier cache tests used the administrator bypass or asserted only their own seeded map; they now exercise non-admin results, and cache reset is checked against a changed real configuration. The manual states the existing page-0 scope and plain-TCA/FlexForm write boundary. Runtime permission behavior is unchanged.
+
+- FlexForm hard deletion preflights every unique, unshared secret before the first delete. Refused discovery, authorization or deletion retains the owning record and stops further deletes. The failure diagnostic discloses that secrets may already have been deleted, including a current delete whose post-persistence observer throws. Soft-delete/recycle still retains FlexForm secrets for restoration. See ADR-045.
+
+- Compensate successfully stored FlexForm clones when final XML serialization or record linking fails; attempt clearing even after a write has taken effect, and report uncertain references if recovery also fails.
+
+- FlexForm hard deletion now distinguishes disabled stored secrets from absent references after complete sharing exclusions. Administrative lookup failures cancel the cascade before any preflight or deletion; existing availability behavior and plaintext read paths remain unchanged.
+
+- FlexForm hard deletion selects only values at elements the data structure configures with renderType `vaultSecret`, including section containers. A secret whose identifier merely appears in an ordinary FlexForm element is no longer deleted with the record. A record whose FlexForm value holds an identifier-shaped string but whose data structure cannot be resolved is kept, and the delete is cancelled.
+
+- FlexForm hard deletion preflights every unique, unshared secret before the first delete. Refused discovery, authorization or deletion retains the owning record and stops further deletes. The failure diagnostic discloses that secrets may already have been deleted, including a current delete whose post-persistence observer throws. Soft-delete/recycle still retains FlexForm secrets for restoration. See ADR-045.
+
+- **Optional frontend placeholder diagnostics cannot interrupt rendering.** A failing PSR-3 logger is contained after the per-request slot is claimed, preserving unresolved literals and continuing later permitted resolutions. Development notices and warning attempts retain their existing context and volume rules; this does not suppress failures from mandatory Vault audit writes.
+
+- **Header and DNS regression tests enforce refusal and propagation.** The HTTP Fuzz cases require invalid names and CRLF values to fail before an inner request, and verify exact credential delivery for valid names. The DNS oracle requires the original lookup exception and restored error handler. These tests previously accepted deliberately broken behavior after catching their own assertions.
+
+- Implement the documented `*` identifier patterns in `VaultService::list()` and
+  `vault:list --pattern`. Patterns match complete identifiers; `%` and `_` stay
+  literal. Repository prefix filters retain their literal prefix semantics.
+  Real database tests cover PHP and CLI results, access checks, disabled and
+  deleted records, and pattern/prefix combinations.
+
+- Correct ADR-007's current metadata API and DTO example; distinguish the
+  historical entity/schema sketches and adapter-only update from the public service.
+
+- PHPStan on PHP 8.2 understands the guarded PHP 8.3+ date-range error and its inherited constructor through analysis-only declarations. The OAuth runtime and test code are unchanged; these declarations are not runtime polyfills.
+
+- **Signed OAuth expiry buffers no longer wrap or create an unparseable relative date.** Positive buffers advance expiry and negative buffers give grace, including native integer limits and representable expiry extremes. Zero-buffer DateTime comparison and the legacy conversion-range path remain available. The existing Fuzz oracle now enforces its expected result rather than accepting a caught assertion failure. See ADR-044.
+
+- Hook diagnostic context keeps its generated correlation reference when caller metadata supplies a conflicting key. String values now satisfy the final 200-byte limit after UTF-8 replacement; configured replacement characters cannot reintroduce control bytes, and anonymous exception-class control bytes are sanitized. Ordinary metadata and named cause classes are retained; the hook message and logging attempt share one reference.
+
+- **Site-scoped credentials can be created through the supported storage paths.**
+  The store API, CLI and Vault table accept exact `site:<siteIdentifier>:<friendlyName>`
+  namespaces for configured sites. Existing credentials retain their authenticated
+  names and remain administrable after site rename/delete. Read-time resolution
+  falls back to a global credential only for an actually missing namespaced row;
+  denial, disabled state, expiry or decryption failure leaves the placeholder unresolved.
+
+- Correct the TCA DeepL example's soft-delete schema and authentication scheme;
+  execute its literal TCA, repository and service against real databases.
+  Use a specific missing-configuration exception and preserve the fixture table
+  across repeated Core TCA compilation.
+
+- **Technical-actor validation has a real deleted-user oracle.** A functional test checks that an enabled account can enter a scope, then soft-deletes that actual row and verifies the precise refusal before its callback runs. It detects a wrong SQL predicate column that the earlier query doubles and live-user fixtures accepted; runtime behavior is unchanged.
+
+- Qualify the FormEngine audit guarantee when compensation fails and align the formal model's SQLite mapping with write locking before the secret lookup.
+
+- **The TCA integration manual says whose TSconfig overrides apply.** The ordinary widget and Hook calls read `page.vault.permissions` from the logged-in backend user; a caller that passes a different user gets that user's overrides. ADR-049 spells the TYPO3 versions as "TYPO3 13.4.36" and "TYPO3 14.3.8".
+
+- FlexForm hard deletion preflights every unique, unshared secret before the first delete. Refused discovery, authorization or deletion retains the owning record and stops further deletes. The failure diagnostic discloses that secrets may already have been deleted, including a current delete whose post-persistence observer throws. Soft-delete/recycle still retains FlexForm secrets for restoration. See ADR-045.
+
+- Compensate successfully stored FlexForm clones when final XML serialization or record linking fails; attempt clearing even after a write has taken effect, and report uncertain references if recovery also fails.
+
+- **Explicit field-policy users now supply their own TSconfig and conditions.** All three `VaultFieldPermissionService` wrappers honor a distinct supplied user's materialized `page.*` settings and native backend-user conditions on TYPO3 13 and 14. The ambient account, Context and Core runtime cache remain unchanged; the ordinary field UI and Hook path, admin bypass, precedence and UID permission cache retain their behavior. See ADR-049.
+
+- External audit sink identity and iterator failures cannot abort registry calls. Accepted records survive metadata and later enumeration failures; unattributed failures are counted without inventing persisted destinations or exposing discovery exception text.
+
+- **A failing diagnostic logger cannot stop external audit delivery.** Sink-delivery and alert-listener diagnostics now contain logger exceptions and errors. Delivery-state storage diagnostics do the same, preserving healthy destinations, failure counters, alert attempts and the existing fail-safe bookkeeping contract. The authoritative audit-chain write retains its failure contract.
+
+- **A failing diagnostic logger cannot stop external audit delivery.** Sink-delivery and alert-listener diagnostics now contain logger exceptions and errors. Delivery-state storage diagnostics do the same, preserving healthy destinations, failure counters, alert attempts and the existing fail-safe bookkeeping contract. The authoritative audit-chain write retains its failure contract.
+
+- **Syslog probes describe publication rather than acknowledged delivery.** The operator manual explains that PHP cannot confirm receipt by the logging service or collector. Isolated tests verify all five severity mappings, configured identity, facility and the open/write/close sequence; a missing write is now detected.
+
+- The delete button in the secrets list no longer deletes a secret without the confirmation dialog when it is clicked before the list's JavaScript has loaded. It was a submit button whose form posted on its own; it is now a plain button, and only the confirmation submits the form.
 
 ## [1.1.0] - 2026-09-29
 
@@ -2141,7 +2245,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/netresearch/t3x-nr-vault/compare/v0.16.0...v1.0.0
