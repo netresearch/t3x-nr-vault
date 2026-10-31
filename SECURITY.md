@@ -279,10 +279,28 @@ statuses, so you can judge a release without opening the bundle:
 The bundle is published in all three cases. A `FAIL` roll-up marks the run red
 rather than suppressing the evidence.
 
-A `FAIL` also stops the release. The release workflow waits for the evidence
-run and for the test matrix at the tagged commit before it builds, signs or
-publishes anything, and it does not proceed unless both succeeded. `DEGRADED`
-does not stop a release; what it did not measure is stated in the bundle.
+A `FAIL` also stops the release. The tag workflow calls the evidence producer
+through a dependency, which reserves no runner while its jobs finish. A short
+verifier then checks the signed tag's target and main-branch ancestry, the
+actual tested commit, the bundle and raw-report digests, and the latest
+qualifying run of each of seven required workflows: CI, Checks, E2E, Security
+Gates, Template Drift, Harness Verification and Formal Model. Only exact-SHA
+pushes to the default branch or merge-group runs qualify; PR and manual runs do not. A newer pending,
+failed or cancelled attempt blocks an older success. Nothing is built, signed
+or published before this verifier succeeds. The existing degraded doctor
+posture remains reported; required raw test, coverage, mutation and audit
+reports must be present.
+
+Run histories must be complete, uncapped, stable and free of duplicate run IDs.
+A newer or simultaneous non-success update blocks even when a queued retry's
+start timestamp is still old; updating an old success cannot mask a known newer
+failure. Ambiguous histories stop publication without polling.
+
+The verifier does not poll. If another required run is still pending, finish
+that run and use **Re-run failed jobs** on the Release run. This reuses successful
+evidence and retries the short verifier and publisher; it is an explicit
+recovery step, not an automatic completion controller. Missing or expired
+evidence requires a new complete evidence run.
 
 ### Checking a commit before tagging it
 
@@ -302,8 +320,8 @@ The bundle is attached to its workflow run rather than to the GitHub release,
 because releases are immutable once published and are not edited afterwards.
 
 ```bash
-# List the evidence run for a tag and download the bundle
-gh run list --workflow release-evidence.yml --limit 10
+# Tagged evidence belongs to the Release run; manual prechecks use Release Evidence
+gh run list --workflow release.yml --limit 10
 gh run download <run-id> --name release-evidence-v1.2.3
 tar -xzf release-evidence-1.2.3.tar.gz
 ```
