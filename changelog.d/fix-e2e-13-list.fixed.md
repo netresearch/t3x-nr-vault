@@ -1,1 +1,0 @@
-- The delete button in the secrets list no longer deletes a secret without the confirmation dialog when it is clicked before the list's JavaScript has loaded. It was a submit button whose form posted on its own; it is now a plain button, and only the confirmation submits the form.

@@ -1,1 +1,0 @@
-- The included extension-settings example uses a stored identifier with the supported HTTP API. Tests execute the literal example and compile its service registration in the real TYPO3 container. ADR-009 identifies its unimplemented optional parsing helper and describes the actual configuration-file storage.
