@@ -29,7 +29,7 @@ Classes/Http, the security gates, the release-evidence pipeline, or SECURITY.md
 stored, transported or compared. Otherwise delete this section.
 
 "No change" is a valid answer; leaving it blank is not — see CONTRIBUTING.md.
-Security-critical PRs also need TWO approvals, one from a code owner.
+Where a second reviewer is available, request one from a code owner.
 -->
 
 - **Trust boundaries**: <!-- new boundary crossed (process, host, network, DB, log sink, external provider), or "none" -->

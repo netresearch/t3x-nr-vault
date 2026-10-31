@@ -69,11 +69,12 @@ What is fast-tracked:
 - **Branching.** The fix is cut from the affected release tag, not from `main`,
   so installations can take the patch without also taking unreleased work. It is
   then forward-merged into `main`.
-- **Review latency.** Reviewers are paged rather than waited on. The
-  two-person review requirement for security-critical paths
-  (see [CONTRIBUTING.md](CONTRIBUTING.md#security-critical-changes)) still
-  applies — it is not waived under time pressure, because a rushed crypto change
-  is exactly the change that most needs a second pair of eyes.
+- **Review latency.** Reviewers are paged rather than waited on. The review
+  rule for security-critical paths
+  (see [CONTRIBUTING.md](CONTRIBUTING.md#security-critical-changes)) applies
+  unchanged: a second reviewer is requested where one is available, because a
+  rushed crypto change is exactly the change that most needs a second pair of
+  eyes, and a single maintainer may ship the fix once the gates below hold.
 - **Disclosure.** The advisory is drafted in parallel with the fix and published
   with the release.
 
