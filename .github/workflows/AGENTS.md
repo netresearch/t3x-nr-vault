@@ -52,6 +52,8 @@ GitHub Actions workflows for nr-vault. CI, releases, auto-merge, and community a
 | Re-run failed run | `gh run rerun <run-id>` |
 | Inspect annotations | `gh api repos/$REPO/check-runs/$ID/annotations` |
 
+**Codecov checks fail until every upload has landed.** Codecov re-evaluates `codecov/patch`, the per-component patch statuses and `codecov/project` after each coverage upload (`unit` and `functional` flags in `codecov.yml`). While the matrix is still running, lines only the functional suite reaches look uncovered and the checks report a failure that clears by itself. Judge a Codecov failure only after every coverage-uploading job has finished.
+
 ## Directory Structure
 ```
 .github/
