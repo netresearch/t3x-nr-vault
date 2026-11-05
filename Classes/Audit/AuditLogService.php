@@ -234,6 +234,11 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             ->select('*')
             ->from(self::TABLE_NAME)
             ->orderBy('crdate', 'DESC')
+            // Entries written in the same second share a crdate. Without a
+            // tie-breaker their order, and with it every page boundary, is
+            // whatever the database returns; PostgreSQL does not fall back
+            // to primary-key order.
+            ->addOrderBy('uid', 'DESC')
             ->setMaxResults($limit)
             ->setFirstResult($offset);
 

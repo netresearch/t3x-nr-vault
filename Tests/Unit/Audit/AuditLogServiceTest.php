@@ -109,6 +109,8 @@ final class AuditLogServiceTest extends TestCase
         $this->masterKeyProvider      = $this->createMock(MasterKeyProviderInterface::class);
         $this->extensionConfiguration = $this->createMock(ExtensionConfigurationInterface::class);
         $this->queryBuilder           = $this->createMock(QueryBuilder::class);
+        // query() adds a uid tie-breaker after its crdate order.
+        $this->queryBuilder->method('addOrderBy')->willReturnSelf();
         $this->connection = $this->createMock(Connection::class);
         // The tip anchor is exercised in its own unit + functional tests; here
         // it stays inert so the existing write/verify assertions are unchanged.
@@ -1946,6 +1948,27 @@ final class AuditLogServiceTest extends TestCase
 
         // Kills Decrement/Increment on the fallback 0.
         self::assertSame(0, $this->getSubject()->count());
+    }
+
+    /**
+     * Entries written in the same second share a crdate. Without the uid
+     * tie-breaker their order and every page boundary depend on the database;
+     * PostgreSQL does not fall back to primary-key order.
+     */
+    #[Test]
+    public function queryBreaksCrdateTiesByDescendingUid(): void
+    {
+        $this->setupQueryMocks([]);
+        $queryBuilder = $this->queryBuilder;
+        self::assertInstanceOf(MockObject::class, $queryBuilder);
+
+        $queryBuilder
+            ->expects(self::once())
+            ->method('addOrderBy')
+            ->with('uid', 'DESC')
+            ->willReturnSelf();
+
+        $this->getSubject()->query();
     }
 
     /**
