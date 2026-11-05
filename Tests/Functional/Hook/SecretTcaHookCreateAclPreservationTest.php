@@ -134,6 +134,10 @@ final class SecretTcaHookCreateAclPreservationTest extends AbstractVaultFunction
             ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
             ->executeQuery()
             ->fetchOne();
+        // `encrypted_value` is `bytea` on PostgreSQL, which PDO returns as a stream.
+        if (is_resource($value)) {
+            $value = stream_get_contents($value);
+        }
 
         return is_scalar($value) ? (string) $value : '';
     }

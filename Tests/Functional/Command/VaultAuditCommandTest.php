@@ -323,6 +323,10 @@ final class VaultAuditCommandTest extends AbstractVaultFunctionalTestCase
             )
             ->executeQuery()
             ->fetchOne();
+        // `entry_value` is `bytea` on PostgreSQL, which PDO returns as a stream.
+        if (is_resource($value)) {
+            $value = stream_get_contents($value);
+        }
 
         return is_string($value) ? $value : null;
     }

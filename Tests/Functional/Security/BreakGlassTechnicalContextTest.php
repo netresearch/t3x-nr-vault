@@ -296,6 +296,12 @@ final class BreakGlassTechnicalContextTest extends AbstractVaultFunctionalTestCa
             ->executeQuery()
             ->fetchAllAssociative();
 
+        // `entry_value` is `bytea` on PostgreSQL, which PDO returns as a
+        // stream; two streams never compare equal, their bytes do.
+        if (is_resource($raw)) {
+            $raw = stream_get_contents($raw);
+        }
+
         return [
             'registry' => $raw,
             'audit'    => $rows,

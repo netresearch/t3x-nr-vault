@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Audit;
 
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
 use Netresearch\NrVault\Audit\AuditChainAnchorStore;
@@ -704,11 +705,20 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         );
 
         // Reset the auto-increment as well, so a refill starts at uid 1 on every
-        // platform. MariaDB gets that from TRUNCATE; SQLite does not, because
+        // platform. MariaDB gets that from TRUNCATE; PostgreSQL's TRUNCATE
+        // keeps the sequence, so it is reset explicitly. SQLite does not either, because
         // the platform emits DELETE FROM and TYPO3 maps `uid` to INTEGER PRIMARY
         // KEY AUTOINCREMENT, whose sequence lives in `sqlite_sequence` and
         // survives. The statement is meaningless elsewhere and that table does
         // not exist there, so a failure is the expected non-SQLite outcome.
+        if ($connection->getDatabasePlatform() instanceof PostgreSQLPlatform) {
+            $connection->executeStatement(
+                'SELECT setval(pg_get_serial_sequence(' . $connection->quote(self::AUDIT_TABLE) . ", 'uid'), 1, false)",
+            );
+
+            return;
+        }
+
         try {
             $connection->executeStatement(
                 'DELETE FROM sqlite_sequence WHERE name = ' . $connection->quote(self::AUDIT_TABLE),
