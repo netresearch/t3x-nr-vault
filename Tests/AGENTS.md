@@ -101,6 +101,22 @@ Tests/
   restriction, sums across tables) — the unit test keeps what it is good at,
   which is what the code makes of the returned counts.
 - Functional fixtures: `Tests/.../Fixtures/*.csv`, loaded via `$this->importCSVDataSet()`.
+- **Switching the master key needs the file provider pinned.**
+  `AbstractVaultFunctionalTestCase` sets `masterKeySource`/`autoKeyPath` but not
+  `masterKeyProvider`, so `MasterKeyProviderFactory` auto-detects in the order
+  typo3 → env → file and the test runs on `Typo3MasterKeyProvider`. Writing a
+  new key to `$this->masterKeyPath` and calling
+  `FileMasterKeyProvider::clearCachedKey()` then changes nothing, audit HMAC
+  keys included. A test that must change the effective key belongs in a class
+  that sets `'masterKeyProvider' => 'file'` (e.g.
+  `Functional/Crypto/MasterKeyRotationTest.php`,
+  `Functional/Audit/AuditChainRekeyServiceTest.php`). When a key switch "has no
+  effect", assert the provider class first.
+- **Functional tests on sqlite can fail locally on WSL2** with `SQLSTATE[HY000]
+  [14] unable to open database file`: the runner mounts a tmpfs over
+  `functional-sqlite-dbs` inside the bind-mounted project, which WSL2's Docker
+  does not handle reliably. Run them with `Build/Scripts/runTests.sh -s
+  functional -d mariadb`; CI on Linux is unaffected.
 
 ## Security
 - **Never commit real secrets** — fixtures use clearly synthetic values. The `betterleaks` job in `.github/workflows/checks.yml` scans every PR against the root `.gitleaks.toml`, so a fixture that trips a rule fails CI. Automated scanning is a backstop, not a substitute: a synthetic value the config happens to allow is still your responsibility to review.

@@ -101,14 +101,17 @@ We use PHPStan at the maximum level (10). Run analysis:
 composer ci:test:php:phpstan
 ```
 
-> **Git worktree note:** in a fresh git worktree (before
-> `phpstan/extension-installer` has populated `.Build/vendor/...`),
-> `composer ci:test:php:phpstan` can fail with a cryptic include error.
-> If that happens, run PHPStan with the plugin-free config:
+> **Git worktree note:** in a fresh git worktree, run
+> `./Build/Scripts/runTests.sh -s composerUpdate` before trusting a PHPStan
+> error. Without Docker, run it from the host with the default config:
 >
 > ```bash
-> .Build/bin/phpstan analyse --configuration=Build/phpstan.no-plugins.neon
+> .Build/bin/phpstan analyse --configuration=phpstan.neon --memory-limit=2G
 > ```
+>
+> `Build/phpstan.no-plugins.neon` is not a fallback: once
+> `phpstan/extension-installer` is in `.Build`, it stops with "These files are
+> included multiple times" and analyses nothing.
 
 ### Testing
 
