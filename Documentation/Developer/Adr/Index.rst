@@ -77,6 +77,7 @@ ADR      Title                                                    Status
 047      :ref:`adr-047-hook-diagnostic-containment`               Proposed
 049      :ref:`adr-049-selected-user-field-tsconfig`              Accepted
 050      :ref:`adr-050-local-mutation-transactions`               Accepted
+051      :ref:`adr-051-postgresql-audit-lock`                     Accepted
 =======  =======================================================  ========
 
 .. toctree::
@@ -132,3 +133,4 @@ ADR      Title                                                    Status
    ADR-047-HookDiagnosticContainment
    ADR-049-SelectedUserFieldTsconfig
    ADR-050-LocalMutationTransactions
+   ADR-051-PostgreSqlAuditLock
