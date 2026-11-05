@@ -13,6 +13,7 @@ use ArrayIterator;
 use ArrayObject;
 use DateTimeImmutable;
 use Doctrine\DBAL\Platforms\MySQLPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Result;
 use InvalidArgumentException;
 use Iterator;
@@ -108,7 +109,7 @@ final class AuditLogServiceTest extends TestCase
         $this->masterKeyProvider      = $this->createMock(MasterKeyProviderInterface::class);
         $this->extensionConfiguration = $this->createMock(ExtensionConfigurationInterface::class);
         $this->queryBuilder           = $this->createMock(QueryBuilder::class);
-        $this->connection             = $this->createMock(Connection::class);
+        $this->connection = $this->createMock(Connection::class);
         // The tip anchor is exercised in its own unit + functional tests; here
         // it stays inert so the existing write/verify assertions are unchanged.
         $this->anchorStore = $this->createMock(AuditChainAnchorStoreInterface::class);
@@ -4029,6 +4030,68 @@ final class AuditLogServiceTest extends TestCase
         $subject->log('uid_recovery', AuditAction::Create->value, true);
     }
 
+    /**
+     * PostgreSQL sequences survive a rollback like MySQL AUTO_INCREMENT, so the
+     * anchored tip allocates the next UID there too. An explicit UID does not
+     * advance the sequence, so the writer moves it; otherwise the next insert
+     * that takes the sequence collides with this row.
+     */
+    #[Test]
+    public function postgreSqlAssignsTheNextChainUidAndMovesTheSequenceToIt(): void
+    {
+        $hash = str_repeat('a', 64);
+        $this->setupDatabaseMocks($hash, 41);
+        $this
+            ->connectionMock()
+            ->method('getDatabasePlatform')
+            ->willReturn(new PostgreSQLPlatform());
+        $this->connectionMock()->expects(self::never())->method('lastInsertId');
+        $this
+            ->connectionMock()
+            ->expects(self::once())
+            ->method('insert')
+            ->with(
+                AuditLogService::TABLE_NAME,
+                self::callback(
+                    static fn (array $row): bool => ($row['uid'] ?? null) === 42,
+                ),
+            );
+        $sequenceMoves = $this->recordSequenceMoves();
+        $subject       = $this->mysqlWriterWithAnchor(
+            new AuditChainAnchorLoad(
+                AuditChainAnchorStatus::Ok,
+                new AuditChainAnchor(41, $hash, 100),
+            ),
+        );
+
+        $subject->log('uid_recovery', AuditAction::Create->value, true);
+
+        self::assertSame([[AuditLogService::TABLE_NAME, 42]], $sequenceMoves->getArrayCopy());
+    }
+
+    #[Test]
+    public function postgreSqlLeavesTheSequenceAloneWithoutAMatchingAuthenticatedTip(): void
+    {
+        $this->setupDatabaseMocks(str_repeat('a', 64), 41);
+        $this
+            ->connectionMock()
+            ->method('getDatabasePlatform')
+            ->willReturn(new PostgreSQLPlatform());
+        $this
+            ->connectionMock()
+            ->expects(self::once())
+            ->method('lastInsertId')
+            ->willReturn('99');
+        $sequenceMoves = $this->recordSequenceMoves();
+        $subject       = $this->mysqlWriterWithAnchor(
+            new AuditChainAnchorLoad(AuditChainAnchorStatus::Unanchored),
+        );
+
+        $subject->log('preserve_uid_gap_signal', AuditAction::Create->value, true);
+
+        self::assertCount(0, $sequenceMoves);
+    }
+
     #[Test]
     #[DataProvider('unsafeMysqlAnchorProvider')]
     public function mysqlPreservesAutoIncrementWithoutMatchingAuthenticatedTip(
@@ -5034,6 +5097,32 @@ final class AuditLogServiceTest extends TestCase
         $this->queryBuilder
             ->method('executeQuery')
             ->willReturn($result);
+    }
+
+    /**
+     * Record the parameters of every `setval()` the writer issues. The lock
+     * stub registered by setupDatabaseMocks() still answers the queries.
+     *
+     * @return ArrayObject<int, list<mixed>>
+     */
+    private function recordSequenceMoves(): ArrayObject
+    {
+        /** @var ArrayObject<int, list<mixed>> $moves */
+        $moves = new ArrayObject();
+        $this
+            ->connectionMock()
+            ->method('executeQuery')
+            ->willReturnCallback(
+                function (string $sql, array $params = []) use ($moves): Result {
+                    if (str_contains($sql, 'setval(')) {
+                        $moves->append(array_values($params));
+                    }
+
+                    return self::createStub(Result::class);
+                },
+            );
+
+        return $moves;
     }
 
     private function mysqlWriterWithAnchor(

@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Audit;
 
 use DateTimeInterface;
 use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Generator;
 use InvalidArgumentException;
@@ -1259,10 +1260,16 @@ final readonly class AuditLogService implements AuditLogServiceInterface
 
     /**
      * Two-step write: INSERT assigns a UID, then UPDATE writes the entry hash
-     * derived from that UID, so the hash binds its own row. MySQL can reuse a
-     * rolled-back UID only when an authenticated anchor matches the current tip;
-     * otherwise its AUTO_INCREMENT gaps retain their integrity signal. SQLite
-     * rolls its sequence back with the transaction and uses lastInsertId.
+     * derived from that UID, so the hash binds its own row. MySQL and
+     * PostgreSQL can reuse a rolled-back UID only when an authenticated anchor
+     * matches the current tip; otherwise their AUTO_INCREMENT/sequence gaps
+     * retain their integrity signal. SQLite rolls its sequence back with the
+     * transaction and uses lastInsertId.
+     *
+     * An explicit UID does not advance a PostgreSQL sequence (MySQL raises
+     * AUTO_INCREMENT on its own), so the sequence is set to that UID. Without
+     * it, the next insert that takes the sequence would collide with a row
+     * written here.
      *
      * Returns the row it just wrote as the chain's new tip, so the caller can
      * anchor it without a second read.
@@ -1279,7 +1286,10 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         array $data,
         string $previousHash,
     ): array {
-        if ($connection->getDatabasePlatform() instanceof AbstractMySQLPlatform && $this->anchorStore instanceof AuditChainAnchorStoreInterface && $this->anchorStore->isEnabled() && $this->anchorStore->sharesConnection($connection)) {
+        $explicitUid  = null;
+        $platform     = $connection->getDatabasePlatform();
+        $isPostgreSql = $platform instanceof PostgreSQLPlatform;
+        if (($platform instanceof AbstractMySQLPlatform || $isPostgreSql) && $this->anchorStore instanceof AuditChainAnchorStoreInterface && $this->anchorStore->isEnabled() && $this->anchorStore->sharesConnection($connection)) {
             // Reusing a rolled-back UID is safe only when an authenticated
             // anchor matches the CURRENT tip. Otherwise AUTO_INCREMENT gaps
             // remain necessary evidence of tail deletion in unanchored modes.
@@ -1299,6 +1309,14 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         }
 
         $connection->insert(self::TABLE_NAME, $data);
+        if ($isPostgreSql && $explicitUid !== null) {
+            $connection->executeQuery(
+                "SELECT setval(pg_get_serial_sequence(?, 'uid'), ?)",
+                [self::TABLE_NAME, $explicitUid],
+                [Connection::PARAM_STR, Connection::PARAM_INT],
+            );
+        }
+
         $uid         = $explicitUid ?? (int) $connection->lastInsertId();
         $data['uid'] = $uid;
 
