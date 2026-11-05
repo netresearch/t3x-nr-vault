@@ -25,7 +25,7 @@ CREATE TABLE tx_nrvault_secret (
     encryption_algorithm varchar(32) DEFAULT '' NOT NULL,
 
     -- Change detection (without decrypting)
-    value_checksum char(64) DEFAULT '' NOT NULL,
+    value_checksum varchar(64) DEFAULT '' NOT NULL,
 
     -- Access control
     owner_uid int(11) unsigned DEFAULT 0 NOT NULL,
@@ -118,8 +118,8 @@ CREATE TABLE tx_nrvault_audit_log (
     entry_hash varchar(64) DEFAULT '' NOT NULL,
 
     -- Change tracking
-    hash_before char(64) DEFAULT '' NOT NULL,
-    hash_after char(64) DEFAULT '' NOT NULL,
+    hash_before varchar(64) DEFAULT '' NOT NULL,
+    hash_after varchar(64) DEFAULT '' NOT NULL,
 
     -- When
     crdate int(11) unsigned DEFAULT 0 NOT NULL,
