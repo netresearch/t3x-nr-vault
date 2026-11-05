@@ -148,10 +148,14 @@ parameters:
         # reads as "always true" on the 14 leg and would read as "always false"
         # on the 13 one; the guard is load-bearing on exactly the major that
         # cannot be analysed at the same time. Calling it unguarded produced a
-        # 500 on every 13.4 vault overview page.
+        # 500 on every 13.4 vault overview page. On the 13 leg the call's result
+        # is also `mixed`, which the strict rules reject in `&&`; comparing it
+        # with `true` instead is undone by Rector's SimplifyBoolIdenticalTrueRector
+        # on the 14 leg, where the method returns bool.
         -
             identifiers:
                 - function.alreadyNarrowedType
+                - booleanAnd.rightNotBoolean
             paths:
                 - Classes/Middleware/VaultOverviewModuleResolver.php
                 - Tests/Unit/Middleware/VaultOverviewModuleResolverTest.php

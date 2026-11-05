@@ -112,9 +112,7 @@ final readonly class VaultOverviewModuleResolver implements MiddlewareInterface
         // calling it unguarded is a fatal on 13.4, the very major this
         // middleware exists for. method_exists() asks the running core for the
         // capability rather than inferring it from a version number.
-        // On 13.4 the method is unknown to static analysis, so its result is
-        // `mixed`; the strict comparison keeps the condition boolean there.
-        if (method_exists($module, 'hasSubmoduleOverview') && $module->hasSubmoduleOverview() === true) {
+        if (method_exists($module, 'hasSubmoduleOverview') && $module->hasSubmoduleOverview()) {
             return $handler->handle($request);
         }
 
