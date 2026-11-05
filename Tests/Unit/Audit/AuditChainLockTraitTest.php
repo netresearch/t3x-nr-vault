@@ -197,19 +197,25 @@ final class AuditChainLockTraitTest extends TestCase
         $this->subject->acquire($connection, false);
     }
 
+    /**
+     * A lock that stays held past the timeout must abort before a transaction
+     * opens, naming the query an operator can run to find the holder: on
+     * PostgreSQL there is no lock name to search for.
+     */
     #[Test]
-    public function postgreSqlLockErrorAbortsBeforeAnyTransactionIsOpened(): void
+    public function postgreSqlLockTimeoutAbortsBeforeAnyTransactionIsOpened(): void
     {
         $connection = $this->postgreSqlConnection();
-        $connection->expects(self::once())
+        $connection->expects(self::atLeastOnce())
             ->method('executeQuery')
-            ->willReturn($this->lockResult(null));
+            ->willReturn($this->lockResult(0));
         $connection->expects(self::never())->method('beginTransaction');
 
         $this->expectException(AuditWriteException::class);
-        $this->expectExceptionMessageToContain('pg_try_advisory_lock returned NULL');
+        $this->expectExceptionMessageToContain('pg_try_advisory_lock returned 0');
+        $this->expectExceptionMessageToContain('classid = 1852995169 AND objid = 1969514868');
 
-        $this->subject->acquire($connection, false);
+        (new AuditChainLockHost(lockTimeoutSeconds: 0))->acquire($connection, false);
     }
 
     #[Test]

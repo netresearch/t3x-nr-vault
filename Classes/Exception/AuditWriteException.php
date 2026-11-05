@@ -57,17 +57,29 @@ final class AuditWriteException extends VaultException
     /**
      * The PostgreSQL advisory lock was not granted within the timeout.
      *
-     * @param mixed $rawResult The last value returned by
-     *                         `pg_try_advisory_lock(...)` — 0 while another
-     *                         writer holds the lock, NULL on a database error
+     * PostgreSQL has no named lock: the key is the bigint of "nrvaudit", which
+     * `pg_locks` shows split into `classid` (high 32 bits) and `objid` (low
+     * 32 bits). The hint names that query, because a search for
+     * "nr_vault_audit" finds nothing there.
+     *
+     * @param mixed $rawResult The last value returned by the lock query — 0
+     *                         while another session holds the lock
      */
     public static function postgreSqlLockAcquisitionFailed(mixed $rawResult): self
     {
-        return self::lockNotAcquired('pg_try_advisory_lock', $rawResult);
+        return self::lockNotAcquired(
+            'pg_try_advisory_lock',
+            $rawResult,
+            'check for a stuck audit log writer: SELECT pid FROM pg_locks'
+            . " WHERE locktype = 'advisory' AND classid = 1852995169 AND objid = 1969514868.",
+        );
     }
 
-    private static function lockNotAcquired(string $lockFunction, mixed $rawResult): self
-    {
+    private static function lockNotAcquired(
+        string $lockFunction,
+        mixed $rawResult,
+        string $hint = 'check for a stuck audit log writer holding the named lock "nr_vault_audit".',
+    ): self {
         $detail = match (true) {
             $rawResult === null   => 'NULL (DB error)',
             is_scalar($rawResult) => (string) $rawResult,
@@ -77,10 +89,10 @@ final class AuditWriteException extends VaultException
         return new self(
             sprintf(
                 'Audit-log advisory lock could not be acquired (%s returned %s). '
-                . 'Retry the operation; if the failure persists, check for a stuck '
-                . 'audit log writer holding the audit-chain lock "nr_vault_audit".',
+                . 'Retry the operation; if the failure persists, %s',
                 $lockFunction,
                 $detail,
+                $hint,
             ),
             1747825331,
         );

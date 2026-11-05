@@ -213,7 +213,7 @@ trait AuditChainLockTrait
      */
     private function acquirePostgreSqlAuditLock(Connection $connection): void
     {
-        $deadline = hrtime(true) + self::AUDIT_LOCK_TIMEOUT_SECONDS * 1_000_000_000;
+        $deadline = hrtime(true) + $this->auditLockTimeoutSeconds() * 1_000_000_000;
 
         do {
             // CASE turns the boolean into an integer, which every PDO driver
@@ -229,13 +229,18 @@ trait AuditChainLockTrait
                 return;
             }
 
-            if (!is_numeric($lockResult)) {
-                break;
-            }
-
             usleep(50_000);
         } while (hrtime(true) < $deadline);
 
         throw AuditWriteException::postgreSqlLockAcquisitionFailed($lockResult);
+    }
+
+    /**
+     * How long a writer waits for the PostgreSQL advisory lock. A method
+     * rather than the bare constant so a test host can shorten the wait.
+     */
+    private function auditLockTimeoutSeconds(): int
+    {
+        return self::AUDIT_LOCK_TIMEOUT_SECONDS;
     }
 }

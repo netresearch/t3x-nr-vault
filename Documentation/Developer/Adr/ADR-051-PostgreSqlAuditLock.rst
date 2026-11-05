@@ -38,16 +38,20 @@ Decision
 
 Support PostgreSQL with a session-level advisory lock on one fixed bigint key.
 ``pg_try_advisory_lock()`` is polled every 50 ms for up to 5 seconds, the
-bound ``GET_LOCK`` uses. ``pg_advisory_unlock()`` releases it after the
-commit.
+bound ``GET_LOCK`` uses. ``pg_advisory_unlock()`` releases it at the point
+where the MySQL branch calls ``RELEASE_LOCK()``.
 
 The session-level lock matches the protocol the MySQL branch already follows:
 
 - It is counted per session. Master-key rotation and a coordinated mutation
-  acquire it again inside their own transaction, and the inner acquire returns
-  at once.
-- It survives the commit, so a coordinated mutation keeps it until it has
-  committed and releases it before publishing to sinks, as on MySQL.
+  acquire it again for the audit writes inside them, and the inner acquire
+  returns at once.
+- It survives a commit. A coordinated mutation (``VaultMutationTransaction``)
+  keeps it until its own commit and releases it before publishing to sinks,
+  as on MySQL. Master-key rotation releases it at the end of
+  ``rekeyAuditChain()``, before the outer commit; that window exists on MySQL
+  as well and is tracked in
+  `issue #496 <https://github.com/netresearch/t3x-nr-vault/issues/496>`__.
 
 The non-blocking function is chosen over ``pg_advisory_lock()`` with a
 ``lock_timeout``. A lock wait that ends in an error aborts the whole
@@ -66,6 +70,17 @@ following UID. An explicit UID does not advance a PostgreSQL sequence, so the
 writer sets the sequence to that UID with ``setval()`` under the same lock.
 Without it, the next entry that takes the sequence (anchoring disabled or not
 matching) would collide with an existing row.
+
+Three more PostgreSQL defects surfaced once the lock worked, and are fixed
+alongside it:
+
+- ``value_checksum``, ``hash_before`` and ``hash_after`` were ``char(64)``.
+  PostgreSQL returns ``char`` values padded with spaces, which broke the
+  cryptographic-field check and hash verification. They are ``varchar(64)``.
+- ``encrypted_value`` is ``bytea`` on PostgreSQL, which PDO returns as a
+  stream. ``Secret::fromDatabaseRow()`` reads the stream.
+- ``AuditLogService::query()`` ordered by ``crdate`` alone. Entries from the
+  same second came back in arbitrary order; ``uid`` now breaks the tie.
 
 Consequences
 ============
