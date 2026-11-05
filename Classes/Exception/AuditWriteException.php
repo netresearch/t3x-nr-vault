@@ -21,7 +21,8 @@ use function sprintf;
  * audit-chain writer — `AuditLogService::log()` (runtime) and the migration
  * sites (`AuditHmacMigration`, `VaultAuditMigrateCommand`) — when the
  * advisory lock that serialises hash-chain writers cannot be acquired
- * (`GET_LOCK` returned 0 = timeout, or NULL = database error), and by
+ * (`GET_LOCK` returned 0 = timeout or NULL = database error; on PostgreSQL
+ * `pg_try_advisory_lock` stayed false for the whole timeout), and by
  * `AuditLogService::log()` for any other failure of the chain write itself
  * (via {@see self::writeFailed()}). `log()` therefore has a single failure
  * contract: it either persisted the entry or threw this exception —
@@ -50,6 +51,23 @@ final class AuditWriteException extends VaultException
      */
     public static function lockAcquisitionFailed(mixed $rawResult): self
     {
+        return self::lockNotAcquired('GET_LOCK', $rawResult);
+    }
+
+    /**
+     * The PostgreSQL advisory lock was not granted within the timeout.
+     *
+     * @param mixed $rawResult The last value returned by
+     *                         `pg_try_advisory_lock(...)` — 0 while another
+     *                         writer holds the lock, NULL on a database error
+     */
+    public static function postgreSqlLockAcquisitionFailed(mixed $rawResult): self
+    {
+        return self::lockNotAcquired('pg_try_advisory_lock', $rawResult);
+    }
+
+    private static function lockNotAcquired(string $lockFunction, mixed $rawResult): self
+    {
         $detail = match (true) {
             $rawResult === null   => 'NULL (DB error)',
             is_scalar($rawResult) => (string) $rawResult,
@@ -58,9 +76,10 @@ final class AuditWriteException extends VaultException
 
         return new self(
             sprintf(
-                'Audit-log advisory lock could not be acquired (GET_LOCK returned %s). '
+                'Audit-log advisory lock could not be acquired (%s returned %s). '
                 . 'Retry the operation; if the failure persists, check for a stuck '
-                . 'audit log writer holding the named lock "nr_vault_audit".',
+                . 'audit log writer holding the audit-chain lock "nr_vault_audit".',
+                $lockFunction,
                 $detail,
             ),
             1747825331,

@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Audit;
 
 use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Exception\AuditWriteException;
 use Psr\Log\LoggerInterface;
@@ -92,15 +93,16 @@ final class VaultMutationTransaction
 
         $platform = $connection->getDatabasePlatform();
         $isSQLite = $platform instanceof SQLitePlatform;
-        if (!$isSQLite && !$platform instanceof AbstractMySQLPlatform) {
+        if (!$isSQLite && !$platform instanceof AbstractMySQLPlatform && !$platform instanceof PostgreSQLPlatform) {
             throw new AuditWriteException(
-                'Atomic local vault mutations require SQLite, MySQL or MariaDB.',
+                'Atomic local vault mutations require SQLite, MySQL, MariaDB or PostgreSQL.',
                 1793180003,
             );
         }
 
         // Doctrine-managed SQLite transactions allow log() to use savepoints.
-        // On MySQL the named lock remains held through the OUTERMOST commit.
+        // On MySQL/PostgreSQL the session lock remains held through the
+        // OUTERMOST commit.
         $this->acquireAuditLock($connection, $isSQLite, true);
         $this->active = true;
         $failure      = null;

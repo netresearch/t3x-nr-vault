@@ -649,6 +649,7 @@ Netresearch\NrVault\Exception\AuditSinkException (class)
 
 Netresearch\NrVault\Exception\AuditWriteException (class)
   method static lockAcquisitionFailed(mixed $rawResult): self
+  method static postgreSqlLockAcquisitionFailed(mixed $rawResult): self
   method static writeFailed(Throwable $cause): self
 
 Netresearch\NrVault\Exception\ConfigurationException (class)

@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Audit;
 
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Audit\AuditChainLockTrait;
 use Netresearch\NrVault\Exception\AuditWriteException;
@@ -16,6 +17,7 @@ use Netresearch\NrVault\Tests\Unit\Fixtures\AuditChainLockHost;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\MockObject\MockObject;
 use RuntimeException;
 use TYPO3\CMS\Core\Database\Connection;
 
@@ -157,6 +159,85 @@ final class AuditChainLockTraitTest extends TestCase
         $this->subject->acquire($connection, false);
     }
 
+    /**
+     * PostgreSQL has no `GET_LOCK()`; sending it there fails with SQLSTATE
+     * 42703 because `"nr_vault_audit"` reads as a column name (issue #494).
+     */
+    #[Test]
+    public function postgreSqlTakesTheAdvisoryLockAndThenOpensATransaction(): void
+    {
+        $connection = $this->postgreSqlConnection();
+        $connection->expects(self::once())
+            ->method('executeQuery')
+            ->with(self::stringContains('pg_try_advisory_lock(?)'))
+            ->willReturn($this->lockResult(1));
+        $connection->expects(self::once())->method('beginTransaction');
+        $connection->expects(self::never())->method('executeStatement');
+
+        $this->subject->acquire($connection, false);
+    }
+
+    /**
+     * A held lock answers 0 instead of blocking, so the trait asks again until
+     * it is granted rather than giving up on the first answer.
+     */
+    #[Test]
+    public function postgreSqlRetriesWhileAnotherWriterHoldsTheLock(): void
+    {
+        $connection = $this->postgreSqlConnection();
+        $connection->expects(self::exactly(3))
+            ->method('executeQuery')
+            ->willReturnOnConsecutiveCalls(
+                $this->lockResult(0),
+                $this->lockResult(0),
+                $this->lockResult(1),
+            );
+        $connection->expects(self::once())->method('beginTransaction');
+
+        $this->subject->acquire($connection, false);
+    }
+
+    #[Test]
+    public function postgreSqlLockErrorAbortsBeforeAnyTransactionIsOpened(): void
+    {
+        $connection = $this->postgreSqlConnection();
+        $connection->expects(self::once())
+            ->method('executeQuery')
+            ->willReturn($this->lockResult(null));
+        $connection->expects(self::never())->method('beginTransaction');
+
+        $this->expectException(AuditWriteException::class);
+        $this->expectExceptionMessageToContain('pg_try_advisory_lock returned NULL');
+
+        $this->subject->acquire($connection, false);
+    }
+
+    #[Test]
+    public function postgreSqlReleasesTheAdvisoryLockWhenOpeningTheTransactionFails(): void
+    {
+        $connection = self::createStub(Connection::class);
+        $connection->method('getDatabasePlatform')->willReturn(new PostgreSQLPlatform());
+        $queries = [];
+        $connection->method('executeQuery')->willReturnCallback(
+            function (string $sql) use (&$queries): Result {
+                $queries[] = $sql;
+
+                return $this->lockResult(1);
+            },
+        );
+        $connection->method('beginTransaction')->willThrowException(new RuntimeException('deadlock', 1750000013));
+
+        try {
+            $this->subject->acquire($connection, false);
+            self::fail('The transaction failure must reach the caller.');
+        } catch (RuntimeException $e) {
+            self::assertSame('deadlock', $e->getMessage());
+        }
+
+        self::assertCount(2, $queries);
+        self::assertStringContainsString('pg_advisory_unlock(?)', $queries[1]);
+    }
+
     // -------------------------------------------------------------------------
     // commit
     // -------------------------------------------------------------------------
@@ -248,6 +329,19 @@ final class AuditChainLockTraitTest extends TestCase
         $this->subject->release($connection, false);
     }
 
+    #[Test]
+    public function postgreSqlReleaseDropsTheAdvisoryLock(): void
+    {
+        $connection = $this->postgreSqlConnection();
+        $connection->expects(self::once())
+            ->method('executeQuery')
+            ->with(self::stringContains('pg_advisory_unlock(?)'))
+            ->willReturn($this->lockResult(true));
+        $connection->expects(self::never())->method('executeStatement');
+
+        $this->subject->release($connection, false);
+    }
+
     /**
      * SQLite has no named lock — the transaction IS the lock, so a release would
      * be a stray statement.
@@ -259,6 +353,14 @@ final class AuditChainLockTraitTest extends TestCase
         $connection->expects(self::never())->method('executeStatement');
 
         $this->subject->release($connection, true);
+    }
+
+    private function postgreSqlConnection(): Connection&MockObject
+    {
+        $connection = $this->createMock(Connection::class);
+        $connection->method('getDatabasePlatform')->willReturn(new PostgreSQLPlatform());
+
+        return $connection;
     }
 
     private function lockResult(mixed $value): Result

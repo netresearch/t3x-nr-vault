@@ -9,9 +9,13 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Audit;
 
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Netresearch\NrVault\Exception\AuditWriteException;
 use Throwable;
 use TYPO3\CMS\Core\Database\Connection;
+
+use function hrtime;
+use function usleep;
 
 /**
  * Shared advisory-lock primitives for the audit chain.
@@ -32,12 +36,18 @@ use TYPO3\CMS\Core\Database\Connection;
  *    `GET_LOCK` returns 1 on success, 0 on timeout, NULL on error — we
  *    abort on anything other than 1 so we never silently write unprotected
  *    audit entries.
+ *  - PostgreSQL: session-level `pg_try_advisory_lock()` on a fixed key,
+ *    polled for up to 5 seconds, then a transaction. Like `GET_LOCK` it is
+ *    counted per session and released explicitly after the commit. The
+ *    non-blocking variant is used because a lock wait that ends in an error
+ *    (`lock_timeout`) would abort a caller's surrounding transaction.
  *
  * Nesting inside a caller-managed Doctrine transaction (master-key rotation
  * runs audit writes + the chain re-key inside ONE transaction with the DEK
  * re-encryption):
- *  - MySQL/MariaDB: `GET_LOCK` is re-acquirable per session (counted), and
- *    Doctrine DBAL 4 maps the nested begin/commit/rollback onto savepoints.
+ *  - MySQL/MariaDB and PostgreSQL: the named/advisory lock is re-acquirable
+ *    per session (counted), and Doctrine DBAL 4 maps the nested
+ *    begin/commit/rollback onto savepoints.
  *  - SQLite: a raw `BEGIN EXCLUSIVE` cannot nest. When a Doctrine-managed
  *    transaction is already active, acquire/commit/rollback fall back to
  *    Doctrine savepoints; write-serialisation is then provided by the outer
@@ -50,6 +60,16 @@ use TYPO3\CMS\Core\Database\Connection;
  */
 trait AuditChainLockTrait
 {
+    /**
+     * `pg_advisory_lock` key space is one bigint per database. The value is
+     * the ASCII bytes of "nrvaudit", so it cannot collide with a small
+     * integer key another extension picks.
+     */
+    private const POSTGRESQL_AUDIT_LOCK_KEY = 0x6E72766175646974;
+
+    /** Same bound as the `GET_LOCK(..., 5)` timeout on MySQL/MariaDB. */
+    private const AUDIT_LOCK_TIMEOUT_SECONDS = 5;
+
     /**
      * @throws AuditWriteException If the named lock cannot be acquired
      */
@@ -93,11 +113,15 @@ trait AuditChainLockTrait
             return;
         }
 
-        $lockResult = $connection
-            ->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')
-            ->fetchOne();
-        if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
-            throw AuditWriteException::lockAcquisitionFailed($lockResult);
+        if ($this->isPostgreSqlAuditConnection($connection)) {
+            $this->acquirePostgreSqlAuditLock($connection);
+        } else {
+            $lockResult = $connection
+                ->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')
+                ->fetchOne();
+            if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
+                throw AuditWriteException::lockAcquisitionFailed($lockResult);
+            }
         }
 
         // The lock is now held. If `beginTransaction()` throws, the caller's
@@ -108,9 +132,7 @@ trait AuditChainLockTrait
             $connection->beginTransaction();
         } catch (Throwable $e) {
             try {
-                $connection->executeStatement(
-                    'SELECT RELEASE_LOCK("nr_vault_audit")',
-                );
+                $this->releaseAuditLock($connection, false);
             } catch (Throwable) {
                 // Best-effort: connection close will release.
             }
@@ -159,8 +181,61 @@ trait AuditChainLockTrait
 
     private function releaseAuditLock(Connection $connection, bool $isSQLite): void
     {
-        if (!$isSQLite) {
-            $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
+        if ($isSQLite) {
+            return;
         }
+
+        if ($this->isPostgreSqlAuditConnection($connection)) {
+            $connection->executeQuery(
+                'SELECT pg_advisory_unlock(?)',
+                [self::POSTGRESQL_AUDIT_LOCK_KEY],
+                [Connection::PARAM_INT],
+            );
+
+            return;
+        }
+
+        $connection->executeStatement('SELECT RELEASE_LOCK("nr_vault_audit")');
+    }
+
+    private function isPostgreSqlAuditConnection(Connection $connection): bool
+    {
+        return $connection->getDatabasePlatform() instanceof PostgreSQLPlatform;
+    }
+
+    /**
+     * Poll the non-blocking advisory lock until it is granted or the timeout
+     * ends. `pg_try_advisory_lock()` answers false on contention instead of
+     * raising an error, so a failed attempt leaves an enclosing transaction
+     * usable.
+     *
+     * @throws AuditWriteException If the lock is not granted within the timeout
+     */
+    private function acquirePostgreSqlAuditLock(Connection $connection): void
+    {
+        $deadline = hrtime(true) + self::AUDIT_LOCK_TIMEOUT_SECONDS * 1_000_000_000;
+
+        do {
+            // CASE turns the boolean into an integer, which every PDO driver
+            // returns in the same shape.
+            $lockResult = $connection
+                ->executeQuery(
+                    'SELECT CASE WHEN pg_try_advisory_lock(?) THEN 1 ELSE 0 END',
+                    [self::POSTGRESQL_AUDIT_LOCK_KEY],
+                    [Connection::PARAM_INT],
+                )
+                ->fetchOne();
+            if (is_numeric($lockResult) && (int) $lockResult === 1) {
+                return;
+            }
+
+            if (!is_numeric($lockResult)) {
+                break;
+            }
+
+            usleep(50_000);
+        } while (hrtime(true) < $deadline);
+
+        throw AuditWriteException::postgreSqlLockAcquisitionFailed($lockResult);
     }
 }
