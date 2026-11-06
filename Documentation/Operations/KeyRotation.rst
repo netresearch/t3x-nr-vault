@@ -137,6 +137,17 @@ Your own preflight, before running any of it:
           # audit.view in cliAllowedOperations, or a named technical actor.
           vendor/bin/typo3 vault:audit-verify
 
+*   [ ] **Nothing writes secrets or consumer envelopes** from the start of the
+      rotation until the configuration switch: no backend edits, no
+      ``VaultService::store()`` or ``rotate()`` from scheduler tasks, API
+      endpoints or imports, no outbound OAuth calls whose token endpoint
+      rotates the refresh token (the vault stores the new one as a secret),
+      and no envelope writes by extensions that register
+      a :php:`ForeignEnvelopeRotatorInterface` (for example nr-llm). Until the
+      switch the configured provider still returns the old key, so anything
+      written in that gap is wrapped under the old key, cannot be opened after
+      the switch, and is lost once the old key is destroyed. See
+      :ref:`operations-key-rotation-window`.
 *   [ ] **A maintenance window.** Vault reads fail between the commit and the
       configuration switch. During the rotation itself, a secret that has
       already been re-encrypted cannot be read: the read waits until the
@@ -257,18 +268,31 @@ On success the command prints its next steps, and they are not advisory:
     against the old key. Depending on the provider: replace the key file
     (``file``), re-inject the environment variable and restart (``env``), or
     re-wrap the new key with the KMS (``transit``).
-#.  **Securely archive or destroy the old key.** Archive it if you may still
-    need to open an older backup; destroy it if you may not. Do not leave it
-    where the vault could pick it up again.
+#.  **Securely archive or destroy the old key — but only after the checks
+    below.** Archive it if you may still need to open an older backup;
+    destroy it if you may not. Do not leave it where the vault could pick it
+    up again. Anything written in the gap is still wrapped under the old key,
+    so keep the old key until you have ruled that out.
 #.  **Test retrieval and verify the chain** — see below.
 #.  **Re-seal any rows written in the gap.** Audit rows written between the
     rotation commit and the configuration switch are sealed with the old
     HMAC key while the rest of the chain is under the new one. Re-seal them
     with ``vault:audit-migrate-hmac``.
 
-That fourth step is the reason to keep the window short and to make it a
+Steps three and four are the reason to keep the window short and to make it a
 maintenance window: every audited operation during the gap adds a row that
-will need re-sealing.
+will need re-sealing, and every write during the gap is wrapped under the
+old key.
+
+**If something was written in the gap.** Audit entries for ``create``,
+``update`` and ``rotate`` between the rotation's successful
+``master_key_rotate_end`` row and the configuration switch name the secrets
+that were written under the old key (``vault:audit`` filtered to that time
+range). After the switch they cannot be read; store their values again. The
+command does not re-wrap them, because it starts by checking the old key
+against the first secret, which by then is under the new key. Consumer
+envelopes written in the gap are the consumer's to re-create. Keep the old
+key until this is done.
 
 .. _operations-key-rotation-verification:
 
