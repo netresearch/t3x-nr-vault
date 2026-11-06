@@ -33,6 +33,7 @@ use Netresearch\NrVault\Exception\MasterKeyException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use RuntimeException;
 use SensitiveParameter;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -45,9 +46,12 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 use function count;
+use function is_array;
+use function is_numeric;
 use function is_string;
 use function sprintf;
 use function strlen;
+use function strtoupper;
 
 /**
  * CLI command to rotate the master encryption key.
@@ -587,7 +591,21 @@ final class VaultRotateMasterKeyCommand extends Command
             return Command::FAILURE;
         }
 
-        $this->beginRotationTransaction($connection);
+        try {
+            $this->beginRotationTransaction($connection);
+        } catch (Throwable $exception) {
+            // PostgreSQL sets the level after BEGIN, so a transaction can be open.
+            $this->rollbackRotationTransaction($connection);
+            $io->error($exception->getMessage());
+            $this->auditLogService->log(
+                self::AUDIT_PSEUDO_IDENTIFIER,
+                AuditAction::MasterKeyRotateEnd->value,
+                false,
+                'Rotation transaction could not be opened; nothing changed',
+            );
+
+            return Command::FAILURE;
+        }
 
         $io->progressStart($totalSecrets);
         $failedSecrets = [];
@@ -791,11 +809,28 @@ final class VaultRotateMasterKeyCommand extends Command
      * `SET TRANSACTION` without SESSION changes only this transaction. MySQL
      * and MariaDB take it before the transaction starts, PostgreSQL as its
      * first statement. SQLite serialises writers and needs nothing.
+     *
+     * InnoDB refuses every write in a READ COMMITTED transaction while the
+     * binary log uses STATEMENT format (error 1665), so that configuration
+     * is refused here, before anything has changed.
+     *
+     * @throws RuntimeException If the binary log format rules out READ COMMITTED
      */
     private function beginRotationTransaction(Connection $connection): void
     {
         $platform = $connection->getDatabasePlatform();
         if ($platform instanceof AbstractMySQLPlatform) {
+            $binlog = $connection->executeQuery('SELECT @@log_bin, @@binlog_format')->fetchNumeric();
+            if (is_array($binlog) && is_numeric($binlog[0]) && (int) $binlog[0] === 1
+                && is_string($binlog[1]) && strtoupper($binlog[1]) === 'STATEMENT'
+            ) {
+                throw new RuntimeException(
+                    'Master-key rotation needs binlog_format ROW or MIXED: it runs in READ COMMITTED, '
+                    . 'and InnoDB refuses writes in READ COMMITTED with STATEMENT binary logging. Nothing changed.',
+                    1793260010,
+                );
+            }
+
             $connection->executeStatement('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
         }
 
@@ -818,21 +853,16 @@ final class VaultRotateMasterKeyCommand extends Command
      */
     private function rollbackRotationTransaction(Connection $connection): void
     {
-        if (!$connection->isTransactionActive()) {
-            $this->closeRotationConnection($connection);
-
-            return;
-        }
-
         try {
-            $connection->rollBack();
-        } catch (Throwable) {
-            $this->closeRotationConnection($connection);
-        }
-    }
+            if ($connection->isTransactionActive()) {
+                $connection->rollBack();
 
-    private function closeRotationConnection(Connection $connection): void
-    {
+                return;
+            }
+        } catch (Throwable) {
+            // Closing below discards the transaction.
+        }
+
         $connection->close();
         $this->rotationAuditLockHeld = false;
     }

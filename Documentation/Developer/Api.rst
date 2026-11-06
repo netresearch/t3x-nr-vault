@@ -436,6 +436,12 @@ How a consuming extension joins master-key rotation
       a partial rotation leaves data wrapped under a key the operator has been
       told to destroy. Work in batches; the whole pass is one transaction.
 
+      On MySQL/MariaDB and PostgreSQL that transaction runs in
+      ``READ COMMITTED``, so each batch sees rows other sessions committed in
+      the meantime. Page by key (``WHERE uid > :last ORDER BY uid``), not by
+      ``OFFSET``: a row deleted behind an offset shifts the rest, and the row
+      that moves into the gap is never re-wrapped.
+
 .. php:class:: EnvelopeRotationContext
 
    Handed to :php:`rewrapAll()`. It closes over the old and new master keys and

@@ -141,10 +141,17 @@ Your own preflight, before running any of it:
       configuration switch. During the rotation itself, a secret that has
       already been re-encrypted cannot be read: the read waits until the
       rotation commits, or until the database's lock wait timeout, because a
-      read updates the secret's row. During the final audit-chain
-      re-key, every operation that writes an audit entry waits for the
-      audit-chain lock and fails after 5 seconds; with audited reads enabled
-      (the default), that includes all secret reads.
+      read updates the secret's row. On MySQL/MariaDB and PostgreSQL, from the
+      audit-chain re-key until the commit, every operation that writes an
+      audit entry waits for the audit-chain lock and fails after 5 seconds;
+      with audited reads enabled (the default), that includes all secret
+      reads. On SQLite the rotation holds the database write lock from the
+      first re-encrypted secret, so other writers wait for their busy timeout
+      during the whole rotation.
+*   [ ] **On MySQL/MariaDB with binary logging, ``binlog_format`` is ROW or
+      MIXED** (the defaults). The rotation runs in ``READ COMMITTED``, where
+      InnoDB refuses writes under ``STATEMENT`` logging, so the command
+      refuses to start with that format.
 *   [ ] **``vault:doctor`` is clean**, so a pre-existing misconfiguration does
       not surface mid-rotation.
 
@@ -194,8 +201,8 @@ where the server default is ``REPEATABLE READ``.
 #.  Registered foreign envelopes are re-wrapped the same way.
 #.  The audit advisory lock is taken and held until the transaction has
     committed or rolled back, so no concurrent writer can chain onto a tip
-    hash that is about to be rewritten. If it is not granted within
-    5 seconds, the rotation rolls back.
+    hash that is about to be rewritten. On MySQL/MariaDB and PostgreSQL the
+    rotation rolls back if the lock is not granted within 5 seconds.
 #.  The ``audit_chain_rekey`` and successful ``master_key_rotate_end`` rows
     are appended — still sealed with the old, provider-derived HMAC key.
 #.  **The whole audit chain is rewritten** under the HMAC key derived from the

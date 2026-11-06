@@ -44,6 +44,7 @@ use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\MockObject\Stub;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use RuntimeException;
 use Symfony\Component\Console\Application;
@@ -495,6 +496,26 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         self::assertSame(1, $exitCode);
         self::assertSame(['read-committed', 'begin', 'lock', 'rollBack'], $calls->getArrayCopy());
+        self::assertSame([AuditAction::MasterKeyRotateEnd->value, false], end($auditRows));
+    }
+
+    /**
+     * InnoDB refuses writes in READ COMMITTED under STATEMENT binary logging,
+     * so the rotation refuses before its transaction, with a reason the
+     * operator can act on and a failed rotate_end entry.
+     */
+    #[Test]
+    public function statementBinaryLoggingRefusesTheRotationBeforeItsTransaction(): void
+    {
+        $calls     = $this->givenOneRotatableSecretRecordingTransactionCalls(binlogFormat: 'STATEMENT');
+        $auditRows = [];
+        $this->recordAuditRows($auditRows);
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertNotContains('begin', $calls->getArrayCopy());
+        self::assertStringContainsString('binlog_format ROW or MIXED', $this->commandTester->getDisplay(true));
         self::assertSame([AuditAction::MasterKeyRotateEnd->value, false], end($auditRows));
     }
 
@@ -1247,6 +1268,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         bool $secretFails = false,
         bool $lockGranted = true,
         AbstractPlatform $platform = new MySQLPlatform(),
+        string $binlogFormat = 'ROW',
     ): ArrayObject {
         $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
         $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn($this->createTestSecret('test-secret'));
@@ -1265,12 +1287,28 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         /** @var ArrayObject<int, string> $calls */
         $calls      = new ArrayObject();
-        $lockResult = self::createStub(Result::class);
-        $lockResult->method('fetchOne')->willReturn($lockGranted ? 1 : 0);
+        $connection = $this->transactionRecordingConnection($calls, $platform, $outerCommitFails, $rollbackFails);
+        $this->recordAuditLockCalls($connection, $calls, $lockGranted, $releaseFails, $binlogFormat);
 
-        // Mirrors DBAL 4: commit() lowers the nesting level in a finally block
-        // even when it throws, and rollBack() without an active transaction
-        // throws NoActiveTransaction.
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+
+        return $calls;
+    }
+
+    /**
+     * A connection stub that records `begin`, `commit`, `rollBack` and `close`.
+     * Mirrors DBAL 4: commit() lowers the nesting level in a finally block even
+     * when it throws, and rollBack() without an active transaction throws
+     * NoActiveTransaction.
+     *
+     * @param ArrayObject<int, string> $calls
+     */
+    private function transactionRecordingConnection(
+        ArrayObject $calls,
+        AbstractPlatform $platform,
+        bool $outerCommitFails,
+        bool $rollbackFails,
+    ): Connection&Stub {
         $state = new class {
             public int $depth = 0;
         };
@@ -1300,6 +1338,31 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
                 throw new ConnectionException('rollback failed', 1793260004);
             }
         });
+        $connection->method('close')->willReturnCallback(static function () use ($calls): void {
+            $calls->append('close');
+        });
+
+        return $connection;
+    }
+
+    /**
+     * Records `lock` (GET_LOCK), `release` (RELEASE_LOCK) and `read-committed`
+     * (SET TRANSACTION) on the given connection stub.
+     *
+     * @param ArrayObject<int, string> $calls
+     */
+    private function recordAuditLockCalls(
+        Connection&Stub $connection,
+        ArrayObject $calls,
+        bool $lockGranted,
+        bool $releaseFails,
+        string $binlogFormat,
+    ): void {
+        $lockResult = self::createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn($lockGranted ? 1 : 0);
+        // `SELECT @@log_bin, @@binlog_format` before the rotation transaction.
+        $lockResult->method('fetchNumeric')->willReturn([1, $binlogFormat]);
+
         $connection->method('executeQuery')->willReturnCallback(static function (string $sql) use ($calls, $lockResult): Result {
             if (str_contains($sql, 'GET_LOCK')) {
                 $calls->append('lock');
@@ -1321,13 +1384,6 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
             return 1;
         });
-        $connection->method('close')->willReturnCallback(static function () use ($calls): void {
-            $calls->append('close');
-        });
-
-        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
-
-        return $calls;
     }
 
     /**
