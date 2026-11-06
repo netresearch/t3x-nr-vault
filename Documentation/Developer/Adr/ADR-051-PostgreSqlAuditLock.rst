@@ -59,9 +59,16 @@ PostgreSQL transaction, including a caller's outer transaction during
 master-key rotation. ``pg_try_advisory_lock()`` answers false and leaves the
 transaction usable.
 
-The transaction-level ``pg_advisory_xact_lock()`` and
-``pg_try_advisory_xact_lock()`` are not used either. They are released by the
-commit, before the coordinator publishes.
+The transaction-level ``pg_try_advisory_xact_lock()`` is not used either.
+Its release at commit would fit the coordinator, which already releases the
+MySQL lock after the commit and before publishing. But it has to be taken
+inside the transaction, so the first lock poll starts the transaction's
+snapshot. Under ``REPEATABLE READ`` the writer would then read the chain tip
+as it was before the lock was granted. The session lock is taken before
+``BEGIN`` and has no such dependency on the isolation level. A
+transaction-level lock remains a candidate for the PostgreSQL half of
+`issue #496 <https://github.com/netresearch/t3x-nr-vault/issues/496>`__,
+because it would hold through the outer commit of master-key rotation.
 
 PostgreSQL sequences do not roll back, like MySQL ``AUTO_INCREMENT``. The
 explicit-UID allocation from ADR-050 therefore applies to PostgreSQL too: when
@@ -98,6 +105,14 @@ The advisory-lock key is shared by every database user of the same database.
 Another application that picks the same bigint would serialise with the audit
 writer. The key is the ASCII value of ``nrvaudit``, which a small-integer key
 cannot reach.
+
+A session-level advisory lock needs one server connection per database
+session. PgBouncer in transaction pooling mode does not provide that: its
+feature table lists session-level advisory locks as not supported in that mode.
+The lock would then not serialise the audit writes, and its release could miss.
+TYPO3 has the same requirement independently of nr-vault, because Doctrine
+DBAL reads a new row's ID with a separate ``SELECT LASTVAL()``. Run PostgreSQL
+behind PgBouncer in session pooling mode, or connect directly.
 
 Verification
 ============

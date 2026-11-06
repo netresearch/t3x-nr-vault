@@ -31,6 +31,9 @@ applicable ACL relations and audit together on one actual database connection.
 Split table mappings and an already active caller transaction are rejected.
 SQLite, MySQL/MariaDB and PostgreSQL are supported; any other platform is
 rejected before a write.
+On PostgreSQL the audit lock is a session-level advisory lock, so a PgBouncer in
+front of the database must use session pooling: transaction pooling does not
+support session-level advisory locks (:ref:`adr-051-postgresql-audit-lock`).
 Database atomic commit, transactional tables and no dirty reads are assumed.
 
 On MySQL/MariaDB and PostgreSQL, an audit insert that rolls back consumes its
