@@ -670,8 +670,9 @@ final class VaultRotateMasterKeyCommand extends Command
                 return $this->failRotation($connection, $io, [
                     'The rotation commit failed: ' . $e->getMessage(),
                     'The database may or may not hold the rotated secrets. Keep BOTH master keys.',
-                    'Find out which key opens a secret before changing the configuration; '
-                    . 'if the new key does, follow the next steps of a successful rotation.',
+                    'Find out which key opens a secret before changing the configuration: '
+                    . 'run --dry-run with the new key as --old-key (see "If the commit itself fails" '
+                    . 'in the key rotation guide).',
                 ], 'Rotation commit failed; outcome unknown, keep both master keys');
             }
 

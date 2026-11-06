@@ -221,6 +221,30 @@ Two properties of the rekey worth knowing:
     do not depend on the master key, so rows are only updated when their
     hashes actually change.
 
+.. _operations-key-rotation-commit-failed:
+
+If the commit itself fails
+--------------------------
+
+Every other failure rolls back. A commit that fails, for example on a lost
+database connection, may already have been applied by the server, so the
+command reports that the outcome is unknown and asks you to keep **both**
+master keys. Find out which key now opens the secrets before you change
+anything:
+
+..  code-block:: bash
+
+    vendor/bin/typo3 vault:rotate-master-key \
+        --old-key=/path/to/new.key --new-key=/path/to/old.key --dry-run
+
+The dry run only checks that ``--old-key`` opens the first secret and writes
+nothing. If it succeeds with the new key in ``--old-key``, the rotation
+committed: continue with the configuration switch below, and re-seal the
+failed ``master_key_rotate_end`` row the command wrote afterwards, as for any
+row written before the switch. If it fails, run the same check with the old
+key in ``--old-key``; success there means the rotation rolled back and nothing
+changed. The check needs at least one secret in the vault.
+
 .. _operations-key-rotation-window:
 
 The configuration switch — and the window

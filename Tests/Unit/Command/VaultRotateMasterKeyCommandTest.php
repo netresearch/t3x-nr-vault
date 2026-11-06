@@ -451,7 +451,9 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function aFailedReKeyReleasesTheAuditLockOnlyAfterTheOuterRollback(): void
     {
-        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls();
+        $calls   = $this->givenOneRotatableSecretRecordingTransactionCalls();
+        $reasons = [];
+        $this->recordAuditFailureReasons($reasons);
         $this->auditChainRekeyService
             ->method('rekeyChain')
             ->willThrowException(new RuntimeException('re-key failed', 1793260001));
@@ -460,6 +462,8 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         self::assertSame(1, $exitCode);
         self::assertStringNotContainsString('Keep BOTH master keys', (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay(true)));
+        // The exception text ("re-key failed") stays out of the audit log.
+        self::assertSame(['Unexpected error during rotation; transaction rolled back'], $reasons);
         self::assertSame(
             ['read-committed', 'begin', 'lock', 'begin', 'rollBack', 'rollBack', 'release'],
             $calls->getArrayCopy(),
@@ -572,12 +576,15 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function aFailedOuterCommitClosesTheConnection(): void
     {
-        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(['outerCommitFails' => true]);
+        $calls   = $this->givenOneRotatableSecretRecordingTransactionCalls(['outerCommitFails' => true]);
+        $reasons = [];
+        $this->recordAuditFailureReasons($reasons);
 
         $exitCode = $this->commandTester->execute($this->rotationInput());
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('Keep BOTH master keys', (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay(true)));
+        self::assertSame(['Rotation commit failed; outcome unknown, keep both master keys'], $reasons);
         self::assertSame(
             ['read-committed', 'begin', 'lock', 'begin', 'commit', 'commit', 'close'],
             $calls->getArrayCopy(),
@@ -1461,6 +1468,26 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
         return $connection;
+    }
+
+    /**
+     * Records the reason of each failed audit entry, so a test can check that
+     * no exception text reaches the audit log (CLAUDE.md security rule 1).
+     *
+     * @param list<string> $reasons
+     *
+     * @param-out list<string> $reasons
+     */
+    private function recordAuditFailureReasons(array &$reasons): void
+    {
+        $reasons = [];
+        $this->auditLogService
+            ->method('log')
+            ->willReturnCallback(static function (string $identifier, string $action, bool $success, ?string $reason = null) use (&$reasons): void {
+                if (!$success) {
+                    $reasons[] = (string) $reason;
+                }
+            });
     }
 
     /**
