@@ -217,6 +217,23 @@ TYPO3's ``encryptionKey`` changes the derived master key and orphans every
 stored secret. Treat ``encryptionKey`` as vault key material for as long as
 that provider is configured.
 
+.. _security-known-limitations-rotation-gap:
+
+Writes between a key rotation and the configuration switch use the old key
+==========================================================================
+
+**The limitation.** ``vault:rotate-master-key`` re-wraps what exists when it
+runs. Until the configuration points at the new key, the provider keeps
+returning the old one, so a secret or a consumer envelope written in that gap
+is wrapped under the old key. After the switch it cannot be read, and once the
+old key is destroyed it is lost. Nothing blocks such writes; the command
+cannot see writes from other processes after it has committed.
+
+**What to do.** Stop every writer for the rotation window, including
+automatic ones such as refresh-token storage of outbound OAuth calls, and keep
+the old key until the audit log shows no ``create``, ``update`` or ``rotate``
+entry in the gap (:ref:`operations-key-rotation-window`).
+
 .. _security-known-limitations-break-glass:
 
 Break-glass restores full admin power
