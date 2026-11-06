@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Audit;
 
+use Doctrine\DBAL\ConnectionException;
+use Doctrine\DBAL\Platforms\AbstractPlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Audit\AuditChainLockTrait;
@@ -16,6 +18,7 @@ use Netresearch\NrVault\Exception\AuditWriteException;
 use Netresearch\NrVault\Tests\Unit\Fixtures\AuditChainLockHost;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use RuntimeException;
@@ -226,6 +229,37 @@ final class AuditChainLockTraitTest extends TestCase
         );
 
         (new AuditChainLockHost(lockTimeoutSeconds: 0))->acquire($connection, false);
+    }
+
+    /**
+     * Callers compensate on AuditWriteException only. A lock query that
+     * throws (connection loss, missing privilege) must arrive as that type,
+     * or a custom adapter's change stays without its audit entry.
+     */
+    #[Test]
+    #[DataProvider('lockPlatforms')]
+    public function aFailingLockQueryIsReportedAsAnAuditWriteFailure(?AbstractPlatform $platform): void
+    {
+        $connection = self::createStub(Connection::class);
+        if ($platform instanceof AbstractPlatform) {
+            $connection->method('getDatabasePlatform')->willReturn($platform);
+        }
+
+        $connection->method('executeQuery')->willThrowException(new ConnectionException('server gone', 1793260006));
+
+        $this->expectException(AuditWriteException::class);
+        $this->expectExceptionMessageToContain('server gone');
+
+        $this->subject->acquire($connection, false);
+    }
+
+    /**
+     * @return iterable<string, array{0: ?AbstractPlatform}>
+     */
+    public static function lockPlatforms(): iterable
+    {
+        yield 'MySQL' => [null];
+        yield 'PostgreSQL' => [new PostgreSQLPlatform()];
     }
 
     #[Test]

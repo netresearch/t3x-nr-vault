@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Audit;
 
+use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Netresearch\NrVault\Exception\AuditWriteException;
 use Throwable;
@@ -205,9 +206,7 @@ trait AuditChainLockTrait
      */
     private function acquireMySqlAuditLock(Connection $connection): void
     {
-        $lockResult = $connection
-            ->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')
-            ->fetchOne();
+        $lockResult = $this->queryAuditLock($connection, 'SELECT GET_LOCK("nr_vault_audit", 5)');
         if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
             throw AuditWriteException::lockAcquisitionFailed($lockResult);
         }
@@ -228,13 +227,12 @@ trait AuditChainLockTrait
         do {
             // CASE turns the boolean into an integer, which every PDO driver
             // returns in the same shape.
-            $lockResult = $connection
-                ->executeQuery(
-                    'SELECT CASE WHEN pg_try_advisory_lock(?) THEN 1 ELSE 0 END',
-                    [self::POSTGRESQL_AUDIT_LOCK_KEY],
-                    [Connection::PARAM_INT],
-                )
-                ->fetchOne();
+            $lockResult = $this->queryAuditLock(
+                $connection,
+                'SELECT CASE WHEN pg_try_advisory_lock(?) THEN 1 ELSE 0 END',
+                [self::POSTGRESQL_AUDIT_LOCK_KEY],
+                [Connection::PARAM_INT],
+            );
             if (is_numeric($lockResult) && (int) $lockResult === 1) {
                 return;
             }
@@ -243,6 +241,25 @@ trait AuditChainLockTrait
         } while (hrtime(true) < $deadline);
 
         throw AuditWriteException::postgreSqlLockAcquisitionFailed($lockResult, self::POSTGRESQL_AUDIT_LOCK_KEY);
+    }
+
+    /**
+     * Run a lock query. A failing query (connection loss, missing privilege)
+     * is reported as an AuditWriteException like a refused lock, because that
+     * is the type the audit writers' callers key their compensation on.
+     *
+     * @param list<mixed>         $params
+     * @param list<ParameterType> $types
+     *
+     * @throws AuditWriteException If the query fails
+     */
+    private function queryAuditLock(Connection $connection, string $sql, array $params = [], array $types = []): mixed
+    {
+        try {
+            return $connection->executeQuery($sql, $params, $types)->fetchOne();
+        } catch (Throwable $e) {
+            throw AuditWriteException::writeFailed($e);
+        }
     }
 
     /**
