@@ -704,15 +704,16 @@ final class VaultRotateMasterKeyCommand extends Command
             $this->releaseRotationAuditLock($connection, $isSQLite);
         }
 
+        // Committed and re-keyed: the entries reach the sinks now, with their
+        // final hashes (#499). Publication never throws, and flushing before
+        // any output means no later exception can leave the buffer collecting.
+        $this->publicationBuffer?->flush();
+
         $io->text(sprintf('Consumer-owned envelopes re-wrapped: %d.', $foreignCount));
         $io->success(sprintf('Successfully rotated master key for %d secret(s).', $successCount));
         $io->text(sprintf('Audit chain re-keyed under the new master key (%d row(s) rewritten).', $rekeyedRows));
 
         $io->note(self::NEXT_STEPS);
-
-        // The rotation has committed and the chain is re-keyed: the entries it
-        // wrote reach the external sinks now, with their final hashes (#499).
-        $this->publicationBuffer?->flush();
 
         // Dispatched last, and deliberately after the instructions above: the
         // rotation has already committed, so a listener that throws must not be
