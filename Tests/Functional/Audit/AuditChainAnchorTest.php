@@ -705,12 +705,13 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
         );
 
         // Reset the auto-increment as well, so a refill starts at uid 1 on every
-        // platform. MariaDB gets that from TRUNCATE; PostgreSQL's TRUNCATE
-        // keeps the sequence, so it is reset explicitly. SQLite does not either, because
-        // the platform emits DELETE FROM and TYPO3 maps `uid` to INTEGER PRIMARY
-        // KEY AUTOINCREMENT, whose sequence lives in `sqlite_sequence` and
-        // survives. The statement is meaningless elsewhere and that table does
-        // not exist there, so a failure is the expected non-SQLite outcome.
+        // platform:
+        //  - MySQL/MariaDB: TRUNCATE already resets it.
+        //  - PostgreSQL: TRUNCATE keeps the sequence, so setval() resets it.
+        //  - SQLite: the platform emits DELETE FROM and TYPO3 maps `uid` to
+        //    INTEGER PRIMARY KEY AUTOINCREMENT, whose sequence lives in
+        //    `sqlite_sequence` and survives. On MySQL/MariaDB that table does
+        //    not exist, so the DELETE fails there and the failure is ignored.
         if ($connection->getDatabasePlatform() instanceof PostgreSQLPlatform) {
             $connection->executeStatement(
                 'SELECT setval(pg_get_serial_sequence(' . $connection->quote(self::AUDIT_TABLE) . ", 'uid'), 1, false)",

@@ -110,8 +110,7 @@ feature table lists session-level advisory locks as not supported in that mode.
 The lock would then not serialise the audit writes, and its release could miss.
 TYPO3 has the same requirement independently of nr-vault, because the
 database driver reads a new row's ID with a separate ``SELECT LASTVAL()``.
-Run PostgreSQL
-behind PgBouncer in session pooling mode, or connect directly.
+Run PostgreSQL behind PgBouncer in session pooling mode, or connect directly.
 
 Verification
 ============
