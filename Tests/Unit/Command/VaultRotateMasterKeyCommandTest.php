@@ -592,7 +592,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->willReturnCallback(function () use ($calls): int {
                 $this->publicationBuffer->defer(static fn () => $calls->append('publish'));
 
-                throw new RuntimeException('re-key failed', 1793260012);
+                throw new ConnectionException('chain re-key aborted', 1793260012);
             });
         $collectingAtFailure = [];
         $this->auditLogService
