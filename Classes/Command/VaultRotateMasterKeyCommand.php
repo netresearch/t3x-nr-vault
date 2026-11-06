@@ -84,6 +84,19 @@ final class VaultRotateMasterKeyCommand extends Command
 
     private const AUDIT_LOG_TABLE = 'tx_nrvault_audit_log';
 
+    /** Printed after a committed rotation. */
+    private const NEXT_STEPS = [
+        'Next steps:',
+        '1. Update your configuration to use the new master key NOW — until then,',
+        '   secrets cannot be decrypted and audit-chain verification uses the old key.',
+        '2. Keep the old master key until no secret or consumer envelope was written',
+        '   between this rotation and the configuration switch (anything written then',
+        '   is wrapped under the old key); then archive or destroy it',
+        '3. Test secret retrieval and run vault:audit to verify chain integrity',
+        '4. If any audit entries were written between this rotation and the',
+        '   configuration switch, re-seal them with vault:audit-migrate-hmac',
+    ];
+
     /**
      * Whether rekeyAuditChain() holds the audit lock for the outer rotation
      * transaction. The caller releases it after that transaction commits or
@@ -698,17 +711,7 @@ final class VaultRotateMasterKeyCommand extends Command
             $rekeyedRows,
         ));
 
-        $io->note([
-            'Next steps:',
-            '1. Update your configuration to use the new master key NOW — until then,',
-            '   secrets cannot be decrypted and audit-chain verification uses the old key.',
-            '2. Keep the old master key until no secret or consumer envelope was written',
-            '   between this rotation and the configuration switch (anything written then',
-            '   is wrapped under the old key); then archive or destroy it',
-            '3. Test secret retrieval and run vault:audit to verify chain integrity',
-            '4. If any audit entries were written between this rotation and the',
-            '   configuration switch, re-seal them with vault:audit-migrate-hmac',
-        ]);
+        $io->note(self::NEXT_STEPS);
 
         // Dispatched last, and deliberately after the instructions above: the
         // rotation has already committed, so a listener that throws must not be
