@@ -1,0 +1,1 @@
+- The release evidence workflow runs the full and the security-scoped mutation analysis as two jobs with their own time budgets. In one 45-minute job they took 29 to 45 minutes, and a slow runner cancelled the job and blocked the v1.3.0 release until it was re-run (#502).
