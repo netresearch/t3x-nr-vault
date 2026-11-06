@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
 use ArrayObject;
+use Doctrine\DBAL\ConnectionException;
 use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Audit\AuditAction;
@@ -1163,7 +1164,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             if (str_contains($sql, 'RELEASE_LOCK')) {
                 $calls->append('release');
                 if ($releaseFails) {
-                    throw new RuntimeException('connection lost', 1793260002);
+                    throw new ConnectionException('connection lost', 1793260002);
                 }
             }
 
