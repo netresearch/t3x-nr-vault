@@ -1,1 +1,0 @@
-- PostgreSQL support for audit-log writes and local mutations. The audit-chain lock takes a PostgreSQL advisory lock instead of the MySQL-only `GET_LOCK()`, which failed every audited operation with SQLSTATE 42703 (#494). See ADR-051.
