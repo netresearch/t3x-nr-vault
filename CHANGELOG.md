@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-06
+
+### Upgrading from 1.2
+
+- The columns `tx_nrvault_secret.value_checksum`, `tx_nrvault_audit_log.hash_before` and `tx_nrvault_audit_log.hash_after` change from `char(64)` to `varchar(64)`. Run the database analyzer (Admin Tools > Maintenance > Analyze Database Structure) or `typo3 extension:setup` after the update. The stored values do not change on MySQL/MariaDB and SQLite.
+- **Plan a maintenance window on MySQL/MariaDB.** Both reject this column change in place (`ALGORITHM=INPLACE is not supported … Try ALGORITHM=COPY`, measured on MariaDB 11.4 and MySQL 8.4), so each of the two tables is copied in full, and writes to it wait until the copy is done. While `tx_nrvault_audit_log` is copied, every operation that writes an audit entry waits: secret reads with read auditing enabled (the default), including reads by the vault HTTP client, and every secret change. While `tx_nrvault_secret` is copied, secret changes wait, and so do secret reads, because a read updates the secret's read counter. The duration grows with the size of the audit log; on a large one, apply the change when the site can go without vault access for that time.
+- PostgreSQL pads `char` values with spaces: an empty `value_checksum` read back as 64 spaces and failed the consistency check of a secret's cryptographic fields, and empty `hash_before`/`hash_after` values broke audit-chain verification.
+- `vault:rotate-master-key` refuses to run on MySQL/MariaDB with binary logging on and `binlog_format=STATEMENT`, because InnoDB refuses writes in READ COMMITTED there. ROW and MIXED, the defaults, are not affected. Check with `SELECT @@log_bin, @@binlog_format;` before the maintenance window; `--dry-run` does not check it.
+- `ForeignEnvelopeRotatorInterface::rewrapAll()` implementations now run in READ COMMITTED on MySQL/MariaDB and PostgreSQL. Page by key (`WHERE uid > :last ORDER BY uid`), not by `OFFSET`, or a row deleted by another session can shift the rest and leave one row wrapped under the old key.
+
+### Added
+
+- PostgreSQL support for audit-log writes and local mutations. The audit-chain lock takes a PostgreSQL advisory lock instead of the MySQL-only `GET_LOCK()`, which failed every audited operation with SQLSTATE 42703 (#494). See ADR-051.
+
+### Fixed
+
+- `vault:rotate-master-key` holds the audit-chain lock until the rotation transaction has committed or rolled back, and runs that transaction in READ COMMITTED on MySQL/MariaDB and PostgreSQL. It released the lock at the end of the chain re-key, before the commit, so a concurrent audit writer could chain onto the tip as it was before the re-key; and under REPEATABLE READ (the InnoDB default) the re-key read the audit chain as of the transaction's first query, missing entries committed before it took the lock (#496).
+- `vault:rotate-master-key` reports an unknown outcome when the commit itself fails, because the server may have applied it before the connection was lost. It asks to keep both master keys; the key rotation guide shows how to find out which one opens the secrets.
+
 ## [1.2.0] - 2026-10-31
 
 ### Upgrading from 1.1
@@ -2237,7 +2256,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.0...v1.0.1
