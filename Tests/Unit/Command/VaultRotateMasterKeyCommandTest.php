@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
+use ArrayObject;
+use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainAnchorLoad;
@@ -405,6 +407,61 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         self::assertSame(0, $exitCode);
         self::assertStringContainsString('Successfully rotated', $this->commandTester->getDisplay());
         self::assertStringContainsString('Audit chain re-keyed', $this->commandTester->getDisplay());
+    }
+
+    /**
+     * The re-keyed chain is not durable until the OUTER commit. Releasing the
+     * audit lock before it would let a concurrent writer chain onto the tip
+     * as it was before the re-key (#496).
+     */
+    #[Test]
+    public function theAuditLockIsReleasedOnlyAfterTheOuterCommit(): void
+    {
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls();
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(0, $exitCode);
+        self::assertSame(
+            ['begin', 'lock', 'begin', 'commit', 'commit', 'release'],
+            $calls->getArrayCopy(),
+        );
+    }
+
+    #[Test]
+    public function aFailedReKeyReleasesTheAuditLockOnlyAfterTheOuterRollback(): void
+    {
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls();
+        $this->auditChainRekeyService
+            ->method('rekeyChain')
+            ->willThrowException(new RuntimeException('re-key failed', 1793260001));
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertSame(
+            ['begin', 'lock', 'begin', 'rollBack', 'rollBack', 'release'],
+            $calls->getArrayCopy(),
+        );
+    }
+
+    /**
+     * The rotation has committed when the release fails. Closing the
+     * connection ends the session and with it the session lock, so the lock
+     * cannot outlive the command.
+     */
+    #[Test]
+    public function aFailedReleaseAfterTheCommitClosesTheConnection(): void
+    {
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(releaseFails: true);
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(0, $exitCode);
+        self::assertSame(
+            ['begin', 'lock', 'begin', 'commit', 'commit', 'release', 'close'],
+            $calls->getArrayCopy(),
+        );
     }
 
     #[Test]
@@ -1063,6 +1120,62 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
         $this->auditChainRekeyService->method('rekeyChain')->willReturn(1);
+    }
+
+    /**
+     * One re-encryptable secret on a MySQL-style connection whose transaction
+     * and audit-lock calls are recorded in order: `begin`, `commit`,
+     * `rollBack`, `lock` (GET_LOCK) and `release` (RELEASE_LOCK).
+     *
+     * @return ArrayObject<int, string>
+     */
+    private function givenOneRotatableSecretRecordingTransactionCalls(bool $releaseFails = false): ArrayObject
+    {
+        $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
+        $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn($this->createTestSecret('test-secret'));
+        $this->encryptionService->method('reEncryptDek')->willReturn(new ReEncryptedDek('new-dek', 'new-nonce'));
+        $this->secretRepository->method('save')->willReturnArgument(0);
+
+        /** @var ArrayObject<int, string> $calls */
+        $calls      = new ArrayObject();
+        $lockResult = self::createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
+        $connection = self::createStub(Connection::class);
+        $connection->method('getDatabasePlatform')->willReturn(new MySQLPlatform());
+        $connection->method('beginTransaction')->willReturnCallback(static function () use ($calls): void {
+            $calls->append('begin');
+        });
+        $connection->method('commit')->willReturnCallback(static function () use ($calls): void {
+            $calls->append('commit');
+        });
+        $connection->method('rollBack')->willReturnCallback(static function () use ($calls): void {
+            $calls->append('rollBack');
+        });
+        $connection->method('executeQuery')->willReturnCallback(static function (string $sql) use ($calls, $lockResult): Result {
+            if (str_contains($sql, 'GET_LOCK')) {
+                $calls->append('lock');
+            }
+
+            return $lockResult;
+        });
+        $connection->method('executeStatement')->willReturnCallback(static function (string $sql) use ($calls, $releaseFails): int {
+            if (str_contains($sql, 'RELEASE_LOCK')) {
+                $calls->append('release');
+                if ($releaseFails) {
+                    throw new RuntimeException('connection lost', 1793260002);
+                }
+            }
+
+            return 1;
+        });
+        $connection->method('close')->willReturnCallback(static function () use ($calls): void {
+            $calls->append('close');
+        });
+
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+
+        return $calls;
     }
 
     /**

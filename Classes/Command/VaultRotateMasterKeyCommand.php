@@ -79,6 +79,13 @@ final class VaultRotateMasterKeyCommand extends Command
     private const AUDIT_LOG_TABLE = 'tx_nrvault_audit_log';
 
     /**
+     * Whether rekeyAuditChain() holds the audit lock for the outer rotation
+     * transaction. The caller releases it after that transaction commits or
+     * rolls back.
+     */
+    private bool $rotationAuditLockHeld = false;
+
+    /**
      * @param iterable<ForeignEnvelopeRotatorInterface> $foreignRotators
      */
     public function __construct(
@@ -650,6 +657,7 @@ final class VaultRotateMasterKeyCommand extends Command
             $connection->commit();
         } catch (Throwable $e) {
             $connection->rollBack();
+            $this->releaseRotationAuditLock($connection, $isSQLite);
             $io->error('Unexpected error during rotation: ' . $e->getMessage());
             // Do not propagate $e->getMessage() into the audit log to avoid
             // leaking libsodium/internal detail (CLAUDE.md security rule 1).
@@ -662,6 +670,8 @@ final class VaultRotateMasterKeyCommand extends Command
 
             return Command::FAILURE;
         }
+
+        $this->releaseRotationAuditLock($connection, $isSQLite);
 
         $io->text(sprintf('Consumer-owned envelopes re-wrapped: %d.', $foreignCount));
         $io->success(sprintf(
@@ -705,7 +715,10 @@ final class VaultRotateMasterKeyCommand extends Command
      * Ordering is deliberate:
      *  1. take the audit advisory lock for the remainder of the transaction
      *     so no concurrent writer can chain onto a tip hash this method is
-     *     about to rewrite;
+     *     about to rewrite. The caller releases it with
+     *     {@see self::releaseRotationAuditLock()} after the OUTER commit or
+     *     rollback: the re-keyed chain is not durable before that, and a
+     *     writer let in earlier would chain onto the pre-rekey tip;
      *  2. append the 'audit_chain_rekey' and successful
      *     'master_key_rotate_end' events — at this point they are sealed
      *     with the OLD (provider-derived) HMAC key;
@@ -728,6 +741,7 @@ final class VaultRotateMasterKeyCommand extends Command
         int $successCount,
     ): int {
         $this->acquireAuditLock($connection, $isSQLite);
+        $this->rotationAuditLockHeld = true;
 
         try {
             $this->auditLogService->log(
@@ -757,8 +771,26 @@ final class VaultRotateMasterKeyCommand extends Command
             $this->rollbackAuditLock($connection, $isSQLite);
 
             throw $e;
-        } finally {
+        }
+    }
+
+    /**
+     * Release the audit lock rekeyAuditChain() took, once the outer rotation
+     * transaction has committed or rolled back. A failed release closes the
+     * connection, which ends the session and with it the session lock.
+     */
+    private function releaseRotationAuditLock(Connection $connection, bool $isSQLite): void
+    {
+        if (!$this->rotationAuditLockHeld) {
+            return;
+        }
+
+        $this->rotationAuditLockHeld = false;
+
+        try {
             $this->releaseAuditLock($connection, $isSQLite);
+        } catch (Throwable) {
+            $connection->close();
         }
     }
 

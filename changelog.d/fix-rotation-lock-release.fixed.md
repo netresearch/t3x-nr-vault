@@ -1,0 +1,1 @@
+- `vault:rotate-master-key` holds the audit-chain lock until the rotation transaction has committed or rolled back. It released the lock at the end of the chain re-key, before the commit, so a concurrent audit writer on MySQL/MariaDB could chain onto the tip as it was before the re-key (#496).
