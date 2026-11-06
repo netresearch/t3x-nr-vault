@@ -116,12 +116,7 @@ trait AuditChainLockTrait
         if ($this->isPostgreSqlAuditConnection($connection)) {
             $this->acquirePostgreSqlAuditLock($connection);
         } else {
-            $lockResult = $connection
-                ->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')
-                ->fetchOne();
-            if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
-                throw AuditWriteException::lockAcquisitionFailed($lockResult);
-            }
+            $this->acquireMySqlAuditLock($connection);
         }
 
         // The lock is now held. If `beginTransaction()` throws, the caller's
@@ -201,6 +196,21 @@ trait AuditChainLockTrait
     private function isPostgreSqlAuditConnection(Connection $connection): bool
     {
         return $connection->getDatabasePlatform() instanceof PostgreSQLPlatform;
+    }
+
+    /**
+     * `GET_LOCK` returns 1 on success, 0 on timeout and NULL on error.
+     *
+     * @throws AuditWriteException If the named lock is not granted
+     */
+    private function acquireMySqlAuditLock(Connection $connection): void
+    {
+        $lockResult = $connection
+            ->executeQuery('SELECT GET_LOCK("nr_vault_audit", 5)')
+            ->fetchOne();
+        if (!is_numeric($lockResult) || (int) $lockResult !== 1) {
+            throw AuditWriteException::lockAcquisitionFailed($lockResult);
+        }
     }
 
     /**
