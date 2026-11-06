@@ -48,10 +48,9 @@ The session-level lock matches the protocol the MySQL branch already follows:
   returns at once.
 - It survives a commit. A coordinated mutation (``VaultMutationTransaction``)
   keeps it until its own commit and releases it before publishing to sinks,
-  as on MySQL. Master-key rotation releases it at the end of
-  ``rekeyAuditChain()``, before the outer commit; that window exists on MySQL
-  as well and is tracked in
-  `issue #496 <https://github.com/netresearch/t3x-nr-vault/issues/496>`__.
+  as on MySQL. Master-key rotation takes it for the chain re-key and releases
+  it after its outer commit or rollback
+  (`issue #496 <https://github.com/netresearch/t3x-nr-vault/issues/496>`__).
 
 The non-blocking function is chosen over ``pg_advisory_lock()`` with a
 ``lock_timeout``. A lock wait that ends in an error aborts the whole
@@ -68,13 +67,10 @@ as it was before the lock was granted. The session lock is taken before
 the writer's own ``BEGIN``, so a standalone writer and a coordinated mutation
 read the tip after the lock is granted at any isolation level. Master-key
 rotation is the exception: its outer transaction is already open when the
-audit writes take the lock, so under ``REPEATABLE READ`` its snapshot can
-predate the lock. That applies to MySQL with the InnoDB default isolation
-level as well, and is tracked with the release window in
-`issue #496 <https://github.com/netresearch/t3x-nr-vault/issues/496>`__. A
-transaction-level lock remains a candidate for the PostgreSQL half of
-`issue #496 <https://github.com/netresearch/t3x-nr-vault/issues/496>`__,
-because it would hold through the outer commit of master-key rotation.
+audit writes take the lock, so under ``REPEATABLE READ`` its snapshot could
+predate the lock, on MySQL with the InnoDB default as well. The rotation
+therefore runs its transaction in ``READ COMMITTED``
+(`issue #496 <https://github.com/netresearch/t3x-nr-vault/issues/496>`__).
 
 PostgreSQL sequences do not roll back, like MySQL ``AUTO_INCREMENT``. The
 explicit-UID allocation from ADR-050 therefore applies to PostgreSQL too: when
