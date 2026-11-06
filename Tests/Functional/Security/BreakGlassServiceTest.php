@@ -318,7 +318,7 @@ final class BreakGlassServiceTest extends AbstractVaultFunctionalTestCase
         $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('sys_registry');
         $queryBuilder->getRestrictions()->removeAll();
 
-        return $queryBuilder
+        $value = $queryBuilder
             ->select('entry_value')
             ->from('sys_registry')
             ->where(
@@ -333,6 +333,9 @@ final class BreakGlassServiceTest extends AbstractVaultFunctionalTestCase
             )
             ->executeQuery()
             ->fetchOne();
+
+        // `entry_value` is `bytea` on PostgreSQL, which PDO returns as a stream.
+        return is_resource($value) ? stream_get_contents($value) : $value;
     }
 
     private function countAudit(string $action): int

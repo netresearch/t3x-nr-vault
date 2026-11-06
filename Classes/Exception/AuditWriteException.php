@@ -21,7 +21,8 @@ use function sprintf;
  * audit-chain writer — `AuditLogService::log()` (runtime) and the migration
  * sites (`AuditHmacMigration`, `VaultAuditMigrateCommand`) — when the
  * advisory lock that serialises hash-chain writers cannot be acquired
- * (`GET_LOCK` returned 0 = timeout, or NULL = database error), and by
+ * (`GET_LOCK` returned 0 = timeout or NULL = database error; on PostgreSQL
+ * `pg_try_advisory_lock` stayed false for the whole timeout), and by
  * `AuditLogService::log()` for any other failure of the chain write itself
  * (via {@see self::writeFailed()}). `log()` therefore has a single failure
  * contract: it either persisted the entry or threw this exception —
@@ -50,6 +51,42 @@ final class AuditWriteException extends VaultException
      */
     public static function lockAcquisitionFailed(mixed $rawResult): self
     {
+        return self::lockNotAcquired('GET_LOCK', $rawResult);
+    }
+
+    /**
+     * The PostgreSQL advisory lock was not granted within the timeout.
+     *
+     * PostgreSQL has no named lock: `pg_locks` shows a bigint key split into
+     * `classid` (high 32 bits) and `objid` (low 32 bits), with `objsubid` 1.
+     * The hint names that query, because a search for "nr_vault_audit" finds
+     * nothing there. `pg_locks` covers the whole cluster while the key is per
+     * database, so the query is limited to the current database.
+     *
+     * @param mixed $rawResult The last value returned by the lock query — 0
+     *                         while another session holds the lock
+     * @param int   $lockKey   The advisory-lock key that was not granted
+     */
+    public static function postgreSqlLockAcquisitionFailed(mixed $rawResult, int $lockKey): self
+    {
+        return self::lockNotAcquired(
+            'pg_try_advisory_lock',
+            $rawResult,
+            sprintf(
+                'check for a stuck audit log writer: SELECT pid FROM pg_locks'
+                . " WHERE locktype = 'advisory' AND classid = %d AND objid = %d AND objsubid = 1"
+                . ' AND database = (SELECT oid FROM pg_database WHERE datname = current_database());',
+                ($lockKey >> 32) & 0xFFFFFFFF,
+                $lockKey & 0xFFFFFFFF,
+            ),
+        );
+    }
+
+    private static function lockNotAcquired(
+        string $lockFunction,
+        mixed $rawResult,
+        string $hint = 'check for a stuck audit log writer holding the named lock "nr_vault_audit".',
+    ): self {
         $detail = match (true) {
             $rawResult === null   => 'NULL (DB error)',
             is_scalar($rawResult) => (string) $rawResult,
@@ -58,10 +95,11 @@ final class AuditWriteException extends VaultException
 
         return new self(
             sprintf(
-                'Audit-log advisory lock could not be acquired (GET_LOCK returned %s). '
-                . 'Retry the operation; if the failure persists, check for a stuck '
-                . 'audit log writer holding the named lock "nr_vault_audit".',
+                'Audit-log advisory lock could not be acquired (%s returned %s). '
+                . 'Retry the operation; if the failure persists, %s',
+                $lockFunction,
                 $detail,
+                $hint,
             ),
             1747825331,
         );

@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Command;
 
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditLogService;
@@ -323,6 +324,14 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
         if ($connection->getDatabasePlatform() instanceof SQLitePlatform) {
             $connection->executeStatement(
                 "DELETE FROM sqlite_sequence WHERE name = '" . AuditLogService::TABLE_NAME . "'",
+            );
+
+            return;
+        }
+
+        if ($connection->getDatabasePlatform() instanceof PostgreSQLPlatform) {
+            $connection->executeStatement(
+                "SELECT setval(pg_get_serial_sequence('" . AuditLogService::TABLE_NAME . "', 'uid'), 1, false)",
             );
 
             return;

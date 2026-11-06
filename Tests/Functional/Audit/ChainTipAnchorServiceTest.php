@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Audit;
 
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorService;
@@ -445,6 +446,14 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         if ($platform instanceof SQLitePlatform) {
             $connection->executeStatement(
                 "DELETE FROM sqlite_sequence WHERE name = '" . AuditLogService::TABLE_NAME . "'",
+            );
+
+            return;
+        }
+
+        if ($platform instanceof PostgreSQLPlatform) {
+            $connection->executeStatement(
+                "SELECT setval(pg_get_serial_sequence('" . AuditLogService::TABLE_NAME . "', 'uid'), 1, false)",
             );
 
             return;

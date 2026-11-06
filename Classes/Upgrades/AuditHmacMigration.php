@@ -39,7 +39,8 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
  *
  * Safety properties (mirrors `Command/VaultAuditMigrateCommand::migrateEntries`):
  *  - Advisory lock around the loop blocks concurrent audit writes
- *    (MySQL/MariaDB: named `GET_LOCK`; SQLite: `BEGIN EXCLUSIVE`).
+ *    (MySQL/MariaDB: named `GET_LOCK`; PostgreSQL: `pg_try_advisory_lock`;
+ *    SQLite: `BEGIN EXCLUSIVE`).
  *  - All updates run inside a single transaction; mid-loop failure rolls
  *    back so the chain never lands in mixed-epoch state.
  *  - Re-runs are safe: re-hashing every row from UID 1 with a fresh

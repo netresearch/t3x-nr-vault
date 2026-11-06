@@ -24,9 +24,17 @@ use TYPO3\CMS\Core\Database\Connection;
  *
  * @internal test fixture
  */
-final class AuditChainLockHost
+final readonly class AuditChainLockHost
 {
     use AuditChainLockTrait;
+
+    /**
+     * @param int $lockTimeoutSeconds Replaces the trait's 5-second PostgreSQL
+     *                                lock wait, so a timeout test needs one poll
+     */
+    public function __construct(
+        private int $lockTimeoutSeconds = self::AUDIT_LOCK_TIMEOUT_SECONDS,
+    ) {}
 
     public function acquire(Connection $connection, bool $isSQLite): void
     {
@@ -46,5 +54,10 @@ final class AuditChainLockHost
     public function release(Connection $connection, bool $isSQLite): void
     {
         $this->releaseAuditLock($connection, $isSQLite);
+    }
+
+    private function auditLockTimeoutSeconds(): int
+    {
+        return $this->lockTimeoutSeconds;
     }
 }

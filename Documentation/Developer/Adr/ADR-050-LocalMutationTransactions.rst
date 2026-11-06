@@ -15,6 +15,9 @@ Status
 Accepted. Supersedes the programmatic local-adapter compensation design in
 :ref:`adr-036-mutation-audit-atomicity`.
 
+The platform restriction below is superseded by
+:ref:`adr-051-postgresql-audit-lock`: PostgreSQL is supported since then.
+
 Date
 ====
 

@@ -13,6 +13,7 @@ use ArrayObject;
 use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
+use Doctrine\DBAL\Platforms\SQLServerPlatform;
 use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Audit\VaultMutationTransaction;
 use Netresearch\NrVault\Exception\AuditWriteException;
@@ -331,6 +332,68 @@ final class VaultMutationTransactionTest extends TestCase
     }
 
     #[Test]
+    public function postgreSqlKeepsItsAdvisoryLockThroughCommitAndReleasesBeforePublishing(): void
+    {
+        $calls      = new ArrayObject();
+        $connection = $this->createMock(Connection::class);
+        $connection
+            ->method('getDatabasePlatform')
+            ->willReturn(new PostgreSQLPlatform());
+        $connection
+            ->method('isTransactionActive')
+            ->willReturnCallback(
+                static fn (): bool => $calls->getArrayCopy() === ['lock', 'begin'],
+            );
+        $granted = self::createStub(Result::class);
+        $granted->method('fetchOne')->willReturn(1);
+        $connection
+            ->expects(self::exactly(2))
+            ->method('executeQuery')
+            ->willReturnCallback(
+                static function (string $sql) use ($calls, $granted): Result {
+                    $calls->append(str_contains($sql, 'pg_try_advisory_lock(') ? 'lock' : 'unlock');
+
+                    return $granted;
+                },
+            );
+        $connection
+            ->expects(self::once())
+            ->method('beginTransaction')
+            ->willReturnCallback(
+                static function () use ($calls): void {
+                    $calls->append('begin');
+                },
+            );
+        $connection
+            ->expects(self::once())
+            ->method('commit')
+            ->willReturnCallback(
+                static function () use ($calls): void {
+                    $calls->append('commit');
+                },
+            );
+        $connection->expects(self::never())->method('executeStatement');
+        $connection->expects(self::never())->method('rollBack');
+        $subject = $this->subject($connection);
+
+        $subject->run(
+            static function () use ($subject, $calls): void {
+                $calls->append('mutation');
+                $subject->afterCommit(
+                    static function () use ($calls): void {
+                        $calls->append('publish');
+                    },
+                );
+            },
+        );
+
+        self::assertSame(
+            ['lock', 'begin', 'mutation', 'commit', 'unlock', 'publish'],
+            $calls->getArrayCopy(),
+        );
+    }
+
+    #[Test]
     public function anAfterCommitActionOutsideATransactionRunsImmediately(): void
     {
         $connection = self::createStub(Connection::class);
@@ -415,7 +478,7 @@ final class VaultMutationTransactionTest extends TestCase
         $connection->method('isTransactionActive')->willReturn(false);
         $connection
             ->method('getDatabasePlatform')
-            ->willReturn(new PostgreSQLPlatform());
+            ->willReturn(new SQLServerPlatform());
         $connection->expects(self::never())->method('beginTransaction');
         $connection->expects(self::never())->method('executeQuery');
         $subject = $this->subject($connection);
