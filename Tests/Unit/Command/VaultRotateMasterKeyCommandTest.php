@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Unit\Command;
 
 use ArrayObject;
 use Doctrine\DBAL\ConnectionException;
+use Doctrine\DBAL\Exception\NoActiveTransaction;
 use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Audit\AuditAction;
@@ -465,6 +466,47 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         );
     }
 
+    /**
+     * A failed outer commit leaves no transaction behind, because DBAL lowers
+     * the nesting level before rethrowing. A rollback there would throw
+     * NoActiveTransaction and skip the release, leaving the lock held for the
+     * rest of the process.
+     */
+    #[Test]
+    public function aFailedOuterCommitStillReleasesTheAuditLock(): void
+    {
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(outerCommitFails: true);
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertSame(
+            ['begin', 'lock', 'begin', 'commit', 'commit', 'release'],
+            $calls->getArrayCopy(),
+        );
+    }
+
+    /**
+     * A rollback that fails closes the connection. That ends the session and
+     * the lock with it, so no release is attempted on the closed connection.
+     */
+    #[Test]
+    public function aFailedOuterRollbackClosesTheConnectionInsteadOfReleasing(): void
+    {
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(rollbackFails: true);
+        $this->auditChainRekeyService
+            ->method('rekeyChain')
+            ->willThrowException(new ConnectionException('re-key failed', 1793260005));
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertSame(
+            ['begin', 'lock', 'begin', 'rollBack', 'rollBack', 'close'],
+            $calls->getArrayCopy(),
+        );
+    }
+
     #[Test]
     public function refusesRotationWhenAuditChainVerificationFails(): void
     {
@@ -674,6 +716,8 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         $connection = $this->createMock(Connection::class);
         $connection->expects(self::once())->method('beginTransaction');
+        // The outer transaction is still open when the rotation throws.
+        $connection->method('isTransactionActive')->willReturn(true);
         $connection->expects(self::once())->method('rollBack');
         $connection->expects(self::never())->method('commit');
 
@@ -1114,6 +1158,8 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $connection = $this->createMock(Connection::class);
         $connection->method('executeQuery')->willReturn($lockResult);
         if ($expectRollback) {
+            // The outer transaction is still open when the rotation fails.
+            $connection->method('isTransactionActive')->willReturn(true);
             $connection->expects(self::atLeastOnce())->method('rollBack');
         } else {
             $connection->expects(self::never())->method('rollBack');
@@ -1130,8 +1176,11 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
      *
      * @return ArrayObject<int, string>
      */
-    private function givenOneRotatableSecretRecordingTransactionCalls(bool $releaseFails = false): ArrayObject
-    {
+    private function givenOneRotatableSecretRecordingTransactionCalls(
+        bool $releaseFails = false,
+        bool $outerCommitFails = false,
+        bool $rollbackFails = false,
+    ): ArrayObject {
         $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
         $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn($this->createTestSecret('test-secret'));
         $this->encryptionService->method('reEncryptDek')->willReturn(new ReEncryptedDek('new-dek', 'new-nonce'));
@@ -1142,16 +1191,37 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $lockResult = self::createStub(Result::class);
         $lockResult->method('fetchOne')->willReturn(1);
 
+        // Mirrors DBAL 4: commit() lowers the nesting level in a finally block
+        // even when it throws, and rollBack() without an active transaction
+        // throws NoActiveTransaction.
+        $state = new class {
+            public int $depth = 0;
+        };
         $connection = self::createStub(Connection::class);
         $connection->method('getDatabasePlatform')->willReturn(new MySQLPlatform());
-        $connection->method('beginTransaction')->willReturnCallback(static function () use ($calls): void {
+        $connection->method('isTransactionActive')->willReturnCallback(static fn (): bool => $state->depth > 0);
+        $connection->method('beginTransaction')->willReturnCallback(static function () use ($calls, $state): void {
             $calls->append('begin');
+            ++$state->depth;
         });
-        $connection->method('commit')->willReturnCallback(static function () use ($calls): void {
+        $connection->method('commit')->willReturnCallback(static function () use ($calls, $state, $outerCommitFails): void {
             $calls->append('commit');
+            $outer = $state->depth === 1;
+            --$state->depth;
+            if ($outer && $outerCommitFails) {
+                throw new ConnectionException('commit failed', 1793260003);
+            }
         });
-        $connection->method('rollBack')->willReturnCallback(static function () use ($calls): void {
+        $connection->method('rollBack')->willReturnCallback(static function () use ($calls, $state, $rollbackFails): void {
+            if ($state->depth === 0) {
+                throw NoActiveTransaction::new();
+            }
+
             $calls->append('rollBack');
+            --$state->depth;
+            if ($rollbackFails && $state->depth === 0) {
+                throw new ConnectionException('rollback failed', 1793260004);
+            }
         });
         $connection->method('executeQuery')->willReturnCallback(static function (string $sql) use ($calls, $lockResult): Result {
             if (str_contains($sql, 'GET_LOCK')) {

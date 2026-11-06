@@ -656,7 +656,7 @@ final class VaultRotateMasterKeyCommand extends Command
 
             $connection->commit();
         } catch (Throwable $e) {
-            $connection->rollBack();
+            $this->rollbackRotationTransaction($connection);
             $this->releaseRotationAuditLock($connection, $isSQLite);
             $io->error('Unexpected error during rotation: ' . $e->getMessage());
             // Do not propagate $e->getMessage() into the audit log to avoid
@@ -771,6 +771,25 @@ final class VaultRotateMasterKeyCommand extends Command
             $this->rollbackAuditLock($connection, $isSQLite);
 
             throw $e;
+        }
+    }
+
+    /**
+     * Roll back what is left of the rotation transaction. A failed outer
+     * commit leaves none: DBAL lowers the nesting level before rethrowing,
+     * and rollBack() would then throw NoActiveTransaction and skip the lock
+     * release. A rollback that fails closes the connection, which discards
+     * the transaction and ends the session lock with it.
+     */
+    private function rollbackRotationTransaction(Connection $connection): void
+    {
+        try {
+            if ($connection->isTransactionActive()) {
+                $connection->rollBack();
+            }
+        } catch (Throwable) {
+            $connection->close();
+            $this->rotationAuditLockHeld = false;
         }
     }
 
