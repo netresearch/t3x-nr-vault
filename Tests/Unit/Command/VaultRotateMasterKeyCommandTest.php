@@ -441,7 +441,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function postgreSqlSetsReadCommittedInsideTheRotationTransaction(): void
     {
-        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(platform: new PostgreSQLPlatform());
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(['platform' => new PostgreSQLPlatform()]);
 
         $this->commandTester->execute($this->rotationInput());
 
@@ -473,7 +473,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function aFailedSecretRollsBackWithoutTouchingTheAuditLock(): void
     {
-        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(secretFails: true);
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(['secretFails' => true]);
 
         $exitCode = $this->commandTester->execute($this->rotationInput());
 
@@ -489,7 +489,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function aRefusedAuditLockRollsBackTheRotation(): void
     {
-        $calls     = $this->givenOneRotatableSecretRecordingTransactionCalls(lockGranted: false);
+        $calls     = $this->givenOneRotatableSecretRecordingTransactionCalls(['lockGranted' => false]);
         $auditRows = [];
         $this->recordAuditRows($auditRows);
 
@@ -508,7 +508,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function statementBinaryLoggingRefusesTheRotationBeforeItsTransaction(): void
     {
-        $calls     = $this->givenOneRotatableSecretRecordingTransactionCalls(binlogFormat: 'STATEMENT');
+        $calls     = $this->givenOneRotatableSecretRecordingTransactionCalls(['binlogFormat' => 'STATEMENT']);
         $auditRows = [];
         $this->recordAuditRows($auditRows);
 
@@ -527,7 +527,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function statementFormatWithoutBinaryLoggingDoesNotRefuseTheRotation(): void
     {
-        $this->givenOneRotatableSecretRecordingTransactionCalls(binlogFormat: 'STATEMENT', logBin: 0);
+        $this->givenOneRotatableSecretRecordingTransactionCalls(['binlogFormat' => 'STATEMENT', 'logBin' => 0]);
 
         self::assertSame(0, $this->commandTester->execute($this->rotationInput()));
     }
@@ -539,7 +539,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function aFailingBinlogProbeDoesNotRefuseTheRotation(): void
     {
-        $this->givenOneRotatableSecretRecordingTransactionCalls(binlogProbeFails: true);
+        $this->givenOneRotatableSecretRecordingTransactionCalls(['binlogProbeFails' => true]);
 
         self::assertSame(0, $this->commandTester->execute($this->rotationInput()));
     }
@@ -552,7 +552,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function aFailedReleaseAfterTheCommitClosesTheConnection(): void
     {
-        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(releaseFails: true);
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(['releaseFails' => true]);
 
         $exitCode = $this->commandTester->execute($this->rotationInput());
 
@@ -572,7 +572,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function aFailedOuterCommitClosesTheConnection(): void
     {
-        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(outerCommitFails: true);
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(['outerCommitFails' => true]);
 
         $exitCode = $this->commandTester->execute($this->rotationInput());
 
@@ -591,7 +591,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     #[Test]
     public function aFailedOuterRollbackClosesTheConnectionInsteadOfReleasing(): void
     {
-        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(rollbackFails: true);
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(['rollbackFails' => true]);
         $this->auditChainRekeyService
             ->method('rekeyChain')
             ->willThrowException(new ConnectionException('re-key failed', 1793260005));
@@ -748,6 +748,8 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $connection = $this->createMock(Connection::class);
         $connection->method('executeQuery')->willReturn($lockResult);
         $connection->expects(self::once())->method('beginTransaction');
+        // The rotation transaction is open when the missing secret is reported.
+        $connection->method('isTransactionActive')->willReturn(true);
         $connection->expects(self::once())->method('rollBack');
 
         $this->connectionPool
@@ -1285,19 +1287,32 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
      * and audit-lock calls are recorded in order: `begin`, `commit`,
      * `rollBack`, `lock` (GET_LOCK) and `release` (RELEASE_LOCK).
      *
+     * @param array{
+     *     releaseFails?: bool,
+     *     outerCommitFails?: bool,
+     *     rollbackFails?: bool,
+     *     secretFails?: bool,
+     *     lockGranted?: bool,
+     *     platform?: AbstractPlatform,
+     *     binlogFormat?: string,
+     *     logBin?: int,
+     *     binlogProbeFails?: bool,
+     * } $scenario
+     *
      * @return ArrayObject<int, string>
      */
-    private function givenOneRotatableSecretRecordingTransactionCalls(
-        bool $releaseFails = false,
-        bool $outerCommitFails = false,
-        bool $rollbackFails = false,
-        bool $secretFails = false,
-        bool $lockGranted = true,
-        AbstractPlatform $platform = new MySQLPlatform(),
-        string $binlogFormat = 'ROW',
-        int $logBin = 1,
-        bool $binlogProbeFails = false,
-    ): ArrayObject {
+    private function givenOneRotatableSecretRecordingTransactionCalls(array $scenario = []): ArrayObject
+    {
+        $releaseFails     = $scenario['releaseFails'] ?? false;
+        $outerCommitFails = $scenario['outerCommitFails'] ?? false;
+        $rollbackFails    = $scenario['rollbackFails'] ?? false;
+        $secretFails      = $scenario['secretFails'] ?? false;
+        $lockGranted      = $scenario['lockGranted'] ?? true;
+        $platform         = $scenario['platform'] ?? new MySQLPlatform();
+        $binlogFormat     = $scenario['binlogFormat'] ?? 'ROW';
+        $logBin           = $scenario['logBin'] ?? 1;
+        $binlogProbeFails = $scenario['binlogProbeFails'] ?? false;
+
         $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
         $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn($this->createTestSecret('test-secret'));
         // The first call verifies the old key; a failing secret fails on the second.
