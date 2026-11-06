@@ -232,6 +232,12 @@ not merely the audit writer's savepoint release. See
 can disappear after commit before publication. There is no durable outbox or
 eventual-delivery guarantee.
 
+``vault:rotate-master-key`` holds the entries it writes until its own
+transaction commits.
+The sinks then receive each entry as the database stores it after the commit,
+with the hashes that the audit-chain re-key wrote.
+A rotation that rolls back publishes only its failure entry.
+
 ..  list-table::
     :header-rows: 1
     :widths: 14 20 66

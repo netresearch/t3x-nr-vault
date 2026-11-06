@@ -104,6 +104,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         private ?AuditSinkRegistryInterface $sinkRegistry = null,
         private ?LoggerInterface $logger = null,
         private ?VaultMutationTransaction $mutationTransaction = null,
+        private ?AuditSinkPublicationBuffer $publicationBuffer = null,
     ) {}
 
     public function log(
@@ -222,6 +223,13 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         };
         if ($this->mutationTransaction?->isActive() === true) {
             $this->mutationTransaction->afterCommit($publish);
+        } elseif ($this->publicationBuffer?->isCollecting() === true) {
+            // Master-key rotation re-keys the chain before its commit, so the
+            // row is read again at flush time and published with its final
+            // hashes, not the ones it was inserted with.
+            $this->publicationBuffer->defer(function () use ($persistedRow): void {
+                $this->publishToSinks($this->reloadRowForPublication($persistedRow));
+            });
         } else {
             $publish();
         }
@@ -1091,6 +1099,41 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         }
 
         return AuditChainAnchorStatus::Unanchored;
+    }
+
+    /**
+     * Read a row again for deferred sink publication. Falls back to the row as
+     * inserted when the read fails or the row is gone: the publication is a
+     * copy for external sinks, and a failure here must not stop the caller.
+     *
+     * @param array<string, mixed> $persistedRow
+     *
+     * @return array<string, mixed>
+     */
+    private function reloadRowForPublication(array $persistedRow): array
+    {
+        $uid = is_numeric($persistedRow['uid'] ?? null) ? (int) $persistedRow['uid'] : 0;
+
+        try {
+            $connection   = $this->getConnection();
+            $queryBuilder = $connection->createQueryBuilder();
+            $row          = $queryBuilder
+                ->select('*')
+                ->from(self::TABLE_NAME)
+                ->where(
+                    $queryBuilder->expr()->eq(
+                        'uid',
+                        $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT),
+                    ),
+                )
+                ->setMaxResults(1)
+                ->executeQuery()
+                ->fetchAssociative();
+        } catch (Throwable) {
+            return $persistedRow;
+        }
+
+        return is_array($row) ? $row : $persistedRow;
     }
 
     /**

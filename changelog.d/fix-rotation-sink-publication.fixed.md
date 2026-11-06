@@ -1,0 +1,1 @@
+- `vault:rotate-master-key` publishes its audit entries to the external sinks (syslog, NDJSON file, webhook) only after its transaction commits, with the hashes the audit-chain re-key stored. Before, the sinks received the entries before the commit, so a rotation that rolled back still appeared in a SIEM as completed, and committed entries carried their pre-re-key hashes (#499).

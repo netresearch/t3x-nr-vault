@@ -26,6 +26,7 @@ use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogInputs;
 use Netresearch\NrVault\Audit\AuditLogService;
+use Netresearch\NrVault\Audit\AuditSinkPublicationBuffer;
 use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
@@ -3145,6 +3146,43 @@ final class AuditLogServiceTest extends TestCase
         );
 
         $subject->log('api_creds', 'read', true);
+    }
+
+    /**
+     * Master-key rotation collects its entries while its transaction is open:
+     * none may reach a sink before the flush that follows the commit (#499).
+     */
+    #[Test]
+    public function aCollectingPublicationBufferHoldsTheSinkFanOutUntilItsFlush(): void
+    {
+        $this->setupDatabaseMocks();
+        $this->connectionMock()->method('lastInsertId')->willReturn('42');
+
+        /** @var ArrayObject<int, int> $dispatched */
+        $dispatched = new ArrayObject();
+        $registry   = self::createStub(AuditSinkRegistryInterface::class);
+        $registry->method('dispatch')->willReturnCallback(static function (AuditLogEntry $entry) use ($dispatched): int {
+            $dispatched->append($entry->uid);
+
+            return 0;
+        });
+
+        $buffer  = new AuditSinkPublicationBuffer();
+        $subject = new AuditLogService(
+            $this->connectionPoolMock(),
+            $this->accessControlMock(),
+            $this->masterKeyProviderMock(),
+            $this->extensionConfigurationMock(),
+            sinkRegistry: $registry,
+            publicationBuffer: $buffer,
+        );
+
+        $buffer->collect();
+        $subject->log('api_creds', 'read', true);
+        self::assertSame([], $dispatched->getArrayCopy());
+
+        $buffer->flush();
+        self::assertSame([42], $dispatched->getArrayCopy());
     }
 
     // =========================================================================
