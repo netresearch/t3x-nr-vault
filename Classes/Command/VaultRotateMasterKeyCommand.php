@@ -10,6 +10,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Command;
 
 use DateTimeImmutable;
+use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainAnchor;
@@ -26,6 +28,7 @@ use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Event\MasterKeyRotatedEvent;
+use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Exception\MasterKeyException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
@@ -43,9 +46,12 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 use function count;
+use function is_array;
+use function is_numeric;
 use function is_string;
 use function sprintf;
 use function strlen;
+use function strtoupper;
 
 /**
  * CLI command to rotate the master encryption key.
@@ -77,6 +83,13 @@ final class VaultRotateMasterKeyCommand extends Command
     private const AUDIT_PSEUDO_IDENTIFIER = '__master_key__';
 
     private const AUDIT_LOG_TABLE = 'tx_nrvault_audit_log';
+
+    /**
+     * Whether rekeyAuditChain() holds the audit lock for the outer rotation
+     * transaction. The caller releases it after that transaction commits or
+     * rolls back.
+     */
+    private bool $rotationAuditLockHeld = false;
 
     /**
      * @param iterable<ForeignEnvelopeRotatorInterface> $foreignRotators
@@ -578,11 +591,22 @@ final class VaultRotateMasterKeyCommand extends Command
             return Command::FAILURE;
         }
 
-        $connection->beginTransaction();
+        try {
+            $this->beginRotationTransaction($connection);
+        } catch (Throwable $exception) {
+            // PostgreSQL sets the level after BEGIN, so a transaction can be open.
+            return $this->failRotation(
+                $connection,
+                $io,
+                $exception->getMessage(),
+                'Rotation transaction could not be opened; nothing changed',
+            );
+        }
 
         $io->progressStart($totalSecrets);
-        $failedSecrets = [];
-        $successCount  = 0;
+        $commitAttempted = false;
+        $failedSecrets   = [];
+        $successCount    = 0;
 
         try {
             foreach ($identifiers as $identifier) {
@@ -596,22 +620,20 @@ final class VaultRotateMasterKeyCommand extends Command
             $io->progressFinish();
 
             if ($failedSecrets !== []) {
-                $connection->rollBack();
                 $this->reportFailures($io, $failedSecrets);
-                $this->auditLogService->log(
-                    self::AUDIT_PSEUDO_IDENTIFIER,
-                    AuditAction::MasterKeyRotateEnd->value,
-                    false,
+
+                return $this->failRotation(
+                    $connection,
+                    $io,
+                    null,
                     sprintf('Rotation failed for %d secret(s); transaction rolled back', count($failedSecrets)),
                 );
-
-                return Command::FAILURE;
             }
 
             // Consumer-owned envelopes are re-wrapped BEFORE the audit-chain
-            // re-key: the re-key takes the audit advisory lock and holds it for
-            // the remainder of the transaction, so anything that still needs to
-            // write must have written by then.
+            // re-key: the re-key takes the audit advisory lock and holds it until
+            // the transaction ends, so anything that still needs to write must
+            // have written by then.
             $foreignCount = $this->rewrapForeignEnvelopes($io, $oldKey, $newKey);
 
             // Reconcile against the inventory. A rotator that re-wraps FEWER
@@ -624,8 +646,7 @@ final class VaultRotateMasterKeyCommand extends Command
             // transaction) is indistinguishable from a buggy rotator here, so this
             // fails closed and asks for a re-run rather than guessing.
             if ($foreignCount < $expectedForeign) {
-                $connection->rollBack();
-                $io->error([
+                return $this->failRotation($connection, $io, [
                     sprintf(
                         'Consumer-owned envelopes: inventoried %d, re-wrapped only %d.',
                         $expectedForeign,
@@ -634,33 +655,37 @@ final class VaultRotateMasterKeyCommand extends Command
                     'Rotation rolled back; nothing was changed.',
                     "Re-run the command. If the shortfall repeats, the consumer's rotator is missing rows"
                     . ' and committing would leave them unreadable once the old key is gone.',
-                ]);
-                $this->auditLogService->log(
-                    self::AUDIT_PSEUDO_IDENTIFIER,
-                    AuditAction::MasterKeyRotateEnd->value,
-                    false,
-                    'Consumer envelope count mismatch; transaction rolled back',
-                );
-
-                return Command::FAILURE;
+                ], 'Consumer envelope count mismatch; transaction rolled back');
             }
 
             $rekeyedRows = $this->rekeyAuditChain($connection, $isSQLite, $newKey, $successCount);
 
+            $commitAttempted = true;
             $connection->commit();
         } catch (Throwable $e) {
-            $connection->rollBack();
-            $io->error('Unexpected error during rotation: ' . $e->getMessage());
-            // Do not propagate $e->getMessage() into the audit log to avoid
-            // leaking libsodium/internal detail (CLAUDE.md security rule 1).
-            $this->auditLogService->log(
-                self::AUDIT_PSEUDO_IDENTIFIER,
-                AuditAction::MasterKeyRotateEnd->value,
-                false,
+            if ($commitAttempted) {
+                // The server may have committed before the connection failed,
+                // so the outcome is unknown. Destroying either key could then
+                // make the secrets unreadable.
+                return $this->failRotation($connection, $io, [
+                    'The rotation commit failed: ' . $e->getMessage(),
+                    'The database may or may not hold the rotated secrets. Keep BOTH master keys.',
+                    'Find out which key opens a secret before changing the configuration: '
+                    . 'run --dry-run with the new key as --old-key (see "If the commit itself fails" '
+                    . 'in the key rotation guide).',
+                ], 'Rotation commit failed; outcome unknown, keep both master keys');
+            }
+
+            // The audit reason omits $e->getMessage() so libsodium/internal
+            // detail stays out of the audit log (CLAUDE.md security rule 1).
+            return $this->failRotation(
+                $connection,
+                $io,
+                'Unexpected error during rotation: ' . $e->getMessage(),
                 'Unexpected error during rotation; transaction rolled back',
             );
-
-            return Command::FAILURE;
+        } finally {
+            $this->releaseRotationAuditLock($connection, $isSQLite);
         }
 
         $io->text(sprintf('Consumer-owned envelopes re-wrapped: %d.', $foreignCount));
@@ -705,7 +730,13 @@ final class VaultRotateMasterKeyCommand extends Command
      * Ordering is deliberate:
      *  1. take the audit advisory lock for the remainder of the transaction
      *     so no concurrent writer can chain onto a tip hash this method is
-     *     about to rewrite;
+     *     about to rewrite. The caller releases it with
+     *     {@see self::releaseRotationAuditLock()} after the OUTER commit or
+     *     rollback: the re-keyed chain is not durable before that, and a
+     *     writer let in earlier would chain onto the pre-rekey tip. The
+     *     transaction runs in READ COMMITTED (see
+     *     {@see self::beginRotationTransaction()}), so the reads below see
+     *     every entry committed before the lock was granted;
      *  2. append the 'audit_chain_rekey' and successful
      *     'master_key_rotate_end' events — at this point they are sealed
      *     with the OLD (provider-derived) HMAC key;
@@ -728,6 +759,7 @@ final class VaultRotateMasterKeyCommand extends Command
         int $successCount,
     ): int {
         $this->acquireAuditLock($connection, $isSQLite);
+        $this->rotationAuditLockHeld = true;
 
         try {
             $this->auditLogService->log(
@@ -757,8 +789,116 @@ final class VaultRotateMasterKeyCommand extends Command
             $this->rollbackAuditLock($connection, $isSQLite);
 
             throw $e;
-        } finally {
+        }
+    }
+
+    /**
+     * Open the rotation transaction in READ COMMITTED.
+     *
+     * The audit lock is taken late, for the chain re-key, so other sessions
+     * keep writing audit entries while the secrets are re-encrypted. Under
+     * REPEATABLE READ (the InnoDB default) the transaction would keep reading
+     * from the snapshot of its first query, and the re-key would chain onto a
+     * tip older than the entries committed before the lock was granted. READ
+     * COMMITTED takes a fresh snapshot per statement.
+     *
+     * `SET TRANSACTION` without SESSION changes only this transaction. MySQL
+     * and MariaDB take it before the transaction starts, PostgreSQL as its
+     * first statement. SQLite serialises writers and needs nothing.
+     *
+     * InnoDB refuses every write in a READ COMMITTED transaction while the
+     * binary log uses STATEMENT format (error 1665), so that configuration
+     * is refused here, before anything has changed.
+     *
+     * @throws ConfigurationException If the binary log format rules out READ COMMITTED
+     */
+    private function beginRotationTransaction(Connection $connection): void
+    {
+        $platform = $connection->getDatabasePlatform();
+        if ($platform instanceof AbstractMySQLPlatform) {
+            try {
+                $binlog = $connection->executeQuery('SELECT @@log_bin, @@binlog_format')->fetchNumeric();
+            } catch (Throwable) {
+                // MySQL deprecates @@binlog_format. Without it there is no
+                // STATEMENT logging to refuse, and a real error 1665 still
+                // rolls the rotation back.
+                $binlog = false;
+            }
+
+            if (is_array($binlog) && is_numeric($binlog[0]) && (int) $binlog[0] === 1
+                && is_string($binlog[1]) && strtoupper($binlog[1]) === 'STATEMENT'
+            ) {
+                throw ConfigurationException::statementBinlogFormatForRotation();
+            }
+
+            $connection->executeStatement('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        }
+
+        $connection->beginTransaction();
+
+        if ($platform instanceof PostgreSQLPlatform) {
+            $connection->executeStatement('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        }
+    }
+
+    /**
+     * End a failed rotation: roll back what is left of its transaction, report
+     * the error and record a failed rotate_end entry.
+     *
+     * After a failed outer commit DBAL reports no active transaction, because
+     * it lowers the nesting level before rethrowing. The database transaction
+     * can still be open: SQLite keeps it after a COMMIT that fails with
+     * SQLITE_BUSY, together with its write lock. Closing the connection
+     * discards it on every platform and ends the session lock with it. A
+     * rollback that fails is handled the same way.
+     *
+     * @param string|list<string>|null $error Null when the caller has reported already
+     */
+    private function failRotation(Connection $connection, SymfonyStyle $io, string|array|null $error, string $auditReason): int
+    {
+        try {
+            if ($connection->isTransactionActive()) {
+                $connection->rollBack();
+            } else {
+                $connection->close();
+                $this->rotationAuditLockHeld = false;
+            }
+        } catch (Throwable) {
+            $connection->close();
+            $this->rotationAuditLockHeld = false;
+        }
+
+        if ($error !== null) {
+            $io->error($error);
+        }
+
+        $this->auditLogService->log(
+            self::AUDIT_PSEUDO_IDENTIFIER,
+            AuditAction::MasterKeyRotateEnd->value,
+            false,
+            $auditReason,
+        );
+
+        return Command::FAILURE;
+    }
+
+    /**
+     * Release the audit lock rekeyAuditChain() took, once the outer rotation
+     * transaction has committed or rolled back. A failed release closes the
+     * connection, which ends the session and with it the session lock.
+     */
+    private function releaseRotationAuditLock(Connection $connection, bool $isSQLite): void
+    {
+        if (!$this->rotationAuditLockHeld) {
+            return;
+        }
+
+        $this->rotationAuditLockHeld = false;
+
+        try {
             $this->releaseAuditLock($connection, $isSQLite);
+        } catch (Throwable) {
+            $connection->close();
         }
     }
 

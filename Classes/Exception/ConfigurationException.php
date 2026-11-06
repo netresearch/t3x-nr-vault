@@ -111,4 +111,17 @@ final class ConfigurationException extends VaultException
             1753900002,
         );
     }
+
+    /**
+     * Master-key rotation runs in READ COMMITTED, and InnoDB refuses writes
+     * there while the binary log uses STATEMENT format (error 1665).
+     */
+    public static function statementBinlogFormatForRotation(): self
+    {
+        return new self(
+            'Master-key rotation needs binlog_format ROW or MIXED: it runs in READ COMMITTED, '
+            . 'and InnoDB refuses writes in READ COMMITTED with STATEMENT binary logging. Nothing changed.',
+            1793260010,
+        );
+    }
 }

@@ -660,6 +660,7 @@ Netresearch\NrVault\Exception\ConfigurationException (class)
   method static invalidSecurityProfile(string $profile): self
   method static missingConfiguration(string $key): self
   method static providerForbiddenInHardenedProfile(string $provider): self
+  method static statementBinlogFormatForRotation(): self
 
 Netresearch\NrVault\Exception\EncryptionException (class)
   method static algorithmNotAvailable(string $algorithm): self

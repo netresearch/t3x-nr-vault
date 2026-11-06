@@ -44,6 +44,10 @@ use Throwable;
  *   atomicity would be a fiction.
  * - Work in batches. A consumer may hold a large number of rows and the whole
  *   pass happens in one transaction.
+ * - Page by key (`WHERE uid > :last ORDER BY uid`), not by OFFSET. On
+ *   MySQL/MariaDB and PostgreSQL the transaction runs in READ COMMITTED, so a
+ *   row another session deletes behind an offset shifts the rest, and the row
+ *   that moves into the gap is never re-wrapped.
  */
 #[ExtensionPoint]
 interface ForeignEnvelopeRotatorInterface

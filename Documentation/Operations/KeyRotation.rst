@@ -138,7 +138,22 @@ Your own preflight, before running any of it:
           vendor/bin/typo3 vault:audit-verify
 
 *   [ ] **A maintenance window.** Vault reads fail between the commit and the
-      configuration switch.
+      configuration switch. During the rotation itself, a secret that has
+      already been re-encrypted cannot be read: the read waits until the
+      rotation commits, or until the database's lock wait timeout, because a
+      read updates the secret's row. On MySQL/MariaDB and PostgreSQL, from the
+      audit-chain re-key until the commit, every operation that writes an
+      audit entry waits for the audit-chain lock and fails after 5 seconds;
+      with audited reads enabled (the default), that includes all secret
+      reads. On SQLite the rotation holds the database write lock from the
+      first re-encrypted secret, so other writers wait for their busy timeout
+      during the whole rotation.
+*   [ ] **On MySQL/MariaDB with binary logging, ``binlog_format`` is ROW or
+      MIXED** (the defaults). The rotation runs in ``READ COMMITTED``, where
+      InnoDB refuses writes under ``STATEMENT`` logging, so the real run
+      refuses before its transaction, after writing its start row. The dry
+      run does not check this; check it yourself with
+      ``SELECT @@log_bin, @@binlog_format;``.
 *   [ ] **``vault:doctor`` is clean**, so a pre-existing misconfiguration does
       not surface mid-rotation.
 
@@ -177,15 +192,19 @@ written outside the rolled-back transaction.
 
 After verification succeeds, the following changes happen inside **one
 database transaction**. A failure rolls back secret and foreign-envelope
-changes, the chain rewrite, and the success audit rows together.
+changes, the chain rewrite, and the success audit rows together. On
+MySQL/MariaDB and PostgreSQL the transaction runs in ``READ COMMITTED``, so
+the re-key reads every audit entry committed before it took the lock, also
+where the server default is ``REPEATABLE READ``.
 
 #.  Every secret's DEK is unwrapped with the old key and re-wrapped with the
     new one, with a fresh nonce. Values, value nonces and the
     version/algorithm markers are untouched.
 #.  Registered foreign envelopes are re-wrapped the same way.
-#.  The audit advisory lock is taken for the remainder of the transaction, so
-    no concurrent writer can chain onto a tip hash that is about to be
-    rewritten.
+#.  The audit advisory lock is taken and held until the transaction has
+    committed or rolled back, so no concurrent writer can chain onto a tip
+    hash that is about to be rewritten. On MySQL/MariaDB and PostgreSQL the
+    rotation rolls back if the lock is not granted within 5 seconds.
 #.  The ``audit_chain_rekey`` and successful ``master_key_rotate_end`` rows
     are appended — still sealed with the old, provider-derived HMAC key.
 #.  **The whole audit chain is rewritten** under the HMAC key derived from the
@@ -201,6 +220,30 @@ Two properties of the rekey worth knowing:
 *   **An all-epoch-0 chain passes through untouched.** Keyless SHA-256 hashes
     do not depend on the master key, so rows are only updated when their
     hashes actually change.
+
+.. _operations-key-rotation-commit-failed:
+
+If the commit itself fails
+--------------------------
+
+Every other failure rolls back. A commit that fails, for example on a lost
+database connection, may already have been applied by the server, so the
+command reports that the outcome is unknown and asks you to keep **both**
+master keys. Find out which key now opens the secrets before you change
+anything:
+
+..  code-block:: bash
+
+    vendor/bin/typo3 vault:rotate-master-key \
+        --old-key=/path/to/new.key --new-key=/path/to/old.key --dry-run
+
+The dry run only checks that ``--old-key`` opens the first secret and writes
+nothing. If it succeeds with the new key in ``--old-key``, the rotation
+committed: continue with the configuration switch below, and re-seal the
+failed ``master_key_rotate_end`` row the command wrote afterwards, as for any
+row written before the switch. If it fails, run the same check with the old
+key in ``--old-key``; success there means the rotation rolled back and nothing
+changed. The check needs at least one secret in the vault.
 
 .. _operations-key-rotation-window:
 

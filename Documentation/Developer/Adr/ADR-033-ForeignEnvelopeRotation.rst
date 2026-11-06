@@ -91,8 +91,8 @@ the seam is a collected interface call rather than an event listener.
 1. the vault's own secrets are re-encrypted;
 2. **every registered consumer re-wraps its envelopes**;
 3. the audit chain is re-keyed, which takes the audit advisory lock and holds it
-   for the remainder of the transaction — so anything that still needs to write
-   must have written by then;
+   until the transaction has committed or rolled back — so anything that still
+   needs to write must have written by then;
 4. commit;
 5. :php:`MasterKeyRotatedEvent` is dispatched, carrying both counts.
 
@@ -132,7 +132,9 @@ Consequences
    gained a ``foreignEnvelopesReEncrypted`` field with a default of 0, which
    keeps existing constructor calls working.
 -  Rotation wall-clock now includes every consumer's pass, in one transaction.
-   Consumers are required to work in batches for this reason.
+   Consumers are required to work in batches for this reason. Since #496 the
+   transaction runs in ``READ COMMITTED`` on MySQL/MariaDB and PostgreSQL, so
+   batches must be paged by key rather than by ``OFFSET``.
 -  The command's constructor gained the codec, the access-control service (for
    the event's actor), the event dispatcher, and the tagged-rotator iterable.
 
