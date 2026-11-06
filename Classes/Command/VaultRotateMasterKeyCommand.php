@@ -10,6 +10,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Command;
 
 use DateTimeImmutable;
+use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainAnchor;
@@ -585,7 +587,7 @@ final class VaultRotateMasterKeyCommand extends Command
             return Command::FAILURE;
         }
 
-        $connection->beginTransaction();
+        $this->beginRotationTransaction($connection);
 
         $io->progressStart($totalSecrets);
         $failedSecrets = [];
@@ -616,9 +618,9 @@ final class VaultRotateMasterKeyCommand extends Command
             }
 
             // Consumer-owned envelopes are re-wrapped BEFORE the audit-chain
-            // re-key: the re-key takes the audit advisory lock and holds it for
-            // the remainder of the transaction, so anything that still needs to
-            // write must have written by then.
+            // re-key: the re-key takes the audit advisory lock and holds it until
+            // the transaction ends, so anything that still needs to write must
+            // have written by then.
             $foreignCount = $this->rewrapForeignEnvelopes($io, $oldKey, $newKey);
 
             // Reconcile against the inventory. A rotator that re-wraps FEWER
@@ -657,7 +659,6 @@ final class VaultRotateMasterKeyCommand extends Command
             $connection->commit();
         } catch (Throwable $e) {
             $this->rollbackRotationTransaction($connection);
-            $this->releaseRotationAuditLock($connection, $isSQLite);
             $io->error('Unexpected error during rotation: ' . $e->getMessage());
             // Do not propagate $e->getMessage() into the audit log to avoid
             // leaking libsodium/internal detail (CLAUDE.md security rule 1).
@@ -669,9 +670,9 @@ final class VaultRotateMasterKeyCommand extends Command
             );
 
             return Command::FAILURE;
+        } finally {
+            $this->releaseRotationAuditLock($connection, $isSQLite);
         }
-
-        $this->releaseRotationAuditLock($connection, $isSQLite);
 
         $io->text(sprintf('Consumer-owned envelopes re-wrapped: %d.', $foreignCount));
         $io->success(sprintf(
@@ -718,7 +719,10 @@ final class VaultRotateMasterKeyCommand extends Command
      *     about to rewrite. The caller releases it with
      *     {@see self::releaseRotationAuditLock()} after the OUTER commit or
      *     rollback: the re-keyed chain is not durable before that, and a
-     *     writer let in earlier would chain onto the pre-rekey tip;
+     *     writer let in earlier would chain onto the pre-rekey tip. The
+     *     transaction runs in READ COMMITTED (see
+     *     {@see self::beginRotationTransaction()}), so the reads below see
+     *     every entry committed before the lock was granted;
      *  2. append the 'audit_chain_rekey' and successful
      *     'master_key_rotate_end' events — at this point they are sealed
      *     with the OLD (provider-derived) HMAC key;
@@ -775,22 +779,62 @@ final class VaultRotateMasterKeyCommand extends Command
     }
 
     /**
-     * Roll back what is left of the rotation transaction. A failed outer
-     * commit leaves none: DBAL lowers the nesting level before rethrowing,
-     * and rollBack() would then throw NoActiveTransaction and skip the lock
-     * release. A rollback that fails closes the connection, which discards
-     * the transaction and ends the session lock with it.
+     * Open the rotation transaction in READ COMMITTED.
+     *
+     * The audit lock is taken late, for the chain re-key, so other sessions
+     * keep writing audit entries while the secrets are re-encrypted. Under
+     * REPEATABLE READ (the InnoDB default) the transaction would keep reading
+     * from the snapshot of its first query, and the re-key would chain onto a
+     * tip older than the entries committed before the lock was granted. READ
+     * COMMITTED takes a fresh snapshot per statement.
+     *
+     * `SET TRANSACTION` without SESSION changes only this transaction. MySQL
+     * and MariaDB take it before the transaction starts, PostgreSQL as its
+     * first statement. SQLite serialises writers and needs nothing.
+     */
+    private function beginRotationTransaction(Connection $connection): void
+    {
+        $platform = $connection->getDatabasePlatform();
+        if ($platform instanceof AbstractMySQLPlatform) {
+            $connection->executeStatement('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        }
+
+        $connection->beginTransaction();
+
+        if ($platform instanceof PostgreSQLPlatform) {
+            $connection->executeStatement('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        }
+    }
+
+    /**
+     * Roll back what is left of the rotation transaction.
+     *
+     * After a failed outer commit DBAL reports no active transaction, because
+     * it lowers the nesting level before rethrowing. The database transaction
+     * can still be open: SQLite keeps it after a COMMIT that fails with
+     * SQLITE_BUSY, together with its write lock. Closing the connection
+     * discards it on every platform and ends the session lock with it. A
+     * rollback that fails is handled the same way.
      */
     private function rollbackRotationTransaction(Connection $connection): void
     {
-        try {
-            if ($connection->isTransactionActive()) {
-                $connection->rollBack();
-            }
-        } catch (Throwable) {
-            $connection->close();
-            $this->rotationAuditLockHeld = false;
+        if (!$connection->isTransactionActive()) {
+            $this->closeRotationConnection($connection);
+
+            return;
         }
+
+        try {
+            $connection->rollBack();
+        } catch (Throwable) {
+            $this->closeRotationConnection($connection);
+        }
+    }
+
+    private function closeRotationConnection(Connection $connection): void
+    {
+        $connection->close();
+        $this->rotationAuditLockHeld = false;
     }
 
     /**

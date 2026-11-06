@@ -12,7 +12,9 @@ namespace Netresearch\NrVault\Tests\Unit\Command;
 use ArrayObject;
 use Doctrine\DBAL\ConnectionException;
 use Doctrine\DBAL\Exception\NoActiveTransaction;
+use Doctrine\DBAL\Platforms\AbstractPlatform;
 use Doctrine\DBAL\Platforms\MySQLPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Result;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainAnchorLoad;
@@ -414,7 +416,8 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     /**
      * The re-keyed chain is not durable until the OUTER commit. Releasing the
      * audit lock before it would let a concurrent writer chain onto the tip
-     * as it was before the re-key (#496).
+     * as it was before the re-key (#496). The transaction is opened in READ
+     * COMMITTED, so the re-key reads every entry committed before the lock.
      */
     #[Test]
     public function theAuditLockIsReleasedOnlyAfterTheOuterCommit(): void
@@ -425,9 +428,23 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         self::assertSame(0, $exitCode);
         self::assertSame(
-            ['begin', 'lock', 'begin', 'commit', 'commit', 'release'],
+            ['read-committed', 'begin', 'lock', 'begin', 'commit', 'commit', 'release'],
             $calls->getArrayCopy(),
         );
+    }
+
+    /**
+     * PostgreSQL accepts SET TRANSACTION only inside the transaction, as its
+     * first statement; MySQL and MariaDB only before it.
+     */
+    #[Test]
+    public function postgreSqlSetsReadCommittedInsideTheRotationTransaction(): void
+    {
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(platform: new PostgreSQLPlatform());
+
+        $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(['begin', 'read-committed'], array_slice($calls->getArrayCopy(), 0, 2));
     }
 
     #[Test]
@@ -442,9 +459,43 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         self::assertSame(1, $exitCode);
         self::assertSame(
-            ['begin', 'lock', 'begin', 'rollBack', 'rollBack', 'release'],
+            ['read-committed', 'begin', 'lock', 'begin', 'rollBack', 'rollBack', 'release'],
             $calls->getArrayCopy(),
         );
+    }
+
+    /**
+     * A secret that fails to re-encrypt rolls the rotation back before the
+     * re-key took the lock, so nothing is released.
+     */
+    #[Test]
+    public function aFailedSecretRollsBackWithoutTouchingTheAuditLock(): void
+    {
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(secretFails: true);
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertSame(['read-committed', 'begin', 'rollBack'], $calls->getArrayCopy());
+    }
+
+    /**
+     * Under contention the lock wait ends with a refusal. The rotation rolls
+     * back, releases nothing it does not hold, and ends with a failed
+     * rotate_end entry.
+     */
+    #[Test]
+    public function aRefusedAuditLockRollsBackTheRotation(): void
+    {
+        $calls     = $this->givenOneRotatableSecretRecordingTransactionCalls(lockGranted: false);
+        $auditRows = [];
+        $this->recordAuditRows($auditRows);
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertSame(['read-committed', 'begin', 'lock', 'rollBack'], $calls->getArrayCopy());
+        self::assertSame([AuditAction::MasterKeyRotateEnd->value, false], end($auditRows));
     }
 
     /**
@@ -461,19 +512,19 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         self::assertSame(0, $exitCode);
         self::assertSame(
-            ['begin', 'lock', 'begin', 'commit', 'commit', 'release', 'close'],
+            ['read-committed', 'begin', 'lock', 'begin', 'commit', 'commit', 'release', 'close'],
             $calls->getArrayCopy(),
         );
     }
 
     /**
-     * A failed outer commit leaves no transaction behind, because DBAL lowers
-     * the nesting level before rethrowing. A rollback there would throw
-     * NoActiveTransaction and skip the release, leaving the lock held for the
-     * rest of the process.
+     * After a failed outer commit DBAL reports no transaction, while the
+     * database can still hold one: SQLite keeps the transaction and its write
+     * lock after a COMMIT that fails with SQLITE_BUSY. Only closing the
+     * connection discards it, and that also ends the session lock.
      */
     #[Test]
-    public function aFailedOuterCommitStillReleasesTheAuditLock(): void
+    public function aFailedOuterCommitClosesTheConnection(): void
     {
         $calls = $this->givenOneRotatableSecretRecordingTransactionCalls(outerCommitFails: true);
 
@@ -481,7 +532,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         self::assertSame(1, $exitCode);
         self::assertSame(
-            ['begin', 'lock', 'begin', 'commit', 'commit', 'release'],
+            ['read-committed', 'begin', 'lock', 'begin', 'commit', 'commit', 'close'],
             $calls->getArrayCopy(),
         );
     }
@@ -502,7 +553,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
         self::assertSame(1, $exitCode);
         self::assertSame(
-            ['begin', 'lock', 'begin', 'rollBack', 'rollBack', 'close'],
+            ['read-committed', 'begin', 'lock', 'begin', 'rollBack', 'rollBack', 'close'],
             $calls->getArrayCopy(),
         );
     }
@@ -587,8 +638,13 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
                 throw EncryptionException::decryptionFailed();
             });
 
+        $lockResult = self::createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
         $connection = $this->createMock(Connection::class);
+        $connection->method('executeQuery')->willReturn($lockResult);
         $connection->expects(self::once())->method('beginTransaction');
+        $connection->method('isTransactionActive')->willReturn(true);
         $connection->expects(self::once())->method('rollBack');
         $connection->expects(self::never())->method('commit');
 
@@ -639,7 +695,11 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             ->method('reEncryptDek')
             ->willReturn(new ReEncryptedDek('new', 'n'));
 
+        $lockResult = self::createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
         $connection = $this->createMock(Connection::class);
+        $connection->method('executeQuery')->willReturn($lockResult);
         $connection->expects(self::once())->method('beginTransaction');
         $connection->expects(self::once())->method('rollBack');
 
@@ -714,7 +774,11 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
                 throw new RuntimeException('Unexpected error', 6436183956);
             });
 
+        $lockResult = self::createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
         $connection = $this->createMock(Connection::class);
+        $connection->method('executeQuery')->willReturn($lockResult);
         $connection->expects(self::once())->method('beginTransaction');
         // The outer transaction is still open when the rotation throws.
         $connection->method('isTransactionActive')->willReturn(true);
@@ -1180,16 +1244,29 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         bool $releaseFails = false,
         bool $outerCommitFails = false,
         bool $rollbackFails = false,
+        bool $secretFails = false,
+        bool $lockGranted = true,
+        AbstractPlatform $platform = new MySQLPlatform(),
     ): ArrayObject {
         $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
         $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn($this->createTestSecret('test-secret'));
-        $this->encryptionService->method('reEncryptDek')->willReturn(new ReEncryptedDek('new-dek', 'new-nonce'));
+        // The first call verifies the old key; a failing secret fails on the second.
+        $reEncryptCalls = 0;
+        $this->encryptionService->method('reEncryptDek')->willReturnCallback(
+            static function () use (&$reEncryptCalls, $secretFails): ReEncryptedDek {
+                if ($secretFails && ++$reEncryptCalls > 1) {
+                    throw EncryptionException::decryptionFailed();
+                }
+
+                return new ReEncryptedDek('new-dek', 'new-nonce');
+            },
+        );
         $this->secretRepository->method('save')->willReturnArgument(0);
 
         /** @var ArrayObject<int, string> $calls */
         $calls      = new ArrayObject();
         $lockResult = self::createStub(Result::class);
-        $lockResult->method('fetchOne')->willReturn(1);
+        $lockResult->method('fetchOne')->willReturn($lockGranted ? 1 : 0);
 
         // Mirrors DBAL 4: commit() lowers the nesting level in a finally block
         // even when it throws, and rollBack() without an active transaction
@@ -1198,7 +1275,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             public int $depth = 0;
         };
         $connection = self::createStub(Connection::class);
-        $connection->method('getDatabasePlatform')->willReturn(new MySQLPlatform());
+        $connection->method('getDatabasePlatform')->willReturn($platform);
         $connection->method('isTransactionActive')->willReturnCallback(static fn (): bool => $state->depth > 0);
         $connection->method('beginTransaction')->willReturnCallback(static function () use ($calls, $state): void {
             $calls->append('begin');
@@ -1231,6 +1308,10 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             return $lockResult;
         });
         $connection->method('executeStatement')->willReturnCallback(static function (string $sql) use ($calls, $releaseFails): int {
+            if (str_contains($sql, 'READ COMMITTED')) {
+                $calls->append('read-committed');
+            }
+
             if (str_contains($sql, 'RELEASE_LOCK')) {
                 $calls->append('release');
                 if ($releaseFails) {

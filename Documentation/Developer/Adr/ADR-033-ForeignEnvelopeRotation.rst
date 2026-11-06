@@ -91,8 +91,8 @@ the seam is a collected interface call rather than an event listener.
 1. the vault's own secrets are re-encrypted;
 2. **every registered consumer re-wraps its envelopes**;
 3. the audit chain is re-keyed, which takes the audit advisory lock and holds it
-   for the remainder of the transaction — so anything that still needs to write
-   must have written by then;
+   until the transaction has committed or rolled back — so anything that still
+   needs to write must have written by then;
 4. commit;
 5. :php:`MasterKeyRotatedEvent` is dispatched, carrying both counts.
 

@@ -138,7 +138,13 @@ Your own preflight, before running any of it:
           vendor/bin/typo3 vault:audit-verify
 
 *   [ ] **A maintenance window.** Vault reads fail between the commit and the
-      configuration switch.
+      configuration switch. During the rotation itself, a secret that has
+      already been re-encrypted cannot be read: the read waits until the
+      rotation commits, or until the database's lock wait timeout, because a
+      read updates the secret's row. During the final audit-chain
+      re-key, every operation that writes an audit entry waits for the
+      audit-chain lock and fails after 5 seconds; with audited reads enabled
+      (the default), that includes all secret reads.
 *   [ ] **``vault:doctor`` is clean**, so a pre-existing misconfiguration does
       not surface mid-rotation.
 
@@ -177,15 +183,19 @@ written outside the rolled-back transaction.
 
 After verification succeeds, the following changes happen inside **one
 database transaction**. A failure rolls back secret and foreign-envelope
-changes, the chain rewrite, and the success audit rows together.
+changes, the chain rewrite, and the success audit rows together. On
+MySQL/MariaDB and PostgreSQL the transaction runs in ``READ COMMITTED``, so
+the re-key reads every audit entry committed before it took the lock, also
+where the server default is ``REPEATABLE READ``.
 
 #.  Every secret's DEK is unwrapped with the old key and re-wrapped with the
     new one, with a fresh nonce. Values, value nonces and the
     version/algorithm markers are untouched.
 #.  Registered foreign envelopes are re-wrapped the same way.
-#.  The audit advisory lock is taken for the remainder of the transaction, so
-    no concurrent writer can chain onto a tip hash that is about to be
-    rewritten.
+#.  The audit advisory lock is taken and held until the transaction has
+    committed or rolled back, so no concurrent writer can chain onto a tip
+    hash that is about to be rewritten. If it is not granted within
+    5 seconds, the rotation rolls back.
 #.  The ``audit_chain_rekey`` and successful ``master_key_rotate_end`` rows
     are appended — still sealed with the old, provider-derived HMAC key.
 #.  **The whole audit chain is rewritten** under the HMAC key derived from the
