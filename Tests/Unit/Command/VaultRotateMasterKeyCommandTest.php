@@ -459,6 +459,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $exitCode = $this->commandTester->execute($this->rotationInput());
 
         self::assertSame(1, $exitCode);
+        self::assertStringNotContainsString('Keep BOTH master keys', (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay(true)));
         self::assertSame(
             ['read-committed', 'begin', 'lock', 'begin', 'rollBack', 'rollBack', 'release'],
             $calls->getArrayCopy(),
@@ -576,6 +577,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $exitCode = $this->commandTester->execute($this->rotationInput());
 
         self::assertSame(1, $exitCode);
+        self::assertStringContainsString('Keep BOTH master keys', (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay(true)));
         self::assertSame(
             ['read-committed', 'begin', 'lock', 'begin', 'commit', 'commit', 'close'],
             $calls->getArrayCopy(),

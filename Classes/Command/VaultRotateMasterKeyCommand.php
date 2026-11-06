@@ -608,8 +608,9 @@ final class VaultRotateMasterKeyCommand extends Command
         }
 
         $io->progressStart($totalSecrets);
-        $failedSecrets = [];
-        $successCount  = 0;
+        $commitAttempted = false;
+        $failedSecrets   = [];
+        $successCount    = 0;
 
         try {
             foreach ($identifiers as $identifier) {
@@ -674,9 +675,31 @@ final class VaultRotateMasterKeyCommand extends Command
 
             $rekeyedRows = $this->rekeyAuditChain($connection, $isSQLite, $newKey, $successCount);
 
+            $commitAttempted = true;
             $connection->commit();
         } catch (Throwable $e) {
             $this->rollbackRotationTransaction($connection);
+
+            if ($commitAttempted) {
+                // The server may have committed before the connection failed,
+                // so the outcome is unknown. Destroying either key could then
+                // make the secrets unreadable.
+                $io->error([
+                    'The rotation commit failed: ' . $e->getMessage(),
+                    'The database may or may not hold the rotated secrets. Keep BOTH master keys.',
+                    'Find out which key opens a secret before changing the configuration; '
+                    . 'if the new key does, follow the next steps of a successful rotation.',
+                ]);
+                $this->auditLogService->log(
+                    self::AUDIT_PSEUDO_IDENTIFIER,
+                    AuditAction::MasterKeyRotateEnd->value,
+                    false,
+                    'Rotation commit failed; outcome unknown, keep both master keys',
+                );
+
+                return Command::FAILURE;
+            }
+
             $io->error('Unexpected error during rotation: ' . $e->getMessage());
             // Do not propagate $e->getMessage() into the audit log to avoid
             // leaking libsodium/internal detail (CLAUDE.md security rule 1).
