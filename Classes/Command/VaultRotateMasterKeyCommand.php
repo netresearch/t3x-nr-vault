@@ -820,7 +820,15 @@ final class VaultRotateMasterKeyCommand extends Command
     {
         $platform = $connection->getDatabasePlatform();
         if ($platform instanceof AbstractMySQLPlatform) {
-            $binlog = $connection->executeQuery('SELECT @@log_bin, @@binlog_format')->fetchNumeric();
+            try {
+                $binlog = $connection->executeQuery('SELECT @@log_bin, @@binlog_format')->fetchNumeric();
+            } catch (Throwable) {
+                // MySQL deprecates @@binlog_format. Without it there is no
+                // STATEMENT logging to refuse, and a real error 1665 still
+                // rolls the rotation back.
+                $binlog = false;
+            }
+
             if (is_array($binlog) && is_numeric($binlog[0]) && (int) $binlog[0] === 1
                 && is_string($binlog[1]) && strtoupper($binlog[1]) === 'STATEMENT'
             ) {

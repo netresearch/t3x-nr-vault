@@ -150,8 +150,10 @@ Your own preflight, before running any of it:
       during the whole rotation.
 *   [ ] **On MySQL/MariaDB with binary logging, ``binlog_format`` is ROW or
       MIXED** (the defaults). The rotation runs in ``READ COMMITTED``, where
-      InnoDB refuses writes under ``STATEMENT`` logging, so the command
-      refuses to start with that format.
+      InnoDB refuses writes under ``STATEMENT`` logging, so the real run
+      refuses before its transaction, after writing its start row. The dry
+      run does not check this; check it yourself with
+      ``SELECT @@log_bin, @@binlog_format;``.
 *   [ ] **``vault:doctor`` is clean**, so a pre-existing misconfiguration does
       not surface mid-rotation.
 

@@ -520,6 +520,30 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     }
 
     /**
+     * Without binary logging the STATEMENT format has no effect, and READ
+     * COMMITTED writes succeed, so the rotation runs.
+     */
+    #[Test]
+    public function statementFormatWithoutBinaryLoggingDoesNotRefuseTheRotation(): void
+    {
+        $this->givenOneRotatableSecretRecordingTransactionCalls(binlogFormat: 'STATEMENT', logBin: 0);
+
+        self::assertSame(0, $this->commandTester->execute($this->rotationInput()));
+    }
+
+    /**
+     * MySQL deprecates @@binlog_format. If the probe fails, the rotation runs
+     * instead of being refused on every server.
+     */
+    #[Test]
+    public function aFailingBinlogProbeDoesNotRefuseTheRotation(): void
+    {
+        $this->givenOneRotatableSecretRecordingTransactionCalls(binlogProbeFails: true);
+
+        self::assertSame(0, $this->commandTester->execute($this->rotationInput()));
+    }
+
+    /**
      * The rotation has committed when the release fails. Closing the
      * connection ends the session and with it the session lock, so the lock
      * cannot outlive the command.
@@ -1269,6 +1293,8 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         bool $lockGranted = true,
         AbstractPlatform $platform = new MySQLPlatform(),
         string $binlogFormat = 'ROW',
+        int $logBin = 1,
+        bool $binlogProbeFails = false,
     ): ArrayObject {
         $this->secretRepository->method('findIdentifiers')->willReturn(['test-secret']);
         $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn($this->createTestSecret('test-secret'));
@@ -1288,7 +1314,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         /** @var ArrayObject<int, string> $calls */
         $calls      = new ArrayObject();
         $connection = $this->transactionRecordingConnection($calls, $platform, $outerCommitFails, $rollbackFails);
-        $this->recordAuditLockCalls($connection, $calls, $lockGranted, $releaseFails, $binlogFormat);
+        $this->recordAuditLockCalls($connection, $calls, $lockGranted, $releaseFails, [$logBin, $binlogFormat], $binlogProbeFails);
 
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
@@ -1350,20 +1376,26 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
      * (SET TRANSACTION) on the given connection stub.
      *
      * @param ArrayObject<int, string> $calls
+     * @param array{int, string}       $binlog `@@log_bin` and `@@binlog_format`
      */
     private function recordAuditLockCalls(
         Connection&Stub $connection,
         ArrayObject $calls,
         bool $lockGranted,
         bool $releaseFails,
-        string $binlogFormat,
+        array $binlog,
+        bool $binlogProbeFails,
     ): void {
         $lockResult = self::createStub(Result::class);
         $lockResult->method('fetchOne')->willReturn($lockGranted ? 1 : 0);
         // `SELECT @@log_bin, @@binlog_format` before the rotation transaction.
-        $lockResult->method('fetchNumeric')->willReturn([1, $binlogFormat]);
+        $lockResult->method('fetchNumeric')->willReturn($binlog);
 
-        $connection->method('executeQuery')->willReturnCallback(static function (string $sql) use ($calls, $lockResult): Result {
+        $connection->method('executeQuery')->willReturnCallback(static function (string $sql) use ($calls, $lockResult, $binlogProbeFails): Result {
+            if ($binlogProbeFails && str_contains($sql, '@@binlog_format')) {
+                throw new ConnectionException('Unknown system variable', 1793260011);
+            }
+
             if (str_contains($sql, 'GET_LOCK')) {
                 $calls->append('lock');
             }
