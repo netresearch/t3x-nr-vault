@@ -75,7 +75,7 @@ final class AuditWriteException extends VaultException
             sprintf(
                 'check for a stuck audit log writer: SELECT pid FROM pg_locks'
                 . " WHERE locktype = 'advisory' AND classid = %d AND objid = %d AND objsubid = 1"
-                . ' AND database = (SELECT oid FROM pg_database WHERE datname = current_database()).',
+                . ' AND database = (SELECT oid FROM pg_database WHERE datname = current_database());',
                 ($lockKey >> 32) & 0xFFFFFFFF,
                 $lockKey & 0xFFFFFFFF,
             ),

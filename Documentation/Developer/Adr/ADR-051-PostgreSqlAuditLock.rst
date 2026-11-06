@@ -78,14 +78,12 @@ writer sets the sequence to that UID with ``setval()`` under the same lock.
 Without it, the next entry that takes the sequence (anchoring disabled or not
 matching) would collide with an existing row.
 
-Three more PostgreSQL defects surfaced once the lock worked, and are fixed
+Two more PostgreSQL defects surfaced once the lock worked, and are fixed
 alongside it:
 
 - ``value_checksum``, ``hash_before`` and ``hash_after`` were ``char(64)``.
   PostgreSQL returns ``char`` values padded with spaces, which broke the
   cryptographic-field check and hash verification. They are ``varchar(64)``.
-- ``encrypted_value`` is ``bytea`` on PostgreSQL, which PDO returns as a
-  stream. ``Secret::fromDatabaseRow()`` reads the stream.
 - ``AuditLogService::query()`` ordered by ``crdate`` alone. Entries from the
   same second came back in arbitrary order; ``uid`` now breaks the tie.
 
@@ -110,8 +108,9 @@ A session-level advisory lock needs one server connection per database
 session. PgBouncer in transaction pooling mode does not provide that: its
 feature table lists session-level advisory locks as not supported in that mode.
 The lock would then not serialise the audit writes, and its release could miss.
-TYPO3 has the same requirement independently of nr-vault, because Doctrine
-DBAL reads a new row's ID with a separate ``SELECT LASTVAL()``. Run PostgreSQL
+TYPO3 has the same requirement independently of nr-vault, because the
+database driver reads a new row's ID with a separate ``SELECT LASTVAL()``.
+Run PostgreSQL
 behind PgBouncer in session pooling mode, or connect directly.
 
 Verification

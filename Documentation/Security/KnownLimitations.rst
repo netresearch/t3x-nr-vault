@@ -37,7 +37,8 @@ support session-level advisory locks (:ref:`adr-051-postgresql-audit-lock`).
 Database atomic commit, transactional tables and no dirty reads are assumed.
 
 On MySQL/MariaDB and PostgreSQL, an audit insert that rolls back consumes its
-auto-increment or sequence value. While the in-database anchor matches the current tip, the next entry
+auto-increment or sequence value.
+While the in-database anchor matches the current tip, the next entry
 takes the following UID explicitly, so a rollback or a killed process leaves
 no false gap. Because this trusts the in-database anchor, a replayed older
 anchor combined with deleted tail rows leaves no gap either. Tail deletion
