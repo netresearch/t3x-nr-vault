@@ -65,7 +65,13 @@ MySQL lock after the commit and before publishing. But it has to be taken
 inside the transaction, so the first lock poll starts the transaction's
 snapshot. Under ``REPEATABLE READ`` the writer would then read the chain tip
 as it was before the lock was granted. The session lock is taken before
-``BEGIN`` and has no such dependency on the isolation level. A
+the writer's own ``BEGIN``, so a standalone writer and a coordinated mutation
+read the tip after the lock is granted at any isolation level. Master-key
+rotation is the exception: its outer transaction is already open when the
+audit writes take the lock, so under ``REPEATABLE READ`` its snapshot can
+predate the lock. That applies to MySQL with the InnoDB default isolation
+level as well, and is tracked with the release window in
+`issue #496 <https://github.com/netresearch/t3x-nr-vault/issues/496>`__. A
 transaction-level lock remains a candidate for the PostgreSQL half of
 `issue #496 <https://github.com/netresearch/t3x-nr-vault/issues/496>`__,
 because it would hold through the outer commit of master-key rotation.
@@ -98,6 +104,11 @@ back, the sequence stays one ahead of the table. The next anchored write takes
 an explicit UID again, so nothing changes there. A write without a matching
 anchor then leaves a one-UID gap, which is the same gap MySQL leaves after a
 rollback in that mode.
+
+``setval()`` needs the ``UPDATE`` privilege on the sequence behind
+``tx_nrvault_audit_log.uid``. The table owner holds it. A database user that
+was granted only table privileges fails the first anchored audit write, and
+the mutation it belongs to is rolled back.
 
 The advisory-lock key is shared by every database user of the same database.
 Another application that picks the same bigint would serialise with the audit

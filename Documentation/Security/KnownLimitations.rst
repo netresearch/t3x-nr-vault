@@ -34,6 +34,9 @@ rejected before a write.
 On PostgreSQL the audit lock is a session-level advisory lock, so a PgBouncer in
 front of the database must use session pooling: transaction pooling does not
 support session-level advisory locks (:ref:`adr-051-postgresql-audit-lock`).
+The database user also needs the ``UPDATE`` privilege on the sequence of
+``tx_nrvault_audit_log.uid``, because an anchored audit write moves it with
+``setval()``; without it the write and its mutation fail.
 Database atomic commit, transactional tables and no dirty reads are assumed.
 
 On MySQL/MariaDB and PostgreSQL, an audit insert that rolls back consumes its
