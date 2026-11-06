@@ -22,6 +22,7 @@ use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
 use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\AuditSinkPublicationBuffer;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
@@ -83,11 +84,14 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
 
     private CommandTester $commandTester;
 
+    private AuditSinkPublicationBuffer $publicationBuffer;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->secretRepository = $this->createMock(SecretRepositoryInterface::class);
+        $this->publicationBuffer = new AuditSinkPublicationBuffer();
+        $this->secretRepository  = $this->createMock(SecretRepositoryInterface::class);
         // `save()` now returns Secret (was void). PHPUnit cannot auto-generate
         // a return value for `final readonly` Secret, so install a passthrough
         // default at setUp() so individual tests don't have to repeat it.
@@ -546,6 +550,64 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $this->givenOneRotatableSecretRecordingTransactionCalls(['binlogProbeFails' => true]);
 
         self::assertSame(0, $this->commandTester->execute($this->rotationInput()));
+    }
+
+    /**
+     * Entries written inside the rotation transaction reach the sinks only
+     * after the commit (#499).
+     */
+    #[Test]
+    public function auditEntriesOfACommittedRotationArePublishedAfterTheCommit(): void
+    {
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls();
+        $this->auditChainRekeyService
+            ->method('rekeyChain')
+            ->willReturnCallback(function () use ($calls): int {
+                self::assertTrue($this->publicationBuffer->isCollecting());
+                $this->publicationBuffer->defer(static fn () => $calls->append('publish'));
+
+                return 1;
+            });
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(0, $exitCode);
+        self::assertSame(
+            ['read-committed', 'begin', 'lock', 'begin', 'commit', 'commit', 'release', 'publish'],
+            $calls->getArrayCopy(),
+        );
+        self::assertFalse($this->publicationBuffer->isCollecting());
+    }
+
+    /**
+     * A rolled-back rotation publishes none of its entries, and its failure
+     * entry is written after collection stopped, so it reaches the sinks.
+     */
+    #[Test]
+    public function aRolledBackRotationDiscardsItsEntriesAndPublishesItsFailure(): void
+    {
+        $calls = $this->givenOneRotatableSecretRecordingTransactionCalls();
+        $this->auditChainRekeyService
+            ->method('rekeyChain')
+            ->willReturnCallback(function () use ($calls): int {
+                $this->publicationBuffer->defer(static fn () => $calls->append('publish'));
+
+                throw new RuntimeException('re-key failed', 1793260012);
+            });
+        $collectingAtFailure = [];
+        $this->auditLogService
+            ->method('log')
+            ->willReturnCallback(function (string $identifier, string $action, bool $success) use (&$collectingAtFailure): void {
+                if (!$success) {
+                    $collectingAtFailure[] = $this->publicationBuffer->isCollecting();
+                }
+            });
+
+        $exitCode = $this->commandTester->execute($this->rotationInput());
+
+        self::assertSame(1, $exitCode);
+        self::assertNotContains('publish', $calls->getArrayCopy());
+        self::assertSame([false], $collectingAtFailure);
     }
 
     /**
@@ -1251,6 +1313,7 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
             $this->eventDispatcher,
             $anchorStore ?? $this->anchorStoreReturning(new AuditChainAnchorLoad(AuditChainAnchorStatus::Unanchored)),
             $foreignRotators,
+            $this->publicationBuffer,
         );
     }
 

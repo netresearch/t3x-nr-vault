@@ -19,6 +19,7 @@ use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditChainLockTrait;
 use Netresearch\NrVault\Audit\AuditChainRekeyServiceInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\AuditSinkPublicationBuffer;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Crypto\EnvelopeCodecInterface;
 use Netresearch\NrVault\Crypto\EnvelopeRotationContext;
@@ -119,6 +120,7 @@ final class VaultRotateMasterKeyCommand extends Command
         private readonly EventDispatcherInterface $eventDispatcher,
         private readonly AuditChainAnchorStoreInterface $anchorStore,
         private readonly iterable $foreignRotators = [],
+        private readonly ?AuditSinkPublicationBuffer $publicationBuffer = null,
     ) {
         parent::__construct();
     }
@@ -703,16 +705,14 @@ final class VaultRotateMasterKeyCommand extends Command
         }
 
         $io->text(sprintf('Consumer-owned envelopes re-wrapped: %d.', $foreignCount));
-        $io->success(sprintf(
-            'Successfully rotated master key for %d secret(s).',
-            $successCount,
-        ));
-        $io->text(sprintf(
-            'Audit chain re-keyed under the new master key (%d row(s) rewritten).',
-            $rekeyedRows,
-        ));
+        $io->success(sprintf('Successfully rotated master key for %d secret(s).', $successCount));
+        $io->text(sprintf('Audit chain re-keyed under the new master key (%d row(s) rewritten).', $rekeyedRows));
 
         $io->note(self::NEXT_STEPS);
+
+        // The rotation has committed and the chain is re-keyed: the entries it
+        // wrote reach the external sinks now, with their final hashes (#499).
+        $this->publicationBuffer?->flush();
 
         // Dispatched last, and deliberately after the instructions above: the
         // rotation has already committed, so a listener that throws must not be
@@ -820,6 +820,10 @@ final class VaultRotateMasterKeyCommand extends Command
      */
     private function beginRotationTransaction(Connection $connection): void
     {
+        // Audit entries written inside the rotation transaction reach the
+        // external sinks only after the commit; failRotation() discards them.
+        $this->publicationBuffer?->collect();
+
         $platform = $connection->getDatabasePlatform();
         if ($platform instanceof AbstractMySQLPlatform) {
             try {
@@ -862,6 +866,12 @@ final class VaultRotateMasterKeyCommand extends Command
      */
     private function failRotation(Connection $connection, SymfonyStyle $io, string|array|null $error, string $auditReason): int
     {
+        // First, so the failure entry below is published at once. The
+        // collected entries rolled back, or, after a failed commit, may or
+        // may not exist: reloading them by uid could publish a later writer's
+        // row, so they are dropped and the failure entry says what happened.
+        $this->publicationBuffer?->discard();
+
         try {
             if ($connection->isTransactionActive()) {
                 $connection->rollBack();
