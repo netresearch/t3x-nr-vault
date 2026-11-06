@@ -57,21 +57,28 @@ final class AuditWriteException extends VaultException
     /**
      * The PostgreSQL advisory lock was not granted within the timeout.
      *
-     * PostgreSQL has no named lock: the key is the bigint of "nrvaudit", which
-     * `pg_locks` shows split into `classid` (high 32 bits) and `objid` (low
-     * 32 bits). The hint names that query, because a search for
-     * "nr_vault_audit" finds nothing there.
+     * PostgreSQL has no named lock: `pg_locks` shows a bigint key split into
+     * `classid` (high 32 bits) and `objid` (low 32 bits), with `objsubid` 1.
+     * The hint names that query, because a search for "nr_vault_audit" finds
+     * nothing there. `pg_locks` covers the whole cluster while the key is per
+     * database, so the query is limited to the current database.
      *
      * @param mixed $rawResult The last value returned by the lock query — 0
      *                         while another session holds the lock
+     * @param int   $lockKey   The advisory-lock key that was not granted
      */
-    public static function postgreSqlLockAcquisitionFailed(mixed $rawResult): self
+    public static function postgreSqlLockAcquisitionFailed(mixed $rawResult, int $lockKey): self
     {
         return self::lockNotAcquired(
             'pg_try_advisory_lock',
             $rawResult,
-            'check for a stuck audit log writer: SELECT pid FROM pg_locks'
-            . " WHERE locktype = 'advisory' AND classid = 1852995169 AND objid = 1969514868.",
+            sprintf(
+                'check for a stuck audit log writer: SELECT pid FROM pg_locks'
+                . " WHERE locktype = 'advisory' AND classid = %d AND objid = %d AND objsubid = 1"
+                . ' AND database = (SELECT oid FROM pg_database WHERE datname = current_database()).',
+                ($lockKey >> 32) & 0xFFFFFFFF,
+                $lockKey & 0xFFFFFFFF,
+            ),
         );
     }
 

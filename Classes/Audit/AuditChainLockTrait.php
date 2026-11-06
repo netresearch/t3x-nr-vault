@@ -232,7 +232,7 @@ trait AuditChainLockTrait
             usleep(50_000);
         } while (hrtime(true) < $deadline);
 
-        throw AuditWriteException::postgreSqlLockAcquisitionFailed($lockResult);
+        throw AuditWriteException::postgreSqlLockAcquisitionFailed($lockResult, self::POSTGRESQL_AUDIT_LOCK_KEY);
     }
 
     /**

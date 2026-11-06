@@ -39,6 +39,9 @@ use TYPO3\CMS\Core\Database\Connection;
 #[CoversTrait(AuditChainLockTrait::class)]
 final class AuditChainLockTraitTest extends TestCase
 {
+    /** The bigint of "nrvaudit"; lock and unlock must bind the same key. */
+    private const POSTGRESQL_LOCK_KEY = 0x6E72766175646974;
+
     private AuditChainLockHost $subject;
 
     protected function setUp(): void
@@ -169,7 +172,7 @@ final class AuditChainLockTraitTest extends TestCase
         $connection = $this->postgreSqlConnection();
         $connection->expects(self::once())
             ->method('executeQuery')
-            ->with(self::stringContains('pg_try_advisory_lock(?)'))
+            ->with(self::stringContains('pg_try_advisory_lock(?)'), [self::POSTGRESQL_LOCK_KEY], self::anything())
             ->willReturn($this->lockResult(1));
         $connection->expects(self::once())->method('beginTransaction');
         $connection->expects(self::never())->method('executeStatement');
@@ -206,14 +209,21 @@ final class AuditChainLockTraitTest extends TestCase
     public function postgreSqlLockTimeoutAbortsBeforeAnyTransactionIsOpened(): void
     {
         $connection = $this->postgreSqlConnection();
-        $connection->expects(self::atLeastOnce())
+        // A zero-second wait polls once; more queries mean the host's shorter
+        // wait did not take effect.
+        $connection->expects(self::once())
             ->method('executeQuery')
             ->willReturn($this->lockResult(0));
         $connection->expects(self::never())->method('beginTransaction');
 
         $this->expectException(AuditWriteException::class);
         $this->expectExceptionMessageToContain('pg_try_advisory_lock returned 0');
-        $this->expectExceptionMessageToContain('classid = 1852995169 AND objid = 1969514868');
+        // The high and low 32 bits of the key, as pg_locks shows them, limited
+        // to the current database because pg_locks spans the whole cluster.
+        $this->expectExceptionMessageToContain(
+            'classid = 1852995169 AND objid = 1969514868 AND objsubid = 1'
+            . ' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())',
+        );
 
         (new AuditChainLockHost(lockTimeoutSeconds: 0))->acquire($connection, false);
     }
@@ -341,7 +351,7 @@ final class AuditChainLockTraitTest extends TestCase
         $connection = $this->postgreSqlConnection();
         $connection->expects(self::once())
             ->method('executeQuery')
-            ->with(self::stringContains('pg_advisory_unlock(?)'))
+            ->with(self::stringContains('pg_advisory_unlock(?)'), [self::POSTGRESQL_LOCK_KEY], self::anything())
             ->willReturn($this->lockResult(true));
         $connection->expects(self::never())->method('executeStatement');
 

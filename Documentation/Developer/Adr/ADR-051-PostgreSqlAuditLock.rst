@@ -59,9 +59,9 @@ PostgreSQL transaction, including a caller's outer transaction during
 master-key rotation. ``pg_try_advisory_lock()`` answers false and leaves the
 transaction usable.
 
-The transaction-level ``pg_advisory_xact_lock()`` is not used either. It would
-be released by the commit, before the coordinator publishes, and it has no
-non-blocking timeout of its own.
+The transaction-level ``pg_advisory_xact_lock()`` and
+``pg_try_advisory_xact_lock()`` are not used either. They are released by the
+commit, before the coordinator publishes.
 
 PostgreSQL sequences do not roll back, like MySQL ``AUTO_INCREMENT``. The
 explicit-UID allocation from ADR-050 therefore applies to PostgreSQL too: when
