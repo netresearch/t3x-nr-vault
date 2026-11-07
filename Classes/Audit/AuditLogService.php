@@ -228,7 +228,10 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             // row is read again at flush time and published with its final
             // hashes, not the ones it was inserted with.
             $this->publicationBuffer->defer(function () use ($persistedRow): void {
-                $this->publishToSinks($this->reloadRowForPublication($persistedRow));
+                $row = $this->reloadRowForPublication($persistedRow);
+                if ($row !== null) {
+                    $this->publishToSinks($row);
+                }
             });
         } else {
             $publish();
@@ -1102,17 +1105,20 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
-     * Read a row again for deferred sink publication. Falls back to the row as
-     * inserted when the read fails or the row is gone: the publication is a
-     * copy for external sinks, and a failure here must not stop the caller.
+     * Read a row again for deferred sink publication. Returns null, and logs
+     * why, when the read fails or the row is gone: the row as inserted carries
+     * the hashes from before the re-key, and the sinks take its entry hash as
+     * the chain tip, so publishing it would hand them a tip the chain no
+     * longer has. A failure here must not stop the caller.
      *
      * @param array<string, mixed> $persistedRow
      *
-     * @return array<string, mixed>
+     * @return array<string, mixed>|null
      */
-    private function reloadRowForPublication(array $persistedRow): array
+    private function reloadRowForPublication(array $persistedRow): ?array
     {
-        $uid = is_numeric($persistedRow['uid'] ?? null) ? (int) $persistedRow['uid'] : 0;
+        $uid   = is_numeric($persistedRow['uid'] ?? null) ? (int) $persistedRow['uid'] : 0;
+        $error = 'audit row not found';
 
         try {
             $connection   = $this->getConnection();
@@ -1129,11 +1135,19 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 ->setMaxResults(1)
                 ->executeQuery()
                 ->fetchAssociative();
-        } catch (Throwable) {
-            return $persistedRow;
+            if (is_array($row)) {
+                return $row;
+            }
+        } catch (Throwable $e) {
+            $error = $e->getMessage();
         }
 
-        return is_array($row) ? $row : $persistedRow;
+        $this->logger?->error(
+            'nr-vault audit sink publication skipped: the committed audit row could not be read again; the database audit entry is intact.',
+            ['uid' => $uid, 'error' => $error],
+        );
+
+        return null;
     }
 
     /**

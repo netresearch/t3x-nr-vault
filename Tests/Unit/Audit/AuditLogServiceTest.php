@@ -3151,6 +3151,10 @@ final class AuditLogServiceTest extends TestCase
     /**
      * Master-key rotation collects its entries while its transaction is open:
      * none may reach a sink before the flush that follows the commit (#499).
+     * At flush time the row is read again; this stub returns no row, so the
+     * entry is dropped rather than published with its pre-re-key hashes. The
+     * publication of a readable row is covered by the functional
+     * AuditSinkPublicationBufferTest.
      */
     #[Test]
     public function aCollectingPublicationBufferHoldsTheSinkFanOutUntilItsFlush(): void
@@ -3182,7 +3186,8 @@ final class AuditLogServiceTest extends TestCase
         self::assertSame([], $dispatched->getArrayCopy());
 
         $buffer->flush();
-        self::assertSame([42], $dispatched->getArrayCopy());
+        self::assertSame([], $dispatched->getArrayCopy());
+        self::assertFalse($buffer->isCollecting());
     }
 
     // =========================================================================

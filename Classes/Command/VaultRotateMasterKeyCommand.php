@@ -619,12 +619,12 @@ final class VaultRotateMasterKeyCommand extends Command
             );
         }
 
-        $io->progressStart($totalSecrets);
         $commitAttempted = false;
         $failedSecrets   = [];
         $successCount    = 0;
 
         try {
+            $io->progressStart($totalSecrets);
             foreach ($identifiers as $identifier) {
                 if ($this->rotateOne($identifier, $oldKey, $newKey, $failedSecrets)) {
                     ++$successCount;

@@ -22,6 +22,7 @@ use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\LoggerInterface;
 use ReflectionProperty;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
@@ -76,6 +77,47 @@ final class AuditSinkPublicationBufferTest extends AbstractVaultFunctionalTestCa
         self::assertInstanceOf(AuditLogEntry::class, $entry);
         self::assertSame($rekeyed, $entry->entryHash);
         self::assertSame('publication-buffer-test', $entry->secretIdentifier);
+    }
+
+    /**
+     * Without the committed row, the row as inserted would hand the sinks a
+     * chain tip from before the re-key, so nothing is published and the
+     * failure is logged.
+     */
+    #[Test]
+    public function aFlushedEntryWhoseRowCannotBeReadIsNotPublished(): void
+    {
+        /** @var ArrayObject<int, AuditLogEntry> $published */
+        $published = new ArrayObject();
+        $sinks     = self::createStub(AuditSinkRegistryInterface::class);
+        $sinks->method('dispatch')->willReturnCallback(static function (AuditLogEntry $entry) use ($published): int {
+            $published->append($entry);
+
+            return 0;
+        });
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::once())->method('error');
+
+        $buffer = new AuditSinkPublicationBuffer();
+        $audit  = new AuditLogService(
+            $this->get(ConnectionPool::class),
+            $this->get(AccessControlServiceInterface::class),
+            $this->get(MasterKeyProviderInterface::class),
+            $this->get(ExtensionConfigurationInterface::class),
+            $this->get(AuditChainAnchorStoreInterface::class),
+            $sinks,
+            $logger,
+            publicationBuffer: $buffer,
+        );
+
+        $buffer->collect();
+        $audit->log('publication-buffer-gone', 'read', true);
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable(AuditLogService::TABLE_NAME);
+        $connection->delete(AuditLogService::TABLE_NAME, ['secret_identifier' => 'publication-buffer-gone']);
+
+        $buffer->flush();
+
+        self::assertCount(0, $published);
     }
 
     /**
