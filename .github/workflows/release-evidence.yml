@@ -613,6 +613,9 @@ jobs:
             exit 1
           fi
 
+  # The full run and the security-scoped run are separate jobs with their own
+  # budgets. Together in one 45-minute job they took 29 to 45 minutes, and the
+  # slowest run hit the limit and blocked the v1.3.0 release (#502).
   mutation:
     name: Mutation testing
     runs-on: ubuntu-latest
@@ -673,6 +676,92 @@ jobs:
             --coverage=.Build/logs-evidence \
             --no-progress
 
+      # Flattened into the `--parts` drop-zone layout (see the `checks` job).
+      - name: Stage mutation artifacts
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          # See the `checks` job: only non-empty artifacts are staged.
+          stage_if_present() { [ -s "$1" ] && cp "$1" "stage/$2" || true; }
+          stage_if_present .Build/infection/infection.json          infection.json
+          stage_if_present .Build/infection/summary.log             infection-summary.log
+          find stage -type f | sort
+
+      - name: Upload mutation artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evidence-inputs-mutation
+          overwrite: true
+          path: stage/
+          retention-days: 7
+          # A crashed Infection run leaves no report. The bundle records that as
+          # a missing measurement, so an empty upload must not fail this job.
+          if-no-files-found: warn
+
+      - name: Report mutation outcome
+        if: always()
+        env:
+          COVERAGE: ${{ steps.coverage.outcome }}
+          MUTATION: ${{ steps.mutation.outcome }}
+        run: |
+          set -euo pipefail
+          echo "coverage=$COVERAGE mutation=$MUTATION"
+          if [ "$COVERAGE" != 'success' ]; then
+            echo "::error::Coverage generation failed — the mutation score was never measured."
+            exit 1
+          fi
+          if [ "$MUTATION" != 'success' ]; then
+            echo "::error::Mutation testing failed or dropped below the ratchet in infection.json5."
+            exit 1
+          fi
+
+  mutation-security:
+    name: Mutation testing (security-critical scope)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EVIDENCE_TAG }}
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: intl, mbstring, xml, sodium, json, pcov
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Install dependencies
+        env:
+          CAPTAINHOOK_DISABLE: 'true'
+        run: composer install --prefer-dist --no-progress
+
+      # Coverage over Unit AND Fuzz: the crypto boundary is covered by the fuzz
+      # suite, so measuring Unit alone would understate the real score. Matches
+      # the security ratchet in security-gates.yml.
+      - name: Generate coverage for Infection
+        id: coverage
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p .Build/logs-evidence
+          .Build/bin/phpunit -c Build/phpunit.xml \
+            --testsuite Unit,Fuzz \
+            --coverage-xml=.Build/logs-evidence/coverage-xml \
+            --log-junit=.Build/logs-evidence/junit.xml
+
       # The security ratchet an auditor actually cares about: the same mutation
       # analysis narrowed to Classes/Crypto, Classes/Security, Classes/Audit
       # and Classes/Http, held to the stricter thresholds in
@@ -703,8 +792,6 @@ jobs:
           mkdir -p stage
           # See the `checks` job: only non-empty artifacts are staged.
           stage_if_present() { [ -s "$1" ] && cp "$1" "stage/$2" || true; }
-          stage_if_present .Build/infection/infection.json          infection.json
-          stage_if_present .Build/infection/summary.log             infection-summary.log
           stage_if_present .Build/infection-security/infection.json infection-security.json
           find stage -type f | sort
 
@@ -712,7 +799,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: evidence-inputs-mutation
+          name: evidence-inputs-mutation-security
           overwrite: true
           path: stage/
           retention-days: 7
@@ -724,17 +811,12 @@ jobs:
         if: always()
         env:
           COVERAGE: ${{ steps.coverage.outcome }}
-          MUTATION: ${{ steps.mutation.outcome }}
           MUTATION_SECURITY: ${{ steps.mutation-security.outcome }}
         run: |
           set -euo pipefail
-          echo "coverage=$COVERAGE mutation=$MUTATION mutation-security=$MUTATION_SECURITY"
+          echo "coverage=$COVERAGE mutation-security=$MUTATION_SECURITY"
           if [ "$COVERAGE" != 'success' ]; then
-            echo "::error::Coverage generation failed — the mutation score was never measured."
-            exit 1
-          fi
-          if [ "$MUTATION" != 'success' ]; then
-            echo "::error::Mutation testing failed or dropped below the ratchet in infection.json5."
+            echo "::error::Coverage generation failed — the security-scoped mutation score was never measured."
             exit 1
           fi
           if [ "$MUTATION_SECURITY" != 'success' ]; then
@@ -940,7 +1022,7 @@ jobs:
 
   bundle:
     name: Publish evidence bundle
-    needs: [checks, coverage-merge, mutation, doctor]
+    needs: [checks, coverage-merge, mutation, mutation-security, doctor]
     # always(): the bundle must exist precisely when something went wrong.
     if: always()
     runs-on: ubuntu-latest
@@ -971,7 +1053,7 @@ jobs:
           coverage: none
           tools: none
 
-      # merge-multiple: the three producing jobs upload disjoint files under one
+      # merge-multiple: the producing jobs upload disjoint files under one
       # flat prefix, which overlay into the single `--parts` drop-zone the
       # collector reads. A job that produced nothing simply contributes nothing,
       # and its checks come out "absent".
@@ -1073,6 +1155,7 @@ jobs:
           CHECKS_RESULT: ${{ needs.checks.result }}
           COVERAGE_RESULT: ${{ needs.coverage-merge.result }}
           MUTATION_RESULT: ${{ needs.mutation.result }}
+          MUTATION_SECURITY_RESULT: ${{ needs.mutation-security.result }}
           DOCTOR_RESULT: ${{ needs.doctor.result }}
         run: |
           set -euo pipefail
@@ -1084,9 +1167,9 @@ jobs:
           FAILED="$(jq -r '[.checks[] | select(.status == "fail")] | length' "$MANIFEST")"
           SOFT="$(jq -r '[.checks[] | select(.status == "warn" or .status == "absent")] | length' "$MANIFEST")"
 
-          echo "jobs: checks=$CHECKS_RESULT coverage=$COVERAGE_RESULT mutation=$MUTATION_RESULT doctor=$DOCTOR_RESULT"
+          echo "jobs: checks=$CHECKS_RESULT coverage=$COVERAGE_RESULT mutation=$MUTATION_RESULT mutation-security=$MUTATION_SECURITY_RESULT doctor=$DOCTOR_RESULT"
 
-          if [ "$FAILED" -gt 0 ] || [ "$CHECKS_RESULT" != 'success' ] || [ "$COVERAGE_RESULT" != 'success' ] || [ "$MUTATION_RESULT" != 'success' ]; then
+          if [ "$FAILED" -gt 0 ] || [ "$CHECKS_RESULT" != 'success' ] || [ "$COVERAGE_RESULT" != 'success' ] || [ "$MUTATION_RESULT" != 'success' ] || [ "$MUTATION_SECURITY_RESULT" != 'success' ]; then
             echo "::error::Release evidence verdict: FAIL — $FAILED failing check(s); see the job summary. The bundle is published; do not describe this release as verified until this is resolved."
             exit 1
           fi
