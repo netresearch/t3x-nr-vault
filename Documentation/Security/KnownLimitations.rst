@@ -232,7 +232,11 @@ cannot see writes from other processes after it has committed.
 **What to do.** Stop every writer for the rotation window, including
 automatic ones such as refresh-token storage of outbound OAuth calls, and keep
 the old key until the audit log shows no ``create``, ``update`` or ``rotate``
-entry in the gap (:ref:`operations-key-rotation-window`).
+entry from the start of the command to the switch
+(:ref:`operations-key-rotation-window`).
+Consumer envelopes are sealed without a vault audit entry, so the audit log
+cannot rule them out: unless each consumer can show it wrote nothing in that
+range, archive the old key instead of destroying it.
 
 .. _security-known-limitations-break-glass:
 

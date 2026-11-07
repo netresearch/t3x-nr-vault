@@ -267,7 +267,11 @@ On success the command prints its next steps, and they are not advisory:
     then, secrets cannot be decrypted *and* audit-chain verification runs
     against the old key. Depending on the provider: replace the key file
     (``file``), re-inject the environment variable and restart (``env``), or
-    re-wrap the new key with the KMS (``transit``).
+    re-wrap the new key with the KMS (``transit``). Then restart every
+    long-running process that uses the vault — queue workers, daemons,
+    long-running CLI commands: a provider keeps the key it loaded for the
+    lifetime of the process, so such a process would keep writing under the
+    old key.
 #.  **Securely archive or destroy the old key — but only after the checks
     below.** Archive it if you may still need to open an older backup;
     destroy it if you may not. Do not leave it where the vault could pick it
@@ -285,14 +289,21 @@ will need re-sealing, and every write during the gap is wrapped under the
 old key.
 
 **If something was written in the gap.** Audit entries for ``create``,
-``update`` and ``rotate`` between the rotation's successful
-``master_key_rotate_end`` row and the configuration switch name the secrets
-that were written under the old key (``vault:audit`` filtered to that time
-range). After the switch they cannot be read; store their values again. The
-command does not re-wrap them, because it starts by checking the old key
-against the first secret, which by then is under the new key. Consumer
-envelopes written in the gap are the consumer's to re-create. Keep the old
-key until this is done.
+``update`` and ``rotate`` between the moment you started the command and the
+configuration switch name the secrets that may be wrapped under the old key
+(``vault:audit`` filtered to that time range). The range starts at the
+command's start, not at its ``master_key_rotate_start`` row: the command lists
+the secrets before it writes that row, and a secret created after the list was
+taken is not re-encrypted. Read
+each named secret after the switch; one that cannot be read was written under
+the old key, so store its value again. The command does not re-wrap such
+secrets, because it starts by checking the old key against the first secret,
+which by then is under the new key.
+
+Consumer envelopes are sealed without a vault audit entry, so this check
+cannot find them. They are the consumer's to re-create, and unless each
+consumer can show that it wrote nothing in that range, archive the old key
+instead of destroying it. Keep the old key until all of this is done.
 
 .. _operations-key-rotation-verification:
 

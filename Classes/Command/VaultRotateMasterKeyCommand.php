@@ -348,6 +348,7 @@ final class VaultRotateMasterKeyCommand extends Command
             $io->warning([
                 'This operation will re-encrypt all DEKs with the new master key.',
                 'This is irreversible. Ensure you have backed up the old key.',
+                'Stop everything that writes secrets or consumer envelopes until the configuration uses the new key.',
                 'Use --confirm to proceed or --dry-run to simulate.',
             ]);
 
