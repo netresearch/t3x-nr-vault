@@ -138,7 +138,10 @@ Your own preflight, before running any of it:
           vendor/bin/typo3 vault:audit-verify
 
 *   [ ] **Nothing writes secrets or consumer envelopes** from the start of the
-      rotation until the configuration switch: no backend edits, no
+      rotation until the configuration switch and the restarts after it. Stop
+      the writers and let requests already in flight finish before you start
+      the command; a request that loaded the old key can otherwise store its
+      result after the switch. Concretely: no backend edits, no
       ``VaultService::store()`` or ``rotate()`` from scheduler tasks, API
       endpoints or imports, no outbound OAuth calls whose token endpoint
       rotates the refresh token (the vault stores the new one as a secret),
@@ -290,11 +293,13 @@ old key.
 
 **If something was written in the gap.** Audit entries for ``create``,
 ``update`` and ``rotate`` between the moment you started the command and the
-configuration switch name the secrets that may be wrapped under the old key
-(``vault:audit`` filtered to that time range). The range starts at the
-command's start, not at its ``master_key_rotate_start`` row: the command lists
-the secrets before it writes that row, and a secret created after the list was
-taken is not re-encrypted. Read
+end of the restarts after the configuration switch name the secrets that may
+be wrapped under the old key (``vault:audit --since … --until …``). The range
+starts at the command's start, not at its ``master_key_rotate_start`` row: the
+command lists the secrets before it writes that row, and a secret created
+after the list was taken is not re-encrypted. ``vault:audit`` prints at most
+50 entries unless ``--limit`` says otherwise; set a limit above the number of
+entries you expect, and repeat with a higher one if the output reaches it. Read
 each named secret after the switch; one that cannot be read was written under
 the old key, so store its value again. The command does not re-wrap such
 secrets, because it starts by checking the old key against the first secret,
