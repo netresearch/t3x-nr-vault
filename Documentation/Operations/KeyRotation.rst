@@ -137,6 +137,20 @@ Your own preflight, before running any of it:
           # audit.view in cliAllowedOperations, or a named technical actor.
           vendor/bin/typo3 vault:audit-verify
 
+*   [ ] **Nothing writes secrets or consumer envelopes** from the start of the
+      rotation until the configuration switch and the restarts after it. Stop
+      the writers and let requests already in flight finish before you start
+      the command; a request that loaded the old key can otherwise store its
+      result after the switch. Concretely: no backend edits, no
+      ``VaultService::store()`` or ``rotate()`` from scheduler tasks, API
+      endpoints or imports, no outbound OAuth calls whose token endpoint
+      rotates the refresh token (the vault stores the new one as a secret),
+      and no envelope writes by extensions that register
+      a :php:`ForeignEnvelopeRotatorInterface` (for example nr-llm). Until the
+      switch the configured provider still returns the old key, so anything
+      written in that gap is wrapped under the old key, cannot be opened after
+      the switch, and is lost once the old key is destroyed. See
+      :ref:`operations-key-rotation-window`.
 *   [ ] **A maintenance window.** Vault reads fail between the commit and the
       configuration switch. During the rotation itself, a secret that has
       already been re-encrypted cannot be read: the read waits until the
@@ -256,19 +270,45 @@ On success the command prints its next steps, and they are not advisory:
     then, secrets cannot be decrypted *and* audit-chain verification runs
     against the old key. Depending on the provider: replace the key file
     (``file``), re-inject the environment variable and restart (``env``), or
-    re-wrap the new key with the KMS (``transit``).
-#.  **Securely archive or destroy the old key.** Archive it if you may still
-    need to open an older backup; destroy it if you may not. Do not leave it
-    where the vault could pick it up again.
+    re-wrap the new key with the KMS (``transit``). Then restart every
+    long-running process that uses the vault — queue workers, daemons,
+    long-running CLI commands: a provider keeps the key it loaded for the
+    lifetime of the process, so such a process would keep writing under the
+    old key.
+#.  **Securely archive or destroy the old key — but only after the checks
+    below.** Archive it if you may still need to open an older backup;
+    destroy it if you may not. Do not leave it where the vault could pick it
+    up again. Anything written in the gap is still wrapped under the old key,
+    so keep the old key until you have ruled that out.
 #.  **Test retrieval and verify the chain** — see below.
 #.  **Re-seal any rows written in the gap.** Audit rows written between the
     rotation commit and the configuration switch are sealed with the old
     HMAC key while the rest of the chain is under the new one. Re-seal them
     with ``vault:audit-migrate-hmac``.
 
-That fourth step is the reason to keep the window short and to make it a
+Steps three and four are the reason to keep the window short and to make it a
 maintenance window: every audited operation during the gap adds a row that
-will need re-sealing.
+will need re-sealing, and every write during the gap is wrapped under the
+old key.
+
+**If something was written in the gap.** Audit entries for ``create``,
+``update`` and ``rotate`` between the moment you started the command and the
+end of the restarts after the configuration switch name the secrets that may
+be wrapped under the old key (``vault:audit --since … --until …``). The range
+starts at the command's start, not at its ``master_key_rotate_start`` row: the
+command lists the secrets before it writes that row, and a secret created
+after the list was taken is not re-encrypted. ``vault:audit`` prints at most
+50 entries unless ``--limit`` says otherwise; set a limit above the number of
+entries you expect, and repeat with a higher one if the output reaches it. Read
+each named secret after the switch; one that cannot be read was written under
+the old key, so store its value again. The command does not re-wrap such
+secrets, because it starts by checking the old key against the first secret,
+which by then is under the new key.
+
+Consumer envelopes are sealed without a vault audit entry, so this check
+cannot find them. They are the consumer's to re-create, and unless each
+consumer can show that it wrote nothing in that range, archive the old key
+instead of destroying it. Keep the old key until all of this is done.
 
 .. _operations-key-rotation-verification:
 
