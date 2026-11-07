@@ -14,11 +14,13 @@ use Netresearch\NrVault\Task\AuditVerifyTask;
 use Netresearch\NrVault\Task\OrphanCleanupTask;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 /**
  * Configuration/TCA/Overrides/tx_scheduler_task.php registers the three
- * scheduler tasks as record types of tx_scheduler_task.
+ * scheduler tasks as record types of tx_scheduler_task. That table is TCA from
+ * TYPO3 14 on; on 13.4 the override registers nothing.
  */
 final class SchedulerTaskTypeRegistrationTest extends FunctionalTestCase
 {
@@ -37,9 +39,25 @@ final class SchedulerTaskTypeRegistrationTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function tcaHasNoSchedulerTaskTableBeforeTypo3Fourteen(): void
+    {
+        if ((new Typo3Version())->getMajorVersion() >= 14) {
+            self::markTestSkipped('tx_scheduler_task is a TCA table from TYPO3 14 on.');
+        }
+
+        $tca = $GLOBALS['TCA'] ?? null;
+        self::assertIsArray($tca);
+        self::assertArrayNotHasKey('tx_scheduler_task', $tca);
+    }
+
+    #[Test]
     #[DataProvider('taskTypes')]
     public function taskIsRegisteredAsSelectableRecordType(string $taskClass, string $labelKey, string $icon): void
     {
+        if ((new Typo3Version())->getMajorVersion() < 14) {
+            self::markTestSkipped('tx_scheduler_task is a TCA table from TYPO3 14 on.');
+        }
+
         $tca = $GLOBALS['TCA'] ?? null;
         self::assertIsArray($tca);
         $taskTca = $tca['tx_scheduler_task'] ?? null;
