@@ -159,27 +159,27 @@ final class VaultRotationGapRepairCommand extends Command
             return null;
         }
 
+        $keys = null;
+
         try {
             $previousKey = MasterKeyFile::read($oldKeyPath);
             $currentKey  = $this->masterKeyProvider->getMasterKey();
+
+            if (hash_equals($previousKey, $currentKey)) {
+                sodium_memzero($previousKey);
+                sodium_memzero($currentKey);
+                $io->error([
+                    '--old-key is the master key the configuration uses now.',
+                    'Run this command after the configuration switch, with the key used before the rotation.',
+                ]);
+            } else {
+                $keys = [$previousKey, $currentKey];
+            }
         } catch (MasterKeyException $e) {
             $io->error($e->getMessage());
-
-            return null;
         }
 
-        if (!hash_equals($previousKey, $currentKey)) {
-            return [$previousKey, $currentKey];
-        }
-
-        sodium_memzero($previousKey);
-        sodium_memzero($currentKey);
-        $io->error([
-            '--old-key is the master key the configuration uses now.',
-            'Run this command after the configuration switch, with the key used before the rotation.',
-        ]);
-
-        return null;
+        return $keys;
     }
 
     private function runRepair(
