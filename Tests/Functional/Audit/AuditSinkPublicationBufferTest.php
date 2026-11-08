@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Functional\Audit;
 
 use ArrayObject;
+use LogicException;
 use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogService;
@@ -77,6 +78,48 @@ final class AuditSinkPublicationBufferTest extends AbstractVaultFunctionalTestCa
         self::assertInstanceOf(AuditLogEntry::class, $entry);
         self::assertSame($rekeyed, $entry->entryHash);
         self::assertSame('publication-buffer-test', $entry->secretIdentifier);
+    }
+
+    /**
+     * A logger that throws while reporting a skipped entry must not stop the
+     * flush: the entries after it are still published.
+     */
+    #[Test]
+    public function aThrowingLoggerDoesNotStopTheFlush(): void
+    {
+        /** @var ArrayObject<int, string> $published */
+        $published = new ArrayObject();
+        $sinks     = self::createStub(AuditSinkRegistryInterface::class);
+        $sinks->method('dispatch')->willReturnCallback(static function (AuditLogEntry $entry) use ($published): int {
+            $published->append($entry->secretIdentifier);
+
+            return 0;
+        });
+        $logger = self::createStub(LoggerInterface::class);
+        $logger->method('error')->willThrowException(new LogicException('logger down', 1793260020));
+
+        $buffer = new AuditSinkPublicationBuffer();
+        $audit  = new AuditLogService(
+            $this->get(ConnectionPool::class),
+            $this->get(AccessControlServiceInterface::class),
+            $this->get(MasterKeyProviderInterface::class),
+            $this->get(ExtensionConfigurationInterface::class),
+            $this->get(AuditChainAnchorStoreInterface::class),
+            $sinks,
+            $logger,
+            publicationBuffer: $buffer,
+        );
+
+        $buffer->collect();
+        $audit->log('publication-buffer-gone', 'read', true);
+        $audit->log('publication-buffer-after', 'read', true);
+
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable(AuditLogService::TABLE_NAME);
+        $connection->delete(AuditLogService::TABLE_NAME, ['secret_identifier' => 'publication-buffer-gone']);
+
+        $buffer->flush();
+
+        self::assertSame(['publication-buffer-after'], $published->getArrayCopy());
     }
 
     /**

@@ -1142,10 +1142,14 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             $error = $e->getMessage();
         }
 
-        $this->logger?->error(
-            'nr-vault audit sink publication skipped: the committed audit row could not be read again; the database audit entry is intact.',
-            ['uid' => $uid, 'error' => $error],
-        );
+        try {
+            $this->logger?->error(
+                'nr-vault audit sink publication skipped: the committed audit row could not be read again; the database audit entry is intact.',
+                ['uid' => $uid, 'error' => $error],
+            );
+        } catch (Throwable) {
+            // Delivery diagnostics cannot invalidate the committed audit.
+        }
 
         return null;
     }
