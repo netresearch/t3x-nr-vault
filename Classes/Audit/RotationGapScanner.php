@@ -33,6 +33,9 @@ final readonly class RotationGapScanner implements RotationGapScannerInterface
 {
     private const TABLE_NAME = 'tx_nrvault_audit_log';
 
+    /** Marker {@see self::sealProblem()} returns for a row sealed under the previous key. */
+    private const SEALED_UNDER_PREVIOUS_KEY = 'sealed-under-previous-key';
+
     public function __construct(
         private ConnectionPool $connectionPool,
         private AuditLogServiceInterface $auditLogService,
@@ -48,24 +51,33 @@ final readonly class RotationGapScanner implements RotationGapScannerInterface
 
         $connection = $this->connectionPool->getConnectionForTable(self::TABLE_NAME);
         $boundary   = $this->findRotationBoundary($connection);
+
         if ($boundary === null) {
-            return new RotationGapScan(problems: [
-                'The audit chain does not verify, and it holds no successful master-key rotation '
-                . 'after which rows could have been sealed under the previous key.',
-            ]);
+            $problem = 'The audit chain does not verify, and it holds no successful master-key rotation '
+                . 'after which rows could have been sealed under the previous key.';
+        } elseif (AuditLogService::extractHashRow($boundary)['action'] !== AuditAction::MasterKeyRotateEnd->value) {
+            // A successful repair writes the newest successful audit_chain_rekey
+            // row and closes the window: whatever the previous key sealed after
+            // it was not written in the gap of the last rotation.
+            $problem = 'A repair already closed the window of the last rotation; rows sealed under the '
+                . 'previous key after it are not accepted.';
+        } else {
+            return $this->scanWindow($connection, $boundary, $verification, $previousMasterKey);
         }
 
-        // A successful repair writes the newest successful audit_chain_rekey
-        // row and closes the window: whatever the previous key sealed after
-        // it was not written in the gap of the last rotation.
-        if (AuditLogService::extractHashRow($boundary)['action'] !== AuditAction::MasterKeyRotateEnd->value) {
-            return new RotationGapScan(problems: [
-                'A repair already closed the window of the last rotation; rows sealed under the '
-                . 'previous key after it are not accepted.',
-                ...$this->unexplainedErrors($verification, []),
-            ]);
-        }
+        return new RotationGapScan(problems: [$problem, ...$this->unexplainedErrors($verification, [])]);
+    }
 
+    /**
+     * @param array<string, mixed> $boundary
+     */
+    private function scanWindow(
+        Connection $connection,
+        array $boundary,
+        HashChainVerificationResult $verification,
+        #[SensitiveParameter]
+        string $previousMasterKey,
+    ): RotationGapScan {
         $currentKey  = AuditLogService::deriveHmacKey($this->masterKeyProvider);
         $previousKey = AuditLogService::deriveHmacKeyFromMasterKey($previousMasterKey);
 
@@ -178,7 +190,6 @@ final readonly class RotationGapScanner implements RotationGapScannerInterface
 
         foreach ($result->iterateAssociative() as $row) {
             $entry      = AuditLogService::extractHashRow($row);
-            $storedLink = is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '';
             $storedHash = is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '';
 
             if ($entry['uid'] !== $previousUid + 1) {
@@ -194,24 +205,16 @@ final readonly class RotationGapScanner implements RotationGapScannerInterface
                 );
             }
 
-            if (!hash_equals($previousHash, $storedLink)) {
-                $problems[] = sprintf('Row uid %d does not link to the row before it.', $entry['uid']);
-            } elseif (!$this->isSealedUnder($row, $previousHash, $storedHash, $currentKey)) {
-                // Epoch-0 rows are keyless and match any key, so only an HMAC
-                // row can be one sealed under the previous key.
-                if ($entry['epoch'] > 0 && $this->isSealedUnder($row, $previousHash, $storedHash, $previousKey)) {
-                    $rows[] = [
-                        'uid'              => $entry['uid'],
-                        'action'           => $entry['action'],
-                        'secretIdentifier' => $entry['secretId'],
-                        'crdate'           => $entry['crdate'],
-                    ];
-                } else {
-                    $problems[] = sprintf(
-                        'Row uid %d verifies under neither the current nor the previous master key.',
-                        $entry['uid'],
-                    );
-                }
+            $problem = $this->sealProblem($row, $previousHash, $storedHash, $currentKey, $previousKey);
+            if ($problem === self::SEALED_UNDER_PREVIOUS_KEY) {
+                $rows[] = [
+                    'uid'              => $entry['uid'],
+                    'action'           => $entry['action'],
+                    'secretIdentifier' => $entry['secretId'],
+                    'crdate'           => $entry['crdate'],
+                ];
+            } elseif ($problem !== null) {
+                $problems[] = $problem;
             }
 
             $previousHash = $storedHash;
@@ -220,6 +223,40 @@ final readonly class RotationGapScanner implements RotationGapScannerInterface
         }
 
         return [$rows, $problems];
+    }
+
+    /**
+     * Null when the row links to `$previousHash` and is sealed under the
+     * current key, SEALED_UNDER_PREVIOUS_KEY when it is sealed under the
+     * previous one, and otherwise the problem.
+     *
+     * @param array<string, mixed> $row
+     */
+    private function sealProblem(
+        array $row,
+        string $previousHash,
+        string $storedHash,
+        #[SensitiveParameter]
+        string $currentKey,
+        #[SensitiveParameter]
+        string $previousKey,
+    ): ?string {
+        $uid        = AuditLogService::extractHashRow($row)['uid'];
+        $storedLink = is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '';
+
+        if (!hash_equals($previousHash, $storedLink)) {
+            return sprintf('Row uid %d does not link to the row before it.', $uid);
+        }
+
+        if ($this->isSealedUnder($row, $previousHash, $storedHash, $currentKey)) {
+            return null;
+        }
+
+        // Epoch-0 rows are keyless and match any key, so only an HMAC row can
+        // be one sealed under the previous key.
+        return AuditLogService::extractHashRow($row)['epoch'] > 0 && $this->isSealedUnder($row, $previousHash, $storedHash, $previousKey)
+            ? self::SEALED_UNDER_PREVIOUS_KEY
+            : sprintf('Row uid %d verifies under neither the current nor the previous master key.', $uid);
     }
 
     /**

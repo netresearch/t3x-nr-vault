@@ -120,32 +120,14 @@ final class VaultRotationGapRepairCommand extends Command
             return Command::FAILURE;
         }
 
-        $oldKeyPath = $input->getOption('old-key');
-        if (!is_string($oldKeyPath) || $oldKeyPath === '') {
-            $io->error('--old-key is required: the file with the master key used before the rotation.');
-
+        $keys = $this->resolveKeys($io, $input->getOption('old-key'));
+        if ($keys === null) {
             return Command::FAILURE;
         }
 
-        try {
-            $previousKey = MasterKeyFile::read($oldKeyPath);
-            $currentKey  = $this->masterKeyProvider->getMasterKey();
-        } catch (MasterKeyException $e) {
-            $io->error($e->getMessage());
-
-            return Command::FAILURE;
-        }
+        [$previousKey, $currentKey] = $keys;
 
         try {
-            if (hash_equals($previousKey, $currentKey)) {
-                $io->error([
-                    '--old-key is the master key the configuration uses now.',
-                    'Run this command after the configuration switch, with the key used before the rotation.',
-                ]);
-
-                return Command::FAILURE;
-            }
-
             return $this->runRepair(
                 $io,
                 $previousKey,
@@ -157,6 +139,44 @@ final class VaultRotationGapRepairCommand extends Command
             sodium_memzero($previousKey);
             sodium_memzero($currentKey);
         }
+    }
+
+    /**
+     * Read the previous key from `--old-key` and the current one from the
+     * provider. Null, after reporting why, when either is missing or both
+     * are the same key.
+     *
+     * @return array{string, string}|null previous key, current key
+     */
+    private function resolveKeys(SymfonyStyle $io, mixed $oldKeyPath): ?array
+    {
+        if (!is_string($oldKeyPath) || $oldKeyPath === '') {
+            $io->error('--old-key is required: the file with the master key used before the rotation.');
+
+            return null;
+        }
+
+        try {
+            $previousKey = MasterKeyFile::read($oldKeyPath);
+            $currentKey  = $this->masterKeyProvider->getMasterKey();
+        } catch (MasterKeyException $e) {
+            $io->error($e->getMessage());
+
+            return null;
+        }
+
+        if (!hash_equals($previousKey, $currentKey)) {
+            return [$previousKey, $currentKey];
+        }
+
+        sodium_memzero($previousKey);
+        sodium_memzero($currentKey);
+        $io->error([
+            '--old-key is the master key the configuration uses now.',
+            'Run this command after the configuration switch, with the key used before the rotation.',
+        ]);
+
+        return null;
     }
 
     private function runRepair(
@@ -175,6 +195,36 @@ final class VaultRotationGapRepairCommand extends Command
 
         $this->report($io, $previousKeySecrets, $unreadableSecrets, $scan);
 
+        $exit = $this->exitBeforeRepair($io, $scan, $previousKeySecrets, $unreadableSecrets, $dryRun, $confirmed);
+        if ($exit !== null) {
+            return $exit;
+        }
+
+        $counts = $this->repair($io, $previousKey, $currentKey);
+
+        return $counts === null ? Command::FAILURE : $this->finish($io, $unreadableSecrets, sprintf(
+            'Re-wrapped %d secret(s) and re-sealed %d audit row(s) under the configured master key.',
+            ...$counts,
+        ));
+    }
+
+    /**
+     * The exit code when the run ends before the repair: a refused chain,
+     * nothing to repair, a dry run, or a missing --confirm. Null to go on.
+     *
+     * @param list<string> $previousKeySecrets
+     * @param list<string> $unreadableSecrets
+     */
+    private function exitBeforeRepair(
+        SymfonyStyle $io,
+        RotationGapScan $scan,
+        array $previousKeySecrets,
+        array $unreadableSecrets,
+        bool $dryRun,
+        bool $confirmed,
+    ): ?int {
+        $exit = null;
+
         if (!$scan->isRepairable()) {
             $io->error(array_merge(
                 ['The audit chain has findings a re-seal would hide. Nothing was changed.'],
@@ -191,41 +241,25 @@ final class VaultRotationGapRepairCommand extends Command
                 );
             }
 
-            return Command::FAILURE;
-        }
-
-        if ($previousKeySecrets === [] && !$scan->hasPreviousKeyRows()) {
-            return $this->finish($io, $unreadableSecrets, 'Nothing is left under the previous master key.');
-        }
-
-        if ($dryRun) {
+            $exit = Command::FAILURE;
+        } elseif ($previousKeySecrets === [] && !$scan->hasPreviousKeyRows()) {
+            $exit = $this->finish($io, $unreadableSecrets, 'Nothing is left under the previous master key.');
+        } elseif ($dryRun) {
             $io->success(sprintf(
                 '[DRY RUN] Would re-wrap %d secret(s) and re-seal %d audit row(s). No changes made.',
                 count($previousKeySecrets),
                 count($scan->previousKeyRows),
             ));
-
-            return Command::SUCCESS;
-        }
-
-        if (!$confirmed) {
+            $exit = Command::SUCCESS;
+        } elseif (!$confirmed) {
             $io->warning([
                 'This re-wraps the secrets and re-seals the audit rows listed above under the configured master key.',
                 'Use --confirm to proceed or --dry-run to only report.',
             ]);
-
-            return Command::FAILURE;
+            $exit = Command::FAILURE;
         }
 
-        $counts = $this->repair($io, $previousKey, $currentKey);
-        if ($counts === null) {
-            return Command::FAILURE;
-        }
-
-        return $this->finish($io, $unreadableSecrets, sprintf(
-            'Re-wrapped %d secret(s) and re-sealed %d audit row(s) under the configured master key.',
-            ...$counts,
-        ));
+        return $exit;
     }
 
     /**
@@ -347,64 +381,16 @@ final class VaultRotationGapRepairCommand extends Command
         #[SensitiveParameter]
         string $currentKey,
     ): ?array {
-        $connection = $this->connectionPool->getConnectionForTable(self::SECRET_TABLE);
-        if ($this->connectionPool->getConnectionForTable(self::AUDIT_LOG_TABLE) !== $connection) {
-            $io->error(
-                'tx_nrvault_secret and tx_nrvault_audit_log are mapped to different database '
-                . 'connections; the repair cannot change secrets and audit chain atomically.',
-            );
-
+        $connection = $this->openRepairTransaction($io);
+        if (!$connection instanceof Connection) {
             return null;
         }
 
         $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
-        // Entries written inside the transaction reach the external sinks only
-        // after the commit, with the hashes the re-seal gave them.
-        $this->publicationBuffer?->collect();
-
-        try {
-            // A Doctrine-managed transaction on SQLite as well: the audit
-            // writes inside it nest as savepoints, where a raw BEGIN EXCLUSIVE
-            // cannot nest.
-            $this->acquireAuditLock($connection, $isSQLite, true);
-        } catch (Throwable $e) {
-            $this->publicationBuffer?->discard();
-            $io->error(['The audit-chain lock was not granted; nothing was changed.', $e->getMessage()]);
-
-            return null;
-        }
-
         $lockHeld = true;
 
         try {
-            try {
-                $counts = $this->applyRepair($connection, $previousKey, $currentKey);
-            } catch (Throwable $e) {
-                return $this->failRepair(
-                    $connection,
-                    $io,
-                    $lockHeld,
-                    ['Repair rolled back; nothing was changed.', $e->getMessage()],
-                    'Rotation gap repair rolled back; nothing changed',
-                );
-            }
-
-            try {
-                $this->commitAuditLock($connection, $isSQLite);
-            } catch (Throwable $e) {
-                // The server may have committed before the connection failed.
-                return $this->failRepair(
-                    $connection,
-                    $io,
-                    $lockHeld,
-                    [
-                        'The repair commit failed: ' . $e->getMessage(),
-                        'The database may or may not hold the repair. Keep both master keys and run '
-                        . 'this command again with --dry-run to see what is left under the previous key.',
-                    ],
-                    'Rotation gap repair commit failed; outcome unknown',
-                );
-            }
+            $counts = $this->applyAndCommit($io, $connection, $isSQLite, $lockHeld, $previousKey, $currentKey);
         } finally {
             if ($lockHeld) {
                 try {
@@ -416,7 +402,89 @@ final class VaultRotationGapRepairCommand extends Command
             }
         }
 
-        $this->publicationBuffer?->flush();
+        if ($counts !== null) {
+            $this->publicationBuffer?->flush();
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Take the audit-chain lock and open the repair transaction. Null, after
+     * reporting why, when that is not possible.
+     */
+    private function openRepairTransaction(SymfonyStyle $io): ?Connection
+    {
+        $connection = $this->connectionPool->getConnectionForTable(self::SECRET_TABLE);
+        if ($this->connectionPool->getConnectionForTable(self::AUDIT_LOG_TABLE) !== $connection) {
+            $io->error(
+                'tx_nrvault_secret and tx_nrvault_audit_log are mapped to different database '
+                . 'connections; the repair cannot change secrets and audit chain atomically.',
+            );
+
+            return null;
+        }
+
+        // Entries written inside the transaction reach the external sinks only
+        // after the commit, with the hashes the re-seal gave them.
+        $this->publicationBuffer?->collect();
+
+        try {
+            // A Doctrine-managed transaction on SQLite as well: the audit
+            // writes inside it nest as savepoints, where a raw BEGIN EXCLUSIVE
+            // cannot nest.
+            $this->acquireAuditLock($connection, $connection->getDatabasePlatform() instanceof SQLitePlatform, true);
+        } catch (Throwable $e) {
+            $this->publicationBuffer?->discard();
+            $io->error(['The audit-chain lock was not granted; nothing was changed.', $e->getMessage()]);
+
+            return null;
+        }
+
+        return $connection;
+    }
+
+    /**
+     * @return array{int, int}|null
+     */
+    private function applyAndCommit(
+        SymfonyStyle $io,
+        Connection $connection,
+        bool $isSQLite,
+        bool &$lockHeld,
+        #[SensitiveParameter]
+        string $previousKey,
+        #[SensitiveParameter]
+        string $currentKey,
+    ): ?array {
+        try {
+            $counts = $this->applyRepair($connection, $previousKey, $currentKey);
+        } catch (Throwable $e) {
+            return $this->failRepair(
+                $connection,
+                $io,
+                $lockHeld,
+                ['Repair rolled back; nothing was changed.', $e->getMessage()],
+                'Rotation gap repair rolled back; nothing changed',
+            );
+        }
+
+        try {
+            $this->commitAuditLock($connection, $isSQLite);
+        } catch (Throwable $e) {
+            // The server may have committed before the connection failed.
+            $counts = $this->failRepair(
+                $connection,
+                $io,
+                $lockHeld,
+                [
+                    'The repair commit failed: ' . $e->getMessage(),
+                    'The database may or may not hold the repair. Keep both master keys and run '
+                    . 'this command again with --dry-run to see what is left under the previous key.',
+                ],
+                'Rotation gap repair commit failed; outcome unknown',
+            );
+        }
 
         return $counts;
     }
