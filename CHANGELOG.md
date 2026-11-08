@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-08
+
+### Added
+
+- `vault:rotation-gap-repair --old-key=<file>` re-wraps secrets and re-seals audit rows that were written under the previous master key between a rotation and the configuration switch. It refuses when the audit chain has any other finding, re-checks under the audit-chain lock, and commits only a chain that verifies; each re-wrapped secret gets a `master_key_rewrap` audit row (#508).
+
+### Changed
+
+- The release evidence workflow runs the full and the security-scoped mutation analysis as two jobs with their own time budgets. In one 45-minute job they took 29 to 45 minutes, and a slow runner cancelled the job and blocked the v1.3.0 release until it was re-run (#502).
+
+- The key rotation guide, the known-limitations page and the next steps `vault:rotate-master-key` prints say that secrets and consumer envelopes written between a rotation and the configuration switch are wrapped under the old key, list the writers to stop for that window (including refresh-token storage of outbound OAuth calls), and ask to keep the old key until the audit log shows no write in the gap (#501).
+
+- Release publishing depends on reusable evidence and a short verifier of the signed tag, actual tested commit, report integrity and latest required workflows; pending prerequisites block publication without polling (#486).
+
+### Fixed
+
+- The key rotation guide and the next steps `vault:rotate-master-key` prints no longer send operators to `vault:audit-migrate-hmac` for audit rows written between the rotation and the configuration switch. That command cannot re-seal them; `vault:rotation-gap-repair` does (#509).
+
+- `vault:rotate-master-key` publishes its audit entries to the external sinks (syslog, NDJSON file, webhook) only after its transaction commits, with the hashes the audit-chain re-key stored. Before, the sinks received the entries before the commit, so a rotation that rolled back still appeared in a SIEM as completed, and committed entries carried their pre-re-key hashes (#499).
+
 ## [1.3.0] - 2026-11-06
 
 ### Upgrading from 1.2
@@ -2256,7 +2276,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.0.1...v1.1.0

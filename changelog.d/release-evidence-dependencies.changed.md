@@ -1,1 +1,0 @@
-- Release publishing depends on reusable evidence and a short verifier of the signed tag, actual tested commit, report integrity and latest required workflows; pending prerequisites block publication without polling.

@@ -1,1 +1,0 @@
-- The key rotation guide and the next steps `vault:rotate-master-key` prints no longer send operators to `vault:audit-migrate-hmac` for audit rows written between the rotation and the configuration switch. That command cannot re-seal them; `vault:rotation-gap-repair` does (#509).
