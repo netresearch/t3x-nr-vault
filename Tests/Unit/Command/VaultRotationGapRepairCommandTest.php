@@ -16,7 +16,9 @@ use Netresearch\NrVault\Audit\RotationGapScannerInterface;
 use Netresearch\NrVault\Command\VaultRotationGapRepairCommand;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
+use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
+use Netresearch\NrVault\Exception\EncryptionException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Tests\Unit\TestCase;
@@ -36,11 +38,13 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultRotationGapRepairCommandTest extends TestCase
 {
-    private const CURRENT_KEY = 'cccccccccccccccccccccccccccccccc';
-
-    private const PREVIOUS_KEY = 'pppppppppppppppppppppppppppppppp';
-
     private const OPTION_OLD_KEY = '--old-key';
+
+    private string $currentKey = '';
+
+    private string $previousKey = '';
+
+    private EncryptionServiceInterface&MockObject $encryptionService;
 
     private AccessControlServiceInterface&MockObject $accessControlService;
 
@@ -54,6 +58,10 @@ final class VaultRotationGapRepairCommandTest extends TestCase
     {
         parent::setUp();
         vfsStream::setup('keys');
+
+        $this->currentKey        = sodium_crypto_secretbox_keygen();
+        $this->previousKey       = sodium_crypto_secretbox_keygen();
+        $this->encryptionService = $this->createMock(EncryptionServiceInterface::class);
 
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
         $this->secretRepository     = $this->createMock(SecretRepositoryInterface::class);
@@ -73,7 +81,7 @@ final class VaultRotationGapRepairCommandTest extends TestCase
         $this->accessControlService->expects(self::once())->method('isGranted')->with(VaultPermission::MasterKeyRotate)->willReturn(false);
         $this->scanner->expects(self::never())->method('scan');
 
-        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile(self::PREVIOUS_KEY)]);
+        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile($this->previousKey)]);
 
         self::assertSame(1, $tester->getStatusCode());
         self::assertStringContainsString('master_key.rotate', $tester->getDisplay());
@@ -97,7 +105,7 @@ final class VaultRotationGapRepairCommandTest extends TestCase
         $this->accessControlService->method('isGranted')->willReturn(true);
         $this->scanner->expects(self::never())->method('scan');
 
-        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile(self::CURRENT_KEY)]);
+        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile($this->currentKey)]);
 
         self::assertSame(1, $tester->getStatusCode());
         self::assertStringContainsString('the configuration uses now', $tester->getDisplay());
@@ -111,7 +119,7 @@ final class VaultRotationGapRepairCommandTest extends TestCase
         $this->scanner->method('scan')->willReturn(new RotationGapScan(problems: ['Row uid 7 verifies under neither key.']));
         $this->auditLogService->expects(self::never())->method('log');
 
-        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile(self::PREVIOUS_KEY), '--dry-run' => true]);
+        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile($this->previousKey), '--dry-run' => true]);
 
         self::assertSame(1, $tester->getStatusCode());
         self::assertStringContainsString('Row uid 7 verifies under neither key.', $tester->getDisplay());
@@ -125,7 +133,7 @@ final class VaultRotationGapRepairCommandTest extends TestCase
         $this->scanner->method('scan')->willReturn(new RotationGapScan(problems: ['Rows uid 4 to 4 are missing.']));
         $this->auditLogService->expects(self::once())->method('log')->with('__master_key__', 'audit_chain_rekey', false);
 
-        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile(self::PREVIOUS_KEY), '--confirm' => true]);
+        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile($this->previousKey), '--confirm' => true]);
 
         self::assertSame(1, $tester->getStatusCode());
     }
@@ -141,11 +149,60 @@ final class VaultRotationGapRepairCommandTest extends TestCase
         $this->secretRepository->expects(self::never())->method('save');
         $this->auditLogService->expects(self::never())->method('log');
 
-        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile(self::PREVIOUS_KEY)]);
+        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile($this->previousKey)]);
 
         self::assertSame(1, $tester->getStatusCode());
         self::assertStringContainsString('--confirm', $tester->getDisplay());
         self::assertStringContainsString('api-token', $tester->getDisplay());
+    }
+
+    /**
+     * A record whose value a custom adapter keeps elsewhere has no local
+     * envelope, so no master key wraps it: it is neither repairable nor lost.
+     */
+    #[Test]
+    public function leavesRecordsWithoutALocalEnvelopeAlone(): void
+    {
+        $this->accessControlService->method('isGranted')->willReturn(true);
+        $this->secretRepository->method('findIdentifiers')->willReturn(['kept-elsewhere']);
+        $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn(
+            new Secret(identifier: 'kept-elsewhere', adapter: 'hashicorp', externalReference: 'kv/app/token'),
+        );
+        $this->scanner->method('scan')->willReturn(new RotationGapScan());
+        $this->encryptionService->expects(self::never())->method('reEncryptDek');
+
+        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile($this->previousKey), '--dry-run' => true]);
+
+        self::assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
+        self::assertStringContainsString('Nothing is left under the previous master key', $tester->getDisplay());
+    }
+
+    /**
+     * A dry run exits 1 like the real run when a secret opens under neither
+     * key, so automation does not read it as clean.
+     */
+    #[Test]
+    public function aDryRunFailsWhenASecretOpensUnderNeitherKey(): void
+    {
+        $this->accessControlService->method('isGranted')->willReturn(true);
+        $this->secretRepository->method('findIdentifiers')->willReturn(['lost']);
+        $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn(new Secret(
+            identifier: 'lost',
+            encryptedValue: 'encrypted-value',
+            encryptedDek: 'encrypted-dek',
+            dekNonce: 'dek-nonce',
+            valueNonce: 'value-nonce',
+            valueChecksum: 'value-checksum',
+        ));
+        $this->encryptionService->method('reEncryptDek')->willThrowException(EncryptionException::decryptionFailed('wrong key'));
+        $this->scanner->method('scan')->willReturn(new RotationGapScan(previousKeyRows: [
+            ['uid' => 9, 'action' => 'read', 'secretIdentifier' => 'api-token', 'crdate' => 1_700_000_000],
+        ]));
+
+        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile($this->previousKey), '--dry-run' => true]);
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertStringContainsString('open under neither', $tester->getDisplay());
     }
 
     /**
@@ -162,12 +219,12 @@ final class VaultRotationGapRepairCommandTest extends TestCase
     private function createCommand(): VaultRotationGapRepairCommand
     {
         $provider = self::createStub(MasterKeyProviderInterface::class);
-        $provider->method('getMasterKey')->willReturn(self::CURRENT_KEY);
+        $provider->method('getMasterKey')->willReturn($this->currentKey);
 
         return new VaultRotationGapRepairCommand(
             $this->accessControlService,
             $this->secretRepository,
-            self::createStub(EncryptionServiceInterface::class),
+            $this->encryptionService,
             $provider,
             self::createStub(ConnectionPool::class),
             $this->auditLogService,

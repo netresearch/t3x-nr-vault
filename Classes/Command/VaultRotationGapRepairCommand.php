@@ -126,6 +126,9 @@ final class VaultRotationGapRepairCommand extends Command
         }
 
         [$previousKey, $currentKey] = $keys;
+        // The array shares the key strings; sodium_memzero() below only wipes
+        // a buffer nothing else references.
+        unset($keys);
 
         try {
             return $this->runRepair(
@@ -245,12 +248,11 @@ final class VaultRotationGapRepairCommand extends Command
         } elseif ($previousKeySecrets === [] && !$scan->hasPreviousKeyRows()) {
             $exit = $this->finish($io, $unreadableSecrets, 'Nothing is left under the previous master key.');
         } elseif ($dryRun) {
-            $io->success(sprintf(
+            $exit = $this->finish($io, $unreadableSecrets, sprintf(
                 '[DRY RUN] Would re-wrap %d secret(s) and re-seal %d audit row(s). No changes made.',
                 count($previousKeySecrets),
                 count($scan->previousKeyRows),
             ));
-            $exit = Command::SUCCESS;
         } elseif (!$confirmed) {
             $io->warning([
                 'This re-wraps the secrets and re-seals the audit rows listed above under the configured master key.',
@@ -264,7 +266,9 @@ final class VaultRotationGapRepairCommand extends Command
 
     /**
      * Sort every secret, disabled ones included, by the key its DEK opens
-     * under. Secrets under the configured key are left out.
+     * under. Secrets under the configured key are left out, and so are
+     * records without a local envelope (a custom adapter keeps the value
+     * elsewhere), which no master key wraps.
      *
      * @return array{list<string>, list<string>} identifiers under the previous key, identifiers under neither key
      */
@@ -279,7 +283,10 @@ final class VaultRotationGapRepairCommand extends Command
 
         foreach ($this->secretRepository->findIdentifiers(new SecretFilters(includeDisabled: true)) as $identifier) {
             $secret = $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
-            if (!$secret instanceof Secret || $this->opensUnder($secret, $currentKey, $currentKey)) {
+            if (!$secret instanceof Secret
+                || $secret->getEncryptedDek() === ''
+                || $this->opensUnder($secret, $currentKey, $currentKey)
+            ) {
                 continue;
             }
 

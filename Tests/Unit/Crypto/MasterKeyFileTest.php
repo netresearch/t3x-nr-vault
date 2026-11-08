@@ -31,7 +31,7 @@ final class MasterKeyFileTest extends TestCase
     #[Test]
     public function readsARawKey(): void
     {
-        $key = str_repeat('k', 32);
+        $key = sodium_crypto_secretbox_keygen();
 
         self::assertSame($key, MasterKeyFile::read($this->keyFile($key)));
     }
@@ -39,7 +39,7 @@ final class MasterKeyFileTest extends TestCase
     #[Test]
     public function readsABase64KeyWithATrailingNewline(): void
     {
-        $key = str_repeat('k', 32);
+        $key = sodium_crypto_secretbox_keygen();
 
         self::assertSame($key, MasterKeyFile::read($this->keyFile(base64_encode($key) . "\n")));
     }
@@ -50,7 +50,7 @@ final class MasterKeyFileTest extends TestCase
     #[Test]
     public function keepsARawKeyEndingInATrimCharacter(): void
     {
-        $key = str_repeat('k', 31) . "\n";
+        $key = substr(sodium_crypto_secretbox_keygen(), 0, 31) . "\n";
 
         self::assertSame($key, MasterKeyFile::read($this->keyFile($key)));
     }
@@ -66,7 +66,7 @@ final class MasterKeyFileTest extends TestCase
     #[Test]
     public function rejectsAnUnreadableFile(): void
     {
-        $path = $this->keyFile(str_repeat('k', 32));
+        $path = $this->keyFile(sodium_crypto_secretbox_keygen());
         chmod($path, 0o000);
 
         $this->expectException(MasterKeyException::class);

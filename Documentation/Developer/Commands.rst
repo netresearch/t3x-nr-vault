@@ -762,7 +762,9 @@ Secret values do not change.
 Consumer envelopes (:php:`ForeignEnvelopeRotatorInterface`) are not covered:
 their consumer re-creates them.
 A secret that neither key opens is left alone, and the command exits with
-code 1.
+code 1, on a dry run as well.
+A record without a local envelope, whose value a custom adapter keeps
+elsewhere, is wrapped under no master key and is skipped.
 
 .. _command-rotation-gap-repair-options:
 
