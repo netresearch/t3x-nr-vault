@@ -34,6 +34,8 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
  */
 final class AuditSinkPublicationBufferTest extends AbstractVaultFunctionalTestCase
 {
+    private const CHAIN_VERIFIES = 'The entries verify before the test alters the table.';
+
     protected ?string $backendUserFixture = __DIR__ . '/../../Functional/Service/Fixtures/be_users.csv';
 
     #[Test]
@@ -62,7 +64,7 @@ final class AuditSinkPublicationBufferTest extends AbstractVaultFunctionalTestCa
         $buffer->collect();
         $audit->log('publication-buffer-test', 'read', true);
         self::assertCount(0, $published, 'Nothing is published while the buffer collects.');
-        self::assertTrue($audit->verifyHashChain()->isValid(), 'The entries verify before the test alters the table.');
+        self::assertTrue($audit->verifyHashChain()->isValid(), self::CHAIN_VERIFIES);
 
         // What the rotation's re-key does: the stored hash changes before the
         // commit, after the row was written.
@@ -115,7 +117,7 @@ final class AuditSinkPublicationBufferTest extends AbstractVaultFunctionalTestCa
         $audit->log('publication-buffer-gone', 'read', true);
         $audit->log('publication-buffer-after', 'read', true);
 
-        self::assertTrue($audit->verifyHashChain()->isValid(), 'The entries verify before the test alters the table.');
+        self::assertTrue($audit->verifyHashChain()->isValid(), self::CHAIN_VERIFIES);
         $connection = $this->get(ConnectionPool::class)->getConnectionForTable(AuditLogService::TABLE_NAME);
         $connection->delete(AuditLogService::TABLE_NAME, ['secret_identifier' => 'publication-buffer-gone']);
 
@@ -157,7 +159,7 @@ final class AuditSinkPublicationBufferTest extends AbstractVaultFunctionalTestCa
 
         $buffer->collect();
         $audit->log('publication-buffer-gone', 'read', true);
-        self::assertTrue($audit->verifyHashChain()->isValid(), 'The entries verify before the test alters the table.');
+        self::assertTrue($audit->verifyHashChain()->isValid(), self::CHAIN_VERIFIES);
 
         $connection = $this->get(ConnectionPool::class)->getConnectionForTable(AuditLogService::TABLE_NAME);
         $connection->delete(AuditLogService::TABLE_NAME, ['secret_identifier' => 'publication-buffer-gone']);
