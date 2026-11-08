@@ -126,6 +126,9 @@ Your own preflight, before running any of it:
 *   [ ] **A verified backup of the database and of the current key material.**
       If the rotation fails in a way the transaction cannot undo, this is the
       only way back. See :ref:`operations-backup-and-restore`.
+*   [ ] **The old key as a file**, kept until the repair after the switch
+      reports nothing left (:ref:`how to keep it <operations-key-rotation-old-key-file>`).
+      Without it, nothing written in the gap can be repaired.
 *   [ ] **The new key exists, is 32 bytes, and is stored where the provider
       will read it after the switch.**
 *   [ ] **The audit chain verifies now.** Rotating over an already-broken
@@ -334,6 +337,29 @@ repair re-wraps every secret the old key opens, whenever it was written — so
 check the listed secrets in the dry run. Keep the old key under the same
 protection as the current one until the repair is done, then archive or
 destroy it.
+
+.. _operations-key-rotation-old-key-file:
+
+**The old key as a file.** The repair reads the old key from a file, raw
+32 bytes or base64, like ``--old-key`` of the rotation. Where the old key does
+not already live in a file, write it to one *before* the configuration switch,
+with permissions ``0600``, and keep it as protected as the key itself:
+
+*   ``file``: the old key file itself.
+*   ``env``: the old value of the variable.
+*   ``typo3``: the key is derived from ``$GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey']``
+    and never stored. Derive it while you still have the old ``encryptionKey``,
+    reading it from standard input so it stays out of the process list:
+
+    ..  code-block:: bash
+
+        php -r 'echo base64_encode(hash_hkdf("sha256",
+            trim(stream_get_contents(STDIN)), 32, "nr-vault-master-key")), PHP_EOL;' \
+            > /secure/path/old.key
+
+*   ``transit``: keep the old wrapped key blob; Vault's transit ``decrypt`` of
+    it returns the key base64-encoded in ``data.plaintext``, which the repair
+    reads as it is.
 
 Consumer envelopes are not covered: the vault does not know where a consumer
 stores them, and they are sealed without a vault audit entry. They are the
