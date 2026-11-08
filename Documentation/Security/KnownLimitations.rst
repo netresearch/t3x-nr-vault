@@ -229,14 +229,18 @@ is wrapped under the old key. After the switch it cannot be read, and once the
 old key is destroyed it is lost. Nothing blocks such writes; the command
 cannot see writes from other processes after it has committed.
 
+Audit rows written in the gap are sealed under the old key too, and the chain
+no longer verifies under the new one.
+
 **What to do.** Stop every writer for the rotation window, including
-automatic ones such as refresh-token storage of outbound OAuth calls, and keep
-the old key until the audit log shows no ``create``, ``update`` or ``rotate``
-entry from the start of the command to the switch
-(:ref:`operations-key-rotation-window`).
-Consumer envelopes are sealed without a vault audit entry, so the audit log
-cannot rule them out: unless each consumer can show it wrote nothing in that
-range, archive the old key instead of destroying it.
+automatic ones such as refresh-token storage of outbound OAuth calls. After
+the switch, run ``vault:rotation-gap-repair`` with the old key: it re-wraps
+the secrets and re-seals the audit rows still under the old key, and refuses
+when the chain has any other finding (:ref:`operations-key-rotation-window`).
+Keep the old key until it reports nothing left under it.
+Consumer envelopes are not covered by the repair and are sealed without a
+vault audit entry: unless each consumer can show it wrote nothing in that
+window, archive the old key instead of destroying it.
 
 .. _security-known-limitations-break-glass:
 

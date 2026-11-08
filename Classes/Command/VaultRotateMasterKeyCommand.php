@@ -24,6 +24,7 @@ use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Crypto\EnvelopeCodecInterface;
 use Netresearch\NrVault\Crypto\EnvelopeRotationContext;
 use Netresearch\NrVault\Crypto\ForeignEnvelopeRotatorInterface;
+use Netresearch\NrVault\Crypto\MasterKeyFile;
 use Netresearch\NrVault\Crypto\MasterKeyProviderFactoryInterface;
 use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
@@ -51,7 +52,6 @@ use function is_array;
 use function is_numeric;
 use function is_string;
 use function sprintf;
-use function strlen;
 use function strtoupper;
 
 /**
@@ -74,8 +74,6 @@ final class VaultRotateMasterKeyCommand extends Command
 {
     use AuditChainLockTrait;
 
-    private const KEY_LENGTH = 32;
-
     /**
      * Pseudo-identifier used for master-key lifecycle audit entries.
      * Not a real secret identifier; the audit query layer filters on the
@@ -90,12 +88,11 @@ final class VaultRotateMasterKeyCommand extends Command
         'Next steps:',
         '1. Update your configuration to use the new master key NOW — until then,',
         '   secrets cannot be decrypted and audit-chain verification uses the old key.',
-        '2. Keep the old master key until no secret or consumer envelope was written',
-        '   between this rotation and the configuration switch (anything written then',
-        '   is wrapped under the old key); then archive or destroy it',
+        '2. Keep the old master key until step 4 reports nothing left under it and no',
+        '   consumer envelope was written before the switch; then archive or destroy it',
         '3. Test secret retrieval and run vault:audit to verify chain integrity',
-        '4. If any audit entries were written between this rotation and the',
-        '   configuration switch, re-seal them with vault:audit-migrate-hmac',
+        '4. Secrets and audit entries written between this rotation and the configuration',
+        '   switch are under the old key: run vault:rotation-gap-repair --old-key=<file>',
     ];
 
     /**
@@ -990,55 +987,12 @@ final class VaultRotateMasterKeyCommand extends Command
     private function resolveKey(?string $keyPath): string
     {
         if ($keyPath !== null) {
-            return $this->loadKeyFromFile($keyPath);
+            return MasterKeyFile::read($keyPath);
         }
 
         // Fall back to currently configured master key
         $provider = $this->masterKeyProviderFactory->getAvailableProvider();
 
         return $provider->getMasterKey();
-    }
-
-    /**
-     * Load a master key from a file.
-     */
-    private function loadKeyFromFile(string $path): string
-    {
-        if (!file_exists($path)) {
-            throw MasterKeyException::notFound($path);
-        }
-
-        if (!is_readable($path)) {
-            throw MasterKeyException::notFound($path . ' (not readable)');
-        }
-
-        $key = file_get_contents($path);
-        if ($key === false) {
-            throw MasterKeyException::notFound($path);
-        }
-
-        // Resolve the key, mirroring FileMasterKeyProvider::loadRawKey() ordering.
-        // Order matters: never trim() a value that is already binary key material,
-        // or a valid 32-byte raw key whose first/last byte happens to be a trim
-        // char (\t \n \r space \0 \x0B) is silently corrupted to 30/31 bytes.
-        $trimmed = trim($key);
-
-        // 1) Trimmed value as raw binary key.
-        if (strlen($trimmed) === self::KEY_LENGTH) {
-            return $trimmed;
-        }
-
-        // 2) base64 decode of the trimmed text.
-        $decoded = base64_decode($trimmed, true);
-        if ($decoded !== false && strlen($decoded) === self::KEY_LENGTH) {
-            return $decoded;
-        }
-
-        // 3) Raw file contents as binary (no trimming of binary data).
-        if (strlen($key) === self::KEY_LENGTH) {
-            return $key;
-        }
-
-        throw MasterKeyException::invalidLength(self::KEY_LENGTH, strlen($trimmed));
     }
 }

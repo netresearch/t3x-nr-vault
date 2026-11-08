@@ -890,6 +890,33 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
+     * The entry hash a stored row must carry under `$hmacKey`, dispatched on
+     * the row's own `hmac_key_epoch`: 0 keyless SHA-256 (the key is ignored),
+     * 1 HMAC over the identity fields, 2 over the forensic payload, 3 and up
+     * also over the epoch selector and the attribution fields.
+     *
+     * Public so a caller can check a row against a key other than the
+     * provider's, such as the previous master key after a rotation.
+     *
+     * @param array<string, mixed> $row
+     */
+    public static function calculateEntryHash(
+        array $row,
+        string $previousHash,
+        #[SensitiveParameter]
+        string $hmacKey,
+    ): string {
+        $v1 = self::extractHashRow($row);
+
+        return match (true) {
+            $v1['epoch'] === 0 => self::calculateHash($v1['uid'], $v1['secretId'], $v1['action'], $v1['actorUid'], $v1['crdate'], $previousHash),
+            $v1['epoch'] === 1 => self::calculateHash($v1['uid'], $v1['secretId'], $v1['action'], $v1['actorUid'], $v1['crdate'], $previousHash, $hmacKey),
+            $v1['epoch'] === 2 => self::calculateHashV2(self::extractV2HashRow($row), $previousHash, $hmacKey),
+            default            => self::calculateHashV3(self::extractV3HashRow($row), $previousHash, $hmacKey),
+        };
+    }
+
+    /**
      * The anchor half of the re-seal gate, for chains whose rows carry no HMAC
      * evidence of their own. Returns null when the anchor raises no error —
      * `Unanchored` (or `Disabled`) is a warning, so a pre-anchor install still
@@ -1469,41 +1496,15 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     private function calculateEntryHashFromRow(array $row, string $previousHash): string
     {
         $epoch = is_int($row['hmac_key_epoch'] ?? null) ? $row['hmac_key_epoch'] : 0;
-        $v1    = self::extractHashRow($row);
 
         if ($epoch === 0) {
-            return self::calculateHash(
-                $v1['uid'],
-                $v1['secretId'],
-                $v1['action'],
-                $v1['actorUid'],
-                $v1['crdate'],
-                $previousHash,
-            );
+            return self::calculateEntryHash($row, $previousHash, '');
         }
 
         $hmacKey = $this->getHmacKey();
 
         try {
-            if ($epoch === 1) {
-                return self::calculateHash(
-                    $v1['uid'],
-                    $v1['secretId'],
-                    $v1['action'],
-                    $v1['actorUid'],
-                    $v1['crdate'],
-                    $previousHash,
-                    $hmacKey,
-                );
-            }
-
-            if ($epoch === 2) {
-                // Extended payload that covers forensic fields too.
-                return self::calculateHashV2(self::extractV2HashRow($row), $previousHash, $hmacKey);
-            }
-
-            // Epoch 3+: also binds the epoch selector and attribution fields.
-            return self::calculateHashV3(self::extractV3HashRow($row), $previousHash, $hmacKey);
+            return self::calculateEntryHash($row, $previousHash, $hmacKey);
         } finally {
             sodium_memzero($hmacKey);
         }

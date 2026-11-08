@@ -14,6 +14,7 @@ use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\Sink\SinkDeliveryStateRepository;
 use Netresearch\NrVault\Command\VaultRotateMasterKeyCommand;
+use Netresearch\NrVault\Command\VaultRotationGapRepairCommand;
 use Netresearch\NrVault\Configuration\SiteConfigurationVaultProcessor;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\VaultException;
@@ -425,6 +426,12 @@ final class ArchitectureTest
      * `SecureHttpClientFactory` Guzzle-lock allow-one pattern), so any
      * NEW command that injects the repository fails CI.
      *
+     * `VaultRotationGapRepairCommand` is the second half of the same
+     * operation: it re-wraps the DEKs a rotation left under the previous key
+     * because they were written before the configuration switch, again in
+     * one transaction with the audit chain. Unlike the rotation it writes a
+     * `master_key_rewrap` audit row per secret.
+     *
      * The rule targets both the `Domain\Repository` namespace (the
      * concrete `SecretRepository`) AND the `SecretRepositoryInterface`
      * by classname, because PHPat does not reliably trip on
@@ -438,7 +445,10 @@ final class ArchitectureTest
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace(self::NAMESPACE_COMMAND))
-            ->excluding(Selector::classname(VaultRotateMasterKeyCommand::class))
+            ->excluding(
+                Selector::classname(VaultRotateMasterKeyCommand::class),
+                Selector::classname(VaultRotationGapRepairCommand::class),
+            )
             ->shouldNot()
             ->dependOn()
             ->classes(
@@ -447,8 +457,8 @@ final class ArchitectureTest
             )
             ->because(
                 'commands must go through the service layer; only the '
-                . 'blessed VaultRotateMasterKeyCommand may drive the '
-                . 'repository directly for bulk master-key rotation',
+                . 'blessed master-key rotation commands may drive the '
+                . 'repository directly to re-wrap DEKs in bulk',
             );
     }
 

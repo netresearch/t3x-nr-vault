@@ -191,6 +191,14 @@ which real evidence is still available.
             time, or the master key was rotated without the chain rekey
             completing.
 
+    *   -   ``HASH_MISMATCH`` on single rows after a master-key rotation
+        -   Rows written between the rotation and the configuration switch
+            are sealed under the old key. ``vault:rotation-gap-repair
+            --dry-run`` with the old key lists them; it reports every other
+            finding instead of accepting it
+            (:ref:`operations-key-rotation-window`). Freeze the evidence
+            first, as for any finding.
+
     *   -   ``EPOCH_DOWNGRADE``
         -   ``auditHmacEpoch`` was lowered in the configuration, or a
             restored configuration does not match the restored data. An

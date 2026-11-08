@@ -80,6 +80,14 @@ enum AuditAction: string
     case MasterKeyRotateEnd          = 'master_key_rotate_end';
     case AuditChainRekey             = 'audit_chain_rekey';
     /**
+     * A secret's DEK was found wrapped under the previous master key after a
+     * rotation (it was written between the rotation and the configuration
+     * switch) and re-wrapped under the current one by
+     * `vault:rotation-gap-repair`. The value is unchanged, so this is not a
+     * `rotate`.
+     */
+    case MasterKeyRewrap = 'master_key_rewrap';
+    /**
      * One OAuth token-endpoint round trip attempted by `OAuthTokenManager` —
      * the outbound POST that carries the `client_secret` (issue #303).
      *

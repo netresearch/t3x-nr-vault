@@ -45,6 +45,7 @@ Netresearch\NrVault\Audit\AuditAction (enum)
   case HttpCall = "http_call"
   case HttpCallCancelled = "http_call_cancelled"
   case HttpCallCancelledBeforeSend = "http_call_cancelled_before_send"
+  case MasterKeyRewrap = "master_key_rewrap"
   case MasterKeyRotateEnd = "master_key_rotate_end"
   case MasterKeyRotateStart = "master_key_rotate_start"
   case MetadataUpdate = "metadata_update"
@@ -217,6 +218,16 @@ Netresearch\NrVault\Audit\HashChainVerificationResult (class)
   property readonly missingUids: array
   property readonly valid: bool
   property readonly warnings: array
+
+Netresearch\NrVault\Audit\RotationGapScan (class)
+  constructor(array $previousKeyRows = …, array $problems = …)
+  method hasPreviousKeyRows(): bool
+  method isRepairable(): bool
+  property readonly previousKeyRows: array
+  property readonly problems: array
+
+Netresearch\NrVault\Audit\RotationGapScannerInterface (interface)
+  method scan(string $previousMasterKey): Netresearch\NrVault\Audit\RotationGapScan
 
 Netresearch\NrVault\Audit\Sink\AuditSinkInterface (interface, extension point)
   method getIdentifier(): string

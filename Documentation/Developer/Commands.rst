@@ -721,6 +721,88 @@ Example
      --old-key=/path/to/old.key \
      --dry-run
 
+.. _command-rotation-gap-repair:
+
+vault:rotation-gap-repair
+=========================
+
+Repair what was written between a master-key rotation and the configuration
+switch, with the master key used before the rotation.
+Until the switch, the provider still returns the old key, so a secret stored
+then is wrapped under the old key and an audit row written then is sealed
+under the old key.
+The command re-wraps such secrets and re-seals such rows under the configured
+key.
+See :ref:`operations-key-rotation-window` for when to run it.
+
+.. code-block:: bash
+   :caption: Command syntax
+
+   vendor/bin/typo3 vault:rotation-gap-repair --old-key=PATH [options]
+
+The command:
+
+*   lists every secret, disabled ones included, whose DEK opens under the old
+    key, and every secret that neither key opens;
+*   lists the audit rows after the last successful ``master_key_rotate_end``
+    row that verify only under the old key;
+*   refuses when the audit chain has any other finding: a row that verifies
+    under neither key, a missing row, a broken link, an epoch downgrade, an
+    old-key row before the last rotation, or a tip-anchor error. A refused run
+    changes no secret and no existing row; without ``--dry-run`` it appends a
+    failed ``audit_chain_rekey`` row;
+*   with ``--confirm``, re-wraps the listed secrets, writes a
+    ``master_key_rewrap`` audit row for each, re-seals the chain under the
+    configured key and writes an ``audit_chain_rekey`` row, all in one
+    transaction under the audit-chain lock.
+    The chain must verify before the transaction commits.
+
+Secret values do not change.
+Consumer envelopes (:php:`ForeignEnvelopeRotatorInterface`) are not covered:
+their consumer re-creates them.
+A secret that neither key opens is left alone, and the command exits with
+code 1.
+
+.. _command-rotation-gap-repair-options:
+
+Options
+-------
+
+--old-key=PATH
+   Path to file containing the master key used before the rotation. Required.
+
+--dry-run
+   Report what would be repaired without changing anything, not even the
+   audit log.
+
+--confirm
+   Required for actual execution (safety measure).
+
+.. important::
+
+   Like ``vault:rotate-master-key``, this command asserts
+   ``master_key.rotate``.
+   On the CLI it needs ``allowCliAccess`` **and** that operation in
+   :confval:`ext-nrvault-cliAllowedOperations`.
+
+.. _command-rotation-gap-repair-example:
+
+Example
+-------
+
+.. code-block:: bash
+   :caption: vault:rotation-gap-repair examples
+
+   # Report what is left under the old key
+   vendor/bin/typo3 vault:rotation-gap-repair \
+     --old-key=/secure/path/old-master.key \
+     --dry-run
+
+   # Repair it
+   vendor/bin/typo3 vault:rotation-gap-repair \
+     --old-key=/secure/path/old-master.key \
+     --confirm
+
 .. _command-scan:
 
 vault:scan
