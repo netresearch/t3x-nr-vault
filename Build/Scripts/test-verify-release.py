@@ -89,6 +89,13 @@ class ReleaseTest(unittest.TestCase):
     def test_matching_bundle_signed_main_commit_and_complete_policy_pass(self):
         self.verify()
 
+    def test_required_workflows_match_documented_release_policy(self):
+        # Fixtures derive from REQUIRED_WORKFLOWS, so this list is the
+        # independent copy of SECURITY.md and CONTRIBUTING.md.
+        self.assertEqual(set(MODULE.REQUIRED_WORKFLOWS), {
+            "ci.yml", "checks.yml", "e2e.yml", "security-gates.yml",
+            "check-template-drift.yml", "harness-verify.yml", "formal.yml"})
+
     def test_run_paths_with_and_without_definition_refs_pass(self):
         for suffix in ("", "@main", "@refs/heads/main", "@" + COMMIT):
             with self.subTest(suffix=suffix):
