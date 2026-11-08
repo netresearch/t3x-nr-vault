@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The release evidence workflow runs the full and the security-scoped mutation analysis as two jobs with their own time budgets. In one 45-minute job they took 29 to 45 minutes, and a slow runner cancelled the job and blocked the v1.3.0 release until it was re-run (#502).
 
-- The key rotation guide, the known-limitations page and the next steps `vault:rotate-master-key` prints say that secrets and consumer envelopes written between a rotation and the configuration switch are wrapped under the old key, list the writers to stop for that window (including refresh-token storage of outbound OAuth calls), and ask to keep the old key until the audit log shows no write in the gap (#501).
+- The key rotation guide, the known-limitations page and the next steps `vault:rotate-master-key` prints say that secrets and consumer envelopes written between a rotation and the configuration switch are wrapped under the old key, list the writers to stop for that window (including refresh-token storage of outbound OAuth calls), and ask to keep the old key until the audit log shows no write in the gap and each consumer can show it wrote no envelope there; consumer envelopes are sealed without a vault audit entry, so without that the old key is archived, not destroyed (#501).
 
 - Release publishing depends on reusable evidence and a short verifier of the signed tag, actual tested commit, report integrity and latest required workflows; pending prerequisites block publication without polling (#486).
 
