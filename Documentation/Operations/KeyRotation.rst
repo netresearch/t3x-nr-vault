@@ -126,6 +126,9 @@ Your own preflight, before running any of it:
 *   [ ] **A verified backup of the database and of the current key material.**
       If the rotation fails in a way the transaction cannot undo, this is the
       only way back. See :ref:`operations-backup-and-restore`.
+*   [ ] **The old key as a file**, kept until the repair after the switch
+      reports nothing left (:ref:`how to keep it <operations-key-rotation-old-key-file>`).
+      Without it, nothing written in the gap can be repaired.
 *   [ ] **The new key exists, is 32 bytes, and is stored where the provider
       will read it after the switch.**
 *   [ ] **The audit chain verifies now.** Rotating over an already-broken
@@ -253,9 +256,10 @@ anything:
 
 The dry run only checks that ``--old-key`` opens the first secret and writes
 nothing. If it succeeds with the new key in ``--old-key``, the rotation
-committed: continue with the configuration switch below, and re-seal the
-failed ``master_key_rotate_end`` row the command wrote afterwards, as for any
-row written before the switch. If it fails, run the same check with the old
+committed: continue with the configuration switch below. The failed
+``master_key_rotate_end`` row the command wrote afterwards is sealed under the
+old key, like any row written before the switch, and step four below re-seals
+it. If it fails, run the same check with the old
 key in ``--old-key``; success there means the rotation rolled back and nothing
 changed. The check needs at least one secret in the vault.
 
@@ -278,37 +282,100 @@ On success the command prints its next steps, and they are not advisory:
 #.  **Securely archive or destroy the old key — but only after the checks
     below.** Archive it if you may still need to open an older backup;
     destroy it if you may not. Do not leave it where the vault could pick it
-    up again. Anything written in the gap is still wrapped under the old key,
-    so keep the old key until you have ruled that out.
-#.  **Test retrieval and verify the chain** — see below.
-#.  **Re-seal any rows written in the gap.** Audit rows written between the
+    up again. Anything written in the gap is still under the old key, so keep
+    the old key until the repair in step four reports nothing left under it.
+#.  **Test retrieval and verify the chain** — see below. A chain that fails
+    only on rows written after the rotation, or a secret that cannot be read,
+    means something was written in the gap: do step four, then verify again.
+    Until then the scheduled ``vault:audit-verify`` task reports
+    ``HASH_MISMATCH`` for those rows.
+#.  **Repair what was written in the gap.** Audit rows written between the
     rotation commit and the configuration switch are sealed with the old
-    HMAC key while the rest of the chain is under the new one. Re-seal them
-    with ``vault:audit-migrate-hmac``.
+    HMAC key while the rest of the chain is under the new one, so the chain
+    no longer verifies. Secrets stored in that time are wrapped under the old
+    key. ``vault:rotation-gap-repair`` re-seals those rows and re-wraps those
+    secrets with the old key — see below. ``vault:audit-migrate-hmac`` cannot
+    do it: it re-seals only rows below the configured epoch, and it refuses a
+    chain that does not verify.
 
 Steps three and four are the reason to keep the window short and to make it a
 maintenance window: every audited operation during the gap adds a row that
-will need re-sealing, and every write during the gap is wrapped under the
-old key.
+needs re-sealing, and every write during the gap is wrapped under the old
+key.
 
-**If something was written in the gap.** Audit entries for ``create``,
-``update`` and ``rotate`` between the moment you started the command and the
-end of the restarts after the configuration switch name the secrets that may
-be wrapped under the old key (``vault:audit --since … --until …``). The range
-starts at the command's start, not at its ``master_key_rotate_start`` row: the
-command lists the secrets before it writes that row, and a secret created
-after the list was taken is not re-encrypted. ``vault:audit`` prints at most
-50 entries unless ``--limit`` says otherwise; set a limit above the number of
-entries you expect, and repeat with a higher one if the output reaches it. Read
-each named secret after the switch; one that cannot be read was written under
-the old key, so store its value again. The command does not re-wrap such
-secrets, because it starts by checking the old key against the first secret,
-which by then is under the new key.
+**If something was written in the gap.** After the configuration switch and
+the restarts, run the repair with the old key, first as a dry run:
 
-Consumer envelopes are sealed without a vault audit entry, so this check
-cannot find them. They are the consumer's to re-create, and unless each
-consumer can show that it wrote nothing in that range, archive the old key
-instead of destroying it. Keep the old key until all of this is done.
+..  code-block:: bash
+
+    vendor/bin/typo3 vault:rotation-gap-repair \
+        --old-key=/path/to/old.key --dry-run
+
+It opens every secret, disabled ones included, and lists those whose DEK
+opens only under the old key and those that neither key opens. It lists the
+audit rows after the end of the rotation that verify only under the old key.
+Run it again with ``--confirm`` instead of
+``--dry-run`` to re-wrap those secrets and re-seal those rows under the new
+key, in one transaction under the audit-chain lock; each re-wrapped secret
+gets a ``master_key_rewrap`` audit row. Secret values do not change.
+
+The repair refuses when the chain has any other finding: a row that verifies
+under neither key, a missing row, a broken link, an old-key row before the end of the last rotation or after a successful
+repair, or a tip-anchor error. Re-sealing would hide such a finding. A
+refused run changes no secret and no existing row; without ``--dry-run`` it
+appends a failed ``audit_chain_rekey`` row. Keep both keys and investigate with
+``vault:audit-verify``.
+
+The repair trusts the old key. Anyone who holds it and can write to the
+database can add an audit row or a secret the repair accepts. A successful repair closes the window for audit rows: an old-key row after its
+``audit_chain_rekey`` row is refused, and no command re-seals it. Such a row
+means a process still wrote with the old key after the repair, or someone who
+holds the old key wrote it; treat it as an incident
+(:ref:`operations-incident-response-tampering`), keep both keys, and make sure
+every process was restarted before you run the repair. It does not close it for secrets — the
+repair re-wraps every secret the old key opens, whenever it was written — so
+check the listed secrets in the dry run. Keep the old key under the same
+protection as the current one until the repair is done, then archive or
+destroy it.
+
+.. _operations-key-rotation-old-key-file:
+
+**The old key as a file.** The repair reads the old key from a file, raw
+32 bytes or base64, like ``--old-key`` of the rotation. Make that file *before*
+the configuration switch, readable only by the user who runs the command, and
+keep it as protected as the key itself. The switch replaces the configured key,
+so the configured path does not hold the old key afterwards; the backup from the
+preflight list still does.
+
+*   ``file``: a copy of the old key file, made before you replace it.
+*   ``env``: the old value of the variable, raw or base64.
+*   ``typo3``: the key is derived from
+    ``$GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey']`` and never stored.
+    Derive it while you still have the old ``encryptionKey``; the command reads
+    it from standard input, so it stays out of the process list, and drops one
+    trailing line break:
+
+    ..  code-block:: bash
+
+        (umask 077; php -r 'echo base64_encode(hash_hkdf("sha256",
+            preg_replace("/\n\z/", "", stream_get_contents(STDIN)), 32, "nr-vault-master-key")), PHP_EOL;' \
+            > /secure/path/old.key)
+
+*   ``transit``: a copy of the old wrapped key blob, made before the new key
+    replaces it at ``wrappedKeyPath``. Transit ``decrypt`` of that blob returns
+    the key base64-encoded in ``data.plaintext``:
+
+    ..  code-block:: bash
+
+        (umask 077; vault write -field=plaintext <mount>/decrypt/<key> \
+            ciphertext=@/secure/path/old-wrapped.key > /secure/path/old.key)
+
+Consumer envelopes are not covered: the vault does not know where a consumer
+stores them, and they are sealed without a vault audit entry. They are the
+consumer's to re-create, and unless each consumer can show that it wrote
+nothing between the start of the rotation and the end of the restarts, archive
+the old key instead of destroying it. Keep the old key until all of this is
+done.
 
 .. _operations-key-rotation-verification:
 

@@ -297,6 +297,10 @@ What to page on
         -   **Page**
         -   Rows were altered, or the master key and the table are from
             different points in time. Do not wait for the pattern to repeat.
+            Directly after a master-key rotation, rows written before the
+            configuration switch raise it too until
+            ``vault:rotation-gap-repair`` re-seals them
+            (:ref:`operations-key-rotation-window`).
 
     *   -   ``EPOCH_DOWNGRADE``
         -   **Page**

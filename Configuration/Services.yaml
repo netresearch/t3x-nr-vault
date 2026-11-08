@@ -128,6 +128,9 @@ services:
   Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface:
     alias: Netresearch\NrVault\Audit\AuditChainAnchorStore
 
+  Netresearch\NrVault\Audit\RotationGapScannerInterface:
+    alias: Netresearch\NrVault\Audit\RotationGapScanner
+
   Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface:
     alias: Netresearch\NrVault\Audit\Sink\AuditSinkRegistry
 

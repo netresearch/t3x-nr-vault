@@ -156,6 +156,7 @@ vault:audit-anchor         # Publish the audit chain tip to the external audit s
 vault:audit-verify         # Verify the hash chain AND the external chain-tip anchor (scheduled task wrapper)
 vault:audit-migrate-hmac   # Migrate audit log hash chain from SHA-256 to HMAC-SHA256
 vault:rotate-master-key    # Re-encrypt all secrets with a new master key
+vault:rotation-gap-repair  # Re-wrap secrets and re-seal audit rows left under the previous master key after a rotation
 vault:cleanup-orphans      # Clean up orphaned vault entries (scheduled task wrapper)
 vault:break-glass          # Open/close/inspect a time-boxed break-glass window (restores the admin override)
 vault:doctor               # Check the configuration for deployment/audit readiness (exit 0 clean / 1 warnings / 2 critical)

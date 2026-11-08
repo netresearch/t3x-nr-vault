@@ -203,6 +203,16 @@ new master key without changing the actual secret values.
 4. **Update your configuration** to point to the new master key.
 
 5. **Verify** that secrets are still readable.
+   If a secret cannot be read, or ``vault:audit-verify`` reports
+   ``HASH_MISMATCH`` on rows written after the rotation, something was written
+   before the configuration switch. Repair it with the old key:
+
+   .. code-block:: bash
+
+      vendor/bin/typo3 vault:rotation-gap-repair \
+          --old-key=/secure/path/old-master-key --confirm
+
+   See :ref:`operations-key-rotation-window`.
 
 6. **Securely delete** the old master key after confirming success.
 
