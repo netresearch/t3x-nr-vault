@@ -62,6 +62,7 @@ final class AuditSinkPublicationBufferTest extends AbstractVaultFunctionalTestCa
         $buffer->collect();
         $audit->log('publication-buffer-test', 'read', true);
         self::assertCount(0, $published, 'Nothing is published while the buffer collects.');
+        self::assertTrue($audit->verifyHashChain()->isValid(), 'The entries verify before the test alters the table.');
 
         // What the rotation's re-key does: the stored hash changes before the
         // commit, after the row was written.
@@ -114,6 +115,7 @@ final class AuditSinkPublicationBufferTest extends AbstractVaultFunctionalTestCa
         $audit->log('publication-buffer-gone', 'read', true);
         $audit->log('publication-buffer-after', 'read', true);
 
+        self::assertTrue($audit->verifyHashChain()->isValid(), 'The entries verify before the test alters the table.');
         $connection = $this->get(ConnectionPool::class)->getConnectionForTable(AuditLogService::TABLE_NAME);
         $connection->delete(AuditLogService::TABLE_NAME, ['secret_identifier' => 'publication-buffer-gone']);
 
@@ -155,6 +157,8 @@ final class AuditSinkPublicationBufferTest extends AbstractVaultFunctionalTestCa
 
         $buffer->collect();
         $audit->log('publication-buffer-gone', 'read', true);
+        self::assertTrue($audit->verifyHashChain()->isValid(), 'The entries verify before the test alters the table.');
+
         $connection = $this->get(ConnectionPool::class)->getConnectionForTable(AuditLogService::TABLE_NAME);
         $connection->delete(AuditLogService::TABLE_NAME, ['secret_identifier' => 'publication-buffer-gone']);
 
