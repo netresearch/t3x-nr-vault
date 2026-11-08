@@ -104,6 +104,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         private ?AuditSinkRegistryInterface $sinkRegistry = null,
         private ?LoggerInterface $logger = null,
         private ?VaultMutationTransaction $mutationTransaction = null,
+        private ?AuditSinkPublicationBuffer $publicationBuffer = null,
     ) {}
 
     public function log(
@@ -222,6 +223,16 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         };
         if ($this->mutationTransaction?->isActive() === true) {
             $this->mutationTransaction->afterCommit($publish);
+        } elseif ($this->publicationBuffer?->isCollecting() === true) {
+            // Master-key rotation re-keys the chain before its commit, so the
+            // row is read again at flush time and published with its final
+            // hashes, not the ones it was inserted with.
+            $this->publicationBuffer->defer(function () use ($persistedRow): void {
+                $row = $this->reloadRowForPublication($persistedRow);
+                if ($row !== null) {
+                    $this->publishToSinks($row);
+                }
+            });
         } else {
             $publish();
         }
@@ -1091,6 +1102,56 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         }
 
         return AuditChainAnchorStatus::Unanchored;
+    }
+
+    /**
+     * Read a row again for deferred sink publication. Returns null, and logs
+     * why, when the read fails or the row is gone: the row as inserted carries
+     * the hashes from before the re-key, and the sinks take its entry hash as
+     * the chain tip, so publishing it would hand them a tip the chain no
+     * longer has. A failure here must not stop the caller.
+     *
+     * @param array<string, mixed> $persistedRow
+     *
+     * @return array<string, mixed>|null
+     */
+    private function reloadRowForPublication(array $persistedRow): ?array
+    {
+        $uid   = is_numeric($persistedRow['uid'] ?? null) ? (int) $persistedRow['uid'] : 0;
+        $error = 'audit row not found';
+
+        try {
+            $connection   = $this->getConnection();
+            $queryBuilder = $connection->createQueryBuilder();
+            $row          = $queryBuilder
+                ->select('*')
+                ->from(self::TABLE_NAME)
+                ->where(
+                    $queryBuilder->expr()->eq(
+                        'uid',
+                        $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT),
+                    ),
+                )
+                ->setMaxResults(1)
+                ->executeQuery()
+                ->fetchAssociative();
+            if (is_array($row)) {
+                return $row;
+            }
+        } catch (Throwable $e) {
+            $error = $e->getMessage();
+        }
+
+        try {
+            $this->logger?->error(
+                'nr-vault audit sink publication skipped: the committed audit row could not be read again; the database audit entry is intact.',
+                ['uid' => $uid, 'error' => $error],
+            );
+        } catch (Throwable) {
+            // Delivery diagnostics cannot invalidate the committed audit.
+        }
+
+        return null;
     }
 
     /**
