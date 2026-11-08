@@ -341,25 +341,34 @@ destroy it.
 .. _operations-key-rotation-old-key-file:
 
 **The old key as a file.** The repair reads the old key from a file, raw
-32 bytes or base64, like ``--old-key`` of the rotation. Where the old key does
-not already live in a file, write it to one *before* the configuration switch,
-with permissions ``0600``, and keep it as protected as the key itself:
+32 bytes or base64, like ``--old-key`` of the rotation. Make that file *before*
+the configuration switch, readable only by the user who runs the command, and
+keep it as protected as the key itself. The switch replaces the configured key,
+so the configured path does not hold the old key afterwards; the backup from the
+preflight list still does.
 
-*   ``file``: the old key file itself.
-*   ``env``: the old value of the variable.
-*   ``typo3``: the key is derived from ``$GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey']``
-    and never stored. Derive it while you still have the old ``encryptionKey``,
-    reading it from standard input so it stays out of the process list:
+*   ``file``: a copy of the old key file, made before you replace it.
+*   ``env``: the old value of the variable, raw or base64.
+*   ``typo3``: the key is derived from
+    ``$GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey']`` and never stored.
+    Derive it while you still have the old ``encryptionKey``; the command reads
+    it from standard input, so it stays out of the process list, and drops one
+    trailing line break:
 
     ..  code-block:: bash
 
-        php -r 'echo base64_encode(hash_hkdf("sha256",
-            trim(stream_get_contents(STDIN)), 32, "nr-vault-master-key")), PHP_EOL;' \
-            > /secure/path/old.key
+        (umask 077; php -r 'echo base64_encode(hash_hkdf("sha256",
+            rtrim(stream_get_contents(STDIN), "\n"), 32, "nr-vault-master-key")), PHP_EOL;' \
+            > /secure/path/old.key)
 
-*   ``transit``: keep the old wrapped key blob; Vault's transit ``decrypt`` of
-    it returns the key base64-encoded in ``data.plaintext``, which the repair
-    reads as it is.
+*   ``transit``: a copy of the old wrapped key blob, made before the new key
+    replaces it at ``wrappedKeyPath``. Transit ``decrypt`` of that blob returns
+    the key base64-encoded in ``data.plaintext``:
+
+    ..  code-block:: bash
+
+        (umask 077; vault write -field=plaintext <mount>/decrypt/<key> \
+            ciphertext=@/secure/path/old-wrapped.key > /secure/path/old.key)
 
 Consumer envelopes are not covered: the vault does not know where a consumer
 stores them, and they are sealed without a vault audit entry. They are the
