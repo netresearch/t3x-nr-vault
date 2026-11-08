@@ -68,6 +68,9 @@ final class VaultRotationGapRepairCommand extends Command
 
     private const SECRET_TABLE = 'tx_nrvault_secret';
 
+    /** Identifier of the adapter that keeps the envelope in the secret record. */
+    private const LOCAL_ADAPTER = 'local';
+
     public function __construct(
         private readonly AccessControlServiceInterface $accessControlService,
         private readonly SecretRepositoryInterface $secretRepository,
@@ -267,8 +270,10 @@ final class VaultRotationGapRepairCommand extends Command
     /**
      * Sort every secret, disabled ones included, by the key its DEK opens
      * under. Secrets under the configured key are left out, and so are
-     * records without a local envelope (a custom adapter keeps the value
-     * elsewhere), which no master key wraps.
+     * records of a custom adapter without a local envelope (the adapter keeps
+     * the value elsewhere), which no master key wraps. A record of the local
+     * adapter without an envelope holds no value at all and counts as one
+     * that neither key opens.
      *
      * @return array{list<string>, list<string>} identifiers under the previous key, identifiers under neither key
      */
@@ -284,7 +289,7 @@ final class VaultRotationGapRepairCommand extends Command
         foreach ($this->secretRepository->findIdentifiers(new SecretFilters(includeDisabled: true)) as $identifier) {
             $secret = $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
             if (!$secret instanceof Secret
-                || $secret->getEncryptedDek() === ''
+                || ($secret->getEncryptedDek() === '' && $secret->getAdapter() !== self::LOCAL_ADAPTER)
                 || $this->opensUnder($secret, $currentKey, $currentKey)
             ) {
                 continue;

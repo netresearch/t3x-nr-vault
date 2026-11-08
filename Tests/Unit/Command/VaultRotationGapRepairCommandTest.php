@@ -178,6 +178,25 @@ final class VaultRotationGapRepairCommandTest extends TestCase
     }
 
     /**
+     * A local record without an envelope holds no value: it is reported, not
+     * skipped like a custom adapter's record.
+     */
+    #[Test]
+    public function reportsALocalRecordWithoutAnEnvelope(): void
+    {
+        $this->accessControlService->method('isGranted')->willReturn(true);
+        $this->secretRepository->method('findIdentifiers')->willReturn(['emptied']);
+        $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn(new Secret(identifier: 'emptied'));
+        $this->encryptionService->method('reEncryptDek')->willThrowException(EncryptionException::decryptionFailed('no envelope'));
+        $this->scanner->method('scan')->willReturn(new RotationGapScan());
+
+        $tester = $this->execute([self::OPTION_OLD_KEY => $this->keyFile($this->previousKey), '--dry-run' => true]);
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertStringContainsString('emptied', $tester->getDisplay());
+    }
+
+    /**
      * A dry run exits 1 like the real run when a secret opens under neither
      * key, so automation does not read it as clean.
      */
