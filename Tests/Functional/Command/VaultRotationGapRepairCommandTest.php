@@ -279,6 +279,29 @@ final class VaultRotationGapRepairCommandTest extends AbstractVaultFunctionalTes
         self::assertSame(AuditChainAnchorStatus::Ok, $result->anchorStatus);
     }
 
+    /**
+     * A successful repair closes the window: an old-key row written after it
+     * is not one from the gap, and re-sealing it would accept a forgery made
+     * with the old key.
+     */
+    #[Test]
+    public function refusesAnOldKeyRowWrittenAfterASuccessfulRepair(): void
+    {
+        $this->writeGapRow();
+        $this->switchToNewKey();
+        self::assertSame(0, $this->runRepair($this->oldKeyPath)->getStatusCode());
+
+        $this->useKey($this->oldKeyPath);
+        $this->writeGapRow();
+        $this->switchToNewKey();
+
+        $repair = $this->runRepair($this->oldKeyPath);
+
+        self::assertSame(1, $repair->getStatusCode());
+        self::assertStringContainsString('Entry hash mismatch', $repair->getDisplay());
+        self::assertFalse($this->verifyChain()->isValid());
+    }
+
     #[Test]
     public function reportsNothingToRepairAfterACleanSwitch(): void
     {

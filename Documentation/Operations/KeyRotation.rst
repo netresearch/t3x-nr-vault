@@ -310,20 +310,27 @@ the restarts, run the repair with the old key, first as a dry run:
 
 It opens every secret, disabled ones included, and lists those whose DEK
 opens only under the old key and those that neither key opens. It lists the
-audit rows after the last successful ``master_key_rotate_end`` row that verify
-only under the old key. Run it again with ``--confirm`` instead of
+audit rows after the end of the rotation that verify only under the old key.
+Run it again with ``--confirm`` instead of
 ``--dry-run`` to re-wrap those secrets and re-seal those rows under the new
 key, in one transaction under the audit-chain lock; each re-wrapped secret
 gets a ``master_key_rewrap`` audit row. Secret values do not change.
 
 The repair refuses when the chain has any other finding: a row that verifies
-under neither key, a missing row, a broken link, an old-key row before the last
-rotation, or a tip-anchor error. Re-sealing would hide such a finding. A
+under neither key, a missing row, a broken link, an old-key row before the end
+of the last rotation or of the last repair, or a tip-anchor error. Re-sealing would hide such a finding. A
 refused run changes no secret and no existing row; without ``--dry-run`` it
 appends a failed ``audit_chain_rekey`` row. Keep both keys and investigate with
-``vault:audit-verify``. The repair trusts the old key: anyone who holds it can
-write a row the repair accepts, so keep the old key under the same protection
-as the current one until the repair is done.
+``vault:audit-verify``.
+
+The repair trusts the old key. Anyone who holds it and can write to the
+database can add an audit row or a secret the repair accepts. A successful
+repair closes the window for audit rows: an old-key row after its
+``audit_chain_rekey`` row is refused. It does not close it for secrets — the
+repair re-wraps every secret the old key opens, whenever it was written — so
+check the listed secrets in the dry run. Keep the old key under the same
+protection as the current one until the repair is done, then archive or
+destroy it.
 
 Consumer envelopes are not covered: the vault does not know where a consumer
 stores them, and they are sealed without a vault audit entry. They are the

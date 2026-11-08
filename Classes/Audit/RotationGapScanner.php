@@ -26,7 +26,7 @@ use function sprintf;
  * process that still holds the old key until the configuration switch seals
  * its rows under the old one. Those rows break verification under the new
  * key. This scanner accepts a row under the previous key only when it comes
- * after the last successful rotation and links correctly to the row before
+ * after the last successful rotation or repair and links correctly to the row before
  * it; everything else the regular verification reports still refuses.
  */
 final readonly class RotationGapScanner implements RotationGapScannerInterface
@@ -55,6 +55,17 @@ final readonly class RotationGapScanner implements RotationGapScannerInterface
             ]);
         }
 
+        // A successful repair writes the newest successful audit_chain_rekey
+        // row and closes the window: whatever the previous key sealed after
+        // it was not written in the gap of the last rotation.
+        if (AuditLogService::extractHashRow($boundary)['action'] !== AuditAction::MasterKeyRotateEnd->value) {
+            return new RotationGapScan(problems: [
+                'A repair already closed the window of the last rotation; rows sealed under the '
+                . 'previous key after it are not accepted.',
+                ...$this->unexplainedErrors($verification, []),
+            ]);
+        }
+
         $currentKey  = AuditLogService::deriveHmacKey($this->masterKeyProvider);
         $previousKey = AuditLogService::deriveHmacKeyFromMasterKey($previousMasterKey);
 
@@ -69,18 +80,38 @@ final readonly class RotationGapScanner implements RotationGapScannerInterface
         // accepted under the previous key. Anything else — a row before the
         // rotation, the anchor (negative keys), the epoch floor (key 0) — is a
         // finding a re-seal would launder.
-        $accepted = array_flip(array_column($rows, 'uid'));
+        return new RotationGapScan(
+            $rows,
+            [...$problems, ...$this->unexplainedErrors($verification, array_column($rows, 'uid'))],
+        );
+    }
+
+    /**
+     * The errors of the regular verification that no accepted row explains.
+     *
+     * @param list<int> $acceptedUids
+     *
+     * @return list<string>
+     */
+    private function unexplainedErrors(HashChainVerificationResult $verification, array $acceptedUids): array
+    {
+        $accepted = array_flip($acceptedUids);
+        $problems = [];
         foreach ($verification->errors as $uid => $message) {
             if (!isset($accepted[$uid])) {
                 $problems[] = $uid > 0 ? sprintf('Row uid %d: %s', $uid, $message) : $message;
             }
         }
 
-        return new RotationGapScan($rows, $problems);
+        return $problems;
     }
 
     /**
-     * The newest successful `master_key_rotate_end` row, or null.
+     * The newest successful `master_key_rotate_end` or `audit_chain_rekey`
+     * row, or null. A rotation writes its re-key row before its end row, so
+     * this is the end of the last rotation, or the row of the last repair:
+     * once a repair has re-sealed the window, an old-key row after it is
+     * refused like any other finding.
      *
      * @return array<string, mixed>|null
      */
@@ -91,9 +122,12 @@ final readonly class RotationGapScanner implements RotationGapScannerInterface
             ->select('*')
             ->from(self::TABLE_NAME)
             ->where(
-                $queryBuilder->expr()->eq(
+                $queryBuilder->expr()->in(
                     'action',
-                    $queryBuilder->createNamedParameter(AuditAction::MasterKeyRotateEnd->value),
+                    $queryBuilder->createNamedParameter(
+                        [AuditAction::MasterKeyRotateEnd->value, AuditAction::AuditChainRekey->value],
+                        Connection::PARAM_STR_ARRAY,
+                    ),
                 ),
                 $queryBuilder->expr()->eq(
                     'success',

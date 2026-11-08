@@ -744,11 +744,12 @@ The command:
 
 *   lists every secret, disabled ones included, whose DEK opens under the old
     key, and every secret that neither key opens;
-*   lists the audit rows after the last successful ``master_key_rotate_end``
-    row that verify only under the old key;
+*   lists the audit rows after the newest successful ``master_key_rotate_end``
+    or ``audit_chain_rekey`` row (the end of the last rotation, or of the
+    last repair) that verify only under the old key;
 *   refuses when the audit chain has any other finding: a row that verifies
     under neither key, a missing row, a broken link, an epoch downgrade, an
-    old-key row before the last rotation, or a tip-anchor error. A refused run
+    old-key row before the last rotation or repair, or a tip-anchor error. A refused run
     changes no secret and no existing row; without ``--dry-run`` it appends a
     failed ``audit_chain_rekey`` row;
 *   with ``--confirm``, re-wraps the listed secrets, writes a

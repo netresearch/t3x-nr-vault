@@ -18,8 +18,9 @@ use SensitiveParameter;
 interface RotationGapScannerInterface
 {
     /**
-     * Read-only. Reports every row after the last successful
-     * `master_key_rotate_end` row that verifies only under `$previousMasterKey`,
+     * Read-only. Reports every row after the newest successful
+     * `master_key_rotate_end` or `audit_chain_rekey` row (the end of the last
+     * rotation or of the last repair) that verifies only under `$previousMasterKey`,
      * and every finding that rules re-sealing them out: a row that verifies
      * under neither key, a broken link, a uid gap, an epoch downgrade, or any
      * error of the regular chain verification on another row or on the anchor.

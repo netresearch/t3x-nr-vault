@@ -217,14 +217,14 @@ final class VaultRotationGapRepairCommand extends Command
             return Command::FAILURE;
         }
 
-        if (!$this->repair($io, $previousKeySecrets, $previousKey, $currentKey)) {
+        $counts = $this->repair($io, $previousKey, $currentKey);
+        if ($counts === null) {
             return Command::FAILURE;
         }
 
         return $this->finish($io, $unreadableSecrets, sprintf(
             'Re-wrapped %d secret(s) and re-sealed %d audit row(s) under the configured master key.',
-            count($previousKeySecrets),
-            count($scan->previousKeyRows),
+            ...$counts,
         ));
     }
 
@@ -333,19 +333,20 @@ final class VaultRotationGapRepairCommand extends Command
 
     /**
      * Re-wrap the secrets and re-seal the chain in one transaction under the
-     * audit-chain lock. Everything is checked again inside the lock, and the
-     * repaired chain must pass the regular verification before the commit.
+     * audit-chain lock. Secrets and chain are checked again inside the lock,
+     * and the repaired chain must pass the regular verification before the
+     * commit. Returns the numbers of re-wrapped secrets and re-sealed rows, or
+     * null when nothing was committed.
      *
-     * @param list<string> $identifiers
+     * @return array{int, int}|null
      */
     private function repair(
         SymfonyStyle $io,
-        array $identifiers,
         #[SensitiveParameter]
         string $previousKey,
         #[SensitiveParameter]
         string $currentKey,
-    ): bool {
+    ): ?array {
         $connection = $this->connectionPool->getConnectionForTable(self::SECRET_TABLE);
         if ($this->connectionPool->getConnectionForTable(self::AUDIT_LOG_TABLE) !== $connection) {
             $io->error(
@@ -353,7 +354,7 @@ final class VaultRotationGapRepairCommand extends Command
                 . 'connections; the repair cannot change secrets and audit chain atomically.',
             );
 
-            return false;
+            return null;
         }
 
         $isSQLite = $connection->getDatabasePlatform() instanceof SQLitePlatform;
@@ -362,61 +363,132 @@ final class VaultRotationGapRepairCommand extends Command
         $this->publicationBuffer?->collect();
 
         try {
-            $this->acquireAuditLock($connection, $isSQLite);
+            // A Doctrine-managed transaction on SQLite as well: the audit
+            // writes inside it nest as savepoints, where a raw BEGIN EXCLUSIVE
+            // cannot nest.
+            $this->acquireAuditLock($connection, $isSQLite, true);
         } catch (Throwable $e) {
             $this->publicationBuffer?->discard();
             $io->error(['The audit-chain lock was not granted; nothing was changed.', $e->getMessage()]);
 
-            return false;
+            return null;
         }
 
-        try {
-            $this->applyRepair($connection, $identifiers, $previousKey, $currentKey);
-            $this->commitAuditLock($connection, $isSQLite);
-        } catch (Throwable $e) {
-            $this->rollbackAuditLock($connection, $isSQLite);
-            $this->publicationBuffer?->discard();
-            $io->error(['Repair rolled back; nothing was changed.', $e->getMessage()]);
-            $this->auditLogService->log(
-                self::AUDIT_PSEUDO_IDENTIFIER,
-                AuditAction::AuditChainRekey->value,
-                false,
-                'Rotation gap repair rolled back; nothing changed',
-            );
+        $lockHeld = true;
 
-            return false;
+        try {
+            try {
+                $counts = $this->applyRepair($connection, $previousKey, $currentKey);
+            } catch (Throwable $e) {
+                return $this->failRepair(
+                    $connection,
+                    $io,
+                    $lockHeld,
+                    ['Repair rolled back; nothing was changed.', $e->getMessage()],
+                    'Rotation gap repair rolled back; nothing changed',
+                );
+            }
+
+            try {
+                $this->commitAuditLock($connection, $isSQLite);
+            } catch (Throwable $e) {
+                // The server may have committed before the connection failed.
+                return $this->failRepair(
+                    $connection,
+                    $io,
+                    $lockHeld,
+                    [
+                        'The repair commit failed: ' . $e->getMessage(),
+                        'The database may or may not hold the repair. Keep both master keys and run '
+                        . 'this command again with --dry-run to see what is left under the previous key.',
+                    ],
+                    'Rotation gap repair commit failed; outcome unknown',
+                );
+            }
         } finally {
-            $this->releaseAuditLock($connection, $isSQLite);
+            if ($lockHeld) {
+                try {
+                    $this->releaseAuditLock($connection, $isSQLite);
+                } catch (Throwable) {
+                    // Closing the connection ends the session and its lock.
+                    $connection->close();
+                }
+            }
         }
 
         $this->publicationBuffer?->flush();
 
-        return true;
+        return $counts;
     }
 
     /**
-     * @param list<string> $identifiers
+     * End a failed repair: roll back what is left of its transaction, report
+     * the error and record a failed `audit_chain_rekey` row. After a failed
+     * commit DBAL reports no active transaction; closing the connection then
+     * discards whatever the database still holds open, and ends the session
+     * lock with it.
+     *
+     * @param list<string> $error
+     */
+    private function failRepair(
+        Connection $connection,
+        SymfonyStyle $io,
+        bool &$lockHeld,
+        array $error,
+        string $auditReason,
+    ): null {
+        // First, so the failure row below is published at once.
+        $this->publicationBuffer?->discard();
+
+        try {
+            if ($connection->isTransactionActive()) {
+                $connection->rollBack();
+            } else {
+                $connection->close();
+                $lockHeld = false;
+            }
+        } catch (Throwable) {
+            $connection->close();
+            $lockHeld = false;
+        }
+
+        $io->error($error);
+        $this->auditLogService->log(
+            self::AUDIT_PSEUDO_IDENTIFIER,
+            AuditAction::AuditChainRekey->value,
+            false,
+            $auditReason,
+        );
+
+        return null;
+    }
+
+    /**
+     * @return array{int, int} re-wrapped secrets, re-sealed audit rows
      *
      * @throws Throwable Any failure, for the caller's rollback
      */
     private function applyRepair(
         Connection $connection,
-        array $identifiers,
         #[SensitiveParameter]
         string $previousKey,
         #[SensitiveParameter]
         string $currentKey,
-    ): void {
-        // The chain may have changed since the report: scan again under the lock.
+    ): array {
+        // Both may have changed since the report: a process that still holds
+        // the previous key can have written in between. Check again under the
+        // lock and repair what is there now.
         $scan = $this->rotationGapScanner->scan($previousKey);
         if (!$scan->isRepairable()) {
             throw new VaultException('The audit chain changed since the report: ' . implode(' ', $scan->problems), 6915487669);
         }
 
+        [$identifiers] = $this->classifySecrets($previousKey, $currentKey);
+
         foreach ($identifiers as $identifier) {
             $secret = $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
             if (!$secret instanceof Secret) {
-                throw new VaultException(sprintf('Secret "%s" disappeared since the report.', $identifier), 4544303749);
+                throw new VaultException(sprintf('Secret "%s" disappeared while it was repaired.', $identifier), 4544303749);
             }
 
             $this->secretRepository->save($this->rewrap($secret, $previousKey, $currentKey));
@@ -429,23 +501,30 @@ final class VaultRotationGapRepairCommand extends Command
             );
         }
 
+        // Written on every committed repair, also one that only re-wrapped
+        // secrets: as the newest successful audit_chain_rekey row it closes the
+        // window, so the next scan accepts no further row under the previous key.
+        $this->auditLogService->log(
+            self::AUDIT_PSEUDO_IDENTIFIER,
+            AuditAction::AuditChainRekey->value,
+            true,
+            null,
+            sprintf(
+                'Re-sealed %d audit row(s) and re-wrapped %d secret(s) left under the previous master key after a rotation',
+                count($scan->previousKeyRows),
+                count($identifiers),
+            ),
+        );
+
         if ($scan->hasPreviousKeyRows()) {
-            $this->auditLogService->log(
-                self::AUDIT_PSEUDO_IDENTIFIER,
-                AuditAction::AuditChainRekey->value,
-                true,
-                null,
-                sprintf(
-                    'Re-sealed %d audit row(s) written under the previous master key after a rotation',
-                    count($scan->previousKeyRows),
-                ),
-            );
             $this->auditChainRekeyService->rekeyChain($connection, $currentKey);
         }
 
         if (!$this->auditLogService->verifyHashChain()->isValid()) {
             throw new VaultException('The repaired audit chain does not verify.', 6051565967);
         }
+
+        return [count($identifiers), count($scan->previousKeyRows)];
     }
 
     /**
