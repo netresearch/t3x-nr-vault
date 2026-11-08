@@ -317,16 +317,19 @@ key, in one transaction under the audit-chain lock; each re-wrapped secret
 gets a ``master_key_rewrap`` audit row. Secret values do not change.
 
 The repair refuses when the chain has any other finding: a row that verifies
-under neither key, a missing row, a broken link, an old-key row before the end
-of the last rotation or of the last repair, or a tip-anchor error. Re-sealing would hide such a finding. A
+under neither key, a missing row, a broken link, an old-key row before the end of the last rotation or after a successful
+repair, or a tip-anchor error. Re-sealing would hide such a finding. A
 refused run changes no secret and no existing row; without ``--dry-run`` it
 appends a failed ``audit_chain_rekey`` row. Keep both keys and investigate with
 ``vault:audit-verify``.
 
 The repair trusts the old key. Anyone who holds it and can write to the
-database can add an audit row or a secret the repair accepts. A successful
-repair closes the window for audit rows: an old-key row after its
-``audit_chain_rekey`` row is refused. It does not close it for secrets — the
+database can add an audit row or a secret the repair accepts. A successful repair closes the window for audit rows: an old-key row after its
+``audit_chain_rekey`` row is refused, and no command re-seals it. Such a row
+means a process still wrote with the old key after the repair, or someone who
+holds the old key wrote it; treat it as an incident
+(:ref:`operations-incident-response-tampering`), keep both keys, and make sure
+every process was restarted before you run the repair. It does not close it for secrets — the
 repair re-wraps every secret the old key opens, whenever it was written — so
 check the listed secrets in the dry run. Keep the old key under the same
 protection as the current one until the repair is done, then archive or

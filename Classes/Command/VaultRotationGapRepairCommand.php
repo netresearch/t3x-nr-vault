@@ -528,12 +528,19 @@ final class VaultRotationGapRepairCommand extends Command
         }
 
         $io->error($error);
-        $this->auditLogService->log(
-            self::AUDIT_PSEUDO_IDENTIFIER,
-            AuditAction::AuditChainRekey->value,
-            false,
-            $auditReason,
-        );
+
+        try {
+            $this->auditLogService->log(
+                self::AUDIT_PSEUDO_IDENTIFIER,
+                AuditAction::AuditChainRekey->value,
+                false,
+                $auditReason,
+            );
+        } catch (Throwable $e) {
+            // After a failed commit the dead session can still hold the audit
+            // lock until the server notices; the failure is reported above.
+            $io->warning('The failed repair could not be recorded in the audit log: ' . $e->getMessage());
+        }
 
         return null;
     }
