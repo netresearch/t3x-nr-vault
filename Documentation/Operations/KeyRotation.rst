@@ -358,7 +358,7 @@ preflight list still does.
     ..  code-block:: bash
 
         (umask 077; php -r 'echo base64_encode(hash_hkdf("sha256",
-            rtrim(stream_get_contents(STDIN), "\n"), 32, "nr-vault-master-key")), PHP_EOL;' \
+            preg_replace("/\n\z/", "", stream_get_contents(STDIN)), 32, "nr-vault-master-key")), PHP_EOL;' \
             > /secure/path/old.key)
 
 *   ``transit``: a copy of the old wrapped key blob, made before the new key
