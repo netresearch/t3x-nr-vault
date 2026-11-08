@@ -64,6 +64,18 @@ final class MasterKeyFileTest extends TestCase
     }
 
     #[Test]
+    public function rejectsAnUnreadableFile(): void
+    {
+        $path = $this->keyFile(str_repeat('k', 32));
+        chmod($path, 0o000);
+
+        $this->expectException(MasterKeyException::class);
+        $this->expectExceptionMessageToContain('not readable');
+
+        MasterKeyFile::read($path);
+    }
+
+    #[Test]
     public function rejectsAKeyOfTheWrongLength(): void
     {
         $this->expectException(MasterKeyException::class);
