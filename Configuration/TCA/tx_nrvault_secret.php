@@ -79,8 +79,15 @@ return [
         'secret_input' => [
             'label'       => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.secret_input',
             'description' => 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_tca.xlf:tx_nrvault_secret.secret_input.description',
-            'config'      => [
-                'type'       => 'user',
+            // Form-only field without a database column: SecretTcaHook moves
+            // the submitted plaintext into the vault and drops the field.
+            // `none` is the only type BackendUtility::getAllowedFieldsForTable()
+            // skips, so the Records module (list, column selector, download)
+            // never puts it into a SELECT; any other type there fails with
+            // "Unknown column 'secret_input'". FormEngine still renders it
+            // through the renderType.
+            'config' => [
+                'type'       => 'none',
                 'renderType' => 'vaultSecretInput',
                 'size'       => 50,
             ],
