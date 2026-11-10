@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-10
+
+### Fixed
+
+- Downloading the vault secret table from the Records module with "all columns" no longer ends in HTTP 500 (`Unknown column 'secret_input' in 'SELECT'`). The form-only secret value field is now TCA type `none`, which the Records module leaves out of its queries, column selector and downloads; the secret form and saving a value into the vault are unchanged.
+
 ## [1.4.0] - 2026-11-08
 
 ### Added
@@ -2276,7 +2282,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.1.0...v1.2.0

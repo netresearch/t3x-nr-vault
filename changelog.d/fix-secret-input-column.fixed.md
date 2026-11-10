@@ -1,1 +1,0 @@
-- Downloading the vault secret table from the Records module with "all columns" no longer ends in HTTP 500 (`Unknown column 'secret_input' in 'SELECT'`). The form-only secret value field is now TCA type `none`, which the Records module leaves out of its queries, column selector and downloads; the secret form and saving a value into the vault are unchanged.
