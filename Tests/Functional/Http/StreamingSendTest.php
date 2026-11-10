@@ -29,9 +29,11 @@ use Netresearch\NrVault\Http\VaultHttpClient;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\Http\Fixtures\PinnedDnsResolver;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Client\ClientExceptionInterface;
+use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 use ReflectionProperty;
@@ -47,6 +49,7 @@ use function strlen;
 /**
  * `VaultHttpClient::sendStreaming()` against a real HTTP server, and
  * `sendCancellable()` where it shares the streaming send's bound (issue #394).
+ * The section on caller-pinned addresses (ADR-052) runs all three sends.
  *
  * The server is PHP's built-in web server running
  * `Fixtures/streaming-router.php` on a free loopback port chosen at runtime,
@@ -758,8 +761,199 @@ final class StreamingSendTest extends FunctionalTestCase
     }
 
     // =========================================================================
+    // Caller-pinned addresses (ADR-052)
+    //
+    // The client is built on the production resolver, which has no answer for
+    // a `.test` name: a request that reaches the server was routed by the pin
+    // that `withPinnedAddresses()` set, and by nothing else.
+    // =========================================================================
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function sendMethods(): iterable
+    {
+        yield 'sendRequest' => ['sendRequest'];
+        yield 'sendCancellable' => ['sendCancellable'];
+        yield 'sendStreaming' => ['sendStreaming'];
+    }
+
+    #[Test]
+    #[DataProvider('sendMethods')]
+    public function aPinnedNameReachesTheServerWithTheCredential(string $method): void
+    {
+        $response = $this->send($this->pinnedClient(), $method, new Request('GET', $this->url('/echo-auth')));
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertStringStartsWith('authorization=Bearer ' . self::SECRET . ' ', (string) $response->getBody());
+        self::assertSame(
+            [['identifier' => 'agent_token', 'action' => 'http_call', 'success' => true, 'status' => 200, 'error' => null]],
+            $this->auditRows,
+        );
+    }
+
+    #[Test]
+    #[DataProvider('sendMethods')]
+    public function aPinToAnotherAddressFailsInsteadOfResolvingTheName(string $method): void
+    {
+        try {
+            $this->send($this->pinnedClient(self::WRONG_LOOPBACK_ADDRESS), $method, new Request('GET', $this->url('/chunks?count=1')));
+            self::fail('A pin to an address nothing listens on must not reach the server.');
+        } catch (ClientExceptionInterface|VaultException) {
+            // expected: the streaming send wraps the transport error
+        }
+
+        self::assertFileDoesNotExist(self::$hitsDirectory . '/chunks');
+        self::assertSame([false], array_column($this->auditRows, 'success'));
+    }
+
+    #[Test]
+    #[DataProvider('sendMethods')]
+    public function aPinnedClientReturnsARedirectWithoutFollowingIt(string $method): void
+    {
+        $this->setHttpConfiguration(['allow_redirects' => true]);
+
+        $response = $this->send($this->pinnedClient(), $method, new Request('GET', $this->url('/redirect')));
+
+        self::assertSame(302, $response->getStatusCode());
+        self::assertSame('/redirect-target', $response->getHeaderLine('Location'));
+        self::assertSame('redirecting', (string) $response->getBody());
+        self::assertFileExists(self::$hitsDirectory . '/redirect');
+        self::assertFileDoesNotExist(
+            self::$hitsDirectory . '/redirect-target',
+            'The redirect must not be followed, even when the platform enables redirects.',
+        );
+    }
+
+    #[Test]
+    #[DataProvider('sendMethods')]
+    public function aPinnedClientSendsAFailedRequestExactlyOnce(string $method): void
+    {
+        $response = $this->send($this->pinnedClient(), $method, new Request('POST', $this->url('/unavailable'), [], '{}'));
+
+        self::assertSame(503, $response->getStatusCode());
+        self::assertSame('unavailable', (string) $response->getBody());
+        self::assertSame(
+            "hit\n",
+            (string) file_get_contents(self::$hitsDirectory . '/unavailable'),
+            'A 503 with Retry-After: 0 is returned to the caller, not retried.',
+        );
+        self::assertCount(1, $this->auditRows);
+    }
+
+    #[Test]
+    #[DataProvider('sendMethods')]
+    public function aPinnedPrivateAddressNeedsALiteralAllowedHostsEntry(string $method): void
+    {
+        $this->setHttpConfiguration(['allowed_hosts' => []]);
+
+        try {
+            $this->send($this->pinnedClient(), $method, new Request('GET', $this->url('/echo-auth')));
+            self::fail('A pinned loopback address must pass the same range check as a resolved one.');
+        } catch (VaultException $e) {
+            self::assertStringContainsString('allowed hosts', $e->getMessage());
+        }
+
+        self::assertFileDoesNotExist(self::$hitsDirectory . '/echo-auth');
+        self::assertSame(
+            ['Request refused before any secret was read: host is not in the allowed hosts list'],
+            array_column($this->auditRows, 'error'),
+        );
+    }
+
+    #[Test]
+    public function aPinnedStreamDeliversTheFirstLineBeforeTheServerHasFinished(): void
+    {
+        $client = $this->pinnedClient();
+        self::assertTrue($client->supportsStreaming());
+
+        $response   = $client->sendStreaming(new Request('GET', $this->url('/chunks?count=3&delay_ms=600')));
+        $returnedAt = $this->nowMicroseconds();
+        $pending    = '';
+        $lines      = $this->readCompleteLines($response->getBody(), 3, $pending);
+
+        self::assertSame(['chunk 1', 'chunk 2', 'chunk 3'], array_column($lines, 'text'));
+        self::assertLessThan($lines[2]['sentAt'], $returnedAt, 'sendStreaming() must return before the last line was sent.');
+        self::assertLessThan($lines[2]['sentAt'], $lines[0]['readAt'], 'The first line must be readable before the last was sent.');
+    }
+
+    #[Test]
+    public function thePinSurvivesTheOtherWithMethodsInEitherOrder(): void
+    {
+        $base = new VaultHttpClient(
+            vaultService: $this->vaultService(),
+            auditLogService: $this->auditLogService(),
+            secureHttpClientFactory: new SecureHttpClientFactory(),
+        );
+
+        $pinnedFirst = $base
+            ->withPinnedAddresses(self::PINNED_NAME, [self::LOOPBACK_HOST])
+            ->withTimeout(5)
+            ->withReason('pinned first')
+            ->withAuthentication('agent_token');
+        $pinnedLast = $base
+            ->withTimeout(5)
+            ->withAuthentication('agent_token')
+            ->withPinnedAddresses(self::PINNED_NAME, [self::LOOPBACK_HOST]);
+
+        foreach ([$pinnedFirst, $pinnedLast] as $client) {
+            foreach (['sendRequest', 'sendCancellable', 'sendStreaming'] as $method) {
+                $body = (string) $this->send($client, $method, new Request('GET', $this->url('/echo-auth')))->getBody();
+                self::assertStringStartsWith('authorization=Bearer ' . self::SECRET . ' ', $body, $method);
+            }
+        }
+    }
+
+    #[Test]
+    public function behindAProxyThePinDoesNotChooseTheAddress(): void
+    {
+        // A forward proxy resolves the origin itself; curl never connects to
+        // it, so CURLOPT_RESOLVE has nothing to bind. The pin below names an
+        // address nothing listens on, and the origin is reached anyway. This
+        // pins the documented limit of ADR-052, not a guarantee.
+        $origin = $this->startTunnelServer('origin');
+        $proxy  = $this->startTunnelServer('proxy', (string) $origin);
+        $this->setHttpConfiguration([
+            'allowed_hosts' => [self::TLS_ORIGIN_NAME],
+            'proxy'         => 'http://' . self::LOOPBACK_HOST . ':' . $proxy, // NOSONAR — test-only loopback proxy
+            'verify'        => false,
+        ]);
+
+        $client = (new VaultHttpClient(
+            vaultService: $this->vaultService(),
+            auditLogService: $this->auditLogService(),
+            secureHttpClientFactory: new SecureHttpClientFactory(),
+        ))->withPinnedAddresses(self::TLS_ORIGIN_NAME, [self::WRONG_LOOPBACK_ADDRESS]);
+
+        $response = $client->sendRequest(new Request('GET', 'https://' . self::TLS_ORIGIN_NAME . ':' . $origin . '/protected'));
+
+        self::assertSame(401, $response->getStatusCode());
+        self::assertSame('target', $response->getHeaderLine('X-Origin'));
+    }
+
+    // =========================================================================
     // Harness
     // =========================================================================
+
+    private function pinnedClient(string $address = self::LOOPBACK_HOST): VaultHttpClient
+    {
+        return (new VaultHttpClient(
+            vaultService: $this->vaultService(),
+            auditLogService: $this->auditLogService(),
+            secureHttpClientFactory: new SecureHttpClientFactory(),
+        ))
+            ->withAuthentication('agent_token', SecretPlacement::Bearer)
+            ->withPinnedAddresses(self::PINNED_NAME, [$address]);
+    }
+
+    private function send(VaultHttpClient $client, string $method, RequestInterface $request): ResponseInterface
+    {
+        return match ($method) {
+            'sendRequest'     => $client->sendRequest($request),
+            'sendCancellable' => $client->sendCancellable($request, new SwitchableSignal()),
+            default           => $client->sendStreaming($request),
+        };
+    }
 
     private function client(?PinnedDnsResolver $resolver = null): VaultHttpClient
     {

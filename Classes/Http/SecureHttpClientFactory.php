@@ -17,6 +17,7 @@ use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\Handler\Proxy;
 use GuzzleHttp\Handler\StreamHandler;
 use GuzzleHttp\HandlerStack;
+use InvalidArgumentException;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Log\LoggerInterface;
@@ -141,9 +142,84 @@ final class SecureHttpClientFactory
      */
     private array $dnsMemo = [];
 
+    /**
+     * Addresses a caller resolved and checked itself, per normalised host
+     * name; set only by `withPinnedAddresses()` (ADR-052).
+     *
+     * A host listed here is never handed to the resolver: these records are
+     * its answer, range-checked and pinned like any resolver answer.
+     *
+     * @var array<string, non-empty-list<array{ip?: string, ipv6?: string}>>
+     */
+    private array $pinnedAddresses = [];
+
     public function __construct(
         private readonly DnsResolverInterface $dnsResolver = new DefaultDnsResolver(),
     ) {}
+
+    /**
+     * A copy of this factory that connects to `$host` only at `$addresses`.
+     *
+     * For a caller that resolved and checked the host itself and must not let
+     * a second lookup choose a different address (ADR-052). The addresses
+     * replace the resolver's answer for that host, and nothing else changes:
+     * they pass the same range check as a resolver answer, so a private,
+     * loopback or metadata address is refused unless the host has a literal
+     * `allowed_hosts` entry; they are pinned with `CURLOPT_RESOLVE` on every
+     * transport this copy builds; and a transfer that cannot honour that pin
+     * — no ext-curl, or `stream => true` — is refused instead of being
+     * resolved by the transport. Other hosts resolve as before. Pins
+     * accumulate across calls; a second call for the same host replaces the
+     * first. This factory is not changed.
+     *
+     * @param string       $host      A host name, without scheme, port or
+     *                                brackets; an IP literal needs no pin and is
+     *                                refused
+     * @param array<mixed> $addresses Bare IPv4 or IPv6 addresses, at least one
+     *
+     * @throws InvalidArgumentException When the host is not a host name or an
+     *                                  address is not a bare IP address
+     */
+    public function withPinnedAddresses(string $host, array $addresses): self
+    {
+        $name = rtrim(strtolower(trim($host)), '.');
+        if (filter_var($name, FILTER_VALIDATE_IP) !== false
+            || $this->isLegacyNumericIpForm($name)
+            || filter_var($name, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) === false
+        ) {
+            throw new InvalidArgumentException(
+                'A pinned host must be a host name without scheme, port or brackets; an IP literal needs no pin.',
+                1794317201,
+            );
+        }
+
+        $records = [];
+        foreach ($addresses as $address) {
+            if (!is_string($address) || filter_var($address, FILTER_VALIDATE_IP) === false) {
+                throw new InvalidArgumentException(
+                    'Every pinned address must be a bare IPv4 or IPv6 address.',
+                    1794317202,
+                );
+            }
+
+            $records[] = str_contains($address, ':') ? ['ipv6' => $address] : ['ip' => $address];
+        }
+
+        if ($records === []) {
+            throw new InvalidArgumentException(
+                'A pinned host needs at least one address.',
+                1794317203,
+            );
+        }
+
+        // The copy shares this factory's memo; an answer it holds for the
+        // pinned host would otherwise outrank the pin for up to the TTL.
+        $copy = clone $this;
+        unset($copy->dnsMemo[$name]);
+        $copy->pinnedAddresses[$name] = $records;
+
+        return $copy;
+    }
 
     /**
      * Create a PSR-18 HTTP client with TYPO3 settings and security hardening.
@@ -713,6 +789,22 @@ final class SecureHttpClientFactory
                 // so this predicate and the handler choice cannot disagree.
                 $pinWillBeHonoured = function_exists('curl_init')
                     && !(bool) ($options['stream'] ?? false);
+
+                // Caller-pinned addresses (ADR-052) promise that the transfer
+                // connects to them and nowhere else. A transfer that ignores
+                // CURLOPT_RESOLVE would let the transport resolve the name
+                // itself, so the promise cannot be kept and the send stops.
+                if (!$pinWillBeHonoured && array_key_exists($host, $this->pinnedAddresses)) {
+                    throw new RequestException(
+                        sprintf(
+                            'Refused to send request: host "%s" has pinned addresses, but this transfer '
+                            . 'cannot honour a CURLOPT_RESOLVE pin (ext-curl missing, or a streamed '
+                            . 'transfer), so the transport would resolve the name itself.',
+                            $host,
+                        ),
+                        $request,
+                    );
+                }
 
                 // Throws rather than returning a sentinel: the two rejections
                 // have different causes (a disallowed range vs. an address
@@ -1306,6 +1398,12 @@ final class SecureHttpClientFactory
      */
     private function freshResolve(string $host): array
     {
+        // A pinned host is answered from the pin and never memoised: there is
+        // no lookup to save, and the pin must not age out.
+        if (array_key_exists($host, $this->pinnedAddresses)) {
+            return $this->pinnedAddresses[$host];
+        }
+
         $records = $this->dnsResolver->resolve($host);
 
         if ($records === []) {
