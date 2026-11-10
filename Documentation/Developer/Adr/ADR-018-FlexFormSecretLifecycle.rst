@@ -69,6 +69,17 @@ multiple FlexForm columns, plain/FlexForm coordination and diagnostic-provider
 failures remain audit work. The decision above is the intended lifecycle
 contract, not proof that those broader boundaries are already implemented.
 
+A FlexForm copy clones the values at elements the column's data structure
+configures with renderType ``vaultSecret``, as a flat element or inside a
+section container, through the same matcher the write and delete paths use
+(:ref:`adr-045-flexform-delete-refusal`). A UUID in any other element is
+ordinary content: the copy keeps it verbatim, whether or not a secret with that
+identifier exists. The data structure is resolved from the source record. When
+it cannot be resolved, the copy path cannot tell a vault position from ordinary
+content, so it neither clones nor clears that column; the editor is told that
+the duplicate may still reference the source record's secrets and needs manual
+review.
+
 This ensures vault secrets follow the same lifecycle as the records that
 own them.
 

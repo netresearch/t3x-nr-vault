@@ -170,7 +170,20 @@ final class FlexFormCopyLinkFailureTest extends TestCase
                 },
             );
         $pool->method('getConnectionForTable')->willReturn($connection);
-        $tools                 = $this->createMock(FlexFormTools::class);
+        $tools = $this->createMock(FlexFormTools::class);
+        $tools->method('getDataStructureIdentifier')->willReturn('copy-ds');
+        $tools->method('parseDataStructureByIdentifier')->willReturn([
+            'sheets' => [
+                'sDEF' => [
+                    'ROOT' => [
+                        'el' => [
+                            'key'   => ['config' => ['type' => 'input', 'renderType' => 'vaultSecret']],
+                            'label' => ['config' => ['type' => 'input']],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
         $serializationAttempts = 0;
         $tools
             ->method('flexArray2Xml')

@@ -2125,7 +2125,7 @@ parameters:
 		-
 			rawMessage: Access to internal property TYPO3\CMS\Core\DataHandling\DataHandler::$copyMappingArray from outside its root namespace TYPO3.
 			identifier: property.internal
-			count: 12
+			count: 13
 			path: ../Tests/Unit/Hook/FlexFormVaultHookTest.php
 
 		-
