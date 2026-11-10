@@ -20,6 +20,7 @@ use Netresearch\NrVault\Http\DnsResolverInterface;
 use Netresearch\NrVault\Http\SecureHttpClientFactory;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\RequestInterface;
 use ReflectionClass;
@@ -641,6 +642,156 @@ final class SecureHttpClientFactoryRebindingTest extends TestCase
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame(['safe.example', self::DOCKER_IP], $reachedHosts);
+    }
+
+    /**
+     * A literal `allowed_hosts` entry is the operator's only way past the
+     * private-range guard, so it must match every spelling of the same host:
+     * the guard and the opt-in see the host only after normalisation. Each
+     * host here resolves to a private address (or is one), so only the
+     * literal match can let it through; a normalisation step that went
+     * missing turns the opt-in off without a trace.
+     *
+     * @return iterable<string, array{string, string}>
+     */
+    public static function literalAllowlistSpellings(): iterable
+    {
+        yield 'entry in another case' => ['VAULT.Example.com', 'vault.example.com'];
+        yield 'host in another case' => ['vault.example.com', 'Vault.Example.COM'];
+        yield 'host with a trailing dot' => ['vault.example.com', 'vault.example.com.'];
+        yield 'host padded with whitespace' => ['vault.example.com', " vault.example.com\t"];
+        yield 'ipv6 host in upper case' => ['fe80::1', 'FE80::1'];
+        yield 'bracketed ipv6 host with a port' => ['fe80::1', '[fe80::1]:8443'];
+    }
+
+    #[Test]
+    #[DataProvider('literalAllowlistSpellings')]
+    public function isHostAllowedMatchesALiteralEntryInAnySpellingOfTheHost(string $entry, string $host): void
+    {
+        $this->dnsResolver->program('vault.example.com', [['ip' => self::DOCKER_IP]]);
+        self::assertFalse(
+            $this->subject->isHostAllowed($host),
+            'Without the entry the private range must refuse the host, or the entry proves nothing.',
+        );
+
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = [$entry];
+
+        self::assertTrue($this->subject->isHostAllowed($host));
+    }
+
+    /**
+     * `*.example.com` covers subdomains of example.com, not every name that
+     * ends in the same letters: `evilexample.com` is somebody else's domain.
+     */
+    #[Test]
+    public function isHostAllowedWildcardMatchesOnlyAtALabelBoundary(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = ['*.example.com'];
+        $this->dnsResolver->program('evilexample.com', [['ip' => self::PUBLIC_IP]]);
+        $this->dnsResolver->program('api.example.com', [['ip' => self::PUBLIC_IP]]);
+
+        self::assertFalse($this->subject->isHostAllowed('evilexample.com'));
+        self::assertTrue($this->subject->isHostAllowed('api.example.com'));
+    }
+
+    /**
+     * A malformed entry in `allowed_hosts` is skipped, not the end of the
+     * list: the wildcard after it still applies.
+     */
+    #[Test]
+    public function isHostAllowedReachesAWildcardListedAfterANonStringEntry(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'] = [42, '*.example.com'];
+        $this->dnsResolver->program('api.example.com', [['ip' => self::PUBLIC_IP]]);
+
+        self::assertTrue($this->subject->isHostAllowed('api.example.com'));
+    }
+
+    /**
+     * A record without a well-formed address counts for nothing, in either
+     * direction: it neither vouches for the host nor hides the records after
+     * it, which are checked and pinned as usual.
+     */
+    #[Test]
+    public function aMalformedRecordDoesNotHideTheRecordsAfterIt(): void
+    {
+        $this->dnsResolver->program('mixed.example', [['ip' => 'not-an-address'], ['ip' => self::PUBLIC_IP]]);
+
+        self::assertTrue($this->subject->isHostAllowed('mixed.example'));
+        self::assertSame(['mixed.example:443:' . self::PUBLIC_IP], $this->callBuildResolveEntries('mixed.example', 443));
+
+        $this->dnsResolver->program('hidden.example', [['ip' => 'not-an-address'], ['ip' => self::METADATA_IP]]);
+        $this->assertRejects(self::DISALLOWED_RANGE, 'hidden.example', 443);
+    }
+
+    /**
+     * A URL without a port is pinned on the default port of its scheme: curl
+     * matches a CURLOPT_RESOLVE entry by host AND port, so a pin on any other
+     * port is no pin at all and curl resolves the name itself.
+     */
+    #[Test]
+    public function middlewarePinsAPortlessHttpUrlOnPort80(): void
+    {
+        $this->dnsResolver->program('plain.example', [['ip' => self::PUBLIC_IP]]);
+        $client = $this->buildCapturingClient($capturedOptions);
+
+        $client->get('http://plain.example/api'); // NOSONAR: asserts the pin of the http default port; nothing is sent
+
+        $curlOpts = $capturedOptions['curl'] ?? null;
+        self::assertIsArray($curlOpts);
+        self::assertSame(['plain.example:80:' . self::PUBLIC_IP], $curlOpts[CURLOPT_RESOLVE]);
+    }
+
+    /**
+     * The pin is added to resolve entries the caller already set, once, as a
+     * list: curl reads the option as a sequential array.
+     */
+    #[Test]
+    public function middlewareMergesItsPinIntoCallerResolveEntriesAsAList(): void
+    {
+        $this->dnsResolver->program('safe.example', [['ip' => self::PUBLIC_IP]]);
+        $client = $this->buildCapturingClient($capturedOptions);
+        $own    = 'safe.example:443:' . self::PUBLIC_IP;
+
+        $client->get('https://safe.example/api', ['curl' => [CURLOPT_RESOLVE => [$own, $own, 'other.example:443:' . self::PUBLIC_IP_SECONDARY]]]);
+
+        $curlOpts = $capturedOptions['curl'] ?? null;
+        self::assertIsArray($curlOpts);
+        self::assertSame(
+            [$own, 'other.example:443:' . self::PUBLIC_IP_SECONDARY],
+            $curlOpts[CURLOPT_RESOLVE],
+        );
+    }
+
+    /**
+     * Every inet_aton() shape curl accepts, not only the single-number one:
+     * dotted forms with fewer than four parts and hex or octal parts reach
+     * 127.0.0.1 too.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function multiPartLegacyNumericForms(): iterable
+    {
+        yield 'two parts' => ['127.1'];
+        yield 'three parts' => ['127.0.1'];
+        yield 'hex first part' => ['0x7f.0.0.1'];
+        yield 'octal first part' => ['0177.0.0.1'];
+    }
+
+    #[Test]
+    #[DataProvider('multiPartLegacyNumericForms')]
+    public function middlewareRejectsMultiPartLegacyNumericIpForms(string $host): void
+    {
+        $client = $this->buildCapturingClient($capturedOptions);
+
+        try {
+            $client->get('http://' . $host . '/'); // NOSONAR: rejection test — the request is refused before any socket opens; scheme is irrelevant
+            self::fail('The middleware must refuse the legacy numeric IP form ' . $host . '.');
+        } catch (RequestException $e) {
+            self::assertStringContainsString('non-canonical numeric IP form', $e->getMessage());
+        }
+
+        self::assertNull($capturedOptions, 'Nothing may reach the transport.');
     }
 
     /**
