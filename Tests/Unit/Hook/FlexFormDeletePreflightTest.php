@@ -812,6 +812,90 @@ final class FlexFormDeletePreflightTest extends TestCase
     }
 
     /**
+     * The record-wide preflight DataHandlerHook runs before it deletes the
+     * plain TCA secrets: every reference is checked, none is deleted.
+     */
+    #[Test]
+    public function recordPreflightChecksEveryReferenceWithoutDeletingAny(): void
+    {
+        $preflights = [];
+        $this->vault->method('exists')->willReturn(true);
+        $this->vault
+            ->method('assertDeletable')
+            ->willReturnCallback(
+                static function (string $id) use (&$preflights): void {
+                    $preflights[] = $id;
+                },
+            );
+        $this->vault->expects(self::never())->method('delete');
+
+        $this->subject->preflightRecordDeletion(
+            self::TABLE,
+            42,
+            ['flex_a' => $this->flexXml([self::FIRST]), 'flex_b' => $this->flexXml([self::SECOND])],
+        );
+
+        self::assertSame([self::FIRST, self::SECOND], $preflights);
+    }
+
+    /**
+     * A refusal reaches the caller as the thrown failure, together with the
+     * column and the reference it concerns, for the caller's diagnostic.
+     */
+    #[Test]
+    public function recordPreflightThrowsTheRefusalAndNamesItsColumnAndReference(): void
+    {
+        $refusal = new RuntimeException('synthetic refusal', 1792483301);
+        $this->vault->method('exists')->willReturn(true);
+        $this->vault
+            ->method('assertDeletable')
+            ->willReturnCallback(
+                static function (string $id) use ($refusal): void {
+                    if ($id === self::SECOND) {
+                        throw $refusal;
+                    }
+                },
+            );
+        $this->vault->expects(self::never())->method('delete');
+        $flexFieldName = '';
+        $identifier    = null;
+        $caught        = null;
+
+        try {
+            $this->subject->preflightRecordDeletion(
+                self::TABLE,
+                42,
+                ['flex_a' => $this->flexXml([self::FIRST]), 'flex_b' => $this->flexXml([self::SECOND])],
+                $flexFieldName,
+                $identifier,
+            );
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+
+        self::assertSame($refusal, $caught);
+        self::assertSame(['flex_b', self::SECOND], [$flexFieldName, $identifier]);
+    }
+
+    /**
+     * A soft delete keeps the FlexForm secrets for restoration, so it has no
+     * FlexForm reference to preflight and must not be refused by one.
+     */
+    #[Test]
+    public function recordPreflightSelectsNothingOnASoftDelete(): void
+    {
+        $GLOBALS['TCA'][self::TABLE]['ctrl']['delete'] = 'deleted';
+        $this->vault->expects(self::never())->method('exists');
+        $this->vault->expects(self::never())->method('assertDeletable');
+
+        $this->subject->preflightRecordDeletion(
+            self::TABLE,
+            42,
+            ['flex_a' => $this->flexXml([self::FIRST])],
+        );
+    }
+
+    /**
      * Run the hook against a record whose FlexForm columns are given as
      * space-separated identifiers; each one is stored at its own configured
      * vaultSecret position, in the given order.

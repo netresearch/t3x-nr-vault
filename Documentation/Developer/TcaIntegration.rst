@@ -494,8 +494,10 @@ first, then uses authorized administrative metadata when the availability
 lookup returns false. Only a missing-secret exception excludes an absent or
 already-deleted reference; lookup failures cancel record deletion before any
 secret preflight or deletion. Metadata lookup does not decrypt a secret value.
-Plain TCA and FlexForm hooks preflight their own references separately; a
-record mixing both kinds still lacks a shared preflight coordinator.
+A record with both plain TCA and FlexForm vault fields is preflighted as a
+whole: the plain-field hook runs the FlexForm preflight after its own and
+before it deletes the first plain secret, so a refused or unlocatable FlexForm
+reference cancels the delete with no secret of either kind removed.
 
 The preflight cannot cover a failure it is unable to predict — an audit write
 that fails, a vault outage, a permission revoked between the check and the

@@ -20,3 +20,9 @@ CREATE TABLE tx_nrvaulttest_flex (
     settings mediumtext,
     settings_extra mediumtext
 );
+
+CREATE TABLE tx_nrvaulttest_mixed (
+    title varchar(255) DEFAULT '' NOT NULL,
+    api_key varchar(255) DEFAULT '' NOT NULL,
+    settings mediumtext
+);

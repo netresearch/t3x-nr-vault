@@ -108,6 +108,7 @@ final class DataHandlerHook
         private readonly PendingSecretPersister $pendingSecretPersister,
         private readonly VaultFailureReporter $failureReporter,
         private readonly VaultFieldPermissionService $fieldPermissionService,
+        private readonly FlexFormVaultHook $flexFormVaultHook,
     ) {}
 
     /**
@@ -307,12 +308,14 @@ final class DataHandlerHook
             return;
         }
 
-        // Read current field values to get UUIDs
+        // Read the whole row: the vault fields hold the UUIDs, and the FlexForm
+        // preflight below resolves its data structure from the record-type
+        // columns.
         $connection = $this->connectionPool
             ->getConnectionForTable($table);
 
         $record = $connection->select(
-            $vaultFields,
+            ['*'],
             $table,
             ['uid' => (int) $id],
         )->fetchAssociative();
@@ -373,6 +376,10 @@ final class DataHandlerHook
 
                 return;
             }
+        }
+
+        if (!$this->preflightFlexFormReferences($table, $uid, $record, $dataHandler)) {
+            return;
         }
 
         $deletedCount = 0;
@@ -661,6 +668,48 @@ final class DataHandlerHook
                 );
             }
         }
+    }
+
+    /**
+     * Preflight the record's FlexForm vault references before its first plain
+     * secret is deleted.
+     *
+     * FlexFormVaultHook deletes those references later, while core runs the
+     * delete. Without this, a FlexForm reference it refuses would keep the
+     * record after the plain secrets were already gone, leaving the record
+     * pointing at deleted secrets. A refusal here cancels the delete with no
+     * secret touched, the same as a refused plain reference.
+     *
+     * @param array<string, mixed> $record The complete row
+     *
+     * @return bool Whether the delete may go ahead
+     */
+    private function preflightFlexFormReferences(
+        string $table,
+        int $uid,
+        array $record,
+        DataHandler $dataHandler,
+    ): bool {
+        $flexFieldName = '';
+        $identifier    = null;
+
+        try {
+            $this->flexFormVaultHook->preflightRecordDeletion($table, $uid, $record, $flexFieldName, $identifier);
+        } catch (Throwable $e) {
+            $this->cancelRecordDeletion(
+                $table,
+                $uid,
+                $flexFieldName,
+                $identifier ?? '',
+                $e,
+                $dataHandler,
+                'No secret of this record was deleted.',
+            );
+
+            return false;
+        }
+
+        return true;
     }
 
     /**

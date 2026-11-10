@@ -14,6 +14,7 @@ use Error;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Hook\DataHandlerHook;
+use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Hook\PendingSecretExtractor;
 use Netresearch\NrVault\Hook\PendingSecretPersister;
 use Netresearch\NrVault\Hook\VaultFailureReporter;
@@ -33,6 +34,7 @@ use ReflectionClass;
 use RuntimeException;
 use Stringable;
 use Throwable;
+use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -114,6 +116,15 @@ final class DataHandlerHookTest extends TestCase
             $pendingSecretPersister,
             new VaultFailureReporter($this->failureLogger),
             new VaultFieldPermissionService(),
+            new FlexFormVaultHook(
+                $this->connectionPool,
+                $this->tcaSchemaFactory,
+                $this->vaultService,
+                $this->createMock(FlexFormTools::class),
+                $this->flashMessageService,
+                new VaultFailureReporter($this->failureLogger),
+                new TranslationSharedSecretResolver($this->connectionPool, $vaultFieldResolver),
+            ),
         );
     }
 
