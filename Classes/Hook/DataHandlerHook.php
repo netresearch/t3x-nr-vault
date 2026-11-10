@@ -56,6 +56,9 @@ final class DataHandlerHook
      */
     private const DUPLICATION_COMMANDS = ['copy', 'localize', 'copyToLanguage', 'inlineLocalizeSynchronize'];
 
+    /** The scope notice of a delete cancelled before its first secret was deleted. */
+    private const NOTHING_DELETED_NOTICE = 'No secret of this record was deleted.';
+
     /**
      * Pending secrets to be stored after database operations.
      *
@@ -371,14 +374,33 @@ final class DataHandlerHook
                     $vaultIdentifier,
                     $e,
                     $dataHandler,
-                    'No secret of this record was deleted.',
+                    self::NOTHING_DELETED_NOTICE,
                 );
 
                 return;
             }
         }
 
-        if (!$this->preflightFlexFormReferences($table, $uid, $record, $dataHandler)) {
+        // FlexFormVaultHook deletes the record's FlexForm references later,
+        // while core runs the delete. Preflight them now, before the first
+        // plain secret goes: a FlexForm reference refused there would keep the
+        // record after its plain secrets were already deleted.
+        $flexFieldName  = '';
+        $flexIdentifier = null;
+
+        try {
+            $this->flexFormVaultHook->preflightRecordDeletion($table, $uid, $record, $flexFieldName, $flexIdentifier);
+        } catch (Throwable $e) {
+            $this->cancelRecordDeletion(
+                $table,
+                $uid,
+                $flexFieldName,
+                $flexIdentifier ?? '',
+                $e,
+                $dataHandler,
+                self::NOTHING_DELETED_NOTICE,
+            );
+
             return;
         }
 
@@ -405,7 +427,7 @@ final class DataHandlerHook
                     $e,
                     $dataHandler,
                     $deletedCount === 0
-                        ? 'No secret of this record was deleted.'
+                        ? self::NOTHING_DELETED_NOTICE
                         : $deletedCount . ' secret(s) of preceding fields were already deleted and cannot be restored.',
                 );
 
@@ -668,48 +690,6 @@ final class DataHandlerHook
                 );
             }
         }
-    }
-
-    /**
-     * Preflight the record's FlexForm vault references before its first plain
-     * secret is deleted.
-     *
-     * FlexFormVaultHook deletes those references later, while core runs the
-     * delete. Without this, a FlexForm reference it refuses would keep the
-     * record after the plain secrets were already gone, leaving the record
-     * pointing at deleted secrets. A refusal here cancels the delete with no
-     * secret touched, the same as a refused plain reference.
-     *
-     * @param array<string, mixed> $record The complete row
-     *
-     * @return bool Whether the delete may go ahead
-     */
-    private function preflightFlexFormReferences(
-        string $table,
-        int $uid,
-        array $record,
-        DataHandler $dataHandler,
-    ): bool {
-        $flexFieldName = '';
-        $identifier    = null;
-
-        try {
-            $this->flexFormVaultHook->preflightRecordDeletion($table, $uid, $record, $flexFieldName, $identifier);
-        } catch (Throwable $e) {
-            $this->cancelRecordDeletion(
-                $table,
-                $uid,
-                $flexFieldName,
-                $identifier ?? '',
-                $e,
-                $dataHandler,
-                'No secret of this record was deleted.',
-            );
-
-            return false;
-        }
-
-        return true;
     }
 
     /**

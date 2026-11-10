@@ -355,6 +355,34 @@ final class FlexFormVaultHook
         string &$flexFieldName,
         ?string &$identifier,
     ): array {
+        $selected = $this->collectUnsharedFlexIdentifiers($table, $id, $record, $flexFieldName, $identifier);
+        $this->dropAbsentFlexSecrets($selected, $flexFieldName, $identifier);
+
+        foreach ($selected as $identifier => $flexFieldName) {
+            $this->vaultService->assertDeletable($identifier);
+        }
+
+        return $selected;
+    }
+
+    /**
+     * The vault references at configured positions of a record's FlexForm
+     * columns, unique, without any identity that another live record shares.
+     *
+     * Sharing excludes the complete identity: once any column's occurrence is
+     * shared, another occurrence in an unshared column cannot select it.
+     *
+     * @param array<string, mixed> $record
+     *
+     * @return array<string, string> Identifier => first FlexForm column holding it
+     */
+    private function collectUnsharedFlexIdentifiers(
+        string $table,
+        int $id,
+        array $record,
+        string &$flexFieldName,
+        ?string &$identifier,
+    ): array {
         $schema = $this->tcaSchemaFactory->get($table);
         /** @var array<string, string> $selected Identifier => first FlexForm column. */
         $selected = [];
@@ -393,6 +421,19 @@ final class FlexFormVaultHook
             }
         }
 
+        return $selected;
+    }
+
+    /**
+     * Drop the references whose secret is gone. A false `exists()` does not
+     * establish absence: it reports availability, and disabled custody stays
+     * administrable through `getMetadata()`. Only its SecretNotFoundException
+     * excludes a reference; any other failure propagates.
+     *
+     * @param array<string, string> $selected Identifier => FlexForm column
+     */
+    private function dropAbsentFlexSecrets(array &$selected, string &$flexFieldName, ?string &$identifier): void
+    {
         foreach ($selected as $identifier => $flexFieldName) {
             if ($this->vaultService->exists($identifier)) {
                 continue;
@@ -405,12 +446,6 @@ final class FlexFormVaultHook
                 unset($selected[$identifier]);
             }
         }
-
-        foreach ($selected as $identifier => $flexFieldName) {
-            $this->vaultService->assertDeletable($identifier);
-        }
-
-        return $selected;
     }
 
     /**
