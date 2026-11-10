@@ -117,7 +117,13 @@
     // 451 escapes remain (Http 171, Audit 164, Crypto 67, Security 49). They
     // are no longer clustered in one mechanism the way the SSRF ranges or the
     // sink-state coercion were, so further passes buy fewer points per test.
+    //
+    // 86 -> 87 on 2026-11-10 (#328, fourth pass). The scope had grown to 4194
+    // mutants; main at 2a23a3ac measured MSI 88.15 % (CI run 42732384054,
+    // 497 escapes). Tests pinning SecureHttpClientFactory's host matching
+    // and resolve pins took the escapes to 481 and the MSI to 88.53 % (CI run
+    // 42785544036). Measurement minus one point, rounded down: 87.
     // ------------------------------------------------------------------------
-    "minMsi": 86,
-    "minCoveredMsi": 86
+    "minMsi": 87,
+    "minCoveredMsi": 87
 }
