@@ -105,7 +105,7 @@ This extension handles sensitive data. Non-negotiable rules:
 - Use `declare(strict_types=1);`, `final` classes by default, `readonly` properties, constructor promotion.
 - Dependency injection via `Configuration/Services.yaml` — not `GeneralUtility::makeInstance()`.
 - Run `make fix && make phpstan && make test` before pushing.
-- Use atomic commits (one logical change per commit); preserve GPG signatures.
+- Use atomic commits (one logical change per commit); preserve GPG signatures. **Changelog:** a change a user or integrator can notice gets a fragment `changelog.d/<branch-slug>.<section>.md` ([`changelog.d/README.md`](changelog.d/README.md) defines name, sections and content; `composer ci:test:changelog` checks them), never a direct edit of `CHANGELOG.md`; the release PR `chore(release): X.Y.Z` runs `composer changelog:collect`, which writes the fragments into `CHANGELOG.md` (Keep a Changelog 1.1.0) and deletes them.
 - Force-push only with `--force-with-lease`. Follow PSR-12 + TYPO3 CGL.
 
 ### Ask First
