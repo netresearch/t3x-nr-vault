@@ -13,6 +13,7 @@ use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Hook\DataHandlerHook;
+use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Hook\PendingSecretExtractor;
 use Netresearch\NrVault\Hook\PendingSecretPersister;
 use Netresearch\NrVault\Hook\VaultFailureReporter;
@@ -536,6 +537,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
             $this->get(PendingSecretPersister::class),
             $this->get(VaultFailureReporter::class),
             $this->get(VaultFieldPermissionService::class),
+            $this->get(FlexFormVaultHook::class),
         );
 
         // Pre-seed the field cache via reflection (setAccessible is a no-op since PHP 8.1)

@@ -1,0 +1,1 @@
+- A hard delete of a record that holds both a plain TCA vault field and a FlexForm vault field preflights the FlexForm references before the first plain secret is deleted. A refused or unlocatable FlexForm reference now cancels the delete with every secret and the record in place; before, the plain secret was already deleted and the kept record pointed at it (#471).

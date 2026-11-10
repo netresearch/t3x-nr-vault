@@ -178,60 +178,7 @@ final class FlexFormVaultHook
                 return;
             }
 
-            $schema = $this->tcaSchemaFactory->get($table);
-            /** @var array<string, string> $selected Identifier => first FlexForm column. */
-            $selected = [];
-            /** @var array<string, bool> $shared Identity-wide exclusions across FlexForm columns. */
-            $shared = [];
-            foreach ($this->getFlexFieldConfigurations($schema) as $flexFieldName => $fieldConfig) {
-                $identifier = null;
-                $xmlValue   = $recordToDelete[$flexFieldName] ?? '';
-                if (!is_string($xmlValue) || $xmlValue === '') {
-                    continue;
-                }
-
-                $candidates = $this->collectFlexVaultSecretIdentifiers(
-                    $xmlValue,
-                    $table,
-                    $flexFieldName,
-                    $fieldConfig,
-                    $recordToDelete,
-                    $schema,
-                );
-                foreach ($candidates as $identifier) {
-                    if ($this->translationSharedSecretResolver->isIdentifierEmbeddedElsewhere(
-                        $table,
-                        $flexFieldName,
-                        $identifier,
-                        $id,
-                    )) {
-                        $shared[$identifier] = true;
-                        unset($selected[$identifier]);
-                        continue;
-                    }
-
-                    if (!isset($shared[$identifier])) {
-                        $selected[$identifier] ??= $flexFieldName;
-                    }
-                }
-            }
-
-            foreach ($selected as $identifier => $flexFieldName) {
-                if ($this->vaultService->exists($identifier)) {
-                    continue;
-                }
-
-                try {
-                    // Disabled custody remains administrable without decrypting its value.
-                    $this->vaultService->getMetadata($identifier);
-                } catch (SecretNotFoundException) {
-                    unset($selected[$identifier]);
-                }
-            }
-
-            foreach ($selected as $identifier => $flexFieldName) {
-                $this->vaultService->assertDeletable($identifier);
-            }
+            $selected = $this->selectDeletableFlexSecrets($table, $id, $recordToDelete, $flexFieldName, $identifier);
 
             foreach ($selected as $identifier => $flexFieldName) {
                 // A delete may persist before a post-persistence event observer throws.
@@ -251,6 +198,39 @@ final class FlexFormVaultHook
                 $dataHandler,
             );
         }
+    }
+
+    /**
+     * Preflight the FlexForm vault references of a record that is about to be
+     * deleted, without deleting anything.
+     *
+     * For {@see DataHandlerHook}, which deletes the plain TCA vault secrets of
+     * a record before core runs its delete and this hook's
+     * {@see processCmdmap_deleteAction()}. Calling this first makes the
+     * preflight record-wide: a FlexForm reference that would be refused, or
+     * whose vault positions cannot be located, refuses the delete before the
+     * first plain secret is gone. The selection is the one
+     * processCmdmap_deleteAction() deletes from; a soft delete selects
+     * nothing, because FlexForm secrets survive it.
+     *
+     * @param array<string, mixed> $record        The complete row; resolving the data structure needs its record-type columns
+     * @param string               $flexFieldName Set to the FlexForm column being checked when the preflight fails
+     * @param string|null          $identifier    Set to the reference being checked when the preflight fails
+     *
+     * @throws Throwable when a reference is refused or cannot be located
+     */
+    public function preflightRecordDeletion(
+        string $table,
+        int $id,
+        array $record,
+        string &$flexFieldName = '',
+        ?string &$identifier = null,
+    ): void {
+        if (!$this->isHardDelete($table) || !$this->tcaSchemaFactory->has($table)) {
+            return;
+        }
+
+        $this->selectDeletableFlexSecrets($table, $id, $record, $flexFieldName, $identifier);
     }
 
     /**
@@ -352,6 +332,118 @@ final class FlexFormVaultHook
                 $this->duplicationCommands[$handlerId] = $remaining;
             } else {
                 unset($this->duplicationCommands[$handlerId]);
+            }
+        }
+    }
+
+    /**
+     * The unique, existing, unshared vault references of a record's FlexForm
+     * columns, each already through assertDeletable().
+     *
+     * $flexFieldName and $identifier track the column and reference being
+     * processed, so a caller that catches the failure can report where it
+     * happened.
+     *
+     * @param array<string, mixed> $record
+     *
+     * @return array<string, string> Identifier => first FlexForm column holding it
+     */
+    private function selectDeletableFlexSecrets(
+        string $table,
+        int $id,
+        array $record,
+        string &$flexFieldName,
+        ?string &$identifier,
+    ): array {
+        $selected = $this->collectUnsharedFlexIdentifiers($table, $id, $record, $flexFieldName, $identifier);
+        $this->dropAbsentFlexSecrets($selected, $flexFieldName, $identifier);
+
+        foreach ($selected as $identifier => $flexFieldName) {
+            $this->vaultService->assertDeletable($identifier);
+        }
+
+        return $selected;
+    }
+
+    /**
+     * The vault references at configured positions of a record's FlexForm
+     * columns, unique, without any identity that another live record shares.
+     *
+     * Sharing excludes the complete identity: once any column's occurrence is
+     * shared, another occurrence in an unshared column cannot select it.
+     *
+     * @param array<string, mixed> $record
+     *
+     * @return array<string, string> Identifier => first FlexForm column holding it
+     */
+    private function collectUnsharedFlexIdentifiers(
+        string $table,
+        int $id,
+        array $record,
+        string &$flexFieldName,
+        ?string &$identifier,
+    ): array {
+        $schema = $this->tcaSchemaFactory->get($table);
+        /** @var array<string, string> $selected Identifier => first FlexForm column. */
+        $selected = [];
+        /** @var array<string, bool> $shared Identity-wide exclusions across FlexForm columns. */
+        $shared = [];
+        foreach ($this->getFlexFieldConfigurations($schema) as $flexFieldName => $fieldConfig) {
+            $identifier = null;
+            $xmlValue   = $record[$flexFieldName] ?? '';
+            if (!is_string($xmlValue) || $xmlValue === '') {
+                continue;
+            }
+
+            $candidates = $this->collectFlexVaultSecretIdentifiers(
+                $xmlValue,
+                $table,
+                $flexFieldName,
+                $fieldConfig,
+                $record,
+                $schema,
+            );
+            foreach ($candidates as $identifier) {
+                if ($this->translationSharedSecretResolver->isIdentifierEmbeddedElsewhere(
+                    $table,
+                    $flexFieldName,
+                    $identifier,
+                    $id,
+                )) {
+                    $shared[$identifier] = true;
+                    unset($selected[$identifier]);
+                    continue;
+                }
+
+                if (!isset($shared[$identifier])) {
+                    $selected[$identifier] ??= $flexFieldName;
+                }
+            }
+        }
+
+        return $selected;
+    }
+
+    /**
+     * Drop the references whose secret is gone. A false `exists()` does not
+     * establish absence: it reports availability, and disabled custody stays
+     * administrable through `getMetadata()`. Only its SecretNotFoundException
+     * excludes a reference; any other failure propagates.
+     *
+     * @param array<string, string> $selected Identifier => FlexForm column
+     */
+    private function dropAbsentFlexSecrets(array &$selected, string &$flexFieldName, ?string &$identifier): void
+    {
+        foreach ($selected as $identifier => $flexFieldName) {
+            if ($this->vaultService->exists($identifier)) {
+                continue;
+            }
+
+            try {
+                // Disabled custody remains administrable without decrypting its value.
+                $this->vaultService->getMetadata($identifier);
+            } catch (SecretNotFoundException) {
+                unset($selected[$identifier]);
             }
         }
     }

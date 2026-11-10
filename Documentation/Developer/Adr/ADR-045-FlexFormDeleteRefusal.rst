@@ -92,10 +92,14 @@ structure cannot be resolved cannot be hard-deleted until its data structure
 resolves again. Deleting it anyway would either miss its secrets or delete
 secrets this record merely mentions.
 
-This is a preflight within the FlexForm hook. A record mixing plain TCA vault
-fields and FlexForm fields still needs a separate cross-hook coordination
-repair; this decision does not claim that guarantee. Copy compensation is
-also outside this deletion repair.
+For a record mixing plain TCA vault fields and FlexForm fields, the plain-field
+hook deletes its secrets before Core runs the delete, while this hook deletes
+during it. The plain-field hook therefore runs this same FlexForm selection and
+preflight, after its own preflight and before its first deletion. A refused or
+unlocatable FlexForm reference then cancels the record deletion with no secret
+of either kind deleted. A deletion failure that no preflight can predict still
+leaves the earlier deletions in place, as described above. Copy compensation
+is outside this deletion repair.
 
 Related decisions
 =================
