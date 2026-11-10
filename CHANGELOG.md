@@ -2290,7 +2290,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.2.0...v1.3.0
