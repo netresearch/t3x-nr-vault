@@ -439,6 +439,14 @@ columns or plain/FlexForm hooks remains separate audit work; this boundary does
 not make every record copy atomic (see
 :ref:`adr-046-flexform-copy-link-compensation`).
 
+A FlexForm copy clones only the values at elements the data structure
+configures with renderType ``vaultSecret``, including elements inside section
+containers. A UUID in any other element is ordinary content and is copied
+verbatim, even when a secret with that identifier exists. When the data
+structure of the source record cannot be resolved, the column is neither
+cloned nor cleared, and the editor is told that the duplicate may still
+reference the source record's secrets.
+
 For regular TCA vault fields, the same compensation applies if storing the fresh
 identifiers in the copied record fails after the secrets were cloned. Every
 created clone is considered for deletion, and clearing the copied record's

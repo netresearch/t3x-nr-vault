@@ -30,6 +30,7 @@ use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 use function array_key_exists;
+use function array_keys;
 use function in_array;
 use function is_array;
 use function is_int;
@@ -313,7 +314,12 @@ final class FlexFormVaultHook
                     continue;
                 }
 
-                $flexFieldNames = $this->getFlexFieldNames($duplicatedTable);
+                if (!$this->tcaSchemaFactory->has($duplicatedTable)) {
+                    continue;
+                }
+
+                $schema         = $this->tcaSchemaFactory->get($duplicatedTable);
+                $flexFieldNames = array_keys($this->getFlexFieldConfigurations($schema));
                 if ($flexFieldNames === []) {
                     continue;
                 }
@@ -331,9 +337,9 @@ final class FlexFormVaultHook
                     $this->cloneFlexSecretsIntoDuplicate(
                         $connection,
                         $duplicatedTable,
+                        $schema,
                         $sourceUid,
                         $newUid,
-                        $flexFieldNames,
                         $dataHandler,
                     );
                 }
@@ -411,26 +417,28 @@ final class FlexFormVaultHook
      * Clone the FlexForm secrets of a source record into the record duplicated
      * from it.
      *
-     * The source XML is the map: every vault identifier it holds marks a
-     * position the duplicate must fill with a clone. The duplicate's own value
-     * at that position is either the source identifier (core duplicated the XML
-     * verbatim) or empty (the datamap pass cleared it) — any other value was
-     * produced by an ordinary write and is left alone.
-     *
-     * @param list<string> $flexFieldNames
+     * The source XML, read through its data structure, is the map: every
+     * element configured with renderType `vaultSecret` that holds the
+     * identifier of an existing secret marks a position the duplicate must fill
+     * with a clone. A UUID in any other element is ordinary content and stays
+     * as it is, the same matcher the write and delete paths use. The
+     * duplicate's own value at a vault position is either the source identifier
+     * (core duplicated the XML verbatim) or empty (the datamap pass cleared
+     * it) — any other value was produced by an ordinary write and is left
+     * alone.
      */
     private function cloneFlexSecretsIntoDuplicate(
         Connection $connection,
         string $table,
+        TcaSchema $schema,
         int $sourceUid,
         int $newUid,
-        array $flexFieldNames,
         DataHandler $dataHandler,
     ): void {
         // Both rows in ONE query: issuing a second select() on the connection
         // that DataHandler just wrote through did not see the freshly inserted
         // copy, which silently skipped the clone.
-        $rows = $this->readFlexRows($table, $flexFieldNames, [$sourceUid, $newUid]);
+        $rows = $this->readRows($table, [$sourceUid, $newUid]);
 
         $sourceRecord = $rows[$sourceUid] ?? null;
         $copiedRecord = $rows[$newUid] ?? null;
@@ -439,7 +447,9 @@ final class FlexFormVaultHook
             return;
         }
 
-        $sharedFlexFields = $this->translationSharedFlexFields($table, $flexFieldNames);
+        $flexFieldConfigurations = $this->getFlexFieldConfigurations($schema);
+        $flexFieldNames          = array_keys($flexFieldConfigurations);
+        $sharedFlexFields        = $this->translationSharedFlexFields($table, $flexFieldNames);
         // Resolved once per duplicated record, and only when a shared column
         // exists at all: every other duplicate pays no query for it.
         $duplicateIsTranslation = $sharedFlexFields !== []
@@ -474,7 +484,27 @@ final class FlexFormVaultHook
                 continue;
             }
 
-            $positions = $this->collectVaultIdentifierPositions($sourceArray);
+            // The cheap syntax scan first: a value without any identifier-shaped
+            // string has no vault position and needs no data structure.
+            if ($this->extractVaultIdentifiersFromXml($sourceXml) === []) {
+                continue;
+            }
+
+            $dataStructure = $this->getFlexFormDataStructure(
+                ['config' => $flexFieldConfigurations[$flexFieldName]],
+                $table,
+                $flexFieldName,
+                $sourceRecord,
+                $schema,
+            );
+            if ($dataStructure === null) {
+                $this->reportUnlocatedCopyPositions($table, $flexFieldName, $newUid, $dataHandler);
+
+                continue;
+            }
+
+            /** @var array<string, mixed> $sourceArray */
+            $positions = $this->collectVaultSecretPositions($sourceArray, $dataStructure);
             if ($positions === []) {
                 continue;
             }
@@ -505,20 +535,22 @@ final class FlexFormVaultHook
     }
 
     /**
-     * Read the FlexForm columns of the given records, indexed by uid.
+     * Read the given records, indexed by uid.
      *
-     * @param list<string> $flexFieldNames
-     * @param list<int>    $uids
+     * Whole rows, not just the FlexForm columns: resolving a FlexForm data
+     * structure needs the record-type columns that select it.
+     *
+     * @param list<int> $uids
      *
      * @return array<int, array<string, mixed>>
      */
-    private function readFlexRows(string $table, array $flexFieldNames, array $uids): array
+    private function readRows(string $table, array $uids): array
     {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()->removeAll();
 
         $rows = $queryBuilder
-            ->select('uid', ...$flexFieldNames)
+            ->select('*')
             ->from($table)
             ->where(
                 $queryBuilder->expr()->in(
@@ -739,38 +771,79 @@ final class FlexFormVaultHook
     }
 
     /**
-     * Every position of a parsed FlexForm value that holds a stored vault
-     * identifier, as the path of array keys leading to it.
+     * Tell the editor that a FlexForm column of a duplicate kept whatever
+     * vault references core copied into it.
      *
-     * @param array<array-key, mixed> $node
-     * @param list<string>            $path
+     * Without its data structure the copy path cannot tell a vault position
+     * from an ordinary element holding a UUID. Cloning or clearing every
+     * identifier-shaped value would rewrite ordinary content, so nothing is
+     * changed; the duplicate may still reference the source record's secrets.
+     */
+    private function reportUnlocatedCopyPositions(
+        string $table,
+        string $flexFieldName,
+        int $newUid,
+        DataHandler $dataHandler,
+    ): void {
+        $userMessage = $this->failureReporter->report(
+            new RuntimeException(
+                sprintf(
+                    'The FlexForm data structure of %s.%s could not be resolved, so its vault secret positions cannot be located.',
+                    $table,
+                    $flexFieldName,
+                ),
+                1792483203,
+            ),
+            [
+                'table'     => $table,
+                'flexField' => $flexFieldName,
+                'uid'       => $newUid,
+                'operation' => 'flexform_copy',
+            ],
+        );
+
+        /** @phpstan-ignore method.internal */
+        $dataHandler->log(
+            $table,
+            $newUid,
+            1,
+            null,
+            2,
+            'Vault error during copy for FlexForm field "' . $flexFieldName . '": ' . $userMessage . ' Its vault positions could not be located, so no secret was cloned; the duplicate may still reference secrets of the source record and needs manual review.',
+        );
+    }
+
+    /**
+     * Every position of a parsed FlexForm value that its data structure
+     * configures with renderType `vaultSecret` and that holds the identifier
+     * of an existing secret, as the path of array keys leading to it.
+     *
+     * @param array<string, mixed> $flexData
+     * @param array<string, mixed> $dataStructure
      *
      * @return list<array{path: list<string>, identifier: string}>
      */
-    private function collectVaultIdentifierPositions(array $node, array $path = []): array
+    private function collectVaultSecretPositions(array $flexData, array $dataStructure): array
     {
+        /** @var list<array{path: list<string>, identifier: string}> $positions */
         $positions = [];
 
-        /** @var mixed $value */
-        foreach ($node as $key => $value) {
-            $childPath = [...$path, (string) $key];
+        $this->walkVaultSecretElements(
+            $flexData,
+            $dataStructure,
+            function (array &$fieldData, string $sheetName, string $fieldPath, array $keyPath) use (&$positions): void {
+                $value = $fieldData['vDEF'] ?? null;
+                if (!is_string($value) || !IdentifierValidator::looksLikeVaultIdentifier($value)) {
+                    return;
+                }
 
-            if (is_array($value)) {
-                $positions = [...$positions, ...$this->collectVaultIdentifierPositions($value, $childPath)];
+                if (!$this->vaultService->exists($value)) {
+                    return;
+                }
 
-                continue;
-            }
-
-            if ((string) $key !== 'vDEF' || !is_string($value)) {
-                continue;
-            }
-
-            if (!IdentifierValidator::looksLikeVaultIdentifier($value) || !$this->vaultService->exists($value)) {
-                continue;
-            }
-
-            $positions[] = ['path' => $childPath, 'identifier' => $value];
-        }
+                $positions[] = ['path' => [...$keyPath, 'vDEF'], 'identifier' => $value];
+            },
+        );
 
         return $positions;
     }
@@ -880,11 +953,14 @@ final class FlexFormVaultHook
      * container fields alike.
      *
      * The single matcher for "this position holds a vault secret": the write
-     * path converts the visited values, the delete path collects them.
+     * path converts the visited values, the delete path collects them, and the
+     * copy path collects their positions. The fourth visitor argument is the
+     * path of array keys from `$data` to the visited element, which tells two
+     * items of one section apart where `$fieldPath` names only the element.
      *
-     * @param array<string, mixed>                                                                  $data
-     * @param array<string, mixed>                                                                  $dataStructure
-     * @param callable(array<mixed, mixed> &$fieldData, string $sheetName, string $fieldPath): void $visitor
+     * @param array<string, mixed>                                                                                         $data
+     * @param array<string, mixed>                                                                                         $dataStructure
+     * @param callable(array<mixed, mixed> &$fieldData, string $sheetName, string $fieldPath, list<string> $keyPath): void $visitor
      */
     private function walkVaultSecretElements(array &$data, array $dataStructure, callable $visitor): void
     {
@@ -916,8 +992,9 @@ final class FlexFormVaultHook
 
                 $configArray = $elementConfig['config'] ?? [];
                 $renderType  = is_array($configArray) ? ($configArray['renderType'] ?? '') : '';
+                $keyPath     = ['data', (string) $sheetName, 'lDEF', $fieldPathStr];
                 if (is_string($renderType) && $renderType === 'vaultSecret') {
-                    $visitor($fieldData, (string) $sheetName, $fieldPathStr);
+                    $visitor($fieldData, (string) $sheetName, $fieldPathStr, $keyPath);
 
                     continue;
                 }
@@ -928,6 +1005,7 @@ final class FlexFormVaultHook
                     $sheetConfig,
                     (string) $sheetName,
                     $fieldPathStr,
+                    $keyPath,
                     $visitor,
                 );
             }
@@ -1035,27 +1113,29 @@ final class FlexFormVaultHook
     /**
      * Process section container fields to find vault secret fields in repeating elements.
      *
-     * @param array<mixed, mixed>                                                                   $fieldData
-     * @param array<mixed, mixed>                                                                   $sheetConfig
-     * @param callable(array<mixed, mixed> &$fieldData, string $sheetName, string $fieldPath): void $visitor
+     * @param array<mixed, mixed>                                                                                          $fieldData
+     * @param array<mixed, mixed>                                                                                          $sheetConfig
+     * @param list<string>                                                                                                 $keyPath     Array keys from the FlexForm value to `$fieldData`
+     * @param callable(array<mixed, mixed> &$fieldData, string $sheetName, string $fieldPath, list<string> $keyPath): void $visitor
      */
     private function processSectionContainerFields(
         array &$fieldData,
         array $sheetConfig,
         string $sheetName,
         string $fieldPath,
+        array $keyPath,
         callable $visitor,
     ): void {
         if (!isset($fieldData['el']) || !is_array($fieldData['el'])) {
             return;
         }
 
-        foreach ($fieldData['el'] as &$sectionItem) {
+        foreach ($fieldData['el'] as $sectionIndex => &$sectionItem) {
             if (!is_array($sectionItem)) {
                 continue;
             }
 
-            foreach ($sectionItem as &$containerData) {
+            foreach ($sectionItem as $containerType => &$containerData) {
                 if (!is_array($containerData)) {
                     continue;
                 }
@@ -1086,7 +1166,12 @@ final class FlexFormVaultHook
                         continue;
                     }
 
-                    $visitor($innerFieldData, $sheetName, $fieldPath . '/' . $innerFieldName);
+                    $visitor(
+                        $innerFieldData,
+                        $sheetName,
+                        $fieldPath . '/' . $innerFieldName,
+                        [...$keyPath, 'el', (string) $sectionIndex, (string) $containerType, 'el', (string) $innerFieldName],
+                    );
                 }
 
                 unset($innerFieldData);
@@ -1532,26 +1617,6 @@ final class FlexFormVaultHook
         }
 
         return array_values(array_unique($identifiers));
-    }
-
-    /**
-     * Get FlexForm field names from a table's TCA schema.
-     *
-     * @return list<string>
-     */
-    private function getFlexFieldNames(string $table): array
-    {
-        if (!$this->tcaSchemaFactory->has($table)) {
-            return [];
-        }
-
-        $flexFields = [];
-
-        foreach ($this->getFlexFieldConfigurations($this->tcaSchemaFactory->get($table)) as $fieldName => $fieldConfig) {
-            $flexFields[] = $fieldName;
-        }
-
-        return $flexFields;
     }
 
     /**

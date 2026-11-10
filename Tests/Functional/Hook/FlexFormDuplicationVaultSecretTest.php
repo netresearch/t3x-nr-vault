@@ -212,6 +212,92 @@ final class FlexFormDuplicationVaultSecretTest extends AbstractVaultFunctionalTe
     }
 
     /**
+     * Only the positions the data structure configures with renderType
+     * `vaultSecret` get a clone. An identifier of an existing secret in an
+     * ordinary element is content the copy keeps verbatim: cloning it would hand
+     * the copy a secret it does not own and overwrite the field's value, and the
+     * delete path, which only selects configured positions, would never remove
+     * that clone again (#472).
+     *
+     * Two section items carry distinct tokens, so each section position has to
+     * be addressed by its own index rather than by its element name.
+     */
+    #[Test]
+    public function copyingClonesOnlyConfiguredVaultSecretPositions(): void
+    {
+        $vault       = $this->get(VaultServiceInterface::class);
+        $plaintexts  = [];
+        $identifiers = [];
+        foreach (['apiKey', 'firstToken', 'secondToken', 'note', 'url'] as $name) {
+            $identifiers[$name] = $this->generateUuidV7();
+            $plaintexts[$name]  = $name . '-' . bin2hex(random_bytes(8));
+            $vault->store($identifiers[$name], $plaintexts[$name], ['source' => 'test']);
+        }
+
+        $section = static fn (string $index, string $token, string $url): string => '<section index="' . $index . '"><itemType index="endpoint"><el index="el">'
+            . '<field index="token"><value index="vDEF">' . $token . '</value></field>'
+            . '<field index="url"><value index="vDEF">' . $url . '</value></field>'
+            . '</el></itemType></section>';
+        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF">'
+            . '<field index="apiKey"><value index="vDEF">' . $identifiers['apiKey'] . '</value></field>'
+            . '<field index="note"><value index="vDEF">' . $identifiers['note'] . '</value></field>'
+            . '<field index="endpoints"><el index="el">'
+            . $section('1', $identifiers['firstToken'], $identifiers['url'])
+            . $section('2', $identifiers['secondToken'], $identifiers['url'])
+            . '</el></field>'
+            . '</language></sheet></data></T3FlexForms>';
+
+        $connection = $this->getConnectionPool()->getConnectionForTable(self::HARD_DELETE_TABLE);
+        $connection->insert(
+            self::HARD_DELETE_TABLE,
+            ['pid' => 1, 'title' => 'FlexForm copy positions', self::HARD_DELETE_COLUMN => $xml],
+        );
+        $uid = (int) $connection->lastInsertId();
+
+        $this->runDataHandler([], [self::HARD_DELETE_TABLE => [$uid => ['copy' => 1]]]);
+
+        $copyXml = $connection->fetchOne(
+            'SELECT ' . self::HARD_DELETE_COLUMN . ' FROM ' . self::HARD_DELETE_TABLE . ' WHERE uid <> ?',
+            [$uid],
+        );
+        self::assertIsString($copyXml, 'DataHandler must have created the copy');
+        $copy = GeneralUtility::xml2arrayProcess($copyXml);
+        self::assertIsArray($copy);
+
+        $lDef   = ['data', 'sDEF', 'lDEF'];
+        $item   = static fn (string $index, string $field): array => [...$lDef, 'endpoints', 'el', $index, 'endpoint', 'el', $field, 'vDEF'];
+        $copied = [
+            'apiKey'      => $this->flexValueAtPath($copy, [...$lDef, 'apiKey', 'vDEF']),
+            'firstToken'  => $this->flexValueAtPath($copy, $item('1', 'token')),
+            'secondToken' => $this->flexValueAtPath($copy, $item('2', 'token')),
+            'note'        => $this->flexValueAtPath($copy, [...$lDef, 'note', 'vDEF']),
+            'firstUrl'    => $this->flexValueAtPath($copy, $item('1', 'url')),
+            'secondUrl'   => $this->flexValueAtPath($copy, $item('2', 'url')),
+        ];
+
+        self::assertSame(
+            [
+                'note'      => $identifiers['note'],
+                'firstUrl'  => $identifiers['url'],
+                'secondUrl' => $identifiers['url'],
+            ],
+            ['note' => $copied['note'], 'firstUrl' => $copied['firstUrl'], 'secondUrl' => $copied['secondUrl']],
+            'Ordinary elements must keep their content verbatim.',
+        );
+
+        foreach (['apiKey', 'firstToken', 'secondToken'] as $name) {
+            self::assertNotSame($identifiers[$name], $copied[$name], $name . ' must reference a clone of its own.');
+            self::assertSame($plaintexts[$name], $vault->retrieve($copied[$name]), $name . ' must clone its own source secret.');
+        }
+
+        self::assertCount(
+            8,
+            $this->activeSecretIdentifiers(),
+            'Five seeded secrets plus one clone for each of the three configured positions.',
+        );
+    }
+
+    /**
      * A record of the hard-deleting fixture table whose FlexForm column holds
      * one vault secret.
      */

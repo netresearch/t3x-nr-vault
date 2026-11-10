@@ -25,6 +25,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
+use RuntimeException;
 use Throwable;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Database\Connection;
@@ -1011,6 +1012,41 @@ final class FlexFormVaultHookTest extends TestCase
         $this->subject->processCmdmap_postProcess('copy', 'tt_content', 42, null, $this->dataHandler, false);
     }
 
+    /**
+     * Without its data structure the copy path cannot tell a vault position
+     * from an ordinary element holding a UUID. It changes nothing — cloning or
+     * clearing would rewrite ordinary content — and tells the editor that the
+     * duplicate may still reference the source secrets.
+     */
+    #[Test]
+    public function postProcessLeavesTheCopyAloneAndReportsWhenTheDataStructureDoesNotResolve(): void
+    {
+        $this->dataHandler->copyMappingArray = ['tt_content' => [42 => 100]];
+
+        $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
+
+        $xml = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . self::VAULT_UUID . '</value></field></language></sheet></data></T3FlexForms>';
+
+        $connection = $this->stubFlexRowQuery($xml, false);
+
+        $this->vaultService->method('exists')->willReturn(true);
+        $this->vaultService->expects(self::never())->method('retrieve');
+        $this->vaultService->expects(self::never())->method('store');
+        $connection->expects(self::never())->method('update');
+
+        $this->dataHandler
+            ->expects(self::once())
+            ->method('log')
+            ->with('tt_content', 100, 1, null, 2, self::callback(
+                static fn (string $message): bool => preg_match(self::REFERENCE_PATTERN, $message) === 1
+                    && str_contains($message, 'pi_flexform')
+                    && str_contains($message, 'could not be located')
+                    && str_contains($message, 'may still reference'),
+            ));
+
+        $this->subject->processCmdmap_postProcess('copy', 'tt_content', 42, null, $this->dataHandler, false);
+    }
+
     #[Test]
     public function postProcessSkipsCopyForEmptyFlexFormXml(): void
     {
@@ -1644,7 +1680,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $sourceUuid = self::VAULT_UUID;
-        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $this->stubFlexRowQuery($xml);
 
@@ -1860,7 +1896,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->mockFlexFieldSchema('tt_content', ['pi_flexform']);
 
         $sourceUuid = self::VAULT_UUID;
-        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="k"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
+        $xml        = '<T3FlexForms><data><sheet index="sDEF"><language index="lDEF"><field index="key"><value index="vDEF">' . $sourceUuid . '</value></field></language></sheet></data></T3FlexForms>';
 
         $connection = $this->stubFlexRowQuery($xml);
 
@@ -2133,11 +2169,27 @@ final class FlexFormVaultHookTest extends TestCase
      * Stub the record read of the duplication path: the source record (uid 42)
      * and the record duplicated from it (uid 100), both carrying $xml — which
      * is the state core leaves behind when it duplicates a FlexForm verbatim.
+     * The data structure configures the `key` element these XML values use with
+     * renderType `vaultSecret`, which is what makes it a position to clone;
+     * with $resolvableDataStructure false its lookup throws instead.
      *
      * Returns the connection mock the copy is written back through.
      */
-    private function stubFlexRowQuery(string $xml): Connection&MockObject
+    private function stubFlexRowQuery(string $xml, bool $resolvableDataStructure = true): Connection&MockObject
     {
+        if ($resolvableDataStructure) {
+            $this->flexFormTools->method('getDataStructureIdentifier')->willReturn('copy-ds');
+            $this->flexFormTools->method('parseDataStructureByIdentifier')->willReturn([
+                'sheets' => [
+                    'sDEF' => ['ROOT' => ['el' => ['key' => ['config' => ['type' => 'input', 'renderType' => 'vaultSecret']]]]],
+                ],
+            ]);
+        } else {
+            $this->flexFormTools
+                ->method('getDataStructureIdentifier')
+                ->willThrowException(new RuntimeException('synthetic unresolvable data structure', 1792483299));
+        }
+
         $result = $this->createMock(Result::class);
         $result->method('fetchAllAssociative')->willReturn([
             ['uid' => 42, 'pi_flexform' => $xml],
