@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-11-10
+
+### Fixed
+
+- Copying a record clones only the FlexForm values at elements the data structure configures with renderType `vaultSecret`, including section containers, resolved from the source record. An identifier of an existing secret in an ordinary FlexForm element is copied verbatim instead of being cloned and rewritten, so the copy no longer gains a secret that its later hard delete would leave behind. When the data structure cannot be resolved, the column is neither cloned nor cleared, and the editor is told that the duplicate may still reference the source secrets (#472).
+
+- A hard delete of a record that holds both a plain TCA vault field and a FlexForm vault field preflights the FlexForm references before the first plain secret is deleted. A refused or unlocatable FlexForm reference now cancels the delete with every secret and the record in place; before, the plain secret was already deleted and the kept record pointed at it (#471).
+
 ## [1.4.1] - 2026-11-10
 
 ### Fixed
