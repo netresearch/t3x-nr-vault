@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-11
+
+### Added
+
+- `PinnedAddressHttpClientInterface::withPinnedAddresses($host, $addresses)` on the vault HTTP client, and the same method on `SecureHttpClientFactory`: requests to that host connect only to addresses the caller resolved and checked itself, on `sendRequest()`, `sendCancellable()` and `sendStreaming()`, with the credential and the audit row as before. The addresses pass nr-vault's own range check, a transfer that cannot pin is refused, redirects are returned and nothing is retried. Behind a forward proxy the proxy chooses the address. See ADR-052.
+
 ## [1.4.2] - 2026-11-10
 
 ### Fixed
@@ -2290,7 +2296,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.3.0...v1.4.0
