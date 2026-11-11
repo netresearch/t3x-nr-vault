@@ -99,6 +99,18 @@ final class StreamingSendTest extends FunctionalTestCase
 
     private const JSON_CONTENT_TYPE = 'application/json';
 
+    private const ECHO_AUTH_PATH = '/echo-auth';
+
+    private const BEARER_ECHO_PREFIX = 'authorization=Bearer ';
+
+    private const ONE_CHUNK_PATH = '/chunks?count=1';
+
+    private const REDIRECT_PATH = '/redirect';
+
+    private const REDIRECT_TARGET_PATH = '/redirect-target';
+
+    private const THREE_CHUNKS = ['chunk 1', 'chunk 2', 'chunk 3'];
+
     protected array $testExtensionsToLoad = [
         'netresearch/nr-vault',
     ];
@@ -182,7 +194,7 @@ final class StreamingSendTest extends FunctionalTestCase
         $lines   = $this->readCompleteLines($body, 3, $pending);
 
         self::assertSame(200, $response->getStatusCode());
-        self::assertSame(['chunk 1', 'chunk 2', 'chunk 3'], array_column($lines, 'text'));
+        self::assertSame(self::THREE_CHUNKS, array_column($lines, 'text'));
 
         $lastSentAt = $lines[2]['sentAt'];
         self::assertLessThan(
@@ -216,11 +228,11 @@ final class StreamingSendTest extends FunctionalTestCase
     {
         $client = $this->client()->withAuthentication('stream_token', SecretPlacement::Bearer);
 
-        $streamed = (string) $client->sendStreaming(new Request('GET', $this->url('/echo-auth')))->getBody();
-        $blocking = (string) $client->sendRequest(new Request('GET', $this->url('/echo-auth')))->getBody();
+        $streamed = (string) $client->sendStreaming(new Request('GET', $this->url(self::ECHO_AUTH_PATH)))->getBody();
+        $blocking = (string) $client->sendRequest(new Request('GET', $this->url(self::ECHO_AUTH_PATH)))->getBody();
 
-        self::assertStringStartsWith('authorization=Bearer ' . self::SECRET . ' ', $streamed);
-        self::assertStringStartsWith('authorization=Bearer ' . self::SECRET . ' ', $blocking);
+        self::assertStringStartsWith(self::BEARER_ECHO_PREFIX . self::SECRET . ' ', $streamed);
+        self::assertStringStartsWith(self::BEARER_ECHO_PREFIX . self::SECRET . ' ', $blocking);
         self::assertSame(
             ['stream_token', 'stream_token'],
             array_column($this->auditRows, 'identifier'),
@@ -234,7 +246,7 @@ final class StreamingSendTest extends FunctionalTestCase
         $resolver = new PinnedDnsResolver(self::LOOPBACK_HOST);
 
         $body = (string) $this->client($resolver)
-            ->sendStreaming(new Request('GET', $this->url('/chunks?count=1')))
+            ->sendStreaming(new Request('GET', $this->url(self::ONE_CHUNK_PATH)))
             ->getBody();
 
         self::assertStringStartsWith('chunk 1 ', $body, 'The .test name resolves nowhere; only the pin can have delivered this.');
@@ -247,7 +259,7 @@ final class StreamingSendTest extends FunctionalTestCase
         $client = $this->client(new PinnedDnsResolver(self::WRONG_LOOPBACK_ADDRESS));
 
         try {
-            $client->sendStreaming(new Request('GET', $this->url('/chunks?count=1')));
+            $client->sendStreaming(new Request('GET', $this->url(self::ONE_CHUNK_PATH)));
             self::fail('A pin to an address nothing listens on must not reach the server.');
         } catch (ClientExceptionInterface) {
             // expected
@@ -264,14 +276,14 @@ final class StreamingSendTest extends FunctionalTestCase
     {
         $this->setHttpConfiguration(['allow_redirects' => true]);
 
-        $response = $this->client()->sendStreaming(new Request('GET', $this->url('/redirect')));
+        $response = $this->client()->sendStreaming(new Request('GET', $this->url(self::REDIRECT_PATH)));
 
         self::assertSame(302, $response->getStatusCode());
-        self::assertSame('/redirect-target', $response->getHeaderLine('Location'));
+        self::assertSame(self::REDIRECT_TARGET_PATH, $response->getHeaderLine('Location'));
         self::assertSame('redirecting', (string) $response->getBody());
-        self::assertFileExists(self::$hitsDirectory . '/redirect');
+        self::assertFileExists(self::$hitsDirectory . self::REDIRECT_PATH);
         self::assertFileDoesNotExist(
-            self::$hitsDirectory . '/redirect-target',
+            self::$hitsDirectory . self::REDIRECT_TARGET_PATH,
             'The redirect must not be followed, even when the platform enables redirects.',
         );
     }
@@ -782,10 +794,10 @@ final class StreamingSendTest extends FunctionalTestCase
     #[DataProvider('sendMethods')]
     public function aPinnedNameReachesTheServerWithTheCredential(string $method): void
     {
-        $response = $this->send($this->pinnedClient(), $method, new Request('GET', $this->url('/echo-auth')));
+        $response = $this->send($this->pinnedClient(), $method, new Request('GET', $this->url(self::ECHO_AUTH_PATH)));
 
         self::assertSame(200, $response->getStatusCode());
-        self::assertStringStartsWith('authorization=Bearer ' . self::SECRET . ' ', (string) $response->getBody());
+        self::assertStringStartsWith(self::BEARER_ECHO_PREFIX . self::SECRET . ' ', (string) $response->getBody());
         self::assertSame(
             [['identifier' => 'agent_token', 'action' => 'http_call', 'success' => true, 'status' => 200, 'error' => null]],
             $this->auditRows,
@@ -797,7 +809,7 @@ final class StreamingSendTest extends FunctionalTestCase
     public function aPinToAnotherAddressFailsInsteadOfResolvingTheName(string $method): void
     {
         try {
-            $this->send($this->pinnedClient(self::WRONG_LOOPBACK_ADDRESS), $method, new Request('GET', $this->url('/chunks?count=1')));
+            $this->send($this->pinnedClient(self::WRONG_LOOPBACK_ADDRESS), $method, new Request('GET', $this->url(self::ONE_CHUNK_PATH)));
             self::fail('A pin to an address nothing listens on must not reach the server.');
         } catch (ClientExceptionInterface|VaultException) {
             // expected: the streaming send wraps the transport error
@@ -813,14 +825,14 @@ final class StreamingSendTest extends FunctionalTestCase
     {
         $this->setHttpConfiguration(['allow_redirects' => true]);
 
-        $response = $this->send($this->pinnedClient(), $method, new Request('GET', $this->url('/redirect')));
+        $response = $this->send($this->pinnedClient(), $method, new Request('GET', $this->url(self::REDIRECT_PATH)));
 
         self::assertSame(302, $response->getStatusCode());
-        self::assertSame('/redirect-target', $response->getHeaderLine('Location'));
+        self::assertSame(self::REDIRECT_TARGET_PATH, $response->getHeaderLine('Location'));
         self::assertSame('redirecting', (string) $response->getBody());
-        self::assertFileExists(self::$hitsDirectory . '/redirect');
+        self::assertFileExists(self::$hitsDirectory . self::REDIRECT_PATH);
         self::assertFileDoesNotExist(
-            self::$hitsDirectory . '/redirect-target',
+            self::$hitsDirectory . self::REDIRECT_TARGET_PATH,
             'The redirect must not be followed, even when the platform enables redirects.',
         );
     }
@@ -848,13 +860,13 @@ final class StreamingSendTest extends FunctionalTestCase
         $this->setHttpConfiguration(['allowed_hosts' => []]);
 
         try {
-            $this->send($this->pinnedClient(), $method, new Request('GET', $this->url('/echo-auth')));
+            $this->send($this->pinnedClient(), $method, new Request('GET', $this->url(self::ECHO_AUTH_PATH)));
             self::fail('A pinned loopback address must pass the same range check as a resolved one.');
         } catch (VaultException $e) {
             self::assertStringContainsString('allowed hosts', $e->getMessage());
         }
 
-        self::assertFileDoesNotExist(self::$hitsDirectory . '/echo-auth');
+        self::assertFileDoesNotExist(self::$hitsDirectory . self::ECHO_AUTH_PATH);
         self::assertSame(
             ['Request refused before any secret was read: host is not in the allowed hosts list'],
             array_column($this->auditRows, 'error'),
@@ -872,7 +884,7 @@ final class StreamingSendTest extends FunctionalTestCase
         $pending    = '';
         $lines      = $this->readCompleteLines($response->getBody(), 3, $pending);
 
-        self::assertSame(['chunk 1', 'chunk 2', 'chunk 3'], array_column($lines, 'text'));
+        self::assertSame(self::THREE_CHUNKS, array_column($lines, 'text'));
         self::assertLessThan($lines[2]['sentAt'], $returnedAt, 'sendStreaming() must return before the last line was sent.');
         self::assertLessThan($lines[2]['sentAt'], $lines[0]['readAt'], 'The first line must be readable before the last was sent.');
     }
@@ -898,8 +910,8 @@ final class StreamingSendTest extends FunctionalTestCase
 
         foreach ([$pinnedFirst, $pinnedLast] as $client) {
             foreach (['sendRequest', 'sendCancellable', 'sendStreaming'] as $method) {
-                $body = (string) $this->send($client, $method, new Request('GET', $this->url('/echo-auth')))->getBody();
-                self::assertStringStartsWith('authorization=Bearer ' . self::SECRET . ' ', $body, $method);
+                $body = (string) $this->send($client, $method, new Request('GET', $this->url(self::ECHO_AUTH_PATH)))->getBody();
+                self::assertStringStartsWith(self::BEARER_ECHO_PREFIX . self::SECRET . ' ', $body, $method);
             }
         }
     }

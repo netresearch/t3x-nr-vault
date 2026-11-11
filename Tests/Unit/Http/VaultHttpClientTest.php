@@ -1949,7 +1949,8 @@ final class VaultHttpClientTest extends TestCase
         try {
             $client->sendRequest(new Request('GET', 'https://api.example.com/data'));
             self::fail('The pinned private address must fail the host gate.');
-        } catch (VaultException) {
+        } catch (VaultException $e) {
+            self::assertStringContainsString('allowed hosts', $e->getMessage());
         }
 
         self::assertSame(

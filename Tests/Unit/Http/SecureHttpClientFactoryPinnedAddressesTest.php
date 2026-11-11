@@ -45,6 +45,13 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
 
     private const PINNED_IP = '93.184.216.34';
 
+    private const HOST_URL = 'https://agent.example/v1';
+
+    private const OTHER_HOST_URL = 'https://other.example/v1';
+
+    /** Port and separators of a CURLOPT_RESOLVE entry for an https URL without a port. */
+    private const HTTPS_PIN_SEPARATOR = ':443:';
+
     private const PINNED_IPV6 = '2606:2800:220:1:248:1893:25c8:1946';
 
     private const RESOLVED_IP = '198.51.100.7';
@@ -84,8 +91,8 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
         $pinned = $this->subject->withPinnedAddresses(self::HOST, [self::PINNED_IP, self::PINNED_IPV6]);
 
         self::assertSame(
-            [self::HOST . ':443:' . self::PINNED_IP . ',[' . self::PINNED_IPV6 . ']'],
-            $this->sendThrough($pinned, 'https://' . self::HOST . '/v1'),
+            [self::HOST . self::HTTPS_PIN_SEPARATOR . self::PINNED_IP . ',[' . self::PINNED_IPV6 . ']'],
+            $this->sendThrough($pinned, self::HOST_URL),
         );
         self::assertSame(0, $this->dnsResolver->queries(self::HOST), 'A pinned host is answered by the pin, not by DNS.');
     }
@@ -97,7 +104,7 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
 
         self::assertSame(
             [self::HOST . ':8443:' . self::PINNED_IP],
-            $this->sendThrough($pinned, 'https://' . self::HOST . ':8443/v1'),
+            $this->sendThrough($pinned, 'https://agent.example:8443/v1'),
         );
     }
 
@@ -119,7 +126,7 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
         self::assertFalse($pinned->isHostAllowed(self::HOST));
 
         try {
-            $this->sendThrough($pinned, 'https://' . self::HOST . '/v1');
+            $this->sendThrough($pinned, self::HOST_URL);
             self::fail('A pinned private address must be refused before the transport.');
         } catch (RequestException $e) {
             self::assertStringContainsString('disallowed IP range', $e->getMessage());
@@ -135,8 +142,8 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
 
         self::assertTrue($pinned->isHostAllowed(self::HOST));
         self::assertSame(
-            [self::HOST . ':443:' . self::PRIVATE_IP],
-            $this->sendThrough($pinned, 'https://' . self::HOST . '/v1'),
+            [self::HOST . self::HTTPS_PIN_SEPARATOR . self::PRIVATE_IP],
+            $this->sendThrough($pinned, self::HOST_URL),
             'The opt-in admits the address and still pins it.',
         );
     }
@@ -147,7 +154,7 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
         $pinned = $this->subject->withPinnedAddresses(self::HOST, [self::PINNED_IP]);
 
         try {
-            $this->sendThrough($pinned, 'https://' . self::HOST . '/v1', ['stream' => true]);
+            $this->sendThrough($pinned, self::HOST_URL, ['stream' => true]);
             self::fail('A transfer that cannot honour the pin must not reach the transport.');
         } catch (RequestException $e) {
             self::assertSame(
@@ -166,7 +173,7 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
         $pinned                                       = $this->subject->withPinnedAddresses(self::HOST, [self::PINNED_IP]);
 
         self::assertNull(
-            $this->sendThrough($pinned, 'https://' . self::OTHER_HOST . '/v1', ['stream' => true]),
+            $this->sendThrough($pinned, self::OTHER_HOST_URL, ['stream' => true]),
             'An unpinned host keeps the existing pinless stream path.',
         );
     }
@@ -178,8 +185,8 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
         $pinned                                       = $this->subject->withPinnedAddresses(self::HOST, [self::PINNED_IP]);
 
         self::assertSame(
-            [self::OTHER_HOST . ':443:' . self::RESOLVED_IP],
-            $this->sendThrough($pinned, 'https://' . self::OTHER_HOST . '/v1'),
+            [self::OTHER_HOST . self::HTTPS_PIN_SEPARATOR . self::RESOLVED_IP],
+            $this->sendThrough($pinned, self::OTHER_HOST_URL),
         );
         self::assertSame(1, $this->dnsResolver->queries(self::OTHER_HOST));
     }
@@ -192,8 +199,8 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
         $this->subject->withPinnedAddresses(self::HOST, [self::PINNED_IP]);
 
         self::assertSame(
-            [self::HOST . ':443:' . self::RESOLVED_IP],
-            $this->sendThrough($this->subject, 'https://' . self::HOST . '/v1'),
+            [self::HOST . self::HTTPS_PIN_SEPARATOR . self::RESOLVED_IP],
+            $this->sendThrough($this->subject, self::HOST_URL),
         );
     }
 
@@ -206,8 +213,8 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
         $pinned = $this->subject->withPinnedAddresses(self::HOST, [self::PINNED_IP]);
 
         self::assertSame(
-            [self::HOST . ':443:' . self::PINNED_IP],
-            $this->sendThrough($pinned, 'https://' . self::HOST . '/v1'),
+            [self::HOST . self::HTTPS_PIN_SEPARATOR . self::PINNED_IP],
+            $this->sendThrough($pinned, self::HOST_URL),
         );
     }
 
@@ -219,8 +226,8 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
             ->withPinnedAddresses(self::OTHER_HOST, [self::RESOLVED_IP])
             ->withPinnedAddresses(self::HOST, [self::PINNED_IP]);
 
-        self::assertSame([self::HOST . ':443:' . self::PINNED_IP], $this->sendThrough($pinned, 'https://' . self::HOST . '/v1'));
-        self::assertSame([self::OTHER_HOST . ':443:' . self::RESOLVED_IP], $this->sendThrough($pinned, 'https://' . self::OTHER_HOST . '/v1'));
+        self::assertSame([self::HOST . self::HTTPS_PIN_SEPARATOR . self::PINNED_IP], $this->sendThrough($pinned, self::HOST_URL));
+        self::assertSame([self::OTHER_HOST . self::HTTPS_PIN_SEPARATOR . self::RESOLVED_IP], $this->sendThrough($pinned, self::OTHER_HOST_URL));
         self::assertSame(0, $this->dnsResolver->queries(self::HOST) + $this->dnsResolver->queries(self::OTHER_HOST));
     }
 
@@ -229,7 +236,7 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
     {
         $pinned = $this->subject->withPinnedAddresses(" Agent.Example.\t", [self::PINNED_IP]);
 
-        self::assertSame([self::HOST . ':443:' . self::PINNED_IP], $this->sendThrough($pinned, 'https://AGENT.example./v1'));
+        self::assertSame([self::HOST . self::HTTPS_PIN_SEPARATOR . self::PINNED_IP], $this->sendThrough($pinned, 'https://AGENT.example./v1'));
         self::assertSame(0, $this->dnsResolver->queries(self::HOST));
     }
 
@@ -240,7 +247,7 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
     {
         yield 'empty' => [''];
         yield 'blank' => ['  '];
-        yield 'IPv4 literal' => ['93.184.216.34'];
+        yield 'IPv4 literal' => [self::PINNED_IP];
         yield 'IPv6 literal' => ['::1'];
         yield 'bracketed IPv6' => ['[::1]'];
         yield 'dword IPv4' => ['2130706433'];
@@ -268,9 +275,9 @@ final class SecureHttpClientFactoryPinnedAddressesTest extends TestCase
         yield 'no address' => [[], 1794317203];
         yield 'a host name' => [['agent.example'], 1794317202];
         yield 'bracketed IPv6' => [['[::1]'], 1794317202];
-        yield 'with port' => [['93.184.216.34:443'], 1794317202];
+        yield 'with port' => [[self::PINNED_IP . ':443'], 1794317202];
         yield 'not a string' => [[2130706433], 1794317202];
-        yield 'one bad among good' => [['93.184.216.34', 'nope'], 1794317202];
+        yield 'one bad among good' => [[self::PINNED_IP, 'nope'], 1794317202];
     }
 
     /**
