@@ -763,6 +763,9 @@ Netresearch\NrVault\Http\OAuth\OAuthConfig (class)
   property readonly tokenEndpoint: string
   property readonly tokenExpiryBuffer: int
 
+Netresearch\NrVault\Http\PinnedAddressHttpClientInterface (interface)
+  method withPinnedAddresses(string $host, array $addresses): static
+
 Netresearch\NrVault\Http\SecretPlacement (enum)
   case ApiKey = "api_key"
   case BasicAuth = "basic"

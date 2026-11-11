@@ -83,7 +83,7 @@ use function strlen;
  * @see SecureHttpClientFactory for TYPO3 HTTP configuration handling
  * Field-name checks retain an explicit ASCII alphabet.
  */
-final readonly class VaultHttpClient implements VaultHttpClientInterface, CancellableHttpClientInterface, StreamingHttpClientInterface, AdditionalSecretHttpClientInterface
+final readonly class VaultHttpClient implements VaultHttpClientInterface, CancellableHttpClientInterface, StreamingHttpClientInterface, AdditionalSecretHttpClientInterface, PinnedAddressHttpClientInterface
 {
     /**
      * Fixed literal for a call refused before anything was sent.
@@ -481,6 +481,40 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             secureHttpClientFactory: $this->secureHttpClientFactory,
             authPrefix: $this->authPrefix,
             timeoutSeconds: $seconds > 0 ? $seconds : null,
+            additionalBodyFields: $this->additionalBodyFields,
+        );
+    }
+
+    /**
+     * The pin lives in the factory (ADR-052), so the clone gets a pinned copy
+     * of it and — as in `withTimeout()` — neither the inner client nor the
+     * cancellable transport is forwarded: both were built from the unpinned
+     * factory and would connect wherever DNS says. Leaving them out has the
+     * constructor build a factory-built client from the pinned copy, and the
+     * streaming and cancellable sends build their transport from it on demand.
+     *
+     * The OAuth token manager is forwarded for its token cache; its token
+     * request keeps the unpinned client and resolves the token host as before.
+     *
+     * @param list<string> $addresses
+     */
+    public function withPinnedAddresses(string $host, array $addresses): static
+    {
+        return new self(
+            vaultService: $this->vaultService,
+            auditLogService: $this->auditLogService,
+            secretIdentifier: $this->secretIdentifier,
+            placement: $this->placement,
+            oauthConfig: $this->oauthConfig,
+            headerName: $this->headerName,
+            queryParam: $this->queryParam,
+            bodyField: $this->bodyField,
+            usernameSecretIdentifier: $this->usernameSecretIdentifier,
+            reason: $this->reason,
+            oauthManager: $this->oauthManager,
+            secureHttpClientFactory: $this->secureHttpClientFactory->withPinnedAddresses($host, $addresses),
+            authPrefix: $this->authPrefix,
+            timeoutSeconds: $this->timeoutSeconds,
             additionalBodyFields: $this->additionalBodyFields,
         );
     }

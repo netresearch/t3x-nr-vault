@@ -1186,6 +1186,79 @@ property.
       same answer as :php:`supportsCancellation()`: false when the inner
       client was supplied by the caller, and false without ``curl_multi_*``.
 
+.. _api-http-pinned-addresses:
+
+Sending to addresses you resolved yourself
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A consumer that checks a destination itself — resolve the host, vet every
+address — must not let a second DNS lookup pick another address before the
+connect. :php:`PinnedAddressHttpClientInterface` hands nr-vault those
+addresses. nr-vault then connects to that host only at them, on
+:php:`sendRequest()`, :php:`sendCancellable()` and :php:`sendStreaming()`, and
+still injects the credential and writes the audit row.
+
+.. code-block:: php
+   :caption: Pinning the addresses your own check approved
+
+   use Netresearch\NrVault\Http\PinnedAddressHttpClientInterface;
+   use Netresearch\NrVault\Http\StreamingHttpClientInterface;
+
+   $client = $this->vaultService->http()
+       ->withAuthentication('agent_token')
+       ->withReason('A2A call');
+
+   if (!$client instanceof PinnedAddressHttpClientInterface) {
+       throw new \RuntimeException('nr-vault cannot pin addresses; refusing to resolve twice.');
+   }
+
+   // $addresses: what your own check resolved and approved, e.g. ['203.0.113.10']
+   $client = $client->withPinnedAddresses('agent.example.com', $addresses);
+
+   $response = $client instanceof StreamingHttpClientInterface && $client->supportsStreaming()
+       ? $client->sendStreaming($request)
+       : $client->sendRequest($request);
+
+What the pin does and does not change:
+
+*   The addresses replace nr-vault's DNS answer for that host. They pass the
+    same range check as that answer: a private, loopback or metadata address
+    is refused unless the host has a literal ``allowed_hosts`` entry. Your own
+    check does not replace nr-vault's.
+*   A transfer that cannot pin — PHP without ext-curl — is refused rather than
+    resolved by the transport.
+*   A ``3xx`` is returned, not followed, and nothing is retried, whatever
+    ``allow_redirects`` the platform sets.
+*   Requests to other hosts, and an OAuth token request, resolve as before.
+*   The pin survives :php:`withAuthentication()`, :php:`withOAuth()`,
+    :php:`withReason()`, :php:`withTimeout()` and
+    :php:`withAdditionalBodyField()`, in either order. A client passed to the
+    constructor is replaced by a factory-built one, as :php:`withTimeout()`
+    does.
+*   Behind a forward proxy the proxy resolves the origin, and the pin chooses
+    nothing. This holds for every nr-vault pin.
+
+:php:`SecureHttpClientFactory::withPinnedAddresses()` does the same for a
+hardened transport without vault credentials. See
+:ref:`adr-052-caller-pinned-addresses`, which names the test for each property.
+
+.. php:interface:: PinnedAddressHttpClientInterface
+
+   A vault HTTP client that connects to a host only at addresses the caller
+   resolved. Implemented by :php:`VaultHttpClient`. A calling interface: a
+   minor release may add methods to it.
+
+   .. php:method:: withPinnedAddresses(string $host, array $addresses): static
+
+      Return a client whose requests to ``$host`` connect only to
+      ``$addresses``. The original client is unchanged; a second call for the
+      same host replaces the first, a call for another host adds a pin.
+
+      :param string $host: A host name, without scheme, port or brackets. An IP literal needs no pin and is refused.
+      :param array $addresses: Bare IPv4 or IPv6 addresses (``list<string>``), at least one.
+      :returns: New client instance with the pin.
+      :throws InvalidArgumentException: Code ``1794317201`` for a host that is not a host name, ``1794317202`` for an entry that is not a bare IP address, ``1794317203`` for an empty list.
+
 .. _api-oauth-token-expiry:
 
 OAuth token expiry

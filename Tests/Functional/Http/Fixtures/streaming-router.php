@@ -26,9 +26,11 @@ declare(strict_types=1);
  *   /large?mb=N                 N MiB of plain bytes, in 64 KiB writes
  *   /bomb?mb=N                  N MiB of zero bytes, gzip-compressed, sent as
  *                               Content-Encoding: gzip whatever was asked for
+ *   /unavailable                503 with Retry-After: 0
  *
  * NR_VAULT_STREAM_HITS names a directory; each route that is reached drops a
  * file there named after itself, so a test can prove a route was never hit.
+ * /unavailable appends one line per request instead, so a test can count them.
  */
 $requestUri = is_string($_SERVER['REQUEST_URI'] ?? null) ? $_SERVER['REQUEST_URI'] : '/';
 $path       = (string) parse_url($requestUri, PHP_URL_PATH);
@@ -47,9 +49,14 @@ $hitNames = [
     '/echo-auth'       => 'echo-auth',
     '/large'           => 'large',
     '/bomb'            => 'bomb',
+    '/unavailable'     => 'unavailable',
 ];
 if (is_string($hitsDirectory) && $hitsDirectory !== '' && is_dir($hitsDirectory) && isset($hitNames[$path])) {
-    touch($hitsDirectory . '/' . $hitNames[$path]);
+    if ($path === '/unavailable') {
+        file_put_contents($hitsDirectory . '/' . $hitNames[$path], "hit\n", FILE_APPEND | LOCK_EX);
+    } else {
+        touch($hitsDirectory . '/' . $hitNames[$path]);
+    }
 }
 
 while (ob_get_level() > 0) {
@@ -112,6 +119,12 @@ switch ($path) {
     case '/redirect-target':
         header('Content-Type: text/plain');
         echo 'redirect target reached';
+
+        return true;
+    case '/unavailable':
+        header('Retry-After: 0', true, 503);
+        header('Content-Type: text/plain');
+        echo 'unavailable';
 
         return true;
     case '/echo-auth':

@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Tests\Unit\Http;
 use Exception;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
+use InvalidArgumentException;
 use Netresearch\NrVault\Audit\AuditContextInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\HttpCallContext;
@@ -1903,6 +1904,74 @@ final class VaultHttpClientTest extends TestCase
             $this->extractOAuthManager($afterChain),
             'withReason() (after withOAuth) must forward the same OAuthTokenManager — token cache is dead if this fails',
         );
+    }
+
+    #[Test]
+    public function withPinnedAddressesReplacesASuppliedClientAndLeavesTheOriginalAlone(): void
+    {
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            $this->innerClient,
+            secureHttpClientFactory: $this->httpClientFactory,
+        );
+
+        $pinned = $client->withPinnedAddresses('api.example.com', ['93.184.216.34']);
+
+        self::assertNotSame($client, $pinned);
+        self::assertFalse($client->supportsStreaming(), 'Control: a supplied client stays the one that sends.');
+        self::assertTrue(
+            $pinned->supportsStreaming(),
+            'Only a client built from the pinned factory carries the pin, so the supplied one is replaced.',
+        );
+        self::assertSame(
+            $this->extractOAuthManager($client),
+            $this->extractOAuthManager($pinned),
+            'The token cache is forwarded.',
+        );
+    }
+
+    #[Test]
+    public function aPinnedPrivateAddressIsRefusedByTheHostGateBeforeAnySecretIsRead(): void
+    {
+        $this->vaultService->expects(self::never())->method('retrieve');
+        $rows = [];
+        $this->recordAuditRows($rows);
+
+        $client = (new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            secureHttpClientFactory: $this->httpClientFactory,
+        ))
+            ->withAuthentication('api_token')
+            ->withPinnedAddresses('api.example.com', ['10.0.0.5']);
+
+        try {
+            $client->sendRequest(new Request('GET', 'https://api.example.com/data'));
+            self::fail('The pinned private address must fail the host gate.');
+        } catch (VaultException $e) {
+            self::assertStringContainsString('allowed hosts', $e->getMessage());
+        }
+
+        self::assertSame(
+            [['http_call', false, 'Request refused before any secret was read: host is not in the allowed hosts list']],
+            $rows,
+        );
+    }
+
+    #[Test]
+    public function anInvalidPinIsRefusedBeforeAnyClientIsBuilt(): void
+    {
+        $client = new VaultHttpClient(
+            $this->vaultService,
+            $this->auditLogService,
+            secureHttpClientFactory: $this->httpClientFactory,
+        );
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionCode(1794317202);
+
+        $client->withPinnedAddresses('api.example.com', ['api.example.com']);
     }
 
     /**
