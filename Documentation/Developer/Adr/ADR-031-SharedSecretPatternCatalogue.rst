@@ -145,9 +145,12 @@ alternation does not contain ``ADMCMD_prev``, and adding a bare ``prev`` to it
 would hit unrelated parameters, so the catalogue carries the name as a pattern
 of its own. It accepts ``=`` and the percent-encoded ``%3D``, needs no ``?`` or
 ``&`` before the name, and masks only the token: a link nested in another URL's
-query value, a JSON-escaped link and a ``Cookie`` header are all reached, while
-``ADMCMD_prev=LOGOUT``, ``ADMCMD_prev=LIVE`` and other ``ADMCMD_*`` parameters
-stay untouched. Double-encoded forms are not modelled.
+query value, a JSON-escaped or HTML-escaped (``&amp;``, ``&amp;amp;``) link, a
+Markdown link and a ``Cookie`` header are all reached. The value is at least
+eight letters, digits, ``:``, ``-`` or ``_``, because core looks the keyword up
+as an opaque string; the keywords the workspaces middleware handles itself
+(``LOGOUT``, ``LIVE``, ``IGNORE``) and other ``ADMCMD_*`` parameters stay
+untouched. Double-encoded forms (``%253D``) are not modelled.
 
 Bearer runs first
 -----------------

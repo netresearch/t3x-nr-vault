@@ -316,6 +316,26 @@ final class SecretRedactorTest extends TestCase
             'Cookie: be_typo_user=abc; ADMCMD_prev=' . $token . '; path=/',
             'Cookie: be_typo_user=abc; ADMCMD_prev=***; path=/',
         ];
+        yield 'JSON unicode-escaped ampersand' => [
+            '{"u":"https:\/\/example.org\/?id=12\u0026ADMCMD_prev=' . $token . '\u0026x=1"}',
+            '{"u":"https:\/\/example.org\/?id=12\u0026ADMCMD_prev=***\u0026x=1"}',
+        ];
+        yield 'HTML-escaped ampersand' => [
+            'https://example.org/?id=12&amp;ADMCMD_prev=' . $token . '&amp;x=1',
+            'https://example.org/?id=12&amp;ADMCMD_prev=***&amp;x=1',
+        ];
+        yield 'double HTML-escaped ampersand' => [
+            'https://example.org/?id=12&amp;amp;ADMCMD_prev=' . $token . '&amp;amp;x=1',
+            'https://example.org/?id=12&amp;amp;ADMCMD_prev=***&amp;amp;x=1',
+        ];
+        yield 'markdown link' => [
+            '[preview](https://example.org/?ADMCMD_prev=' . $token . ')',
+            '[preview](https://example.org/?ADMCMD_prev=***)',
+        ];
+        yield 'workspace-prefixed keyword' => [
+            'https://example.org/?ADMCMD_prev=ws:3:' . $token . '&id=1',
+            'https://example.org/?ADMCMD_prev=***&id=1',
+        ];
         yield 'bare in prose' => [
             'Open the link, ADMCMD_prev=' . $token . ', to preview.',
             'Open the link, ADMCMD_prev=***, to preview.',
@@ -331,8 +351,8 @@ final class SecretRedactorTest extends TestCase
 
     /**
      * Other ``ADMCMD_*`` parameters and a longer name that merely starts with
-     * ``ADMCMD_prev`` are not preview tokens; ``LOGOUT`` and ``LIVE`` are the
-     * non-token values the workspaces middleware accepts for ``ADMCMD_prev``.
+     * ``ADMCMD_prev`` are not preview tokens; ``LOGOUT``, ``LIVE`` and ``IGNORE`` are
+     * the keywords the workspaces middleware handles itself for ``ADMCMD_prev``.
      *
      * @return iterable<string, array{string}>
      */
@@ -343,6 +363,7 @@ final class SecretRedactorTest extends TestCase
         yield 'longer name' => ['https://example.org/?ADMCMD_previewx=4f2a9c0b1e7d6a5f3c2b1a0e9d8c7b6a'];
         yield 'logout value' => ['https://example.org/?ADMCMD_prev=LOGOUT'];
         yield 'live value' => ['https://example.org/?ADMCMD_prev=LIVE'];
+        yield 'ignore value' => ['https://example.org/?ADMCMD_prev=IGNORE'];
     }
 
     #[Test]

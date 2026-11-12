@@ -246,14 +246,17 @@ final class SecretPatternLibrary
             // The delimiter is '=' or its percent-encoded form '%3D', and no
             // '?'/'&' is required before the name, so the token is also reached
             // when the link is nested in another URL's query value, JSON-escaped
-            // ('https:\/\/…') or quoted in prose. The value class is alphanumeric
-            // and at least 16 long: it stops at '%', '&', '\\', quotes and
-            // whitespace, and leaves the non-token values core accepts here
-            // (e.g. 'LOGOUT') alone. The parameter name stays, as for the
+            // ('https:\/\/…'), HTML-escaped ('&amp;', '&amp;amp;') or quoted in
+            // prose. Core looks the keyword up as an opaque string, so the value
+            // class also takes ':', '-' and '_' (a 'ws:3:<hex>' style keyword is
+            // masked whole); it is at least 8 long, stops at '%', '&', '\\',
+            // ')', quotes and whitespace, and leaves the keywords core handles
+            // itself ('LIVE', 'IGNORE', 'LOGOUT', WorkspacePreview middleware)
+            // readable. The parameter name stays, as for the
             // neighbours. Double-encoded forms ('%253D') are not modelled.
             new SecretPattern(
                 name: 'TYPO3 Preview Token',
-                inlinePattern: '/(ADMCMD_prev(?:=|%3D))[A-Za-z0-9]{16,}/i',
+                inlinePattern: '/(ADMCMD_prev(?:=|%3D))[A-Za-z0-9_:\-]{8,}/i',
                 inlineReplacement: '$1' . SecretPattern::MASK,
             ),
             // The username may be empty (e.g. redis://:password@host). A '~'
