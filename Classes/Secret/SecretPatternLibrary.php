@@ -235,6 +235,30 @@ final class SecretPatternLibrary
                 inlinePattern: '/([?&])((?:[a-z0-9]+[_\-])?(?:api[_\-]?key|apikey|access[_\-]?token|refresh[_\-]?token|id[_\-]?token|client[_\-]?secret|auth[_\-]?token|key|secret|token|password|passwd|pwd|credential|signature))=[^&\s"\'<>{}\[\](),;#]+/i',
                 inlineReplacement: '$1$2=' . SecretPattern::MASK,
             ),
+            // TYPO3 workspace preview link: '?ADMCMD_prev=<keyword>' grants
+            // login-free read access to the whole workspace until the sys_preview
+            // row expires (48 h by default). Core generates the keyword as
+            // md5(uniqid) — 32 lowercase hex characters — in v13.4 and v14.3
+            // (workspaces PreviewUriBuilder::compilePreviewKeyword; lifetime
+            // 172800 s in 13.4, 48 h default in 14.3). The name is not in the generic alternation
+            // above, and a bare 'prev' there would also hit unrelated parameters.
+            //
+            // The delimiter is '=' or its percent-encoded form '%3D', and no
+            // '?'/'&' is required before the name, so the token is also reached
+            // when the link is nested in another URL's query value, JSON-escaped
+            // ('https:\/\/…'), HTML-escaped ('&amp;', '&amp;amp;') or quoted in
+            // prose. Core looks the keyword up as an opaque string, so the value
+            // class also takes ':', '-' and '_' (a 'ws:3:<hex>' style keyword is
+            // masked whole); it is at least 8 long, stops at '%', '&', '\\',
+            // ')', quotes and whitespace, and leaves the keywords core handles
+            // itself ('LIVE', 'IGNORE', 'LOGOUT', WorkspacePreview middleware)
+            // readable. The parameter name stays, as for the
+            // neighbours. Double-encoded forms ('%253D') are not modelled.
+            new SecretPattern(
+                name: 'TYPO3 Preview Token',
+                inlinePattern: '/(ADMCMD_prev(?:=|%3D))[A-Za-z0-9_:\-]{8,}/i',
+                inlineReplacement: '$1' . SecretPattern::MASK,
+            ),
             // The username may be empty (e.g. redis://:password@host). A '~'
             // delimiter is used because the pattern itself contains '#'.
             //
