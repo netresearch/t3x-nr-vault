@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-13
+
+### Fixed
+
+- The shared secret-pattern catalogue now masks TYPO3 workspace preview tokens (`ADMCMD_prev=<token>`, also percent-encoded, JSON- or HTML-escaped, in a Markdown link, a cookie header or prose). A preview token grants login-free read access to the whole workspace until it expires, and the generic URL-parameter pattern did not recognise the name, so every redactor reading the catalogue passed it through unchanged.
+
 ## [1.5.0] - 2026-11-11
 
 ### Added
@@ -2296,7 +2302,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.0...v1.4.1
