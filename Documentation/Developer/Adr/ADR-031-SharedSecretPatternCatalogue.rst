@@ -134,6 +134,21 @@ nothing, and an OAuth client secret in a query string survived redaction
 untouched. ``password`` and the hyphenated ``api-key`` were missing for the same
 reason.
 
+TYPO3 preview tokens have their own pattern
+-------------------------------------------
+
+A workspace preview link (``?ADMCMD_prev=<keyword>``) grants login-free read
+access to the whole workspace until its ``sys_preview`` row expires, 48 hours by
+default. The keyword is 32 hexadecimal characters in TYPO3 13.4 and 14.3, and
+the parameter is also the name of the preview cookie. The generic parameter
+alternation does not contain ``ADMCMD_prev``, and adding a bare ``prev`` to it
+would hit unrelated parameters, so the catalogue carries the name as a pattern
+of its own. It accepts ``=`` and the percent-encoded ``%3D``, needs no ``?`` or
+``&`` before the name, and masks only the token: a link nested in another URL's
+query value, a JSON-escaped link and a ``Cookie`` header are all reached, while
+``ADMCMD_prev=LOGOUT``, ``ADMCMD_prev=LIVE`` and other ``ADMCMD_*`` parameters
+stay untouched. Double-encoded forms are not modelled.
+
 Bearer runs first
 -----------------
 

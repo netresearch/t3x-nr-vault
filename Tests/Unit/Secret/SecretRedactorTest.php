@@ -285,6 +285,74 @@ final class SecretRedactorTest extends TestCase
     }
 
     /**
+     * A TYPO3 workspace preview link carries ``ADMCMD_prev=<md5 hex>``, which
+     * grants login-free read access to the workspace until it expires. The
+     * parameter name stays, only the token is masked, in every form the link
+     * turns up in.
+     *
+     * @return iterable<string, array{string, string}>
+     */
+    public static function previewTokenProvider(): iterable
+    {
+        $token = '4f2a9c0b1e7d6a5f3c2b1a0e9d8c7b6a';
+
+        yield 'query parameter' => [
+            'https://example.org/index.php?id=12&ADMCMD_prev=' . $token,
+            'https://example.org/index.php?id=12&ADMCMD_prev=***',
+        ];
+        yield 'first parameter keeps the next one' => [
+            'https://example.org/?ADMCMD_prev=' . $token . '&id=1',
+            'https://example.org/?ADMCMD_prev=***&id=1',
+        ];
+        yield 'url-encoded inside a query value' => [
+            'https://example.org/x?redirect=https%3A%2F%2Fexample.org%2F%3Fid%3D12%26ADMCMD_prev%3D' . $token . '%26x%3D1',
+            'https://example.org/x?redirect=https%3A%2F%2Fexample.org%2F%3Fid%3D12%26ADMCMD_prev%3D***%26x%3D1',
+        ];
+        yield 'JSON-escaped url' => [
+            '{"url":"https:\/\/example.org\/index.php?id=12&ADMCMD_prev=' . $token . '","next":"keepme"}',
+            '{"url":"https:\/\/example.org\/index.php?id=12&ADMCMD_prev=***","next":"keepme"}',
+        ];
+        yield 'cookie header' => [
+            'Cookie: be_typo_user=abc; ADMCMD_prev=' . $token . '; path=/',
+            'Cookie: be_typo_user=abc; ADMCMD_prev=***; path=/',
+        ];
+        yield 'bare in prose' => [
+            'Open the link, ADMCMD_prev=' . $token . ', to preview.',
+            'Open the link, ADMCMD_prev=***, to preview.',
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('previewTokenProvider')]
+    public function workspacePreviewTokensAreMasked(string $input, string $expected): void
+    {
+        self::assertSame($expected, $this->redactor->redact($input));
+    }
+
+    /**
+     * Other ``ADMCMD_*`` parameters and a longer name that merely starts with
+     * ``ADMCMD_prev`` are not preview tokens; ``LOGOUT`` and ``LIVE`` are the
+     * non-token values the workspaces middleware accepts for ``ADMCMD_prev``.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function notAPreviewTokenProvider(): iterable
+    {
+        yield 'ADMCMD_view' => ['https://example.org/?ADMCMD_view=4f2a9c0b1e7d6a5f3c2b1a0e9d8c7b6a'];
+        yield 'ADMCMD_simUser' => ['https://example.org/?id=1&ADMCMD_simUser=42'];
+        yield 'longer name' => ['https://example.org/?ADMCMD_previewx=4f2a9c0b1e7d6a5f3c2b1a0e9d8c7b6a'];
+        yield 'logout value' => ['https://example.org/?ADMCMD_prev=LOGOUT'];
+        yield 'live value' => ['https://example.org/?ADMCMD_prev=LIVE'];
+    }
+
+    #[Test]
+    #[DataProvider('notAPreviewTokenProvider')]
+    public function otherAdmcmdParametersAreLeftAlone(string $input): void
+    {
+        self::assertSame($input, $this->redactor->redact($input));
+    }
+
+    /**
      * The URL patterns must stop at structural characters. Left unbounded they
      * ran past the end of the URL and ate the rest of the line — including, in
      * the userinfo case, fabricating a credentialled URL to a host that was
