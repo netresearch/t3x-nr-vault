@@ -16,7 +16,10 @@ ADR-014: Packaging native artifacts
 Status
 ======
 
-Accepted
+Proposed
+
+Not implemented as of 1.5.1: nr-vault is PHP-only and ships no native
+artifacts. The decision applies only if a Rust transport is built.
 
 Date
 ====

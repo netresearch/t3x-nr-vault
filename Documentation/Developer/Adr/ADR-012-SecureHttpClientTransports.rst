@@ -16,7 +16,14 @@ ADR-012: SecureHttpClient API and transports
 Status
 ======
 
-Accepted
+Accepted (partly implemented)
+
+Partly implemented under other names: the public client interface is
+``VaultHttpClientInterface`` and the PHP transport is Guzzle built by
+``SecureHttpClientFactory``. Not implemented as of 1.5.1:
+``SecureHttpClientInterface``, ``TransportInterface`` with ``RequestSpec``
+and ``ResponseSpec``, service lookup by ``serviceId``, credential sets,
+``RustFfiTransport`` and ``SidecarTransport``.
 
 Date
 ====

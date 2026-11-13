@@ -37,13 +37,13 @@ ADR      Title                                                    Status
 007      :ref:`adr-007-secret-metadata`                           Accepted
 008      :ref:`adr-008-http-client`                               Accepted
 009      :ref:`adr-009-extension-configuration-secrets`           Accepted
-010      :ref:`adr-010-secure-outbound`                           Accepted
-011      :ref:`adr-011-credential-sets`                           Accepted
-012      :ref:`adr-012-secure-http-transports`                    Accepted
-013      :ref:`adr-013-rust-ffi-preload`                          Accepted
-014      :ref:`adr-014-packaging-native`                          Accepted
-015      :ref:`adr-015-http3-feature-flag`                        Accepted
-016      :ref:`adr-016-sidecar-option`                            Accepted
+010      :ref:`adr-010-secure-outbound`                           Accepted (partly implemented)
+011      :ref:`adr-011-credential-sets`                           Proposed
+012      :ref:`adr-012-secure-http-transports`                    Accepted (partly implemented)
+013      :ref:`adr-013-rust-ffi-preload`                          Proposed
+014      :ref:`adr-014-packaging-native`                          Proposed
+015      :ref:`adr-015-http3-feature-flag`                        Proposed
+016      :ref:`adr-016-sidecar-option`                            Proposed
 017      :ref:`adr-017-audit-metadata-retention`                  Accepted
 018      :ref:`adr-018-flexform-secret-lifecycle`                 Accepted
 019      :ref:`adr-019-configurable-audit-read-logging`           Accepted

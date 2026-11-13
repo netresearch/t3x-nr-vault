@@ -16,7 +16,10 @@ ADR-016: Sidecar daemon option
 Status
 ======
 
-Accepted
+Proposed
+
+Not implemented as of 1.5.1: no ``SidecarTransport`` and no daemon exist.
+The decision only keeps the design open for one.
 
 Date
 ====
