@@ -266,6 +266,38 @@ final class HashiCorpAdapterTest extends TestCase
     }
 
     #[Test]
+    public function restoringAValuelessLocalRowRemovesAValueWrittenSince(): void
+    {
+        $this->rows['form_field'] = new Secret(identifier: 'form_field', uid: 5);
+        $adapter                  = $this->adapter();
+        $adapter->store($this->envelopeSecret('form_field')->withUid(5));
+        self::assertArrayHasKey('form_field', $this->vault);
+
+        $adapter->store(new Secret(identifier: 'form_field', uid: 5));
+
+        self::assertArrayNotHasKey('form_field', $this->vault);
+        self::assertSame('local', $this->rows['form_field']->getAdapter());
+    }
+
+    #[Test]
+    public function aFailedRestoreOfAValuelessRowPutsTheVaultValueBack(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $before             = $this->vault['api_key'];
+        $this->failRowWrite = true;
+
+        try {
+            $adapter->store(new Secret(identifier: 'api_key', uid: 1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame($before, $this->vault['api_key']);
+    }
+
+    #[Test]
     public function deleteRemovesTheVaultObjectBeforeTheRow(): void
     {
         $adapter = $this->adapter();

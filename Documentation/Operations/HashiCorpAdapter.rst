@@ -210,6 +210,9 @@ Audit
    Vault write and before the audit write persists the change without an audit
    entry. Vault's own audit device records every access to the KV paths, so
    monitor it for writes and deletes that have no matching nr-vault entry.
+   Vault has no audit device until an operator enables one (:samp:`vault audit
+   enable file file_path=/var/log/vault_audit.log`), so enable one before you
+   rely on this.
 
 Changing ``hashicorp.path``
    The Vault key of a secret is derived from the current setting. Existing

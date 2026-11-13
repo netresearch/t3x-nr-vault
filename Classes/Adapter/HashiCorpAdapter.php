@@ -75,14 +75,26 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
         $existing   = $this->registry->retrieveIncludingDisabled($identifier);
 
         // A write without a value has nothing to put into Vault. Restoring a
-        // valueless row that points at Vault (a row whose object was missing)
-        // also removes a value written since, so the restore is complete.
+        // valueless row that is, or just was, bound to Vault also removes the
+        // value written since, so the restore is complete; the previous object
+        // is put back if the row write fails.
         if (($secret->getEncryptedValue() ?? '') === '') {
-            if ($secret->getAdapter() === self::IDENTIFIER) {
+            $boundToVault = $secret->getAdapter() === self::IDENTIFIER
+                || ($existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER);
+            $previous = $boundToVault ? $this->kv->read($identifier) : null;
+            if ($boundToVault) {
                 $this->kv->destroy($identifier);
             }
 
-            return $this->registry->store($secret, $persistGroupRelations);
+            try {
+                return $this->registry->store($secret, $persistGroupRelations);
+            } catch (Throwable $e) {
+                if ($previous !== null) {
+                    $this->restore($identifier, $previous);
+                }
+
+                throw $e;
+            }
         }
 
         if (!$this->belongsInVault($existing)) {
