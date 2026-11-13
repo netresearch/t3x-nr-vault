@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-13
+
+### Added
+
+- HashiCorp Vault storage adapter (`storageAdapter = hashicorp`, KV v2). The encryption envelope of new secrets lives in Vault; the database row keeps owner, groups, metadata and a pointer. Authentication by token, AppRole or Kubernetes service account. Requests use the extension's hardened HTTP client, require `https` unless `hashicorp.allowInsecureHttp` is set, and a private Vault address needs an `allowed_hosts` entry. Secrets stored locally before the switch stay local. See the new operations page and ADR-053.
+- `Secret::withExternalStorage()` and `Secret::withEnvelope()` for adapters that keep the envelope outside the database.
+- Settings `hashicorp.approleMount`, `hashicorp.roleId`, `hashicorp.secretIdEnvVar`, `hashicorp.kubernetesMount`, `hashicorp.kubernetesRole`, `hashicorp.kubernetesJwtPath` and `hashicorp.allowInsecureHttp`; `hashicorp.path` now takes effect for the storage adapter.
+
+### Changed
+
+- ADR status corrected for ADR-010 to ADR-016. ADR-011, ADR-013, ADR-015 and ADR-016 are now `Proposed` because no code implements them; ADR-010, ADR-012 and ADR-014 stay `Accepted` and are marked partly implemented, with the missing components named. No decision text changed.
+- `vault:rotate-master-key` refuses to rotate while any secret is stored outside the local database, because an envelope in an external store cannot be re-wrapped in the rotation transaction. The first secret is checked before the transaction starts; any later one fails inside it and rolls the whole batch back, so nothing is committed. A dry run checks only the first secret.
+- An unknown `storageAdapter` value is refused instead of being treated as `local`.
+
 ## [1.5.1] - 2026-11-13
 
 ### Fixed
@@ -2302,7 +2316,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.1...v1.4.2
