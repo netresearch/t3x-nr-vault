@@ -54,6 +54,12 @@ final class HashiCorpAdapterTest extends TestCase
 
     private bool $readKeysSorted = false;
 
+    /** @var list<callable(): mixed> */
+    private array $createScript = [];
+
+    /** @var list<callable(): mixed> */
+    private array $readScript = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -510,6 +516,53 @@ final class HashiCorpAdapterTest extends TestCase
     }
 
     #[Test]
+    public function aKeyThatVanishesAndIsCreatedByAThirdPartyIsNotWrittenOver(): void
+    {
+        $this->createScript = [
+            static function (): never {
+                throw HashiCorpException::keyExists('api_key');
+            },
+            function (): never {
+                $this->vault['api_key']    = ['somebody' => 'else'];
+                $this->versions['api_key'] = 1;
+
+                throw HashiCorpException::keyExists('api_key');
+            },
+        ];
+        $this->readScript = [static fn (): null => null];
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('A third party key must refuse the store.');
+        } catch (HashiCorpException $e) {
+            self::assertSame(1794400012, $e->getCode());
+        }
+
+        self::assertSame(['somebody' => 'else'], $this->vault['api_key']);
+        self::assertNotContains('write:api_key', $this->vaultCalls);
+    }
+
+    #[Test]
+    public function aKeyThatKeepsVanishingFailsClearlyAfterAFewAttemptsWithoutWriting(): void
+    {
+        $refuse = static function (): never {
+            throw HashiCorpException::keyExists('api_key');
+        };
+        $this->createScript = [$refuse, $refuse, $refuse];
+        $this->readScript   = [static fn (): null => null, static fn (): null => null, static fn (): null => null];
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('An unstable key must fail.');
+        } catch (HashiCorpException $e) {
+            self::assertSame(1794400014, $e->getCode());
+        }
+
+        self::assertNotContains('write:api_key', $this->vaultCalls);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
     public function aRollbackNeverOverwritesAConcurrentWritersVersion(): void
     {
         $adapter = $this->adapter();
@@ -657,7 +710,14 @@ final class HashiCorpAdapterTest extends TestCase
     public function vaultRead(string $identifier): ?array
     {
         $this->vaultCalls[] = 'read:' . $identifier;
-        $data               = $this->vault[$identifier] ?? null;
+        if ($this->readScript !== []) {
+            $step = array_shift($this->readScript);
+            $step();
+
+            return null;
+        }
+
+        $data = $this->vault[$identifier] ?? null;
         if ($data !== null && $this->readKeysSorted) {
             // Vault returns keys in its own order, not the one that was sent.
             ksort($data);
@@ -682,6 +742,11 @@ final class HashiCorpAdapterTest extends TestCase
     public function vaultCreate(string $identifier, array $data): void
     {
         $this->vaultCalls[] = 'create:' . $identifier;
+        if ($this->createScript !== []) {
+            $step = array_shift($this->createScript);
+            $step();
+        }
+
         if (array_key_exists($identifier, $this->vault)) {
             throw HashiCorpException::keyExists($identifier);
         }

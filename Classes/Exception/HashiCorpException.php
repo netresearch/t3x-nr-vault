@@ -112,6 +112,14 @@ final class HashiCorpException extends VaultException
         );
     }
 
+    public static function claimUnstable(string $identifier): self
+    {
+        return new self(
+            sprintf('The HashiCorp Vault key for secret "%s" kept appearing and disappearing while it was being claimed. Nothing was written; try again.', $identifier),
+            1794400014,
+        );
+    }
+
     public static function keyExists(string $identifier): self
     {
         return new self(

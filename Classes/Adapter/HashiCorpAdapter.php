@@ -49,6 +49,8 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
 
     private const FORMAT = 1;
 
+    private const CLAIM_ATTEMPTS = 3;
+
     public function __construct(
         private LocalEncryptionAdapter $registry,
         private KvStoreInterface $kv,
@@ -275,15 +277,25 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
             return $this->adopt($identifier, $payload, $this->kv->read($identifier));
         }
 
-        try {
-            return [null, $this->kv->create($identifier, $payload)];
-        } catch (HashiCorpException $e) {
-            if ($e->getCode() !== 1794400013) {
-                throw $e;
+        // A key that vanishes between the refused create and the read is not
+        // written over: the create is tried again, so whoever creates it in
+        // that window meets the existence check and the ownership check too.
+        for ($attempt = 1; $attempt <= self::CLAIM_ATTEMPTS; ++$attempt) {
+            try {
+                return [null, $this->kv->create($identifier, $payload)];
+            } catch (HashiCorpException $e) {
+                if ($e->getCode() !== 1794400013) {
+                    throw $e;
+                }
+            }
+
+            $existing = $this->kv->read($identifier);
+            if ($existing !== null) {
+                return $this->adopt($identifier, $payload, $existing);
             }
         }
 
-        return $this->adopt($identifier, $payload, $this->kv->read($identifier));
+        throw HashiCorpException::claimUnstable($identifier);
     }
 
     /**

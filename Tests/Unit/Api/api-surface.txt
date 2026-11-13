@@ -700,6 +700,7 @@ Netresearch\NrVault\Exception\EnvelopeFormatException (class)
 Netresearch\NrVault\Exception\HashiCorpException (class)
   method static backingObjectMismatch(string $identifier): self
   method static backingObjectMissing(string $identifier): self
+  method static claimUnstable(string $identifier): self
   method static credentialMissing(string $what): self
   method static externalSecretsBlockMasterKeyRotation(string $identifier, string $adapter): self
   method static insecureTransport(): self
