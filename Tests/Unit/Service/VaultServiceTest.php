@@ -1981,6 +1981,39 @@ final class VaultServiceTest extends TestCase
     }
 
     #[Test]
+    public function storeReleasesTheCompensationRecordAfterCompensatingAnUpdate(): void
+    {
+        $existing = $this->createSecretEntity('rollback_update', uid: 42, version: 2, crdate: 1000);
+        $adapter  = $this->createMockForIntersectionOfInterfaces([VaultAdapterInterface::class, CreateCompensatingAdapterInterface::class]);
+        $adapter->method('store')->willReturnArgument(0);
+        $adapter->method('retrieve')->willReturn($existing);
+        $adapter->method('retrieveIncludingDisabled')->willReturn($existing);
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+        $this->auditLogService
+            ->method('log')
+            ->willThrowException(new AuditWriteException(self::AUDIT_WRITE_ERROR, 1747825331));
+
+        $this->accessControlService->method('canWrite')->willReturn(true);
+        $adapter->expects(self::once())->method('releaseStore')->with('rollback_update');
+        $adapter->expects(self::never())->method('compensateCreate');
+
+        $subject = new VaultService(
+            $adapter,
+            $this->encryptionService,
+            $this->accessControlService,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->expectException(AuditWriteException::class);
+
+        $subject->store('rollback_update', 'plaintext');
+    }
+
+    #[Test]
     public function storeRollsBackUpdateWhenAuditWriteFails(): void
     {
         $existing = $this->createSecretEntity('rollback_update', uid: 42, version: 2, crdate: 1000);

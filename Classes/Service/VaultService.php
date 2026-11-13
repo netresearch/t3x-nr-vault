@@ -994,6 +994,9 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
                         if ($existing instanceof Secret) {
                             // Update: restore the prior encrypted envelope/version.
                             $this->adapter->store($existing);
+                            if ($this->adapter instanceof CreateCompensatingAdapterInterface) {
+                                $this->adapter->releaseStore($identifier);
+                            }
                         } else {
                             // Create: remove the just-inserted record. An adapter
                             // that took an unreferenced earlier write over puts
