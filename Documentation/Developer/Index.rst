@@ -52,10 +52,10 @@ Custom storage adapters
 -----------------------
 
 .. note::
-   nr-vault currently includes only the **local database adapter**. External
-   vault adapters (HashiCorp Vault, AWS Secrets Manager, Azure Key Vault) are
-   planned for future releases. The adapter architecture below allows you to
-   implement your own custom adapters in the meantime.
+   nr-vault ships the **local database adapter** and the **HashiCorp Vault
+   adapter** (see :ref:`operations-hashicorp-adapter`). AWS Secrets Manager and
+   Azure Key Vault adapters are planned. The adapter architecture below allows
+   you to implement your own custom adapters in the meantime.
 
 Implement :php:`VaultAdapterInterface` to add new storage backends:
 

@@ -24,6 +24,7 @@ in :ref:`configuration`; per-command reference in
    KeyCustody
    BackupAndRestore
    KeyRotation
+   HashiCorpAdapter
    MonitoringAndAlerting
    IncidentResponse
    Decommissioning
@@ -47,6 +48,9 @@ Start here
     *   -   converting an existing standard installation
         -   :ref:`security-profiles-migration` — the order matters, because
             the key has to move before the profile does
+
+    *   -   storing secrets in HashiCorp Vault
+        -   :ref:`operations-hashicorp-adapter`
 
     *   -   setting up backups
         -   :ref:`operations-backup-and-restore`. The database alone is not a

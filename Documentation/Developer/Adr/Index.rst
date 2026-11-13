@@ -136,3 +136,4 @@ ADR      Title                                                    Status
    ADR-050-LocalMutationTransactions
    ADR-051-PostgreSqlAuditLock
    ADR-052-CallerPinnedAddresses
+   ADR-053-HashiCorpVaultStorageAdapter
