@@ -241,11 +241,9 @@ final class VaultDevServer
 
         $stub = (new GenericContainer(self::STUB_IMAGE))
             ->withCommand(['python', '-c', (string) file_get_contents(__DIR__ . '/Fixtures/token-review-stub.py')])
-            ->withExposedPorts(8080)
-            ->withPortGenerator(new FreePortGenerator())
             ->start();
         $this->reviewStub = $stub;
-        self::waitUntilAnswering($stub, 8080, 'POST', '/ready');
+        $this->waitUntilStubAnswers($stub);
 
         $this->expectOk($this->admin('POST', '/v1/sys/auth/kubernetes', ['type' => 'kubernetes']));
         $this->expectOk($this->admin('POST', '/v1/auth/kubernetes/config', [
@@ -281,6 +279,32 @@ final class VaultDevServer
         $server->provision();
 
         return $server;
+    }
+
+    /**
+     * The stub is reached by Vault over the bridge network and by nobody on the
+     * host, so it publishes no port. The poll runs inside the container instead.
+     */
+    private function waitUntilStubAnswers(StartedGenericContainer $stub): void
+    {
+        $probe    = 'import urllib.request as u; print(u.urlopen(u.Request("http://127.0.0.1:8080/ready", data=b"")).status)'; // NOSONAR: loopback inside the stub container
+        $deadline = microtime(true) + 60;
+        $seen     = 'no attempt';
+
+        while (microtime(true) < $deadline) {
+            try {
+                $seen = trim($stub->exec(['python', '-c', $probe]));
+                if (str_contains($seen, '200')) {
+                    return;
+                }
+            } catch (Throwable $e) {
+                $seen = $e->getMessage();
+            }
+
+            usleep(500_000);
+        }
+
+        throw new RuntimeException(sprintf("The token review stub did not answer within 60 seconds. Last attempt: %s\nIts log:\n%s", $seen, substr($stub->logs(), -2000)), 1794400106);
     }
 
     /**
