@@ -13,7 +13,6 @@ use GuzzleHttp\Client;
 use RuntimeException;
 use Testcontainers\Container\GenericContainer;
 use Testcontainers\Container\StartedGenericContainer;
-use Testcontainers\Wait\WaitForHttp;
 use Throwable;
 
 use function is_array;
@@ -236,7 +235,6 @@ final class VaultDevServer
             ->withCopyContentToContainer([['content' => $stubScript, 'target' => '/stub.py']])
             ->withCommand(['python', '/stub.py'])
             ->withExposedPorts(8080)
-            ->withWait((new WaitForHttp(8080))->withMethod('POST')->withPath('/ready'))
             ->start();
 
         $vault = (new GenericContainer(self::VAULT_IMAGE))
@@ -246,14 +244,45 @@ final class VaultDevServer
                 'SKIP_SETCAP'              => '1',
             ])
             ->withExposedPorts(8200)
-            ->withWait((new WaitForHttp(8200))->withPath('/v1/sys/health'))
             ->start();
+
+        self::waitUntilAnswering($stub, 8080, 'POST', '/ready');
+        self::waitUntilAnswering($vault, 8200, 'GET', '/v1/sys/health');
 
         $host   = $vault->getHost();
         $server = new self($vault, $stub, $host, sprintf('http://%s:%d', $host, $vault->getMappedPort(8200))); // NOSONAR: test fixture without TLS by design
         $server->provision($stub->getIpAddress('bridge'));
 
         return $server;
+    }
+
+    /**
+     * Poll the container until it answers. Written out instead of using the
+     * library's wait strategy so that a slow or broken start reports the
+     * container's own log, which is the only place the reason is.
+     */
+    private static function waitUntilAnswering(StartedGenericContainer $container, int $port, string $method, string $path): void
+    {
+        $url      = sprintf('http://%s:%d%s', $container->getHost(), $container->getMappedPort($port), $path); // NOSONAR: test fixture without TLS by design
+        $deadline = microtime(true) + 120;
+        $client   = new Client(['http_errors' => false, 'timeout' => 3, 'connect_timeout' => 3]);
+
+        while (microtime(true) < $deadline) {
+            try {
+                if ($client->request($method, $url)->getStatusCode() === 200) {
+                    return;
+                }
+            } catch (Throwable) {
+                // Not listening yet.
+            }
+
+            usleep(500_000);
+        }
+
+        throw new RuntimeException(
+            sprintf("Container did not answer %s %s within 120 seconds. Its log:\n%s", $method, $path, substr($container->logs(), -2000)),
+            1794400104,
+        );
     }
 
     private function provision(string $reviewStubIp): void
