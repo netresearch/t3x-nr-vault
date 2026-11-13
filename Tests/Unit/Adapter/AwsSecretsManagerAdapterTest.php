@@ -54,6 +54,12 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
     private bool $readKeysSorted = false;
 
+    /** @var list<callable(): mixed> */
+    private array $createScript = [];
+
+    /** @var list<callable(): mixed> */
+    private array $readScript = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -572,6 +578,56 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     }
 
     #[Test]
+    public function aSecretThatVanishesAndIsCreatedByAThirdPartyIsNotWrittenOver(): void
+    {
+        // The create is refused (the name exists), the read then finds nothing
+        // (it was just deleted), and a third party creates it before the next
+        // attempt, which must meet the existence check, not overwrite.
+        $this->createScript = [
+            static function (): never {
+                throw AwsSecretsManagerException::nameExists('api_key');
+            },
+            function (): never {
+                $this->aws['api_key']      = ['somebody' => 'else'];
+                $this->versions['api_key'] = 1;
+
+                throw AwsSecretsManagerException::nameExists('api_key');
+            },
+        ];
+        $this->readScript = [static fn (): null => null];
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('A third party secret must refuse the store.');
+        } catch (AwsSecretsManagerException $e) {
+            self::assertSame(1794500011, $e->getCode());
+        }
+
+        self::assertSame(['somebody' => 'else'], $this->aws['api_key']);
+        self::assertNotContains('write:api_key', $this->awsCalls);
+    }
+
+    #[Test]
+    public function aNameThatKeepsVanishingFailsClearlyAfterAFewAttemptsWithoutWriting(): void
+    {
+        $refuse = static function (): never {
+            throw AwsSecretsManagerException::nameExists('api_key');
+        };
+        $this->createScript = [$refuse, $refuse, $refuse];
+        $this->readScript   = [static fn (): null => null, static fn (): null => null, static fn (): null => null];
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('An unstable name must fail.');
+        } catch (AwsSecretsManagerException $e) {
+            self::assertSame(1794500013, $e->getCode());
+        }
+
+        self::assertNotContains('write:api_key', $this->awsCalls);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
     public function aFailedCreateDestroysOnlyTheSecretItCreated(): void
     {
         $this->failRowWrite = true;
@@ -622,7 +678,14 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     public function awsRead(string $identifier): ?array
     {
         $this->awsCalls[] = 'read:' . $identifier;
-        $data             = $this->aws[$identifier] ?? null;
+        if ($this->readScript !== []) {
+            $step = array_shift($this->readScript);
+            $step();
+
+            return null;
+        }
+
+        $data = $this->aws[$identifier] ?? null;
         if ($data !== null && $this->readKeysSorted) {
             // The service does not promise to return keys in the order sent.
             ksort($data);
@@ -654,6 +717,11 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     public function awsCreate(string $identifier, array $data): string
     {
         $this->awsCalls[] = 'create:' . $identifier;
+        if ($this->createScript !== []) {
+            $step = array_shift($this->createScript);
+            $step();
+        }
+
         if (array_key_exists($identifier, $this->aws)) {
             throw AwsSecretsManagerException::nameExists($identifier);
         }

@@ -51,6 +51,8 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
 
     private const FORMAT = 1;
 
+    private const CLAIM_ATTEMPTS = 3;
+
     public function __construct(
         private LocalEncryptionAdapter $registry,
         private AwsSecretStoreInterface $store,
@@ -256,31 +258,37 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
      */
     private function createOrAdopt(string $identifier, array $payload): array
     {
-        try {
-            return [null, $this->store->create($identifier, $payload)];
-        } catch (AwsSecretsManagerException $e) {
-            if ($e->getCode() !== 1794500012) {
-                throw $e;
+        // A secret that vanishes between the refused create and the read is
+        // not written over: the create is tried again, so whoever creates it in
+        // that window meets the existence check and the ownership check too.
+        for ($attempt = 1; $attempt <= self::CLAIM_ATTEMPTS; ++$attempt) {
+            try {
+                return [null, $this->store->create($identifier, $payload)];
+            } catch (AwsSecretsManagerException $e) {
+                if ($e->getCode() !== 1794500012) {
+                    throw $e;
+                }
             }
+
+            try {
+                $existing = $this->store->read($identifier);
+            } catch (AwsSecretsManagerException $e) {
+                // Present, but not a JSON object: not ours either.
+                throw $e->getCode() === 1794500008 ? AwsSecretsManagerException::nameTaken($identifier) : $e;
+            }
+
+            if ($existing === null) {
+                continue;
+            }
+
+            if (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT) {
+                throw AwsSecretsManagerException::nameTaken($identifier);
+            }
+
+            return [$existing, $this->store->write($identifier, $payload)];
         }
 
-        try {
-            $existing = $this->store->read($identifier);
-        } catch (AwsSecretsManagerException $e) {
-            // Present, but not a JSON object: not ours either.
-            throw $e->getCode() === 1794500008 ? AwsSecretsManagerException::nameTaken($identifier) : $e;
-        }
-
-        if ($existing === null) {
-            // Gone again between the refused create and this read.
-            return [null, $this->store->write($identifier, $payload)];
-        }
-
-        if (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT) {
-            throw AwsSecretsManagerException::nameTaken($identifier);
-        }
-
-        return [$existing, $this->store->write($identifier, $payload)];
+        throw AwsSecretsManagerException::claimUnstable($identifier);
     }
 
     /**
