@@ -16,7 +16,9 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\HashiCorpException;
+use Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface;
 use Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface;
+use Netresearch\NrVault\Storage\HashiCorp\LegacyKvStoreNotice;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -54,6 +56,8 @@ final class HashiCorpAdapterTest extends TestCase
         $this->failRowWrite            = false;
         $this->failRowDelete           = false;
         $this->rowAppearsBeforeFailure = false;
+
+        LegacyKvStoreNotice::reset();
     }
 
     #[Test]
@@ -470,6 +474,73 @@ final class HashiCorpAdapterTest extends TestCase
     }
 
     #[Test]
+    public function anAtomicStoreClaimsTheKeyWithOneCreateAndNoSeparateCheck(): void
+    {
+        $this->adapter()->store($this->envelopeSecret('api_key'));
+
+        self::assertSame(['create:api_key'], $this->vaultCalls);
+    }
+
+    #[Test]
+    public function aKeyCreatedByAnotherWriterBeforeTheCreateIsRefusedAndNothingIsDestroyed(): void
+    {
+        $this->vault['api_key'] = ['unrelated' => 'value'];
+        $this->failRowWrite     = true;
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('The store must be refused.');
+        } catch (HashiCorpException $e) {
+            self::assertSame(1794400012, $e->getCode());
+        }
+
+        self::assertSame(['create:api_key', 'read:api_key'], $this->vaultCalls, 'no write and no destroy follows the refused create');
+        self::assertSame(['unrelated' => 'value'], $this->vaultRead('api_key'));
+    }
+
+    #[Test]
+    public function aStoreWithoutACreateOnlyWriteStillWorksButReportsTheDeprecationOnce(): void
+    {
+        $deprecations = $this->collectDeprecations(function (): void {
+            $adapter = $this->adapter(atomic: false);
+            $adapter->store($this->envelopeSecret('first_key'));
+            $adapter->store($this->envelopeSecret('second_key'));
+        });
+
+        self::assertCount(1, $deprecations, 'reported once, not per store');
+        self::assertStringContainsString('implements only KvStoreInterface, which is deprecated', $deprecations[0]);
+        self::assertStringContainsString('nr-vault 2.0 will require it', $deprecations[0]);
+        self::assertSame('hashicorp', $this->rows['first_key']->getAdapter());
+        self::assertSame('hashicorp', $this->rows['second_key']->getAdapter());
+        self::assertSame(['read:first_key', 'write:first_key', 'read:second_key', 'write:second_key'], $this->vaultCalls);
+    }
+
+    #[Test]
+    public function anAtomicStoreReportsNoDeprecation(): void
+    {
+        $deprecations = $this->collectDeprecations(fn (): Secret => $this->adapter()->store($this->envelopeSecret('api_key')));
+
+        self::assertSame([], $deprecations);
+    }
+
+    #[Test]
+    public function aStoreWithoutACreateOnlyWriteStillRefusesForeignData(): void
+    {
+        $this->vault['api_key'] = ['unrelated' => 'value'];
+
+        $this->collectDeprecations(function (): void {
+            try {
+                $this->adapter(atomic: false)->store($this->envelopeSecret('api_key'));
+                self::fail('The store must be refused.');
+            } catch (HashiCorpException $e) {
+                self::assertSame(1794400012, $e->getCode());
+            }
+        });
+
+        self::assertSame(['unrelated' => 'value'], $this->vaultRead('api_key'));
+    }
+
+    #[Test]
     public function registryOperationsNeverCallVault(): void
     {
         $adapter = $this->adapter();
@@ -516,10 +587,46 @@ final class HashiCorpAdapterTest extends TestCase
         $this->vault[$identifier] = $data;
     }
 
+    /**
+     * @param array<string, mixed> $data
+     */
+    public function vaultCreate(string $identifier, array $data): void
+    {
+        $this->vaultCalls[] = 'create:' . $identifier;
+        if (array_key_exists($identifier, $this->vault)) {
+            throw HashiCorpException::keyExists($identifier);
+        }
+
+        $this->vault[$identifier] = $data;
+    }
+
     public function vaultDestroy(string $identifier): void
     {
         $this->vaultCalls[] = 'destroy:' . $identifier;
         unset($this->vault[$identifier]);
+    }
+
+    /**
+     * @param callable(): mixed $action
+     *
+     * @return list<string> The E_USER_DEPRECATED messages the action triggered
+     */
+    private function collectDeprecations(callable $action): array
+    {
+        $messages = [];
+        set_error_handler(static function (int $number, string $message) use (&$messages): bool {
+            $messages[] = $message;
+
+            return true;
+        }, E_USER_DEPRECATED);
+
+        try {
+            $action();
+        } finally {
+            restore_error_handler();
+        }
+
+        return $messages;
     }
 
     private function envelopeSecret(string $identifier, string $value = self::BINARY_VALUE): Secret
@@ -536,7 +643,7 @@ final class HashiCorpAdapterTest extends TestCase
         );
     }
 
-    private function adapter(string $address = 'https://vault.example.com:8200'): HashiCorpAdapter
+    private function adapter(string $address = 'https://vault.example.com:8200', bool $atomic = true): HashiCorpAdapter
     {
         $repository = $this->createMock(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')->willReturnCallback(
@@ -584,7 +691,34 @@ final class HashiCorpAdapterTest extends TestCase
             token: 'unit-token',
         ));
 
-        $kv = new class ($this) implements KvStoreInterface {
+        $kv = $atomic ? new class ($this) implements AtomicKvStoreInterface {
+            public function __construct(private readonly HashiCorpAdapterTest $test) {}
+
+            public function read(string $identifier): ?array
+            {
+                return $this->test->vaultRead($identifier);
+            }
+
+            public function write(string $identifier, array $data): void
+            {
+                $this->test->vaultWrite($identifier, $data);
+            }
+
+            public function create(string $identifier, array $data): void
+            {
+                $this->test->vaultCreate($identifier, $data);
+            }
+
+            public function destroy(string $identifier): void
+            {
+                $this->test->vaultDestroy($identifier);
+            }
+
+            public function reference(string $identifier): string
+            {
+                return 'secret/data/typo3/' . $identifier;
+            }
+        } : new class ($this) implements KvStoreInterface {
             public function __construct(private readonly HashiCorpAdapterTest $test) {}
 
             public function read(string $identifier): ?array

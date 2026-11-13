@@ -13,8 +13,10 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\HashiCorpException;
+use Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface;
 use Netresearch\NrVault\Storage\HashiCorp\HashiCorpEndpoint;
 use Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface;
+use Netresearch\NrVault\Storage\HashiCorp\LegacyKvStoreNotice;
 use Throwable;
 
 use function is_int;
@@ -102,20 +104,17 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
         }
 
         // A row bound to Vault owns its key. For any other row the path may
-        // hold somebody else's data: it is written only when empty, or when it
+        // hold somebody else's data: it is claimed only when empty, or when it
         // is an earlier write of nr-vault for this very identifier (an
         // unreferenced one left by a crash). Only a key this call created is
-        // destroyed again on failure; an adopted one is put back. The check
-        // and the write are two requests, so a writer that creates the key in
-        // between is not detected.
-        $previous = $this->kv->read($identifier);
-        if ($previous !== null && (!$existing instanceof Secret || $existing->getAdapter() !== self::IDENTIFIER)
-            && (($previous['identifier'] ?? null) !== $identifier || ($previous['format'] ?? null) !== self::FORMAT)
-        ) {
-            throw HashiCorpException::pathTaken($identifier);
+        // destroyed again on failure; an adopted one is put back.
+        $payload = $this->toPayload($secret);
+        if ($existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER) {
+            $previous = $this->kv->read($identifier);
+            $this->kv->write($identifier, $payload);
+        } else {
+            $previous = $this->claimPath($identifier, $payload);
         }
-
-        $this->kv->write($identifier, $this->toPayload($secret));
 
         $row = $secret->withExternalStorage(self::IDENTIFIER, $this->kv->reference($identifier));
 
@@ -225,6 +224,83 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
         } catch (Throwable) {
             // The original failure is the one to report.
         }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     *
+     * @return array<string, mixed>|null The adopted earlier write, null when the key was created now
+     *
+     * @throws HashiCorpException When the path belongs to something else
+     */
+    private function claimPath(string $identifier, array $payload): ?array
+    {
+        if (!$this->kv instanceof AtomicKvStoreInterface) {
+            return $this->claimPathWithoutCreateOnly($identifier, $payload);
+        }
+
+        try {
+            $this->kv->create($identifier, $payload);
+
+            return null;
+        } catch (HashiCorpException $e) {
+            if ($e->getCode() !== 1794400013) {
+                throw $e;
+            }
+        }
+
+        return $this->adopt($identifier, $payload, $this->kv->read($identifier));
+    }
+
+    /**
+     * The path of a store without a create-only write: read, then write. A key
+     * that appears between the two is overwritten, which is why this is
+     * deprecated.
+     *
+     * @param array<string, mixed> $payload
+     *
+     * @return array<string, mixed>|null
+     */
+    private function claimPathWithoutCreateOnly(string $identifier, array $payload): ?array
+    {
+        LegacyKvStoreNotice::report();
+
+        $existing = $this->kv->read($identifier);
+        if ($existing !== null) {
+            return $this->adopt($identifier, $payload, $existing);
+        }
+
+        $this->kv->write($identifier, $payload);
+
+        return null;
+    }
+
+    /**
+     * The key exists. It is taken over only when it is an earlier nr-vault
+     * write for this identifier.
+     *
+     * @param array<string, mixed>      $payload
+     * @param array<string, mixed>|null $existing
+     *
+     * @return array<string, mixed>|null
+     */
+    private function adopt(string $identifier, array $payload, ?array $existing): ?array
+    {
+        if ($existing === null) {
+            // Gone again between the refused create and this read: nothing of
+            // ours or theirs is left to protect.
+            $this->kv->write($identifier, $payload);
+
+            return null;
+        }
+
+        if (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT) {
+            throw HashiCorpException::pathTaken($identifier);
+        }
+
+        $this->kv->write($identifier, $payload);
+
+        return $existing;
     }
 
     /**

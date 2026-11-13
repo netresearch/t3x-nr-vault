@@ -57,7 +57,17 @@ Custom storage adapters
    Azure Key Vault adapters are planned. The adapter architecture below allows
    you to implement your own custom adapters in the meantime.
 
-Implement :php:`VaultAdapterInterface` to add new storage backends:
+Implement :php:`VaultAdapterInterface` to add new storage backends.
+
+.. versionchanged:: 1.7.0
+   A key-value store behind the HashiCorp adapter should implement
+   :php:`AtomicKvStoreInterface`, whose ``create()`` writes a key only when it
+   does not exist (KV v2 check-and-set with ``cas=0``). A store that implements
+   only :php:`KvStoreInterface` still works but is deprecated: the adapter
+   reads, then writes, which leaves a window for a key created in between, and
+   triggers an ``E_USER_DEPRECATED`` once per process. Version 2.0 will require
+   the atomic interface.
+
 
 .. code-block:: php
    :caption: EXT:my_extension/Classes/Adapter/CustomAdapter.php

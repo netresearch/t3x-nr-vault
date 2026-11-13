@@ -68,6 +68,19 @@ envelope to Vault.
     emptied first, then the row, so a half-finished delete can be repeated. KV
     v2 keeps versions; delete removes the key through the metadata path, so no
     version survives.
+*   **A path that is not ours.** A KV path may hold somebody else's data. A new
+    secret claims its path with a create-only write (KV v2 check-and-set with
+    ``cas=0``), in one request: a key that exists is read, and only an nr-vault
+    write for the same identifier (an unreferenced leftover of a crash) is taken
+    over; anything else is refused with code ``1794400012`` and left untouched,
+    including by the compensation, which destroys only a key this call created
+    and puts a taken-over one back. There is no window between the check and the
+    write for a store that offers the create-only write. The interface for it is
+    :php:`AtomicKvStoreInterface`, which the shipped store implements. A store
+    that implements only :php:`KvStoreInterface` is deprecated: the adapter
+    reads, then writes, which leaves that window open, and reports a
+    deprecation once; version 2.0 will require the atomic interface. A row
+    already bound to Vault owns its key and is updated as before.
 *   **Authentication.** One authenticator for ``token``, ``approle`` and
     ``kubernetes``. The token comes from an environment variable (stored
     fallback for ``token`` only), the AppRole secret id from the environment

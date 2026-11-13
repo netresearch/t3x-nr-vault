@@ -186,6 +186,16 @@ Failure
    unreadable and new secrets unwritable; secrets stored locally are unaffected.
    On store, Vault is written first: a failure leaves no row behind.
 
+Paths that already hold data
+   A new secret claims its KV path with a create-only write, in one request. If
+   the path holds anything that is not an nr-vault write for that identifier,
+   the store is refused (code ``1794400012``), the data is left unchanged and no
+   row is written; a key created by someone else at the same moment is refused
+   the same way. Use a dedicated ``hashicorp.path`` so paths cannot collide with
+   other users of the mount. The policy needs ``create`` on the data path (the
+   one above has it). An unreferenced key that an interrupted nr-vault write
+   left behind is recognised and reused.
+
 Half-finished writes
    A crash between the Vault write and the row write leaves an unreferenced key
    in Vault, which the next store of that identifier overwrites. A row whose

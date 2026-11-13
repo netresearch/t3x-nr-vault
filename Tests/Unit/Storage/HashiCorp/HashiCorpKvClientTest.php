@@ -114,6 +114,60 @@ final class HashiCorpKvClientTest extends TestCase
     }
 
     #[Test]
+    public function createWritesTheFirstVersionOnlyWhenTheKeyDoesNotExist(): void
+    {
+        $http = new RecordingHttpClient(RecordingHttpClient::json(200, ['data' => ['version' => 1]]));
+
+        $this->client($http)->create('api_key', ['k' => 'v']);
+
+        self::assertSame('POST', $http->requests[0]->getMethod());
+        self::assertSame(self::ADDRESS . '/v1/secret/data/typo3/api_key', (string) $http->requests[0]->getUri());
+        self::assertSame(['options' => ['cas' => 0], 'data' => ['k' => 'v']], $http->bodyOf(0));
+    }
+
+    #[Test]
+    public function createReportsAnExistingKeyAsSuchWhenVaultAnswersACheckAndSetMismatch(): void
+    {
+        $http = new RecordingHttpClient(
+            new Response(400, [], '{"errors":["check-and-set parameter did not match the current version"]}'),
+            RecordingHttpClient::json(200, ['data' => ['data' => ['theirs' => '1'], 'metadata' => ['version' => 1]]]),
+        );
+
+        try {
+            $this->client($http)->create('api_key', ['k' => 'v']);
+            self::fail('An existing key must be refused.');
+        } catch (HashiCorpException $e) {
+            self::assertSame(1794400013, $e->getCode());
+            self::assertStringNotContainsString('check-and-set', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function createTreatsAnyOther400AsAnOrdinaryRejection(): void
+    {
+        $http = new RecordingHttpClient(new Response(400, [], '{"errors":["bad request"]}'), new Response(404, [], '{"errors":[]}'));
+
+        try {
+            $this->client($http)->create('api_key', ['k' => 'v']);
+            self::fail('A rejected create must throw.');
+        } catch (HashiCorpException $e) {
+            self::assertSame(1794400006, $e->getCode());
+            self::assertStringContainsString('HTTP 400', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function createReportsAForbiddenRequestAsRejected(): void
+    {
+        $http = new RecordingHttpClient(new Response(403, [], '{"errors":["permission denied"]}'));
+
+        $this->expectException(HashiCorpException::class);
+        $this->expectExceptionCode(1794400006);
+
+        $this->client($http)->create('api_key', ['k' => 'v']);
+    }
+
+    #[Test]
     public function destroyDeletesTheMetadataPathSoEveryVersionGoes(): void
     {
         $http = new RecordingHttpClient(new Response(204));

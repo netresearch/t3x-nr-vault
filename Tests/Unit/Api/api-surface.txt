@@ -703,6 +703,7 @@ Netresearch\NrVault\Exception\HashiCorpException (class)
   method static credentialMissing(string $what): self
   method static externalSecretsBlockMasterKeyRotation(string $identifier, string $adapter): self
   method static insecureTransport(): self
+  method static keyExists(string $identifier): self
   method static loginRejected(string $method, int $status): self
   method static malformedResponse(string $operation, string $detail): self
   method static notConfigured(string $detail): self
@@ -1031,6 +1032,9 @@ Netresearch\NrVault\Service\VaultServiceInterface (interface)
   method rotate(string $identifier, string $newSecret, string $reason = …): void
   method setEnabled(string $identifier, bool $enabled, string $reason = …): void
   method store(string $identifier, string $secret, array $options = …): void
+
+Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface (interface)
+  method create(string $identifier, array $data): void
 
 Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface (interface)
   method destroy(string $identifier): void

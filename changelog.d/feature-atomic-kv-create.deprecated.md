@@ -1,0 +1,1 @@
+- A key-value store behind the HashiCorp adapter that implements only `KvStoreInterface` is deprecated. The adapter keeps working with it (read, then write, which leaves a window for a key created in between) and triggers an `E_USER_DEPRECATED` once per process. Implement `AtomicKvStoreInterface`; version 2.0 will require it.

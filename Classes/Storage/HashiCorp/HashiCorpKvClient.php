@@ -22,7 +22,7 @@ use function is_array;
  * expired between two calls in a long-running process. Under the plain token
  * method a 403 is final: there is no other token to try.
  */
-final readonly class HashiCorpKvClient implements KvStoreInterface
+final readonly class HashiCorpKvClient implements AtomicKvStoreInterface
 {
     public function __construct(
         private ExtensionConfigurationInterface $configuration,
@@ -57,6 +57,20 @@ final readonly class HashiCorpKvClient implements KvStoreInterface
         $result = $this->send('POST', $url, ['data' => $data], 'write');
 
         $this->assertSuccess($result['status'], 'write');
+    }
+
+    public function create(string $identifier, array $data): void
+    {
+        $url    = $this->endpoint()->dataUrl($identifier);
+        $result = $this->send('POST', $url, ['options' => ['cas' => 0], 'data' => $data], 'create');
+
+        // Vault answers a check-and-set mismatch with 400. Only a key that is
+        // there explains it; any other 400 is an ordinary rejection.
+        if ($result['status'] === 400 && $this->read($identifier) !== null) {
+            throw HashiCorpException::keyExists($identifier);
+        }
+
+        $this->assertSuccess($result['status'], 'create');
     }
 
     public function destroy(string $identifier): void
