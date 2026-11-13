@@ -249,9 +249,8 @@ final class VaultDevServer
             ->withWait((new WaitForHttp(8200))->withPath('/v1/sys/health'))
             ->start();
 
-        $host = $vault->getHost();
-        // Dev-mode Vault on a loopback port, started and destroyed by this test. NOSONAR
-        $server = new self($vault, $stub, $host, sprintf('http://%s:%d', $host, $vault->getMappedPort(8200)));
+        $host   = $vault->getHost();
+        $server = new self($vault, $stub, $host, sprintf('http://%s:%d', $host, $vault->getMappedPort(8200))); // NOSONAR: test fixture without TLS by design
         $server->provision($stub->getIpAddress('bridge'));
 
         return $server;
@@ -270,8 +269,7 @@ final class VaultDevServer
 
         $this->expectOk($this->admin('POST', '/v1/sys/auth/kubernetes', ['type' => 'kubernetes']));
         $this->expectOk($this->admin('POST', '/v1/auth/kubernetes/config', [
-            // Stub on the container bridge network, no TLS by design. NOSONAR
-            'kubernetes_host'        => sprintf('http://%s:8080', $reviewStubIp),
+            'kubernetes_host'        => sprintf('http://%s:8080', $reviewStubIp), // NOSONAR: test fixture without TLS by design
             'token_reviewer_jwt'     => 'reviewer',
             'disable_iss_validation' => true,
             'disable_local_ca_jwt'   => true,
