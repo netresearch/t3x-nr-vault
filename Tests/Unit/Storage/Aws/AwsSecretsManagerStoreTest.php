@@ -203,52 +203,114 @@ final class AwsSecretsManagerStoreTest extends TestCase
     }
 
     #[Test]
-    public function createIfAbsentCreatesAndReturnsNull(): void
+    public function createCreatesTheSecretAndReturnsItsVersionId(): void
     {
-        $store = $this->store(self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v1']));
+        $store = $this->store(self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-created']));
 
-        self::assertNull($store->createIfAbsent('api_key', ['k' => 'v']));
+        self::assertSame('v-created', $store->create('api_key', ['k' => 'v']));
 
         self::assertCount(1, $this->requests);
         self::assertSame('secretsmanager.CreateSecret', $this->requests[0]->getHeaderLine('X-Amz-Target'));
     }
 
     #[Test]
-    public function createIfAbsentReturnsTheFieldsOfAnExistingSecretAndWritesNothing(): void
+    public function createRefusesAnExistingNameWithoutWritingAnything(): void
     {
-        $store = $this->store(
-            self::awsError(400, 'ResourceExistsException'),
-            self::json(200, ['Name' => 'typo3/api_key', 'SecretString' => '{"theirs":"1"}']),
-        );
+        $store = $this->store(self::awsError(400, 'ResourceExistsException'));
 
-        self::assertSame(['theirs' => '1'], $store->createIfAbsent('api_key', ['k' => 'v']));
+        try {
+            $store->create('api_key', ['k' => 'v']);
+            self::fail('An existing name must be refused.');
+        } catch (AwsSecretsManagerException $e) {
+            self::assertSame(1794500012, $e->getCode());
+        }
 
-        self::assertSame(
-            ['CreateSecret', 'GetSecretValue'],
-            array_map(static fn (RequestInterface $request): string => substr($request->getHeaderLine('X-Amz-Target'), strlen('secretsmanager.')), $this->requests),
-        );
+        self::assertCount(1, $this->requests);
     }
 
     #[Test]
-    public function createIfAbsentTreatsAnExistingValueThatIsNotJsonAsSomebodyElses(): void
-    {
-        $store = $this->store(
-            self::awsError(400, 'ResourceExistsException'),
-            self::json(200, ['Name' => 'typo3/api_key', 'SecretString' => 'plain-password']),
-        );
-
-        self::assertSame([], $store->createIfAbsent('api_key', ['k' => 'v']));
-    }
-
-    #[Test]
-    public function createIfAbsentReportsAnotherRejection(): void
+    public function createReportsAnotherRejection(): void
     {
         $store = $this->store(self::awsError(400, 'AccessDeniedException'));
 
         $this->expectException(AwsSecretsManagerException::class);
         $this->expectExceptionCode(1794500006);
 
-        $store->createIfAbsent('api_key', ['k' => 'v']);
+        $store->create('api_key', ['k' => 'v']);
+    }
+
+    #[Test]
+    public function writeReturnsTheVersionIdItCreated(): void
+    {
+        $store = $this->store(
+            self::awsError(400, 'ResourceNotFoundException'),
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-first']),
+        );
+
+        self::assertSame('v-first', $store->write('api_key', ['k' => 'v']));
+    }
+
+    #[Test]
+    public function aResponseWithoutAVersionIdIsRefused(): void
+    {
+        $store = $this->store(self::json(200, ['Name' => 'typo3/api_key']));
+
+        $this->expectException(AwsSecretsManagerException::class);
+        $this->expectExceptionCode(1794500008);
+
+        $store->write('api_key', ['k' => 'v']);
+    }
+
+    #[Test]
+    public function restoreIfCurrentPutsTheFieldsBackOnlyWhileTheCurrentVersionIsTheGivenOne(): void
+    {
+        $store = $this->store(
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-ours', 'SecretString' => '{"x":"theirs-or-ours"}']),
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-restored']),
+        );
+
+        self::assertTrue($store->restoreIfCurrent('api_key', ['k' => 'previous'], 'v-ours'));
+
+        self::assertSame(
+            ['GetSecretValue', 'PutSecretValue'],
+            array_map(static fn (RequestInterface $request): string => substr($request->getHeaderLine('X-Amz-Target'), strlen('secretsmanager.')), $this->requests),
+        );
+        self::assertSame('{"k":"previous"}', $this->bodyOf(1)['SecretString']);
+    }
+
+    #[Test]
+    public function restoreIfCurrentChangesNothingWhenSomebodyWroteSince(): void
+    {
+        $store = $this->store(self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-theirs', 'SecretString' => '{}']));
+
+        self::assertFalse($store->restoreIfCurrent('api_key', ['k' => 'previous'], 'v-ours'));
+        self::assertCount(1, $this->requests, 'nothing was written');
+    }
+
+    #[Test]
+    public function destroyIfCurrentDeletesOnlyWhileTheCurrentVersionIsTheGivenOne(): void
+    {
+        $store = $this->store(
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-theirs', 'SecretString' => '{}']),
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-ours', 'SecretString' => '{}']),
+            self::json(200, ['Name' => 'typo3/api_key', 'DeletionDate' => 1_700_000_000]),
+        );
+
+        self::assertFalse($store->destroyIfCurrent('api_key', 'v-ours'));
+        self::assertTrue($store->destroyIfCurrent('api_key', 'v-ours'));
+
+        self::assertSame(
+            ['GetSecretValue', 'GetSecretValue', 'DeleteSecret'],
+            array_map(static fn (RequestInterface $request): string => substr($request->getHeaderLine('X-Amz-Target'), strlen('secretsmanager.')), $this->requests),
+        );
+    }
+
+    #[Test]
+    public function destroyIfCurrentOfAMissingSecretIsFalse(): void
+    {
+        $store = $this->store(self::awsError(400, 'ResourceNotFoundException'));
+
+        self::assertFalse($store->destroyIfCurrent('api_key', 'v-ours'));
     }
 
     #[Test]

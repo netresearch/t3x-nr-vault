@@ -34,19 +34,16 @@ interface AwsSecretStoreInterface
     public function read(string $identifier): ?array;
 
     /**
-     * Create the secret with the fields, but only when no secret of that name
-     * exists. When one does, nothing is written and its fields are returned
-     * (an empty array when the existing value is not a JSON object), so the
-     * caller can tell an earlier nr-vault write of its own from a secret that
-     * belongs to somebody else.
+     * Create the secret, only when no secret of that name exists (CreateSecret
+     * fails on an existing name, so there is no window).
      *
      * @param array<string, mixed> $data
      *
-     * @return array<string, mixed>|null Null when the secret was created
+     * @return string The version id created
      *
-     * @throws AwsSecretsManagerException
+     * @throws AwsSecretsManagerException With code 1794500012 when the name exists
      */
-    public function createIfAbsent(string $identifier, array $data): ?array;
+    public function create(string $identifier, array $data): string;
 
     /**
      * Store the fields as a new current version, creating the secret when it
@@ -54,9 +51,32 @@ interface AwsSecretStoreInterface
      *
      * @param array<string, mixed> $data
      *
+     * @return string The version id created
+     *
      * @throws AwsSecretsManagerException
      */
-    public function write(string $identifier, array $data): void;
+    public function write(string $identifier, array $data): string;
+
+    /**
+     * Put the fields back as a new version, but only while the current version
+     * is still the given one, to take back a write of this call. The id is read
+     * immediately before the write; AWS has no conditional put, so a write
+     * landing in that gap is not detected.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return bool False when somebody wrote since, or the secret is gone
+     */
+    public function restoreIfCurrent(string $identifier, array $data, string $versionId): bool;
+
+    /**
+     * Delete the secret, but only while the current version is still the given
+     * one, to take back a create of this call. Same gap as
+     * {@see restoreIfCurrent()}.
+     *
+     * @return bool False when somebody wrote since, or the secret is gone
+     */
+    public function destroyIfCurrent(string $identifier, string $versionId): bool;
 
     /**
      * Delete the secret without a recovery window, so no version survives.

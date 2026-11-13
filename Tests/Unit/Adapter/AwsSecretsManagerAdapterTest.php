@@ -46,16 +46,27 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
     private bool $rowAppearsBeforeFailure = false;
 
+    /** @var array<string, int> */
+    private array $versions = [];
+
+    /** @var array<string, mixed>|null */
+    private ?array $concurrentWriterReplacesSecret = null;
+
+    private bool $readKeysSorted = false;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->rows                    = [];
-        $this->aws                     = [];
-        $this->awsCalls                = [];
-        $this->failRowWrite            = false;
-        $this->failRowDelete           = false;
-        $this->rowAppearsBeforeFailure = false;
+        $this->rows                           = [];
+        $this->aws                            = [];
+        $this->awsCalls                       = [];
+        $this->failRowWrite                   = false;
+        $this->failRowDelete                  = false;
+        $this->rowAppearsBeforeFailure        = false;
+        $this->versions                       = [];
+        $this->concurrentWriterReplacesSecret = null;
+        $this->readKeysSorted                 = false;
     }
 
     #[Test]
@@ -508,6 +519,59 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     }
 
     #[Test]
+    public function aRollbackNeverOverwritesAConcurrentWritersVersion(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->failRowWrite                   = true;
+        $this->concurrentWriterReplacesSecret = ['identifier' => 'api_key', 'format' => 1, 'winner' => true];
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame(['identifier' => 'api_key', 'format' => 1, 'winner' => true], $this->awsRead('api_key'));
+    }
+
+    #[Test]
+    public function aRollbackOfACreateNeverDeletesASecretAConcurrentWriterHasWrittenSince(): void
+    {
+        $this->failRowWrite                   = true;
+        $this->concurrentWriterReplacesSecret = ['identifier' => 'api_key', 'format' => 1, 'winner' => true];
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame(['identifier' => 'api_key', 'format' => 1, 'winner' => true], $this->awsRead('api_key'));
+    }
+
+    #[Test]
+    public function aRollbackDoesNotDependOnTheOrderOfTheKeysTheServiceReturns(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $orphan = $this->aws['api_key'];
+        unset($this->rows['api_key']);
+        $this->readKeysSorted = true;
+        $this->failRowWrite   = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'adopted'));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertEquals($orphan, $this->aws['api_key'], 'the adopted secret is put back');
+    }
+
+    #[Test]
     public function aFailedCreateDestroysOnlyTheSecretItCreated(): void
     {
         $this->failRowWrite = true;
@@ -558,40 +622,52 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     public function awsRead(string $identifier): ?array
     {
         $this->awsCalls[] = 'read:' . $identifier;
+        $data             = $this->aws[$identifier] ?? null;
+        if ($data !== null && $this->readKeysSorted) {
+            // The service does not promise to return keys in the order sent.
+            ksort($data);
+        }
 
-        return $this->aws[$identifier] ?? null;
+        return $data;
     }
 
     /**
      * @param array<string, mixed> $data
      */
-    public function awsWrite(string $identifier, array $data): void
+    public function awsWrite(string $identifier, array $data): string
     {
-        $this->awsCalls[]       = 'write:' . $identifier;
-        $this->aws[$identifier] = $data;
+        $this->awsCalls[]            = 'write:' . $identifier;
+        $this->aws[$identifier]      = $data;
+        $this->versions[$identifier] = ($this->versions[$identifier] ?? 0) + 1;
+
+        return $this->awsVersion($identifier);
+    }
+
+    public function awsVersion(string $identifier): string
+    {
+        return 'v' . ($this->versions[$identifier] ?? 0);
     }
 
     /**
      * @param array<string, mixed> $data
-     *
-     * @return array<string, mixed>|null
      */
-    public function awsCreateIfAbsent(string $identifier, array $data): ?array
+    public function awsCreate(string $identifier, array $data): string
     {
         $this->awsCalls[] = 'create:' . $identifier;
         if (array_key_exists($identifier, $this->aws)) {
-            return $this->aws[$identifier];
+            throw AwsSecretsManagerException::nameExists($identifier);
         }
 
-        $this->aws[$identifier] = $data;
+        $this->aws[$identifier]      = $data;
+        $this->versions[$identifier] = 1;
 
-        return null;
+        return 'v1';
     }
 
     public function awsDestroy(string $identifier): void
     {
         $this->awsCalls[] = 'destroy:' . $identifier;
-        unset($this->aws[$identifier]);
+        unset($this->aws[$identifier], $this->versions[$identifier]);
     }
 
     private function envelopeSecret(string $identifier, string $value = self::BINARY_VALUE): Secret
@@ -628,6 +704,10 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         );
         $repository->method('save')->willReturnCallback(function (Secret $secret): Secret {
             if ($this->failRowWrite) {
+                if ($this->concurrentWriterReplacesSecret !== null) {
+                    $this->awsWrite($secret->getIdentifier(), $this->concurrentWriterReplacesSecret);
+                }
+
                 if ($this->rowAppearsBeforeFailure) {
                     $this->rows[$secret->getIdentifier()] = $secret->withUid(99);
                 }
@@ -668,14 +748,36 @@ final class AwsSecretsManagerAdapterTest extends TestCase
                 return $this->test->awsRead($identifier);
             }
 
-            public function createIfAbsent(string $identifier, array $data): ?array
+            public function create(string $identifier, array $data): string
             {
-                return $this->test->awsCreateIfAbsent($identifier, $data);
+                return $this->test->awsCreate($identifier, $data);
             }
 
-            public function write(string $identifier, array $data): void
+            public function write(string $identifier, array $data): string
             {
+                return $this->test->awsWrite($identifier, $data);
+            }
+
+            public function restoreIfCurrent(string $identifier, array $data, string $versionId): bool
+            {
+                if ($this->test->awsVersion($identifier) !== $versionId) {
+                    return false;
+                }
+
                 $this->test->awsWrite($identifier, $data);
+
+                return true;
+            }
+
+            public function destroyIfCurrent(string $identifier, string $versionId): bool
+            {
+                if ($this->test->awsVersion($identifier) !== $versionId) {
+                    return false;
+                }
+
+                $this->test->awsDestroy($identifier);
+
+                return true;
             }
 
             public function destroy(string $identifier): void

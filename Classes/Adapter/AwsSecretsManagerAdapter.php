@@ -118,13 +118,15 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
         // A row bound to AWS owns its secret. For any other row the name may
         // belong to somebody else: the secret is created, never overwritten,
         // unless it is an earlier write of nr-vault for this very identifier
-        // (an unreferenced one left by a crash). Only a secret this call
-        // created is destroyed again on failure; an adopted one is put back.
+        // (an unreferenced one left by a crash). Every write reports the
+        // version id it created; taking a write back is applied only while the
+        // secret is still at that version, so a concurrent writer is neither
+        // overwritten nor deleted and no payload is compared.
         $previous = $bound ? $this->store->read($identifier) : null;
         if ($previous !== null) {
-            $this->store->write($identifier, $payload);
+            $version = $this->store->write($identifier, $payload);
         } else {
-            $previous = $this->createOrAdopt($identifier, $payload);
+            [$previous, $version] = $this->createOrAdopt($identifier, $payload);
         }
 
         $row = $secret->withExternalStorage(self::IDENTIFIER, $this->store->reference($identifier));
@@ -132,7 +134,7 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
         try {
             return $this->registry->store($row, $persistGroupRelations)->withEnvelope(...$this->envelopeOf($secret));
         } catch (Throwable $e) {
-            $this->undoAwsWrite($identifier, $previous);
+            $this->undoAwsWrite($identifier, $previous, $version);
 
             throw $e;
         }
@@ -213,17 +215,18 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
      * Take back an AWS write after the row could not be written. A first insert
      * removes the secret it created, unless a row for the identifier exists by
      * now: a concurrent create that won the unique key owns it. An update puts
-     * the previous envelope back as a new version.
+     * the previous envelope back as a new version. Both apply only while the
+     * secret is still at the version this call wrote.
      *
      * @param array<string, mixed>|null $previous
      */
-    private function undoAwsWrite(string $identifier, ?array $previous): void
+    private function undoAwsWrite(string $identifier, ?array $previous, string $version): void
     {
         try {
             if ($previous !== null) {
-                $this->store->write($identifier, $previous);
+                $this->store->restoreIfCurrent($identifier, $previous, $version);
             } elseif (!$this->registry->exists($identifier)) {
-                $this->store->destroy($identifier);
+                $this->store->destroyIfCurrent($identifier, $version);
             }
         } catch (Throwable) {
             // The original failure is the one to report.
@@ -245,24 +248,39 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
     /**
      * @param array<string, mixed> $payload
      *
-     * @return array<string, mixed>|null The adopted earlier write, null when the secret was created now
+     * @return array{0: array<string, mixed>|null, 1: string} The adopted earlier write (null when the
+     *                                                        secret was created now) and the version id
+     *                                                        written
      *
      * @throws AwsSecretsManagerException When the name belongs to something else
      */
-    private function createOrAdopt(string $identifier, array $payload): ?array
+    private function createOrAdopt(string $identifier, array $payload): array
     {
-        $existing = $this->store->createIfAbsent($identifier, $payload);
+        try {
+            return [null, $this->store->create($identifier, $payload)];
+        } catch (AwsSecretsManagerException $e) {
+            if ($e->getCode() !== 1794500012) {
+                throw $e;
+            }
+        }
+
+        try {
+            $existing = $this->store->read($identifier);
+        } catch (AwsSecretsManagerException $e) {
+            // Present, but not a JSON object: not ours either.
+            throw $e->getCode() === 1794500008 ? AwsSecretsManagerException::nameTaken($identifier) : $e;
+        }
+
         if ($existing === null) {
-            return null;
+            // Gone again between the refused create and this read.
+            return [null, $this->store->write($identifier, $payload)];
         }
 
         if (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT) {
             throw AwsSecretsManagerException::nameTaken($identifier);
         }
 
-        $this->store->write($identifier, $payload);
-
-        return $existing;
+        return [$existing, $this->store->write($identifier, $payload)];
     }
 
     /**

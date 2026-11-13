@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Storage\Aws;
 
 use Aws\Exception\AwsException;
+use Aws\Result;
 use Aws\SecretsManager\SecretsManagerClient;
 use JsonException;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
@@ -83,59 +84,62 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
         return $decoded;
     }
 
-    public function createIfAbsent(string $identifier, #[SensitiveParameter] array $data): ?array
+    public function create(string $identifier, #[SensitiveParameter] array $data): string
     {
-        $name   = $this->endpoint()->name($identifier);
-        $client = $this->client();
+        $name    = $this->endpoint()->name($identifier);
+        $client  = $this->client();
+        $encoded = $this->encode($data, 'create');
 
         try {
-            $encoded = json_encode($data, JSON_THROW_ON_ERROR);
-        } catch (JsonException) {
-            throw AwsSecretsManagerException::malformedResponse('create', 'payload is not encodable');
-        }
-
-        try {
-            $client->createSecret(['Name' => $name, 'SecretString' => $encoded]);
-
-            return null;
+            $result = $client->createSecret(['Name' => $name, 'SecretString' => $encoded]);
         } catch (Throwable $e) {
-            if (!$e instanceof AwsException || $e->getAwsErrorCode() !== 'ResourceExistsException') {
-                throw $this->translate($e, 'create');
-            }
-        }
-
-        try {
-            return $this->read($identifier) ?? throw AwsSecretsManagerException::requestRejected('create', 400, 'ResourceExistsException');
-        } catch (AwsSecretsManagerException $e) {
-            // Present, but not a JSON object: not ours either.
-            if ($e->getCode() === 1794500008) {
-                return [];
+            if ($e instanceof AwsException && $e->getAwsErrorCode() === 'ResourceExistsException') {
+                throw AwsSecretsManagerException::nameExists($identifier);
             }
 
-            throw $e;
+            throw $this->translate($e, 'create');
         }
+
+        return $this->versionOf($result, 'create');
     }
 
-    public function write(string $identifier, #[SensitiveParameter] array $data): void
+    public function write(string $identifier, #[SensitiveParameter] array $data): string
     {
-        $name   = $this->endpoint()->name($identifier);
-        $client = $this->client();
+        $name    = $this->endpoint()->name($identifier);
+        $client  = $this->client();
+        $encoded = $this->encode($data, 'write');
 
         try {
-            $encoded = json_encode($data, JSON_THROW_ON_ERROR);
-        } catch (JsonException) {
-            throw AwsSecretsManagerException::malformedResponse('write', 'payload is not encodable');
-        }
-
-        try {
-            $this->put($client, $name, $encoded);
+            return $this->put($client, $name, $encoded);
         } catch (Throwable $e) {
             if (!$this->isNotFound($e)) {
                 throw $this->translate($e, 'write');
             }
-
-            $this->createOrPut($client, $name, $encoded);
         }
+
+        return $this->createOrPut($client, $name, $encoded);
+    }
+
+    public function restoreIfCurrent(string $identifier, #[SensitiveParameter] array $data, string $versionId): bool
+    {
+        if ($this->currentVersion($identifier) !== $versionId) {
+            return false;
+        }
+
+        $this->write($identifier, $data);
+
+        return true;
+    }
+
+    public function destroyIfCurrent(string $identifier, string $versionId): bool
+    {
+        if ($this->currentVersion($identifier) !== $versionId) {
+            return false;
+        }
+
+        $this->destroy($identifier);
+
+        return true;
     }
 
     public function destroy(string $identifier): void
@@ -180,26 +184,74 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
      * The secret did not exist for the put. Create it; when a concurrent create
      * won in between, add the version to that secret instead.
      */
-    private function createOrPut(SecretsManagerClient $client, string $name, #[SensitiveParameter] string $encoded): void
+    private function createOrPut(SecretsManagerClient $client, string $name, #[SensitiveParameter] string $encoded): string
     {
         try {
-            $client->createSecret(['Name' => $name, 'SecretString' => $encoded]);
+            return $this->versionOf($client->createSecret(['Name' => $name, 'SecretString' => $encoded]), 'write');
         } catch (Throwable $e) {
             if (!$e instanceof AwsException || $e->getAwsErrorCode() !== 'ResourceExistsException') {
                 throw $this->translate($e, 'write');
             }
+        }
 
-            try {
-                $this->put($client, $name, $encoded);
-            } catch (Throwable $second) {
-                throw $this->translate($second, 'write');
-            }
+        try {
+            return $this->put($client, $name, $encoded);
+        } catch (Throwable $second) {
+            throw $this->translate($second, 'write');
         }
     }
 
-    private function put(SecretsManagerClient $client, string $name, #[SensitiveParameter] string $encoded): void
+    private function put(SecretsManagerClient $client, string $name, #[SensitiveParameter] string $encoded): string
     {
-        $client->putSecretValue(['SecretId' => $name, 'SecretString' => $encoded]);
+        return $this->versionOf($client->putSecretValue(['SecretId' => $name, 'SecretString' => $encoded]), 'write');
+    }
+
+    /**
+     * The version id of AWSCURRENT, or null when the secret does not exist.
+     * GetSecretValue is read so the policy needs no further action. Only the id
+     * is used: nothing about the stored document is compared.
+     */
+    private function currentVersion(string $identifier): ?string
+    {
+        $name   = $this->endpoint()->name($identifier);
+        $client = $this->client();
+
+        try {
+            $result = $client->getSecretValue(['SecretId' => $name]);
+        } catch (Throwable $e) {
+            if ($this->isNotFound($e)) {
+                return null;
+            }
+
+            throw $this->translate($e, 'read');
+        }
+
+        return $this->versionOf($result, 'read');
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function encode(#[SensitiveParameter] array $data, string $operation): string
+    {
+        try {
+            return json_encode($data, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            throw AwsSecretsManagerException::malformedResponse($operation, 'payload is not encodable');
+        }
+    }
+
+    /**
+     * @param Result<string, mixed> $result
+     */
+    private function versionOf(Result $result, string $operation): string
+    {
+        $version = $result['VersionId'] ?? null;
+        if (!is_string($version) || $version === '') {
+            throw AwsSecretsManagerException::malformedResponse($operation, 'response has no VersionId');
+        }
+
+        return $version;
     }
 
     private function isNotFound(Throwable $e): bool

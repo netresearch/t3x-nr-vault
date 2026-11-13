@@ -166,9 +166,18 @@ When it exists, the adapter reads it: only a document that is an nr-vault write
 for this very identifier (format marker and identifier match), an unreferenced
 leftover of an earlier crash, is adopted and overwritten. Anything else is
 refused with code ``1794500011`` and left untouched. Compensation follows the
-same rule: a failed row write or a failed audit write destroys only a secret
-this call created, and puts an adopted one back. An existing AWS-bound row owns
-its secret and is updated as before. The prefix ``typo3/`` stays the default; a
+same rule: a failed row write destroys only a secret this call created, and
+puts an adopted one back. An existing AWS-bound row owns
+its secret and is updated as before.
+
+Taking a write back does not compare payloads. ``CreateSecret`` and
+``PutSecretValue`` return the ``VersionId`` they created, and the rollback (put
+the previous document back, or delete the secret this call created) reads the
+``AWSCURRENT`` version id with ``GetSecretValue`` and applies only if it is still
+the one the write returned. AWS has no conditional put or delete, so the id is
+read immediately before the write or delete and a write that lands in that gap
+is not detected. A failed audit write is compensated by :php:`VaultService`
+through ``delete()``, which removes the secret with the row. The prefix ``typo3/`` stays the default; a
 dedicated prefix keeps the names apart from other users of the account.
 
 A row bound to another external adapter is refused
